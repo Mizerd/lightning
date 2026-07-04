@@ -1,0 +1,32 @@
+build/
+build-*/
+cmake-build-*/
+.cache/
+.vscode/
+.idea/
+CMakeCache.txt
+CMakeFiles/
+CMakeUserPresets.json
+*.autosave
+*.user
+*.qmlproject
+*.pro.user*
+compile_commands.json
+
+# Nix
+result
+result-*
+
+# Rust (only relevant when ENABLE_RUST_SDK_BACKEND=ON)
+rust/target/
+target/
+
+# Local runtime/cache data — must never be committed
+matrix-client-cache/
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+sessions.json
+session.json
+tokens.json

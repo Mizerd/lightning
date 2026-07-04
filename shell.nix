@@ -17,12 +17,15 @@ pkgs.mkShell {
     qt.wrapQtAppsHook
   ];
 
-  buildInputs = [
+  # QuickControls2 lives inside qtdeclarative in current nixpkgs — no
+  # separate qtquickcontrols2 attribute is available.
+  buildInputs = with pkgs; [
     qt.qtbase
     qt.qtdeclarative
-    qt.qtquickcontrols2
     qt.qtsvg
     qt.qtwayland
+    libsecret
+    glib
   ];
 
   shellHook = ''
