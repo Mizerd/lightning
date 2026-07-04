@@ -147,6 +147,34 @@ Item {
                             color: model.isOwn ? Qt.rgba(1, 1, 1, 0.75) : AppTheme.textMuted
                             font.pixelSize: 10
                         }
+                        // v0.4.1: thread indicator on the root event.
+                        Label {
+                            visible: model.isThreadRoot === true
+                            text: qsTr("· %n reply(s) in thread", "",
+                                       model.threadReplyCount || 0)
+                            color: model.isOwn ? Qt.rgba(1, 1, 1, 0.75) : AppTheme.accent
+                            font.pixelSize: 10
+                            font.underline: true
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: {
+                                    var previewText = model.body || ""
+                                    app.composer.beginThreadReply(
+                                        root.eventIdForActions(),
+                                        previewText.substring(0, 80))
+                                }
+                            }
+                        }
+                        // v0.4.1: reply-in-thread mark on non-root thread events.
+                        Label {
+                            visible: (model.threadRootId || "").length > 0
+                                     && !(model.isThreadRoot === true)
+                            text: qsTr("· in thread")
+                            color: model.isOwn ? Qt.rgba(1, 1, 1, 0.75) : AppTheme.textMuted
+                            font.pixelSize: 10
+                            font.italic: true
+                        }
                     }
                 }
             }
@@ -222,6 +250,23 @@ Item {
                                     // Simple: no clipboard access in QML by default; skip.
                                 }
                                 visible: false
+                            }
+                            MenuItem {
+                                text: qsTr("Reply in thread")
+                                enabled: !model.redacted
+                                onTriggered: {
+                                    var previewText = model.body
+                                    if (model.isImage) previewText = qsTr("Image: %1").arg(model.mediaFilename || "")
+                                    else if (model.isFile) previewText = qsTr("File: %1").arg(model.mediaFilename || "")
+                                    // Threads are rooted at the root event id.
+                                    // If this event is itself a thread reply, use its
+                                    // root; otherwise use this event id as the root.
+                                    var rootId = (model.threadRootId || "").length > 0
+                                                     ? model.threadRootId
+                                                     : root.eventIdForActions()
+                                    app.composer.beginThreadReply(rootId,
+                                                                  (previewText || "").substring(0, 80))
+                                }
                             }
                             MenuItem {
                                 text: qsTr("Edit")

@@ -8,6 +8,7 @@
 #include <QVariantMap>
 
 class MatrixClient;
+class SpaceManager;
 
 class RoomListModel : public QAbstractListModel
 {
@@ -22,11 +23,18 @@ public:
         LastActivityRole,
         UnreadCountRole,
         EncryptedRole,
+        IsSpaceRole,
     };
 
     explicit RoomListModel(QObject *parent = nullptr);
 
     void setClient(MatrixClient *client);
+
+    // Optional Space filter. When bound, only rooms belonging to
+    // SpaceManager::activeSpaceId() are shown. Space rooms themselves are
+    // always filtered out (they render in the Space chip row, not the
+    // room list).
+    void setSpaceManager(SpaceManager *spaces);
 
     int rowCount(const QModelIndex &parent = {}) const override;
     QVariant data(const QModelIndex &index, int role) const override;
@@ -42,6 +50,9 @@ private Q_SLOTS:
     void refreshRoom(const QString &roomId);
 
 private:
+    bool passesFilter(const RoomInfo &r) const;
+
     MatrixClient *m_client = nullptr;
-    QList<RoomInfo> m_rooms;
+    SpaceManager *m_spaces = nullptr;
+    QList<RoomInfo> m_rooms; // Filtered subset actually shown.
 };

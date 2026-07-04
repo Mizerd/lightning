@@ -136,6 +136,21 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
     case IsImageRole:            return e.type == TimelineEvent::Image;
     case IsFileRole:             return e.type == TimelineEvent::File;
     case ReactionsRole:          return reactionsVariant(e);
+    case ThreadRootIdRole:       return e.threadRootId;
+    case IsThreadRootRole: {
+        // Scan the loaded timeline for any reply that names this event.
+        for (const auto &other : m_events) {
+            if (other.threadRootId == e.eventId) return true;
+        }
+        return false;
+    }
+    case ThreadReplyCountRole: {
+        int c = 0;
+        for (const auto &other : m_events) {
+            if (other.threadRootId == e.eventId) ++c;
+        }
+        return c;
+    }
     default:                     return {};
     }
 }
@@ -167,6 +182,9 @@ QHash<int, QByteArray> TimelineModel::roleNames() const
         { IsImageRole,             "isImage" },
         { IsFileRole,              "isFile" },
         { ReactionsRole,           "reactions" },
+        { ThreadRootIdRole,        "threadRootId" },
+        { IsThreadRootRole,        "isThreadRoot" },
+        { ThreadReplyCountRole,    "threadReplyCount" },
     };
 }
 

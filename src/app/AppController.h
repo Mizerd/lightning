@@ -8,6 +8,8 @@
 #include "models/MessageComposer.h"
 #include "models/RoomListModel.h"
 #include "models/TimelineModel.h"
+#include "spaces/SpaceManager.h"
+#include "threads/ThreadManager.h"
 
 #include <QObject>
 #include <QString>
@@ -15,8 +17,6 @@
 
 class MatrixClient;
 class NotificationManager;
-class SpaceManager;
-class ThreadManager;
 class SecretStore;
 
 class AppController : public QObject
@@ -38,6 +38,8 @@ class AppController : public QObject
     Q_PROPERTY(MessageComposer* composer READ composer CONSTANT)
     Q_PROPERTY(MediaManager* media READ media CONSTANT)
     Q_PROPERTY(CryptoManager* crypto READ crypto CONSTANT)
+    Q_PROPERTY(SpaceManager* spaces READ spaces CONSTANT)
+    Q_PROPERTY(ThreadManager* threads READ threads CONSTANT)
 
 public:
     enum Screen {
@@ -77,6 +79,8 @@ public:
     MessageComposer *composer() const;
     MediaManager *media() const;
     CryptoManager *crypto() const;
+    SpaceManager *spaces() const;
+    ThreadManager *threads() const;
     SecretStore *secretStore() const { return m_secretStore.get(); }
 
 public Q_SLOTS:

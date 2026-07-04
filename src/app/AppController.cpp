@@ -87,7 +87,10 @@ AppController::AppController(Backend backend, QObject *parent)
 
     m_crypto->setBackendName(backendName());
 
+    m_spaces->setClient(m_client.get());
+    m_threads->setClient(m_client.get());
     m_roomList->setClient(m_client.get());
+    m_roomList->setSpaceManager(m_spaces.get());
     m_timeline->setClient(m_client.get());
     m_composer->setClient(m_client.get());
     m_media->setClient(m_client.get());
@@ -152,6 +155,8 @@ TimelineModel *AppController::timeline() const { return m_timeline.get(); }
 MessageComposer *AppController::composer() const { return m_composer.get(); }
 MediaManager *AppController::media() const { return m_media.get(); }
 CryptoManager *AppController::crypto() const { return m_crypto.get(); }
+SpaceManager *AppController::spaces() const { return m_spaces.get(); }
+ThreadManager *AppController::threads() const { return m_threads.get(); }
 
 void AppController::setCurrentRoomId(const QString &roomId)
 {

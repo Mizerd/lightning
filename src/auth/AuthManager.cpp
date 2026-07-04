@@ -60,6 +60,27 @@ void AuthManager::restoreSession()
     }
 }
 
+void AuthManager::beginSsoLogin(const QString &homeserver)
+{
+    Q_UNUSED(homeserver);
+    // v0.4.1 placeholder. The real flow will:
+    //   1. GET /_matrix/client/v3/login → find m.login.sso.
+    //   2. Redirect to /login/sso/redirect?redirectUrl=<local URL> via
+    //      QDesktopServices::openUrl (system browser) — no QtWebEngine.
+    //   3. Listen on a local loopback for the loginToken callback.
+    //   4. POST /login with type=m.login.token to obtain access_token.
+    // See docs/next-prompts.md for the exact task write-up.
+    setLastError(tr("SSO login is not implemented in v0.4.1. See docs/next-prompts.md."));
+    Q_EMIT loginFailed(m_lastError);
+}
+
+void AuthManager::beginOidcLogin(const QString &homeserver)
+{
+    Q_UNUSED(homeserver);
+    setLastError(tr("OIDC / Matrix Authentication Service login is not implemented in v0.4.1. See docs/next-prompts.md."));
+    Q_EMIT loginFailed(m_lastError);
+}
+
 void AuthManager::setLoggingIn(bool v)
 {
     if (m_loggingIn == v)

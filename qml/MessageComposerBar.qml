@@ -39,10 +39,10 @@ Rectangle {
         anchors.margins: AppTheme.spacingXS
         spacing: 2
 
-        // Reply / Edit banner
+        // Reply / Edit / Thread banner
         Rectangle {
             id: contextBar
-            visible: app.composer.isReplying || app.composer.isEditing
+            visible: app.composer.isReplying || app.composer.isEditing || app.composer.inThread
             Layout.fillWidth: true
             implicitHeight: contextRow.implicitHeight + 6
             color: Qt.rgba(0, 0, 0, 0.06)
@@ -53,11 +53,15 @@ Rectangle {
                 anchors.margins: 4
                 spacing: 6
                 Label {
-                    text: app.composer.isEditing
-                          ? qsTr("Editing message")
-                          : qsTr("Replying to %1: %2")
-                                .arg(app.composer.replyingToSender || qsTr("someone"))
-                                .arg(app.composer.replyingToPreview || "")
+                    text: {
+                        if (app.composer.isEditing)
+                            return qsTr("Editing message")
+                        if (app.composer.inThread)
+                            return qsTr("Replying in thread: %1").arg(app.composer.threadPreview || "")
+                        return qsTr("Replying to %1: %2")
+                                    .arg(app.composer.replyingToSender || qsTr("someone"))
+                                    .arg(app.composer.replyingToPreview || "")
+                    }
                     color: AppTheme.textMuted
                     font.pixelSize: 11
                     elide: Label.ElideRight

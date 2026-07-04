@@ -199,6 +199,29 @@ void MockMatrixClient::sendReply(const QString &roomId,
     ackAfter(150, roomId, ev.eventId);
 }
 
+void MockMatrixClient::sendThreadReply(const QString &roomId,
+                                        const QString &threadRootEventId,
+                                        const QString &body)
+{
+    if (!m_timelines.contains(roomId)) {
+        Q_EMIT errorOccurred(tr("Unknown room: %1").arg(roomId));
+        return;
+    }
+    TimelineEvent ev;
+    ev.eventId           = nextEventId();
+    ev.roomId            = roomId;
+    ev.sender            = m_userId;
+    ev.senderDisplayName = QStringLiteral("You");
+    ev.body              = body;
+    ev.timestamp         = QDateTime::currentDateTimeUtc();
+    ev.type              = TimelineEvent::TextMessage;
+    ev.status            = TimelineEvent::Sending;
+    ev.threadRootId      = threadRootEventId;
+    m_timelines[roomId].append(ev);
+    Q_EMIT eventAppended(roomId, ev);
+    ackAfter(150, roomId, ev.eventId);
+}
+
 void MockMatrixClient::editMessage(const QString &roomId,
                                     const QString &targetEventId,
                                     const QString &newBody)
@@ -450,7 +473,19 @@ void MockMatrixClient::seedMockData()
                       member(QStringLiteral("@bob:mock.local"),
                              QStringLiteral("Bob")));
 
-    m_rooms = { general, devs, dm };
+    // v0.4.1: one Space grouping general + devs. `dm` stays outside any
+    // Space so QML can also render an "Other rooms" row.
+    RoomInfo team;
+    team.id                 = QStringLiteral("!space-team:mock.local");
+    team.name               = QStringLiteral("Team");
+    team.topic              = QStringLiteral("Mock Space containing General and Developers");
+    team.isSpace            = true;
+    team.childRoomIds       = { general.id, devs.id };
+    team.lastActivity       = now.addSecs(-60);
+    general.spaceId         = team.id;
+    devs.spaceId            = team.id;
+
+    m_rooms = { team, general, devs, dm };
     m_paginationRemaining[general.id] = 2;
     m_paginationRemaining[devs.id]    = 1;
     m_paginationRemaining[dm.id]      = 0;
@@ -511,11 +546,21 @@ void MockMatrixClient::seedMockData()
     Reaction rx1; rx1.key = QStringLiteral("👍"); rx1.count = 2;
     Reaction rx2; rx2.key = QStringLiteral("❤️"); rx2.count = 1;
     ev2.reactions = { rx1, rx2 };
+    // A thread root + two mock replies inside the thread.
+    auto evThreadRoot = makeEvent(general.id, QStringLiteral("@carol:mock.local"), "Carol",
+                                  QStringLiteral("Anyone up for a mock deploy tomorrow?"), 220);
+    auto evThreadReply1 = makeEvent(general.id, QStringLiteral("@alice:mock.local"), "Alice",
+                                    QStringLiteral("Sure, morning works."), 190);
+    evThreadReply1.threadRootId = evThreadRoot.eventId;
+    auto evThreadReply2 = makeEvent(general.id, QStringLiteral("@bob:mock.local"), "Bob",
+                                    QStringLiteral("I'll take the afternoon slot."), 160);
+    evThreadReply2.threadRootId = evThreadRoot.eventId;
     // Latest message
     auto ev9 = makeEvent(general.id, QStringLiteral("@alice:mock.local"), "Alice",
                          QStringLiteral("Type something below and press Send."), 60);
 
-    m_timelines[general.id] = { ev1, ev2, ev3, ev4, ev5, ev6, ev7, ev8, ev9 };
+    m_timelines[general.id] = { ev1, ev2, ev3, ev4, ev5, ev6, ev7, ev8,
+                                evThreadRoot, evThreadReply1, evThreadReply2, ev9 };
 
     m_timelines[devs.id] = {
         makeEvent(devs.id, QStringLiteral("@dave:mock.local"), "Dave",

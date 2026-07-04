@@ -65,6 +65,18 @@ public:
     virtual void sendReply(const QString &roomId,
                            const QString &replyToEventId,
                            const QString &body) = 0;
+
+    // v0.4.1: reply into a thread rooted at `threadRootEventId`. Default
+    // falls back to sendReply — the HTTP backend still delivers the message
+    // and it's marked as an in-reply-to on the server. Concrete backends
+    // (Mock; later CppHttp v0.5) may override to attach an `m.thread`
+    // relation so ThreadManager sees a proper thread grouping.
+    virtual void sendThreadReply(const QString &roomId,
+                                 const QString &threadRootEventId,
+                                 const QString &body)
+    {
+        sendReply(roomId, threadRootEventId, body);
+    }
     virtual void editMessage(const QString &roomId,
                              const QString &targetEventId,
                              const QString &newBody) = 0;

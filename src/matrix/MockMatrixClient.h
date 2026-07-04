@@ -43,6 +43,9 @@ public:
     void sendReply(const QString &roomId,
                    const QString &replyToEventId,
                    const QString &body) override;
+    void sendThreadReply(const QString &roomId,
+                         const QString &threadRootEventId,
+                         const QString &body) override;
     void editMessage(const QString &roomId,
                      const QString &targetEventId,
                      const QString &newBody) override;

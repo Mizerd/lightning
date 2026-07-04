@@ -58,6 +58,10 @@ void MessageComposer::send()
     const QString body = m_text.trimmed();
     if (!m_editingEventId.isEmpty()) {
         m_client->editMessage(m_roomId, m_editingEventId, body);
+    } else if (!m_threadRootId.isEmpty()) {
+        // v0.4.1: thread replies. Mock preserves thread grouping; HTTP
+        // currently falls back to sendReply via the interface default.
+        m_client->sendThreadReply(m_roomId, m_threadRootId, body);
     } else if (!m_replyingToEventId.isEmpty()) {
         m_client->sendReply(m_roomId, m_replyingToEventId, body);
     } else {
@@ -96,6 +100,9 @@ void MessageComposer::beginEdit(const QString &eventId,
     m_replyingToSender.clear();
     m_replyingToPreview.clear();
     Q_EMIT replyStateChanged();
+    m_threadRootId.clear();
+    m_threadPreview.clear();
+    Q_EMIT threadStateChanged();
     m_editingEventId = eventId;
     m_text = currentBody;
     Q_EMIT editStateChanged();
@@ -103,14 +110,31 @@ void MessageComposer::beginEdit(const QString &eventId,
     updateCanSend();
 }
 
+void MessageComposer::beginThreadReply(const QString &rootEventId,
+                                        const QString &preview)
+{
+    m_editingEventId.clear();
+    Q_EMIT editStateChanged();
+    m_replyingToEventId.clear();
+    m_replyingToSender.clear();
+    m_replyingToPreview.clear();
+    Q_EMIT replyStateChanged();
+    m_threadRootId  = rootEventId;
+    m_threadPreview = preview;
+    Q_EMIT threadStateChanged();
+}
+
 void MessageComposer::cancelReplyOrEdit()
 {
     const bool wasReplying = !m_replyingToEventId.isEmpty();
     const bool wasEditing  = !m_editingEventId.isEmpty();
+    const bool wasInThread = !m_threadRootId.isEmpty();
     m_replyingToEventId.clear();
     m_replyingToSender.clear();
     m_replyingToPreview.clear();
     m_editingEventId.clear();
+    m_threadRootId.clear();
+    m_threadPreview.clear();
     if (wasEditing) {
         m_text.clear();
         Q_EMIT textChanged();
@@ -118,6 +142,7 @@ void MessageComposer::cancelReplyOrEdit()
     }
     if (wasReplying) Q_EMIT replyStateChanged();
     if (wasEditing)  Q_EMIT editStateChanged();
+    if (wasInThread) Q_EMIT threadStateChanged();
 }
 
 void MessageComposer::reactTo(const QString &targetEventId, const QString &key)

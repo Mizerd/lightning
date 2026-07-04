@@ -36,4 +36,10 @@ struct RoomInfo {
     // v0.3: users currently typing, sourced from the ephemeral m.typing
     // event in /sync.
     QStringList typingUserIds;
+
+    // v0.4.1: rooms that this room contains as a Space. Only populated when
+    // isSpace == true. Sourced from m.space.child state events (HTTP) or
+    // hardcoded (Mock). Rooms may appear in multiple spaces (Matrix allows
+    // it) — RoomInfo::spaceId stays as a "primary parent" hint.
+    QStringList childRoomIds;
 };

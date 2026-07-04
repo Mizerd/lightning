@@ -45,6 +45,10 @@ public:
         IsImageRole,
         IsFileRole,
         ReactionsRole,
+        // v0.4.1
+        ThreadRootIdRole,        // Non-empty on thread replies.
+        IsThreadRootRole,        // True if any event in this room has this as root.
+        ThreadReplyCountRole,    // Number of visible replies for a thread root.
     };
 
     explicit TimelineModel(QObject *parent = nullptr);

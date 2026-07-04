@@ -19,6 +19,9 @@ class MessageComposer : public QObject
     Q_PROPERTY(QString editingEventId READ editingEventId NOTIFY editStateChanged)
     Q_PROPERTY(bool isReplying READ isReplying NOTIFY replyStateChanged)
     Q_PROPERTY(bool isEditing READ isEditing NOTIFY editStateChanged)
+    Q_PROPERTY(QString threadRootId READ threadRootId NOTIFY threadStateChanged)
+    Q_PROPERTY(QString threadPreview READ threadPreview NOTIFY threadStateChanged)
+    Q_PROPERTY(bool inThread READ inThread NOTIFY threadStateChanged)
 
 public:
     explicit MessageComposer(QObject *parent = nullptr);
@@ -35,8 +38,11 @@ public:
     QString replyingToSender()  const { return m_replyingToSender; }
     QString replyingToPreview() const { return m_replyingToPreview; }
     QString editingEventId()    const { return m_editingEventId; }
+    QString threadRootId()      const { return m_threadRootId; }
+    QString threadPreview()     const { return m_threadPreview; }
     bool isReplying() const { return !m_replyingToEventId.isEmpty(); }
     bool isEditing()  const { return !m_editingEventId.isEmpty(); }
+    bool inThread()   const { return !m_threadRootId.isEmpty(); }
 
     bool canSend() const;
 
@@ -47,6 +53,11 @@ public:
                                 const QString &preview);
     Q_INVOKABLE void beginEdit(const QString &eventId,
                                const QString &currentBody);
+    // v0.4.1: enter thread-reply mode. `preview` is a short body preview of
+    // the thread root, used to render the composer chip. Cleared by
+    // cancelReplyOrEdit() or by the next successful send().
+    Q_INVOKABLE void beginThreadReply(const QString &rootEventId,
+                                      const QString &preview);
     Q_INVOKABLE void cancelReplyOrEdit();
     Q_INVOKABLE void reactTo(const QString &targetEventId, const QString &key);
     Q_INVOKABLE void redact(const QString &eventId);
@@ -59,6 +70,7 @@ Q_SIGNALS:
     void canSendChanged();
     void replyStateChanged();
     void editStateChanged();
+    void threadStateChanged();
 
 private:
     void updateCanSend();
@@ -72,6 +84,8 @@ private:
     QString m_replyingToSender;
     QString m_replyingToPreview;
     QString m_editingEventId;
+    QString m_threadRootId;
+    QString m_threadPreview;
     bool    m_canSend = false;
     bool    m_typingActive = false;
     QTimer  m_typingRefresh;
