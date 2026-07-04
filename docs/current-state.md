@@ -1,6 +1,6 @@
-# Current state (v0.4.1)
+# Current state (v0.4.2)
 
-Last updated: 2026-07-05.
+Last updated: 2026-07-05 (v0.4.2 pass).
 
 This is the "where the repo actually is" doc. Treat it as ground truth
 for a fresh LLM continuation session — read this before
@@ -16,7 +16,8 @@ code.
   - `c522f5d` Codex setup
   - `4310913` Fix Nix dev shell: drop stale qtquickcontrols2 attr, add .gitignore
   - `d251948` v0.4: SecretStore + backend CLI cleanup + Rust SDK backend scaffold
-  - HEAD after this pass: `v0.4.1: Spaces, Threads, SSO/OIDC capability flags, docs`
+  - `13adf73` v0.4.1: Spaces + Threads foundations, SSO/OIDC flags, continuation docs
+  - HEAD after this pass: `v0.4.2: HTTP Spaces parsing + no-display preflight hardening`
 
 ## Layered architecture (unchanged from v0.4)
 
@@ -46,7 +47,11 @@ Crypto:      src/crypto/CryptoManager (capability surface only, no crypto)
 
 - **Backend selection**: `--backend={mock,http,rust}` plus legacy `--mock`.
   Pre-flight validation runs *before* `QGuiApplication` so bad args exit
-  cleanly with exit code 2 even without a display.
+  cleanly with exit code 2 even without a display. **v0.4.2**: a second
+  preflight check refuses to construct `QGuiApplication` when neither
+  `DISPLAY` nor `WAYLAND_DISPLAY` is set and `QT_QPA_PLATFORM` is not
+  forced — exits 3 with a clear message instead of Qt's `qFatal`
+  abort() (that is what caused the reported v0.4.0 coredump).
 - **Mock backend** (`--backend=mock`): hardcoded rooms, one Space
   containing two rooms, one standalone room, one threaded conversation,
   synthetic reactions/edits/redactions/media/pagination.
@@ -70,14 +75,22 @@ Crypto:      src/crypto/CryptoManager (capability surface only, no crypto)
   Rooms + last 200 events per room + members. Access tokens are **not**
   cached here. `SettingsManager::clearSession()` wipes both the
   QSettings session metadata and the SecretStore entry for that user.
-- **Spaces (v0.4.1)**: `SpaceManager` is a `QAbstractListModel` bound
-  to the active `MatrixClient`. Row 0 is a synthetic "All rooms"; if
-  any Space has children, an "Other rooms" row follows; then real
+- **Spaces (v0.4.1 + v0.4.2)**: `SpaceManager` is a `QAbstractListModel`
+  bound to the active `MatrixClient`. Row 0 is a synthetic "All rooms";
+  if any Space has children, an "Other rooms" row follows; then real
   Spaces. QML `RoomListPane` renders a chip strip when at least one
   real Space exists. `RoomListModel` applies the active-space filter.
-  **Mock backend seeds one Space; HTTP backend does not yet parse
-  `m.space.child` from `/sync` — see `docs/matrix-feature-status.md`
-  for the exact next step.**
+  **v0.4.2**: `CppHttpMatrixClient::processStateEvent` now recognises
+  `m.room.create` (`content.type == "m.space"` → `RoomInfo::isSpace`)
+  and `m.space.child` (state key = child room id, `via[]` non-empty =
+  active edge; empty = unlinked). Both events are handled from the
+  `state.events` bucket AND from timeline state events. The
+  `RoomInfo::spaceId` "primary parent" hint is intentionally not set on
+  children — SpaceManager builds membership strictly from
+  `Space.childRoomIds`, so rooms in multiple Spaces stay consistent.
+  Known limitation: `CacheStore` does not persist `isSpace` /
+  `childRoomIds` yet, so on relaunch the chip strip is hidden until
+  the first `/sync` completes.
 - **Threads (v0.4.1)**: `MessageComposer` gains thread-reply mode via
   `beginThreadReply(rootId, preview)`. `TimelineModel` exposes
   `threadRootId`, `isThreadRoot`, `threadReplyCount` roles. Mock

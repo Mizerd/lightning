@@ -1,4 +1,4 @@
-# Matrix feature status (v0.4.1)
+# Matrix feature status (v0.4.2)
 
 Honest per-feature status per backend. Ground truth for anything the UI
 claims about support. Do not check anything as "done" here that is not
@@ -29,9 +29,10 @@ Legend:
 | Media receive (image/file, legacy `/media/v3/download`) | ✅ | ✅ | ❌ |
 | Authenticated media (`/client/v1/media/*`) | ❌ | ❌ | ❌ |
 | Local SQLite cache | n/a | ✅ | ❌ |
-| **Spaces — recognise `m.room.create type:m.space`** | ✅ seeded | ❌ not parsed from sync | ❌ |
-| **Spaces — `m.space.child` hierarchy** | ✅ seeded | ❌ | ❌ |
-| **Spaces — filter room list by active Space** | ✅ (chip strip) | ✅ if a backend surfaces `RoomInfo.isSpace/childRoomIds` | ❌ |
+| **Spaces — recognise `m.room.create type:m.space`** | ✅ seeded | ✅ (v0.4.2) | ❌ |
+| **Spaces — `m.space.child` hierarchy** | ✅ seeded | ✅ (v0.4.2) | ❌ |
+| **Spaces — filter room list by active Space** | ✅ (chip strip) | ✅ (v0.4.2) | ❌ |
+| **Spaces — persistence across restart (before /sync)** | n/a | 🟡 rooms restore but Space flags do not (see notes) | ❌ |
 | **Threads — detect `m.thread` relation** | ✅ seeded | 🟡 receives replies but does not tag them as thread relations | ❌ |
 | **Threads — compose thread reply** | ✅ (Mock preserves grouping) | 🟡 sent as normal reply (fallback) | ❌ refuses |
 | **Threads — indicator on root** | ✅ | 🟡 only visible after Mock-seeded threads | ❌ |
@@ -61,12 +62,30 @@ Legend:
   delivered as an `m.in_reply_to` — the recipient sees a normal reply,
   not a proper `m.thread` grouping. Full `m.thread` support in HTTP is
   a v0.5 target (see `docs/next-prompts.md`).
-- **HTTP — Spaces from sync**: `CppHttpMatrixClient::parseSyncResponse`
-  does not currently look at `m.room.create` `type` or at
-  `m.space.child` state events. As a result, `RoomInfo.isSpace` and
-  `RoomInfo.childRoomIds` are always empty from HTTP, so the QML chip
-  strip stays hidden. Mock is the reference for what needs to be
-  populated.
+- **HTTP — Spaces from sync (v0.4.2)**:
+  `CppHttpMatrixClient::processStateEvent` handles two additional
+  types:
+  - `m.room.create` sets `RoomInfo.isSpace = (content.type == "m.space")`.
+  - `m.space.child` uses the `state_key` as the child room id, an
+    active edge is a non-empty `content.via` array, an empty content /
+    missing via removes the edge from `RoomInfo.childRoomIds`.
+  These are processed in both `rooms.join[roomId].state.events` and in
+  timeline state events (Matrix delivers Space edges in either
+  bucket). `RoomInfo.spaceId` is intentionally not set on children —
+  SpaceManager builds membership from `Space.childRoomIds`, which
+  handles the multi-parent case correctly.
+- **HTTP — Spaces persistence**: `src/storage/CacheStore.cpp` does not
+  yet serialise `isSpace` / `childRoomIds`. On session restore rooms
+  come back from SQLite without their Space flags, so the chip strip
+  stays hidden until the first `/sync` reply arrives (usually seconds).
+  Extending the schema is the top follow-up if this becomes annoying;
+  see `docs/next-prompts.md`.
+- **HTTP — child rooms you're not joined to**: `SpaceManager::rebuild`
+  skips any child room id that is not present in the current
+  `MatrixClient::rooms()` result (see the `byId.constFind` guard). So
+  if a Space references rooms you haven't joined, they simply do not
+  appear in the filtered list — the app never crashes on a dangling
+  reference.
 - **Everything on Rust**: scaffold refuses. The Rust FFI reports name /
   status / version; login and every send emit `errorOccurred` /
   `loginFailed`.

@@ -72,9 +72,22 @@ nix develop -c bash -lc 'QT_QPA_PLATFORM=offscreen timeout 3 ./build-rust/matrix
 
 Pre-flight validation runs before QGuiApplication in `src/main.cpp`,
 so bad `--backend=` values and unknown flags give the same clean exit-2
-message even without offscreen QPA. Running without offscreen QPA when
-no display is available will abort with exit 134 — that is Qt failing
-to initialise its platform plugin, not our CLI.
+message even without offscreen QPA.
+
+v0.4.2 adds a second preflight: if neither `DISPLAY` nor
+`WAYLAND_DISPLAY` is set and `QT_QPA_PLATFORM` is not forced, the app
+exits **3** with a clear message instead of Qt's platform-plugin
+`qFatal` abort. Test:
+
+```bash
+nix develop -c bash -lc 'env -u DISPLAY -u WAYLAND_DISPLAY ./build/matrix-client --backend=mock'
+# → exit 3
+#   matrix-client: no graphical display available (DISPLAY / WAYLAND_DISPLAY unset).
+#   Run this app inside a graphical session, or export QT_QPA_PLATFORM=offscreen …
+```
+
+Rejection paths (exit 2) always take priority over the display check
+(exit 3), so `--backend=bogus` without a display still exits 2, not 3.
 
 ## Manual test on a real homeserver
 
@@ -102,7 +115,15 @@ nix develop -c ./build/matrix-client        # equivalent to --backend=http
    progress is visible in the status bar; the image renders inline.
 6. **Pagination**. Scroll to the top of the timeline. Older messages
    are loaded via `/messages?dir=b`.
-7. **Logout**. Toolbar → Sign out. Settings entry is cleared; the
+7. **Spaces (v0.4.2)**. If your account is in at least one Space, a
+   chip strip appears above the room list: "All rooms · N", "Other
+   rooms · M" (if any rooms sit outside every Space), and one chip per
+   Space. Click a Space chip → only that Space's joined children are
+   listed. Click "All rooms" to restore. Rooms you're not joined to
+   that a Space references are silently ignored. **Known limitation**:
+   on relaunch the chip strip is briefly hidden until `/sync` completes
+   (the SQLite cache does not yet persist Space fields).
+8. **Logout**. Toolbar → Sign out. Settings entry is cleared; the
    SecretStore entry is deleted (verify by re-launching; you should
    be back at the login screen).
 

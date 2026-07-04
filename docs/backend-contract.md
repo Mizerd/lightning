@@ -95,7 +95,7 @@ method; do not touch `sendReply`.
 | `membersChanged(roomId)` | `displayNameFor` / `avatarMxcFor` might return different data now. |
 | `errorOccurred(message)` | User-facing error. AppController relays to `errorReported` and QML surfaces it in the status bar. |
 
-## Spaces contract (v0.4.1)
+## Spaces contract (v0.4.1 / v0.4.2)
 
 `RoomInfo` carries Space membership:
 
@@ -105,14 +105,30 @@ method; do not touch `sendReply`.
 - `childRoomIds` on a Space lists the room ids it contains (from
   `m.space.child` state events).
 - `spaceId` on a normal room is a *primary parent* hint — Matrix
-  actually allows a room in multiple spaces, but the app treats
+  actually allows a room in multiple Spaces, but the app treats
   `spaceId` as informational only. `SpaceManager` computes membership
   strictly from `childRoomIds`.
 
-The mock backend seeds one Space (`Team`) containing `General` and
-`Developers`. `dm-bob` stays outside, so QML renders an "Other rooms"
-row. HTTP backend does not yet parse these — see
-`docs/next-prompts.md`.
+Concrete backends must populate `isSpace` and `childRoomIds` from
+whatever sync data they see:
+
+- **Mock (v0.4.1)** hardcodes one Space (`Team`) containing `General`
+  and `Developers`; `dm-bob` stays outside.
+- **HTTP (v0.4.2)** parses `m.room.create` (`content.type == "m.space"`)
+  and `m.space.child` (state_key = child room id, `via[]` non-empty =
+  active edge, empty = removed) inside
+  `CppHttpMatrixClient::processStateEvent`. Both events are picked up
+  from `rooms.join[roomId].state.events` **and** from timeline state
+  events — Matrix delivers them in either bucket.
+- **Rust** does not yet talk to a server.
+
+If a backend adds or removes a Space edge later, emit
+`roomUpdated(roomId)` on the Space room; `SpaceManager` rebuilds and
+QML picks up the change automatically.
+
+Robustness: `SpaceManager::rebuild` skips child room ids that are not
+present in `MatrixClient::rooms()`. Backends do not need to filter
+out unjoined children before returning them.
 
 ## What backends do NOT own
 

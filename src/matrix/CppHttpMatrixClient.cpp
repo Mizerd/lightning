@@ -453,6 +453,31 @@ void CppHttpMatrixClient::processStateEvent(RoomInfo &room, const QJsonObject &e
         m.avatarMxcUrl = content.value(QStringLiteral("avatar_url")).toString();
         room.members.insert(stateKey, m);
         if (m_cache) m_cache->saveMember(room.id, m);
+    } else if (type == QLatin1String("m.room.create")) {
+        // v0.4.2: Spaces. A room is a Space when its creation content
+        // declares type == "m.space". This event only fires once per room
+        // so we set the flag idempotently.
+        const QString roomType = content.value(QStringLiteral("type")).toString();
+        room.isSpace = (roomType == QLatin1String("m.space"));
+    } else if (type == QLatin1String("m.space.child")) {
+        // v0.4.2: Space hierarchy edges. The state_key is the child room
+        // id. An active edge carries a non-empty `via` array with servers
+        // that can be used to join. Removing the edge produces a state
+        // event whose content is either empty {} or missing `via`.
+        const QString childRoomId = ev.value(QStringLiteral("state_key")).toString();
+        if (childRoomId.isEmpty()) return;
+        const auto via = content.value(QStringLiteral("via")).toArray();
+        const bool active = !via.isEmpty();
+        if (active) {
+            if (!room.childRoomIds.contains(childRoomId))
+                room.childRoomIds.append(childRoomId);
+        } else {
+            room.childRoomIds.removeAll(childRoomId);
+        }
+        // NB: we intentionally do NOT set `room.spaceId` on the *child*
+        // here — spaceId is a primary-parent hint and SpaceManager builds
+        // membership from Space.childRoomIds, so this stays consistent
+        // even when a child room appears in multiple Spaces.
     }
 }
 
@@ -769,7 +794,10 @@ void CppHttpMatrixClient::processJoinedRooms(const QJsonObject &joined)
                 t == QLatin1String("m.room.avatar") ||
                 t == QLatin1String("m.room.encryption") ||
                 t == QLatin1String("m.room.canonical_alias") ||
-                t == QLatin1String("m.room.member")) {
+                t == QLatin1String("m.room.member") ||
+                // v0.4.2: Spaces state can arrive in either bucket.
+                t == QLatin1String("m.room.create") ||
+                t == QLatin1String("m.space.child")) {
                 processStateEvent(room, e);
             }
         }

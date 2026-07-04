@@ -11,6 +11,8 @@
 #include <QStringList>
 #include <QTextStream>
 
+#include <cstdlib>
+
 namespace {
 
 // Resolve --backend=NAME (case-insensitive). Returns HttpBackend on unknown
@@ -174,6 +176,27 @@ int main(int argc, char *argv[])
     if (pf.action == PreflightResult::ExitError) {
         QTextStream(stderr) << pf.stderrMsg;
         return 2;
+    }
+
+    // Second preflight: refuse to construct QGuiApplication when no display
+    // can be reached. Otherwise Qt calls qFatal → abort() from its platform
+    // plugin initialiser and the process SIGABRTs (this is the same stack
+    // trace as the coredump reported for v0.4.0). Users can still opt into
+    // headless execution by setting QT_QPA_PLATFORM=offscreen (used by the
+    // smoke tests).
+    {
+        const bool hasDisplay = std::getenv("DISPLAY") != nullptr
+                             || std::getenv("WAYLAND_DISPLAY") != nullptr;
+        const bool platformForced = std::getenv("QT_QPA_PLATFORM") != nullptr;
+        if (!hasDisplay && !platformForced) {
+            QTextStream(stderr) <<
+                "matrix-client: no graphical display available "
+                "(DISPLAY / WAYLAND_DISPLAY unset).\n"
+                "Run this app inside a graphical session, or export "
+                "QT_QPA_PLATFORM=offscreen for a headless smoke test.\n"
+                "See docs/build-and-test.md for the exact commands.\n";
+            return 3;
+        }
     }
 
     QCoreApplication::setOrganizationName("MatrixClient");

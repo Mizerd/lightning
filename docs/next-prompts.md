@@ -6,36 +6,12 @@ scoped small enough that one pass should keep the build green.
 Read `docs/current-state.md`, `docs/backend-contract.md`, and
 `docs/matrix-feature-status.md` **before** running any of these.
 
----
-
-## Prompt 1 — Parse Spaces from the HTTP backend
-
-Right now Spaces work end-to-end on Mock only. HTTP does not read
-`m.room.create` `type` and does not read `m.space.child` state events
-from `/sync`. Task:
-
-1. In `src/matrix/CppHttpMatrixClient.cpp`:
-   - When processing `m.room.create`, if `content.type == "m.space"`,
-     set `RoomInfo::isSpace = true`.
-   - When processing state events, watch for `m.space.child` events.
-     The state-key is the child room id. If content has `via` (a
-     non-empty array), treat the child as present. If content is `{}`
-     the child was removed — pop it from `childRoomIds`.
-   - Keep `RoomInfo::spaceId` in sync with the first Space that lists
-     the room as a child, as a "primary parent" hint.
-2. Emit `roomUpdated(roomId)` for every affected room so
-   `SpaceManager::rebuild` runs.
-3. On first sync, seed `childRoomIds` from any accumulated state, then
-   emit `roomsChanged()`.
-4. No QML change needed — `RoomListPane` will surface the chip strip
-   automatically once `SpaceManager::hasSpaces` becomes true.
-
-Verify with a real homeserver that has at least one Space you're in.
-Do not touch the mock; do not touch the interface.
+Order matters — prompts higher in the list unlock features that later
+prompts depend on. Do not skip ahead.
 
 ---
 
-## Prompt 2 — Real `m.thread` relation for HTTP sends
+## Prompt 1 — Real `m.thread` relation for HTTP sends
 
 `MessageComposer::send()` routes thread replies to
 `MatrixClient::sendThreadReply`, which the interface defaults to
@@ -64,7 +40,7 @@ Verify against a homeserver that supports threads (matrix.org does).
 
 ---
 
-## Prompt 3 — Multi-account foundation (data model + switcher UI)
+## Prompt 2 — Multi-account foundation (data model + switcher UI)
 
 Currently `AccountManager` tracks the single active user id. To land
 multi-account safely in one pass:
@@ -106,7 +82,7 @@ switching between them; both room lists should be independent.
 
 ---
 
-## Prompt 4 — SSO login via system browser
+## Prompt 3 — SSO login via system browser
 
 Password-only auth is limiting for homeservers that require SSO. Task:
 
@@ -131,7 +107,7 @@ Do **not** flip `CryptoManager::supportsE2ee`. SSO does not imply E2EE.
 
 ---
 
-## Prompt 5 — Small Rust step: wire matrix-sdk `Client::builder`
+## Prompt 4 — Small Rust step: wire matrix-sdk `Client::builder`
 
 The Rust scaffold currently has no `matrix-sdk` dependency. Trying to
 pull the whole SDK in one pass is unstable. Small step:
@@ -153,7 +129,7 @@ Do **not** flip `CryptoManager::supportsE2ee` or define
 
 ---
 
-## Prompt 6 — Authenticated media (`/_matrix/client/v1/media/*`)
+## Prompt 5 — Authenticated media (`/_matrix/client/v1/media/*`)
 
 Legacy `/_matrix/media/v3/*` still works but is deprecated. Task:
 
@@ -168,6 +144,33 @@ Legacy `/_matrix/media/v3/*` still works but is deprecated. Task:
    (non-secret data).
 3. Verify with a homeserver that has authenticated media enabled
    (Synapse ≥ 1.100 with the `enable_authenticated_media` config).
+
+---
+
+## Prompt 6 — Persist Space fields in CacheStore
+
+Small quality-of-life follow-up on v0.4.2. Right now, on relaunch,
+rooms are restored from `${XDG_DATA_HOME}/matrix-client/<userId>/cache.sqlite`
+without their Space flags (`isSpace`, `childRoomIds`). The Space chip
+strip is therefore hidden for a few seconds until the first `/sync`
+completes.
+
+Task:
+
+1. In `src/storage/CacheStore.{h,cpp}`, extend the `rooms` schema:
+   - Add columns `is_space INTEGER NOT NULL DEFAULT 0` and
+     `child_room_ids TEXT NOT NULL DEFAULT ''` (comma-separated).
+   - Bump the schema version if the file has one; else add a soft
+     migration (ALTER TABLE ADD COLUMN IF NOT EXISTS via probing).
+2. `saveRoom(RoomInfo &r)` writes both fields; `loadRooms()` restores
+   them.
+3. No interface change; only CacheStore changes. Existing
+   `SpaceManager::rebuild` picks up the values on the first `rooms()`
+   call after restore.
+
+Verify by logging into a homeserver where you are in a Space, quitting
+the app, and relaunching: the chip strip appears *before* the sync
+loop finishes.
 
 ---
 
