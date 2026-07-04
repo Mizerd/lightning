@@ -3,6 +3,7 @@
 #include "app/SettingsManager.h"
 #include "auth/AccountManager.h"
 #include "auth/AuthManager.h"
+#include "crypto/CryptoManager.h"
 #include "media/MediaManager.h"
 #include "models/MessageComposer.h"
 #include "models/RoomListModel.h"
@@ -14,9 +15,9 @@
 
 class MatrixClient;
 class NotificationManager;
-class CryptoManager;
 class SpaceManager;
 class ThreadManager;
+class SecretStore;
 
 class AppController : public QObject
 {
@@ -36,6 +37,7 @@ class AppController : public QObject
     Q_PROPERTY(TimelineModel* timeline READ timeline CONSTANT)
     Q_PROPERTY(MessageComposer* composer READ composer CONSTANT)
     Q_PROPERTY(MediaManager* media READ media CONSTANT)
+    Q_PROPERTY(CryptoManager* crypto READ crypto CONSTANT)
 
 public:
     enum Screen {
@@ -48,8 +50,14 @@ public:
     enum Backend {
         HttpBackend = 0,
         MockBackend = 1,
+        RustBackend = 2, // implemented iff ENABLE_RUST_SDK_BACKEND is defined
     };
     Q_ENUM(Backend)
+
+    // True if this build actually contains an implementation for the given
+    // backend. main.cpp uses this to reject --backend=rust cleanly when the
+    // Rust scaffold was not compiled in.
+    static bool isBackendCompiled(Backend backend);
 
     explicit AppController(Backend backend = HttpBackend, QObject *parent = nullptr);
     ~AppController() override;
@@ -68,6 +76,8 @@ public:
     TimelineModel *timeline() const;
     MessageComposer *composer() const;
     MediaManager *media() const;
+    CryptoManager *crypto() const;
+    SecretStore *secretStore() const { return m_secretStore.get(); }
 
 public Q_SLOTS:
     void setCurrentRoomId(const QString &roomId);
@@ -98,6 +108,9 @@ private:
     QString m_currentRoomId;
     QString m_connectionStatus;
 
+    // Order matters: SecretStore is constructed first so SettingsManager can
+    // be wired to it before any code touches accessToken() / hasSession().
+    std::unique_ptr<SecretStore> m_secretStore;
     std::unique_ptr<SettingsManager> m_settings;
     std::unique_ptr<MatrixClient> m_client;
     std::unique_ptr<AccountManager> m_accounts;

@@ -89,17 +89,38 @@ Item {
                     spacing: AppTheme.spacingS
 
                     Label { text: qsTr("Security"); font.weight: Font.DemiBold; color: AppTheme.text }
+
                     Label {
                         Layout.fillWidth: true
                         wrapMode: Text.WordWrap
+                        color: AppTheme.textMuted
+                        text: qsTr("Secret backend: %1").arg(app.settings.secretBackendName)
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                        visible: app.settings.secretsAreSecure
+                        color: AppTheme.success
+                        text: qsTr("Access tokens are stored via the system Secret Service. Logout clears them.")
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                        visible: !app.settings.secretsAreSecure
                         color: AppTheme.error
-                        text: qsTr("Access tokens are stored in QSettings (plaintext) in v0.1. Secure storage arrives in v0.4.")
+                        text: qsTr("Insecure fallback active: access tokens are stored in QSettings (plaintext). Install a Secret Service provider (e.g. gnome-keyring, KWallet with libsecret support) and restart to enable secure storage.")
                     }
                     Label {
                         Layout.fillWidth: true
                         wrapMode: Text.WordWrap
                         color: AppTheme.textMuted
-                        text: qsTr("End-to-end encryption is not available in v0.1 and will be delivered via the Matrix Rust SDK in v0.4. This client does not roll its own crypto.")
+                        text: qsTr("Crypto backend: %1").arg(app.crypto.backendDescription)
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                        color: app.crypto.supportsE2ee ? AppTheme.success : AppTheme.textMuted
+                        text: qsTr("E2EE status: %1").arg(app.crypto.statusString)
                     }
                 }
             }

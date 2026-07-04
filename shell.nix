@@ -15,6 +15,8 @@ pkgs.mkShell {
     gcc
     qt.qttools
     qt.wrapQtAppsHook
+    rustc
+    cargo
   ];
 
   # QuickControls2 lives inside qtdeclarative in current nixpkgs — no

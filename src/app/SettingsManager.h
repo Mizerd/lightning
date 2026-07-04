@@ -5,6 +5,8 @@
 #include <QString>
 #include <memory>
 
+class SecretStore;
+
 class SettingsManager : public QObject
 {
     Q_OBJECT
@@ -16,6 +18,8 @@ class SettingsManager : public QObject
     Q_PROPERTY(bool notificationsEnabled READ notificationsEnabled WRITE setNotificationsEnabled NOTIFY notificationsEnabledChanged)
     Q_PROPERTY(bool hasSession READ hasSession NOTIFY sessionChanged)
     Q_PROPERTY(QString userId READ userId NOTIFY sessionChanged)
+    Q_PROPERTY(QString secretBackendName READ secretBackendName NOTIFY secretBackendChanged)
+    Q_PROPERTY(bool secretsAreSecure READ secretsAreSecure NOTIFY secretBackendChanged)
 
 public:
     enum Theme {
@@ -26,6 +30,13 @@ public:
     Q_ENUM(Theme)
 
     explicit SettingsManager(QObject *parent = nullptr);
+
+    // Inject the process-wide SecretStore. Must be called once, immediately
+    // after construction, before any accessToken read/save. When set, any
+    // pre-existing plaintext access token in QSettings is migrated into the
+    // store and the plaintext key is deleted.
+    void setSecretStore(SecretStore *store);
+    SecretStore *secretStore() const { return m_secretStore; }
 
     QString homeserverUrl() const;
     void setHomeserverUrl(const QString &url);
@@ -44,17 +55,19 @@ public:
 
     // Session storage.
     //
-    // v0.2 stores these in QSettings in plaintext. This is documented as a
-    // known limitation in docs/threat-model.md and surfaced in the Settings
-    // screen. TODO(v0.4): move accessToken (and any future key material) into
-    // an OS keychain (Secret Service / KWallet on Linux, Keychain on macOS,
-    // DPAPI on Windows). SettingsManager should keep only non-secret pointers
-    // to those secure stores.
+    // v0.4: accessToken lives in the SecretStore (libsecret when available,
+    // insecure QSettings fallback otherwise). Non-secret session metadata
+    // (userId, deviceId, homeserverUrl, syncToken) stays in QSettings —
+    // syncToken is not a credential but restart-recoverable state.
     bool hasSession() const;
     QString accessToken() const;
     QString userId() const;
     QString deviceId() const;
     QString syncToken() const;
+
+    // True iff the process is using a native, secure secret backend.
+    bool secretsAreSecure() const;
+    QString secretBackendName() const;
 
     void saveSession(const QString &homeserverUrl,
                      const QString &userId,
@@ -70,7 +83,11 @@ Q_SIGNALS:
     void startMinimizedChanged();
     void notificationsEnabledChanged();
     void sessionChanged();
+    void secretBackendChanged();
 
 private:
+    void migratePlaintextTokenIfPresent();
+
     std::unique_ptr<QSettings> m_store;
+    SecretStore *m_secretStore = nullptr; // not owned; lifetime = process
 };

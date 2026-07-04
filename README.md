@@ -6,44 +6,34 @@ A native desktop Matrix client written in C++20 / Qt 6 / QML.
 
 ## Status
 
-**v0.3** — Richer unencrypted chat UX on top of the C++ HTTP backend.
+**v0.4** — Secure token storage + optional Matrix Rust SDK backend scaffold.
 
-New in v0.3:
+New in v0.4:
 
-- Backfill pagination via `GET /rooms/{id}/messages?dir=b` — scroll to the top of a room to load older history.
-- Local echo resolution: the `event_id` from the PUT response replaces the `local:<txn>` placeholder so edits/redactions of just-sent messages work.
-- Sender display names + avatars sourced from `m.room.member` state, cached per room (Matrix display names are room-scoped).
-- Media receive: `m.image` and `m.file` are rendered inline, with `mxc://` resolved to HTTPS via `/_matrix/media/v3/{download,thumbnail}`.
-- Media send: file picker in QML → `POST /_matrix/media/v3/upload` → send `m.image` / `m.file` with `info`.
-- Replies: right-click / hover ↰ → composer shows a "Replying to …" bar, message sent with `m.in_reply_to`.
-- Edits: hover ⋯ → Edit. Composer loads the current body; sending emits `m.replace`; the wrapper is suppressed and the target is updated in place with an `edited` marker.
-- Redactions: hover ⋯ → Delete on your own message. Timeline shows `[message deleted]`.
-- Reactions: hover 😊 → pick from a 5-emoji palette. Click your own reaction pill to remove it (redacts your `m.reaction`).
-- Typing: composer sends `PUT /rooms/{id}/typing/{userId}` while text is non-empty, with a 15-second keep-alive and false on clear / room change / send.
-- Read receipts: whenever the timeline gains events, the latest is acked via `POST /rooms/{id}/receipt/m.read/{eventId}` (debounced).
-- Local SQLite cache under `${XDG_DATA_HOME}/matrix-client/<safeUserId>/cache.sqlite` — rooms, last 200 events per room, and members. Loaded before `/whoami` completes so the room list appears instantly on restart.
+- `SecretStore` abstraction. On Linux, `LibSecretStore` talks to the Freedesktop Secret Service via libsecret (works with gnome-keyring, KWallet with libsecret support). If no session bus / Secret Service is reachable, an `InsecureFallbackSecretStore` keeps the app working and the Settings screen shows a red warning.
+- Access tokens are stored in the `SecretStore`, not in QSettings. On first launch of v0.4 any legacy `session/accessToken` value in QSettings is migrated into the store and the plaintext key is deleted.
+- Backend selection cleanup: `--backend={mock,http,rust}` (old `--mock` still works). Default remains `http`. Requesting `--backend=rust` when the Rust scaffold was not compiled in exits 2 with a clean message.
+- Optional Rust SDK backend scaffold under `-DENABLE_RUST_SDK_BACKEND=ON`. Adds a static library from `rust/`, links it into the C++ binary, and reports backend name/version/status through a small C ABI. Login, sync, and E2EE are not wired yet — the client refuses those operations honestly.
+- `CryptoManager` becomes a capability surface driven by the active backend. `supportsE2ee` is `false` for mock and http, and remains `false` for the Rust scaffold until the SDK is actually wired (`RUST_SDK_E2EE_WIRED`).
 
-Still carried over from v0.2:
+Still carried over from v0.3:
 
+- Backfill pagination, local echo resolution, replies, edits, redactions, reactions, typing, read receipts, media send/receive, per-room member cache, local SQLite cache under `${XDG_DATA_HOME}/matrix-client/<safeUserId>/cache.sqlite`.
 - Password login (`m.login.password`), session restore via `/account/whoami`, long-poll `/sync`, `POST /logout`.
-- Room list with `m.room.name` / `m.room.topic` / `m.room.encryption` / `m.room.avatar` / notification counts.
-- Text messages (`m.text` / `m.notice` / `m.emote`).
-- Encrypted rooms remain read-only placeholders. Sends (text, media, reactions, edits) into encrypted rooms are blocked with a clear error.
-- `--mock` for UI work, now with reply / edit / redaction / reactions / media / pagination demo data.
+- `--mock` / `--backend=mock` for offline UI work.
 
 Still intentionally missing:
 
-- E2EE (v0.4 via Matrix Rust SDK) — encrypted rooms show placeholders, encrypted media is not fetched.
-- Secure token storage — access tokens are still written to QSettings in plaintext with a visible warning in Settings.
+- Real E2EE (v0.4.x follow-up). The Rust backend scaffold compiles and links but does not perform any Matrix cryptography yet. `--backend=rust` will not sign you in.
 - SSO / OIDC, spaces, threads, multi-account, sliding sync (v0.5).
-- Authenticated media endpoints (`/_matrix/client/v1/media/*`); v0.3 uses legacy `/_matrix/media/v3/*`.
-- Read-receipt display of *other* users, avatars rendered as actual images (avatars are captured in cache but not shown yet), user's own profile lookup, room member list UI.
+- Authenticated media endpoints (`/_matrix/client/v1/media/*`); v0.3/v0.4 use legacy `/_matrix/media/v3/*`.
+- Read-receipt display of other users, avatars rendered as images, own-profile lookup, room member list UI.
 
-See [`docs/roadmap.md`](docs/roadmap.md) for the milestone plan and [`docs/architecture.md`](docs/architecture.md) for the layering.
+See [`docs/roadmap.md`](docs/roadmap.md) for the milestone plan, [`docs/architecture.md`](docs/architecture.md) for the layering, and [`docs/threat-model.md`](docs/threat-model.md) for what is stored where.
 
 ## Build (Linux)
 
-Requires Qt 6.5+ (Core, Gui, Qml, Quick, QuickControls2, Network, Sql, Widgets), CMake 3.21+, a C++20 compiler, and Ninja.
+Requires Qt 6.5+ (Core, Gui, Qml, Quick, QuickControls2, Network, Sql, Widgets), CMake 3.21+, a C++20 compiler, Ninja, and optionally libsecret-1 + cargo/rustc.
 
 ```bash
 cmake -S . -B build -G Ninja
@@ -51,7 +41,21 @@ cmake --build build
 ./build/matrix-client
 ```
 
+If libsecret-1 is detected via pkg-config, secure storage is enabled automatically. Otherwise the app falls back to insecure QSettings storage with a visible warning.
+
+### With the Rust SDK backend scaffold
+
+```bash
+cmake -S . -B build-rust -G Ninja -DENABLE_RUST_SDK_BACKEND=ON
+cmake --build build-rust
+./build-rust/matrix-client --backend=rust
+```
+
+This requires `cargo` in `PATH`. The Rust static library is built via `cargo build` invoked from CMake and linked into the C++ binary. Turning the flag back off is a clean `cmake -B build -G Ninja` — no Rust dependencies remain.
+
 ### NixOS
+
+The dev shell bundles Qt 6, CMake, Ninja, gcc, libsecret, glib, cargo, and rustc so both build modes work out of the box:
 
 ```bash
 nix develop            # or: nix-shell
@@ -62,28 +66,35 @@ cmake --build build
 
 ### Windows / macOS
 
-Not yet targeted. The CMake project is portable; packaging follows in v1.0.
+Not yet targeted. The CMake project is portable; SecretStore has no Windows/macOS backends yet (they fall back to insecure storage with a warning until v0.5+). Packaging follows in v1.0.
 
 ## Try it
 
 ### Real homeserver (default)
 
 ```bash
-./build/matrix-client
+./build/matrix-client                    # same as --backend=http
+./build/matrix-client --backend=http
 ```
 
-Enter your homeserver URL (e.g. `https://matrix.org`), your username (localpart or full MXID),
-and your password. On successful login the app persists the session and starts syncing.
-Restart the app — you'll be signed back in automatically. Sign out from the toolbar to
-clear the session.
+Enter your homeserver URL (e.g. `https://matrix.org`), your username (localpart or full MXID), and your password. On successful login the app persists the session (access token via SecretStore, everything else in QSettings) and starts syncing. Restart the app — you'll be signed back in automatically. Sign out from the toolbar to clear both the SecretStore entry and the QSettings session metadata.
 
 ### Mock backend (for UI work)
 
 ```bash
 ./build/matrix-client --mock
+./build/matrix-client --backend=mock     # equivalent
 ```
 
 Any credentials succeed. Hard-coded rooms and messages appear. Nothing hits the network.
+
+### Rust backend scaffold
+
+```bash
+./build-rust/matrix-client --backend=rust
+```
+
+Available only when built with `-DENABLE_RUST_SDK_BACKEND=ON`. The app launches, the Settings screen reports the Rust backend, but login is refused with a clear message pointing you back to `--backend=http`.
 
 ## Layering
 
@@ -92,19 +103,26 @@ Qt/QML UI      →  qml/*.qml
 App layer      →  src/app, src/auth
 UI models      →  src/models
 Backend iface  →  src/matrix/MatrixClient.h
-Backends       →  src/matrix/MockMatrixClient.{h,cpp}    ← v0.1 (still available via --mock)
-                  src/matrix/CppHttpMatrixClient.{h,cpp} ← v0.2 (default)
-                  (RustSdkMatrixClient via FFI)          ← v0.4+
-Storage        →  QSettings (v0.1), SQLite + keyring (v0.3+)
-Platform       →  src/notifications, src/media (stubs in v0.1)
+Backends       →  src/matrix/MockMatrixClient.{h,cpp}    ← --backend=mock
+                  src/matrix/CppHttpMatrixClient.{h,cpp} ← --backend=http (default)
+                  src/matrix/RustSdkMatrixClient.{h,cpp} ← --backend=rust
+                                                          (only when
+                                                          ENABLE_RUST_SDK_BACKEND)
+Rust crate     →  rust/                                  ← static lib linked in
+Storage        →  QSettings (prefs + non-secret session)
+                  SecretStore: LibSecretStore or InsecureFallbackSecretStore
+                  SQLite (rooms/timeline/members cache)
+Platform       →  src/notifications, src/media (stubs / partial)
+Crypto         →  src/crypto/CryptoManager (capability surface only)
 ```
 
 The `MatrixClient` interface is the swap seam. UI, models, and the app layer never depend on a concrete backend.
 
-## What v0.3 does *not* do
+## What v0.4 does *not* do
 
-- No encryption. Encrypted rooms show `[encrypted message - E2EE not implemented yet]`. `m.image`/`m.file` events with an encrypted `file` envelope show `[encrypted media - E2EE not implemented yet]`. Sends into encrypted rooms are blocked. E2EE arrives in v0.4 via the Matrix Rust SDK — we do not hand-roll crypto.
-- No secure token storage. Access tokens are stored in `QSettings` in plaintext with a visible warning in Settings. The SQLite cache under `${XDG_DATA_HOME}/matrix-client/<safeUserId>/` does not contain access tokens. Keychain integration ships in v0.4.
+- No real E2EE. The Rust backend scaffold compiles and links but does not talk to Matrix. Encrypted rooms still show `[encrypted message - E2EE not implemented yet]`; encrypted media still shows a placeholder; sends into encrypted rooms are still blocked.
+- No hardware-backed secret storage. `LibSecretStore` uses the Freedesktop Secret Service, whose backend is whatever the user's session provides.
+- No Windows / macOS secret backend. Windows and macOS fall back to the insecure store with a warning.
 - No spaces, threads, multi-account, sliding sync, SSO/OIDC. Those are v0.5.
 - No display of other users' read receipts. Avatars are cached but not rendered as images yet.
 

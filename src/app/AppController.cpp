@@ -12,7 +12,32 @@
 #include "models/TimelineModel.h"
 #include "notifications/NotificationManager.h"
 #include "spaces/SpaceManager.h"
+#include "storage/SecretStore.h"
 #include "threads/ThreadManager.h"
+
+#ifdef ENABLE_RUST_SDK_BACKEND
+#include "matrix/RustSdkMatrixClient.h"
+#endif
+
+#include <QLoggingCategory>
+
+Q_LOGGING_CATEGORY(lcApp, "matrix.app")
+
+bool AppController::isBackendCompiled(Backend backend)
+{
+    switch (backend) {
+    case MockBackend:
+    case HttpBackend:
+        return true;
+    case RustBackend:
+#ifdef ENABLE_RUST_SDK_BACKEND
+        return true;
+#else
+        return false;
+#endif
+    }
+    return false;
+}
 
 std::unique_ptr<MatrixClient> AppController::makeClient(Backend backend,
                                                         SettingsManager *settings,
@@ -21,6 +46,17 @@ std::unique_ptr<MatrixClient> AppController::makeClient(Backend backend,
     switch (backend) {
     case MockBackend:
         return std::make_unique<MockMatrixClient>(parent);
+    case RustBackend:
+#ifdef ENABLE_RUST_SDK_BACKEND
+        return std::make_unique<RustSdkMatrixClient>(settings, parent);
+#else
+        // Construction should be rejected upstream (main.cpp checks
+        // isBackendCompiled). Fall back to HTTP defensively so the app does
+        // not crash if we ever reach this path.
+        qCCritical(lcApp)
+            << "RustBackend selected but not compiled in; falling back to HTTP";
+        return std::make_unique<CppHttpMatrixClient>(settings, parent);
+#endif
     case HttpBackend:
     default:
         return std::make_unique<CppHttpMatrixClient>(settings, parent);
@@ -30,19 +66,27 @@ std::unique_ptr<MatrixClient> AppController::makeClient(Backend backend,
 AppController::AppController(Backend backend, QObject *parent)
     : QObject(parent)
     , m_backend(backend)
+    , m_secretStore(SecretStore::createDefault(this))
     , m_settings(std::make_unique<SettingsManager>(this))
-    , m_client(makeClient(backend, m_settings.get(), this))
-    , m_accounts(std::make_unique<AccountManager>(this))
-    , m_auth(std::make_unique<AuthManager>(m_client.get(), this))
-    , m_roomList(std::make_unique<RoomListModel>(this))
-    , m_timeline(std::make_unique<TimelineModel>(this))
-    , m_composer(std::make_unique<MessageComposer>(this))
-    , m_notifications(std::make_unique<NotificationManager>(this))
-    , m_media(std::make_unique<MediaManager>(this))
-    , m_crypto(std::make_unique<CryptoManager>(this))
-    , m_spaces(std::make_unique<SpaceManager>(this))
-    , m_threads(std::make_unique<ThreadManager>(this))
 {
+    // Wire the SecretStore before anything reads accessToken(). Migrates any
+    // legacy plaintext token into the SecretStore on first entry.
+    m_settings->setSecretStore(m_secretStore.get());
+
+    m_client       = makeClient(backend, m_settings.get(), this);
+    m_accounts     = std::make_unique<AccountManager>(this);
+    m_auth         = std::make_unique<AuthManager>(m_client.get(), this);
+    m_roomList     = std::make_unique<RoomListModel>(this);
+    m_timeline     = std::make_unique<TimelineModel>(this);
+    m_composer     = std::make_unique<MessageComposer>(this);
+    m_notifications= std::make_unique<NotificationManager>(this);
+    m_media        = std::make_unique<MediaManager>(this);
+    m_crypto       = std::make_unique<CryptoManager>(this);
+    m_spaces       = std::make_unique<SpaceManager>(this);
+    m_threads      = std::make_unique<ThreadManager>(this);
+
+    m_crypto->setBackendName(backendName());
+
     m_roomList->setClient(m_client.get());
     m_timeline->setClient(m_client.get());
     m_composer->setClient(m_client.get());
@@ -75,8 +119,10 @@ AppController::AppController(Backend backend, QObject *parent)
     });
     setConnectionStatus(tr("Not connected"));
 
-    if (m_backend == HttpBackend && m_settings->hasSession()) {
-        // Fire-and-forget: whoami callback drives the transition to Main.
+    // Session restore is only meaningful for backends that can actually talk
+    // to a homeserver. The mock backend synthesizes its own state.
+    if ((m_backend == HttpBackend || m_backend == RustBackend)
+        && m_settings->hasSession()) {
         m_client->restoreSession();
     }
 }
@@ -90,9 +136,12 @@ bool AppController::loggedIn() const
 
 QString AppController::backendName() const
 {
-    return m_backend == MockBackend
-        ? QStringLiteral("mock")
-        : QStringLiteral("http");
+    switch (m_backend) {
+    case MockBackend: return QStringLiteral("mock");
+    case RustBackend: return QStringLiteral("rust");
+    case HttpBackend:
+    default:          return QStringLiteral("http");
+    }
 }
 
 SettingsManager *AppController::settings() const { return m_settings.get(); }
@@ -102,6 +151,7 @@ RoomListModel *AppController::roomList() const { return m_roomList.get(); }
 TimelineModel *AppController::timeline() const { return m_timeline.get(); }
 MessageComposer *AppController::composer() const { return m_composer.get(); }
 MediaManager *AppController::media() const { return m_media.get(); }
+CryptoManager *AppController::crypto() const { return m_crypto.get(); }
 
 void AppController::setCurrentRoomId(const QString &roomId)
 {

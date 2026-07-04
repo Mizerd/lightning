@@ -1,15 +1,27 @@
 #include "app/SettingsManager.h"
 
+#include "storage/SecretStore.h"
+
+#include <QLoggingCategory>
+
+Q_LOGGING_CATEGORY(lcSettings, "matrix.settings")
+
 namespace {
 constexpr auto kHomeserver          = "homeserver/url";
 constexpr auto kTheme               = "ui/theme";
 constexpr auto kLanguage            = "ui/language";
 constexpr auto kStartMinimized      = "ui/startMinimized";
 constexpr auto kNotifications       = "notifications/enabled";
-constexpr auto kAccessToken         = "session/accessToken";
+// v0.2/v0.3 stored the access token here in plaintext. v0.4 migrates it out
+// on first read; the key stays defined only so the migration code can find
+// and delete the legacy value.
+constexpr auto kAccessTokenLegacy   = "session/accessToken";
 constexpr auto kUserId              = "session/userId";
 constexpr auto kDeviceId            = "session/deviceId";
 constexpr auto kSyncToken           = "session/syncToken";
+
+// SecretStore keys.
+constexpr auto kSecretAccessToken   = "accessToken";
 }
 
 SettingsManager::SettingsManager(QObject *parent)
@@ -18,6 +30,41 @@ SettingsManager::SettingsManager(QObject *parent)
 {
     if (!m_store->contains(kHomeserver)) {
         m_store->setValue(kHomeserver, QStringLiteral("https://matrix.org"));
+    }
+}
+
+void SettingsManager::setSecretStore(SecretStore *store)
+{
+    if (m_secretStore == store)
+        return;
+    m_secretStore = store;
+    migratePlaintextTokenIfPresent();
+    Q_EMIT secretBackendChanged();
+    Q_EMIT sessionChanged();
+}
+
+void SettingsManager::migratePlaintextTokenIfPresent()
+{
+    if (!m_secretStore)
+        return;
+    if (!m_store->contains(kAccessTokenLegacy))
+        return;
+    const QString legacyToken = m_store->value(kAccessTokenLegacy).toString();
+    const QString uid = userId();
+    if (legacyToken.isEmpty() || uid.isEmpty()) {
+        // Nothing useful to migrate; just clean up.
+        m_store->remove(kAccessTokenLegacy);
+        return;
+    }
+    if (m_secretStore->storeSecret(uid, QLatin1String(kSecretAccessToken), legacyToken)) {
+        qCInfo(lcSettings)
+            << "migrated legacy plaintext access token for" << uid
+            << "into" << m_secretStore->backendName();
+        m_store->remove(kAccessTokenLegacy);
+    } else {
+        qCWarning(lcSettings)
+            << "failed to migrate plaintext access token — leaving in place;"
+            << "SecretStore error:" << m_secretStore->lastError();
     }
 }
 
@@ -93,7 +140,17 @@ bool SettingsManager::hasSession() const
 
 QString SettingsManager::accessToken() const
 {
-    return m_store->value(kAccessToken).toString();
+    const QString uid = userId();
+    if (uid.isEmpty())
+        return {};
+    if (m_secretStore) {
+        return m_secretStore->readSecret(uid, QLatin1String(kSecretAccessToken));
+    }
+    // No SecretStore wired yet — fall back to the legacy plaintext key so we
+    // don't lose a running session between refactor steps. This branch is
+    // unreachable in normal execution because AppController always wires a
+    // SecretStore before touching accessToken().
+    return m_store->value(kAccessTokenLegacy).toString();
 }
 
 QString SettingsManager::userId() const
@@ -111,6 +168,17 @@ QString SettingsManager::syncToken() const
     return m_store->value(kSyncToken).toString();
 }
 
+bool SettingsManager::secretsAreSecure() const
+{
+    return m_secretStore && m_secretStore->isSecure() && m_secretStore->isAvailable();
+}
+
+QString SettingsManager::secretBackendName() const
+{
+    return m_secretStore ? m_secretStore->backendName()
+                         : QStringLiteral("no secret store");
+}
+
 void SettingsManager::saveSession(const QString &homeserverUrl_,
                                   const QString &userId_,
                                   const QString &deviceId_,
@@ -122,12 +190,26 @@ void SettingsManager::saveSession(const QString &homeserverUrl_,
     m_store->setValue(kHomeserver, homeserverUrl_);
     m_store->setValue(kUserId, userId_);
     m_store->setValue(kDeviceId, deviceId_);
-    m_store->setValue(kAccessToken, accessToken_);
 
-    // If the account changed, the previous sync token belongs to a different
-    // access token and must not be reused.
+    if (m_secretStore) {
+        if (!m_secretStore->storeSecret(userId_, QLatin1String(kSecretAccessToken), accessToken_)) {
+            qCWarning(lcSettings)
+                << "failed to persist access token to SecretStore:"
+                << m_secretStore->lastError();
+        }
+        // Make sure a stale legacy plaintext token is not left behind.
+        m_store->remove(kAccessTokenLegacy);
+    } else {
+        // Unwired store — same reasoning as accessToken(): keep the process
+        // working, but this branch should not fire in normal execution.
+        m_store->setValue(kAccessTokenLegacy, accessToken_);
+    }
+
     if (prevUser != userId_) {
         m_store->remove(kSyncToken);
+        if (m_secretStore && !prevUser.isEmpty()) {
+            m_secretStore->clearAccountSecrets(prevUser);
+        }
     }
 
     if (hsChanged)
@@ -146,9 +228,13 @@ void SettingsManager::clearSession()
 {
     if (!hasSession())
         return;
-    m_store->remove(kAccessToken);
+    const QString uid = userId();
     m_store->remove(kUserId);
     m_store->remove(kDeviceId);
     m_store->remove(kSyncToken);
+    m_store->remove(kAccessTokenLegacy);
+    if (m_secretStore && !uid.isEmpty()) {
+        m_secretStore->clearAccountSecrets(uid);
+    }
     Q_EMIT sessionChanged();
 }

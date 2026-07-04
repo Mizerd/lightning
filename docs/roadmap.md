@@ -6,10 +6,11 @@
 |---|---|---|
 | v0.1 | Native app shell | `MockMatrixClient` only |
 | v0.2 | Basic real client | `CppHttpMatrixClient` (default) + `MockMatrixClient` (`--mock`) |
-| **v0.3** | Usable chat UX (current) | `CppHttpMatrixClient` + local SQLite cache + `MockMatrixClient` (`--mock`) |
-| v0.4 | End-to-end encryption | `RustSdkMatrixClient` (Matrix Rust SDK via FFI) |
+| v0.3 | Usable chat UX | `CppHttpMatrixClient` + local SQLite cache + `MockMatrixClient` (`--mock`) |
+| **v0.4** | Secure storage + Rust backend scaffold (current) | HTTP default; `--mock`; optional `--backend=rust` behind `-DENABLE_RUST_SDK_BACKEND=ON` — scaffold only, refuses login/sends |
+| v0.4.x | E2EE via Matrix Rust SDK (follow-up) | Rust backend wires SDK login/sync/crypto |
 | v0.5 | Advanced Matrix UX | Rust SDK; sliding sync, spaces, threads, multi-account, SSO/OIDC |
-| v1.0 | Polished release | Rust SDK; secure storage, packaging, i18n complete |
+| v1.0 | Polished release | Rust SDK; hardware-backed secure storage, packaging, i18n complete |
 
 ## Feature classification
 
@@ -86,16 +87,51 @@
 - Local SQLite cache (`${XDG_DATA_HOME}/matrix-client/<safeUserId>/cache.sqlite`) with rooms, last 200 events per room, and members. Loaded on session restore before `/whoami` completes. Access tokens are **not** stored here.
 - Mock backend updated: pre-seeded reply, edit, redaction, image, file, reactions, typing user, and a two-page synthetic pagination.
 
-## Next milestones after v0.3
+## Completed in v0.4
 
-### v0.4 — Encryption via Rust SDK
+- Secure token storage via `SecretStore` abstraction.
+  - `LibSecretStore` (Freedesktop Secret Service via libsecret) — active
+    on Linux hosts where the session bus + a Secret Service provider are
+    reachable.
+  - `InsecureFallbackSecretStore` — plaintext QSettings under a dedicated
+    `secrets/*` group, loudly reports insecure, Settings screen shows a
+    red warning when active.
+  - `SettingsManager::setSecretStore()` migrates any legacy
+    `session/accessToken` plaintext QSettings key on first read and
+    deletes it after a successful write.
+  - `clearSession()` clears QSettings session keys + SecretStore entry
+    for the user (in addition to the existing SQLite cache wipe).
+- Backend selection CLI cleanup: `--backend={mock,http,rust}`, with old
+  `--mock` kept as an alias. Unknown values reject with a clean stderr
+  message and exit 2. `--backend=rust` refuses cleanly when Rust scaffold
+  is not compiled in.
+- Rust SDK backend scaffold behind `option(ENABLE_RUST_SDK_BACKEND OFF)`.
+  - `rust/` crate producing `libmatrix_client_rust.a`; hand-authored C
+    ABI at `rust/include/matrix_rust.h`.
+  - `RustSdkMatrixClient` (C++) implements `MatrixClient`, links against
+    the crate, and reports name/status/version through FFI. All send /
+    login / sync operations refuse honestly — no fake E2EE.
+- `CryptoManager` becomes a capability surface driven by the active
+  backend. `supportsE2ee` is `false` for mock and http, and remains
+  `false` for the rust scaffold until `RUST_SDK_E2EE_WIRED` is defined.
+- Settings screen surfaces:
+  - active secret backend name,
+  - a red warning when the insecure fallback is active,
+  - crypto backend description,
+  - E2EE status string.
 
-- Add a `RustSdkMatrixClient` implementation in `src/matrix/rust/` backed
-  by the Matrix Rust SDK through a small FFI bridge (`cxx` or `cbindgen`).
-- All crypto work — Olm/Megolm sessions, key storage, verification — lives
-  in the Rust SDK. C++ never touches key material.
-- Replace plaintext token storage with OS keychain (`libsecret`/Secret
-  Service on Linux, later Keychain on macOS, DPAPI on Windows).
+## Next milestones after v0.4
+
+### v0.4.x — Wire the Rust SDK
+
+- Depend on `matrix-sdk` in `rust/Cargo.toml`; grow the FFI to cover
+  login, sync, timeline, and send.
+- Introduce `cbindgen` once the C ABI outgrows a hand-authored header.
+- Route Rust panics through a `MatrixClient::errorOccurred` signal so
+  they surface in the UI status bar instead of aborting.
+- Once real crypto is available, define `RUST_SDK_E2EE_WIRED` in the
+  build and let `CryptoManager::supportsE2ee` flip to `true` for the
+  rust backend only.
 
 ### v0.5 — Advanced Matrix UX
 

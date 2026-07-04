@@ -1,0 +1,27 @@
+[package]
+name = "matrix-client-rust"
+version = "0.4.0"
+edition = "2021"
+description = "FFI bridge to the Matrix Rust SDK for the C++/Qt matrix-client (v0.4 scaffold)"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[lib]
+name = "matrix_client_rust"
+# staticlib: linked into the C++ executable so we produce a single binary.
+# cdylib would require runtime loader plumbing we do not need in v0.4.
+crate-type = ["staticlib"]
+
+# v0.4 scaffold: no matrix-sdk dependency yet. The bridge exposes just
+# enough for the C++ side to prove it can link against Rust and call in.
+# Wiring matrix-sdk (login, sync, E2EE) is v0.4.x follow-up work.
+[dependencies]
+
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
+
+[profile.dev]
+panic = "abort"

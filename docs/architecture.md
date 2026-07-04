@@ -25,20 +25,28 @@ and never the other way around.
 │  MatrixClient Interface — pure C++ (QObject)         │  src/matrix
 └──┬──────────────────┬──────────────────────┬─────────┘
    │                  │                      │
-┌──▼──────────┐   ┌───▼──────────────┐   ┌───▼───────────────────┐
-│ Mock (v0.1) │   │ CppHttp (v0.2+3) │   │ RustSdkFfi (v0.4+)    │
-│  --mock     │   │  default         │   │                       │
-└─────────────┘   └──────────────────┘   └───────────────────────┘
+┌──▼──────────┐   ┌───▼──────────────┐   ┌───▼───────────────────────┐
+│ Mock (v0.1) │   │ CppHttp (v0.2/3) │   │ RustSdk scaffold (v0.4)   │
+│ --backend=  │   │ --backend=http   │   │ --backend=rust            │
+│   mock      │   │  (default)       │   │ (requires -DENABLE_RUST_  │
+│ (alias:     │   │                  │   │   SDK_BACKEND=ON)         │
+│  --mock)    │   │                  │   │                           │
+└─────────────┘   └──────────────────┘   └───────────────────────────┘
 
-Storage layer (v0.3):
-  QSettings                      – prefs + session credentials (plaintext)
+Storage layer (v0.4):
+  QSettings                      – prefs + non-secret session metadata
+                                   (homeserver, userId, deviceId, syncToken)
+  SecretStore                    – access tokens (libsecret when reachable;
+                                   InsecureFallbackSecretStore otherwise
+                                   with a visible warning)
   CacheStore (SQLite)            – rooms + last N events + members
                                    at ${XDG_DATA_HOME}/matrix-client/<userId>/
 
 Cross-cutting:
-  Storage Layer (QSettings v0.1; SQLite + keyring v0.3+)
+  Storage Layer (QSettings + SecretStore + SQLite)
   Platform Layer (NotificationManager, MediaManager, tray, keychain)
-  Crypto Layer (interface only in v0.1; Rust SDK backed in v0.4)
+  Crypto Layer (interface + honest capability surface;
+                 real crypto lands in v0.4.x when the Rust SDK is wired)
 ```
 
 ## Ownership and lifetimes
@@ -126,3 +134,55 @@ This is a real fix for the v0.2 "eventId frozen at `local:*` forever" limitation
 - `membersChanged(roomId)` — a member's display name / avatar changed.
 
 `TimelineModel` maps each to model updates (`dataChanged` / `beginInsert…End` / etc.).
+
+## v0.4 additions
+
+### Backend selection
+
+`main.cpp` parses `--backend=` (values: `mock`, `http`, `rust`) plus the
+`--mock` alias. `AppController::isBackendCompiled(Backend)` reports whether
+this build actually contains the requested backend — `--backend=rust`
+without `-DENABLE_RUST_SDK_BACKEND=ON` exits 2 with a clean message before
+any window opens.
+
+### SecretStore seam
+
+```
+AppController
+  └── SecretStore (SecretStore::createDefault(this))
+        ├── LibSecretStore              (Freedesktop Secret Service)
+        └── InsecureFallbackSecretStore (QSettings under 'secrets/*')
+
+  └── SettingsManager
+        └── setSecretStore(SecretStore*)  ← wired before makeClient()
+              ├── migratePlaintextTokenIfPresent()  (v0.2/v0.3 → v0.4)
+              └── accessToken() / saveSession() / clearSession() route
+                  the token through the SecretStore
+```
+
+The factory picks libsecret when both build-time (`HAVE_LIBSECRET`) and
+runtime (`secret_service_get_sync`) succeed, else the insecure fallback.
+The Settings screen reads `settings.secretsAreSecure` and shows a red
+warning when the fallback is active.
+
+### Rust backend seam
+
+`RustSdkMatrixClient` (in `src/matrix/`, compiled only when
+`ENABLE_RUST_SDK_BACKEND` is defined) implements `MatrixClient` and links
+against the `matrix_client_rust` static library from the `rust/` crate.
+The Rust surface today is intentionally tiny (`mx_rust_backend_name`,
+`mx_rust_status_string`, `mx_rust_supports_e2ee`, `mx_rust_version`,
+`mx_rust_free_cstring`). Every `MatrixClient` write op emits
+`errorOccurred` or `loginFailed` with an honest reason — nothing
+pretends E2EE works.
+
+### CryptoManager as capability surface
+
+`CryptoManager::supportsE2ee()` returns `true` only when both:
+1. `ENABLE_RUST_SDK_BACKEND` was defined at build time, AND
+2. `RUST_SDK_E2EE_WIRED` is defined (added later when the SDK is wired),
+AND
+3. the active backend is `"rust"`.
+
+Every other layer defers to this single source of truth for the UI.
+

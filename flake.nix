@@ -22,6 +22,11 @@
             gcc
             qt.qttools
             qt.wrapQtAppsHook
+            # Rust toolchain — only used when ENABLE_RUST_SDK_BACKEND=ON.
+            # Kept in the default shell so contributors can flip the flag
+            # without a second shell.
+            rustc
+            cargo
           ];
 
           # Qt QuickControls2 ships inside qtdeclarative in the current
