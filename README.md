@@ -1,93 +1,113 @@
-# Lightning
+# matrix-client
 
+A native desktop Matrix client written in C++20 / Qt 6 / QML.
 
+**Not** Electron. **Not** Tauri. **Not** a webview wrapping a browser. The chat UI is real Qt Quick.
 
-## Getting started
+## Status
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+**v0.3** — Richer unencrypted chat UX on top of the C++ HTTP backend.
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
+New in v0.3:
 
-## Add your files
+- Backfill pagination via `GET /rooms/{id}/messages?dir=b` — scroll to the top of a room to load older history.
+- Local echo resolution: the `event_id` from the PUT response replaces the `local:<txn>` placeholder so edits/redactions of just-sent messages work.
+- Sender display names + avatars sourced from `m.room.member` state, cached per room (Matrix display names are room-scoped).
+- Media receive: `m.image` and `m.file` are rendered inline, with `mxc://` resolved to HTTPS via `/_matrix/media/v3/{download,thumbnail}`.
+- Media send: file picker in QML → `POST /_matrix/media/v3/upload` → send `m.image` / `m.file` with `info`.
+- Replies: right-click / hover ↰ → composer shows a "Replying to …" bar, message sent with `m.in_reply_to`.
+- Edits: hover ⋯ → Edit. Composer loads the current body; sending emits `m.replace`; the wrapper is suppressed and the target is updated in place with an `edited` marker.
+- Redactions: hover ⋯ → Delete on your own message. Timeline shows `[message deleted]`.
+- Reactions: hover 😊 → pick from a 5-emoji palette. Click your own reaction pill to remove it (redacts your `m.reaction`).
+- Typing: composer sends `PUT /rooms/{id}/typing/{userId}` while text is non-empty, with a 15-second keep-alive and false on clear / room change / send.
+- Read receipts: whenever the timeline gains events, the latest is acked via `POST /rooms/{id}/receipt/m.read/{eventId}` (debounced).
+- Local SQLite cache under `${XDG_DATA_HOME}/matrix-client/<safeUserId>/cache.sqlite` — rooms, last 200 events per room, and members. Loaded before `/whoami` completes so the room list appears instantly on restart.
 
-* [Create](https://docs.gitlab.com/user/project/repository/web_editor/#create-a-file) or [upload](https://docs.gitlab.com/user/project/repository/web_editor/#upload-a-file) files
-* [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
+Still carried over from v0.2:
+
+- Password login (`m.login.password`), session restore via `/account/whoami`, long-poll `/sync`, `POST /logout`.
+- Room list with `m.room.name` / `m.room.topic` / `m.room.encryption` / `m.room.avatar` / notification counts.
+- Text messages (`m.text` / `m.notice` / `m.emote`).
+- Encrypted rooms remain read-only placeholders. Sends (text, media, reactions, edits) into encrypted rooms are blocked with a clear error.
+- `--mock` for UI work, now with reply / edit / redaction / reactions / media / pagination demo data.
+
+Still intentionally missing:
+
+- E2EE (v0.4 via Matrix Rust SDK) — encrypted rooms show placeholders, encrypted media is not fetched.
+- Secure token storage — access tokens are still written to QSettings in plaintext with a visible warning in Settings.
+- SSO / OIDC, spaces, threads, multi-account, sliding sync (v0.5).
+- Authenticated media endpoints (`/_matrix/client/v1/media/*`); v0.3 uses legacy `/_matrix/media/v3/*`.
+- Read-receipt display of *other* users, avatars rendered as actual images (avatars are captured in cache but not shown yet), user's own profile lookup, room member list UI.
+
+See [`docs/roadmap.md`](docs/roadmap.md) for the milestone plan and [`docs/architecture.md`](docs/architecture.md) for the layering.
+
+## Build (Linux)
+
+Requires Qt 6.5+ (Core, Gui, Qml, Quick, QuickControls2, Network, Sql, Widgets), CMake 3.21+, a C++20 compiler, and Ninja.
+
+```bash
+cmake -S . -B build -G Ninja
+cmake --build build
+./build/matrix-client
+```
+
+### NixOS
+
+```bash
+nix develop            # or: nix-shell
+cmake -S . -B build -G Ninja
+cmake --build build
+./build/matrix-client
+```
+
+### Windows / macOS
+
+Not yet targeted. The CMake project is portable; packaging follows in v1.0.
+
+## Try it
+
+### Real homeserver (default)
+
+```bash
+./build/matrix-client
+```
+
+Enter your homeserver URL (e.g. `https://matrix.org`), your username (localpart or full MXID),
+and your password. On successful login the app persists the session and starts syncing.
+Restart the app — you'll be signed back in automatically. Sign out from the toolbar to
+clear the session.
+
+### Mock backend (for UI work)
+
+```bash
+./build/matrix-client --mock
+```
+
+Any credentials succeed. Hard-coded rooms and messages appear. Nothing hits the network.
+
+## Layering
 
 ```
-cd existing_repo
-git remote add origin https://gitlab.smetonis.net/Mizerd/lightning.git
-git branch -M main
-git push -uf origin main
+Qt/QML UI      →  qml/*.qml
+App layer      →  src/app, src/auth
+UI models      →  src/models
+Backend iface  →  src/matrix/MatrixClient.h
+Backends       →  src/matrix/MockMatrixClient.{h,cpp}    ← v0.1 (still available via --mock)
+                  src/matrix/CppHttpMatrixClient.{h,cpp} ← v0.2 (default)
+                  (RustSdkMatrixClient via FFI)          ← v0.4+
+Storage        →  QSettings (v0.1), SQLite + keyring (v0.3+)
+Platform       →  src/notifications, src/media (stubs in v0.1)
 ```
 
-## Integrate with your tools
+The `MatrixClient` interface is the swap seam. UI, models, and the app layer never depend on a concrete backend.
 
-* [Set up project integrations](https://gitlab.smetonis.net/Mizerd/lightning/-/settings/integrations)
+## What v0.3 does *not* do
 
-## Collaborate with your team
-
-* [Invite team members and collaborators](https://docs.gitlab.com/user/project/members/)
-* [Create a new merge request](https://docs.gitlab.com/user/project/merge_requests/creating_merge_requests/)
-* [Automatically close issues from merge requests](https://docs.gitlab.com/user/project/issues/managing_issues/#closing-issues-automatically)
-* [Enable merge request approvals](https://docs.gitlab.com/user/project/merge_requests/approvals/)
-* [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
-
-## Test and Deploy
-
-Use the built-in continuous integration in GitLab.
-
-* [Get started with GitLab CI/CD](https://docs.gitlab.com/ci/quick_start/)
-* [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/user/application_security/sast/)
-* [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/topics/autodevops/requirements/)
-* [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/user/clusters/agent/)
-* [Set up protected environments](https://docs.gitlab.com/ci/environments/protected_environments/)
-
-***
-
-# Editing this README
-
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
-
-## Suggestions for a good README
-
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
-
-## Name
-Choose a self-explaining name for your project.
-
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
-
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
-
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
-
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
-
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
-
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
-
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
+- No encryption. Encrypted rooms show `[encrypted message - E2EE not implemented yet]`. `m.image`/`m.file` events with an encrypted `file` envelope show `[encrypted media - E2EE not implemented yet]`. Sends into encrypted rooms are blocked. E2EE arrives in v0.4 via the Matrix Rust SDK — we do not hand-roll crypto.
+- No secure token storage. Access tokens are stored in `QSettings` in plaintext with a visible warning in Settings. The SQLite cache under `${XDG_DATA_HOME}/matrix-client/<safeUserId>/` does not contain access tokens. Keychain integration ships in v0.4.
+- No spaces, threads, multi-account, sliding sync, SSO/OIDC. Those are v0.5.
+- No display of other users' read receipts. Avatars are cached but not rendered as images yet.
 
 ## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
 
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
-
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
-
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
-
-## License
-For open source projects, say how it is licensed.
-
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+Prefer many small files over one large one. Keep protocol logic behind the `MatrixClient` interface. Do not import protocol types into QML files.
