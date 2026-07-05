@@ -3,6 +3,7 @@
 #include "app/SettingsManager.h"
 #include "matrix/MediaHelpers.h"
 #include "matrix_rust.h"
+#include "storage/AppDataPaths.h"
 
 #include <QDateTime>
 #include <QDir>
@@ -11,7 +12,6 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QLoggingCategory>
-#include <QStandardPaths>
 #include <QTimeZone>
 #include <QUrl>
 
@@ -36,14 +36,6 @@ QString sanitizeHomeserver(QString homeserver)
     while (homeserver.endsWith(QLatin1Char('/')))
         homeserver.chop(1);
     return homeserver;
-}
-
-QString appDataRoot()
-{
-    QString root = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
-    if (root.isEmpty())
-        root = QDir::homePath() + QLatin1String("/.local/share/matrix-client");
-    return root;
 }
 
 QString safeUserSlug(QString userId)
@@ -141,6 +133,21 @@ bool RustSdkMatrixClient::rustSupportsE2ee() const
     return mx_rust_supports_e2ee(m_rustHandle) != 0;
 }
 
+void RustSdkMatrixClient::setStorePathOverride(const QString &absolutePath)
+{
+    m_storePathOverride = absolutePath;
+}
+
+QString RustSdkMatrixClient::rustStorePath() const
+{
+    return m_storePath;
+}
+
+bool RustSdkMatrixClient::rustStorePathIsOverride() const
+{
+    return !m_storePathOverride.isEmpty();
+}
+
 void RustSdkMatrixClient::setState(ConnectionState state)
 {
     if (m_state == state)
@@ -181,7 +188,12 @@ void RustSdkMatrixClient::ensurePollTimer()
 
 QString RustSdkMatrixClient::rustStorePathForUser(const QString &userIdForStore) const
 {
-    return appDataRoot()
+    // Testing hook wins: the smoke harness passes an absolute
+    // QTemporaryDir path so every run starts from a clean crypto store.
+    if (!m_storePathOverride.isEmpty())
+        return m_storePathOverride;
+
+    return matrix::app_data::primaryRoot()
         + QLatin1Char('/')
         + safeUserSlug(userIdForStore)
         + QLatin1String("/matrix-rust-sdk-store");
@@ -205,6 +217,21 @@ bool RustSdkMatrixClient::ensureRustHandleForUser(const QString &userIdForStore)
         Q_EMIT errorOccurred(tr("Failed to create Rust SDK store directory: %1").arg(storePath));
         return false;
     }
+
+    // Safe path diagnostic — paths only, never tokens/keys/bodies.
+    // Logged at INFO so users can grep matrix.rust: from the terminal
+    // when the SDK complains about crypto-store mismatches.
+    const QString slug = m_storePathOverride.isEmpty()
+        ? safeUserSlug(userIdForStore)
+        : QStringLiteral("(override)");
+    qCInfo(lcRust) << "Rust SDK store path resolved"
+                   << "base=" << matrix::app_data::primaryRoot()
+                   << "slug=" << slug
+                   << "store=" << storePath
+                   << "exists=" << QFileInfo::exists(storePath)
+                   << "mode=" << (m_storePathOverride.isEmpty()
+                                  ? QStringLiteral("persistent")
+                                  : QStringLiteral("temporary"));
 
     const QByteArray path = QFileInfo(storePath).absoluteFilePath().toUtf8();
     m_rustHandle = mx_rust_create(path.constData());

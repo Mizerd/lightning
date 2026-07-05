@@ -21,10 +21,14 @@ minimises:
 - A null `SettingsManager` is injected into `RustSdkMatrixClient`
   so a successful login response cannot overwrite the interactive
   user's `SecretStore` token, syncToken, or homeserver.
-- The harness still writes the Rust SDK store to
-  `${XDG_DATA_HOME}/matrix-client/<safeUserId>/matrix-rust-sdk-store/`
-  for the test account. Wipe it with `--reset-crypto-store` when
-  you are done.
+- v0.5.0-prep+5: the harness now writes the Rust SDK store to a
+  fresh `QTemporaryDir` under `/tmp/lightning-rust-sdk-smoke-XXXXXX/`,
+  not into the interactive user's persistent store. The temp
+  directory is removed on process exit. The interactive Rust
+  backend still uses the persistent per-account layout at
+  `matrix::app_data::primaryRoot()/<safeUserId>/matrix-rust-sdk-store/`.
+  `--reset-crypto-store` scans that root plus the pre-fix legacy
+  root and never touches `/tmp/`.
 - The harness only sends into non-encrypted, non-Space rooms, and
   only when `LIGHTNING_TEST_SEND=1` is explicitly set. Encrypted
   send remains gated by the underlying `supportsE2ee()` = false

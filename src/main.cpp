@@ -1,4 +1,5 @@
 #include "app/AppController.h"
+#include "storage/AppDataPaths.h"
 
 #ifdef ENABLE_RUST_SDK_BACKEND
 #include "smoke/RustSdkSmokeTest.h"
@@ -123,52 +124,45 @@ PreflightResult preflightParse(int argc, char *argv[])
         if (a == QLatin1String("--reset-crypto-store")) {
             r.action = PreflightResult::ExitSuccess;
 
-            // Resolve the same XDG_DATA_HOME the app itself uses via
-            // QStandardPaths at runtime, without constructing a QApplication.
-            const char *xdg = std::getenv("XDG_DATA_HOME");
-            std::string base;
-            if (xdg && *xdg) {
-                base = xdg;
-            } else {
-                const char *home = std::getenv("HOME");
-                if (home && *home) {
-                    base = std::string(home) + "/.local/share";
-                } else {
-                    base = "<XDG_DATA_HOME unset>";
-                }
-            }
-            const std::string accountsDir = base + "/matrix-client";
-            const QString accountsDirQ = QString::fromStdString(accountsDir);
-
-            QString deleted;
-            QString failed;
-            QDir accountsQDir(accountsDirQ);
-            if (accountsQDir.exists()) {
-                const auto accounts = accountsQDir.entryList(
-                    QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name);
-                for (const auto &acct : accounts) {
-                    const QString cryptoPath = accountsDirQ
-                                                + QLatin1Char('/') + acct
-                                                + QLatin1String("/matrix-rust-sdk-store");
-                    if (QFileInfo::exists(cryptoPath)) {
-                        QDir storeDir(cryptoPath);
-                        if (storeDir.removeRecursively()) {
-                            deleted += QStringLiteral("    %1\n").arg(cryptoPath);
-                        } else {
-                            failed += QStringLiteral("    %1\n").arg(cryptoPath);
-                        }
-                    }
-                }
-            }
+            // Scan the SAME app-data roots that RustSdkMatrixClient uses at
+            // runtime PLUS any legacy roots earlier v0.5.0-prep builds might
+            // have populated. The primary root matches
+            // QStandardPaths::AppLocalDataLocation with
+            // OrganizationName=MatrixClient, ApplicationName=matrix-client,
+            // resolved without constructing a QCoreApplication.
+            const QStringList roots = matrix::app_data::allRoots();
 
             r.stdoutMsg = QStringLiteral(
                 "matrix-client --reset-crypto-store\n"
-                "\n"
-                "Base:    %1\n"
-                "\n").arg(accountsDirQ);
+                "\n");
+            if (roots.isEmpty()) {
+                r.stdoutMsg += QStringLiteral(
+                    "No app data root available "
+                    "(neither $HOME nor $XDG_DATA_HOME is set).\n");
+                return r;
+            }
+
+            QString deleted;
+            QString failed;
+            int scanned = 0;
+            for (const auto &root : roots) {
+                r.stdoutMsg += QStringLiteral("Scanning: %1\n").arg(root);
+                const QStringList stores = matrix::app_data::findRustStoresIn(root);
+                for (const QString &cryptoPath : stores) {
+                    ++scanned;
+                    QDir storeDir(cryptoPath);
+                    if (storeDir.removeRecursively()) {
+                        deleted += QStringLiteral("    %1\n").arg(cryptoPath);
+                    } else {
+                        failed += QStringLiteral("    %1\n").arg(cryptoPath);
+                    }
+                }
+            }
+            r.stdoutMsg += QStringLiteral("\n");
+
             if (!deleted.isEmpty())
                 r.stdoutMsg += QStringLiteral("Deleted:\n%1\n").arg(deleted);
-            if (deleted.isEmpty() && failed.isEmpty()) {
+            if (scanned == 0) {
                 r.stdoutMsg += QStringLiteral(
                     "No Rust SDK store directories found.\n");
             }

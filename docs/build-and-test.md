@@ -128,20 +128,46 @@ Exit codes:
 - `10` — login failed.
 - `11` — initial sync did not complete within 30 s.
 - `12` — zero joined rooms observed.
-- `13` — `LIGHTNING_TEST_SEND=1` was set and the probe send failed
-  or timed out at 15 s.
+- `13` — `LIGHTNING_TEST_SEND=1` was set and the probe send
+  actually failed (`send=failed`) or timed out (`send=timeout`).
+  `send=skipped` (no unencrypted room found) and `send=blocked`
+  (target is encrypted / a Space / not in synced rooms) are
+  reported honestly but do NOT trigger a non-zero exit — they are
+  the expected outcome on an all-encrypted account.
 
 The harness runs headless via `QCoreApplication`, so no display is
 needed and it never prompts. Total wall-clock budget is 60 s.
 
 **Session-safety guarantee.** The harness constructs
-`RustSdkMatrixClient(nullptr, ...)` — passing a null `SettingsManager`
-so the SDK's login response can never overwrite the interactive user's
-cached session (access token, syncToken, homeserver). The Rust SDK
-store IS still written under
-`${XDG_DATA_HOME}/matrix-client/<safeUserId>/matrix-rust-sdk-store/`
-for the test account. Wipe it with `--reset-crypto-store` if you
-don't want it hanging around.
+`RustSdkMatrixClient(nullptr, nullptr)` — passing a null
+`SettingsManager` so the SDK's login response can never overwrite
+the interactive user's cached session (access token, syncToken,
+homeserver).
+
+**Store isolation (v0.5.0-prep+5).** Each smoke run also gets its
+own `QTemporaryDir` under `/tmp/lightning-rust-sdk-smoke-XXXXXX/`
+and passes that path into `RustSdkMatrixClient::setStorePathOverride`,
+so back-to-back password logins never hit the SDK's
+"account in the store doesn't match the account in the constructor"
+error. The temp directory is removed on exit (best-effort — SDK
+background threads may still be writing when the process shuts
+down, but the OS cleans up on next boot). The interactive Rust
+backend is unaffected: it still uses the persistent per-account
+store at `${primaryRoot}/<safeUserId>/matrix-rust-sdk-store/` and
+does not read `LIGHTNING_TEST_*` env vars.
+
+The harness announces these choices with three additional first
+lines:
+
+```
+smoke: store=temporary
+smoke: store_path=/tmp/lightning-rust-sdk-smoke-XXXXXX/matrix-rust-sdk-store
+smoke: store_exists=no
+smoke: supports_e2ee=false
+```
+
+Fresh temp store means `store_exists=no` on every run; the SDK
+creates the directory as part of login.
 
 Pre-flight validation runs before QGuiApplication in `src/main.cpp`,
 so bad `--backend=` values and unknown flags give the same clean exit-2
@@ -291,22 +317,44 @@ nix develop -c ./build-rust/matrix-client --backend=rust
 
 Recognised in the pre-flight parser (works with or without the
 `build-rust` binary — no display needed). It deletes only per-account
-Rust SDK store directories:
+Rust SDK store directories. As of v0.5.0-prep+5 the scanner uses the
+same `matrix::app_data::allRoots()` helper the runtime backend uses,
+so it inspects **both** the current
+`QStandardPaths::AppLocalDataLocation` layout AND the pre-fix
+"no-org-prefix" layout:
 
 ```
 matrix-client --reset-crypto-store
 
-Base:    /home/…/.local/share/matrix-client
+Scanning: /home/…/.local/share/MatrixClient/matrix-client
+Scanning: /home/…/.local/share/matrix-client
 
-No Rust SDK store directories found.
+Deleted:
+    /home/…/.local/share/MatrixClient/matrix-client/<safeUserId>/matrix-rust-sdk-store
 ```
 
-If any account directory already contains a
-`matrix-rust-sdk-store/`, the flag deletes that directory and lists it
-under `Deleted:`. It never removes `${safeUserId}/cache.sqlite`, never
-touches QSettings session metadata, and never touches SecretStore
-access tokens. Exit code 0 when nothing is found or deletion succeeds;
-exit code 3 if a store directory cannot be removed.
+If neither root contains a store, the output ends with
+`No Rust SDK store directories found.` and exit code 0.
+
+`--reset-crypto-store` NEVER removes `${safeUserId}/cache.sqlite`,
+never touches QSettings session metadata, and never touches
+SecretStore access tokens. Exit code 0 when nothing is found or
+deletion succeeds; exit code 3 if a store directory cannot be
+removed.
+
+**Crypto-store account/device mismatch.** If the Rust SDK login
+fails with
+
+```
+failed to read or write to the crypto store the account in the
+store doesn't match the account in the constructor: expected
+@user:hs:DEV1, got @user:hs:DEV2
+```
+
+you have a stale SDK store from a previous login for that MXID.
+Run `--reset-crypto-store` (which now scans both roots) and retry.
+Pre-v0.5.0-prep+5 the reset scanned the wrong root and could leave
+a stale store behind — that specific bug is fixed.
 
 ## Troubleshooting
 

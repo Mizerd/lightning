@@ -24,6 +24,20 @@ public:
     QString rustBackendVersion() const;
     bool    rustSupportsE2ee() const;
 
+    // Testing hook. When non-empty, the SDK store is created at exactly
+    // this absolute path, bypassing the per-account subdirectory layout
+    // under matrix::app_data::primaryRoot(). Reserved for the headless
+    // smoke harness so back-to-back password logins start from a clean
+    // temporary crypto store and cannot hit the SDK's
+    // "account in the store doesn't match the account in the
+    // constructor" error. Must be called BEFORE login() / restoreSession().
+    void setStorePathOverride(const QString &absolutePath);
+
+    // Introspection for the smoke harness. Populated after ensure has
+    // resolved a store path; empty otherwise.
+    QString rustStorePath() const;
+    bool    rustStorePathIsOverride() const;
+
     // MatrixClient interface -------------------------------------------------
     void login(const QString &homeserver,
                const QString &user,
@@ -100,6 +114,7 @@ private:
     SettingsManager *m_settings;
     void *m_rustHandle = nullptr;
     QString m_storePath;
+    QString m_storePathOverride;
     QString m_homeserver;
     QString m_userId;
     QString m_deviceId;

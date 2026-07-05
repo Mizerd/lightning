@@ -1,4 +1,4 @@
-# Matrix feature status (v0.5.0-prep+4)
+# Matrix feature status (v0.5.0-prep+5)
 
 Honest per-feature status per backend. Ground truth for anything the UI
 claims about support. Do not check anything as "done" here that is not

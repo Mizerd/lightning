@@ -12,8 +12,9 @@ across the rename. The product name is **Lightning**.
 
 ## Status
 
-**v0.5.0-prep+4** — Matrix Rust SDK backend foundation, hardened, plus
-a headless verification harness. No E2EE claim yet.
+**v0.5.0-prep+5** — Matrix Rust SDK backend foundation, hardened, plus
+a headless verification harness with proper store isolation. No E2EE
+claim yet.
 
 The default HTTP backend remains the working production path. The
 optional Rust backend now links `matrix-sdk` v0.18 and wires a real
@@ -21,6 +22,27 @@ Rust-owned SDK client behind the existing C++ `MatrixClient` seam:
 login, session restore, joined-room sync, room-list events, basic text
 timeline events, and plain text sends for unencrypted rooms. QML still
 talks only to C++ models and signals.
+
+**Fixed in v0.5.0-prep+5 (store-path consistency):**
+
+- `--reset-crypto-store` now scans the SAME app-data root the Rust
+  backend writes to (`~/.local/share/MatrixClient/matrix-client/…`)
+  plus the pre-fix "no org prefix" legacy root
+  (`~/.local/share/matrix-client/…`), via the new
+  `matrix::app_data::allRoots()` helper. Previously it scanned only
+  the legacy layout and silently missed real stores, which caused
+  the SDK's "account in the store doesn't match the account in the
+  constructor" login failure to persist across resets.
+- `RustSdkMatrixClient` uses that same helper for its per-account
+  store path — no more silent divergence between the runtime path
+  and the reset scanner.
+- The smoke harness now runs against a fresh `QTemporaryDir` crypto
+  store per invocation, via a new `setStorePathOverride` hook, so
+  back-to-back password logins can't inherit a stale device id
+  from a previous run.
+- Rust store path is logged at INFO (base, slug, absolute store
+  path, exists?, persistent-vs-temporary) — paths only, never
+  tokens or keys.
 
 **New in v0.5.0-prep+4 (verification harness):**
 

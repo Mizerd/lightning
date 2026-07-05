@@ -81,6 +81,8 @@ set(APP_SOURCES
     src/matrix/RoomInfo.h
     src/matrix/TimelineEvent.h
 
+    src/storage/AppDataPaths.h
+    src/storage/AppDataPaths.cpp
     src/storage/CacheStore.h
     src/storage/CacheStore.cpp
     src/storage/SecretStore.h

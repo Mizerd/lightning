@@ -1,7 +1,7 @@
-# Current state (v0.5.0-prep+4, Rust SDK verification harness)
+# Current state (v0.5.0-prep+5, Rust SDK store-path consistency)
 
-Last updated: 2026-07-05 (Rust SDK backend hardening pass + headless
-verification harness).
+Last updated: 2026-07-05 (Rust SDK backend hardening + headless
+verification harness + reset/store-path consistency fix).
 
 This is the "where the repo actually is" doc. Treat it as ground truth
 for a fresh LLM continuation session — read this before
@@ -30,7 +30,8 @@ code.
   - `8205606` rust: pull matrix-sdk deps for offline builds
   - `9eaa488` Wire Matrix Rust SDK backend foundation (Codex)
   - `4c9d4f5` Harden Matrix Rust SDK backend foundation (v0.5.0-prep+3)
-  - HEAD after this pass: `v0.5.0-prep+4: --rust-sdk-smoke-test verification harness`
+  - `8d6f436` Harden Matrix Rust SDK backend testing (v0.5.0-prep+4)
+  - HEAD after this pass: `v0.5.0-prep+5: fix Rust SDK smoke store isolation`
   - Branch: `main`
 
 ## Layered architecture (unchanged from v0.4)
@@ -64,7 +65,51 @@ Crypto:      src/crypto/CryptoManager (capability surface only, no crypto)
   for build-system compatibility (Q_APPLICATION_NAME too — keeps the
   QSettings scope stable across the rename). The login-screen
   sub-heading is backend-aware (v0.4.5).
-- **v0.5.0-prep+4 verification harness (this pass)**: a new headless
+- **v0.5.0-prep+5 store-path consistency (this pass)**: three
+  connected fixes that closed the "SDK still opens an old crypto
+  store after --reset-crypto-store" surprise reported after the
+  headless smoke harness landed:
+  1. New helper `matrix::app_data` at
+     `src/storage/AppDataPaths.{h,cpp}` computes the same
+     `QStandardPaths::AppLocalDataLocation`-style root as the
+     runtime (`<XDG_DATA_HOME>/MatrixClient/matrix-client`) plus a
+     list of legacy roots earlier v0.5.0-prep builds may have
+     written to. Safe to call before `QCoreApplication` exists,
+     which is exactly what `--reset-crypto-store` needs.
+  2. `main.cpp --reset-crypto-store` now iterates
+     `matrix::app_data::allRoots()` and lists every scanned root
+     in its stdout, so users see exactly which layouts were
+     inspected. It never touches `cache.sqlite`, QSettings, or
+     the SecretStore. Bug fixed: pre-v0.5.0-prep+5 the scanner
+     computed `<XDG_DATA_HOME>/matrix-client` directly, missing
+     the `MatrixClient/` organisation-name segment Qt puts in
+     `AppLocalDataLocation`. Any store the runtime created was
+     invisible to reset, so `--reset-crypto-store` produced
+     "No Rust SDK store directories found" while the SDK still
+     opened the same (mismatched) store on the next login.
+  3. `RustSdkMatrixClient` now uses the same helper for its
+     per-account store, adds a `setStorePathOverride(QString)`
+     testing hook for the smoke harness, exposes `rustStorePath()`
+     and `rustStorePathIsOverride()` for diagnostics, and logs
+     `base`, `slug`, `store`, `exists`, `mode` at INFO on the
+     `matrix.rust` category. Path-only — no tokens, keys, or
+     bodies.
+
+  The smoke harness (`src/smoke/RustSdkSmokeTest.cpp`) now creates
+  a `QTemporaryDir` under `/tmp/lightning-rust-sdk-smoke-XXXXXX/`
+  and calls `setStorePathOverride` before login, so consecutive
+  smoke runs never inherit a stale device id. The harness prints
+  `smoke: store=temporary`, `smoke: store_path=<abs>`, and
+  `smoke: store_exists=yes|no` up front and `supports_e2ee=…` in
+  both the header and the summary line.
+
+  Send outcome semantics also relaxed: `send=skipped` (no
+  unencrypted room found) and `send=blocked` (target is
+  encrypted / a Space / not in synced rooms) are now non-fatal
+  and exit code stays 0. Only real send failures / timeouts
+  return exit code 13.
+
+- **v0.5.0-prep+4 verification harness**: a new headless
   smoke-test CLI mode for the Rust backend, gated to
   `ENABLE_RUST_SDK_BACKEND` and only accepted alongside
   `--backend=rust`. Sources at `src/smoke/RustSdkSmokeTest.{h,cpp}`;
