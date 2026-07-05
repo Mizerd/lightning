@@ -210,12 +210,23 @@ Recognised in the pre-flight parser (works with or without the
 honest no-op:
 
 ```
-matrix-client: no Rust SDK crypto store exists yet.
-  matrix-sdk is not linked into this build (v0.5.0-prep).
-  Once the SDK is wired in, this command will delete
-  ${XDG_DATA_HOME}/matrix-client/<safeUserId>/matrix-rust-sdk-store/
-  See docs/next-prompts.md for the wiring task.
+matrix-client --reset-crypto-store (v0.5.0-prep, read-only)
+
+Base:    /home/…/.local/share/matrix-client
+
+No Rust SDK crypto store directories found.
+matrix-sdk is not linked into this build yet, so no
+store has been created for any account. When the SDK
+is wired in (see docs/next-prompts.md Prompt 1), this
+command becomes destructive and removes the per-account
+'matrix-rust-sdk-store' directory only. It will never
+touch cache.sqlite or the SecretStore access token.
 ```
+
+If any account directory already contains a
+`matrix-rust-sdk-store/`, the flag lists it under `Would delete:`
+without actually deleting anything (still v0.5.0-prep behaviour;
+becomes destructive once the SDK is wired in).
 
 Exit code 0. When matrix-sdk is wired in the follow-up pass, the
 flag becomes the destructive reset it advertises — it will delete

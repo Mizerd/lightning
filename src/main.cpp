@@ -3,6 +3,8 @@
 #include <QCommandLineOption>
 #include <QCommandLineParser>
 #include <QCoreApplication>
+#include <QDir>
+#include <QFileInfo>
 #include <QGuiApplication>
 #include <QIcon>
 #include <QQmlApplicationEngine>
@@ -12,6 +14,7 @@
 #include <QTextStream>
 
 #include <cstdlib>
+#include <string>
 
 namespace {
 
@@ -102,17 +105,68 @@ PreflightResult preflightParse(int argc, char *argv[])
             continue;
         }
         if (a == QLatin1String("--reset-crypto-store")) {
-            // v0.5.0-prep: honest no-op. When matrix-sdk lands, this will
-            // find the per-account crypto-store directory and delete it.
-            // For now the store doesn't exist yet, so we exit 0 with a
-            // clear message rather than pretending we deleted something.
+            // v0.5.0-prep: read-only diagnostic. When matrix-sdk lands, this
+            // will delete `<per-account>/matrix-rust-sdk-store/`. Right now
+            // no store can exist yet, so we walk the accounts directory,
+            // list what's there, and honestly report that there's nothing
+            // crypto-related to reset. This is safer than pretending we
+            // deleted something.
             r.action = PreflightResult::ExitSuccess;
+
+            // Resolve the same XDG_DATA_HOME the app itself uses via
+            // QStandardPaths at runtime, without constructing a QApplication.
+            const char *xdg = std::getenv("XDG_DATA_HOME");
+            std::string base;
+            if (xdg && *xdg) {
+                base = xdg;
+            } else {
+                const char *home = std::getenv("HOME");
+                if (home && *home) {
+                    base = std::string(home) + "/.local/share";
+                } else {
+                    base = "<XDG_DATA_HOME unset>";
+                }
+            }
+            const std::string accountsDir = base + "/matrix-client";
+            const QString accountsDirQ = QString::fromStdString(accountsDir);
+
+            QString stores;
+            QDir accountsQDir(accountsDirQ);
+            if (accountsQDir.exists()) {
+                const auto accounts = accountsQDir.entryList(
+                    QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name);
+                for (const auto &acct : accounts) {
+                    const QString cryptoPath = accountsDirQ
+                                                + QLatin1Char('/') + acct
+                                                + QLatin1String("/matrix-rust-sdk-store");
+                    if (QFileInfo::exists(cryptoPath)) {
+                        stores += QStringLiteral("    %1  (WOULD DELETE)\n").arg(cryptoPath);
+                    }
+                }
+            }
+
             r.stdoutMsg = QStringLiteral(
-                "matrix-client: no Rust SDK crypto store exists yet.\n"
-                "  matrix-sdk is not linked into this build (v0.5.0-prep).\n"
-                "  Once the SDK is wired in, this command will delete\n"
-                "  ${XDG_DATA_HOME}/matrix-client/<safeUserId>/matrix-rust-sdk-store/\n"
-                "  See docs/next-prompts.md for the wiring task.\n");
+                "matrix-client --reset-crypto-store (v0.5.0-prep, read-only)\n"
+                "\n"
+                "Base:    %1\n"
+                "\n").arg(accountsDirQ);
+            if (stores.isEmpty()) {
+                r.stdoutMsg += QStringLiteral(
+                    "No Rust SDK crypto store directories found.\n"
+                    "matrix-sdk is not linked into this build yet, so no\n"
+                    "store has been created for any account. When the SDK\n"
+                    "is wired in (see docs/next-prompts.md Prompt 1), this\n"
+                    "command becomes destructive and removes the per-account\n"
+                    "'matrix-rust-sdk-store' directory only. It will never\n"
+                    "touch cache.sqlite or the SecretStore access token.\n");
+            } else {
+                r.stdoutMsg += QStringLiteral(
+                    "Would delete:\n%1\n"
+                    "(But this is v0.5.0-prep: matrix-sdk is not linked yet,\n"
+                    "so the directory above almost certainly came from a\n"
+                    "future build. Nothing is being deleted right now.)\n"
+                    ).arg(stores);
+            }
             return r;
         }
         // v0.4.3: catch the user-friendly-looking shortcuts before Qt sees

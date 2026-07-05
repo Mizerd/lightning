@@ -57,10 +57,40 @@ downstream of matrix-sdk being linked in — do that first.
 
 ## Prompt 1 — Wire matrix-sdk end-to-end for E2EE
 
-**Precondition**: the user must have explicitly authorised
-`cargo build` against the crates.io ecosystem for this project.
-Claude Code's auto-mode classifier refuses to pull ~500 transitive
-crates in without that. Ask before starting.
+**Precondition — you MUST grant this at the settings layer, not in
+the prompt**: Claude Code's auto-mode classifier will refuse
+`cargo fetch` / `cargo build` for `matrix-sdk` (Untrusted Code
+Integration — ~500 transitive crates linked statically into the
+app binary) no matter how loudly the prompt authorises it. Two
+attempts have already been blocked (v0.5.0-prep and a follow-up
+retry).
+
+The reliable way to unblock the next attempt:
+
+1. In the project's `.claude/settings.local.json` (create it if
+   needed), add:
+
+   ```json
+   {
+     "permissions": {
+       "allow": [
+         "Bash(nix develop -c cargo *)",
+         "Bash(nix develop -c cargo fetch*)",
+         "Bash(nix develop -c cargo build*)",
+         "Bash(nix develop -c cargo update*)",
+         "Bash(cd rust && nix develop -c cargo *)"
+       ]
+     }
+   }
+   ```
+
+2. Restart Claude Code (or start a fresh session) so the settings
+   are re-read from disk.
+3. Re-run the "Wire matrix-sdk" prompt.
+
+The classifier's `Untrusted Code Integration` decision persists
+per-session even when the current prompt text explicitly says
+"you are authorised". Settings-level allow-listing overrides it.
 
 ### 1. Cargo.toml
 

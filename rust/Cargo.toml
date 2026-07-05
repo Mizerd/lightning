@@ -12,14 +12,11 @@ name = "matrix_client_rust"
 # cdylib would require runtime loader plumbing we do not need here.
 crate-type = ["staticlib"]
 
-# v0.5.0-prep: no matrix-sdk dependency yet. The bridge exposes just
-# enough for the C++ side to prove it can link against Rust and call in.
-#
-# Wiring the real matrix-sdk crate is the next follow-up prompt (see
-# docs/next-prompts.md). That step requires explicit user authorization
-# for the ~500 transitive dependencies matrix-sdk pulls from crates.io,
-# and is a materially bigger build (~15 min from scratch), so it lives
-# in its own gated pass rather than sneaking in here.
+# v0.5.0-prep: no matrix-sdk dependency yet. See docs/next-prompts.md for
+# the wiring recipe. Adding the crate is blocked at the environment level
+# by the untrusted-code-integration classifier — the user needs to add a
+# project-scoped Bash permission rule for `nix develop -c cargo *` inside
+# `rust/` before the next attempt.
 [dependencies]
 
 [profile.release]
