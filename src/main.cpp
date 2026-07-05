@@ -1,5 +1,9 @@
 #include "app/AppController.h"
 
+#ifdef ENABLE_RUST_SDK_BACKEND
+#include "smoke/RustSdkSmokeTest.h"
+#endif
+
 #include <QCommandLineOption>
 #include <QCommandLineParser>
 #include <QCoreApplication>
@@ -55,11 +59,13 @@ struct PreflightResult {
         ExitSuccess,   // e.g. --help emitted, exit 0
         ExitError,     // bad argument, exit 2
         ExitResetError, // --reset-crypto-store failed, exit 3
+        RunSmokeTest,  // --rust-sdk-smoke-test (Rust build only)
     };
     Action action = Continue;
     AppController::Backend backend = AppController::HttpBackend;
     bool backendExplicit = false;
     bool mockAliasUsed = false;
+    bool smokeTestRequested = false;
     QString stderrMsg;
     QString stdoutMsg;
 };
@@ -92,6 +98,11 @@ PreflightResult preflightParse(int argc, char *argv[])
                 "                       ${XDG_DATA_HOME}/matrix-client/*/matrix-rust-sdk-store.\n"
                 "                       It never touches cache.sqlite or SecretStore tokens.\n"
                 "                       Exit code 0 when nothing is found; exit code 3 on error.\n"
+                "  --rust-sdk-smoke-test\n"
+                "                       Headless verification harness for --backend=rust\n"
+                "                       (Rust-enabled build only). Reads credentials from\n"
+                "                       LIGHTNING_TEST_HOMESERVER / LIGHTNING_TEST_USER /\n"
+                "                       LIGHTNING_TEST_PASSWORD. See docs/build-and-test.md.\n"
                 "\n"
                 "See docs/build-and-test.md and docs/backend-contract.md for details.\n");
             return r;
@@ -103,6 +114,10 @@ PreflightResult preflightParse(int argc, char *argv[])
         }
         if (a == QLatin1String("--mock")) {
             r.mockAliasUsed = true;
+            continue;
+        }
+        if (a == QLatin1String("--rust-sdk-smoke-test")) {
+            r.smokeTestRequested = true;
             continue;
         }
         if (a == QLatin1String("--reset-crypto-store")) {
@@ -241,6 +256,27 @@ PreflightResult preflightParse(int argc, char *argv[])
         return r;
     }
 
+    if (r.smokeTestRequested) {
+        if (r.backend != AppController::RustBackend || !r.backendExplicit) {
+            r.action = PreflightResult::ExitError;
+            r.stderrMsg = QStringLiteral(
+                "matrix-client: --rust-sdk-smoke-test requires "
+                "'--backend=rust'.\n"
+                "See docs/build-and-test.md for the environment variables "
+                "the harness reads.\n");
+            return r;
+        }
+#ifdef ENABLE_RUST_SDK_BACKEND
+        r.action = PreflightResult::RunSmokeTest;
+#else
+        r.action = PreflightResult::ExitError;
+        r.stderrMsg = QStringLiteral(
+            "matrix-client: --rust-sdk-smoke-test needs a Rust-enabled "
+            "build (reconfigure with -DENABLE_RUST_SDK_BACKEND=ON).\n");
+#endif
+        return r;
+    }
+
     return r;
 }
 
@@ -265,6 +301,16 @@ int main(int argc, char *argv[])
         QTextStream(stderr) << pf.stderrMsg;
         return 3;
     }
+#ifdef ENABLE_RUST_SDK_BACKEND
+    if (pf.action == PreflightResult::RunSmokeTest) {
+        // Headless: no QGuiApplication, no QML engine, no display probe.
+        QCoreApplication::setOrganizationName(
+            QStringLiteral("MatrixClient"));
+        QCoreApplication::setOrganizationDomain(
+            QStringLiteral("matrix-client.local"));
+        return runRustSdkSmokeTest(argc, argv);
+    }
+#endif
 
     // Second preflight: refuse to construct QGuiApplication when no display
     // can be reached. Otherwise Qt calls qFatal → abort() from its platform

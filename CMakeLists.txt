@@ -113,6 +113,8 @@ if(ENABLE_RUST_SDK_BACKEND)
     list(APPEND APP_SOURCES
         src/matrix/RustSdkMatrixClient.h
         src/matrix/RustSdkMatrixClient.cpp
+        src/smoke/RustSdkSmokeTest.h
+        src/smoke/RustSdkSmokeTest.cpp
     )
 endif()
 

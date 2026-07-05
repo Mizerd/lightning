@@ -1,4 +1,4 @@
-# Matrix feature status (v0.5.0-prep+3)
+# Matrix feature status (v0.5.0-prep+4)
 
 Honest per-feature status per backend. Ground truth for anything the UI
 claims about support. Do not check anything as "done" here that is not
@@ -142,6 +142,18 @@ Legend:
      `[unable to decrypt yet]` placeholder. Ciphertext is not
      forwarded through the FFI in any form.
   See `docs/backend-contract.md` for the full FFI event schema.
+- **Rust SDK — v0.5.0-prep+4 verification harness.**
+  `--rust-sdk-smoke-test` is a new headless entry (Rust-enabled
+  build only) that logs in against a real homeserver, drives
+  `startSync()`, counts joined / encrypted / Space rooms, counts
+  timeline events (including the `undecryptable` placeholders), and
+  optionally sends one probe text via `LIGHTNING_TEST_SEND=1`. It
+  runs under `QCoreApplication` with a 60 s budget and reads
+  credentials only from environment variables. It never prints
+  bodies / tokens / passwords / crypto material, and constructs
+  `RustSdkMatrixClient` with a null `SettingsManager` so it cannot
+  overwrite the interactive user's cached session. Full usage +
+  exit-code table in `docs/build-and-test.md`.
 
 ## Where the honest E2EE flag lives
 

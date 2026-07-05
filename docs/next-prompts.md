@@ -59,8 +59,18 @@ homeserver before the UI may claim support.
   renders them as `[unable to decrypt yet]`; ciphertext is never
   forwarded through the FFI.
 Full FFI event schema is documented in `docs/backend-contract.md`.
-The manual verification against the real test homeserver (Prompt 1
-below) is still pending.
+
+**As of v0.5.0-prep+4, a headless verification harness ships**:
+`--rust-sdk-smoke-test` (Rust-enabled build only). Reads credentials
+from env vars, runs under `QCoreApplication`, has a 60 s budget,
+prints counts/statuses only. See `docs/build-and-test.md`. The
+harness runs Prompt 1 below in a repeatable non-interactive way —
+CI-friendly and safe to script into a `.envrc`-guarded shell.
+
+Manual verification against the real test homeserver (Prompt 1
+below) is still user-driven: run the harness with your credentials
+in env vars, or use the interactive Rust GUI path documented in
+`docs/build-and-test.md#manual-test-with-the-rust-backend`.
 
 Ordering rationale: first harden the Rust backend against the test
 homeserver with unencrypted rooms and session restore. Then add

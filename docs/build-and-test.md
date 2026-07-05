@@ -83,6 +83,66 @@ nix develop -c bash -lc './build-rust/matrix-client --reset-crypto-store || true
 nix develop -c bash -lc './build-rust/matrix-client --version'
 ```
 
+### Headless Rust SDK smoke test (v0.5.0-prep+4)
+
+The Rust-enabled build ships a `--rust-sdk-smoke-test` verification
+harness. It talks to a real homeserver, reads credentials **only**
+from environment variables (never CLI arguments), and prints
+counts/statuses — never bodies, tokens, passwords, or crypto material.
+
+```bash
+LIGHTNING_TEST_HOMESERVER=https://your-homeserver \
+LIGHTNING_TEST_USER='@your-user:your-homeserver' \
+LIGHTNING_TEST_PASSWORD='<paste-only-into-your-shell-history-scrubber>' \
+nix develop -c ./build-rust/matrix-client --backend=rust --rust-sdk-smoke-test
+```
+
+Optional environment:
+
+- `LIGHTNING_TEST_SEND=1` — after login + initial sync, send one
+  probe text `"Lightning smoke-test <epoch-seconds>"` to a
+  non-encrypted joined room. Never sends into encrypted rooms.
+- `LIGHTNING_TEST_ROOM_ID='!abc:server'` — pin the target room for
+  the probe send. Refused if the room is encrypted or a Space.
+
+Output format (all lines prefixed `smoke: `):
+
+```
+smoke: start homeserver=<hs>
+smoke: state=connecting
+smoke: login=ok
+smoke: state=syncing
+smoke: rooms joined=<N> encrypted=<M> spaces=<S>
+smoke: initial_sync=done
+smoke: send=start room=!…    # only when LIGHTNING_TEST_SEND=1
+smoke: send=ok               # or send=failed / send=timeout
+smoke: summary login=<r> sync=<r> rooms=<N> encrypted_rooms=<M> …
+```
+
+Exit codes:
+
+- `0` — login ok, initial sync ok, at least one joined room, plus
+  `send=ok` when `LIGHTNING_TEST_SEND=1`.
+- `2` — missing env vars OR `--rust-sdk-smoke-test` used without
+  `--backend=rust`, OR the current build has no Rust backend.
+- `10` — login failed.
+- `11` — initial sync did not complete within 30 s.
+- `12` — zero joined rooms observed.
+- `13` — `LIGHTNING_TEST_SEND=1` was set and the probe send failed
+  or timed out at 15 s.
+
+The harness runs headless via `QCoreApplication`, so no display is
+needed and it never prompts. Total wall-clock budget is 60 s.
+
+**Session-safety guarantee.** The harness constructs
+`RustSdkMatrixClient(nullptr, ...)` — passing a null `SettingsManager`
+so the SDK's login response can never overwrite the interactive user's
+cached session (access token, syncToken, homeserver). The Rust SDK
+store IS still written under
+`${XDG_DATA_HOME}/matrix-client/<safeUserId>/matrix-rust-sdk-store/`
+for the test account. Wipe it with `--reset-crypto-store` if you
+don't want it hanging around.
+
 Pre-flight validation runs before QGuiApplication in `src/main.cpp`,
 so bad `--backend=` values and unknown flags give the same clean exit-2
 message even without offscreen QPA.

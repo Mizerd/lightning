@@ -1,7 +1,34 @@
-# Threat model (v0.5.0-prep)
+# Threat model (v0.5.0-prep+4)
 
 Scoped to what the current v0.5.0-prep foundation needs a reader to
 know. Full model is v1.0 material.
+
+## Verification harness (v0.5.0-prep+4)
+
+`--rust-sdk-smoke-test` (Rust-enabled build only) reads credentials
+from environment variables and drives a live login/sync/probe-send
+sequence against a real homeserver. Threat surface it deliberately
+minimises:
+
+- Credentials come from `LIGHTNING_TEST_HOMESERVER`,
+  `LIGHTNING_TEST_USER`, `LIGHTNING_TEST_PASSWORD` — never CLI
+  arguments — so `ps` / shell history / process listing never see a
+  password.
+- Output is `smoke:` lines with counts and statuses. Message
+  bodies, access tokens, and Rust SDK crypto material are never
+  printed. Matrix SDK error strings are trimmed to 240 characters
+  and one line before being surfaced.
+- A null `SettingsManager` is injected into `RustSdkMatrixClient`
+  so a successful login response cannot overwrite the interactive
+  user's `SecretStore` token, syncToken, or homeserver.
+- The harness still writes the Rust SDK store to
+  `${XDG_DATA_HOME}/matrix-client/<safeUserId>/matrix-rust-sdk-store/`
+  for the test account. Wipe it with `--reset-crypto-store` when
+  you are done.
+- The harness only sends into non-encrypted, non-Space rooms, and
+  only when `LIGHTNING_TEST_SEND=1` is explicitly set. Encrypted
+  send remains gated by the underlying `supportsE2ee()` = false
+  contract until the E2EE work lands.
 
 ## In scope
 

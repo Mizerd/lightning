@@ -12,8 +12,8 @@ across the rename. The product name is **Lightning**.
 
 ## Status
 
-**v0.5.0-prep+3** — Matrix Rust SDK backend foundation, hardened. No
-E2EE claim yet.
+**v0.5.0-prep+4** — Matrix Rust SDK backend foundation, hardened, plus
+a headless verification harness. No E2EE claim yet.
 
 The default HTTP backend remains the working production path. The
 optional Rust backend now links `matrix-sdk` v0.18 and wires a real
@@ -21,6 +21,19 @@ Rust-owned SDK client behind the existing C++ `MatrixClient` seam:
 login, session restore, joined-room sync, room-list events, basic text
 timeline events, and plain text sends for unencrypted rooms. QML still
 talks only to C++ models and signals.
+
+**New in v0.5.0-prep+4 (verification harness):**
+
+- `--rust-sdk-smoke-test` in the Rust-enabled build. Reads
+  credentials from `LIGHTNING_TEST_HOMESERVER` /
+  `LIGHTNING_TEST_USER` / `LIGHTNING_TEST_PASSWORD` (never CLI args),
+  runs headless via `QCoreApplication`, has a 60 s budget, and prints
+  only counts / statuses — never bodies, tokens, passwords, or
+  crypto material. Optional `LIGHTNING_TEST_SEND=1` (with optional
+  `LIGHTNING_TEST_ROOM_ID`) sends one probe message to a
+  non-encrypted room. Constructed with a `nullptr` `SettingsManager`
+  so it cannot overwrite the interactive user's cached session.
+  Full usage in [`docs/build-and-test.md`](docs/build-and-test.md#headless-rust-sdk-smoke-test-v050-prep4).
 
 **Hardened in v0.5.0-prep+3 (foundation bug-fix pass):**
 

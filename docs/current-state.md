@@ -1,6 +1,7 @@
-# Current state (v0.5.0-prep+3, hardened Rust SDK foundation)
+# Current state (v0.5.0-prep+4, Rust SDK verification harness)
 
-Last updated: 2026-07-05 (Rust SDK backend hardening pass).
+Last updated: 2026-07-05 (Rust SDK backend hardening pass + headless
+verification harness).
 
 This is the "where the repo actually is" doc. Treat it as ground truth
 for a fresh LLM continuation session — read this before
@@ -28,7 +29,8 @@ code.
   - `9ade51b` v0.5.0-prep+1: --reset-crypto-store shows resolved paths; matrix-sdk still blocked at classifier layer
   - `8205606` rust: pull matrix-sdk deps for offline builds
   - `9eaa488` Wire Matrix Rust SDK backend foundation (Codex)
-  - HEAD after this pass: `v0.5.0-prep+3: harden Rust FFI (bounded queue, sync-start race fix, undecryptable placeholder)`
+  - `4c9d4f5` Harden Matrix Rust SDK backend foundation (v0.5.0-prep+3)
+  - HEAD after this pass: `v0.5.0-prep+4: --rust-sdk-smoke-test verification harness`
   - Branch: `main`
 
 ## Layered architecture (unchanged from v0.4)
@@ -62,7 +64,39 @@ Crypto:      src/crypto/CryptoManager (capability surface only, no crypto)
   for build-system compatibility (Q_APPLICATION_NAME too — keeps the
   QSettings scope stable across the rename). The login-screen
   sub-heading is backend-aware (v0.4.5).
-- **v0.5.0-prep+3 hardening (this pass)**: three targeted fixes on
+- **v0.5.0-prep+4 verification harness (this pass)**: a new headless
+  smoke-test CLI mode for the Rust backend, gated to
+  `ENABLE_RUST_SDK_BACKEND` and only accepted alongside
+  `--backend=rust`. Sources at `src/smoke/RustSdkSmokeTest.{h,cpp}`;
+  entry point invoked from `src/main.cpp` after preflight, before
+  `QGuiApplication`.
+  - Reads credentials only from environment variables
+    (`LIGHTNING_TEST_HOMESERVER`, `LIGHTNING_TEST_USER`,
+    `LIGHTNING_TEST_PASSWORD`, optional `LIGHTNING_TEST_SEND=1`,
+    optional `LIGHTNING_TEST_ROOM_ID`). No creds ever land on a
+    command line.
+  - Constructs `RustSdkMatrixClient(nullptr, &app)` on purpose — a
+    null `SettingsManager` prevents the smoke test from ever
+    overwriting the interactive user's cached access token,
+    syncToken, or homeserver. The Rust SDK store *is* still created
+    under the test account's slug and can be wiped with
+    `--reset-crypto-store`.
+  - Prints `smoke: …` lines with counts (joined room count,
+    encrypted room count, Space count, timeline event count,
+    undecryptable event count) and statuses (`login=ok/failed`,
+    `initial_sync=done`, `send=ok/failed/timeout`). Never prints
+    message bodies, tokens, passwords, or crypto keys.
+  - 60 s wall-clock budget with intermediate 30 s post-login sync
+    guard and 15 s post-send confirmation guard. Exit codes: 0 on
+    success, 10/11/12 for login/sync/room-count failures, 13 for
+    send failure (only when `LIGHTNING_TEST_SEND=1`), 2 for
+    missing env / wrong backend / wrong build.
+  - `--help` output documents the flag. The preflight rejects it in
+    a non-Rust build with exit 2 and a clean pointer to
+    `-DENABLE_RUST_SDK_BACKEND=ON`.
+  - See `docs/build-and-test.md` for exact usage and safety notes.
+
+- **v0.5.0-prep+3 hardening**: three targeted fixes on
   top of Codex's `9eaa488` foundation.
   - **Bounded event queue.** The Rust-side `VecDeque<String>` used
     to accept unbounded pushes; a stalled C++ poll timer would
