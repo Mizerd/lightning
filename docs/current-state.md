@@ -1,7 +1,61 @@
-# Current state (v0.5.0-prep+5, Rust SDK store-path consistency)
+# Current state (v0.5.0-prep+6, Rust SDK verified live + encrypted diagnostics)
 
-Last updated: 2026-07-05 (Rust SDK backend hardening + headless
-verification harness + reset/store-path consistency fix).
+Last updated: 2026-07-05 (Rust SDK backend live-verified against
+matrix.smetonis.net + encrypted-receive diagnostics + encrypted-send
+probe FFI).
+
+## Live verification status (v0.5.0-prep+6)
+
+The maintainer ran the headless smoke harness twice against
+`@test:matrix.smetonis.net` after the v0.5.0-prep+5 store-isolation
+fix landed. Both runs exited 0 from a fresh QTemporaryDir SDK store.
+
+Run 1 (no send):
+
+```
+smoke: rooms joined=2 encrypted=2 spaces=1
+smoke: initial_sync=done
+smoke: summary login=ok sync=ok rooms=2 encrypted_rooms=2 spaces=1
+       timeline_events=4 undecryptable=4 send=n/a supports_e2ee=false
+```
+
+Run 2 (LIGHTNING_TEST_SEND=1):
+
+```
+smoke: send=skipped reason=no_unencrypted_room
+smoke: summary … send=skipped(no_unencrypted_room) …
+```
+
+**What this proves:**
+
+- Rust backend live login works (via matrix-sdk password login).
+- Rust backend live joined-room sync works.
+- Room list delivery works (2 rooms).
+- Space detection works (1 Space).
+- Timeline event delivery works (4 events observed).
+- All observed events on this account are encrypted → the
+  encrypted-timeline dispatch path is exercised.
+- No decryption is possible from a fresh temp store — expected
+  behaviour, not a bug.
+- The plain-text send path safely skips when no unencrypted room
+  exists.
+- Smoke store isolation holds across back-to-back runs (no crypto
+  store account/device mismatch).
+
+**What this does NOT prove yet (unchanged from prep+5):**
+
+- Encrypted receive against Element Classic — needs a device with
+  the room keys, or key backup / a persistent store that has
+  received them. Both are v0.5.0-prep+7 targets.
+- Encrypted send — the FFI + wrapper are in place as of prep+6,
+  gated to the smoke harness only. Interactive UI still refuses
+  encrypted sends. Verification is deferred to a session where the
+  operator can send a marker from Element Classic and confirm the
+  round-trip in both directions.
+
+`CryptoManager::supportsE2ee()` remains **false**. Flipping it
+requires both `expect_text=seen` on a real marker AND
+`encrypted_send=ok` verified in Element Classic.
 
 This is the "where the repo actually is" doc. Treat it as ground truth
 for a fresh LLM continuation session — read this before
@@ -31,7 +85,8 @@ code.
   - `9eaa488` Wire Matrix Rust SDK backend foundation (Codex)
   - `4c9d4f5` Harden Matrix Rust SDK backend foundation (v0.5.0-prep+3)
   - `8d6f436` Harden Matrix Rust SDK backend testing (v0.5.0-prep+4)
-  - HEAD after this pass: `v0.5.0-prep+5: fix Rust SDK smoke store isolation`
+  - `9bf3c83` Fix Rust SDK smoke store isolation (v0.5.0-prep+5)
+  - HEAD after this pass: `v0.5.0-prep+6: Rust SDK encrypted receive diagnostics + encrypted send probe`
   - Branch: `main`
 
 ## Layered architecture (unchanged from v0.4)
@@ -65,7 +120,71 @@ Crypto:      src/crypto/CryptoManager (capability surface only, no crypto)
   for build-system compatibility (Q_APPLICATION_NAME too — keeps the
   QSettings scope stable across the rename). The login-screen
   sub-heading is backend-aware (v0.4.5).
-- **v0.5.0-prep+5 store-path consistency (this pass)**: three
+- **v0.5.0-prep+6 encrypted-receive diagnostics + encrypted-send
+  probe (this pass)**: five connected changes wired end to end
+  around real, safe E2EE plumbing — but no E2EE claim is made
+  from the UI yet.
+
+  1. `TimelineEvent` (`src/matrix/TimelineEvent.h`) gains
+     `isEncrypted`, `isDecrypted`, `undecryptable`, `errorKind`.
+     Defaults keep HTTP and Mock unchanged. All plumbing is
+     metadata-only — the C++ layer never derives plaintext from
+     these fields.
+  2. `rust/src/lib.rs` `install_event_handlers` splits the two
+     paths precisely:
+     - `OriginalSyncRoomMessageEvent` (plaintext or SDK-decrypted)
+       emits `is_encrypted = encryption_info.is_some()`,
+       `is_decrypted = encryption_info.is_some()`,
+       `undecryptable = false`.
+     - `OriginalSyncRoomEncryptedEvent` (undecryptable) emits
+       `is_encrypted = true, is_decrypted = false,
+       undecryptable = true, error_kind = "no_key"`, empty body.
+     The legacy `decrypted` field is still emitted for one
+     release for backward compat.
+  3. New Rust FFI `mx_rust_probe_encrypted_send` — mirror of
+     `mx_rust_send_text` that ONLY accepts encrypted rooms
+     (refuses non-encrypted with `encrypted_send_failed`).
+     matrix-sdk does the encryption end-to-end via its
+     `e2e-encryption + sqlite` features; the FFI never sees
+     ciphertext, keys, or session material. On success the SDK
+     returns a real server event id (safe to log).
+  4. `RustSdkMatrixClient::probeEncryptedSend(room, body, marker)`
+     wraps that FFI, tracks the txn id in a new `m_pendingProbes`
+     map, and emits a new signal
+     `encryptedSendProbeResult(room, marker, ok, serverEventId,
+     message)`. Deliberately NOT wired into QML — the interactive
+     UI send path stays gated on `CryptoManager::supportsE2ee()`.
+     `handleEncryptedSendOk` / `handleEncryptedSendFailed` bridge
+     the FFI events to that signal.
+  5. Smoke harness (`src/smoke/RustSdkSmokeTest.cpp`) uses the new
+     `TimelineEvent` flags to break `undecryptable` out of the
+     total timeline event count and add `encrypted_events` and
+     `decrypted_events`. Two new env vars land:
+     - `LIGHTNING_TEST_EXPECT_TEXT` — a marker sent from Element
+       Classic. The harness watches decrypted bodies for a match
+       but never prints the marker itself; only `expect_text=seen`
+       or `not_seen` is emitted. Combined with
+       `LIGHTNING_TEST_REQUIRE_EXPECT=1` a missing marker becomes
+       exit code 14.
+     - `LIGHTNING_TEST_SEND_ENCRYPTED=1` — drives
+       `probeEncryptedSend` against the first encrypted joined
+       room (or `LIGHTNING_TEST_ROOM_ID`). Prints
+       `encrypted_send=ok marker=<short-id> event_id=<id>` on
+       success. Real send failures / timeouts return exit 15;
+       "no encrypted room" and "target not encrypted" are
+       `skipped` and remain exit 0.
+     The summary line now includes `encrypted_events=N`,
+     `decrypted_events=D`, `encrypted_send=<status>`,
+     `expect_text=<status>`, and `supports_e2ee=<bool>`.
+
+  `mx_rust_supports_e2ee()` still returns 0.
+  `CryptoManager::supportsE2ee()` still returns false. The
+  compile-time gate `RUST_SDK_E2EE_WIRED` is deliberately NOT
+  defined this pass — flipping it requires both
+  `expect_text=seen` AND `encrypted_send=ok` verified against
+  Element Classic on a device with the room keys.
+
+- **v0.5.0-prep+5 store-path consistency**: three
   connected fixes that closed the "SDK still opens an old crypto
   store after --reset-crypto-store" surprise reported after the
   headless smoke harness landed:

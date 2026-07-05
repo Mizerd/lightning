@@ -38,6 +38,20 @@ public:
     QString rustStorePath() const;
     bool    rustStorePathIsOverride() const;
 
+    // Encrypted-room test probe (v0.5.0-prep+6). Bypasses the C++
+    // CryptoManager::supportsE2ee gate and calls
+    // mx_rust_probe_encrypted_send. The Rust side still performs the
+    // encryption via matrix-sdk (e2e-encryption + sqlite features);
+    // C++ never handles ciphertext or keys. Reserved for the headless
+    // smoke harness so E2EE can be verified before the UI gate is
+    // flipped. Emits encryptedSendProbeResult(...) with a safe marker
+    // and either an SDK event id or a non-secret failure message. Do
+    // NOT wire this into QML — the interactive send path stays gated
+    // on supportsE2ee.
+    void probeEncryptedSend(const QString &roomId,
+                            const QString &body,
+                            const QString &marker);
+
     // MatrixClient interface -------------------------------------------------
     void login(const QString &homeserver,
                const QString &user,
@@ -85,10 +99,29 @@ public:
     bool canPaginate(const QString &) const override { return false; }
     bool paginating(const QString &) const override { return false; }
 
+Q_SIGNALS:
+    // v0.5.0-prep+6. Fires exactly once per probeEncryptedSend call.
+    // `ok`: true when matrix-sdk returned a real server event id.
+    // `marker`: caller-supplied opaque identifier (never contains
+    //           the probe body). Safe to log.
+    // `serverEventId`: only meaningful when ok == true.
+    // `message`: non-secret failure detail when ok == false; empty on
+    //            success. May be truncated / one-lined by the caller.
+    void encryptedSendProbeResult(const QString &roomId,
+                                  const QString &marker,
+                                  bool ok,
+                                  const QString &serverEventId,
+                                  const QString &message);
+
 private:
     struct PendingSend {
         QString roomId;
         QString localEventId;
+    };
+
+    struct PendingProbe {
+        QString roomId;
+        QString marker;
     };
 
     void refuseSend(const char *op);
@@ -104,6 +137,8 @@ private:
     void handleTimelineEvent(const QJsonObject &event);
     void handleSendOk(const QJsonObject &event);
     void handleSendFailed(const QJsonObject &event);
+    void handleEncryptedSendOk(const QJsonObject &event);
+    void handleEncryptedSendFailed(const QJsonObject &event);
     QString nextTxnId();
     bool isRoomEncrypted(const QString &roomId) const;
     TimelineEvent buildOwnEcho(const QString &roomId,
@@ -125,5 +160,6 @@ private:
     QHash<QString, RoomInfo> m_rooms;
     QHash<QString, QList<TimelineEvent>> m_timelines;
     QHash<QString, PendingSend> m_pendingSends;
+    QHash<QString, PendingProbe> m_pendingProbes;
     quint64 m_txnCounter = 0;
 };

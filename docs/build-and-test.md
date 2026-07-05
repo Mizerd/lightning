@@ -103,26 +103,55 @@ Optional environment:
   probe text `"Lightning smoke-test <epoch-seconds>"` to a
   non-encrypted joined room. Never sends into encrypted rooms.
 - `LIGHTNING_TEST_ROOM_ID='!abc:server'` — pin the target room for
-  the probe send. Refused if the room is encrypted or a Space.
+  either the plain or the encrypted probe send. `SEND` refuses an
+  encrypted target; `SEND_ENCRYPTED` refuses a non-encrypted target.
+- `LIGHTNING_TEST_EXPECT_TEXT='<marker>'` (v0.5.0-prep+6) — watch
+  decrypted timeline bodies for `<marker>` and report only whether
+  it was seen. The marker itself is **never** printed by the
+  harness. Typical use: send `<marker>` from Element Classic into an
+  encrypted room, then run the smoke test to verify Lightning can
+  actually decrypt it. Combine with `LIGHTNING_TEST_REQUIRE_EXPECT=1`
+  to make an un-seen marker return non-zero (exit 14) instead of
+  the default advisory `expect_text=not_seen`.
+- `LIGHTNING_TEST_SEND_ENCRYPTED=1` (v0.5.0-prep+6) — probe encrypted
+  send. Picks the first encrypted joined room (or the room named by
+  `LIGHTNING_TEST_ROOM_ID`) and asks matrix-sdk to encrypt + send a
+  short probe. Reports `encrypted_send=ok marker=<short-id>
+  event_id=<id>` on success. Body content is not printed. The
+  matrix-sdk `e2e-encryption + sqlite` features do the encryption
+  end-to-end; the C++ side never sees ciphertext or keys.
 
 Output format (all lines prefixed `smoke: `):
 
 ```
+smoke: store=temporary
+smoke: store_path=/tmp/lightning-rust-sdk-smoke-XXXXXX/matrix-rust-sdk-store
+smoke: store_exists=no
+smoke: supports_e2ee=false
+smoke: expect_text=configured require=true|false     # only with EXPECT_TEXT
 smoke: start homeserver=<hs>
 smoke: state=connecting
 smoke: login=ok
 smoke: state=syncing
 smoke: rooms joined=<N> encrypted=<M> spaces=<S>
 smoke: initial_sync=done
-smoke: send=start room=!…    # only when LIGHTNING_TEST_SEND=1
-smoke: send=ok               # or send=failed / send=timeout
-smoke: summary login=<r> sync=<r> rooms=<N> encrypted_rooms=<M> …
+smoke: expect_text=seen                              # first decrypted match
+smoke: send=start room=!…                            # LIGHTNING_TEST_SEND=1
+smoke: send=ok                                       # or send=failed/timeout
+smoke: encrypted_send=start room=!… marker=SMK-…    # SEND_ENCRYPTED=1
+smoke: encrypted_send=ok marker=SMK-… event_id=$…   # or =failed / =skipped
+smoke: summary login=<r> sync=<r> rooms=<N> encrypted_rooms=<M>
+       spaces=<S> timeline_events=<T> encrypted_events=<E>
+       decrypted_events=<D> undecryptable=<U> send=<r> encrypted_send=<r>
+       expect_text=<seen|not_seen|n/a> supports_e2ee=<bool>
 ```
 
 Exit codes:
 
 - `0` — login ok, initial sync ok, at least one joined room, plus
-  `send=ok` when `LIGHTNING_TEST_SEND=1`.
+  `send=ok`/`skipped`/`blocked` when `LIGHTNING_TEST_SEND=1`, plus
+  `encrypted_send=ok`/`skipped` when `LIGHTNING_TEST_SEND_ENCRYPTED=1`,
+  plus `expect_text=seen` when `LIGHTNING_TEST_REQUIRE_EXPECT=1`.
 - `2` — missing env vars OR `--rust-sdk-smoke-test` used without
   `--backend=rust`, OR the current build has no Rust backend.
 - `10` — login failed.
@@ -134,6 +163,11 @@ Exit codes:
   (target is encrypted / a Space / not in synced rooms) are
   reported honestly but do NOT trigger a non-zero exit — they are
   the expected outcome on an all-encrypted account.
+- `14` — `LIGHTNING_TEST_REQUIRE_EXPECT=1` was set and the expected
+  marker was not seen in any decrypted timeline body.
+- `15` — `LIGHTNING_TEST_SEND_ENCRYPTED=1` was set and the encrypted
+  send probe actually failed (`encrypted_send=failed`) or timed out
+  (`encrypted_send=timeout`). Skipped outcomes stay exit 0.
 
 The harness runs headless via `QCoreApplication`, so no display is
 needed and it never prompts. Total wall-clock budget is 60 s.

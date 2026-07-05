@@ -632,6 +632,16 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event)
         return;
     }
 
+    if (type == QLatin1String("encrypted_send_ok")) {
+        handleEncryptedSendOk(event);
+        return;
+    }
+
+    if (type == QLatin1String("encrypted_send_failed")) {
+        handleEncryptedSendFailed(event);
+        return;
+    }
+
     if (type == QLatin1String("sync_error")) {
         setState(Error);
         Q_EMIT errorOccurred(event.value(QStringLiteral("message")).toString(
@@ -743,13 +753,31 @@ void RustSdkMatrixClient::handleTimelineEvent(const QJsonObject &event)
     timelineEvent.type = typeFromString(obj.value(QStringLiteral("msgtype")).toString());
     timelineEvent.status = TimelineEvent::Sent;
 
+    // v0.5.0-prep+6: propagate the encryption metadata the Rust bridge
+    // emits (is_encrypted / is_decrypted / undecryptable / error_kind).
+    // Fall back to the prep+5 `decrypted` boolean for backward
+    // compatibility if the FFI is ever downgraded. Never derive
+    // plaintext from these fields — they are metadata only.
+    const bool undecryptable =
+        obj.value(QStringLiteral("undecryptable")).toBool(false);
+    const bool isDecrypted =
+        obj.value(QStringLiteral("is_decrypted"))
+           .toBool(obj.value(QStringLiteral("decrypted")).toBool(false));
+    const bool isEncrypted =
+        obj.value(QStringLiteral("is_encrypted"))
+           .toBool(undecryptable || isDecrypted);
+    timelineEvent.isEncrypted   = isEncrypted;
+    timelineEvent.isDecrypted   = isDecrypted;
+    timelineEvent.undecryptable = undecryptable;
+    timelineEvent.errorKind     =
+        obj.value(QStringLiteral("error_kind")).toString();
+
     // v0.5-prep+3: Rust bridges undecryptable encrypted events with
     // `undecryptable = true` and an empty body. Render an honest
     // placeholder here instead of an empty bubble. The SDK will
     // upgrade the event later (via `event_replaced`) if / when keys
     // arrive; until then the user sees WHY the timeline is silent.
-    if (obj.value(QStringLiteral("undecryptable")).toBool(false)
-        && timelineEvent.body.isEmpty()) {
+    if (undecryptable && timelineEvent.body.isEmpty()) {
         timelineEvent.body = tr("[unable to decrypt yet]");
         timelineEvent.type = TimelineEvent::Notice;
     }
@@ -801,6 +829,74 @@ void RustSdkMatrixClient::handleSendFailed(const QJsonObject &event)
     failPendingSend(event.value(QStringLiteral("transaction_id")).toString(),
                     event.value(QStringLiteral("message")).toString(
                         tr("Rust SDK send failed.")));
+}
+
+void RustSdkMatrixClient::probeEncryptedSend(const QString &roomId,
+                                             const QString &body,
+                                             const QString &marker)
+{
+    if (!m_loggedIn || !m_rustHandle) {
+        Q_EMIT encryptedSendProbeResult(roomId, marker, false,
+                                        QString(), tr("Not signed in."));
+        return;
+    }
+    if (!m_rooms.contains(roomId)) {
+        Q_EMIT encryptedSendProbeResult(roomId, marker, false,
+                                        QString(),
+                                        tr("Unknown room: %1").arg(roomId));
+        return;
+    }
+    if (!isRoomEncrypted(roomId)) {
+        Q_EMIT encryptedSendProbeResult(roomId, marker, false,
+                                        QString(),
+                                        tr("Probe refused: target room is not encrypted."));
+        return;
+    }
+
+    const QString txnId = nextTxnId();
+    m_pendingProbes.insert(txnId, PendingProbe{ roomId, marker });
+
+    const QByteArray roomBytes = roomId.toUtf8();
+    const QByteArray bodyBytes = body.toUtf8();
+    const QByteArray txnBytes  = txnId.toUtf8();
+    const QString result = takeRustString(mx_rust_probe_encrypted_send(
+        m_rustHandle, roomBytes.constData(),
+        bodyBytes.constData(), txnBytes.constData()));
+    if (!result.isEmpty()) {
+        m_pendingProbes.remove(txnId);
+        Q_EMIT encryptedSendProbeResult(roomId, marker, false, QString(),
+            result.startsWith(QLatin1String("error: "))
+                ? result.mid(7) : result);
+    }
+}
+
+void RustSdkMatrixClient::handleEncryptedSendOk(const QJsonObject &event)
+{
+    const QString txnId = event.value(QStringLiteral("transaction_id")).toString();
+    const QString serverEventId = event.value(QStringLiteral("event_id")).toString();
+    const auto it = m_pendingProbes.find(txnId);
+    if (it == m_pendingProbes.end())
+        return;
+    const PendingProbe probe = it.value();
+    m_pendingProbes.erase(it);
+    Q_EMIT encryptedSendProbeResult(probe.roomId, probe.marker, true,
+                                    serverEventId, QString());
+}
+
+void RustSdkMatrixClient::handleEncryptedSendFailed(const QJsonObject &event)
+{
+    const QString txnId = event.value(QStringLiteral("transaction_id")).toString();
+    const QString message = event.value(QStringLiteral("message")).toString(
+        tr("Rust SDK encrypted send probe failed."));
+    const auto it = m_pendingProbes.find(txnId);
+    if (it == m_pendingProbes.end()) {
+        Q_EMIT errorOccurred(tr("Encrypted send probe failed: %1").arg(message));
+        return;
+    }
+    const PendingProbe probe = it.value();
+    m_pendingProbes.erase(it);
+    Q_EMIT encryptedSendProbeResult(probe.roomId, probe.marker, false,
+                                    QString(), message);
 }
 
 void RustSdkMatrixClient::failPendingSend(const QString &transactionId, const QString &message)

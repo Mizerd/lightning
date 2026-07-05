@@ -42,6 +42,21 @@ char *mx_rust_send_text(void *client,
                         const char *body,
                         const char *transaction_id);
 
+/*
+ * Encrypted-room test probe (v0.5.0-prep+6). Only accepts encrypted rooms;
+ * refuses non-encrypted rooms with a send_failed event. Reserved for the
+ * headless smoke harness while E2EE is being verified — the interactive UI
+ * still goes through mx_rust_send_text and is gated by C++
+ * CryptoManager::supportsE2ee(). matrix-sdk performs the encryption
+ * end-to-end via its e2e-encryption feature; this FFI never sees keys or
+ * ciphertext. Results arrive later as `encrypted_send_ok` /
+ * `encrypted_send_failed` events on the poll queue.
+ */
+char *mx_rust_probe_encrypted_send(void *client,
+                                   const char *room_id,
+                                   const char *body,
+                                   const char *transaction_id);
+
 /* 0 = no, 1 = yes. Reports honestly — 0 until verified encrypted read/send. */
 int mx_rust_supports_e2ee(void *client);
 

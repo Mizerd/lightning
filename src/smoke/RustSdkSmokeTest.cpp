@@ -72,20 +72,38 @@ struct Counters {
     QString syncResult  = QStringLiteral("n/a");
     QString sendResult  = QStringLiteral("n/a");
     QString sendReason;  // only populated when sendResult is skipped/blocked
+    QString encryptedSendResult = QStringLiteral("n/a");
+    QString encryptedSendReason;
+    QString encryptedSendMarker;
     int roomCount = 0;
     int encryptedRoomCount = 0;
     int spaceCount = 0;
     int timelineEventCount = 0;
+    int encryptedEventCount = 0;
+    int decryptedEventCount = 0;
     int undecryptableCount = 0;
     bool initialSyncDone = false;
     bool sendActive = false;
+    bool encryptedSendActive = false;
     bool finalised = false;
+
+    // LIGHTNING_TEST_EXPECT_TEXT — the caller sends a known marker
+    // from Element Classic into an encrypted room. We watch decrypted
+    // event bodies and record only whether we saw the marker, never
+    // the marker itself. Never printed.
+    QString expectText;
+    bool    requireExpect = false;
+    QString expectResult = QStringLiteral("n/a");
 };
 
-// Exit-code policy — send=skipped / send=blocked are NOT failures.
-// A caller that sets LIGHTNING_TEST_SEND=1 against an all-encrypted
-// account should still see exit 0 as long as login + sync + at least
-// one joined room succeeded.
+// Exit-code policy:
+//   10 login failed
+//   11 sync did not complete
+//   12 zero joined rooms
+//   13 real send failed / timed out (send=skipped and send=blocked are NOT
+//      failures — expected on all-encrypted accounts)
+//   14 LIGHTNING_TEST_REQUIRE_EXPECT=1 was set and the marker was not seen
+//   15 LIGHTNING_TEST_SEND_ENCRYPTED=1 was set and the probe failed / timed out
 int exitCodeFor(const Counters &c)
 {
     if (c.loginResult != QLatin1String("ok"))                       return 10;
@@ -96,6 +114,11 @@ int exitCodeFor(const Counters &c)
         && c.sendResult != QLatin1String("ok")
         && c.sendResult != QLatin1String("skipped")
         && c.sendResult != QLatin1String("blocked"))                return 13;
+    if (c.requireExpect && c.expectResult != QLatin1String("seen")) return 14;
+    const bool encFinal = c.encryptedSendResult != QLatin1String("n/a");
+    if (encFinal
+        && c.encryptedSendResult != QLatin1String("ok")
+        && c.encryptedSendResult != QLatin1String("skipped"))       return 15;
     return 0;
 }
 
@@ -108,6 +131,11 @@ int runRustSdkSmokeTest(int argc, char *argv[])
     const QString password       = envStr("LIGHTNING_TEST_PASSWORD");
     const bool    doSend         = envStr("LIGHTNING_TEST_SEND") == QLatin1String("1");
     const QString explicitRoomId = envStr("LIGHTNING_TEST_ROOM_ID");
+    const bool    doSendEncrypted =
+        envStr("LIGHTNING_TEST_SEND_ENCRYPTED") == QLatin1String("1");
+    const QString expectText     = envStr("LIGHTNING_TEST_EXPECT_TEXT");
+    const bool    requireExpect  =
+        envStr("LIGHTNING_TEST_REQUIRE_EXPECT") == QLatin1String("1");
 
     if (homeserver.isEmpty() || user.isEmpty() || password.isEmpty()) {
         QTextStream(stderr) <<
@@ -156,6 +184,16 @@ int runRustSdkSmokeTest(int argc, char *argv[])
                  : QStringLiteral("false")));
 
     Counters counters;
+    counters.expectText = expectText;
+    counters.requireExpect = requireExpect;
+    if (!expectText.isEmpty()) {
+        counters.expectResult = QStringLiteral("not_seen");
+        // Deliberately not printing the expected text itself.
+        say(QStringLiteral("expect_text=configured require=%1")
+                .arg(requireExpect
+                     ? QStringLiteral("true")
+                     : QStringLiteral("false")));
+    }
 
     auto finalise = std::make_shared<std::function<void()>>();
     *finalise = [&]() {
@@ -164,18 +202,27 @@ int runRustSdkSmokeTest(int argc, char *argv[])
         const QString sendSummary = counters.sendReason.isEmpty()
             ? counters.sendResult
             : QStringLiteral("%1(%2)").arg(counters.sendResult, counters.sendReason);
+        const QString encSendSummary = counters.encryptedSendReason.isEmpty()
+            ? counters.encryptedSendResult
+            : QStringLiteral("%1(%2)").arg(counters.encryptedSendResult,
+                                           counters.encryptedSendReason);
         say(QStringLiteral(
                 "summary login=%1 sync=%2 rooms=%3 encrypted_rooms=%4 "
-                "spaces=%5 timeline_events=%6 undecryptable=%7 send=%8 "
-                "supports_e2ee=%9")
+                "spaces=%5 timeline_events=%6 encrypted_events=%7 "
+                "decrypted_events=%8 undecryptable=%9 send=%10 "
+                "encrypted_send=%11 expect_text=%12 supports_e2ee=%13")
                 .arg(counters.loginResult, counters.syncResult)
                 .arg(counters.roomCount)
                 .arg(counters.encryptedRoomCount)
                 .arg(counters.spaceCount)
                 .arg(counters.timelineEventCount)
+                .arg(counters.encryptedEventCount)
+                .arg(counters.decryptedEventCount)
                 .arg(counters.undecryptableCount)
                 .arg(sendSummary)
-                .arg(client->rustSupportsE2ee()
+                .arg(encSendSummary)
+                .arg(counters.expectResult,
+                     client->rustSupportsE2ee()
                      ? QStringLiteral("true")
                      : QStringLiteral("false")));
         QCoreApplication::exit(exitCodeFor(counters));
@@ -281,15 +328,101 @@ int runRustSdkSmokeTest(int argc, char *argv[])
         });
     };
 
+    auto attemptEncryptedProbe = std::make_shared<std::function<void()>>();
+    *attemptEncryptedProbe = [&, finalise]() {
+        const auto rooms = client->rooms();
+        QString target = explicitRoomId;
+        const RoomInfo *targetRoom = nullptr;
+        if (!target.isEmpty()) {
+            for (const auto &r : rooms) {
+                if (r.id == target) { targetRoom = &r; break; }
+            }
+            if (!targetRoom || !targetRoom->encrypted || targetRoom->isSpace) {
+                counters.encryptedSendResult = QStringLiteral("skipped");
+                counters.encryptedSendReason = QStringLiteral("target_not_encrypted_room");
+                say(QStringLiteral(
+                    "encrypted_send=skipped reason=target_not_encrypted_room"));
+                (*finalise)();
+                return;
+            }
+        } else {
+            for (const auto &r : rooms) {
+                if (r.isSpace || !r.encrypted) continue;
+                target = r.id;
+                targetRoom = &r;
+                break;
+            }
+            if (!targetRoom) {
+                counters.encryptedSendResult = QStringLiteral("skipped");
+                counters.encryptedSendReason = QStringLiteral("no_encrypted_room");
+                say(QStringLiteral(
+                    "encrypted_send=skipped reason=no_encrypted_room"));
+                (*finalise)();
+                return;
+            }
+        }
+        counters.encryptedSendActive = true;
+        counters.encryptedSendMarker = QStringLiteral("SMK-%1")
+            .arg(QDateTime::currentSecsSinceEpoch());
+        // The body embeds the marker but the marker is what we log.
+        // Body content is not printed by the harness.
+        const QString body = QStringLiteral(
+            "Lightning encrypted-send probe %1")
+            .arg(counters.encryptedSendMarker);
+        say(QStringLiteral("encrypted_send=start room=%1 marker=%2")
+                .arg(target, counters.encryptedSendMarker));
+        client->probeEncryptedSend(target, body, counters.encryptedSendMarker);
+        QTimer::singleShot(30000, &app, [&, finalise]() {
+            if (counters.encryptedSendActive) {
+                warn(QStringLiteral(
+                    "encrypted-send probe did not confirm within 30s"));
+                counters.encryptedSendResult = QStringLiteral("timeout");
+                counters.encryptedSendActive = false;
+                (*finalise)();
+            }
+        });
+    };
+
+    QObject::connect(client.get(),
+                     &RustSdkMatrixClient::encryptedSendProbeResult, &app,
+                     [&, finalise](const QString &,
+                                   const QString &marker,
+                                   bool ok,
+                                   const QString &serverEventId,
+                                   const QString &message) {
+        if (!counters.encryptedSendActive) return;
+        counters.encryptedSendActive = false;
+        if (marker != counters.encryptedSendMarker) return;
+        if (ok) {
+            counters.encryptedSendResult = QStringLiteral("ok");
+            say(QStringLiteral(
+                    "encrypted_send=ok marker=%1 event_id=%2")
+                    .arg(marker, serverEventId));
+        } else {
+            counters.encryptedSendResult = QStringLiteral("failed");
+            counters.encryptedSendReason = sanitiseError(message);
+            say(QStringLiteral(
+                    "encrypted_send=failed marker=%1 reason=%2")
+                    .arg(marker, counters.encryptedSendReason));
+        }
+        (*finalise)();
+    });
+
     QObject::connect(client.get(), &MatrixClient::initialSyncDoneChanged,
-                     &app, [&, finalise, attemptSend]() {
+                     &app, [&, finalise, attemptSend,
+                            attemptEncryptedProbe]() {
         if (!client->initialSyncDone()) return;
         counters.initialSyncDone = true;
         counters.syncResult = QStringLiteral("ok");
         say(QStringLiteral("initial_sync=done"));
-        QTimer::singleShot(2000, &app, [&, finalise, attemptSend]() {
-            if (doSend) (*attemptSend)();
-            else (*finalise)();
+        QTimer::singleShot(2000, &app, [&, finalise, attemptSend,
+                                        attemptEncryptedProbe]() {
+            // Order: EXPECT_TEXT is passive (event handler already
+            // watches). SEND runs before SEND_ENCRYPTED so a fully-set
+            // caller drives both without either blocking the other.
+            if (doSendEncrypted) (*attemptEncryptedProbe)();
+            else if (doSend)     (*attemptSend)();
+            else                 (*finalise)();
         });
     });
 
@@ -313,13 +446,20 @@ int runRustSdkSmokeTest(int argc, char *argv[])
     QObject::connect(client.get(), &MatrixClient::eventAppended,
                      &app, [&](const QString &, const TimelineEvent &ev) {
         ++counters.timelineEventCount;
-        // Rust bridge routes undecryptable events with an empty body,
-        // C++ wrapper replaces the body with a localised placeholder and
-        // flips the type to Notice. Count that shape without ever
-        // touching decrypted message content.
-        if (ev.type == TimelineEvent::Notice
-            && ev.body.contains(QLatin1String("unable to decrypt"))) {
-            ++counters.undecryptableCount;
+        if (ev.isEncrypted)   ++counters.encryptedEventCount;
+        if (ev.isDecrypted)   ++counters.decryptedEventCount;
+        if (ev.undecryptable) ++counters.undecryptableCount;
+
+        // EXPECT_TEXT match runs against decrypted bodies only. We never
+        // echo the marker itself; only "seen" / "not_seen" is exposed.
+        if (!counters.expectText.isEmpty()
+            && ev.isDecrypted && !ev.undecryptable
+            && !ev.body.isEmpty()
+            && ev.body.contains(counters.expectText)) {
+            if (counters.expectResult != QLatin1String("seen")) {
+                counters.expectResult = QStringLiteral("seen");
+                say(QStringLiteral("expect_text=seen"));
+            }
         }
     });
 

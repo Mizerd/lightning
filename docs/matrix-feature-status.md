@@ -1,4 +1,4 @@
-# Matrix feature status (v0.5.0-prep+5)
+# Matrix feature status (v0.5.0-prep+6)
 
 Honest per-feature status per backend. Ground truth for anything the UI
 claims about support. Do not check anything as "done" here that is not
@@ -14,9 +14,9 @@ Legend:
 
 | Feature | Mock | HTTP | Rust SDK |
 |---|---|---|---|
-| Password login (`m.login.password`) | ✅ (any creds) | ✅ | 🟡 wired via SDK; needs manual homeserver verification |
-| Session persistence + restore | 🟡 in-mem | ✅ (`/whoami`) | 🟡 restore via SDK session token; needs manual verification |
-| Long-poll `/sync` | ⏳ | ✅ (v0.4.7: initial call uses timeout=0 + full_state; stale token is discarded if cache has no visible rooms) | 🟡 joined-room SDK sync wired |
+| Password login (`m.login.password`) | ✅ (any creds) | ✅ | ✅ verified live against matrix.smetonis.net (v0.5.0-prep+6) |
+| Session persistence + restore | 🟡 in-mem | ✅ (`/whoami`) | 🟡 SDK restore path wired; not exercised by the smoke harness (uses temp store) |
+| Long-poll `/sync` | ⏳ | ✅ (v0.4.7: initial call uses timeout=0 + full_state; stale token is discarded if cache has no visible rooms) | ✅ joined-room SDK sync verified live (v0.5.0-prep+6) |
 | Initial-sync UX (`initialSyncDone` capability) | n/a | ✅ (v0.4.6) | ✅ flips after first SDK sync callback |
 | Text message send / receive | ✅ | ✅ | 🟡 basic text/notice/emote only; unencrypted send only |
 | Backfill pagination | ✅ | ✅ | ❌ |
@@ -40,8 +40,8 @@ Legend:
 | **Threads — server-side aggregation (`unsigned["m.relations"]["m.thread"]`)** | n/a | ❌ (v0.5) | ❌ |
 | **Threads — dedicated thread panel / per-thread timeline model** | ❌ | ❌ (v0.5+) | ❌ |
 | **Threads — persistence across restart (before /sync)** | n/a | ✅ (v0.4.5) | ❌ |
-| Encrypted room read | ❌ placeholder | ❌ placeholder | ❌ not claimed; only SDK-decrypted text events would be shown |
-| Encrypted send | ❌ blocked | ❌ blocked | ❌ blocked |
+| Encrypted room read | ❌ placeholder | ❌ placeholder | 🟡 encrypted-timeline dispatch verified live (v0.5.0-prep+6, all 4 observed events were `undecryptable=true` from a fresh temp store); decrypted branch code path exists but is not verified end-to-end with a real key set yet |
+| Encrypted send | ❌ blocked | ❌ blocked | 🟡 `probeEncryptedSend` FFI + wrapper landed (v0.5.0-prep+6); interactive UI still refuses. Not yet round-tripped against Element Classic |
 | Device verification / cross-signing | ❌ | ❌ | ❌ |
 | Encrypted media | ❌ placeholder | ❌ placeholder | ❌ |
 | SSO login | ❌ capability flag `false` | ❌ capability flag `false` | ❌ |

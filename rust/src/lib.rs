@@ -460,6 +460,103 @@ pub unsafe extern "C" fn mx_rust_send_text(
     })
 }
 
+/// Encrypted-room test probe (v0.5.0-prep+6). Structurally similar to
+/// mx_rust_send_text but REFUSES non-encrypted rooms — the mirror-image of
+/// the safety in mx_rust_send_text. Neither entry point can be misused: the
+/// UI-facing send goes through mx_rust_send_text and only reaches
+/// unencrypted rooms; the smoke-only probe goes through this function and
+/// only reaches encrypted rooms.
+///
+/// matrix-sdk performs the encryption end-to-end via its e2e-encryption +
+/// sqlite features. This FFI never sees ciphertext, keys, or session
+/// material. On success the SDK returns a server event id (safe to log).
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_probe_encrypted_send(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    body: *const c_char,
+    transaction_id: *const c_char,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let body = unsafe { cstr_arg(body) }?;
+        let transaction_id = unsafe { cstr_arg(transaction_id) }?;
+        let Some(client) = bridge.client.lock().ok().and_then(|guard| guard.clone()) else {
+            return Ok("error: Rust SDK session is not logged in.".to_owned());
+        };
+
+        let events = Arc::clone(&bridge.events);
+        std::thread::spawn(move || {
+            let runtime_events = Arc::clone(&events);
+            run_async(runtime_events, "probe_encrypted_send", async move {
+                let Some(room_id_ref) = RoomId::parse(&room_id).ok() else {
+                    enqueue(
+                        &events,
+                        json!({
+                            "type": "encrypted_send_failed",
+                            "room_id": room_id,
+                            "transaction_id": transaction_id,
+                            "message": "Invalid Matrix room id.",
+                        }),
+                    );
+                    return;
+                };
+                let Some(room) = client.get_room(&room_id_ref) else {
+                    enqueue(
+                        &events,
+                        json!({
+                            "type": "encrypted_send_failed",
+                            "room_id": room_id,
+                            "transaction_id": transaction_id,
+                            "message": "Rust SDK does not know that room yet.",
+                        }),
+                    );
+                    return;
+                };
+                if !room.encryption_state().is_encrypted() {
+                    enqueue(
+                        &events,
+                        json!({
+                            "type": "encrypted_send_failed",
+                            "room_id": room_id,
+                            "transaction_id": transaction_id,
+                            "message": "Probe refused: target room is not encrypted.",
+                        }),
+                    );
+                    return;
+                }
+
+                let content = RoomMessageEventContent::text_plain(body);
+                let txn: OwnedTransactionId = transaction_id.clone().into();
+                match room.send(content).with_transaction_id(txn).await {
+                    Ok(result) => enqueue(
+                        &events,
+                        json!({
+                            "type": "encrypted_send_ok",
+                            "room_id": room_id,
+                            "transaction_id": transaction_id,
+                            "event_id": result.response.event_id.to_string(),
+                        }),
+                    ),
+                    Err(err) => enqueue(
+                        &events,
+                        json!({
+                            "type": "encrypted_send_failed",
+                            "room_id": room_id,
+                            "transaction_id": transaction_id,
+                            "message": format_matrix_error(
+                                "Matrix Rust SDK encrypted send failed", err),
+                        }),
+                    ),
+                }
+            });
+        });
+
+        Ok(String::new())
+    })
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_free_cstring(ptr: *mut c_char) {
     if ptr.is_null() {
@@ -508,9 +605,15 @@ async fn restore_client(
 
 fn install_event_handlers(client: &Client, events: Arc<Mutex<VecDeque<String>>>) {
     // Decrypted (or plaintext) room messages — the SDK dispatches this handler
-    // for both, and `encryption_info` is Some(...) only when the SDK actually
-    // decrypted the payload. That flag becomes the `decrypted` boolean on the
-    // C++ side.
+    // for both. `encryption_info` is Some(...) only when the SDK decrypted the
+    // payload; when Some, the event on the wire was m.room.encrypted and the
+    // SDK produced usable plaintext. That distinction becomes the
+    // (is_encrypted, is_decrypted) pair on the C++ side.
+    //
+    // The body / ciphertext boundary is enforced on the Rust side: we only
+    // ever forward plaintext bodies here (decrypted or already-plaintext), and
+    // we never forward ciphertext at all — the encrypted handler below emits
+    // an empty body + undecryptable flag instead.
     let plaintext_events = Arc::clone(&events);
     client.add_event_handler(
         move |ev: OriginalSyncRoomMessageEvent,
@@ -525,6 +628,7 @@ fn install_event_handlers(client: &Client, events: Arc<Mutex<VecDeque<String>>>)
                     _ => return,
                 };
 
+                let is_encrypted = encryption_info.is_some();
                 enqueue(
                     &events,
                     json!({
@@ -536,7 +640,12 @@ fn install_event_handlers(client: &Client, events: Arc<Mutex<VecDeque<String>>>)
                             "body": body,
                             "msgtype": kind,
                             "timestamp_ms": u64::from(ev.origin_server_ts.get()),
-                            "decrypted": encryption_info.is_some(),
+                            "is_encrypted": is_encrypted,
+                            "is_decrypted": is_encrypted,
+                            "undecryptable": false,
+                            // Kept for backward compat with C++ builds that
+                            // still read `decrypted` — remove after prep+6.
+                            "decrypted": is_encrypted,
                         },
                     }),
                 );
@@ -549,7 +658,10 @@ fn install_event_handlers(client: &Client, events: Arc<Mutex<VecDeque<String>>>)
     // though messages are arriving. Emit a placeholder timeline event tagged
     // `undecryptable = true` so C++ can render an honest
     // "[unable to decrypt yet]" bubble. We deliberately do NOT include the
-    // ciphertext in the payload — the C++ side never needs it.
+    // ciphertext in the payload — the C++ side never needs it. The
+    // `error_kind` is a coarse hint the UI can display later; today we always
+    // emit "no_key" because the SDK doesn't expose a finer reason on this
+    // path in v0.18 without more work.
     let encrypted_events = Arc::clone(&events);
     client.add_event_handler(move |ev: OriginalSyncRoomEncryptedEvent, room: Room| {
         let events = Arc::clone(&encrypted_events);
@@ -566,8 +678,12 @@ fn install_event_handlers(client: &Client, events: Arc<Mutex<VecDeque<String>>>)
                         "body": "",
                         "msgtype": "encrypted",
                         "timestamp_ms": u64::from(ev.origin_server_ts.get()),
-                        "decrypted": false,
+                        "is_encrypted": true,
+                        "is_decrypted": false,
                         "undecryptable": true,
+                        "error_kind": "no_key",
+                        // Backward compat with prep+5 C++ builds.
+                        "decrypted": false,
                     },
                 }),
             );

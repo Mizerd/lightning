@@ -59,4 +59,24 @@ struct TimelineEvent {
 
     // Reactions attached to this event (v0.3).
     QList<Reaction> reactions;
+
+    // Encryption flags (v0.5.0-prep+6). Populated by the Rust backend
+    // when it parses events out of the Matrix Rust SDK; HTTP and Mock
+    // leave everything at its default (all false / empty). The C++ UI
+    // must never derive plaintext from these flags — they carry only
+    // metadata:
+    //   isEncrypted  — the on-wire event was m.room.encrypted or the
+    //                  SDK decrypted it from one.
+    //   isDecrypted  — the SDK produced usable plaintext for `body`.
+    //                  Implies isEncrypted == true.
+    //   undecryptable — the SDK could not decrypt this event. Body is
+    //                   the localised placeholder; original ciphertext
+    //                   is deliberately NOT forwarded through the FFI.
+    //   errorKind    — best-effort hint from the SDK: "no_key",
+    //                  "session_missing", or empty. Never contains
+    //                  crypto material.
+    bool    isEncrypted = false;
+    bool    isDecrypted = false;
+    bool    undecryptable = false;
+    QString errorKind;
 };

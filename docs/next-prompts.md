@@ -67,10 +67,13 @@ prints counts/statuses only. See `docs/build-and-test.md`. The
 harness runs Prompt 1 below in a repeatable non-interactive way —
 CI-friendly and safe to script into a `.envrc`-guarded shell.
 
-Manual verification against the real test homeserver (Prompt 1
-below) is still user-driven: run the harness with your credentials
-in env vars, or use the interactive Rust GUI path documented in
-`docs/build-and-test.md#manual-test-with-the-rust-backend`.
+**As of v0.5.0-prep+6, Prompt 1 is verified live**: login + sync +
+rooms + Space detection + timeline delivery all work against
+`matrix.smetonis.net` (2 rooms, 1 Space, 4 undecryptable events from
+a fresh temp SDK store). Encrypted receive diagnostics and an
+encrypted-send probe FFI are wired but not round-tripped against
+Element Classic yet — that is the concrete next step. See Prompt 2
+below.
 
 Ordering rationale: first harden the Rust backend against the test
 homeserver with unencrypted rooms and session restore. Then add

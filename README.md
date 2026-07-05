@@ -12,9 +12,26 @@ across the rename. The product name is **Lightning**.
 
 ## Status
 
-**v0.5.0-prep+5** — Matrix Rust SDK backend foundation, hardened, plus
-a headless verification harness with proper store isolation. No E2EE
-claim yet.
+**v0.5.0-prep+6** — Matrix Rust SDK backend foundation, hardened,
+verified live against `matrix.smetonis.net` (login + sync + rooms +
+Space detection + timeline delivery), plus encrypted-receive
+diagnostics and an encrypted-send probe. No E2EE claim yet:
+`CryptoManager::supportsE2ee()` remains `false` until the receive +
+send round-trip is verified against Element Classic.
+
+Verified live (v0.5.0-prep+6 smoke run 1):
+
+```
+smoke: rooms joined=2 encrypted=2 spaces=1
+smoke: initial_sync=done
+smoke: summary login=ok sync=ok rooms=2 encrypted_rooms=2 spaces=1
+       timeline_events=4 undecryptable=4 send=n/a supports_e2ee=false
+exit=0
+```
+
+All observed timeline events on the test account were encrypted and
+undecryptable from a fresh temp SDK store — expected for a device
+that just logged in with no historical room keys.
 
 The default HTTP backend remains the working production path. The
 optional Rust backend now links `matrix-sdk` v0.18 and wires a real
@@ -22,6 +39,41 @@ Rust-owned SDK client behind the existing C++ `MatrixClient` seam:
 login, session restore, joined-room sync, room-list events, basic text
 timeline events, and plain text sends for unencrypted rooms. QML still
 talks only to C++ models and signals.
+
+**New in v0.5.0-prep+6 (encrypted receive diagnostics + encrypted send probe):**
+
+- `TimelineEvent` gains four encryption-metadata fields:
+  `isEncrypted`, `isDecrypted`, `undecryptable`, `errorKind`. HTTP and
+  Mock backends leave everything at defaults; the Rust bridge parses
+  these out of matrix-sdk's encryption-info signals.
+- Rust bridge event schema is now precise: `is_encrypted`,
+  `is_decrypted`, `undecryptable`, `error_kind` on every
+  `timeline_event`. The prep+5 `decrypted` field is still emitted for
+  one release for backward compat.
+- New Rust FFI `mx_rust_probe_encrypted_send` — mirror of
+  `mx_rust_send_text` that only accepts encrypted rooms. matrix-sdk
+  performs the encryption end-to-end via its `e2e-encryption +
+  sqlite` features; the FFI never sees ciphertext or keys.
+- New C++ hook `RustSdkMatrixClient::probeEncryptedSend(room, body,
+  marker)` + signal `encryptedSendProbeResult(room, marker, ok,
+  serverEventId, message)`. Only wired into the smoke harness; the
+  interactive UI send path stays gated on `supportsE2ee()`.
+- Smoke harness:
+  * counts `encrypted_events`, `decrypted_events`, `undecryptable`
+    from `TimelineEvent` flags instead of body-string matching;
+  * `LIGHTNING_TEST_EXPECT_TEXT` — watch for a marker in decrypted
+    bodies without ever printing it. Reports only `expect_text=seen`
+    or `expect_text=not_seen`. Optional
+    `LIGHTNING_TEST_REQUIRE_EXPECT=1` makes an un-seen marker
+    non-zero (exit 14);
+  * `LIGHTNING_TEST_SEND_ENCRYPTED=1` — probe encrypted send.
+    Reports `encrypted_send=ok marker=<short-id> event_id=<id>` on
+    success. Never prints the probe body. Exit 15 on real failure
+    (skipped / non-encrypted-target are non-fatal).
+- `mx_rust_supports_e2ee()` still returns 0; `CryptoManager::
+  supportsE2ee()` still returns false. Flip only after both
+  `expect_text=seen` and `encrypted_send=ok` verified round-trip
+  against Element Classic.
 
 **Fixed in v0.5.0-prep+5 (store-path consistency):**
 
