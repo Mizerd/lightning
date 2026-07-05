@@ -235,6 +235,48 @@ before `QGuiApplication` is constructed. This keeps a typo from
 being interpreted by Qt's own parser and potentially aborting on a
 platform-plugin issue instead of surfacing the CLI error.
 
+### HTTP login succeeds but the room list shows "Syncing" forever with 0 rooms
+
+Fixed in v0.4.6. Root cause: the initial `/sync` request was using
+`timeout=30000`, so a fresh login had to wait for the long-poll to
+finish (up to 30s) before any response arrived. During that wait
+the room list stayed empty and the footer said "Syncing" — visually
+indistinguishable from a stuck app.
+
+Fixes shipped:
+
+- Initial `/sync` (no `since` token) uses `timeout=0` per Matrix
+  spec. The server returns current state immediately. Follow-up
+  syncs long-poll with `timeout=30000` as intended.
+- `MatrixClient::initialSyncDone()` — new capability on the
+  interface. `false` until the first `/sync` response is parsed,
+  then `true` for the rest of the session (reset on login /
+  logout / clearLocalSession).
+- `AppController::connectionStatus` shows `"Loading rooms…"` while
+  sync is running AND `initialSyncDone` is false, then flips to
+  `"Syncing"` after the first response.
+- `qml/RoomListPane.qml` empty label reflects the same state:
+  - not signed in → "Sign in to see rooms"
+  - loading → "Loading rooms…"
+  - real Space filter active + empty → "No rooms in this Space"
+  - "All rooms" + empty → "No joined rooms"
+
+Diagnostic log lines to look for in the terminal:
+
+```
+matrix.http: sync request: INITIAL (timeout=0) url= https://…/sync?timeout=0
+matrix.http: sync response ok (initial) status= 200 size= <N>
+matrix.http: sync parse: joined= <N> invited= 0 left= 0 next_batch_len= <N>
+matrix.http: initial sync complete; rooms in memory = <N>
+```
+
+If you see the `sync request:` line but no `sync response ok`, the
+request is stalling — check firewall / DNS / TLS to the homeserver
+and any HTTP proxy in front of it. If you see `sync parse: joined=0`
+against an account that clearly has joined rooms, the server side
+believes the token isn't scoped to those rooms — usually a device
+reset / logout on another client.
+
 ### HTTP login logs "login ok" but the UI stays on the login screen
 
 Fixed in v0.4.5. Root cause: `Main.qml`'s `Loader.sourceComponent`

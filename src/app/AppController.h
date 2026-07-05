@@ -29,6 +29,7 @@ class AppController : public QObject
     Q_PROPERTY(QString appVersion READ appVersion CONSTANT)
     Q_PROPERTY(QString backendName READ backendName CONSTANT)
     Q_PROPERTY(QString connectionStatus READ connectionStatus NOTIFY connectionStatusChanged)
+    Q_PROPERTY(bool initialSyncDone READ initialSyncDone NOTIFY initialSyncDoneChanged)
 
     Q_PROPERTY(SettingsManager* settings READ settings CONSTANT)
     Q_PROPERTY(AuthManager* auth READ auth CONSTANT)
@@ -70,6 +71,7 @@ public:
     QString appVersion() const { return QStringLiteral(APP_VERSION); }
     QString backendName() const;
     QString connectionStatus() const { return m_connectionStatus; }
+    bool initialSyncDone() const;
 
     SettingsManager *settings() const;
     AuthManager *auth() const;
@@ -92,6 +94,7 @@ public Q_SLOTS:
 
 Q_SIGNALS:
     void currentScreenChanged();
+    void initialSyncDoneChanged();
     void currentRoomIdChanged();
     void loggedInChanged();
     void connectionStatusChanged();

@@ -1,78 +1,68 @@
 # Lightning
 
-A native desktop Matrix client written in C++20 / Qt 6 / QML.
+A native desktop Matrix client written in **C++20 / Qt 6 / QML**.
 
-**Not** Electron. **Not** Tauri. **Not** a webview wrapping a browser. The chat UI is real Qt Quick.
+**Not** Electron. **Not** Tauri. **Not** a webview wrapping a browser.
+The chat UI is real Qt Quick, drawn natively.
 
-The executable is still named `matrix-client` for build-system compatibility;
-the user-visible product name is **Lightning**.
+The executable file is named `matrix-client` for build-system stability
+across the rename. The product name is **Lightning**.
+
+---
 
 ## Status
 
-**v0.4.5** — HTTP login transition fix, Lightning branding, Space + thread cache persistence.
+**v0.4.6** — HTTP `/sync` bring-up polish, backend-aware loading UX,
+sync diagnostics, docs sweep.
 
-New in v0.4.5:
+**New in v0.4.6:**
 
-- **HTTP login transition fix**: the `Loader` picking screens in `Main.qml`
-  now uses integer comparisons against `AppController::Screen` values instead
-  of `case app.LoginScreen:` inside a JavaScript switch, plus an explicit
-  `Connections` re-trigger. Previously HTTP login could log "login ok" but
-  the UI stayed on the login screen because the switch fell through under
-  some Qt Quick compiler configurations. New debug logs in
-  `AppController::onLoginSucceeded` / `setCurrentScreen` make future
-  diagnosis one grep away.
-- **Lightning branding**: window title, header, and login-screen title now
-  say "Lightning". The login sub-heading is backend-aware:
-  - `mock` → "Mock backend — any credentials work"
-  - `http` → "HTTP backend — sign in with your Matrix account"
-  - `rust` → "Rust backend scaffold — login is not wired yet"
-- **CacheStore schema (Space + thread persistence)**: `rooms` gains
-  `is_space` + `child_room_ids` columns; `events` gains `thread_root_id`.
-  Existing databases upgrade in place via `ALTER TABLE ADD COLUMN` guarded
-  by `PRAGMA table_info` probes — no user data loss. After relaunch, the
-  Space chip strip and the "in thread" chip render immediately from cache
-  instead of blinking off until the first `/sync` completes.
+- `/sync` initial fetch uses `timeout=0` per Matrix spec so the server
+  returns current state immediately instead of long-polling. Follow-up
+  syncs long-poll with `timeout=30000` as before. The transfer timeout
+  is 30s on the initial call and 60s on subsequent long-polls (safely
+  above the 30s server-side wait).
+- `MatrixClient::initialSyncDone()` — new capability the interface
+  advertises so the UI can distinguish *"still loading the initial
+  sync"* from *"sync loop is live, there are just no rooms"*.
+- Room list header stops showing a bogus "0" before the first sync
+  response lands; the empty label under the list is now state-aware
+  (loading / no joined rooms / no rooms in selected Space / not signed
+  in).
+- Connection status label reflects the same distinction:
+  `Connecting…` → `Loading rooms…` → `Syncing` → `Idle`.
+- Non-secret sync diagnostics: `matrix.http:` log lines announce sync
+  requests (initial vs. continuation), HTTP status, response body size,
+  and joined / invited / left room counts. Access tokens are never
+  logged.
 
-Everything below carried over from earlier passes.
+Everything below carried over from earlier passes. See
+[`docs/current-state.md`](docs/current-state.md) for the ground-truth
+snapshot and [`docs/next-prompts.md`](docs/next-prompts.md) for the
+next safe follow-up.
 
-**v0.4** — Secure token storage + optional Matrix Rust SDK backend scaffold.
+---
 
-New in v0.4:
-
-- `SecretStore` abstraction. On Linux, `LibSecretStore` talks to the Freedesktop Secret Service via libsecret (works with gnome-keyring, KWallet with libsecret support). If no session bus / Secret Service is reachable, an `InsecureFallbackSecretStore` keeps the app working and the Settings screen shows a red warning.
-- Access tokens are stored in the `SecretStore`, not in QSettings. On first launch of v0.4 any legacy `session/accessToken` value in QSettings is migrated into the store and the plaintext key is deleted.
-- Backend selection cleanup: `--backend={mock,http,rust}` (old `--mock` still works). Default remains `http`. Requesting `--backend=rust` when the Rust scaffold was not compiled in exits 2 with a clean message.
-- Optional Rust SDK backend scaffold under `-DENABLE_RUST_SDK_BACKEND=ON`. Adds a static library from `rust/`, links it into the C++ binary, and reports backend name/version/status through a small C ABI. Login, sync, and E2EE are not wired yet — the client refuses those operations honestly.
-- `CryptoManager` becomes a capability surface driven by the active backend. `supportsE2ee` is `false` for mock and http, and remains `false` for the Rust scaffold until the SDK is actually wired (`RUST_SDK_E2EE_WIRED`).
-
-Still carried over from v0.3:
-
-- Backfill pagination, local echo resolution, replies, edits, redactions, reactions, typing, read receipts, media send/receive, per-room member cache, local SQLite cache under `${XDG_DATA_HOME}/matrix-client/<safeUserId>/cache.sqlite`.
-- Password login (`m.login.password`), session restore via `/account/whoami`, long-poll `/sync`, `POST /logout`.
-- `--mock` / `--backend=mock` for offline UI work.
-
-Still intentionally missing:
-
-- Real E2EE (v0.4.x follow-up). The Rust backend scaffold compiles and links but does not perform any Matrix cryptography yet. `--backend=rust` will not sign you in.
-- SSO / OIDC, spaces, threads, multi-account, sliding sync (v0.5).
-- Authenticated media endpoints (`/_matrix/client/v1/media/*`); v0.3/v0.4 use legacy `/_matrix/media/v3/*`.
-- Read-receipt display of other users, avatars rendered as images, own-profile lookup, room member list UI.
-
-See [`docs/roadmap.md`](docs/roadmap.md) for the milestone plan, [`docs/architecture.md`](docs/architecture.md) for the layering, and [`docs/threat-model.md`](docs/threat-model.md) for what is stored where.
-
-## Build (Linux)
-
-Requires Qt 6.5+ (Core, Gui, Qml, Quick, QuickControls2, Network, Sql, Widgets), CMake 3.21+, a C++20 compiler, Ninja, and optionally libsecret-1 + cargo/rustc.
+## Quick start on NixOS
 
 ```bash
+# 1. Enter the dev shell. The shellHook purges any inherited KDE /
+#    GNOME Qt env vars and sets flake-consistent paths.
+nix develop
+
+# 2. Configure + build (default: mock + http backends).
 cmake -S . -B build -G Ninja
 cmake --build build
+
+# 3. Run. Default backend is http; use --mock for offline UI work.
 ./build/matrix-client
 ```
 
-If libsecret-1 is detected via pkg-config, secure storage is enabled automatically. Otherwise the app falls back to insecure QSettings storage with a visible warning.
+The dev shell brings in Qt 6 (qtbase, qtdeclarative, qtsvg, qtwayland,
+qttools), CMake, Ninja, gcc, pkg-config, libsecret, glib,
+xkeyboard_config, rustc, cargo.
 
-### With the Rust SDK backend scaffold
+Optional Rust SDK scaffold:
 
 ```bash
 cmake -S . -B build-rust -G Ninja -DENABLE_RUST_SDK_BACKEND=ON
@@ -80,96 +70,183 @@ cmake --build build-rust
 ./build-rust/matrix-client --backend=rust
 ```
 
-This requires `cargo` in `PATH`. The Rust static library is built via `cargo build` invoked from CMake and linked into the C++ binary. Turning the flag back off is a clean `cmake -B build -G Ninja` — no Rust dependencies remain.
+**Always launch from inside `nix develop`.** Running the binary in a
+bare terminal on a KDE Plasma / GNOME Wayland session picks up a
+different `QT_PLUGIN_PATH` from the outer session and aborts on plugin
+init. See [`docs/build-and-test.md`](docs/build-and-test.md#troubleshooting)
+for the full story.
 
-### NixOS
+---
 
-The dev shell bundles Qt 6, CMake, Ninja, gcc, libsecret, glib,
-xkeyboard_config, cargo, and rustc so both build modes work out of the
-box:
-
-```bash
-nix develop            # or: nix-shell
-cmake -S . -B build -G Ninja
-cmake --build build
-./build/matrix-client
-```
-
-**Important on KDE / GNOME sessions**: always launch the built binary
-from *inside* the dev shell (either the interactive `nix develop`
-subshell or `nix develop -c ./build/matrix-client`). The shellHook
-purges the Qt env variables (`QT_PLUGIN_PATH`,
-`QT_QPA_PLATFORM_PLUGIN_PATH`, `QML_IMPORT_PATH`, …) that a running
-KDE Plasma or GNOME session exports at a different qtbase version, and
-sets them consistently against the flake's Qt. Launching outside the
-dev shell can pick up the session's `QT_PLUGIN_PATH` pointing at a
-different qtbase and abort at plugin load with the message
-`"Could not load the Qt platform plugin"`. If that happens, re-enter
-`nix develop` first. This is documented in
-[`docs/build-and-test.md`](docs/build-and-test.md#troubleshooting).
-
-### Windows / macOS
-
-Not yet targeted. The CMake project is portable; SecretStore has no Windows/macOS backends yet (they fall back to insecure storage with a warning until v0.5+). Packaging follows in v1.0.
-
-## Try it
-
-### Real homeserver (default)
+## Known good build commands
 
 ```bash
-./build/matrix-client                    # same as --backend=http
-./build/matrix-client --backend=http
+# Full clean build (default: mock + http).
+rm -rf build
+nix develop -c cmake -S . -B build -G Ninja
+nix develop -c cmake --build build
+
+# Full clean build with Rust SDK scaffold linked in.
+rm -rf build-rust
+nix develop -c cmake -S . -B build-rust -G Ninja -DENABLE_RUST_SDK_BACKEND=ON
+nix develop -c cmake --build build-rust
+
+# Smoke tests (offscreen QPA — exit 124 = healthy).
+nix develop -c bash -lc 'QT_QPA_PLATFORM=offscreen timeout 3 ./build/matrix-client --mock'
+nix develop -c bash -lc 'QT_QPA_PLATFORM=offscreen timeout 3 ./build/matrix-client --backend=http'
+nix develop -c bash -lc 'QT_QPA_PLATFORM=offscreen timeout 3 ./build-rust/matrix-client --backend=rust'
+
+# CLI rejection sanity (exit 2 with a clean message).
+nix develop -c bash -lc './build/matrix-client --backend=bogus || true'
+nix develop -c bash -lc './build/matrix-client --http || true'
 ```
 
-Enter your homeserver URL (e.g. `https://matrix.org`), your username (localpart or full MXID), and your password. On successful login the app persists the session (access token via SecretStore, everything else in QSettings) and starts syncing. Restart the app — you'll be signed back in automatically. Sign out from the toolbar to clear both the SecretStore entry and the QSettings session metadata.
+---
 
-### Mock backend (for UI work)
+## Backend modes
 
-```bash
-./build/matrix-client --mock
-./build/matrix-client --backend=mock     # equivalent
+Lightning ships three backends behind a single `MatrixClient` interface
+(`src/matrix/MatrixClient.h`). Selection happens once at process
+start; no live switching.
+
+| `--backend=` | What it does |
+|---|---|
+| `mock` | In-memory hardcoded rooms, Space + threaded conversation demo, no network. `--mock` is an alias. Useful for offline UI work. |
+| `http` | Talks Matrix Client-Server API directly with `QNetworkAccessManager`. Password login, `/sync` long-poll, replies / edits / redactions / reactions / media / typing / receipts, Spaces + real `m.thread`. **Default.** No E2EE. |
+| `rust` | Scaffold that links a static Rust library from `rust/`. Reports backend name / version through a C ABI. Login and every send **refuse honestly** — the real Matrix Rust SDK is a v0.5+ target. Only built when `-DENABLE_RUST_SDK_BACKEND=ON`. |
+
+---
+
+## Current feature status
+
+Full honest matrix in [`docs/matrix-feature-status.md`](docs/matrix-feature-status.md).
+Highlights:
+
+- ✅ Password login, session restore via `/whoami`, long-poll `/sync`.
+- ✅ Text send/receive, replies, edits, redactions, reactions, typing,
+  read receipts, backfill pagination, media send/receive
+  (legacy `/media/v3/*`), per-room member cache, local SQLite cache.
+- ✅ Matrix Spaces: parse from `/sync` (`m.room.create type:m.space` +
+  `m.space.child`), chip strip filter in the room list, cache
+  persistence.
+- ✅ Real Matrix threads: `m.thread` relation on outgoing sends + parsed
+  on incoming, "in thread" chip on root events, thread-reply composer
+  mode, cache persistence for `threadRootId`.
+- ✅ Secure token storage via libsecret (Freedesktop Secret Service);
+  insecure QSettings fallback with a red warning banner.
+- ✅ Nix dev shell that resolves the KDE/Gnome Qt plugin conflict.
+
+---
+
+## What is intentionally missing
+
+- Real E2EE — Olm/Megolm sessions, device verification, cross-signing,
+  secret storage. Ships via the Matrix Rust SDK in v0.5+. Lightning
+  will not hand-roll cryptography in C++.
+- Full Rust SDK integration — the scaffold links but refuses login.
+- SSO / OIDC / Matrix Authentication Service login. Password login
+  works; SSO/OIDC placeholders are wired but do nothing.
+- Multi-account sync — `AccountManager` tracks a single active user.
+- Sliding sync — v0.5+ via Rust SDK.
+- Authenticated media (`/_matrix/client/v1/media/*`).
+- Own-profile lookup, other-user read-receipt display, avatar image
+  rendering (avatars are cached but shown as an initial-letter chip),
+  member list UI, dedicated thread side-panel.
+- Windows / macOS SecretStore backends.
+
+---
+
+## Do not break these invariants
+
+1. **C++ owns UI + app logic + models + HTTP backend + cache + docs
+   + tests.** Every screen, model, and backend that has a C++
+   implementation stays C++.
+2. **Rust is only for the Matrix SDK / E2EE / crypto path**, and only
+   behind the `MatrixClient` interface. QML never talks to Rust
+   directly.
+3. **Access tokens live in `SecretStore`, never in the SQLite cache**.
+   Non-secret session metadata (homeserver, userId, deviceId,
+   syncToken) stays in `QSettings`.
+4. **The SQLite cache is not secret storage.** Room summaries, last
+   ~200 events per room, and per-room members. Never a token.
+5. **The Mock / HTTP / Rust backend seams stay independent.** No
+   backend imports another; UI/models only depend on
+   `MatrixClient.h`.
+6. **`CryptoManager::supportsE2ee` is the single source of truth for
+   the E2EE badge.** Flip it to `true` only when real crypto works.
+7. **CLI validation runs before `QGuiApplication`.** Bad `--backend=…`
+   values and `--http` / `--rust` shortcuts exit 2 with a clean
+   message; a missing display exits 3 with a hint about
+   `QT_QPA_PLATFORM=offscreen`. Never let a typo abort inside Qt's
+   platform plugin loader.
+
+---
+
+## Runtime troubleshooting
+
+See [`docs/build-and-test.md`](docs/build-and-test.md#troubleshooting)
+for the full list. Common ones:
+
+- **Qt platform plugin fails to load on NixOS/KDE/GNOME** → launch
+  from inside `nix develop`. The shellHook purges the outer session's
+  `QT_PLUGIN_PATH` and sets flake-consistent Qt paths.
+- **HTTP login succeeds but stays on login screen** — fixed in v0.4.5.
+  Look for `matrix.app: screen change 0 -> 1` in the terminal to
+  confirm the transition fired.
+- **"Syncing" forever with 0 rooms** — fixed in v0.4.6. Look for
+  `matrix.http: sync request:` and `matrix.http: initial sync
+  complete; rooms in memory = N` in the terminal.
+- **`--backend=rust` doesn't work in the default build** — Rust
+  scaffold is opt-in. Configure with
+  `-DENABLE_RUST_SDK_BACKEND=ON` and rebuild into `build-rust/`.
+
+---
+
+## Next safe prompts
+
+Full list in [`docs/next-prompts.md`](docs/next-prompts.md). Recommended
+next single-pass step: **multi-account foundation** (data model + UI
+skeleton, single-active behaviour retained; full simultaneous sync
+deferred).
+
+After that, in order:
+
+1. Multi-account foundation.
+2. SSO / OIDC login (system browser + local loopback callback).
+3. Small `matrix-sdk` step in the Rust scaffold: wire
+   `Client::builder` and `login`, keep `CryptoManager::supportsE2ee`
+   `false` until crypto is actually there.
+4. Authenticated media (`/_matrix/client/v1/media/*`).
+
+---
+
+## Layering (concise)
+
+```
+Qt/QML UI              qml/*.qml
+App layer              src/app,  src/auth
+UI models              src/models   (+ src/spaces, src/threads)
+Backend interface      src/matrix/MatrixClient.h
+Backends               MockMatrixClient      (--backend=mock)
+                       CppHttpMatrixClient   (--backend=http, default)
+                       RustSdkMatrixClient   (--backend=rust,
+                                              gated on ENABLE_RUST_SDK_BACKEND)
+Rust crate             rust/                 (linked as static lib)
+Storage                QSettings (prefs + non-secret session)
+                       SecretStore (libsecret / insecure fallback)
+                       CacheStore (SQLite; rooms + last N events + members)
+Platform               src/notifications, src/media  (stubs / partial)
+Crypto                 src/crypto/CryptoManager  (capability surface only)
 ```
 
-Any credentials succeed. Hard-coded rooms and messages appear. Nothing hits the network.
+Full write-up in [`docs/architecture.md`](docs/architecture.md).
 
-### Rust backend scaffold
-
-```bash
-./build-rust/matrix-client --backend=rust
-```
-
-Available only when built with `-DENABLE_RUST_SDK_BACKEND=ON`. The app launches, the Settings screen reports the Rust backend, but login is refused with a clear message pointing you back to `--backend=http`.
-
-## Layering
-
-```
-Qt/QML UI      →  qml/*.qml
-App layer      →  src/app, src/auth
-UI models      →  src/models
-Backend iface  →  src/matrix/MatrixClient.h
-Backends       →  src/matrix/MockMatrixClient.{h,cpp}    ← --backend=mock
-                  src/matrix/CppHttpMatrixClient.{h,cpp} ← --backend=http (default)
-                  src/matrix/RustSdkMatrixClient.{h,cpp} ← --backend=rust
-                                                          (only when
-                                                          ENABLE_RUST_SDK_BACKEND)
-Rust crate     →  rust/                                  ← static lib linked in
-Storage        →  QSettings (prefs + non-secret session)
-                  SecretStore: LibSecretStore or InsecureFallbackSecretStore
-                  SQLite (rooms/timeline/members cache)
-Platform       →  src/notifications, src/media (stubs / partial)
-Crypto         →  src/crypto/CryptoManager (capability surface only)
-```
-
-The `MatrixClient` interface is the swap seam. UI, models, and the app layer never depend on a concrete backend.
-
-## What v0.4 does *not* do
-
-- No real E2EE. The Rust backend scaffold compiles and links but does not talk to Matrix. Encrypted rooms still show `[encrypted message - E2EE not implemented yet]`; encrypted media still shows a placeholder; sends into encrypted rooms are still blocked.
-- No hardware-backed secret storage. `LibSecretStore` uses the Freedesktop Secret Service, whose backend is whatever the user's session provides.
-- No Windows / macOS secret backend. Windows and macOS fall back to the insecure store with a warning.
-- No spaces, threads, multi-account, sliding sync, SSO/OIDC. Those are v0.5.
-- No display of other users' read receipts. Avatars are cached but not rendered as images yet.
+---
 
 ## Contributing
 
-Prefer many small files over one large one. Keep protocol logic behind the `MatrixClient` interface. Do not import protocol types into QML files.
+Small files over one large one. Protocol logic stays behind
+`MatrixClient`. Protocol types do not appear in QML files. Read
+[`docs/current-state.md`](docs/current-state.md) before making changes
+larger than a bug fix — it's kept honest with what is and is not
+implemented.

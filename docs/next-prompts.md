@@ -23,10 +23,16 @@ Connections re-trigger, and CacheStore persists `isSpace`,
 show up immediately after relaunch — no more "briefly hidden until
 first /sync" window).
 
-The next safest single-feature step is Prompt 1 (multi-account
-foundation). Everything above the multi-account bar (SSO, matrix-sdk,
-authenticated media) is materially bigger and depends on account
-scoping being clean.
+**As of v0.4.6, HTTP `/sync` bring-up is snappy**: initial sync
+uses `timeout=0`, `MatrixClient::initialSyncDone()` capability is
+exposed to QML, and the room list has a state-aware empty label
+(loading / no joined / no in Space). The reported "Syncing forever
+with 0 rooms" bug is fixed. Full docs sweep landed.
+
+The next safest single-feature step is Prompt 2 (multi-account
+foundation). Everything above the multi-account bar (SSO,
+matrix-sdk, authenticated media) is materially bigger and depends
+on account scoping being clean.
 
 ---
 

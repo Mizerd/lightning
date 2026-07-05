@@ -101,9 +101,8 @@ AppController::AppController(Backend backend, QObject *parent)
             this, &AppController::onLoggedOut);
     connect(m_client.get(), &MatrixClient::errorOccurred,
             this, &AppController::errorReported);
-    connect(m_client.get(), &MatrixClient::connectionStateChanged, this,
-            [this](MatrixClient::ConnectionState s) {
-        switch (s) {
+    auto refreshConnectionStatus = [this]() {
+        switch (m_client->connectionState()) {
         case MatrixClient::Disconnected:
             setConnectionStatus(m_client->isLoggedIn()
                 ? tr("Idle")
@@ -113,12 +112,23 @@ AppController::AppController(Backend backend, QObject *parent)
             setConnectionStatus(tr("Connecting…"));
             break;
         case MatrixClient::Syncing:
-            setConnectionStatus(tr("Syncing"));
+            // v0.4.6: distinguish the initial-sync wait from the steady
+            // long-poll so a user with no rooms yet loaded doesn't see
+            // "Syncing" forever and assume the app is frozen.
+            setConnectionStatus(m_client->initialSyncDone()
+                ? tr("Syncing")
+                : tr("Loading rooms…"));
             break;
         case MatrixClient::Error:
             setConnectionStatus(tr("Error"));
             break;
         }
+    };
+    connect(m_client.get(), &MatrixClient::connectionStateChanged,
+            this, refreshConnectionStatus);
+    connect(m_client.get(), &MatrixClient::initialSyncDoneChanged, this, [this, refreshConnectionStatus] {
+        refreshConnectionStatus();
+        Q_EMIT initialSyncDoneChanged();
     });
     setConnectionStatus(tr("Not connected"));
 
@@ -157,6 +167,11 @@ MediaManager *AppController::media() const { return m_media.get(); }
 CryptoManager *AppController::crypto() const { return m_crypto.get(); }
 SpaceManager *AppController::spaces() const { return m_spaces.get(); }
 ThreadManager *AppController::threads() const { return m_threads.get(); }
+
+bool AppController::initialSyncDone() const
+{
+    return m_client && m_client->initialSyncDone();
+}
 
 void AppController::setCurrentRoomId(const QString &roomId)
 {

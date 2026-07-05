@@ -213,6 +213,10 @@ void CppHttpMatrixClient::login(const QString &homeserver,
         m_rooms.clear();
         m_timelines.clear();
         m_pendingSends.clear();
+        if (m_initialSyncDone) {
+            m_initialSyncDone = false;
+            Q_EMIT initialSyncDoneChanged();
+        }
         if (m_settings)
             m_settings->saveSession(m_homeserver, m_userId, m_deviceId, m_accessToken);
         // Fresh session gets a fresh cache — different user must not see the
@@ -314,6 +318,10 @@ void CppHttpMatrixClient::clearLocalSession(bool clearPersisted)
     m_timelines.clear();
     m_pendingSends.clear();
     m_lastReceiptSent.clear();
+    if (m_initialSyncDone) {
+        m_initialSyncDone = false;
+        Q_EMIT initialSyncDoneChanged();
+    }
     if (clearPersisted) {
         if (m_settings) m_settings->clearSession();
         closeAndClearCache();
@@ -350,21 +358,39 @@ void CppHttpMatrixClient::startNextSync()
     if (!m_syncActive || !m_loggedIn)
         return;
 
+    // v0.4.6 — the initial sync (no since token) uses timeout=0 so the
+    // server returns current state immediately instead of long-polling.
+    // Follow-up syncs long-poll with timeout=30000. Matches the Matrix
+    // spec recommendation and makes "still loading rooms" feel snappy
+    // instead of dead.
+    const bool initial = m_syncToken.isEmpty();
+
     QUrl url = endpoint(QStringLiteral("/sync"));
     QUrlQuery q;
-    q.addQueryItem(QStringLiteral("timeout"), QStringLiteral("30000"));
-    if (!m_syncToken.isEmpty())
+    q.addQueryItem(QStringLiteral("timeout"),
+                   initial ? QStringLiteral("0") : QStringLiteral("30000"));
+    if (!initial)
         q.addQueryItem(QStringLiteral("since"), m_syncToken);
     url.setQuery(q);
 
     QNetworkRequest req(url);
     applyBearer(req);
-    req.setTransferTimeout(45000);
+    // Long-poll: allow 30s server-side timeout + response streaming.
+    // 60s hard cap avoids indefinite hangs on stalled TLS connections but
+    // is comfortably above the 30s the server may hold the connection.
+    req.setTransferTimeout(initial ? 30000 : 60000);
+
+    qCInfo(lcHttp) << "sync request:"
+                   << (initial ? "INITIAL (timeout=0)"
+                               : "continuation (timeout=30000)")
+                   << "url=" << url.toString(QUrl::RemoveQuery)
+                              + (initial ? QStringLiteral("?timeout=0")
+                                         : QStringLiteral("?timeout=30000&since=<redacted>"));
 
     m_syncReply = m_nam->get(req);
     QPointer<QNetworkReply> guard = m_syncReply;
     QObject::connect(m_syncReply.data(), &QNetworkReply::finished, this,
-                     [this, guard] {
+                     [this, guard, initial] {
         if (!guard)
             return;
         QNetworkReply *reply = guard.data();
@@ -380,23 +406,32 @@ void CppHttpMatrixClient::startNextSync()
             QNetworkRequest::HttpStatusCodeAttribute).toInt();
         if (reply->error() != QNetworkReply::NoError) {
             if (status == 401) {
+                qCWarning(lcHttp) << "sync 401 — session expired";
                 Q_EMIT errorOccurred(tr("Session expired during sync."));
                 clearLocalSession(true);
                 Q_EMIT loggedOut();
                 return;
             }
-            qCWarning(lcHttp) << "sync error" << status;
-            Q_EMIT errorOccurred(tr("Sync error: %1").arg(reply->errorString()));
+            qCWarning(lcHttp) << "sync error status=" << status
+                              << "net=" << reply->errorString();
+            Q_EMIT errorOccurred(tr("Sync error (%1): %2")
+                                 .arg(status)
+                                 .arg(reply->errorString()));
             m_syncRetryTimer.start(m_syncBackoffMs);
             return;
         }
 
-        const auto doc = QJsonDocument::fromJson(reply->readAll());
+        const QByteArray body = reply->readAll();
+        const auto doc = QJsonDocument::fromJson(body);
         if (!doc.isObject()) {
+            qCWarning(lcHttp) << "sync malformed body, size=" << body.size();
             Q_EMIT errorOccurred(tr("Malformed /sync response."));
             m_syncRetryTimer.start(m_syncBackoffMs);
             return;
         }
+        qCInfo(lcHttp) << "sync response ok" << (initial ? "(initial)" : "(continuation)")
+                       << "status=" << status
+                       << "size=" << body.size();
         handleSyncResponse(doc.object());
         startNextSync();
     });
@@ -412,8 +447,29 @@ void CppHttpMatrixClient::handleSyncResponse(const QJsonObject &obj)
     }
     const auto roomsObj = obj.value(QStringLiteral("rooms")).toObject();
     const auto joined = roomsObj.value(QStringLiteral("join")).toObject();
+
+    qCInfo(lcHttp) << "sync parse: joined=" << joined.size()
+                   << "invited=" << roomsObj.value(QStringLiteral("invite")).toObject().size()
+                   << "left=" << roomsObj.value(QStringLiteral("leave")).toObject().size()
+                   << "next_batch_len=" << nextBatch.size();
+
     if (!joined.isEmpty())
         processJoinedRooms(joined);
+
+    // v0.4.6: mark initial sync complete after the first response is
+    // parsed, even if `join` was empty (the account may legitimately be
+    // in zero joined rooms). QML uses this to switch from "Loading
+    // rooms…" to "No joined rooms" / "No rooms in this Space".
+    if (!m_initialSyncDone) {
+        m_initialSyncDone = true;
+        qCInfo(lcHttp) << "initial sync complete; rooms in memory ="
+                       << m_rooms.size();
+        Q_EMIT initialSyncDoneChanged();
+        // Emit roomsChanged unconditionally on first response so any
+        // model already bound to the client picks up the "0 rooms" case
+        // as a real state, not the pre-sync default.
+        Q_EMIT roomsChanged();
+    }
 }
 
 void CppHttpMatrixClient::processStateEvent(RoomInfo &room, const QJsonObject &ev)

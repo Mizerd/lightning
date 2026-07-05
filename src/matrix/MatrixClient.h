@@ -44,6 +44,13 @@ public:
     virtual void stopSync() = 0;
     virtual ConnectionState connectionState() const = 0;
 
+    // v0.4.6: true once at least one /sync response has been processed for
+    // the current session. Backends that synthesise state immediately (Mock)
+    // return true by default; only backends that talk to a real homeserver
+    // need to override and toggle this. QML consumes it to distinguish
+    // "still loading rooms" from "sync loop is live but there are no rooms".
+    virtual bool initialSyncDone() const { return true; }
+
     // Room + timeline queries
     virtual QList<RoomInfo> rooms() const = 0;
     virtual QList<TimelineEvent> timeline(const QString &roomId) const = 0;
@@ -105,6 +112,7 @@ Q_SIGNALS:
     void loggedOut();
 
     void connectionStateChanged(ConnectionState state);
+    void initialSyncDoneChanged();
     void roomsChanged();
     void roomUpdated(const QString &roomId);
     void timelineReset(const QString &roomId);

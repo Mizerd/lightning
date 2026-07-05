@@ -154,6 +154,26 @@ their `RoomInfo` / `TimelineEvent` instances and call the usual
 `saveRoom` / `updateEvent` cache helpers; the schema migrates in
 place via `ALTER TABLE ADD COLUMN` for pre-v0.4.5 databases.
 
+## Initial sync capability (v0.4.6)
+
+`MatrixClient::initialSyncDone()` is a *non-pure* virtual that
+defaults to `true`. Backends that synthesise state immediately
+(the Mock backend has all its rooms at construction time) can
+leave the default. Backends that need to talk to a homeserver
+before rooms are known (`CppHttpMatrixClient` — and later the Rust
+SDK backend) must override:
+
+- Return `false` after login / restoreSession, before the first
+  `/sync` response is parsed.
+- Flip to `true` when the first response is fully processed, even
+  if the response contained zero rooms.
+- Reset to `false` on `clearLocalSession` / logout.
+- Emit `initialSyncDoneChanged()` on every transition.
+
+`AppController::initialSyncDone` re-exposes this to QML so the
+room list can say "Loading rooms…" while it's `false` and switch
+to a proper empty state (or the list itself) after.
+
 ## Login lifecycle & the screen transition
 
 `AppController::onLoginSucceeded` is the single point that flips

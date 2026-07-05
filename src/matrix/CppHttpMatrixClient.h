@@ -54,6 +54,7 @@ public:
     void startSync() override;
     void stopSync() override;
     ConnectionState connectionState() const override { return m_state; }
+    bool initialSyncDone() const override { return m_initialSyncDone; }
 
     QList<RoomInfo> rooms() const override;
     QList<TimelineEvent> timeline(const QString &roomId) const override;
@@ -160,6 +161,10 @@ private:
     QPointer<QNetworkReply> m_syncReply;
     QTimer m_syncRetryTimer;
     int m_syncBackoffMs = 5000;
+    // v0.4.6: flips true after the first /sync response is fully parsed.
+    // Reset on login/logout. Consumed via initialSyncDone() override so
+    // QML can show "Loading rooms…" until the first response lands.
+    bool m_initialSyncDone = false;
 
     QHash<QString, RoomInfo> m_rooms;
     QHash<QString, QList<TimelineEvent>> m_timelines;

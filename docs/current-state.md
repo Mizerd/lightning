@@ -1,6 +1,6 @@
-# Current state (v0.4.5)
+# Current state (v0.4.6)
 
-Last updated: 2026-07-05 (v0.4.5 pass).
+Last updated: 2026-07-05 (v0.4.6 pass).
 
 This is the "where the repo actually is" doc. Treat it as ground truth
 for a fresh LLM continuation session — read this before
@@ -20,7 +20,8 @@ code.
   - `1a5adba` v0.4.2: HTTP Spaces parsing + no-display preflight hardening
   - `2230bbe` v0.4.3: Nix Qt platform runtime fix + --http/--rust CLI hint
   - `da9f331` v0.4.4: real HTTP m.thread relation send + parse
-  - HEAD after this pass: `v0.4.5: HTTP login transition fix + Lightning branding + Space/thread cache persistence`
+  - `dbb28e0` v0.4.5: HTTP login transition fix + Lightning branding + Space/thread cache persistence
+  - HEAD after this pass: `v0.4.6: HTTP /sync bring-up polish + initialSyncDone capability + docs sweep`
 
 ## Layered architecture (unchanged from v0.4)
 
@@ -53,6 +54,23 @@ Crypto:      src/crypto/CryptoManager (capability surface only, no crypto)
   for build-system compatibility (Q_APPLICATION_NAME too — keeps the
   QSettings scope stable across the rename). The login-screen
   sub-heading is backend-aware (v0.4.5).
+- **HTTP `/sync` bring-up (v0.4.6)**: the initial `/sync` (no
+  `since` token) uses `timeout=0`, per Matrix spec; the server
+  returns current state immediately instead of long-polling.
+  Follow-ups long-poll with `timeout=30000`. Request transfer
+  timeout is 30s / 60s respectively — comfortably above the 30s
+  server-side wait so we don't false-time-out.
+  `MatrixClient::initialSyncDone()` is a new capability on the
+  interface (default `true`; only `CppHttpMatrixClient` overrides
+  and toggles it) so QML can distinguish "still waiting for the
+  first response" from "sync loop live, no rooms". The room list
+  header now shows the model count only after the first sync
+  response lands, and the empty-state label under the list is
+  state-aware: sign-in / loading / no joined rooms / no rooms in
+  the selected Space.
+  Non-secret sync diagnostics: `matrix.http:` log lines announce
+  each request kind, HTTP status, response body size, and the
+  joined / invited / left counts parsed. Tokens are never logged.
 - **HTTP login → main-screen transition (v0.4.5)**: the `Loader` in
   `qml/Main.qml` used to pick the current page via
   `switch (app.currentScreen) { case app.LoginScreen: … }`. That

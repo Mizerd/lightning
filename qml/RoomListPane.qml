@@ -26,8 +26,13 @@ Rectangle {
                     font.weight: Font.DemiBold
                 }
                 Item { Layout.fillWidth: true }
+                // Bind to the model's built-in `count` (a Q_PROPERTY on
+                // ListView's model wrapper) so the header stays in sync
+                // when rooms arrive after the initial sync. Empty when
+                // the initial sync hasn't landed yet, so we don't flash
+                // a bogus "0".
                 Label {
-                    text: app.roomList.rowCount ? app.roomList.rowCount() : ""
+                    text: app.initialSyncDone ? list.count.toString() : ""
                     color: AppTheme.textMuted
                     font.pixelSize: 12
                 }
@@ -111,10 +116,33 @@ Rectangle {
 
             ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
 
+            // v0.4.6: state-aware empty label so a user staring at a
+            // blank room list gets an honest read on what's happening.
+            // Precedence:
+            //   1. not signed in                → "Sign in to see rooms"
+            //   2. sync loop hasn't produced a response yet
+            //                                   → "Loading rooms…"
+            //   3. sync loop live, a real Space is selected
+            //                                   → "No rooms in this Space"
+            //   4. sync loop live, All rooms selected, still empty
+            //                                   → "No joined rooms"
             Label {
                 anchors.centerIn: parent
+                width: parent.width - AppTheme.spacingXL * 2
+                horizontalAlignment: Text.AlignHCenter
+                wrapMode: Text.WordWrap
                 visible: list.count === 0
-                text: app.loggedIn ? qsTr("No rooms in this Space") : qsTr("Sign in to see rooms")
+                text: {
+                    if (!app.loggedIn)
+                        return qsTr("Sign in to see rooms")
+                    if (!app.initialSyncDone)
+                        return qsTr("Loading rooms…")
+                    if (app.spaces && app.spaces.activeSpaceId
+                        && app.spaces.activeSpaceId !== ""
+                        && app.spaces.activeSpaceId !== "@orphans")
+                        return qsTr("No rooms in this Space")
+                    return qsTr("No joined rooms")
+                }
                 color: AppTheme.textMuted
             }
         }
