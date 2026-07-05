@@ -123,21 +123,28 @@ void CppHttpMatrixClient::closeAndClearCache()
     }
 }
 
-void CppHttpMatrixClient::loadCachedState()
+int CppHttpMatrixClient::loadCachedState()
 {
     if (!m_cache)
-        return;
+        return 0;
     const auto rooms = m_cache->loadRooms();
+    int visibleRoomCount = 0;
     for (const auto &r : rooms) {
         RoomInfo copy = r;
         copy.members = m_cache->loadMembers(r.id);
         m_rooms.insert(r.id, copy);
         m_timelines[r.id] = m_cache->loadTimeline(r.id);
+        if (!copy.isSpace)
+            ++visibleRoomCount;
     }
     if (!rooms.isEmpty())
         Q_EMIT roomsChanged();
     for (const auto &r : rooms)
         Q_EMIT timelineReset(r.id);
+    qCInfo(lcHttp) << "cache restore: rooms=" << rooms.size()
+                   << "visible_rooms=" << visibleRoomCount
+                   << "sync_token_len=" << m_syncToken.size();
+    return visibleRoomCount;
 }
 
 void CppHttpMatrixClient::login(const QString &homeserver,
@@ -217,8 +224,12 @@ void CppHttpMatrixClient::login(const QString &homeserver,
             m_initialSyncDone = false;
             Q_EMIT initialSyncDoneChanged();
         }
-        if (m_settings)
+        if (m_settings) {
             m_settings->saveSession(m_homeserver, m_userId, m_deviceId, m_accessToken);
+            // A fresh login starts from a new since-less sync. Do not let a
+            // previous run's resume token survive for the same MXID.
+            m_settings->setSyncToken({});
+        }
         // Fresh session gets a fresh cache — different user must not see the
         // previous user's history.
         if (m_cache) { m_cache->clearAll(); m_cache->close(); m_cache.reset(); }
@@ -247,7 +258,20 @@ bool CppHttpMatrixClient::restoreSession()
 
     setState(Connecting);
     openCacheFor(m_userId);
-    loadCachedState();
+    const int cachedVisibleRoomCount = loadCachedState();
+    if (cachedVisibleRoomCount == 0 && !m_syncToken.isEmpty()) {
+        // A /sync since token is only useful together with the local state
+        // that token advances from. If the SQLite cache is empty, missing,
+        // or only contains Space rooms that are hidden from the visible room
+        // list, an incremental sync can correctly return no joined-room
+        // objects and leave the app looking empty. Force a since-less
+        // initial sync so the server sends a full room snapshot again.
+        qCWarning(lcHttp)
+            << "discarding stored sync token because cache has no visible rooms;"
+            << "forcing initial sync";
+        m_syncToken.clear();
+        m_settings->setSyncToken({});
+    }
     doWhoami();
     return true;
 }
@@ -369,8 +393,13 @@ void CppHttpMatrixClient::startNextSync()
     QUrlQuery q;
     q.addQueryItem(QStringLiteral("timeout"),
                    initial ? QStringLiteral("0") : QStringLiteral("30000"));
-    if (!initial)
+    if (initial) {
+        // Redundant for a spec-compliant since-less sync, but harmless and
+        // useful for homeservers that are conservative about initial state.
+        q.addQueryItem(QStringLiteral("full_state"), QStringLiteral("true"));
+    } else {
         q.addQueryItem(QStringLiteral("since"), m_syncToken);
+    }
     url.setQuery(q);
 
     QNetworkRequest req(url);
@@ -384,7 +413,7 @@ void CppHttpMatrixClient::startNextSync()
                    << (initial ? "INITIAL (timeout=0)"
                                : "continuation (timeout=30000)")
                    << "url=" << url.toString(QUrl::RemoveQuery)
-                              + (initial ? QStringLiteral("?timeout=0")
+                              + (initial ? QStringLiteral("?timeout=0&full_state=true")
                                          : QStringLiteral("?timeout=30000&since=<redacted>"));
 
     m_syncReply = m_nam->get(req);

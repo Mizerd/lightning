@@ -98,7 +98,7 @@ public:
 private:
     // Session lifecycle helpers.
     void doWhoami();
-    void loadCachedState();
+    int loadCachedState();
     void openCacheFor(const QString &userId);
     void closeAndClearCache();
     void clearLocalSession(bool clearPersisted);

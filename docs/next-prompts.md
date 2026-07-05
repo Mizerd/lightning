@@ -29,6 +29,14 @@ exposed to QML, and the room list has a state-aware empty label
 (loading / no joined / no in Space). The reported "Syncing forever
 with 0 rooms" bug is fixed. Full docs sweep landed.
 
+**As of v0.4.7, HTTP session restore recovers from stale visible-room
+cache state**: fresh login clears persisted `syncToken`, initial sync
+uses `timeout=0&full_state=true`, and restore discards a stored
+`syncToken` if the SQLite cache has no visible non-Space rooms. This
+fixes the observed Space-only cache state where the cache had the
+Space and child ids but no joined child room rows, so incremental sync
+could leave the room list empty forever.
+
 The next safest single-feature step is Prompt 2 (multi-account
 foundation). Everything above the multi-account bar (SSO,
 matrix-sdk, authenticated media) is materially bigger and depends

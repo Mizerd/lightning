@@ -237,17 +237,31 @@ platform-plugin issue instead of surfacing the CLI error.
 
 ### HTTP login succeeds but the room list shows "Syncing" forever with 0 rooms
 
-Fixed in v0.4.6. Root cause: the initial `/sync` request was using
+Fixed in v0.4.7. Root cause: the initial `/sync` request was using
 `timeout=30000`, so a fresh login had to wait for the long-poll to
 finish (up to 30s) before any response arrived. During that wait
 the room list stayed empty and the footer said "Syncing" — visually
 indistinguishable from a stuck app.
 
+Follow-up root cause found against `matrix.smetonis.net`: after a
+Space-only cache restore, QSettings could still hold a `syncToken`
+while SQLite had the Space room and `m.space.child` ids but no visible
+joined child-room rows. Continuing with `/sync?since=<token>` can
+correctly return no joined-room objects, leaving the UI empty forever.
+
 Fixes shipped:
 
 - Initial `/sync` (no `since` token) uses `timeout=0` per Matrix
-  spec. The server returns current state immediately. Follow-up
+  spec, plus `full_state=true` to make the full-snapshot intent
+  explicit. The server returns current state immediately. Follow-up
   syncs long-poll with `timeout=30000` as intended.
+- Session restore discards a stored `syncToken` when the SQLite cache
+  has no visible non-Space rooms (empty, unavailable, or only Space
+  rooms). A resume token without visible cached room state can only
+  produce deltas, so the client forces a since-less initial sync
+  instead of showing zero rooms forever.
+- Fresh login clears any persisted `syncToken` for the same MXID before
+  starting sync.
 - `MatrixClient::initialSyncDone()` — new capability on the
   interface. `false` until the first `/sync` response is parsed,
   then `true` for the rest of the session (reset on login /
@@ -264,7 +278,7 @@ Fixes shipped:
 Diagnostic log lines to look for in the terminal:
 
 ```
-matrix.http: sync request: INITIAL (timeout=0) url= https://…/sync?timeout=0
+matrix.http: sync request: INITIAL (timeout=0) url= https://…/sync?timeout=0&full_state=true
 matrix.http: sync response ok (initial) status= 200 size= <N>
 matrix.http: sync parse: joined= <N> invited= 0 left= 0 next_batch_len= <N>
 matrix.http: initial sync complete; rooms in memory = <N>
@@ -272,10 +286,17 @@ matrix.http: initial sync complete; rooms in memory = <N>
 
 If you see the `sync request:` line but no `sync response ok`, the
 request is stalling — check firewall / DNS / TLS to the homeserver
-and any HTTP proxy in front of it. If you see `sync parse: joined=0`
-against an account that clearly has joined rooms, the server side
-believes the token isn't scoped to those rooms — usually a device
-reset / logout on another client.
+and any HTTP proxy in front of it. On session restore, this line:
+
+```
+matrix.http: discarding stored sync token because cache has no visible rooms; forcing initial sync
+```
+
+means the client detected a stale resume-token / empty-cache state and
+will recover by requesting a full room snapshot. If you see
+`sync parse: joined=0` on that initial request against an account that
+clearly has joined rooms, the server side believes the authenticated
+device is not joined to them.
 
 ### HTTP login logs "login ok" but the UI stays on the login screen
 

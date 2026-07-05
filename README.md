@@ -12,16 +12,21 @@ across the rename. The product name is **Lightning**.
 
 ## Status
 
-**v0.4.6** — HTTP `/sync` bring-up polish, backend-aware loading UX,
+**v0.4.7** — HTTP `/sync` bring-up polish, backend-aware loading UX,
 sync diagnostics, docs sweep.
 
-**New in v0.4.6:**
+**New in v0.4.7:**
 
-- `/sync` initial fetch uses `timeout=0` per Matrix spec so the server
+- `/sync` initial fetch uses `timeout=0&full_state=true` so the server
   returns current state immediately instead of long-polling. Follow-up
   syncs long-poll with `timeout=30000` as before. The transfer timeout
   is 30s on the initial call and 60s on subsequent long-polls (safely
   above the 30s server-side wait).
+- Fresh login clears any persisted `syncToken`, and session restore
+  discards a stored token if the SQLite cache has no visible non-Space
+  rooms. This recovers from stale Space-only cache state where the UI
+  would otherwise have no room rows to render and incremental sync
+  would not resend the full snapshot.
 - `MatrixClient::initialSyncDone()` — new capability the interface
   advertises so the UI can distinguish *"still loading the initial
   sync"* from *"sync loop is live, there are just no rooms"*.
@@ -193,7 +198,7 @@ for the full list. Common ones:
 - **HTTP login succeeds but stays on login screen** — fixed in v0.4.5.
   Look for `matrix.app: screen change 0 -> 1` in the terminal to
   confirm the transition fired.
-- **"Syncing" forever with 0 rooms** — fixed in v0.4.6. Look for
+- **"Syncing" forever with 0 rooms** — fixed in v0.4.7. Look for
   `matrix.http: sync request:` and `matrix.http: initial sync
   complete; rooms in memory = N` in the terminal.
 - **`--backend=rust` doesn't work in the default build** — Rust

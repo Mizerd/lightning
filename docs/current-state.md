@@ -1,6 +1,6 @@
-# Current state (v0.4.6)
+# Current state (v0.4.7)
 
-Last updated: 2026-07-05 (v0.4.6 pass).
+Last updated: 2026-07-05 (v0.4.7 pass).
 
 This is the "where the repo actually is" doc. Treat it as ground truth
 for a fresh LLM continuation session — read this before
@@ -21,7 +21,8 @@ code.
   - `2230bbe` v0.4.3: Nix Qt platform runtime fix + --http/--rust CLI hint
   - `da9f331` v0.4.4: real HTTP m.thread relation send + parse
   - `dbb28e0` v0.4.5: HTTP login transition fix + Lightning branding + Space/thread cache persistence
-  - HEAD after this pass: `v0.4.6: HTTP /sync bring-up polish + initialSyncDone capability + docs sweep`
+  - `31cbc22` v0.4.6: HTTP /sync bring-up polish + initialSyncDone capability + docs sweep
+  - HEAD after this pass: `v0.4.7: HTTP restore recovers from stale Space-only cache`
 
 ## Layered architecture (unchanged from v0.4)
 
@@ -54,12 +55,21 @@ Crypto:      src/crypto/CryptoManager (capability surface only, no crypto)
   for build-system compatibility (Q_APPLICATION_NAME too — keeps the
   QSettings scope stable across the rename). The login-screen
   sub-heading is backend-aware (v0.4.5).
-- **HTTP `/sync` bring-up (v0.4.6)**: the initial `/sync` (no
-  `since` token) uses `timeout=0`, per Matrix spec; the server
+- **HTTP `/sync` bring-up (v0.4.7)**: the initial `/sync` (no
+  `since` token) uses `timeout=0&full_state=true`; the server
   returns current state immediately instead of long-polling.
   Follow-ups long-poll with `timeout=30000`. Request transfer
   timeout is 30s / 60s respectively — comfortably above the 30s
   server-side wait so we don't false-time-out.
+  On session restore, a stored `syncToken` is discarded when the
+  SQLite cache has no visible non-Space rooms, because an incremental
+  token without visible cached room state cannot reconstruct the room
+  list. This specifically handles the observed broken state where the
+  cache held the Space room and `m.space.child` ids but no joined child
+  room rows yet, causing the UI to render an empty list while
+  incremental syncs had no reason to resend the full room snapshot.
+  Fresh login also clears any persisted `syncToken` for the same MXID
+  before starting sync.
   `MatrixClient::initialSyncDone()` is a new capability on the
   interface (default `true`; only `CppHttpMatrixClient` overrides
   and toggles it) so QML can distinguish "still waiting for the

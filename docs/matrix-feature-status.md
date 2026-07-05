@@ -1,4 +1,4 @@
-# Matrix feature status (v0.4.6)
+# Matrix feature status (v0.4.7)
 
 Honest per-feature status per backend. Ground truth for anything the UI
 claims about support. Do not check anything as "done" here that is not
@@ -16,7 +16,7 @@ Legend:
 |---|---|---|---|
 | Password login (`m.login.password`) | ✅ (any creds) | ✅ | ❌ refuses |
 | Session persistence + `/whoami` restore | 🟡 in-mem | ✅ | ❌ |
-| Long-poll `/sync` | ⏳ | ✅ (v0.4.6: initial call uses timeout=0) | ❌ |
+| Long-poll `/sync` | ⏳ | ✅ (v0.4.7: initial call uses timeout=0 + full_state; stale token is discarded if cache has no visible rooms) | ❌ |
 | Initial-sync UX (`initialSyncDone` capability) | n/a | ✅ (v0.4.6) | n/a — refuses login |
 | Text message send / receive | ✅ | ✅ | ❌ |
 | Backfill pagination | ✅ | ✅ | ❌ |
