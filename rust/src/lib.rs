@@ -19,7 +19,10 @@ use matrix_sdk::{
     authentication::matrix::MatrixSession,
     config::SyncSettings,
     ruma::{
-        events::room::message::{MessageType, OriginalSyncRoomMessageEvent, RoomMessageEventContent},
+        events::room::{
+            encrypted::OriginalSyncRoomEncryptedEvent,
+            message::{MessageType, OriginalSyncRoomMessageEvent, RoomMessageEventContent},
+        },
         OwnedDeviceId, OwnedTransactionId, OwnedUserId, RoomId, UserId,
     },
     store::RoomLoadSettings,
@@ -275,19 +278,25 @@ pub unsafe extern "C" fn mx_rust_start_sync(ptr: *mut c_void) {
             return;
         };
 
-        if bridge
-            .sync_stop
-            .lock()
-            .map(|guard| guard.is_some())
-            .unwrap_or(false)
+        // Atomically check-and-reserve the sync slot so two rapid
+        // start_sync() calls can't both spawn a sync loop (the earlier
+        // code released the lock between the check and the assignment,
+        // leaving a race that leaked the first loop's `stop` flag).
+        let stop = Arc::new(AtomicBool::new(false));
         {
-            return;
+            let mut guard = match bridge.sync_stop.lock() {
+                Ok(g) => g,
+                Err(_) => return,
+            };
+            if guard.is_some() {
+                return;
+            }
+            *guard = Some(Arc::clone(&stop));
         }
 
         let events = Arc::clone(&bridge.events);
         bridge.enqueue(json!({ "type": "status", "state": "syncing" }));
 
-        let stop = Arc::new(AtomicBool::new(false));
         let callback_stop = Arc::clone(&stop);
         let sync_stop_slot = Arc::clone(&bridge.sync_stop);
         std::thread::spawn(move || {
@@ -336,10 +345,6 @@ pub unsafe extern "C" fn mx_rust_start_sync(ptr: *mut c_void) {
                 }
             });
         });
-
-        if let Ok(mut guard) = bridge.sync_stop.lock() {
-            *guard = Some(stop);
-        }
     }));
 }
 
@@ -502,11 +507,16 @@ async fn restore_client(
 }
 
 fn install_event_handlers(client: &Client, events: Arc<Mutex<VecDeque<String>>>) {
+    // Decrypted (or plaintext) room messages — the SDK dispatches this handler
+    // for both, and `encryption_info` is Some(...) only when the SDK actually
+    // decrypted the payload. That flag becomes the `decrypted` boolean on the
+    // C++ side.
+    let plaintext_events = Arc::clone(&events);
     client.add_event_handler(
         move |ev: OriginalSyncRoomMessageEvent,
               room: Room,
               encryption_info: Option<matrix_sdk::deserialized_responses::EncryptionInfo>| {
-            let events = Arc::clone(&events);
+            let events = Arc::clone(&plaintext_events);
             async move {
                 let (kind, body) = match &ev.content.msgtype {
                     MessageType::Text(content) => ("text", content.body.clone()),
@@ -533,6 +543,36 @@ fn install_event_handlers(client: &Client, events: Arc<Mutex<VecDeque<String>>>)
             }
         },
     );
+
+    // Encrypted room messages the SDK could NOT decrypt. Without this handler
+    // undecryptable events silently disappear and the room looks empty even
+    // though messages are arriving. Emit a placeholder timeline event tagged
+    // `undecryptable = true` so C++ can render an honest
+    // "[unable to decrypt yet]" bubble. We deliberately do NOT include the
+    // ciphertext in the payload — the C++ side never needs it.
+    let encrypted_events = Arc::clone(&events);
+    client.add_event_handler(move |ev: OriginalSyncRoomEncryptedEvent, room: Room| {
+        let events = Arc::clone(&encrypted_events);
+        async move {
+            enqueue(
+                &events,
+                json!({
+                    "type": "timeline_event",
+                    "room_id": room.room_id().to_string(),
+                    "event": {
+                        "event_id": ev.event_id.to_string(),
+                        "sender": ev.sender.to_string(),
+                        // Empty body triggers the placeholder in C++.
+                        "body": "",
+                        "msgtype": "encrypted",
+                        "timestamp_ms": u64::from(ev.origin_server_ts.get()),
+                        "decrypted": false,
+                        "undecryptable": true,
+                    },
+                }),
+            );
+        }
+    });
 }
 
 async fn enqueue_rooms(events: &Arc<Mutex<VecDeque<String>>>, client: &Client) {
@@ -577,11 +617,40 @@ async fn room_name(room: &Room) -> String {
     }
 }
 
+/// Upper bound on the FFI event queue so we never grow without limit if the
+/// C++ poll timer stalls (e.g. UI thread stuck under load). When we hit the
+/// cap we drop the OLDEST events and inject a single `queue_overflow`
+/// notice so the C++ side can log/surface the loss. The cap is generous —
+/// well above the burst of `rooms` + `timeline_event` we produce on
+/// initial sync of a real account.
+const EVENT_QUEUE_CAP: usize = 4096;
+
 fn enqueue(events: &Arc<Mutex<VecDeque<String>>>, value: serde_json::Value) {
     let Ok(serialized) = serde_json::to_string(&value) else {
         return;
     };
     if let Ok(mut guard) = events.lock() {
+        if guard.len() >= EVENT_QUEUE_CAP {
+            // Drop oldest to make room. If the previous entry we just
+            // dropped was itself the overflow marker, don't spam another.
+            let dropped_marker = matches!(
+                guard.front().map(|s| s.contains("\"queue_overflow\"")),
+                Some(true),
+            );
+            guard.pop_front();
+            if !dropped_marker {
+                // Reserve one slot for the marker + the new event.
+                if guard.len() >= EVENT_QUEUE_CAP {
+                    guard.pop_front();
+                }
+                if let Ok(marker) = serde_json::to_string(&json!({
+                    "type": "queue_overflow",
+                    "message": "Rust SDK event queue dropped oldest events; C++ poll may have stalled.",
+                })) {
+                    guard.push_back(marker);
+                }
+            }
+        }
         guard.push_back(serialized);
     }
 }

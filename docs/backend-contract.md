@@ -212,6 +212,66 @@ These rules must hold:
    other combination returns false. Do not add a runtime override that
    flips this to true without recompiling.
 
+### Rust → C++ FFI event schema (v0.5.0-prep+3)
+
+The C++ side drains one JSON-per-line event per
+`mx_rust_poll_event(handle)` call. Empty string means the queue is
+empty. All events are objects with a `"type"` discriminator. Every
+event Rust emits is documented below; unknown types are logged and
+ignored on the C++ side.
+
+- `{"type":"status","state":"connecting"|"syncing"|"disconnected"|"error"}`
+  — direct `ConnectionState` change. C++ mirrors into
+  `setState(...)` without side-effects.
+- `{"type":"login_ok","homeserver":"...","user_id":"@x:h","device_id":"...","access_token":"..."}`
+  — **sensitive.** The `access_token` field must be routed only to
+  `SettingsManager::saveSession` (SecretStore-backed) and never
+  logged. C++ then emits `MatrixClient::loginSucceeded(user_id)`.
+- `{"type":"login_failed","message":"..."}` — human-facing string;
+  never contains a token.
+- `{"type":"logged_out"}` — Rust confirmed the logout; C++ clears
+  its own state and emits `loggedOut()`.
+- `{"type":"rooms","rooms":[{...}, ...]}` — full joined-room
+  snapshot. Each entry: `id`, `name`, `topic`, `avatar_url`,
+  `last_message_preview`, `last_activity_ms`, `unread_count`,
+  `encrypted`, `is_space`, `prev_batch`, `child_room_ids`.
+- `{"type":"initial_sync_done"}` — first sync response processed;
+  C++ flips `initialSyncDone` to true.
+- `{"type":"timeline_event","room_id":"!r","event":{...}}` — one
+  timeline row. `event` fields: `event_id`, `sender`, `body`,
+  `msgtype` ("text" | "notice" | "emote" | "encrypted"),
+  `timestamp_ms`, `decrypted` (bool). Optional
+  `undecryptable: true` on encrypted rows the SDK failed to
+  decrypt — C++ renders those as `[unable to decrypt yet]`
+  regardless of body. **Ciphertext is never sent through the
+  FFI.**
+- `{"type":"send_ok","room_id":"!r","transaction_id":"...","event_id":"$..."}`
+  — server accepted our text send; C++ upgrades the local echo.
+- `{"type":"send_failed","room_id":"!r","transaction_id":"...","message":"..."}`
+  — send failed; C++ flips the local echo to `Failed`.
+- `{"type":"sync_error","message":"..."}` — sync loop errored;
+  C++ emits `errorOccurred`.
+- `{"type":"error","message":"..."}` — miscellaneous error from a
+  Rust helper task or FFI validation. C++ emits `errorOccurred`.
+- `{"type":"queue_overflow","message":"..."}` — **v0.5.0-prep+3:**
+  the Rust event queue reached its `EVENT_QUEUE_CAP = 4096` bound
+  and dropped the oldest events. C++ logs `qCWarning(lcRust)` and
+  raises a non-fatal `errorOccurred`. Almost certainly a stalled
+  C++ poll timer (UI thread blocked); investigate that.
+
+**FFI ownership.** Every `char*` returned by an `mx_rust_*`
+function is heap-allocated by Rust (`CString::into_raw`). C++ must
+release it exclusively via `mx_rust_free_cstring`. Never call
+`free()` on it. `takeRustString` in `RustSdkMatrixClient.cpp` is
+the sanctioned wrapper.
+
+**Panic isolation.** Every `#[no_mangle]` entry point in
+`rust/src/lib.rs` wraps its body in
+`catch_unwind(AssertUnwindSafe(...))`. Panics become
+`"error: Rust SDK FFI panic was caught."` strings for string-
+returning functions, or silent no-ops for void-returning ones.
+The Qt process cannot be aborted by Rust code.
+
 ## Initial sync capability (v0.4.6)
 
 `MatrixClient::initialSyncDone()` is a *non-pure* virtual that

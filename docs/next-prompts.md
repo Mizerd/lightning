@@ -49,6 +49,19 @@ send plumbing.** E2EE is still deliberately disabled:
 blocked, and encrypted read/send must be verified against a real
 homeserver before the UI may claim support.
 
+**As of v0.5.0-prep+3, the Rust FFI foundation has been hardened**:
+- bounded event queue (4096, drop-oldest + one `queue_overflow`
+  marker) so a stalled UI thread cannot OOM the process;
+- atomic reserve of the sync-running flag inside
+  `mx_rust_start_sync`, closing a double-start race;
+- undecryptable timeline events are surfaced as
+  `undecryptable: true`, empty body, `msgtype: "encrypted"` — C++
+  renders them as `[unable to decrypt yet]`; ciphertext is never
+  forwarded through the FFI.
+Full FFI event schema is documented in `docs/backend-contract.md`.
+The manual verification against the real test homeserver (Prompt 1
+below) is still pending.
+
 Ordering rationale: first harden the Rust backend against the test
 homeserver with unencrypted rooms and session restore. Then add
 encrypted read/send and flip the E2EE gate only after real encrypted

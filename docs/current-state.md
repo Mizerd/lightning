@@ -1,6 +1,6 @@
-# Current state (v0.5.0-prep)
+# Current state (v0.5.0-prep+3, hardened Rust SDK foundation)
 
-Last updated: 2026-07-05 (Matrix Rust SDK backend foundation pass).
+Last updated: 2026-07-05 (Rust SDK backend hardening pass).
 
 This is the "where the repo actually is" doc. Treat it as ground truth
 for a fresh LLM continuation session — read this before
@@ -27,7 +27,8 @@ code.
   - `6f389aa` v0.5.0-prep: C++ groundwork for E2EE via matrix-sdk (crate not linked yet)
   - `9ade51b` v0.5.0-prep+1: --reset-crypto-store shows resolved paths; matrix-sdk still blocked at classifier layer
   - `8205606` rust: pull matrix-sdk deps for offline builds
-  - This pass: Rust SDK backend foundation wired on `main`
+  - `9eaa488` Wire Matrix Rust SDK backend foundation (Codex)
+  - HEAD after this pass: `v0.5.0-prep+3: harden Rust FFI (bounded queue, sync-start race fix, undecryptable placeholder)`
   - Branch: `main`
 
 ## Layered architecture (unchanged from v0.4)
@@ -61,7 +62,39 @@ Crypto:      src/crypto/CryptoManager (capability surface only, no crypto)
   for build-system compatibility (Q_APPLICATION_NAME too — keeps the
   QSettings scope stable across the rename). The login-screen
   sub-heading is backend-aware (v0.4.5).
-- **This pass**: the optional Rust backend is no longer just a
+- **v0.5.0-prep+3 hardening (this pass)**: three targeted fixes on
+  top of Codex's `9eaa488` foundation.
+  - **Bounded event queue.** The Rust-side `VecDeque<String>` used
+    to accept unbounded pushes; a stalled C++ poll timer would
+    grow it forever. Now capped at `EVENT_QUEUE_CAP = 4096` — on
+    overflow we drop the oldest event and emit a single
+    `queue_overflow` marker so the C++ side can log/surface it as
+    a warning banner (`errorOccurred`).
+  - **Sync-start race fixed.** `mx_rust_start_sync` used to check
+    `sync_stop.is_some()`, release the lock, spawn the thread,
+    then install the `stop` slot — two rapid `startSync()` calls
+    could both see `None` and both spawn. Now the "already
+    running?" check and slot reservation happen atomically under
+    the same lock guard, before `thread::spawn`. No more leaked
+    sync loops.
+  - **Undecryptable encrypted events surface as a placeholder.**
+    Codex's `install_event_handlers` only handled
+    `OriginalSyncRoomMessageEvent` (plaintext or SDK-decrypted).
+    Events the SDK could not decrypt silently disappeared,
+    leaving encrypted rooms visually empty. Added a second
+    handler for `OriginalSyncRoomEncryptedEvent` that emits a
+    `timeline_event` with `undecryptable: true` and an empty
+    body. `RustSdkMatrixClient::handleTimelineEvent` renders
+    that as `[unable to decrypt yet]` (`TimelineEvent::Notice`).
+    The ciphertext itself is deliberately NOT included in the
+    FFI payload — C++ never needs it.
+  - Comment on `login_ok` handling in
+    `src/matrix/RustSdkMatrixClient.cpp` marks the payload
+    sensitive: the `access_token` field must flow only into
+    `SettingsManager::saveSession` (which routes to SecretStore)
+    and must never appear in any log line.
+
+- **v0.5.0-prep+2 foundation**: the optional Rust backend is no longer just a
   scaffold. `matrix-sdk` v0.18 is in `rust/Cargo.toml`, `Cargo.lock`
   is committed, and the Rust crate builds offline. The Rust FFI now
   owns a Matrix SDK client, SDK SQLite store, async work threads, and

@@ -12,24 +12,41 @@ across the rename. The product name is **Lightning**.
 
 ## Status
 
-**v0.5.0-prep** — Matrix Rust SDK backend foundation. No E2EE claim yet.
+**v0.5.0-prep+3** — Matrix Rust SDK backend foundation, hardened. No
+E2EE claim yet.
 
-The default HTTP backend remains the working production path. This pass
-links `matrix-sdk` v0.18 into the optional Rust backend and wires a real
+The default HTTP backend remains the working production path. The
+optional Rust backend now links `matrix-sdk` v0.18 and wires a real
 Rust-owned SDK client behind the existing C++ `MatrixClient` seam:
 login, session restore, joined-room sync, room-list events, basic text
 timeline events, and plain text sends for unencrypted rooms. QML still
 talks only to C++ models and signals.
 
-**New in this pass:**
+**Hardened in v0.5.0-prep+3 (foundation bug-fix pass):**
+
+- Bounded Rust → C++ event queue at 4096 entries with drop-oldest +
+  single `queue_overflow` marker on overflow, so a stalled UI thread
+  can no longer OOM the process.
+- Atomic reserve of the sync-running flag inside `mx_rust_start_sync`;
+  closes a race where two rapid callers could each spawn a sync loop.
+- Undecryptable timeline rows now propagate through the FFI as
+  `{ undecryptable: true, body: "", msgtype: "encrypted" }` and are
+  rendered by C++ as the localised `[unable to decrypt yet]`
+  placeholder — never as raw ciphertext, which is deliberately not
+  forwarded through the FFI.
+- Full FFI event schema (including the new `queue_overflow` event
+  and `undecryptable` timeline flag) documented in
+  [`docs/backend-contract.md`](docs/backend-contract.md).
+
+**Previously in v0.5.0-prep (foundation land):**
 
 - `rust/` builds offline against the committed `Cargo.lock` and
   `matrix-sdk` dependency.
-- `RustSdkMatrixClient` now owns the C++ wrapper state and polls a Rust
+- `RustSdkMatrixClient` owns the C++ wrapper state and polls a Rust
   event queue via `QTimer`.
 - Rust owns the SDK client, async work, and SDK SQLite store under
   `${XDG_DATA_HOME}/matrix-client/<safeUserId>/matrix-rust-sdk-store/`.
-- `--reset-crypto-store` now deletes only those Rust SDK store
+- `--reset-crypto-store` deletes only those Rust SDK store
   directories. It never touches `cache.sqlite` or SecretStore tokens.
 - `CryptoManager::supportsE2ee()` still returns `false`. Encrypted
   room sends remain blocked until encrypted read and send are verified

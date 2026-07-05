@@ -545,6 +545,10 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event)
     }
 
     if (type == QLatin1String("login_ok")) {
+        // SENSITIVE: this event object carries `access_token`. Never pass
+        // `event` or the extracted `accessToken` to a log stream. The token
+        // must flow only into SecretStore-backed SettingsManager::saveSession
+        // and then be forgotten locally. No qCDebug / qCInfo of `event` here.
         m_homeserver = sanitizeHomeserver(event.value(QStringLiteral("homeserver")).toString(m_homeserver));
         m_userId = event.value(QStringLiteral("user_id")).toString(m_userId);
         m_deviceId = event.value(QStringLiteral("device_id")).toString(m_deviceId);
@@ -611,6 +615,16 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event)
     if (type == QLatin1String("error")) {
         Q_EMIT errorOccurred(event.value(QStringLiteral("message")).toString(
             tr("Rust SDK backend error.")));
+        return;
+    }
+
+    if (type == QLatin1String("queue_overflow")) {
+        // Rust dropped events because the poll timer stalled. Surface once
+        // as an error banner so users know some events were lost; do not
+        // treat as fatal.
+        qCWarning(lcRust) << event.value(QStringLiteral("message")).toString();
+        Q_EMIT errorOccurred(event.value(QStringLiteral("message")).toString(
+            tr("Rust SDK event queue overflowed.")));
     }
 }
 
@@ -701,6 +715,17 @@ void RustSdkMatrixClient::handleTimelineEvent(const QJsonObject &event)
         timelineEvent.timestamp = QDateTime::currentDateTimeUtc();
     timelineEvent.type = typeFromString(obj.value(QStringLiteral("msgtype")).toString());
     timelineEvent.status = TimelineEvent::Sent;
+
+    // v0.5-prep+3: Rust bridges undecryptable encrypted events with
+    // `undecryptable = true` and an empty body. Render an honest
+    // placeholder here instead of an empty bubble. The SDK will
+    // upgrade the event later (via `event_replaced`) if / when keys
+    // arrive; until then the user sees WHY the timeline is silent.
+    if (obj.value(QStringLiteral("undecryptable")).toBool(false)
+        && timelineEvent.body.isEmpty()) {
+        timelineEvent.body = tr("[unable to decrypt yet]");
+        timelineEvent.type = TimelineEvent::Notice;
+    }
 
     timeline.append(timelineEvent);
     Q_EMIT eventAppended(roomId, timelineEvent);

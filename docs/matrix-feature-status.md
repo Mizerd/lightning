@@ -1,4 +1,4 @@
-# Matrix feature status (v0.5.0-prep)
+# Matrix feature status (v0.5.0-prep+3)
 
 Honest per-feature status per backend. Ground truth for anything the UI
 claims about support. Do not check anything as "done" here that is not
@@ -126,6 +126,22 @@ Legend:
   the C++ `CacheStore`, does not implement pagination/rich relations,
   and still blocks encrypted sends. E2EE remains unsupported until
   encrypted read and encrypted send are both verified end to end.
+- **Rust SDK — v0.5.0-prep+3 hardening.** Three foundation bugs were
+  fixed in this pass, none of them changing the surface API:
+  1. The Rust → C++ event queue is now bounded at 4096 entries. On
+     overflow the oldest entries are dropped and a single
+     `queue_overflow` event is emitted; C++ raises a non-fatal
+     `errorOccurred` and keeps polling. Prevents the client from
+     eating memory if the UI thread stalls.
+  2. `mx_rust_start_sync` now atomically reserves the running flag
+     before spawning its worker thread, closing a small window where
+     two calls could race and start two sync loops.
+  3. Encrypted timeline rows the SDK could not decrypt now propagate
+     through the FFI as `undecryptable: true` with an empty body,
+     and C++ renders them with the localised
+     `[unable to decrypt yet]` placeholder. Ciphertext is not
+     forwarded through the FFI in any form.
+  See `docs/backend-contract.md` for the full FFI event schema.
 
 ## Where the honest E2EE flag lives
 
