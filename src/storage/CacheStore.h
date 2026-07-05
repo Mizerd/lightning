@@ -23,7 +23,8 @@
 //   - access_token or any other bearer credential — those still live in
 //     SettingsManager (plaintext QSettings until v0.4 moves them behind a
 //     keychain abstraction).
-//   - Encrypted-message plaintext (no crypto backend yet).
+//   - Encrypted-message plaintext. If a TimelineEvent is marked encrypted,
+//     CacheStore skips the row rather than writing a decrypted body.
 //   - Full timeline history — we cap per-room at kEventCap most recent events
 //     to avoid unbounded growth.
 class CacheStore : public QObject

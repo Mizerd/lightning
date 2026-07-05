@@ -40,6 +40,43 @@ QString primaryRoot()
         + QLatin1Char('/') + kApplicationName;
 }
 
+QString safeUserSlug(const QString &userId)
+{
+    QString s = userId.trimmed();
+    if (s.startsWith(QLatin1Char('@')))
+        s.remove(0, 1);
+    s.replace(QLatin1Char(':'), QLatin1Char('_'));
+    s.replace(QLatin1Char('/'), QLatin1Char('_'));
+    s.replace(QLatin1Char('\\'), QLatin1Char('_'));
+    if (s.isEmpty())
+        s = QStringLiteral("_unknown");
+    return s;
+}
+
+QString accountRoot(const QString &userId)
+{
+    const QString root = primaryRoot();
+    if (root.isEmpty())
+        return {};
+    return root + QLatin1Char('/') + safeUserSlug(userId);
+}
+
+QString rustSdkStorePath(const QString &userId)
+{
+    const QString account = accountRoot(userId);
+    if (account.isEmpty())
+        return {};
+    return account + QLatin1String("/matrix-rust-sdk-store");
+}
+
+QString rustSdkSmokeSessionPath(const QString &userId)
+{
+    const QString account = accountRoot(userId);
+    if (account.isEmpty())
+        return {};
+    return account + QLatin1String("/matrix-rust-sdk-smoke-session.json");
+}
+
 QStringList legacyRoots()
 {
     QStringList out;

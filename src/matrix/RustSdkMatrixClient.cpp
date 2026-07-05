@@ -38,19 +38,6 @@ QString sanitizeHomeserver(QString homeserver)
     return homeserver;
 }
 
-QString safeUserSlug(QString userId)
-{
-    userId = userId.trimmed();
-    if (userId.startsWith(QLatin1Char('@')))
-        userId.remove(0, 1);
-    userId.replace(QLatin1Char(':'), QLatin1Char('_'));
-    userId.replace(QLatin1Char('/'), QLatin1Char('_'));
-    userId.replace(QLatin1Char('\\'), QLatin1Char('_'));
-    if (userId.isEmpty())
-        userId = QStringLiteral("_unknown");
-    return userId;
-}
-
 QString userIdForLoginStore(const QString &homeserver, const QString &user)
 {
     const QString trimmed = user.trimmed();
@@ -138,6 +125,21 @@ void RustSdkMatrixClient::setStorePathOverride(const QString &absolutePath)
     m_storePathOverride = absolutePath;
 }
 
+void RustSdkMatrixClient::setPersistentSessionFile(const QString &absolutePath)
+{
+    m_sessionFilePath = absolutePath;
+    if (!m_rustHandle)
+        return;
+    const QByteArray path = m_sessionFilePath.toUtf8();
+    const QString result = takeRustString(mx_rust_set_session_file(m_rustHandle,
+                                                                    path.constData()));
+    if (!result.isEmpty()) {
+        Q_EMIT errorOccurred(result.startsWith(QLatin1String("error: "))
+                             ? result.mid(7)
+                             : result);
+    }
+}
+
 QString RustSdkMatrixClient::rustStorePath() const
 {
     return m_storePath;
@@ -146,6 +148,11 @@ QString RustSdkMatrixClient::rustStorePath() const
 bool RustSdkMatrixClient::rustStorePathIsOverride() const
 {
     return !m_storePathOverride.isEmpty();
+}
+
+QString RustSdkMatrixClient::currentDeviceId() const
+{
+    return m_deviceId;
 }
 
 void RustSdkMatrixClient::setState(ConnectionState state)
@@ -193,10 +200,7 @@ QString RustSdkMatrixClient::rustStorePathForUser(const QString &userIdForStore)
     if (!m_storePathOverride.isEmpty())
         return m_storePathOverride;
 
-    return matrix::app_data::primaryRoot()
-        + QLatin1Char('/')
-        + safeUserSlug(userIdForStore)
-        + QLatin1String("/matrix-rust-sdk-store");
+    return matrix::app_data::rustSdkStorePath(userIdForStore);
 }
 
 bool RustSdkMatrixClient::ensureRustHandleForUser(const QString &userIdForStore)
@@ -222,7 +226,7 @@ bool RustSdkMatrixClient::ensureRustHandleForUser(const QString &userIdForStore)
     // Logged at INFO so users can grep matrix.rust: from the terminal
     // when the SDK complains about crypto-store mismatches.
     const QString slug = m_storePathOverride.isEmpty()
-        ? safeUserSlug(userIdForStore)
+        ? matrix::app_data::safeUserSlug(userIdForStore)
         : QStringLiteral("(override)");
     qCInfo(lcRust) << "Rust SDK store path resolved"
                    << "base=" << matrix::app_data::primaryRoot()
@@ -241,6 +245,21 @@ bool RustSdkMatrixClient::ensureRustHandleForUser(const QString &userIdForStore)
     }
 
     m_storePath = storePath;
+
+    if (!m_sessionFilePath.isEmpty()) {
+        const QByteArray sessionPath = m_sessionFilePath.toUtf8();
+        const QString result = takeRustString(mx_rust_set_session_file(m_rustHandle,
+                                                                        sessionPath.constData()));
+        if (!result.isEmpty()) {
+            mx_rust_destroy(m_rustHandle);
+            m_rustHandle = nullptr;
+            Q_EMIT errorOccurred(result.startsWith(QLatin1String("error: "))
+                                 ? result.mid(7)
+                                 : result);
+            return false;
+        }
+    }
+
     ensurePollTimer();
     return true;
 }
@@ -335,6 +354,65 @@ bool RustSdkMatrixClient::restoreSession()
         return false;
     }
     return true;
+}
+
+bool RustSdkMatrixClient::restoreSessionFromFile(const QString &homeserver,
+                                                 const QString &userIdForStore)
+{
+    const QString hs = sanitizeHomeserver(homeserver);
+    const QString expectedUser = userIdForStore.trimmed();
+    if (hs.isEmpty() || expectedUser.isEmpty() || m_sessionFilePath.isEmpty())
+        return false;
+
+    if (!ensureRustHandleForUser(expectedUser)) {
+        setState(Error);
+        Q_EMIT loginFailed(tr("Rust SDK backend could not be initialized."));
+        return false;
+    }
+
+    stopSync();
+    m_homeserver = hs;
+    m_userId = expectedUser;
+    m_deviceId.clear();
+    m_loggedIn = false;
+    m_rooms.clear();
+    m_timelines.clear();
+    m_pendingSends.clear();
+    setInitialSyncDone(false);
+    Q_EMIT roomsChanged();
+    setState(Connecting);
+
+    const QByteArray hsBytes = hs.toUtf8();
+    const QByteArray userBytes = expectedUser.toUtf8();
+    const QString result = takeRustString(mx_rust_restore_from_file(m_rustHandle,
+                                                                     hsBytes.constData(),
+                                                                     userBytes.constData()));
+    if (!result.isEmpty()) {
+        setState(Error);
+        Q_EMIT loginFailed(result.startsWith(QLatin1String("error: "))
+                           ? result.mid(7)
+                           : result);
+        return false;
+    }
+    return true;
+}
+
+bool RustSdkMatrixClient::resetRustStore()
+{
+    const QString storePath = m_storePath;
+    if (m_rustHandle) {
+        mx_rust_stop_sync(m_rustHandle);
+        mx_rust_destroy(m_rustHandle);
+        m_rustHandle = nullptr;
+    }
+    m_storePath.clear();
+    clearLocalState(false);
+
+    if (storePath.isEmpty() || !QFileInfo::exists(storePath))
+        return true;
+
+    QDir storeDir(storePath);
+    return storeDir.removeRecursively();
 }
 
 void RustSdkMatrixClient::logout()

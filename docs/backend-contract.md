@@ -173,15 +173,16 @@ Current Rust backend scope:
 Current Rust backend non-scope:
 
 - no E2EE support claim yet;
-- encrypted sends are blocked;
+- interactive encrypted sends are blocked; only the smoke-only
+  encrypted-send probe is wired;
 - pagination, replies, edits, redactions, reactions, media, typing,
   read receipts, Space child hierarchy, key backup, and verification
   are not wired through Rust yet.
 
 These rules must hold:
 
-1. **Crypto store isolation.** The SDK owns its own SQLite (or
-   sled) store at `${XDG_DATA_HOME}/matrix-client/<safeUserId>/matrix-rust-sdk-store/`.
+1. **Crypto store isolation.** The SDK owns its own SQLite store at
+   `${XDG_DATA_HOME}/MatrixClient/matrix-client/<safeUserId>/matrix-rust-sdk-store/`.
    That directory is per-account and disjoint from the C++
    `CacheStore` (`cache.sqlite`). Access tokens are still owned by
    `SecretStore`, never by either SQLite file. `--reset-crypto-store`
@@ -211,6 +212,20 @@ These rules must hold:
    AND the active backend is `rust`, `supportsE2ee` returns true. Any
    other combination returns false. Do not add a runtime override that
    flips this to true without recompiling.
+7. **Encrypted timeline cache policy.** C++ `CacheStore` must not
+   persist encrypted `TimelineEvent` rows yet. If the Rust SDK emits a
+   decrypted encrypted-room body, it may be displayed in memory, but
+   `CacheStore::appendEvent`, `updateEvent`, and `replaceEventId`
+   skip/delete that row so `cache.sqlite` does not contain decrypted
+   encrypted-room plaintext.
+8. **Persistent smoke session sidecar.** The headless smoke harness may
+   opt into persistent SDK state with `LIGHTNING_TEST_PERSISTENT_STORE=1`.
+   That mode uses the normal account SDK store and a smoke-only
+   MatrixSession sidecar
+   `${XDG_DATA_HOME}/MatrixClient/matrix-client/<safeUserId>/matrix-rust-sdk-smoke-session.json`.
+   The sidecar contains an access token, is never printed, and must not
+   be routed through or overwrite the interactive QSettings/SecretStore
+   session.
 
 ### Rust → C++ FFI event schema (v0.5.0-prep+3)
 
@@ -240,11 +255,11 @@ ignored on the C++ side.
 - `{"type":"timeline_event","room_id":"!r","event":{...}}` — one
   timeline row. `event` fields: `event_id`, `sender`, `body`,
   `msgtype` ("text" | "notice" | "emote" | "encrypted"),
-  `timestamp_ms`, `decrypted` (bool). Optional
-  `undecryptable: true` on encrypted rows the SDK failed to
-  decrypt — C++ renders those as `[unable to decrypt yet]`
-  regardless of body. **Ciphertext is never sent through the
-  FFI.**
+  `timestamp_ms`, `is_encrypted`, `is_decrypted`, `undecryptable`,
+  and optional `error_kind`. The legacy `decrypted` bool is still
+  emitted for one release for backward compatibility. On encrypted
+  rows the SDK failed to decrypt, C++ renders `[unable to decrypt yet]`
+  regardless of body. **Ciphertext is never sent through the FFI.**
 - `{"type":"send_ok","room_id":"!r","transaction_id":"...","event_id":"$..."}`
   — server accepted our text send; C++ upgrades the local echo.
 - `{"type":"send_failed","room_id":"!r","transaction_id":"...","message":"..."}`
@@ -264,6 +279,21 @@ function is heap-allocated by Rust (`CString::into_raw`). C++ must
 release it exclusively via `mx_rust_free_cstring`. Never call
 `free()` on it. `takeRustString` in `RustSdkMatrixClient.cpp` is
 the sanctioned wrapper.
+
+**Smoke-only session FFI.**
+
+- `mx_rust_set_session_file(handle, path)` configures the optional
+  persistent smoke MatrixSession sidecar. Passing an empty path clears
+  it. The path itself is not secret; file contents are.
+- `mx_rust_restore_from_file(handle, homeserver, expected_user_id)`
+  reads the configured sidecar, verifies homeserver and account, and
+  restores the Matrix SDK session without passing an access token back
+  through C++. Results still arrive as `login_ok` / `login_failed`
+  events. `login_ok` from this path carries user/device/homeserver but
+  no access token.
+
+These calls are reserved for `--rust-sdk-smoke-test`. Interactive
+restore continues to use `SettingsManager`/`SecretStore`.
 
 **Panic isolation.** Every `#[no_mangle]` entry point in
 `rust/src/lib.rs` wraps its body in

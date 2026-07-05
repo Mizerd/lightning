@@ -6,6 +6,8 @@
 use std::{
     collections::VecDeque,
     ffi::{c_char, CStr, CString},
+    fs::OpenOptions,
+    io::Write,
     os::raw::{c_int, c_void},
     panic::{catch_unwind, AssertUnwindSafe},
     path::{Path, PathBuf},
@@ -14,6 +16,9 @@ use std::{
         Arc, Mutex,
     },
 };
+
+#[cfg(unix)]
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 
 use matrix_sdk::{
     authentication::matrix::MatrixSession,
@@ -28,10 +33,12 @@ use matrix_sdk::{
     store::RoomLoadSettings,
     Client, LoopCtrl, Room, SessionMeta, SessionTokens,
 };
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 struct RustClient {
     store_path: PathBuf,
+    session_file: Arc<Mutex<Option<PathBuf>>>,
     client: Arc<Mutex<Option<Client>>>,
     events: Arc<Mutex<VecDeque<String>>>,
     sync_stop: Arc<Mutex<Option<Arc<AtomicBool>>>>,
@@ -41,6 +48,7 @@ impl RustClient {
     fn new(store_path: PathBuf) -> Result<Self, String> {
         Ok(Self {
             store_path,
+            session_file: Arc::new(Mutex::new(None)),
             client: Arc::new(Mutex::new(None)),
             events: Arc::new(Mutex::new(VecDeque::new())),
             sync_stop: Arc::new(Mutex::new(None)),
@@ -58,6 +66,13 @@ impl RustClient {
             }
         }
     }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+struct PersistentSessionFile {
+    version: u32,
+    homeserver: String,
+    session: MatrixSession,
 }
 
 impl Drop for RustClient {
@@ -104,6 +119,28 @@ pub extern "C" fn mx_rust_create(store_path: *const c_char) -> *mut c_void {
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn mx_rust_set_session_file(
+    ptr: *mut c_void,
+    session_file_path: *const c_char,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let path = unsafe { cstr_arg(session_file_path) }?;
+        let next = if path.trim().is_empty() {
+            None
+        } else {
+            Some(PathBuf::from(path))
+        };
+        let mut guard = bridge
+            .session_file
+            .lock()
+            .map_err(|_| "Rust SDK session-file lock poisoned.".to_owned())?;
+        *guard = next;
+        Ok(String::new())
+    })
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn mx_rust_destroy(ptr: *mut c_void) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
         if ptr.is_null() {
@@ -130,6 +167,7 @@ pub unsafe extern "C" fn mx_rust_login(
         bridge.enqueue(json!({ "type": "status", "state": "connecting" }));
 
         let store_path = bridge.store_path.clone();
+        let session_file = Arc::clone(&bridge.session_file);
         let client_slot = Arc::clone(&bridge.client);
         let events = Arc::clone(&bridge.events);
         std::thread::spawn(move || {
@@ -146,6 +184,22 @@ pub unsafe extern "C" fn mx_rust_login(
                             .await;
                         match login {
                             Ok(response) => {
+                                let session = MatrixSession::from(&response);
+                                if let Some(path) = configured_session_file(&session_file) {
+                                    if let Err(err) =
+                                        save_persistent_session(&path, &homeserver, &session)
+                                    {
+                                        enqueue(
+                                            &events,
+                                            json!({
+                                                "type": "error",
+                                                "message": format!(
+                                                    "Failed to save Rust SDK smoke session: {err}"
+                                                ),
+                                            }),
+                                        );
+                                    }
+                                }
                                 if let Ok(mut guard) = client_slot.lock() {
                                     *guard = Some(client);
                                 }
@@ -172,6 +226,112 @@ pub unsafe extern "C" fn mx_rust_login(
                     Err(err) => enqueue(
                         &events,
                         json!({ "type": "login_failed", "message": err }),
+                    ),
+                }
+            });
+        });
+
+        Ok(String::new())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_restore_from_file(
+    ptr: *mut c_void,
+    homeserver: *const c_char,
+    expected_user_id: *const c_char,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let homeserver = unsafe { cstr_arg(homeserver) }?;
+        let expected_user_id = unsafe { cstr_arg(expected_user_id) }?;
+        let Some(session_file) = configured_session_file(&bridge.session_file) else {
+            return Ok("error: Rust SDK smoke session file is not configured.".to_owned());
+        };
+
+        bridge.abort_sync();
+        bridge.enqueue(json!({ "type": "status", "state": "connecting" }));
+
+        let store_path = bridge.store_path.clone();
+        let client_slot = Arc::clone(&bridge.client);
+        let events = Arc::clone(&bridge.events);
+        std::thread::spawn(move || {
+            let runtime_events = Arc::clone(&events);
+            run_async(runtime_events, "restore_from_file", async move {
+                let stored = match read_persistent_session(&session_file) {
+                    Ok(stored) => stored,
+                    Err(err) => {
+                        enqueue(
+                            &events,
+                            json!({
+                                "type": "login_failed",
+                                "message": format!("Rust SDK smoke session restore unavailable: {err}"),
+                            }),
+                        );
+                        return;
+                    }
+                };
+
+                if stored.homeserver != homeserver {
+                    enqueue(
+                        &events,
+                        json!({
+                            "type": "login_failed",
+                            "message": "Rust SDK smoke session homeserver does not match this run.",
+                        }),
+                    );
+                    return;
+                }
+
+                let stored_user = stored.session.meta.user_id.to_string();
+                if !expected_user_id.is_empty() && stored_user != expected_user_id {
+                    enqueue(
+                        &events,
+                        json!({
+                            "type": "login_failed",
+                            "message": "Rust SDK smoke session account does not match this run.",
+                        }),
+                    );
+                    return;
+                }
+
+                match restore_client_with_session(&homeserver, &store_path, stored.session.clone())
+                    .await
+                {
+                    Ok(client) => {
+                        install_event_handlers(&client, Arc::clone(&events));
+                        if let Err(err) =
+                            save_persistent_session(&session_file, &homeserver, &stored.session)
+                        {
+                            enqueue(
+                                &events,
+                                json!({
+                                    "type": "error",
+                                    "message": format!(
+                                        "Failed to refresh Rust SDK smoke session: {err}"
+                                    ),
+                                }),
+                            );
+                        }
+                        if let Ok(mut guard) = client_slot.lock() {
+                            *guard = Some(client);
+                        }
+                        enqueue(
+                            &events,
+                            json!({
+                                "type": "login_ok",
+                                "homeserver": homeserver,
+                                "user_id": stored_user,
+                                "device_id": stored.session.meta.device_id.to_string(),
+                            }),
+                        );
+                    }
+                    Err(err) => enqueue(
+                        &events,
+                        json!({
+                            "type": "login_failed",
+                            "message": err,
+                        }),
                     ),
                 }
             });
@@ -586,7 +746,6 @@ async fn restore_client(
     device_id: &str,
     access_token: String,
 ) -> Result<Client, String> {
-    let client = build_client(homeserver, store_path).await?;
     let user_id: OwnedUserId = UserId::parse(user_id)
         .map_err(|err| format!("invalid stored Matrix user id: {err}"))?
         .to_owned();
@@ -595,12 +754,78 @@ async fn restore_client(
         meta: SessionMeta { user_id, device_id },
         tokens: SessionTokens { access_token, refresh_token: None },
     };
+    restore_client_with_session(homeserver, store_path, session).await
+}
+
+async fn restore_client_with_session(
+    homeserver: &str,
+    store_path: &Path,
+    session: MatrixSession,
+) -> Result<Client, String> {
+    let client = build_client(homeserver, store_path).await?;
     client
         .matrix_auth()
         .restore_session(session, RoomLoadSettings::default())
         .await
         .map_err(|err| format_matrix_error("Matrix Rust SDK session restore failed", err))?;
     Ok(client)
+}
+
+fn configured_session_file(slot: &Arc<Mutex<Option<PathBuf>>>) -> Option<PathBuf> {
+    slot.lock().ok().and_then(|guard| guard.clone())
+}
+
+fn read_persistent_session(path: &Path) -> Result<PersistentSessionFile, String> {
+    let bytes = std::fs::read(path)
+        .map_err(|err| format!("failed to read session file: {err}"))?;
+    serde_json::from_slice(&bytes)
+        .map_err(|err| format!("failed to parse session file: {err}"))
+}
+
+fn save_persistent_session(
+    path: &Path,
+    homeserver: &str,
+    session: &MatrixSession,
+) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|err| format!("failed to create session directory: {err}"))?;
+    }
+
+    let data = PersistentSessionFile {
+        version: 1,
+        homeserver: homeserver.to_owned(),
+        session: session.clone(),
+    };
+    let bytes = serde_json::to_vec(&data)
+        .map_err(|err| format!("failed to serialize session: {err}"))?;
+    let tmp = path.with_extension("json.tmp");
+
+    let mut options = OpenOptions::new();
+    options.create(true).write(true).truncate(true);
+    #[cfg(unix)]
+    {
+        options.mode(0o600);
+    }
+    let mut file = options
+        .open(&tmp)
+        .map_err(|err| format!("failed to open session file: {err}"))?;
+    file.write_all(&bytes)
+        .map_err(|err| format!("failed to write session file: {err}"))?;
+    file.write_all(b"\n")
+        .map_err(|err| format!("failed to finish session file: {err}"))?;
+    file.sync_all()
+        .map_err(|err| format!("failed to flush session file: {err}"))?;
+    drop(file);
+
+    std::fs::rename(&tmp, path)
+        .map_err(|err| format!("failed to install session file: {err}"))?;
+    #[cfg(unix)]
+    {
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
+            .map_err(|err| format!("failed to restrict session file permissions: {err}"))?;
+    }
+    Ok(())
 }
 
 fn install_event_handlers(client: &Client, events: Arc<Mutex<VecDeque<String>>>) {

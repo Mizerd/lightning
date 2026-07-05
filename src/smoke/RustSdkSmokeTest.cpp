@@ -6,11 +6,15 @@
 #include "matrix/RoomInfo.h"
 #include "matrix/RustSdkMatrixClient.h"
 #include "matrix/TimelineEvent.h"
+#include "storage/AppDataPaths.h"
 
 #include <QCoreApplication>
 #include <QDateTime>
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QLatin1String>
 #include <QObject>
 #include <QString>
@@ -19,6 +23,7 @@
 #include <QTextStream>
 #include <QThread>
 #include <QTimer>
+#include <QUrl>
 
 #include <cstdlib>
 #include <functional>
@@ -67,9 +72,76 @@ const char *stateLabel(MatrixClient::ConnectionState s)
     return "?";
 }
 
+QString sanitizeHomeserver(QString homeserver)
+{
+    homeserver = homeserver.trimmed();
+    while (homeserver.endsWith(QLatin1Char('/')))
+        homeserver.chop(1);
+    return homeserver;
+}
+
+QString userIdForLoginStore(const QString &homeserver, const QString &user)
+{
+    const QString trimmed = user.trimmed();
+    if (trimmed.startsWith(QLatin1Char('@')))
+        return trimmed;
+
+    const QString host = QUrl(homeserver).host();
+    if (!host.isEmpty())
+        return QStringLiteral("@%1:%2").arg(trimmed, host);
+    return trimmed;
+}
+
+QString redactedDeviceId(const QString &deviceId)
+{
+    const QString id = deviceId.trimmed();
+    if (id.isEmpty())
+        return QStringLiteral("unknown");
+    if (id.size() <= 8)
+        return id;
+    return id.left(4) + QLatin1String("...") + id.right(4);
+}
+
+bool isAccountDeviceMismatch(const QString &reason)
+{
+    return reason.contains(
+        QLatin1String("account in the store doesn't match the account in the constructor"),
+        Qt::CaseInsensitive);
+}
+
+struct StoredSessionMeta {
+    bool exists = false;
+    bool valid = false;
+    QString homeserver;
+    QString userId;
+    QString deviceId;
+};
+
+StoredSessionMeta readStoredSessionMeta(const QString &path)
+{
+    StoredSessionMeta meta;
+    QFile f(path);
+    if (!f.exists())
+        return meta;
+    meta.exists = true;
+    if (!f.open(QIODevice::ReadOnly))
+        return meta;
+    const QJsonDocument doc = QJsonDocument::fromJson(f.readAll());
+    if (!doc.isObject())
+        return meta;
+    const QJsonObject root = doc.object();
+    const QJsonObject session = root.value(QStringLiteral("session")).toObject();
+    meta.homeserver = root.value(QStringLiteral("homeserver")).toString();
+    meta.userId = session.value(QStringLiteral("user_id")).toString();
+    meta.deviceId = session.value(QStringLiteral("device_id")).toString();
+    meta.valid = !meta.userId.isEmpty() && !meta.deviceId.isEmpty();
+    return meta;
+}
+
 struct Counters {
     QString loginResult = QStringLiteral("n/a");
     QString syncResult  = QStringLiteral("n/a");
+    QString restoreResult = QStringLiteral("n/a");
     QString sendResult  = QStringLiteral("n/a");
     QString sendReason;  // only populated when sendResult is skipped/blocked
     QString encryptedSendResult = QStringLiteral("n/a");
@@ -129,6 +201,8 @@ int runRustSdkSmokeTest(int argc, char *argv[])
     const QString homeserver     = envStr("LIGHTNING_TEST_HOMESERVER");
     const QString user           = envStr("LIGHTNING_TEST_USER");
     const QString password       = envStr("LIGHTNING_TEST_PASSWORD");
+    const bool    persistentStore =
+        envStr("LIGHTNING_TEST_PERSISTENT_STORE") == QLatin1String("1");
     const bool    doSend         = envStr("LIGHTNING_TEST_SEND") == QLatin1String("1");
     const QString explicitRoomId = envStr("LIGHTNING_TEST_ROOM_ID");
     const bool    doSendEncrypted =
@@ -151,33 +225,80 @@ int runRustSdkSmokeTest(int argc, char *argv[])
     QCoreApplication::setApplicationName(QStringLiteral("matrix-client-smoke"));
     QCoreApplication::setApplicationVersion(QLatin1String(APP_VERSION));
 
-    // Fresh crypto store per run. QTemporaryDir defaults to autoRemove =
-    // true and lives on the stack past the client so background SDK
-    // threads writing to the store when we stop sync won't race the
-    // cleanup destructor.
-    QTemporaryDir tempStore(QDir::tempPath()
-        + QStringLiteral("/lightning-rust-sdk-smoke-XXXXXX"));
-    if (!tempStore.isValid()) {
-        QTextStream(stderr) <<
-            "matrix-client --rust-sdk-smoke-test: failed to create "
-            "temporary Rust SDK store under "
-            << QDir::tempPath() << ".\n";
-        return 2;
+    const QString canonicalUserId =
+        userIdForLoginStore(sanitizeHomeserver(homeserver), user);
+
+    std::unique_ptr<QTemporaryDir> tempStore;
+    QString storePath;
+    QString sessionPath;
+    StoredSessionMeta storedSession;
+    QString storeAccountMatch = QStringLiteral("unknown");
+    bool restoreAvailable = false;
+
+    if (persistentStore) {
+        storePath = matrix::app_data::rustSdkStorePath(canonicalUserId);
+        sessionPath = matrix::app_data::rustSdkSmokeSessionPath(canonicalUserId);
+        if (storePath.isEmpty() || sessionPath.isEmpty()) {
+            QTextStream(stderr) <<
+                "matrix-client --rust-sdk-smoke-test: no app data root "
+                "available for persistent Rust SDK store "
+                "(neither $HOME nor $XDG_DATA_HOME is set).\n";
+            return 2;
+        }
+
+        storedSession = readStoredSessionMeta(sessionPath);
+        if (storedSession.exists && storedSession.valid) {
+            const bool accountMatches =
+                storedSession.userId == canonicalUserId
+                && sanitizeHomeserver(storedSession.homeserver)
+                   == sanitizeHomeserver(homeserver);
+            storeAccountMatch = accountMatches
+                ? QStringLiteral("yes")
+                : QStringLiteral("no");
+            restoreAvailable = accountMatches;
+        }
+    } else {
+        // Fresh crypto store per run. QTemporaryDir defaults to autoRemove =
+        // true and lives longer than the client, so SDK background threads
+        // can stop before the directory cleanup runs.
+        tempStore = std::make_unique<QTemporaryDir>(
+            QDir::tempPath()
+            + QStringLiteral("/lightning-rust-sdk-smoke-XXXXXX"));
+        if (!tempStore->isValid()) {
+            QTextStream(stderr) <<
+                "matrix-client --rust-sdk-smoke-test: failed to create "
+                "temporary Rust SDK store under "
+                << QDir::tempPath() << ".\n";
+            return 2;
+        }
+        storePath = tempStore->path()
+            + QStringLiteral("/matrix-rust-sdk-store");
     }
-    const QString storePath = tempStore.path()
-        + QStringLiteral("/matrix-rust-sdk-store");
 
     // No parent — we destroy the client explicitly before exec() returns
     // so tempStore is still valid when SDK background threads shut down.
     auto client = std::make_unique<RustSdkMatrixClient>(nullptr, nullptr);
-    client->setStorePathOverride(storePath);
+    if (persistentStore)
+        client->setPersistentSessionFile(sessionPath);
+    else
+        client->setStorePathOverride(storePath);
 
-    say(QStringLiteral("store=temporary"));
+    say(QStringLiteral("store=%1")
+            .arg(persistentStore
+                 ? QStringLiteral("persistent")
+                 : QStringLiteral("temporary")));
     say(QStringLiteral("store_path=%1").arg(storePath));
     say(QStringLiteral("store_exists=%1")
             .arg(QFileInfo::exists(storePath)
                  ? QStringLiteral("yes")
                  : QStringLiteral("no")));
+    say(QStringLiteral("store_account_match=%1").arg(storeAccountMatch));
+    if (persistentStore && storedSession.exists && storedSession.valid) {
+        say(QStringLiteral("device_id=%1")
+                .arg(redactedDeviceId(storedSession.deviceId)));
+    } else {
+        say(QStringLiteral("device_id=unknown"));
+    }
     say(QStringLiteral("supports_e2ee=%1")
             .arg(client->rustSupportsE2ee()
                  ? QStringLiteral("true")
@@ -207,11 +328,12 @@ int runRustSdkSmokeTest(int argc, char *argv[])
             : QStringLiteral("%1(%2)").arg(counters.encryptedSendResult,
                                            counters.encryptedSendReason);
         say(QStringLiteral(
-                "summary login=%1 sync=%2 rooms=%3 encrypted_rooms=%4 "
-                "spaces=%5 timeline_events=%6 encrypted_events=%7 "
-                "decrypted_events=%8 undecryptable=%9 send=%10 "
-                "encrypted_send=%11 expect_text=%12 supports_e2ee=%13")
-                .arg(counters.loginResult, counters.syncResult)
+                "summary restore=%1 login=%2 sync=%3 rooms=%4 encrypted_rooms=%5 "
+                "spaces=%6 timeline_events=%7 encrypted_events=%8 "
+                "decrypted_events=%9 undecryptable=%10 send=%11 "
+                "encrypted_send=%12 expect_text=%13 supports_e2ee=%14")
+                .arg(counters.restoreResult, counters.loginResult)
+                .arg(counters.syncResult)
                 .arg(counters.roomCount)
                 .arg(counters.encryptedRoomCount)
                 .arg(counters.spaceCount)
@@ -235,10 +357,47 @@ int runRustSdkSmokeTest(int argc, char *argv[])
         (*finalise)();
     });
 
+    enum class AuthAttempt { None, Restore, Login };
+    AuthAttempt authAttempt = AuthAttempt::None;
+    bool resetRetried = false;
+
+    auto startPasswordLogin = std::make_shared<std::function<void()>>();
+    *startPasswordLogin = [&]() {
+        authAttempt = AuthAttempt::Login;
+        client->login(homeserver, user, password);
+    };
+
+    auto resetStoreAndRetry = std::make_shared<std::function<void(const QString &)>>();
+    *resetStoreAndRetry = [&, finalise, startPasswordLogin](const QString &reason) {
+        resetRetried = true;
+        if (authAttempt == AuthAttempt::Restore) {
+            counters.restoreResult = QStringLiteral("failed");
+            say(QStringLiteral("restore=failed reason=%1").arg(sanitiseError(reason)));
+        }
+        say(QStringLiteral("store_reset=account_device_mismatch"));
+        if (!client->resetRustStore()) {
+            counters.loginResult = QStringLiteral("failed");
+            say(QStringLiteral("login=failed reason=%1")
+                    .arg(QStringLiteral("failed_to_reset_rust_sdk_store")));
+            (*finalise)();
+            return;
+        }
+        if (!sessionPath.isEmpty())
+            QFile::remove(sessionPath);
+        say(QStringLiteral("store_exists=no"));
+        (*startPasswordLogin)();
+    };
+
     QObject::connect(client.get(), &MatrixClient::loginSucceeded,
                      &app, [&, finalise](const QString &) {
+        if (authAttempt == AuthAttempt::Restore) {
+            counters.restoreResult = QStringLiteral("ok");
+            say(QStringLiteral("restore=ok"));
+        }
         counters.loginResult = QStringLiteral("ok");
         say(QStringLiteral("login=ok"));
+        say(QStringLiteral("device_id=%1")
+                .arg(redactedDeviceId(client->currentDeviceId())));
         client->startSync();
         QTimer::singleShot(30000, &app, [&, finalise]() {
             if (!counters.initialSyncDone) {
@@ -251,6 +410,14 @@ int runRustSdkSmokeTest(int argc, char *argv[])
 
     QObject::connect(client.get(), &MatrixClient::loginFailed,
                      &app, [&, finalise](const QString &reason) {
+        if (persistentStore && !resetRetried && isAccountDeviceMismatch(reason)) {
+            (*resetStoreAndRetry)(reason);
+            return;
+        }
+        if (authAttempt == AuthAttempt::Restore) {
+            counters.restoreResult = QStringLiteral("failed");
+            say(QStringLiteral("restore=failed reason=%1").arg(sanitiseError(reason)));
+        }
         counters.loginResult = QStringLiteral("failed");
         say(QStringLiteral("login=failed reason=%1").arg(sanitiseError(reason)));
         (*finalise)();
@@ -500,8 +667,25 @@ int runRustSdkSmokeTest(int argc, char *argv[])
     });
 
     say(QStringLiteral("start homeserver=%1").arg(homeserver));
-    QTimer::singleShot(0, &app, [&]() {
-        client->login(homeserver, user, password);
+    QTimer::singleShot(0, &app, [&, startPasswordLogin]() {
+        if (persistentStore && restoreAvailable) {
+            authAttempt = AuthAttempt::Restore;
+            counters.restoreResult = QStringLiteral("attempted");
+            say(QStringLiteral("restore=attempted"));
+            if (!client->restoreSessionFromFile(homeserver, canonicalUserId)) {
+                counters.restoreResult = QStringLiteral("failed");
+                say(QStringLiteral("restore=failed reason=%1")
+                        .arg(QStringLiteral("restore_start_failed")));
+                (*startPasswordLogin)();
+            }
+            return;
+        }
+
+        counters.restoreResult = persistentStore
+            ? QStringLiteral("not_available")
+            : QStringLiteral("skipped");
+        say(QStringLiteral("restore=%1").arg(counters.restoreResult));
+        (*startPasswordLogin)();
     });
 
     const int rc = QCoreApplication::exec();

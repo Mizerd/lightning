@@ -31,7 +31,12 @@ exit=0
 
 All observed timeline events on the test account were encrypted and
 undecryptable from a fresh temp SDK store — expected for a device
-that just logged in with no historical room keys.
+that just logged in with no historical room keys. A later
+encrypted-send probe succeeded and was visually confirmed in Element
+Classic as readable text, so Lightning → Element encrypted send is
+verified one-way. Element → Lightning encrypted receive is still not
+verified until `LIGHTNING_TEST_EXPECT_TEXT` reports `expect_text=seen`
+from a persistent SDK store/device.
 
 The default HTTP backend remains the working production path. The
 optional Rust backend now links `matrix-sdk` v0.18 and wires a real
@@ -39,6 +44,28 @@ Rust-owned SDK client behind the existing C++ `MatrixClient` seam:
 login, session restore, joined-room sync, room-list events, basic text
 timeline events, and plain text sends for unencrypted rooms. QML still
 talks only to C++ models and signals.
+
+**New after v0.5.0-prep+6 (persistent smoke store for receive verification):**
+
+- `LIGHTNING_TEST_PERSISTENT_STORE=1` makes `--rust-sdk-smoke-test`
+  use the same account-specific Rust SDK store path as the interactive
+  Rust backend:
+  `${XDG_DATA_HOME}/MatrixClient/matrix-client/<safeUserId>/matrix-rust-sdk-store/`.
+  Default smoke mode still uses a fresh `QTemporaryDir` and does not
+  pollute persistent state.
+- Persistent smoke mode writes a smoke-only MatrixSession sidecar next
+  to the account store so the second run can restore the same Matrix
+  device without writing to interactive QSettings or SecretStore
+  entries. The sidecar contains an access token; it is never printed
+  and is created outside the repository.
+- Smoke output now reports `restore=...`,
+  `store_account_match=yes|no|unknown`, and a redacted `device_id`.
+  If the SDK reports the known account/device mismatch, the harness
+  deletes only that account's Rust SDK store and sidecar, prints
+  `store_reset=account_device_mismatch`, and retries once.
+- `CacheStore` skips encrypted `TimelineEvent` rows entirely. Decrypted
+  encrypted-room plaintext may be displayed in memory by the Rust
+  backend, but it is not written into `cache.sqlite` yet.
 
 **New in v0.5.0-prep+6 (encrypted receive diagnostics + encrypted send probe):**
 
@@ -72,8 +99,9 @@ talks only to C++ models and signals.
     (skipped / non-encrypted-target are non-fatal).
 - `mx_rust_supports_e2ee()` still returns 0; `CryptoManager::
   supportsE2ee()` still returns false. Flip only after both
-  `expect_text=seen` and `encrypted_send=ok` verified round-trip
-  against Element Classic.
+  `expect_text=seen` and `encrypted_send=ok` are verified against
+  Element Classic. The encrypted-send probe has been verified
+  one-way; encrypted receive has not.
 
 **Fixed in v0.5.0-prep+5 (store-path consistency):**
 
@@ -132,7 +160,7 @@ talks only to C++ models and signals.
 - `RustSdkMatrixClient` owns the C++ wrapper state and polls a Rust
   event queue via `QTimer`.
 - Rust owns the SDK client, async work, and SDK SQLite store under
-  `${XDG_DATA_HOME}/matrix-client/<safeUserId>/matrix-rust-sdk-store/`.
+  `${XDG_DATA_HOME}/MatrixClient/matrix-client/<safeUserId>/matrix-rust-sdk-store/`.
 - `--reset-crypto-store` deletes only those Rust SDK store
   directories. It never touches `cache.sqlite` or SecretStore tokens.
 - `CryptoManager::supportsE2ee()` still returns `false`. Encrypted
@@ -274,7 +302,7 @@ start; no live switching.
 |---|---|
 | `mock` | In-memory hardcoded rooms, Space + threaded conversation demo, no network. `--mock` is an alias. Useful for offline UI work. |
 | `http` | Talks Matrix Client-Server API directly with `QNetworkAccessManager`. Password login, `/sync` long-poll, replies / edits / redactions / reactions / media / typing / receipts, Spaces + real `m.thread`. **Default.** No E2EE. |
-| `rust` | Optional Matrix Rust SDK backend foundation. Rust owns the SDK client/runtime/store; C++ polls FFI events and exposes them through existing models. Login/restore/sync/plain text send are wired; E2EE still reports unsupported and encrypted sends are blocked. Only built when `-DENABLE_RUST_SDK_BACKEND=ON`. |
+| `rust` | Optional Matrix Rust SDK backend foundation. Rust owns the SDK client/runtime/store; C++ polls FFI events and exposes them through existing models. Login/restore/sync/plain text send are wired. A smoke-only encrypted-send probe is verified one-way, but UI encrypted sends stay blocked and E2EE still reports unsupported until encrypted receive is verified too. Only built when `-DENABLE_RUST_SDK_BACKEND=ON`. |
 
 ---
 
@@ -362,8 +390,8 @@ for the full list. Common ones:
 - **`matrix.cache: NOT NULL constraint failed …`** — fixed in v0.4.8.
   Existing cache DBs are repaired in place on next open. If the
   errors still appear, delete
-  `${XDG_DATA_HOME}/matrix-client/<safeUserId>/cache.sqlite` and let
-  the next `/sync` refill it.
+  `${XDG_DATA_HOME}/MatrixClient/matrix-client/<safeUserId>/cache.sqlite`
+  and let the next `/sync` refill it.
 - **`QML Column: Cannot specify … anchors for items inside Column`**
   spam on every message — fixed in v0.4.8. The `MessageDelegate`
   hover-catcher is now a `HoverHandler`, which is Column-safe.

@@ -15,7 +15,7 @@ Legend:
 | Feature | Mock | HTTP | Rust SDK |
 |---|---|---|---|
 | Password login (`m.login.password`) | ✅ (any creds) | ✅ | ✅ verified live against matrix.smetonis.net (v0.5.0-prep+6) |
-| Session persistence + restore | 🟡 in-mem | ✅ (`/whoami`) | 🟡 SDK restore path wired; not exercised by the smoke harness (uses temp store) |
+| Session persistence + restore | 🟡 in-mem | ✅ (`/whoami`) | 🟡 interactive restore via SettingsManager/SecretStore is wired; persistent smoke restore now uses a smoke-only MatrixSession sidecar and stable SDK store |
 | Long-poll `/sync` | ⏳ | ✅ (v0.4.7: initial call uses timeout=0 + full_state; stale token is discarded if cache has no visible rooms) | ✅ joined-room SDK sync verified live (v0.5.0-prep+6) |
 | Initial-sync UX (`initialSyncDone` capability) | n/a | ✅ (v0.4.6) | ✅ flips after first SDK sync callback |
 | Text message send / receive | ✅ | ✅ | 🟡 basic text/notice/emote only; unencrypted send only |
@@ -29,7 +29,7 @@ Legend:
 | Media send (image/file, legacy `/media/v3/upload`) | 🟡 no-op | ✅ | ❌ |
 | Media receive (image/file, legacy `/media/v3/download`) | ✅ | ✅ | ❌ |
 | Authenticated media (`/client/v1/media/*`) | ❌ | ❌ | ❌ |
-| Local SQLite cache | n/a | ✅ | 🟡 Rust SDK store only; no C++ CacheStore timeline cache |
+| Local SQLite cache | n/a | ✅ | 🟡 Rust SDK store only; no C++ CacheStore timeline cache; encrypted `TimelineEvent` rows are skipped so decrypted encrypted-room plaintext is not cached in `cache.sqlite` |
 | **Spaces — recognise `m.room.create type:m.space`** | ✅ seeded | ✅ (v0.4.2) | 🟡 SDK `room.is_space()` surfaced |
 | **Spaces — `m.space.child` hierarchy** | ✅ seeded | ✅ (v0.4.2) | ❌ |
 | **Spaces — filter room list by active Space** | ✅ (chip strip) | ✅ (v0.4.2) | 🟡 works only for surfaced Space flags/children |
@@ -40,8 +40,8 @@ Legend:
 | **Threads — server-side aggregation (`unsigned["m.relations"]["m.thread"]`)** | n/a | ❌ (v0.5) | ❌ |
 | **Threads — dedicated thread panel / per-thread timeline model** | ❌ | ❌ (v0.5+) | ❌ |
 | **Threads — persistence across restart (before /sync)** | n/a | ✅ (v0.4.5) | ❌ |
-| Encrypted room read | ❌ placeholder | ❌ placeholder | 🟡 encrypted-timeline dispatch verified live (v0.5.0-prep+6, all 4 observed events were `undecryptable=true` from a fresh temp store); decrypted branch code path exists but is not verified end-to-end with a real key set yet |
-| Encrypted send | ❌ blocked | ❌ blocked | 🟡 `probeEncryptedSend` FFI + wrapper landed (v0.5.0-prep+6); interactive UI still refuses. Not yet round-tripped against Element Classic |
+| Encrypted room read | ❌ placeholder | ❌ placeholder | 🟡 encrypted-timeline dispatch verified live (v0.5.0-prep+6, all 4 observed events were `undecryptable=true` from a fresh temp store); persistent smoke store/session mode is implemented for stable-device receive testing, but Element Classic → Lightning `expect_text=seen` is not verified yet |
+| Encrypted send | ❌ blocked | ❌ blocked | 🟡 smoke-only `probeEncryptedSend` succeeded and Element Classic displayed the Lightning probe as readable text; interactive UI still refuses encrypted sends until receive is verified too |
 | Device verification / cross-signing | ❌ | ❌ | ❌ |
 | Encrypted media | ❌ placeholder | ❌ placeholder | ❌ |
 | SSO login | ❌ capability flag `false` | ❌ capability flag `false` | ❌ |
@@ -154,6 +154,19 @@ Legend:
   `RustSdkMatrixClient` with a null `SettingsManager` so it cannot
   overwrite the interactive user's cached session. Full usage +
   exit-code table in `docs/build-and-test.md`.
+- **Rust SDK — persistent smoke store/session.**
+  `LIGHTNING_TEST_PERSISTENT_STORE=1` reuses the account's normal
+  Rust SDK store and a smoke-only MatrixSession sidecar so repeated
+  smoke runs keep the same Matrix device. This is only for encrypted
+  receive verification. It does not flip `supportsE2ee`, does not
+  enable UI encrypted sends, and does not write the interactive
+  QSettings/SecretStore session. On the known account/device mismatch
+  it deletes only that account's Rust SDK store plus the smoke sidecar
+  and retries once.
+- **Cache policy for encrypted events.** `CacheStore` skips
+  `TimelineEvent` rows marked `isEncrypted`, including decrypted
+  encrypted-room events, so encrypted-room plaintext is memory-only
+  until a deliberate encrypted-cache design exists.
 
 ## Where the honest E2EE flag lives
 

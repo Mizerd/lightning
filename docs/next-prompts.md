@@ -71,9 +71,16 @@ CI-friendly and safe to script into a `.envrc`-guarded shell.
 rooms + Space detection + timeline delivery all work against
 `matrix.smetonis.net` (2 rooms, 1 Space, 4 undecryptable events from
 a fresh temp SDK store). Encrypted receive diagnostics and an
-encrypted-send probe FFI are wired but not round-tripped against
-Element Classic yet — that is the concrete next step. See Prompt 2
-below.
+encrypted-send probe FFI are wired.
+
+**Current follow-up state:** the encrypted-send probe succeeded and
+Element Classic displayed the Lightning probe as readable text, so
+Lightning → Element Classic encrypted send is verified one-way.
+Persistent smoke store/session support now exists via
+`LIGHTNING_TEST_PERSISTENT_STORE=1`, using the interactive Rust SDK
+store path plus a smoke-only MatrixSession sidecar. Element Classic →
+Lightning encrypted receive is still not verified until a persistent
+`LIGHTNING_TEST_EXPECT_TEXT` run reports `expect_text=seen`.
 
 Ordering rationale: first harden the Rust backend against the test
 homeserver with unencrypted rooms and session restore. Then add
@@ -152,38 +159,61 @@ Task:
 
 Do not flip `CryptoManager::supportsE2ee()` in this prompt.
 
-## Prompt 2 — Add initial encrypted read/send via Matrix Rust SDK
+## Prompt 2 — Verify persistent encrypted receive, then enable E2EE only if both directions pass
 
-Precondition: Prompt 1 has manually verified Rust login, restore, room
-sync, basic timeline, and unencrypted send on a real homeserver.
+Precondition: persistent Rust smoke store/session support is present
+and `LIGHTNING_TEST_PERSISTENT_STORE=1` can restore the same redacted
+device id on a second run.
 
-Goal: make encrypted rooms work through matrix-sdk without manual C++
-crypto. Keep QML isolated from Rust and keep HTTP/mock unchanged.
+Goal: verify Element Classic → Lightning encrypted receive on a stable
+Rust SDK device. Lightning → Element Classic encrypted send is already
+verified one-way by the smoke probe; do not enable E2EE until receive
+also passes.
 
 Task:
 
-1. Audit current SDK event handling for encrypted rooms. Only show
-   plaintext when matrix-sdk emits a decrypted `m.room.message`; never
-   manufacture decrypted bodies in C++.
-2. Wire encrypted text send through the SDK. Remove the encrypted-room
-   send block only after the SDK path sends a real encrypted event.
-3. Handle honest failure modes:
-   - unable to decrypt;
-   - missing room key;
-   - device not verified;
-   - store open failure.
-4. Add the smallest UI/status plumbing needed to distinguish
-   "encrypted but not decryptable" from "E2EE not supported".
-5. Verify manually:
-   - send encrypted text from Lightning, read it in Element;
-   - send encrypted text from Element, read it in Lightning;
-   - restore session and read/send again;
-   - logout does not leak tokens or key material into C++ cache.
-6. Only after both encrypted read and encrypted send work, define
+1. Build the Rust-enabled tree.
+2. Run a first persistent smoke run:
+   ```bash
+   LIGHTNING_TEST_HOMESERVER=https://matrix.smetonis.net \
+   LIGHTNING_TEST_USER='@test:matrix.smetonis.net' \
+   LIGHTNING_TEST_PASSWORD='<password-from-env-only>' \
+   LIGHTNING_TEST_PERSISTENT_STORE=1 \
+   nix develop -c ./build-rust/matrix-client --backend=rust --rust-sdk-smoke-test
+   ```
+   Expected: `store=persistent`, `restore=not_available` on a first
+   run or `restore=ok` on an existing sidecar, `login=ok`,
+   `sync=ok`, `supports_e2ee=false`.
+3. Run a second persistent smoke run and confirm it does not hit the
+   account/device mismatch. Expected: `store_account_match=yes`,
+   `restore=attempted`, `restore=ok`, same redacted `device_id`.
+4. In Element Classic, approve the new Lightning login if prompted.
+   Send a harmless marker from Element Classic into the encrypted test
+   room.
+5. Run:
+   ```bash
+   LIGHTNING_TEST_HOMESERVER=https://matrix.smetonis.net \
+   LIGHTNING_TEST_USER='@test:matrix.smetonis.net' \
+   LIGHTNING_TEST_PASSWORD='<password-from-env-only>' \
+   LIGHTNING_TEST_PERSISTENT_STORE=1 \
+   LIGHTNING_TEST_EXPECT_TEXT='<marker>' \
+   LIGHTNING_TEST_REQUIRE_EXPECT=1 \
+   nix develop -c ./build-rust/matrix-client --backend=rust --rust-sdk-smoke-test
+   ```
+6. If the result is `expect_text=not_seen`, do not enable E2EE. Record
+   counts and investigate key sharing, device verification, room key
+   requests, and backup/cross-signing gaps.
+7. If the result is `expect_text=seen` and `decrypted_events>0`, rerun
+   the encrypted-send probe once more and confirm Element Classic still
+   displays the Lightning marker as readable text.
+8. Only after both directions pass, define
    `RUST_SDK_E2EE_WIRED` in the Rust-enabled CMake path and let
    `CryptoManager::supportsE2ee()` return true for active backend
    `rust`.
-7. Update README and docs. Commit:
+9. Only then consider wiring the interactive UI encrypted send path.
+   Keep SAS verification, key backup, cross-signing, and secret-storage
+   UX documented as missing unless implemented.
+10. Update README and docs. Commit:
    ```bash
    git commit -m "Add initial E2EE support via Matrix Rust SDK"
    ```

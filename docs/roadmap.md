@@ -136,8 +136,9 @@
   `${XDG_DATA_HOME}/matrix-client/<safeUserId>/matrix-rust-sdk-store/`.
 - Login, restore, joined-room sync, room-list events, basic text
   timeline events, and unencrypted plain text sends are wired.
-- `CryptoManager::supportsE2ee` remains false; encrypted sends are
-  blocked.
+- `CryptoManager::supportsE2ee` remains false; interactive encrypted
+  sends are blocked while smoke-only encrypted send/receive probes are
+  used for verification.
 
 ### v0.5.0 — Verify and enable E2EE
 

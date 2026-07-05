@@ -435,6 +435,10 @@ QList<TimelineEvent> CacheStore::loadTimeline(const QString &roomId, int limit)
 
 void CacheStore::appendEvent(const TimelineEvent &e)
 {
+    if (e.isEncrypted) {
+        deleteEvent(e.eventId);
+        return;
+    }
     updateEvent(e);
     pruneRoom(e.roomId);
 }
@@ -442,6 +446,15 @@ void CacheStore::appendEvent(const TimelineEvent &e)
 void CacheStore::updateEvent(const TimelineEvent &e)
 {
     if (!isOpen() || e.eventId.isEmpty()) return;
+    if (e.isEncrypted) {
+        // Policy for the Rust E2EE bring-up: encrypted-room plaintext may be
+        // displayed in memory when matrix-sdk decrypts it, but it must not be
+        // persisted into the C++ SQLite cache until the cache/encryption
+        // design is explicit. Delete any stale row with the same id and skip
+        // the upsert entirely.
+        deleteEvent(e.eventId);
+        return;
+    }
     QSqlQuery q(database());
     q.prepare(QStringLiteral(
         "INSERT INTO events "
@@ -518,6 +531,11 @@ void CacheStore::replaceEventId(const QString &oldEventId,
                                 const TimelineEvent &newEvent)
 {
     if (!isOpen()) return;
+    if (newEvent.isEncrypted) {
+        deleteEvent(oldEventId);
+        deleteEvent(newEvent.eventId);
+        return;
+    }
     // If a real event with the new id already exists (e.g. from /sync), just
     // remove the local placeholder.
     QSqlQuery lookup(database());

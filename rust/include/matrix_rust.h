@@ -22,10 +22,22 @@ char *mx_rust_version(void);
 void *mx_rust_create(const char *store_path);
 void  mx_rust_destroy(void *client);
 
+/*
+ * Optional smoke-only MatrixSession sidecar. This lets
+ * LIGHTNING_TEST_PERSISTENT_STORE=1 restore the same SDK device without
+ * writing to the interactive QSettings/SecretStore session. The file contains
+ * an access token, so callers must never print it and must keep it outside
+ * the repository.
+ */
+char *mx_rust_set_session_file(void *client, const char *session_file_path);
+
 char *mx_rust_login(void *client,
                     const char *homeserver,
                     const char *user,
                     const char *password);
+char *mx_rust_restore_from_file(void *client,
+                                const char *homeserver,
+                                const char *expected_user_id);
 char *mx_rust_restore(void *client,
                       const char *homeserver,
                       const char *user_id,

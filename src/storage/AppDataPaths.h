@@ -27,6 +27,20 @@ namespace matrix::app_data {
 // Returns empty when neither $HOME nor $XDG_DATA_HOME is set.
 QString primaryRoot();
 
+// Safe per-account directory slug used under the app data roots.
+QString safeUserSlug(const QString &userId);
+
+// <primaryRoot>/<safeUserId>. Returns empty if primaryRoot() is empty.
+QString accountRoot(const QString &userId);
+
+// <accountRoot>/<matrix-rust-sdk-store>. Matches RustSdkMatrixClient.
+QString rustSdkStorePath(const QString &userId);
+
+// Smoke-only MatrixSession sidecar used by LIGHTNING_TEST_PERSISTENT_STORE=1.
+// It is account-specific session state, not an interactive QSettings or
+// SecretStore entry. Never print its token contents.
+QString rustSdkSmokeSessionPath(const QString &userId);
+
 // Legacy roots that pre-fix builds may have created directories under.
 // Currently just the "no org prefix" variant that the old reset code
 // scanned. Never overlaps with `primaryRoot()`.

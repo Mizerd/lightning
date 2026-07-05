@@ -5,11 +5,9 @@ project(matrix-client
     LANGUAGES CXX
 )
 
-# Human-facing label. v0.5.0-prep = C++ side is ready to host the Matrix
-# Rust SDK E2EE backend, but the SDK itself is not linked in yet. Bump
-# to "0.5.0" (no suffix) only once matrix-sdk is wired and encrypted
-# rooms actually round-trip.
-set(APP_VERSION_LABEL "0.5.0-prep")
+# Human-facing label. Keep the prep suffix until Matrix Rust SDK encrypted
+# rooms round-trip in both directions and the E2EE gate can be enabled.
+set(APP_VERSION_LABEL "0.5.0-prep+6")
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

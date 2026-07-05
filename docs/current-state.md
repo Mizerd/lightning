@@ -1,8 +1,9 @@
-# Current state (v0.5.0-prep+6, Rust SDK verified live + encrypted diagnostics)
+# Current state (v0.5.0-prep+6, persistent Rust smoke store for receive verification)
 
 Last updated: 2026-07-05 (Rust SDK backend live-verified against
-matrix.smetonis.net + encrypted-receive diagnostics + encrypted-send
-probe FFI).
+matrix.smetonis.net; encrypted-send probe verified one-way in Element
+Classic; persistent Rust SDK smoke store/session support added so
+encrypted receive can be tested with a stable device).
 
 ## Live verification status (v0.5.0-prep+6)
 
@@ -42,20 +43,33 @@ smoke: summary … send=skipped(no_unencrypted_room) …
 - Smoke store isolation holds across back-to-back runs (no crypto
   store account/device mismatch).
 
-**What this does NOT prove yet (unchanged from prep+5):**
+Additional verified smoke result after prep+6:
 
-- Encrypted receive against Element Classic — needs a device with
-  the room keys, or key backup / a persistent store that has
-  received them. Both are v0.5.0-prep+7 targets.
-- Encrypted send — the FFI + wrapper are in place as of prep+6,
-  gated to the smoke harness only. Interactive UI still refuses
-  encrypted sends. Verification is deferred to a session where the
-  operator can send a marker from Element Classic and confirm the
-  round-trip in both directions.
+```
+smoke: encrypted_send=ok marker=SMK-1783280632 event_id=$NIP0ZhOlSs-NMUudtW_a3m45JmkxOeQZcsDks-mW3jQ
+smoke: summary login=ok sync=ok rooms=2 encrypted_rooms=2 spaces=1
+       timeline_events=4 encrypted_events=4 decrypted_events=0
+       undecryptable=4 send=n/a encrypted_send=ok expect_text=n/a
+       supports_e2ee=false
+```
+
+The maintainer confirmed in Element Classic that the Lightning
+encrypted-send probe appeared as normal readable text. This proves
+Lightning → Element Classic encrypted send one-way through matrix-sdk.
+
+**What this does NOT prove yet:**
+
+- Element Classic → Lightning encrypted receive. A fresh temp store
+  still reports `expect_text=not_seen`, `decrypted_events=0`, and
+  exits 14 when `LIGHTNING_TEST_REQUIRE_EXPECT=1`.
+- Full E2EE support. Interactive UI encrypted sends remain blocked,
+  SAS verification, key backup, and cross-signing are missing, and
+  `RUST_SDK_E2EE_WIRED` remains undefined.
 
 `CryptoManager::supportsE2ee()` remains **false**. Flipping it
-requires both `expect_text=seen` on a real marker AND
-`encrypted_send=ok` verified in Element Classic.
+requires Element Classic → Lightning `expect_text=seen` on a real
+marker and Lightning → Element `encrypted_send=ok`. The second is now
+verified one-way; the first is still pending.
 
 This is the "where the repo actually is" doc. Treat it as ground truth
 for a fresh LLM continuation session — read this before
@@ -86,7 +100,7 @@ code.
   - `4c9d4f5` Harden Matrix Rust SDK backend foundation (v0.5.0-prep+3)
   - `8d6f436` Harden Matrix Rust SDK backend testing (v0.5.0-prep+4)
   - `9bf3c83` Fix Rust SDK smoke store isolation (v0.5.0-prep+5)
-  - HEAD after this pass: `v0.5.0-prep+6: Rust SDK encrypted receive diagnostics + encrypted send probe`
+  - HEAD after this pass: persistent Rust SDK smoke store for receive verification
   - Branch: `main`
 
 ## Layered architecture (unchanged from v0.4)
@@ -120,6 +134,46 @@ Crypto:      src/crypto/CryptoManager (capability surface only, no crypto)
   for build-system compatibility (Q_APPLICATION_NAME too — keeps the
   QSettings scope stable across the rename). The login-screen
   sub-heading is backend-aware (v0.4.5).
+- **Persistent Rust SDK smoke store/session (this pass)**:
+  `LIGHTNING_TEST_PERSISTENT_STORE=1` switches the headless Rust smoke
+  harness from a fresh `QTemporaryDir` to the same account-specific
+  Rust SDK store path used by the interactive Rust backend:
+  `matrix::app_data::primaryRoot()/<safeUserId>/matrix-rust-sdk-store/`
+  (normally
+  `${XDG_DATA_HOME}/MatrixClient/matrix-client/<safeUserId>/matrix-rust-sdk-store/`).
+  The default smoke mode is unchanged and still uses a temporary store.
+
+  Persistent smoke mode configures a smoke-only MatrixSession sidecar:
+  `matrix-rust-sdk-smoke-session.json` next to the account store. Rust
+  writes it after password login and reads it through
+  `mx_rust_restore_from_file` on the next run, so the SDK restores the
+  same device without writing to the interactive QSettings/SecretStore
+  session. The sidecar contains an access token, is 0600 on Unix, is
+  never printed, and must not be committed.
+
+  Smoke output now includes `restore=...`,
+  `store_account_match=yes|no|unknown`, and a redacted `device_id`.
+  If matrix-sdk reports the known "account in the store doesn't match
+  the account in the constructor" error, the harness destroys the Rust
+  handle, deletes only that account's `matrix-rust-sdk-store/` plus
+  the smoke session sidecar, prints
+  `store_reset=account_device_mismatch`, and retries password login
+  once. It never deletes `cache.sqlite`, QSettings, or SecretStore
+  entries.
+
+  This implements the required workflow for encrypted receive
+  verification:
+  first persistent run creates/restores a stable Lightning SDK device;
+  the user approves the new login in Element Classic if prompted; the
+  user sends a harmless marker from Element Classic; the second
+  persistent run uses `LIGHTNING_TEST_EXPECT_TEXT=<marker>` and
+  `LIGHTNING_TEST_REQUIRE_EXPECT=1`. Success is `expect_text=seen`,
+  `decrypted_events>0`, and exit 0. Until that happens, encrypted
+  receive remains unverified.
+
+  `CacheStore` now refuses to persist encrypted `TimelineEvent` rows:
+  decrypted encrypted-room plaintext can be displayed in memory by the
+  Rust backend, but is not written into `cache.sqlite` yet.
 - **v0.5.0-prep+6 encrypted-receive diagnostics + encrypted-send
   probe (this pass)**: five connected changes wired end to end
   around real, safe E2EE plumbing — but no E2EE claim is made
@@ -317,7 +371,7 @@ Crypto:      src/crypto/CryptoManager (capability surface only, no crypto)
     edits, reactions, media, typing, read receipts, Space child
     hierarchy) are still missing or partial.
 
-  Store path: `${XDG_DATA_HOME}/matrix-client/<safeUserId>/matrix-rust-sdk-store/`.
+  Store path: `${XDG_DATA_HOME}/MatrixClient/matrix-client/<safeUserId>/matrix-rust-sdk-store/`.
   This is separate from the C++ `cache.sqlite` and never stores access
   tokens; tokens remain in `SecretStore`.
 
@@ -421,17 +475,19 @@ Crypto:      src/crypto/CryptoManager (capability surface only, no crypto)
   events through a C ABI queue. C++ `RustSdkMatrixClient` keeps the UI
   isolated from Rust and emits the existing `MatrixClient` signals.
   Login, restore, joined-room sync, basic text timeline events, and
-  plain text send are wired. E2EE is still disabled and encrypted sends
-  are blocked honestly.
+  plain text send are wired. E2EE is still disabled; interactive
+  encrypted sends are blocked honestly while the smoke-only encrypted
+  send probe remains available for verification.
 - **SecretStore**: libsecret (Secret Service via glib) backend when
   available; `InsecureFallbackSecretStore` (QSettings under `secrets/*`)
   when the session bus is unreachable. Legacy plaintext
   `session/accessToken` in QSettings is auto-migrated into the store
   on first launch of v0.4+.
-- **SQLite cache**: `${XDG_DATA_HOME}/matrix-client/<safeUserId>/cache.sqlite`.
-  Rooms + last 200 events per room + members. Access tokens are **not**
-  cached here. `SettingsManager::clearSession()` wipes both the
-  QSettings session metadata and the SecretStore entry for that user.
+- **SQLite cache**: `${XDG_DATA_HOME}/MatrixClient/matrix-client/<safeUserId>/cache.sqlite`.
+  Rooms + last 200 non-encrypted events per room + members. Access
+  tokens and decrypted encrypted-room bodies are **not** cached here.
+  `SettingsManager::clearSession()` wipes both the QSettings session
+  metadata and the SecretStore entry for that user.
 - **Spaces (v0.4.1 + v0.4.2)**: `SpaceManager` is a `QAbstractListModel`
   bound to the active `MatrixClient`. Row 0 is a synthetic "All rooms";
   if any Space has children, an "Other rooms" row follows; then real

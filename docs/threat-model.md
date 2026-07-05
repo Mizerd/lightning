@@ -1,4 +1,4 @@
-# Threat model (v0.5.0-prep+4)
+# Threat model (v0.5.0-prep+6 persistent smoke store)
 
 Scoped to what the current v0.5.0-prep foundation needs a reader to
 know. Full model is v1.0 material.
@@ -29,10 +29,22 @@ minimises:
   `matrix::app_data::primaryRoot()/<safeUserId>/matrix-rust-sdk-store/`.
   `--reset-crypto-store` scans that root plus the pre-fix legacy
   root and never touches `/tmp/`.
-- The harness only sends into non-encrypted, non-Space rooms, and
-  only when `LIGHTNING_TEST_SEND=1` is explicitly set. Encrypted
-  send remains gated by the underlying `supportsE2ee()` = false
-  contract until the E2EE work lands.
+- Persistent smoke mode is opt-in via
+  `LIGHTNING_TEST_PERSISTENT_STORE=1`. It uses the same
+  account-specific Rust SDK store as the interactive Rust backend and
+  a smoke-only MatrixSession sidecar next to that account directory.
+  The sidecar contains an access token, is written 0600 on Unix, is
+  never printed, and is not QSettings/SecretStore state. It exists
+  only to restore the same SDK device for encrypted receive testing.
+- On the known Matrix SDK account/device mismatch, persistent smoke
+  mode deletes only that account's Rust SDK store plus the smoke
+  sidecar and retries once. It never deletes `cache.sqlite`,
+  QSettings, or SecretStore entries.
+- The harness only sends into non-encrypted, non-Space rooms when
+  `LIGHTNING_TEST_SEND=1` is explicitly set. The smoke-only encrypted
+  send probe requires `LIGHTNING_TEST_SEND_ENCRYPTED=1`, refuses
+  non-encrypted rooms, and never prints the body. Interactive
+  encrypted send remains gated by `supportsE2ee() == false`.
 
 ## In scope
 
@@ -57,12 +69,13 @@ minimises:
 | Asset | v0.4 storage | Future plan |
 |---|---|---|
 | Access token | `SecretStore` — libsecret (Secret Service / KWallet with libsecret) when reachable; plaintext QSettings fallback with a visible warning otherwise. Migrated on first read from any legacy `session/accessToken` plaintext key. Not in the SQLite cache. | Same store; hardware-backed keychains as follow-up. |
+| Smoke MatrixSession sidecar | Only when `LIGHTNING_TEST_PERSISTENT_STORE=1`: `${XDG_DATA_HOME}/MatrixClient/matrix-client/<safeUserId>/matrix-rust-sdk-smoke-session.json`. Contains an access token, is 0600 on Unix, and is never printed. | Replace with a dedicated secure smoke credential store if this becomes more than a test harness. |
 | Device id, user id, homeserver URL | QSettings (non-secret in themselves) | unchanged |
 | Sync token | QSettings (restart-recoverable state, not a credential) | unchanged |
-| Device keys | Rust SDK store path exists for the Rust backend: `${XDG_DATA_HOME}/matrix-client/<safeUserId>/matrix-rust-sdk-store/`. E2EE is not enabled/claimed yet, so any SDK crypto material there is treated as SDK-owned state, separate from `cache.sqlite`, and never contains an access token. `--reset-crypto-store` removes it. | Rust SDK store, considered destroyed by `--reset-crypto-store`; key backup/verification later. |
+| Device keys | Rust SDK store path exists for the Rust backend: `${XDG_DATA_HOME}/MatrixClient/matrix-client/<safeUserId>/matrix-rust-sdk-store/`. E2EE is not enabled/claimed yet, so any SDK crypto material there is treated as SDK-owned state, separate from `cache.sqlite`. `--reset-crypto-store` removes it. | Rust SDK store, considered destroyed by `--reset-crypto-store`; key backup/verification later. |
 | Message content in transit | TLS to homeserver via `QNetworkAccessManager` (HTTP backend) or the Matrix Rust SDK transport (Rust backend). | Rust SDK encrypted transports once E2EE is verified |
-| Encrypted message plaintext | HTTP backend does not decrypt. Rust backend only displays text events that the Matrix SDK emits as decrypted events, but Lightning does not claim E2EE support yet. | Held in-process; do not write decrypted E2EE bodies to the C++ cache until that policy is explicitly designed |
-| Local cache | **SQLite** at `${XDG_DATA_HOME}/matrix-client/<safeUserId>/cache.sqlite`. Contains rooms, last 200 events per room, and members. **No** access tokens. Non-E2E timeline bodies are stored plaintext by design. | Same schema; E2E rooms cached decrypted only when the Rust SDK opens the store with the user's session key |
+| Encrypted message plaintext | HTTP backend does not decrypt. Rust backend only displays text events that the Matrix SDK emits as decrypted events, but Lightning does not claim E2EE support yet. `CacheStore` skips encrypted `TimelineEvent` rows, so decrypted encrypted-room plaintext is not written to `cache.sqlite`. | Held in-process until an explicit encrypted-cache design exists |
+| Local cache | **SQLite** at `${XDG_DATA_HOME}/MatrixClient/matrix-client/<safeUserId>/cache.sqlite`. Contains rooms, last 200 non-encrypted events per room, and members. **No** access tokens and no encrypted-room plaintext. Non-E2E timeline bodies are stored plaintext by design. | Same schema unless an encrypted-cache design is added |
 | Media in transit / at rest | Fetched over HTTPS from `/_matrix/media/v3/download` (unauthenticated legacy endpoint). Rendered images sit in Qt's Image cache (in-memory). No custom media cache on disk yet. | Switch to authenticated `/_matrix/client/v1/media/*`; on-disk media cache with expiry |
 
 ## SecretStore backends
@@ -84,10 +97,10 @@ bus will fall back to the insecure store. This is expected and warned about.
 
 - Does not authenticate media downloads. Legacy `/_matrix/media/v3/*` is
   used by design in v0.3/v0.4.
-- Does not claim E2EE support. Encrypted sends remain blocked; encrypted
-  reads are not considered supported unless the Matrix SDK emits a
-  decrypted text event and the UI receives it through the normal timeline
-  path.
+- Does not claim E2EE support. The smoke-only encrypted-send probe is
+  verified one-way in Element Classic, but encrypted receive is not
+  considered supported unless persistent smoke reports
+  `expect_text=seen` for a marker sent from Element Classic.
 - Does not protect the SQLite cache. Anyone with read access to the user's
   home directory can read cached non-E2E message bodies.
 - Does not treat the Rust backend as feature-complete. `--backend=rust`
@@ -102,10 +115,12 @@ bus will fall back to the insecure store. This is expected and warned about.
 - No custom cryptography. E2EE must land through the Matrix Rust SDK.
 - SQLite cache never contains access tokens or raw crypto key material.
 - Rust SDK state is stored separately from the C++ cache at
-  `${XDG_DATA_HOME}/matrix-client/<safeUserId>/matrix-rust-sdk-store/`.
+  `${XDG_DATA_HOME}/MatrixClient/matrix-client/<safeUserId>/matrix-rust-sdk-store/`.
 - `--reset-crypto-store` deletes only Rust SDK store directories and
   never touches `cache.sqlite`, QSettings session metadata, or
   SecretStore access tokens.
+- `CacheStore` refuses to persist encrypted `TimelineEvent` rows, so
+  decrypted encrypted-room message bodies remain memory-only for now.
 - Raw access tokens are never logged.
 - `clearSession()` (logout, `/whoami` 401, `/sync` 401) wipes QSettings
   session keys, deletes the SecretStore entry for that user, and clears

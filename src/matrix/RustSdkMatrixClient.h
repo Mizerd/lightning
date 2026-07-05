@@ -33,10 +33,26 @@ public:
     // constructor" error. Must be called BEFORE login() / restoreSession().
     void setStorePathOverride(const QString &absolutePath);
 
+    // Smoke-only session sidecar used with LIGHTNING_TEST_PERSISTENT_STORE=1.
+    // The file contains a Matrix access token. This wrapper never logs it and
+    // never exposes it to QML; Rust reads/writes it directly.
+    void setPersistentSessionFile(const QString &absolutePath);
+
     // Introspection for the smoke harness. Populated after ensure has
     // resolved a store path; empty otherwise.
     QString rustStorePath() const;
     bool    rustStorePathIsOverride() const;
+    QString currentDeviceId() const;
+
+    // Testing hook for persistent smoke mismatch recovery. Destroys the Rust
+    // handle and deletes only the currently selected account's SDK store path.
+    // It never touches cache.sqlite, QSettings, or SecretStore entries.
+    bool resetRustStore();
+
+    // Smoke-only restore path. Uses the configured persistent session sidecar,
+    // not QSettings/SecretStore.
+    bool restoreSessionFromFile(const QString &homeserver,
+                                const QString &userIdForStore);
 
     // Encrypted-room test probe (v0.5.0-prep+6). Bypasses the C++
     // CryptoManager::supportsE2ee gate and calls
@@ -150,6 +166,7 @@ private:
     void *m_rustHandle = nullptr;
     QString m_storePath;
     QString m_storePathOverride;
+    QString m_sessionFilePath;
     QString m_homeserver;
     QString m_userId;
     QString m_deviceId;

@@ -99,6 +99,13 @@ nix develop -c ./build-rust/matrix-client --backend=rust --rust-sdk-smoke-test
 
 Optional environment:
 
+- `LIGHTNING_TEST_PERSISTENT_STORE=1` — use the account-specific
+  persistent Rust SDK store instead of a fresh temp store. Path:
+  `${XDG_DATA_HOME}/MatrixClient/matrix-client/<safeUserId>/matrix-rust-sdk-store/`.
+  The harness also uses a smoke-only MatrixSession sidecar next to the
+  account directory so later runs can restore the same Matrix device.
+  This sidecar contains an access token but is never printed and is
+  not QSettings / SecretStore state.
 - `LIGHTNING_TEST_SEND=1` — after login + initial sync, send one
   probe text `"Lightning smoke-test <epoch-seconds>"` to a
   non-encrypted joined room. Never sends into encrypted rooms.
@@ -121,17 +128,28 @@ Optional environment:
   matrix-sdk `e2e-encryption + sqlite` features do the encryption
   end-to-end; the C++ side never sees ciphertext or keys.
 
+Current verified crypto status: the encrypted-send probe succeeded and
+Element Classic displayed the Lightning probe as readable text. That
+proves Lightning → Element encrypted send one-way. Element → Lightning
+encrypted receive is not verified until the persistent
+`LIGHTNING_TEST_EXPECT_TEXT` workflow reports `expect_text=seen`.
+`supports_e2ee=false` remains correct.
+
 Output format (all lines prefixed `smoke: `):
 
 ```
 smoke: store=temporary
 smoke: store_path=/tmp/lightning-rust-sdk-smoke-XXXXXX/matrix-rust-sdk-store
 smoke: store_exists=no
+smoke: store_account_match=unknown
+smoke: device_id=unknown
 smoke: supports_e2ee=false
 smoke: expect_text=configured require=true|false     # only with EXPECT_TEXT
 smoke: start homeserver=<hs>
+smoke: restore=skipped                               # or attempted/ok/not_available/failed
 smoke: state=connecting
 smoke: login=ok
+smoke: device_id=ABCD...WXYZ
 smoke: state=syncing
 smoke: rooms joined=<N> encrypted=<M> spaces=<S>
 smoke: initial_sync=done
@@ -140,10 +158,11 @@ smoke: send=start room=!…                            # LIGHTNING_TEST_SEND=1
 smoke: send=ok                                       # or send=failed/timeout
 smoke: encrypted_send=start room=!… marker=SMK-…    # SEND_ENCRYPTED=1
 smoke: encrypted_send=ok marker=SMK-… event_id=$…   # or =failed / =skipped
-smoke: summary login=<r> sync=<r> rooms=<N> encrypted_rooms=<M>
-       spaces=<S> timeline_events=<T> encrypted_events=<E>
-       decrypted_events=<D> undecryptable=<U> send=<r> encrypted_send=<r>
-       expect_text=<seen|not_seen|n/a> supports_e2ee=<bool>
+smoke: summary restore=<r> login=<r> sync=<r> rooms=<N>
+       encrypted_rooms=<M> spaces=<S> timeline_events=<T>
+       encrypted_events=<E> decrypted_events=<D> undecryptable=<U>
+       send=<r> encrypted_send=<r> expect_text=<seen|not_seen|n/a>
+       supports_e2ee=<bool>
 ```
 
 Exit codes:
@@ -175,33 +194,103 @@ needed and it never prompts. Total wall-clock budget is 60 s.
 **Session-safety guarantee.** The harness constructs
 `RustSdkMatrixClient(nullptr, nullptr)` — passing a null
 `SettingsManager` so the SDK's login response can never overwrite
-the interactive user's cached session (access token, syncToken,
-homeserver).
+the interactive user's cached session in QSettings/SecretStore
+(access token, syncToken, homeserver). In persistent smoke mode,
+the only persistent credential is the smoke-only MatrixSession sidecar
+under the account app-data directory; it exists solely to restore the
+same SDK device for encrypted receive testing.
 
-**Store isolation (v0.5.0-prep+5).** Each smoke run also gets its
-own `QTemporaryDir` under `/tmp/lightning-rust-sdk-smoke-XXXXXX/`
-and passes that path into `RustSdkMatrixClient::setStorePathOverride`,
-so back-to-back password logins never hit the SDK's
-"account in the store doesn't match the account in the constructor"
-error. The temp directory is removed on exit (best-effort — SDK
-background threads may still be writing when the process shuts
-down, but the OS cleans up on next boot). The interactive Rust
-backend is unaffected: it still uses the persistent per-account
-store at `${primaryRoot}/<safeUserId>/matrix-rust-sdk-store/` and
-does not read `LIGHTNING_TEST_*` env vars.
+**Default temporary store.** Without
+`LIGHTNING_TEST_PERSISTENT_STORE=1`, each smoke run gets its own
+`QTemporaryDir` under `/tmp/lightning-rust-sdk-smoke-XXXXXX/` and
+passes that path into `RustSdkMatrixClient::setStorePathOverride`.
+Back-to-back temporary password logins therefore cannot inherit a
+stale device id. The temp directory is removed on exit (best-effort —
+SDK background threads may still be writing when the process shuts
+down, but the OS cleans up on next boot). Temporary mode never reads
+or writes the persistent Rust SDK store.
 
-The harness announces these choices with three additional first
-lines:
+Temporary mode announces:
 
 ```
 smoke: store=temporary
 smoke: store_path=/tmp/lightning-rust-sdk-smoke-XXXXXX/matrix-rust-sdk-store
 smoke: store_exists=no
+smoke: store_account_match=unknown
+smoke: device_id=unknown
 smoke: supports_e2ee=false
+smoke: restore=skipped
 ```
 
 Fresh temp store means `store_exists=no` on every run; the SDK
 creates the directory as part of login.
+
+**Persistent store mode.** With `LIGHTNING_TEST_PERSISTENT_STORE=1`,
+the harness uses the same store path as the interactive Rust backend:
+
+```
+${XDG_DATA_HOME}/MatrixClient/matrix-client/<safeUserId>/matrix-rust-sdk-store/
+```
+
+It also configures Rust to save and restore a smoke-only session file:
+
+```
+${XDG_DATA_HOME}/MatrixClient/matrix-client/<safeUserId>/matrix-rust-sdk-smoke-session.json
+```
+
+The session file contains a Matrix access token and is created with
+0600 permissions on Unix. It is never printed, never committed, and
+never routed through the interactive SecretStore. Persistent mode
+prints:
+
+```
+smoke: store=persistent
+smoke: store_path=<account-store>
+smoke: store_exists=yes|no
+smoke: store_account_match=yes|no|unknown
+smoke: device_id=<redacted-or-unknown>
+smoke: restore=attempted|ok|not_available|failed
+```
+
+First persistent run usually prints `restore=not_available`, performs
+password login, creates the SDK store, and writes the smoke session
+sidecar. Second persistent run should print `store_account_match=yes`,
+`restore=attempted`, then `restore=ok`, and use the same redacted
+device id.
+
+If matrix-sdk reports the known account/device-store mismatch, the
+harness prints `store_reset=account_device_mismatch`, deletes only
+that account's `matrix-rust-sdk-store/` plus the smoke session sidecar,
+and retries password login once. It never deletes `cache.sqlite`,
+QSettings, or SecretStore entries.
+
+Persistent encrypted receive workflow:
+
+```bash
+# 1. Create or restore a stable Lightning SDK device.
+LIGHTNING_TEST_HOMESERVER=https://matrix.smetonis.net \
+LIGHTNING_TEST_USER='@test:matrix.smetonis.net' \
+LIGHTNING_TEST_PASSWORD='<password-from-env-only>' \
+LIGHTNING_TEST_PERSISTENT_STORE=1 \
+nix develop -c ./build-rust/matrix-client --backend=rust --rust-sdk-smoke-test
+
+# 2. In Element Classic, approve the new login if prompted, then send a
+#    harmless marker into the encrypted test room.
+
+# 3. Verify Element Classic -> Lightning encrypted receive.
+LIGHTNING_TEST_HOMESERVER=https://matrix.smetonis.net \
+LIGHTNING_TEST_USER='@test:matrix.smetonis.net' \
+LIGHTNING_TEST_PASSWORD='<password-from-env-only>' \
+LIGHTNING_TEST_PERSISTENT_STORE=1 \
+LIGHTNING_TEST_EXPECT_TEXT='<marker-sent-from-element>' \
+LIGHTNING_TEST_REQUIRE_EXPECT=1 \
+nix develop -c ./build-rust/matrix-client --backend=rust --rust-sdk-smoke-test
+```
+
+Expected success is `expect_text=seen`, `decrypted_events>0`, and
+exit 0. If keys are still unavailable, the run reports
+`expect_text=not_seen`; with `LIGHTNING_TEST_REQUIRE_EXPECT=1` that
+exits 14. Undecryptable history alone is not fatal.
 
 Pre-flight validation runs before QGuiApplication in `src/main.cpp`,
 so bad `--backend=` values and unknown flags give the same clean exit-2
@@ -327,7 +416,7 @@ nix develop -c ./build-rust/matrix-client --backend=rust
 - Login against a real homeserver. Expected path:
   `Not connected` → `Connecting…` → `Loading rooms…` → `Connected`.
 - The Rust SDK store is created at
-  `${XDG_DATA_HOME}/matrix-client/<safeUserId>/matrix-rust-sdk-store/`.
+  `${XDG_DATA_HOME}/MatrixClient/matrix-client/<safeUserId>/matrix-rust-sdk-store/`.
   This directory is separate from the C++ `cache.sqlite`.
 - Joined rooms should appear after the first SDK sync callback.
 - Basic text/notice/emote timeline events should appear as SDK events
@@ -337,8 +426,10 @@ nix develop -c ./build-rust/matrix-client --backend=rust
 - Sending plain text in an unencrypted room should create a local echo
   and then replace it with the server event id.
 - Sending into an encrypted room must fail with a clear error until
-  encrypted send is verified and `CryptoManager::supportsE2ee()` is
-  deliberately enabled.
+  both encrypted receive and encrypted send are verified and
+  `CryptoManager::supportsE2ee()` is deliberately enabled. The
+  smoke-only encrypted-send probe is verified one-way; that is not
+  enough to enable the UI path.
 - Replies, edits, redactions, reactions, media, pagination, typing,
   read receipts, and Space child hierarchy are still HTTP-only or
   missing in Rust.
@@ -469,8 +560,8 @@ Fixes shipped:
   `events.thread_root_id`). No user data loss; no cache wipe.
 
 If the constraint errors somehow persist after this pass, delete
-`${XDG_DATA_HOME}/matrix-client/<safeUserId>/cache.sqlite` and let
-the next `/sync` refill the cache from scratch.
+`${XDG_DATA_HOME}/MatrixClient/matrix-client/<safeUserId>/cache.sqlite`
+and let the next `/sync` refill the cache from scratch.
 
 ### `QML Column: Cannot specify top, bottom, verticalCenter, fill or centerIn anchors for items inside Column.`
 

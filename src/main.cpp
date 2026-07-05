@@ -96,7 +96,7 @@ PreflightResult preflightParse(int argc, char *argv[])
                 "                                 requires -DENABLE_RUST_SDK_BACKEND=ON\n"
                 "                                 at build time)\n"
                 "  --reset-crypto-store Delete per-account Rust SDK stores under\n"
-                "                       ${XDG_DATA_HOME}/matrix-client/*/matrix-rust-sdk-store.\n"
+                "                       ${XDG_DATA_HOME}/MatrixClient/matrix-client/*/matrix-rust-sdk-store.\n"
                 "                       It never touches cache.sqlite or SecretStore tokens.\n"
                 "                       Exit code 0 when nothing is found; exit code 3 on error.\n"
                 "  --rust-sdk-smoke-test\n"

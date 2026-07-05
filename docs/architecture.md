@@ -40,11 +40,15 @@ Storage layer (v0.4):
                                    InsecureFallbackSecretStore otherwise
                                    with a visible warning)
   CacheStore (SQLite)            – rooms + last N events + members
-                                   at ${XDG_DATA_HOME}/matrix-client/<userId>/
+                                   at ${XDG_DATA_HOME}/MatrixClient/
+                                   matrix-client/<safeUserId>/
   Rust SDK store                 – SDK state/crypto database at
-                                   ${XDG_DATA_HOME}/matrix-client/<safeUserId>/
+                                   ${XDG_DATA_HOME}/MatrixClient/
+                                   matrix-client/<safeUserId>/
                                    matrix-rust-sdk-store/ when the Rust
-                                   backend is used
+                                   backend is used. Persistent smoke mode
+                                   also writes a smoke-only MatrixSession
+                                   sidecar next to this store.
 
 Cross-cutting:
   Storage Layer (QSettings + SecretStore + SQLite)
@@ -187,9 +191,10 @@ events into the existing `MatrixClient` signals. QML and the models do
 not know whether the event came from HTTP or Rust.
 
 Current Rust scope is login, restore, joined-room sync, room-list
-events, basic text timeline events, and unencrypted plain text send.
-Encrypted sends stay blocked and `CryptoManager::supportsE2ee()`
-stays false until encrypted read/send work end to end.
+events, basic text timeline events, unencrypted plain text send, and a
+smoke-only encrypted-send probe. Interactive encrypted sends stay
+blocked and `CryptoManager::supportsE2ee()` stays false until
+encrypted receive and send work end to end.
 
 ### CryptoManager as capability surface
 
