@@ -1,4 +1,4 @@
-# Matrix feature status (v0.4.7)
+# Matrix feature status (v0.4.8)
 
 Honest per-feature status per backend. Ground truth for anything the UI
 claims about support. Do not check anything as "done" here that is not

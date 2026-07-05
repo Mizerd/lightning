@@ -1,6 +1,6 @@
-# Current state (v0.4.7)
+# Current state (v0.4.8)
 
-Last updated: 2026-07-05 (v0.4.7 pass).
+Last updated: 2026-07-05 (v0.4.8 pass).
 
 This is the "where the repo actually is" doc. Treat it as ground truth
 for a fresh LLM continuation session — read this before
@@ -22,7 +22,8 @@ code.
   - `da9f331` v0.4.4: real HTTP m.thread relation send + parse
   - `dbb28e0` v0.4.5: HTTP login transition fix + Lightning branding + Space/thread cache persistence
   - `31cbc22` v0.4.6: HTTP /sync bring-up polish + initialSyncDone capability + docs sweep
-  - HEAD after this pass: `v0.4.7: HTTP restore recovers from stale Space-only cache`
+  - `50d4a6e` v0.4.7: HTTP restore recovers from stale Space-only cache
+  - HEAD after this pass: `v0.4.8: cache NOT NULL repair, delegate anchor warning, Connected status`
 
 ## Layered architecture (unchanged from v0.4)
 
@@ -55,6 +56,24 @@ Crypto:      src/crypto/CryptoManager (capability surface only, no crypto)
   for build-system compatibility (Q_APPLICATION_NAME too — keeps the
   QSettings scope stable across the rename). The login-screen
   sub-heading is backend-aware (v0.4.5).
+- **Stabilisation (v0.4.8)**: three targeted fixes on top of v0.4.7:
+  - **CacheStore NOT NULL repair**: previous versions bound null
+    `QString` values to `rooms.child_room_ids` / `events.thread_root_id`
+    (NOT NULL columns added in v0.4.5), which Qt's QSQLITE driver
+    writes as SQL `NULL` and triggered `NOT NULL constraint failed`
+    on every save. Fix: `textNonNull()` helper in
+    `src/storage/CacheStore.cpp` coerces empty/null strings to a
+    non-null empty QString at bind time, plus an idempotent repair
+    (`UPDATE … SET col = '' WHERE col IS NULL`) on schema-ensure.
+    No cache wipe.
+  - **QML Column anchor warning**: `qml/MessageDelegate.qml`
+    replaced an inner `MouseArea { anchors.fill: parent }` (invalid
+    as a direct Column child) with a `HoverHandler`. Warning gone;
+    hover-off behaviour unchanged.
+  - **Status text `Connected`**: `AppController` reports
+    `Connected` once the initial `/sync` response has been parsed
+    and long-poll is the steady state, instead of continuing to
+    say `Syncing`. Loading catch-up still says `Loading rooms…`.
 - **HTTP `/sync` bring-up (v0.4.7)**: the initial `/sync` (no
   `since` token) uses `timeout=0&full_state=true`; the server
   returns current state immediately instead of long-polling.

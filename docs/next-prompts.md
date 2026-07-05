@@ -32,15 +32,21 @@ with 0 rooms" bug is fixed. Full docs sweep landed.
 **As of v0.4.7, HTTP session restore recovers from stale visible-room
 cache state**: fresh login clears persisted `syncToken`, initial sync
 uses `timeout=0&full_state=true`, and restore discards a stored
-`syncToken` if the SQLite cache has no visible non-Space rooms. This
-fixes the observed Space-only cache state where the cache had the
-Space and child ids but no joined child room rows, so incremental sync
-could leave the room list empty forever.
+`syncToken` if the SQLite cache has no visible non-Space rooms.
 
-The next safest single-feature step is Prompt 2 (multi-account
-foundation). Everything above the multi-account bar (SSO,
-matrix-sdk, authenticated media) is materially bigger and depends
-on account scoping being clean.
+**As of v0.4.8, the v0.4.x stabilisation window is closed**:
+`CacheStore` no longer emits `NOT NULL constraint failed`
+(coerce-to-empty on bind + idempotent NULL repair on schema-ensure),
+the `MessageDelegate` no longer prints `QML Column: Cannot specify
+… anchors` warnings on every message, and the connection status
+says `Connected` once initial sync is done + long-poll is the
+steady state.
+
+**Next: v0.5 multi-account foundation.** Prompt 2 below is the
+recommended starting point — it's bounded, keeps single-active
+behaviour, and unblocks SSO / matrix-sdk / authenticated media that
+depend on clean account scoping. Do NOT start Prompt 3+ before
+Prompt 2 lands.
 
 ---
 

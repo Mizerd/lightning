@@ -101,8 +101,9 @@ nix develop -c ./build/matrix-client        # equivalent to --backend=http
 
 1. **First-time login**: enter a homeserver URL (e.g.
    `https://matrix.org`), your MXID localpart or full MXID, and your
-   password. Watch the status bar: "Not connected" → "Connecting…" →
-   "Syncing".
+   password. Watch the status bar:
+   `Not connected` → `Connecting…` → `Loading rooms…` → `Connected`
+   (v0.4.8).
 2. **Session restore**: quit and relaunch. You should skip past the
    login screen and land on the room list. Check the Settings screen:
    "Secret backend: libsecret (Secret Service)" and the green banner.
@@ -137,6 +138,27 @@ nix develop -c ./build/matrix-client        # equivalent to --backend=http
 9. **Logout**. Toolbar → Sign out. Settings entry is cleared; the
    SecretStore entry is deleted (verify by re-launching; you should
    be back at the login screen).
+
+### Reproducible test account
+
+The project maintainer keeps a **disposable** test account on
+`https://matrix.smetonis.net` with MXID `@test:matrix.smetonis.net`.
+It's pre-seeded with two joined rooms — one inside a private Space,
+one outside — and messages already sent by the account. Use it to
+exercise Space filtering, the "Other rooms" fallback, and session
+restore end to end.
+
+The password is **not** in this repo, in scripts, in shell history,
+or in any commit — treat it as user-supplied secrets. Enter it into
+the login field interactively, log out at the end of the session,
+and rotate it if you suspect exposure. `matrix.http:` diagnostic
+logs never print tokens or passwords.
+
+Rooms expected in the room list after login as `@test`:
+
+- "All rooms" chip shows **2** rooms.
+- The private-Space chip shows **1** room.
+- "Other rooms" shows the remaining **1** room.
 
 ## Manual test with the mock backend
 
@@ -234,6 +256,36 @@ flags are rejected in the pre-flight parser (exit 2) with a hint,
 before `QGuiApplication` is constructed. This keeps a typo from
 being interpreted by Qt's own parser and potentially aborting on a
 platform-plugin issue instead of surfacing the CLI error.
+
+### `matrix.cache: NOT NULL constraint failed: …` after login
+
+Fixed in v0.4.8. Root cause: Qt's QSQLITE driver binds a default-
+constructed / null `QString` as SQL `NULL`. Two columns added in
+v0.4.5 — `rooms.child_room_ids` and `events.thread_root_id` — carry
+`NOT NULL` constraints, so any save for a non-thread event or a
+non-Space room fired the constraint on every write.
+
+Fixes shipped:
+
+- `textNonNull(const QString&)` helper in `src/storage/CacheStore.cpp`
+  coerces empty / null strings to a non-null empty `QString` before
+  binding.
+- Idempotent repair on schema-ensure: `UPDATE rooms SET
+  child_room_ids='' WHERE child_room_ids IS NULL` (same for
+  `events.thread_root_id`). No user data loss; no cache wipe.
+
+If the constraint errors somehow persist after this pass, delete
+`${XDG_DATA_HOME}/matrix-client/<safeUserId>/cache.sqlite` and let
+the next `/sync` refill the cache from scratch.
+
+### `QML Column: Cannot specify top, bottom, verticalCenter, fill or centerIn anchors for items inside Column.`
+
+Fixed in v0.4.8. `qml/MessageDelegate.qml` used to place a
+`MouseArea { anchors.fill: parent }` as a direct child of a
+`Column`. Column controls its children's positions and forbids
+those five anchor names — QML logged the warning on every message.
+The catcher is now a `HoverHandler` (`actionsHover`), which works
+inside `Column` without needing explicit geometry.
 
 ### HTTP login succeeds but the room list shows "Syncing" forever with 0 rooms
 

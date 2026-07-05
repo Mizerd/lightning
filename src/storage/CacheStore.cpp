@@ -132,6 +132,22 @@ bool CacheStore::isOpen() const
     return database().isOpen();
 }
 
+// Qt's QSQLITE driver binds a null QString as SQL NULL, even when the
+// QString is empty-but-non-null on some Qt patch versions. Two of our
+// columns — rooms.child_room_ids and events.thread_root_id — carry
+// NOT NULL constraints from v0.4.5, so binding a null QString for an
+// event that has no thread root violated them with:
+//     "NOT NULL constraint failed: events.thread_root_id"
+// The helper below guarantees a non-null empty string reaches the
+// driver, which the driver then writes as SQL '' — satisfying NOT NULL.
+static QVariant textNonNull(const QString &s)
+{
+    // QLatin1String("") is a length-0, non-null underlying storage.
+    // Wrapping in QVariant preserves the string type; if `s` is
+    // empty-or-null we substitute the safe non-null empty literal.
+    return QVariant(s.isEmpty() ? QString(QLatin1String("")) : s);
+}
+
 // True if the given column already exists on the given SQLite table.
 static bool columnExists(QSqlDatabase &db,
                          const QString &table,
@@ -236,6 +252,30 @@ bool CacheStore::ensureSchema()
             qCInfo(lcCache) << "migrated" << a.table << "->" << a.col;
         }
     }
+
+    // v0.4.8: Repair any historical NULLs in NOT NULL columns.
+    //
+    // SQLite ALTER TABLE ADD COLUMN with `NOT NULL DEFAULT ''` does the
+    // right thing for existing rows — but earlier v0.4.5/6/7 code paths
+    // could have subsequently updated those rows with a null-bound
+    // QString (see textNonNull() above), which is what produced the
+    // "NOT NULL constraint failed" spam. The repair is a no-op on
+    // clean databases and idempotent.
+    struct Repair { const char *table; const char *column; };
+    static const Repair repairs[] = {
+        { "rooms",  "child_room_ids" },
+        { "events", "thread_root_id" },
+    };
+    for (const auto &r : repairs) {
+        QSqlQuery fix(db);
+        fix.exec(QStringLiteral("UPDATE %1 SET %2 = '' WHERE %2 IS NULL")
+                     .arg(QLatin1String(r.table), QLatin1String(r.column)));
+        if (fix.numRowsAffected() > 0) {
+            qCInfo(lcCache) << "repaired NULL rows in"
+                            << r.table << "." << r.column
+                            << "count=" << fix.numRowsAffected();
+        }
+    }
     return true;
 }
 
@@ -316,7 +356,10 @@ void CacheStore::saveRoom(const RoomInfo &r)
     q.bindValue(QStringLiteral(":prev"),      r.lastMessagePreview);
     q.bindValue(QStringLiteral(":prevBatch"), r.prevBatchToken);
     q.bindValue(QStringLiteral(":space"),     r.isSpace ? 1 : 0);
-    q.bindValue(QStringLiteral(":children"),  r.childRoomIds.join(QLatin1Char(',')));
+    // v0.4.8: coerce to non-null so the QSQLITE driver writes SQL '' for
+    // rooms that have no children instead of NULL (see textNonNull()).
+    q.bindValue(QStringLiteral(":children"),
+                textNonNull(r.childRoomIds.join(QLatin1Char(','))));
     if (!q.exec())
         qCWarning(lcCache) << "saveRoom" << q.lastError().text();
 }
@@ -445,7 +488,9 @@ void CacheStore::updateEvent(const TimelineEvent &e)
     q.bindValue(QStringLiteral(":h"),       e.mediaHeight);
     q.bindValue(QStringLiteral(":thumb"),   e.mediaThumbnailMxcUrl);
     q.bindValue(QStringLiteral(":react"),   encodeReactions(e.reactions));
-    q.bindValue(QStringLiteral(":thread"),  e.threadRootId);
+    // v0.4.8: coerce to non-null (empty QString would be bound as SQL
+    // NULL by Qt's SQLITE driver, violating our NOT NULL constraint).
+    q.bindValue(QStringLiteral(":thread"),  textNonNull(e.threadRootId));
     if (!q.exec())
         qCWarning(lcCache) << "updateEvent" << q.lastError().text();
 }

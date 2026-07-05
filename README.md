@@ -12,8 +12,29 @@ across the rename. The product name is **Lightning**.
 
 ## Status
 
-**v0.4.7** — HTTP `/sync` bring-up polish, backend-aware loading UX,
-sync diagnostics, docs sweep.
+**v0.4.8** — Cache constraint repair, timeline-delegate anchor
+warning fixed, `Connected` status text, docs sweep.
+
+**New in v0.4.8:**
+
+- `CacheStore` no longer emits `NOT NULL constraint failed:
+  events.thread_root_id` / `rooms.child_room_ids`. Root cause: Qt's
+  QSQLITE driver binds a default-constructed `QString` as SQL NULL,
+  which violated the v0.4.5 NOT NULL columns. Fix: coerce to a
+  non-null empty QString via a `textNonNull()` helper at bind time,
+  plus an idempotent `UPDATE … SET col = '' WHERE col IS NULL`
+  repair pass on schema-ensure to clean up any rows historical
+  code paths may have left NULL. No cache wipe.
+- `qml/MessageDelegate.qml` no longer prints
+  `QML Column: Cannot specify … anchors for items inside Column`
+  on every message. The inner `MouseArea { anchors.fill: parent }`
+  used to catch hover-off transitions on the actions column is
+  replaced with a `HoverHandler`, which works inside Column without
+  needing explicit geometry.
+- Connection status flips to `Connected` (not `Syncing`) once the
+  initial sync response has been parsed and the long-poll is the
+  normal steady-state. `Loading rooms…` still shows during the
+  initial catch-up.
 
 **New in v0.4.7:**
 
@@ -35,7 +56,8 @@ sync diagnostics, docs sweep.
   (loading / no joined rooms / no rooms in selected Space / not signed
   in).
 - Connection status label reflects the same distinction:
-  `Connecting…` → `Loading rooms…` → `Syncing` → `Idle`.
+  `Connecting…` → `Loading rooms…` → `Connected` (v0.4.8; was
+  `Syncing`) → `Idle`.
 - Non-secret sync diagnostics: `matrix.http:` log lines announce sync
   requests (initial vs. continuation), HTTP status, response body size,
   and joined / invited / left room counts. Access tokens are never
@@ -201,6 +223,14 @@ for the full list. Common ones:
 - **"Syncing" forever with 0 rooms** — fixed in v0.4.7. Look for
   `matrix.http: sync request:` and `matrix.http: initial sync
   complete; rooms in memory = N` in the terminal.
+- **`matrix.cache: NOT NULL constraint failed …`** — fixed in v0.4.8.
+  Existing cache DBs are repaired in place on next open. If the
+  errors still appear, delete
+  `${XDG_DATA_HOME}/matrix-client/<safeUserId>/cache.sqlite` and let
+  the next `/sync` refill it.
+- **`QML Column: Cannot specify … anchors for items inside Column`**
+  spam on every message — fixed in v0.4.8. The `MessageDelegate`
+  hover-catcher is now a `HoverHandler`, which is Column-safe.
 - **`--backend=rust` doesn't work in the default build** — Rust
   scaffold is opt-in. Configure with
   `-DENABLE_RUST_SDK_BACKEND=ON` and rebuild into `build-rust/`.

@@ -179,19 +179,23 @@ Item {
                 }
             }
 
-            // Hover action buttons
+            // Hover action buttons.
+            //
+            // v0.4.8: replaced an inner `MouseArea { anchors.fill: parent }`
+            // with a HoverHandler. Column does not allow anchors on its
+            // direct children (`anchors.fill/top/bottom/verticalCenter/
+            // centerIn`) and QML logged that warning on every message.
+            // HoverHandler hovers over its containing Item without needing
+            // explicit geometry and works fine inside a Column.
             Column {
                 spacing: 2
                 visible: bubbleHover.containsMouse
-                         || actionsHover.containsMouse
+                         || actionsHover.hovered
                          || moreMenu.opened
 
-                MouseArea {
+                HoverHandler {
                     id: actionsHover
-                    anchors.fill: parent
-                    hoverEnabled: true
-                    acceptedButtons: Qt.NoButton
-                    propagateComposedEvents: true
+                    acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
                 }
 
                 Row {

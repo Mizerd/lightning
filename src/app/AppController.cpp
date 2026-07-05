@@ -112,11 +112,18 @@ AppController::AppController(Backend backend, QObject *parent)
             setConnectionStatus(tr("Connecting…"));
             break;
         case MatrixClient::Syncing:
-            // v0.4.6: distinguish the initial-sync wait from the steady
-            // long-poll so a user with no rooms yet loaded doesn't see
-            // "Syncing" forever and assume the app is frozen.
+            // v0.4.6: distinguish the initial-sync wait from steady-state
+            // long-poll so a user with no rooms yet loaded doesn't stare
+            // at "Syncing" and assume the app is frozen.
+            //
+            // v0.4.8: after initial sync completes, the long-poll is the
+            // normal healthy state; label it "Connected" instead of
+            // "Syncing" so users don't think Lightning is still catching
+            // up when it is just waiting for new events. Real ongoing
+            // work (initial catch-up, /messages backfill) has its own
+            // labels ("Loading rooms…", "Refreshing…").
             setConnectionStatus(m_client->initialSyncDone()
-                ? tr("Syncing")
+                ? tr("Connected")
                 : tr("Loading rooms…"));
             break;
         case MatrixClient::Error:
