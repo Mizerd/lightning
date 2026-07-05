@@ -14,34 +14,58 @@ platform plugin crash was fixed in `flake.nix` / `shell.nix` (see the
 `Troubleshooting` section in `docs/build-and-test.md`). Feature work
 can resume with Prompt 1 below.
 
+**As of v0.4.4, real HTTP `m.thread` send + parse are live** — the
+previous "Prompt 1 — Real m.thread relation for HTTP sends" has
+landed. The next safest single-file step is Prompt 1 below
+(CacheStore persistence for Space + thread metadata), which closes
+the "briefly hidden on relaunch" limitation for both.
+
 ---
 
-## Prompt 1 — Real `m.thread` relation for HTTP sends
+## Prompt 1 — Persist Space + thread metadata in CacheStore
 
-`MessageComposer::send()` routes thread replies to
-`MatrixClient::sendThreadReply`, which the interface defaults to
-`sendReply`. HTTP still emits `m.in_reply_to`. Task:
+Two related quality-of-life follow-ups, both scoped to
+`src/storage/CacheStore.{h,cpp}` — no interface change, no QML
+change, no backend change.
 
-1. Override `sendThreadReply` in `CppHttpMatrixClient`.
-2. Content should be `msgtype: m.text`, `body`, plus:
-   ```json
-   "m.relates_to": {
-     "rel_type": "m.thread",
-     "event_id": "<threadRootEventId>",
-     "is_falling_back": true,
-     "m.in_reply_to": { "event_id": "<lastEventInThread>" }
-   }
-   ```
-   Use the newest event in the local timeline whose `threadRootId`
-   matches, else the root itself, as `<lastEventInThread>`.
-3. Parse incoming events with `m.relates_to.rel_type == "m.thread"`
-   and set `TimelineEvent::threadRootId`. Preserve the existing reply
-   parsing (`m.in_reply_to`) — a thread reply *also* carries an in-reply
-   for backwards compatibility; the presence of `rel_type == "m.thread"`
-   is what makes it a thread event.
-4. Do not change the interface.
+On relaunch today, `CppHttpMatrixClient::loadCachedState` rebuilds
+`m_rooms` and `m_timelines` from SQLite before the first `/sync`
+completes. The cache schema pre-dates v0.4.2 Spaces and v0.4.4
+threads, so:
 
-Verify against a homeserver that supports threads (matrix.org does).
+- `RoomInfo::isSpace` and `RoomInfo::childRoomIds` are not persisted
+  → the Space chip strip is briefly hidden after each relaunch.
+- `TimelineEvent::threadRootId` is not persisted → threaded events
+  reload as plain messages; the "in thread" chip only reappears
+  after the next `/sync` reaches those events.
+
+Task:
+
+1. In `src/storage/CacheStore.{h,cpp}`, extend the schema:
+   - `rooms` gets `is_space INTEGER NOT NULL DEFAULT 0` and
+     `child_room_ids TEXT NOT NULL DEFAULT ''` (comma-separated).
+   - `events` gets `thread_root_id TEXT NOT NULL DEFAULT ''`.
+   - Bump the schema version if the file has one; else do
+     `ALTER TABLE … ADD COLUMN` with `IF NOT EXISTS` probing so
+     existing databases upgrade in place.
+2. `saveRoom` / `loadRooms` write and read the new fields.
+3. `appendEvent` / `updateEvent` / `loadEvents` write and read
+   `thread_root_id`.
+4. No new signals; existing `roomsChanged` / `timelineReset` fire
+   after the cache warms up, which will trigger `SpaceManager` and
+   `TimelineModel` to re-render with the persisted fields.
+
+Verify by:
+
+- Logging in against a real homeserver where you're in a Space and
+  a threaded room.
+- Quitting and relaunching.
+- Chip strip should render *before* the first `/sync` reply arrives.
+- Thread chip on the root event should render immediately for
+  events already in the cache.
+
+Do NOT touch the interface. Do NOT touch QML. Do NOT change
+`MatrixClient` or the models.
 
 ---
 
@@ -149,33 +173,6 @@ Legacy `/_matrix/media/v3/*` still works but is deprecated. Task:
    (non-secret data).
 3. Verify with a homeserver that has authenticated media enabled
    (Synapse ≥ 1.100 with the `enable_authenticated_media` config).
-
----
-
-## Prompt 6 — Persist Space fields in CacheStore
-
-Small quality-of-life follow-up on v0.4.2. Right now, on relaunch,
-rooms are restored from `${XDG_DATA_HOME}/matrix-client/<userId>/cache.sqlite`
-without their Space flags (`isSpace`, `childRoomIds`). The Space chip
-strip is therefore hidden for a few seconds until the first `/sync`
-completes.
-
-Task:
-
-1. In `src/storage/CacheStore.{h,cpp}`, extend the `rooms` schema:
-   - Add columns `is_space INTEGER NOT NULL DEFAULT 0` and
-     `child_room_ids TEXT NOT NULL DEFAULT ''` (comma-separated).
-   - Bump the schema version if the file has one; else add a soft
-     migration (ALTER TABLE ADD COLUMN IF NOT EXISTS via probing).
-2. `saveRoom(RoomInfo &r)` writes both fields; `loadRooms()` restores
-   them.
-3. No interface change; only CacheStore changes. Existing
-   `SpaceManager::rebuild` picks up the values on the first `rooms()`
-   call after restore.
-
-Verify by logging into a homeserver where you are in a Space, quitting
-the app, and relaunching: the chip strip appears *before* the sync
-loop finishes.
 
 ---
 

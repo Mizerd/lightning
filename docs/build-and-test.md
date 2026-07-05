@@ -123,7 +123,18 @@ nix develop -c ./build/matrix-client        # equivalent to --backend=http
    that a Space references are silently ignored. **Known limitation**:
    on relaunch the chip strip is briefly hidden until `/sync` completes
    (the SQLite cache does not yet persist Space fields).
-8. **Logout**. Toolbar → Sign out. Settings entry is cleared; the
+8. **Threads (v0.4.4)**. Hover any message → `…` menu → "Reply in
+   thread". The composer banner shows "Replying in thread: …". Send;
+   your echo appears immediately marked "· in thread" and, on
+   round-trip, the root's chip flips to "· 1 reply in thread". A
+   second client (Element / matrix-commander / another Lightning
+   instance) should see the message as a proper thread reply — the
+   payload carries `m.relates_to.rel_type == "m.thread"` and the
+   spec-compliant `is_falling_back` + `m.in_reply_to` fallback so
+   non-thread-aware clients still see a reply chain. Server-side
+   aggregation counts (`unsigned["m.relations"]["m.thread"]`) are
+   not consumed yet — v0.4.4 counts by scanning the loaded timeline.
+9. **Logout**. Toolbar → Sign out. Settings entry is cleared; the
    SecretStore entry is deleted (verify by re-launching; you should
    be back at the login screen).
 

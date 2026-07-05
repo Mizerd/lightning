@@ -717,9 +717,27 @@ void CppHttpMatrixClient::processTimelineEvent(const QString &roomId,
             return; // unsupported msgtype
         }
 
-        // Reply metadata (via m.in_reply_to).
+        // v0.4.4: thread relation. When rel_type == "m.thread" the
+        // referenced event_id is the thread root. This is set even when
+        // the message *also* carries m.in_reply_to (which it does when
+        // is_falling_back is true — that's how non-thread-aware clients
+        // still see it as a reply). Populate both fields; QML gives the
+        // "in thread" badge priority via TimelineModel.
+        if (relType == QLatin1String("m.thread")) {
+            te.threadRootId = relatesTo.value(QStringLiteral("event_id")).toString();
+        }
+
+        // Reply metadata (via m.in_reply_to). Populated for both plain
+        // replies and thread fallbacks.
         const auto inReply = relatesTo.value(QStringLiteral("m.in_reply_to")).toObject();
         te.replyToEventId = inReply.value(QStringLiteral("event_id")).toString();
+        // If this is a thread reply, hide the plain-reply preview strip in
+        // QML — the thread badge already tells the user the context. The
+        // spec-compliant fallback reply id is still available in
+        // replyToEventId for anything that needs it.
+        if (!te.threadRootId.isEmpty()) {
+            te.replyToEventId.clear();
+        }
         enrichReplyPreview(te);
     }
 
@@ -1080,6 +1098,77 @@ void CppHttpMatrixClient::sendReply(const QString &roomId,
     };
     putSendJson(roomId, QStringLiteral("m.room.message"),
                 content, echo.eventId, QStringLiteral("send-reply"));
+}
+
+void CppHttpMatrixClient::sendThreadReply(const QString &roomId,
+                                           const QString &threadRootEventId,
+                                           const QString &body)
+{
+    if (!m_loggedIn) { Q_EMIT errorOccurred(tr("Not signed in.")); return; }
+    if (!m_rooms.contains(roomId)) {
+        Q_EMIT errorOccurred(tr("Unknown room: %1").arg(roomId)); return;
+    }
+    if (isRoomEncrypted(roomId)) {
+        Q_EMIT errorOccurred(tr(
+            "Cannot send to encrypted rooms yet: E2EE backend is not implemented."));
+        return;
+    }
+    if (threadRootEventId.isEmpty()) {
+        Q_EMIT errorOccurred(tr("Cannot send thread reply: no thread root."));
+        return;
+    }
+
+    // v0.4.4: real thread relation (spec: m.thread rel_type).
+    // Content carries m.relates_to =
+    //   { rel_type: "m.thread",
+    //     event_id: <root>,
+    //     is_falling_back: true,
+    //     m.in_reply_to: { event_id: <latest-in-thread-or-root> } }
+    //
+    // is_falling_back + m.in_reply_to make non-thread-aware clients render
+    // the reply as a normal in-reply-to chain. If we already have a local
+    // event whose threadRootId matches, use the newest server-confirmed one
+    // as the fallback target; otherwise fall back to the root itself.
+    QString fallbackReplyTarget = threadRootEventId;
+    {
+        const auto tlIt = m_timelines.constFind(roomId);
+        if (tlIt != m_timelines.constEnd()) {
+            for (auto it = tlIt->crbegin(); it != tlIt->crend(); ++it) {
+                if (it->threadRootId == threadRootEventId
+                    && !it->eventId.startsWith(QLatin1String("local:"))) {
+                    fallbackReplyTarget = it->eventId;
+                    break;
+                }
+            }
+        }
+    }
+
+    TimelineEvent echo = buildOwnEcho(roomId, body, TimelineEvent::TextMessage);
+    echo.eventId       = QLatin1String("local:") + nextTxnId();
+    echo.threadRootId  = threadRootEventId;
+    // Do NOT set replyToEventId on the echo — the "in thread" chip in QML
+    // is what the user asked for; adding a reply preview strip on top of
+    // that duplicates the UI. Once the real event round-trips through
+    // /sync we still parse the fallback m.in_reply_to for spec-compliance
+    // with non-thread-aware clients, but the local echo stays clean.
+    m_timelines[roomId].append(echo);
+    if (m_cache) m_cache->appendEvent(echo);
+    Q_EMIT eventAppended(roomId, echo);
+
+    const QJsonObject relates{
+        { QStringLiteral("rel_type"),        QStringLiteral("m.thread") },
+        { QStringLiteral("event_id"),        threadRootEventId },
+        { QStringLiteral("is_falling_back"), true },
+        { QStringLiteral("m.in_reply_to"),
+          QJsonObject{ { QStringLiteral("event_id"), fallbackReplyTarget } } },
+    };
+    const QJsonObject content{
+        { QStringLiteral("msgtype"),      QStringLiteral("m.text") },
+        { QStringLiteral("body"),         body },
+        { QStringLiteral("m.relates_to"), relates },
+    };
+    putSendJson(roomId, QStringLiteral("m.room.message"),
+                content, echo.eventId, QStringLiteral("send-thread"));
 }
 
 void CppHttpMatrixClient::editMessage(const QString &roomId,
@@ -1536,8 +1625,18 @@ void CppHttpMatrixClient::loadOlderMessages(const QString &roomId)
                 } else {
                     continue;
                 }
+                // v0.4.4: thread relation on backfilled events.
+                if (rel.value(QStringLiteral("rel_type")).toString()
+                        == QLatin1String("m.thread")) {
+                    te.threadRootId = rel.value(QStringLiteral("event_id")).toString();
+                }
                 const auto inReply = rel.value(QStringLiteral("m.in_reply_to")).toObject();
                 te.replyToEventId = inReply.value(QStringLiteral("event_id")).toString();
+                if (!te.threadRootId.isEmpty()) {
+                    // Same UX rule as /sync: thread events use the thread
+                    // badge; the plain-reply preview strip would be noise.
+                    te.replyToEventId.clear();
+                }
             }
             existingIds.insert(te.eventId);
             prepended.append(te);

@@ -48,7 +48,7 @@ All are fire-and-forget. On success:
 - `redactEvent`: emit `eventRedacted` after the server acks.
 - `toggleReaction`: emit `reactionsChanged`.
 
-## Thread replies (v0.4.1)
+## Thread replies (v0.4.1 / v0.4.4)
 
 `MatrixClient::sendThreadReply` is a *non-pure* virtual:
 
@@ -63,14 +63,30 @@ virtual void sendThreadReply(const QString &roomId,
 
 - **Mock** overrides to preserve `TimelineEvent::threadRootId` so
   `ThreadManager` and QML can see the thread grouping.
-- **HTTP** currently uses the default. Real `m.thread` relation content
-  (rel_type + is_falling_back) is a v0.5 follow-up documented in
-  `docs/next-prompts.md`.
+- **HTTP (v0.4.4)** overrides with a real `m.thread` relation:
+  ```json
+  { "m.relates_to": {
+      "rel_type": "m.thread",
+      "event_id": "$root",
+      "is_falling_back": true,
+      "m.in_reply_to": { "event_id": "$latest-or-root" }
+  } }
+  ```
+  Local echo carries `threadRootId` (not `replyToEventId`) so QML
+  renders the "in thread" chip immediately. The interface's txnId
+  dedup + `eventReplaced` path handles the /sync round-trip
+  unchanged. `processTimelineEvent` and the `/messages` pagination
+  path both set `TimelineEvent::threadRootId` from
+  `rel_type == "m.thread"`; when a thread event also carries a
+  fallback `m.in_reply_to`, `replyToEventId` is cleared to avoid
+  double-decoration in QML.
 - **Rust** currently refuses with `errorOccurred` — same as every other
   send.
 
-If you add real `m.thread` to `CppHttpMatrixClient`, override this
-method; do not touch `sendReply`.
+If you add server-side thread aggregation (unsigned["m.relations"]
+["m.thread"] latest_event / count), do it inside
+`CppHttpMatrixClient::processTimelineEvent` — no interface change
+needed. Do not touch `sendReply` for thread work.
 
 ## Signal cheat sheet
 

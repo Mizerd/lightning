@@ -1,6 +1,6 @@
-# Current state (v0.4.3)
+# Current state (v0.4.4)
 
-Last updated: 2026-07-05 (v0.4.3 pass).
+Last updated: 2026-07-05 (v0.4.4 pass).
 
 This is the "where the repo actually is" doc. Treat it as ground truth
 for a fresh LLM continuation session — read this before
@@ -18,7 +18,8 @@ code.
   - `d251948` v0.4: SecretStore + backend CLI cleanup + Rust SDK backend scaffold
   - `13adf73` v0.4.1: Spaces + Threads foundations, SSO/OIDC flags, continuation docs
   - `1a5adba` v0.4.2: HTTP Spaces parsing + no-display preflight hardening
-  - HEAD after this pass: `v0.4.3: Nix Qt platform runtime fix + --http/--rust CLI hint`
+  - `2230bbe` v0.4.3: Nix Qt platform runtime fix + --http/--rust CLI hint
+  - HEAD after this pass: `v0.4.4: real HTTP m.thread relation send + parse`
 
 ## Layered architecture (unchanged from v0.4)
 
@@ -103,13 +104,42 @@ Crypto:      src/crypto/CryptoManager (capability surface only, no crypto)
   Known limitation: `CacheStore` does not persist `isSpace` /
   `childRoomIds` yet, so on relaunch the chip strip is hidden until
   the first `/sync` completes.
-- **Threads (v0.4.1)**: `MessageComposer` gains thread-reply mode via
-  `beginThreadReply(rootId, preview)`. `TimelineModel` exposes
-  `threadRootId`, `isThreadRoot`, `threadReplyCount` roles. Mock
-  backend seeds a threaded conversation. `MatrixClient::sendThreadReply`
-  is a virtual with a default that falls back to `sendReply` — the
-  Mock backend overrides to preserve `threadRootId`, HTTP still uses
-  the reply-relation default.
+- **Threads (v0.4.1 + v0.4.4)**: `MessageComposer` gains thread-reply
+  mode via `beginThreadReply(rootId, preview)`. `TimelineModel`
+  exposes `threadRootId`, `isThreadRoot`, `threadReplyCount` roles.
+  Mock backend seeds a threaded conversation.
+  `MatrixClient::sendThreadReply` is a virtual with a default that
+  falls back to `sendReply`. **v0.4.4**: `CppHttpMatrixClient` now
+  overrides `sendThreadReply` and emits a real `m.thread` relation:
+
+  ```json
+  { "m.relates_to": {
+      "rel_type": "m.thread",
+      "event_id": "$root",
+      "is_falling_back": true,
+      "m.in_reply_to": { "event_id": "$latest-or-root" }
+  } }
+  ```
+
+  `processTimelineEvent` (live `/sync`) and the pagination path
+  (`/messages?dir=b`) both recognise `rel_type == "m.thread"` and set
+  `TimelineEvent::threadRootId`. When the same event carries an
+  `m.in_reply_to` (fallback for non-thread-aware clients), the
+  `replyToEventId` field is intentionally cleared — QML would
+  otherwise render both the "in thread" chip AND the reply preview
+  strip, which is noise. Local echo is set with `threadRootId` so the
+  chip shows immediately; the existing txnId dedup + `eventReplaced`
+  path already reconciles it with the server-confirmed event.
+
+  Known limitations documented in `docs/matrix-feature-status.md`:
+  * `unsigned["m.relations"]["m.thread"]` server aggregation (latest
+    event, reply count) is not read yet. Reply counts are computed
+    locally by scanning the loaded timeline (v0.4.1 behaviour).
+  * Thread replies still appear inline in the main timeline (marked
+    "in thread") — a dedicated thread side-panel is v0.5+.
+  * `CacheStore` does not yet persist `threadRootId` — after restart
+    thread events reload as plain messages until the first `/sync`
+    reaches them.
 - **SSO/OIDC capability flags (v0.4.1)**: `AuthManager` exposes
   `supportsPasswordLogin`, `supportsSsoLogin` (false), `supportsOidcLogin`
   (false), plus placeholder `beginSsoLogin` / `beginOidcLogin` that

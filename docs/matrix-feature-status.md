@@ -1,4 +1,4 @@
-# Matrix feature status (v0.4.2)
+# Matrix feature status (v0.4.4)
 
 Honest per-feature status per backend. Ground truth for anything the UI
 claims about support. Do not check anything as "done" here that is not
@@ -33,9 +33,12 @@ Legend:
 | **Spaces — `m.space.child` hierarchy** | ✅ seeded | ✅ (v0.4.2) | ❌ |
 | **Spaces — filter room list by active Space** | ✅ (chip strip) | ✅ (v0.4.2) | ❌ |
 | **Spaces — persistence across restart (before /sync)** | n/a | 🟡 rooms restore but Space flags do not (see notes) | ❌ |
-| **Threads — detect `m.thread` relation** | ✅ seeded | 🟡 receives replies but does not tag them as thread relations | ❌ |
-| **Threads — compose thread reply** | ✅ (Mock preserves grouping) | 🟡 sent as normal reply (fallback) | ❌ refuses |
-| **Threads — indicator on root** | ✅ | 🟡 only visible after Mock-seeded threads | ❌ |
+| **Threads — detect `m.thread` relation** | ✅ seeded | ✅ (v0.4.4) | ❌ |
+| **Threads — compose thread reply** | ✅ (Mock preserves grouping) | ✅ (v0.4.4, real m.thread relation) | ❌ refuses |
+| **Threads — indicator on root** | ✅ | ✅ (v0.4.4, locally computed count) | ❌ |
+| **Threads — server-side aggregation (`unsigned["m.relations"]["m.thread"]`)** | n/a | ❌ (v0.5) | ❌ |
+| **Threads — dedicated thread panel / per-thread timeline model** | ❌ | ❌ (v0.5+) | ❌ |
+| **Threads — persistence across restart (before /sync)** | n/a | 🟡 threadRootId not in CacheStore yet | ❌ |
 | Encrypted room read | ❌ placeholder | ❌ placeholder | ❌ |
 | Encrypted send | ❌ blocked | ❌ blocked | ❌ blocked |
 | Device verification / cross-signing | ❌ | ❌ | ❌ |
@@ -56,12 +59,41 @@ Legend:
 - **Mock — media send**: `sendImage` / `sendFile` are wired to the
   `MediaManager` on the C++ side; they append a synthetic Sending event
   but do not actually deliver a payload (no bytes are uploaded).
-- **HTTP — threads**: `MessageComposer::send()` calls
-  `sendThreadReply(roomId, rootId, body)`. `MatrixClient`'s default
-  implementation routes that to `sendReply`, so the message is
-  delivered as an `m.in_reply_to` — the recipient sees a normal reply,
-  not a proper `m.thread` grouping. Full `m.thread` support in HTTP is
-  a v0.5 target (see `docs/next-prompts.md`).
+- **HTTP — threads (v0.4.4)**: `CppHttpMatrixClient` now overrides
+  `sendThreadReply` and emits a real `m.thread` relation. Content
+  shape:
+
+  ```json
+  { "msgtype": "m.text", "body": "…",
+    "m.relates_to": {
+      "rel_type": "m.thread",
+      "event_id": "$root",
+      "is_falling_back": true,
+      "m.in_reply_to": { "event_id": "$latest-or-root" }
+    } }
+  ```
+
+  `is_falling_back: true` + `m.in_reply_to` makes non-thread-aware
+  clients (older Element, matrix-commander, etc.) still render the
+  message as a normal reply chain. The fallback target is the newest
+  server-confirmed event whose local `threadRootId` matches the root;
+  if none is loaded yet, we use the root itself.
+
+  Incoming events: both `processTimelineEvent` (live `/sync`) and the
+  `/messages?dir=b` backfill path recognise `rel_type == "m.thread"`
+  and populate `TimelineEvent::threadRootId`. When such an event also
+  carries `m.in_reply_to` (the spec fallback), `replyToEventId` is
+  cleared so QML doesn't stack the "in thread" chip and the reply
+  preview strip.
+
+  Reply count: `TimelineModel` still computes counts locally by
+  scanning the loaded timeline (v0.4.1 behaviour). Server-side
+  aggregation (`unsigned["m.relations"]["m.thread"]`) is a v0.5
+  follow-up documented in `docs/next-prompts.md`.
+
+  Encrypted rooms remain blocked at the composer boundary — thread
+  replies into encrypted rooms are refused with a clear error until
+  E2EE arrives via Rust SDK.
 - **HTTP — Spaces from sync (v0.4.2)**:
   `CppHttpMatrixClient::processStateEvent` handles two additional
   types:

@@ -70,6 +70,12 @@ public:
     void sendReply(const QString &roomId,
                    const QString &replyToEventId,
                    const QString &body) override;
+    // v0.4.4: real m.thread relation (MSC3440 / stable in v11). Overrides the
+    // interface default (which fell back to sendReply) so the message is
+    // delivered as a proper thread event rather than a plain in-reply-to.
+    void sendThreadReply(const QString &roomId,
+                         const QString &threadRootEventId,
+                         const QString &body) override;
     void editMessage(const QString &roomId,
                      const QString &targetEventId,
                      const QString &newBody) override;
