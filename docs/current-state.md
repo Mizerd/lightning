@@ -1,6 +1,6 @@
-# Current state (v0.4.4)
+# Current state (v0.4.5)
 
-Last updated: 2026-07-05 (v0.4.4 pass).
+Last updated: 2026-07-05 (v0.4.5 pass).
 
 This is the "where the repo actually is" doc. Treat it as ground truth
 for a fresh LLM continuation session — read this before
@@ -19,7 +19,8 @@ code.
   - `13adf73` v0.4.1: Spaces + Threads foundations, SSO/OIDC flags, continuation docs
   - `1a5adba` v0.4.2: HTTP Spaces parsing + no-display preflight hardening
   - `2230bbe` v0.4.3: Nix Qt platform runtime fix + --http/--rust CLI hint
-  - HEAD after this pass: `v0.4.4: real HTTP m.thread relation send + parse`
+  - `da9f331` v0.4.4: real HTTP m.thread relation send + parse
+  - HEAD after this pass: `v0.4.5: HTTP login transition fix + Lightning branding + Space/thread cache persistence`
 
 ## Layered architecture (unchanged from v0.4)
 
@@ -47,6 +48,26 @@ Crypto:      src/crypto/CryptoManager (capability surface only, no crypto)
 
 ## What is *implemented* right now
 
+- **Product name**: **Lightning**. Window title / header / login-screen
+  heading all say "Lightning". The executable is still `matrix-client`
+  for build-system compatibility (Q_APPLICATION_NAME too — keeps the
+  QSettings scope stable across the rename). The login-screen
+  sub-heading is backend-aware (v0.4.5).
+- **HTTP login → main-screen transition (v0.4.5)**: the `Loader` in
+  `qml/Main.qml` used to pick the current page via
+  `switch (app.currentScreen) { case app.LoginScreen: … }`. That
+  pattern turned out to be fragile when the enum is exposed via
+  `setContextProperty` (not registered as a QML type) and the QML
+  files are AOT-compiled by the Qt Quick compiler — the case values
+  could resolve to `undefined`, no case matched, and the switch fell
+  through to `loginComponent`. Fresh HTTP login therefore logged
+  "login ok" but the UI stayed on the login screen.
+  Fix: integer-literal comparisons against the well-known
+  `AppController::Screen` values in a `pickComponent()` helper, plus
+  an explicit `Connections { onCurrentScreenChanged … }` re-trigger.
+  Diagnostic `qCInfo(lcApp)` lines in
+  `AppController::setCurrentScreen` and `onLoginSucceeded` make any
+  future regression obvious in the terminal.
 - **Backend selection**: `--backend={mock,http,rust}` plus legacy `--mock`.
   Pre-flight validation runs *before* `QGuiApplication` so bad args exit
   cleanly with exit code 2 even without a display. **v0.4.2**: a second
@@ -101,9 +122,9 @@ Crypto:      src/crypto/CryptoManager (capability surface only, no crypto)
   `RoomInfo::spaceId` "primary parent" hint is intentionally not set on
   children — SpaceManager builds membership strictly from
   `Space.childRoomIds`, so rooms in multiple Spaces stay consistent.
-  Known limitation: `CacheStore` does not persist `isSpace` /
-  `childRoomIds` yet, so on relaunch the chip strip is hidden until
-  the first `/sync` completes.
+  **v0.4.5**: `CacheStore` now persists `isSpace` and `childRoomIds`.
+  On relaunch the Space chip strip renders immediately from cache —
+  no more blank-until-first-`/sync` window.
 - **Threads (v0.4.1 + v0.4.4)**: `MessageComposer` gains thread-reply
   mode via `beginThreadReply(rootId, preview)`. `TimelineModel`
   exposes `threadRootId`, `isThreadRoot`, `threadReplyCount` roles.
@@ -137,9 +158,8 @@ Crypto:      src/crypto/CryptoManager (capability surface only, no crypto)
     locally by scanning the loaded timeline (v0.4.1 behaviour).
   * Thread replies still appear inline in the main timeline (marked
     "in thread") — a dedicated thread side-panel is v0.5+.
-  * `CacheStore` does not yet persist `threadRootId` — after restart
-    thread events reload as plain messages until the first `/sync`
-    reaches them.
+  * `CacheStore` now persists `threadRootId` (v0.4.5) — the "in
+    thread" chip renders immediately after restart for cached events.
 - **SSO/OIDC capability flags (v0.4.1)**: `AuthManager` exposes
   `supportsPasswordLogin`, `supportsSsoLogin` (false), `supportsOidcLogin`
   (false), plus placeholder `beginSsoLogin` / `beginOidcLogin` that

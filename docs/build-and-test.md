@@ -234,3 +234,34 @@ flags are rejected in the pre-flight parser (exit 2) with a hint,
 before `QGuiApplication` is constructed. This keeps a typo from
 being interpreted by Qt's own parser and potentially aborting on a
 platform-plugin issue instead of surfacing the CLI error.
+
+### HTTP login logs "login ok" but the UI stays on the login screen
+
+Fixed in v0.4.5. Root cause: `Main.qml`'s `Loader.sourceComponent`
+picker was a JavaScript `switch (app.currentScreen) { case app.LoginScreen: … }`.
+`app` is exposed via `setContextProperty`, not registered as a QML
+type, so the enum values on the instance can resolve to `undefined`
+under some Qt Quick compiler configurations — every case then fails
+to match and the fallthrough returned `loginComponent` regardless of
+the actual screen state.
+
+Fix: `pickComponent()` compares against `AppController::Screen`
+integer literals (0=Login, 1=Main, 2=Settings), plus an explicit
+`Connections { onCurrentScreenChanged … }` re-triggers the picker on
+the notify signal.
+
+Diagnostic aid: `AppController::onLoginSucceeded` and
+`setCurrentScreen` now emit `qCInfo(lcApp)` lines. When troubleshooting
+you should see:
+
+```
+matrix.app: login succeeded for "@…" — switching to main + starting sync
+matrix.app: screen change 0 -> 1 (0=Login, 1=Main, 2=Settings)
+```
+
+If you only see the first line and not the second, `setCurrentScreen`
+was called with the current screen already equal to `MainScreen` —
+which would mean the app was somehow already showing Main. If you see
+neither line, the `MatrixClient::loginSucceeded` signal isn't reaching
+`AuthManager`; verify that `AuthManager` was constructed against the
+current `MatrixClient*` (see `AppController::AppController`).

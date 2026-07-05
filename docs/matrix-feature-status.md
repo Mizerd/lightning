@@ -1,4 +1,4 @@
-# Matrix feature status (v0.4.4)
+# Matrix feature status (v0.4.5)
 
 Honest per-feature status per backend. Ground truth for anything the UI
 claims about support. Do not check anything as "done" here that is not
@@ -32,13 +32,13 @@ Legend:
 | **Spaces — recognise `m.room.create type:m.space`** | ✅ seeded | ✅ (v0.4.2) | ❌ |
 | **Spaces — `m.space.child` hierarchy** | ✅ seeded | ✅ (v0.4.2) | ❌ |
 | **Spaces — filter room list by active Space** | ✅ (chip strip) | ✅ (v0.4.2) | ❌ |
-| **Spaces — persistence across restart (before /sync)** | n/a | 🟡 rooms restore but Space flags do not (see notes) | ❌ |
+| **Spaces — persistence across restart (before /sync)** | n/a | ✅ (v0.4.5) | ❌ |
 | **Threads — detect `m.thread` relation** | ✅ seeded | ✅ (v0.4.4) | ❌ |
 | **Threads — compose thread reply** | ✅ (Mock preserves grouping) | ✅ (v0.4.4, real m.thread relation) | ❌ refuses |
 | **Threads — indicator on root** | ✅ | ✅ (v0.4.4, locally computed count) | ❌ |
 | **Threads — server-side aggregation (`unsigned["m.relations"]["m.thread"]`)** | n/a | ❌ (v0.5) | ❌ |
 | **Threads — dedicated thread panel / per-thread timeline model** | ❌ | ❌ (v0.5+) | ❌ |
-| **Threads — persistence across restart (before /sync)** | n/a | 🟡 threadRootId not in CacheStore yet | ❌ |
+| **Threads — persistence across restart (before /sync)** | n/a | ✅ (v0.4.5) | ❌ |
 | Encrypted room read | ❌ placeholder | ❌ placeholder | ❌ |
 | Encrypted send | ❌ blocked | ❌ blocked | ❌ blocked |
 | Device verification / cross-signing | ❌ | ❌ | ❌ |

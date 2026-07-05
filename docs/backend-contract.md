@@ -146,6 +146,27 @@ Robustness: `SpaceManager::rebuild` skips child room ids that are not
 present in `MatrixClient::rooms()`. Backends do not need to filter
 out unjoined children before returning them.
 
+Cache persistence (v0.4.5): `CacheStore` persists both
+`RoomInfo::isSpace` and `RoomInfo::childRoomIds` (comma-joined,
+Matrix room ids never contain commas) as well as
+`TimelineEvent::threadRootId`. Backends should populate these on
+their `RoomInfo` / `TimelineEvent` instances and call the usual
+`saveRoom` / `updateEvent` cache helpers; the schema migrates in
+place via `ALTER TABLE ADD COLUMN` for pre-v0.4.5 databases.
+
+## Login lifecycle & the screen transition
+
+`AppController::onLoginSucceeded` is the single point that flips
+`currentScreen` from Login to Main and starts sync. It is connected
+to `AuthManager::loginSucceeded`, which is a re-emit of
+`MatrixClient::loginSucceeded(userId)` after `AuthManager` clears its
+own "logging in" state. Any backend that emits `loginSucceeded`
+should have `isLoggedIn()` return `true` **before** the emit, since
+`AppController::onLoginSucceeded` may inspect it during startSync
+routing (v0.4.5 makes the transition robust with an explicit
+`Connections` re-trigger in QML, but keeping this invariant simple
+saves debugging time).
+
 ## What backends do NOT own
 
 - Screen navigation, current room, current screen.

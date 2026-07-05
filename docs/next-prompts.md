@@ -14,15 +14,40 @@ platform plugin crash was fixed in `flake.nix` / `shell.nix` (see the
 `Troubleshooting` section in `docs/build-and-test.md`). Feature work
 can resume with Prompt 1 below.
 
-**As of v0.4.4, real HTTP `m.thread` send + parse are live** — the
-previous "Prompt 1 — Real m.thread relation for HTTP sends" has
-landed. The next safest single-file step is Prompt 1 below
-(CacheStore persistence for Space + thread metadata), which closes
-the "briefly hidden on relaunch" limitation for both.
+**As of v0.4.4, real HTTP `m.thread` send + parse are live**.
+
+**As of v0.4.5, the HTTP login → main-screen transition bug is
+fixed** (Loader in Main.qml now uses integer literals + explicit
+Connections re-trigger, and CacheStore persists `isSpace`,
+`childRoomIds`, `threadRootId` so cached Spaces and thread markers
+show up immediately after relaunch — no more "briefly hidden until
+first /sync" window).
+
+The next safest single-feature step is Prompt 1 (multi-account
+foundation). Everything above the multi-account bar (SSO, matrix-sdk,
+authenticated media) is materially bigger and depends on account
+scoping being clean.
 
 ---
 
-## Prompt 1 — Persist Space + thread metadata in CacheStore
+## Prompt 1 (superseded — landed in v0.4.5)
+
+Formerly "Persist Space + thread metadata in CacheStore". Landed in
+v0.4.5:
+
+- `CacheStore` schema gained `rooms.is_space`, `rooms.child_room_ids`,
+  `events.thread_root_id`, all with `ALTER TABLE ADD COLUMN` guarded
+  by `PRAGMA table_info` probes so existing user databases upgrade in
+  place.
+- `loadRooms` / `saveRoom` / `loadTimeline` / `updateEvent` all round-trip
+  the new fields.
+- No interface change, no QML change.
+
+The full task text is preserved below for archival reference. It is no
+longer the recommended next step — jump to Prompt 2.
+
+<details>
+<summary>Archived (do not run — already applied)</summary>
 
 Two related quality-of-life follow-ups, both scoped to
 `src/storage/CacheStore.{h,cpp}` — no interface change, no QML
@@ -66,6 +91,8 @@ Verify by:
 
 Do NOT touch the interface. Do NOT touch QML. Do NOT change
 `MatrixClient` or the models.
+
+</details>
 
 ---
 

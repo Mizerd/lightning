@@ -181,6 +181,8 @@ void AppController::setCurrentScreen(Screen s)
 {
     if (m_currentScreen == s)
         return;
+    qCInfo(lcApp) << "screen change" << int(m_currentScreen) << "->" << int(s)
+                  << "(0=Login, 1=Main, 2=Settings)";
     m_currentScreen = s;
     Q_EMIT currentScreenChanged();
 }
@@ -195,7 +197,10 @@ void AppController::setConnectionStatus(const QString &s)
 
 void AppController::onLoginSucceeded()
 {
-    m_accounts->setActiveUser(m_auth->currentUserId());
+    const QString uid = m_auth->currentUserId();
+    qCInfo(lcApp) << "login succeeded for" << uid
+                  << "— switching to main + starting sync";
+    m_accounts->setActiveUser(uid);
     m_client->startSync();
     setCurrentScreen(MainScreen);
     Q_EMIT loggedInChanged();

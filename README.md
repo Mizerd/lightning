@@ -1,10 +1,39 @@
-# matrix-client
+# Lightning
 
 A native desktop Matrix client written in C++20 / Qt 6 / QML.
 
 **Not** Electron. **Not** Tauri. **Not** a webview wrapping a browser. The chat UI is real Qt Quick.
 
+The executable is still named `matrix-client` for build-system compatibility;
+the user-visible product name is **Lightning**.
+
 ## Status
+
+**v0.4.5** — HTTP login transition fix, Lightning branding, Space + thread cache persistence.
+
+New in v0.4.5:
+
+- **HTTP login transition fix**: the `Loader` picking screens in `Main.qml`
+  now uses integer comparisons against `AppController::Screen` values instead
+  of `case app.LoginScreen:` inside a JavaScript switch, plus an explicit
+  `Connections` re-trigger. Previously HTTP login could log "login ok" but
+  the UI stayed on the login screen because the switch fell through under
+  some Qt Quick compiler configurations. New debug logs in
+  `AppController::onLoginSucceeded` / `setCurrentScreen` make future
+  diagnosis one grep away.
+- **Lightning branding**: window title, header, and login-screen title now
+  say "Lightning". The login sub-heading is backend-aware:
+  - `mock` → "Mock backend — any credentials work"
+  - `http` → "HTTP backend — sign in with your Matrix account"
+  - `rust` → "Rust backend scaffold — login is not wired yet"
+- **CacheStore schema (Space + thread persistence)**: `rooms` gains
+  `is_space` + `child_room_ids` columns; `events` gains `thread_root_id`.
+  Existing databases upgrade in place via `ALTER TABLE ADD COLUMN` guarded
+  by `PRAGMA table_info` probes — no user data loss. After relaunch, the
+  Space chip strip and the "in thread" chip render immediately from cache
+  instead of blinking off until the first `/sync` completes.
+
+Everything below carried over from earlier passes.
 
 **v0.4** — Secure token storage + optional Matrix Rust SDK backend scaffold.
 

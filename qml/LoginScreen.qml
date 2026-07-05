@@ -26,13 +26,21 @@ Item {
             width: 360
 
             Label {
-                text: qsTr("Sign in")
+                text: qsTr("Sign in to Lightning")
                 color: AppTheme.text
                 font.pixelSize: 22
                 font.weight: Font.DemiBold
             }
             Label {
-                text: qsTr("v0.1 mock backend — any credentials work")
+                text: {
+                    // Backend-aware sub-heading so the user knows what
+                    // backend they're signing into.
+                    if (app.backendName === "mock")
+                        return qsTr("Mock backend — any credentials work")
+                    if (app.backendName === "rust")
+                        return qsTr("Rust backend scaffold — login is not wired yet")
+                    return qsTr("HTTP backend — sign in with your Matrix account")
+                }
                 color: AppTheme.textMuted
                 font.pixelSize: 12
                 wrapMode: Text.WordWrap

@@ -11,7 +11,7 @@ ApplicationWindow {
     minimumWidth: 640
     minimumHeight: 420
     visible: true
-    title: qsTr("matrix-client %1").arg(app.appVersion)
+    title: qsTr("Lightning %1").arg(app.appVersion)
 
     color: AppTheme.background
 
@@ -37,7 +37,7 @@ ApplicationWindow {
             spacing: AppTheme.spacingM
 
             Label {
-                text: qsTr("Matrix")
+                text: qsTr("Lightning")
                 color: AppTheme.text
                 font.pixelSize: 16
                 font.weight: Font.DemiBold
@@ -74,13 +74,32 @@ ApplicationWindow {
     Loader {
         id: pageLoader
         anchors.fill: parent
-        sourceComponent: {
-            switch (app.currentScreen) {
-            case app.LoginScreen:    return loginComponent
-            case app.MainScreen:     return mainComponent
-            case app.SettingsScreen: return settingsComponent
+
+        // AppController::Screen enum ordering — kept in sync with
+        // src/app/AppController.h. We hard-code the integers here
+        // instead of `case app.LoginScreen:` because a switch whose
+        // case expressions read enum values on a context-property-
+        // exposed QObject was falling through under some Qt Quick
+        // compiler configurations, which kept HTTP login stuck on the
+        // login screen even after `loginSucceeded` fired (v0.4.4 bug).
+        // Integer literals against the notify-tracked
+        // `app.currentScreen` property are unambiguous.
+        function pickComponent() {
+            var s = app.currentScreen
+            if (s === 1) return mainComponent      // MainScreen
+            if (s === 2) return settingsComponent  // SettingsScreen
+            return loginComponent                  // 0 = LoginScreen
+        }
+        sourceComponent: pickComponent()
+
+        // Belt-and-braces re-eval on the explicit signal. If the binding
+        // above tracks the property correctly this is a no-op; if it
+        // doesn't (as in the v0.4.4 bug), this closes the gap.
+        Connections {
+            target: app
+            function onCurrentScreenChanged() {
+                pageLoader.sourceComponent = pageLoader.pickComponent()
             }
-            return loginComponent
         }
     }
 

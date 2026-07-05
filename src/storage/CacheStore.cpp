@@ -132,12 +132,31 @@ bool CacheStore::isOpen() const
     return database().isOpen();
 }
 
+// True if the given column already exists on the given SQLite table.
+static bool columnExists(QSqlDatabase &db,
+                         const QString &table,
+                         const QString &column)
+{
+    QSqlQuery q(db);
+    if (!q.exec(QStringLiteral("PRAGMA table_info(%1)").arg(table)))
+        return false;
+    while (q.next()) {
+        if (q.value(1).toString() == column)
+            return true;
+    }
+    return false;
+}
+
 bool CacheStore::ensureSchema()
 {
     QSqlDatabase db = database();
     QSqlQuery q(db);
 
     static const char *ddl[] = {
+        // v0.4.5 note: for fresh databases we declare the full column set
+        // up front. For pre-v0.4.5 databases the ALTER TABLE migration
+        // below adds the same columns idempotently — either path arrives
+        // at the same schema.
         "CREATE TABLE IF NOT EXISTS rooms ("
         "  id TEXT PRIMARY KEY,"
         "  name TEXT,"
@@ -147,7 +166,9 @@ bool CacheStore::ensureSchema()
         "  unread INTEGER,"
         "  last_activity_ms INTEGER,"
         "  last_preview TEXT,"
-        "  prev_batch TEXT"
+        "  prev_batch TEXT,"
+        "  is_space INTEGER NOT NULL DEFAULT 0,"
+        "  child_room_ids TEXT NOT NULL DEFAULT ''"
         ")",
         "CREATE TABLE IF NOT EXISTS events ("
         "  event_id TEXT PRIMARY KEY,"
@@ -169,7 +190,8 @@ bool CacheStore::ensureSchema()
         "  media_width INTEGER,"
         "  media_height INTEGER,"
         "  media_thumb TEXT,"
-        "  reactions TEXT"
+        "  reactions TEXT,"
+        "  thread_root_id TEXT NOT NULL DEFAULT ''"
         ")",
         "CREATE INDEX IF NOT EXISTS idx_events_room_ts "
         "  ON events(room_id, ts_ms)",
@@ -185,6 +207,33 @@ bool CacheStore::ensureSchema()
         if (!q.exec(QLatin1String(sql))) {
             qCWarning(lcCache) << "schema failed" << q.lastError().text();
             return false;
+        }
+    }
+
+    // v0.4.5 migrations: bring existing databases up to the current schema
+    // without destroying user data. SQLite's ALTER TABLE ADD COLUMN is
+    // additive-only and safe; we probe with PRAGMA table_info first so we
+    // don't spam warnings on a fresh database that already has the column.
+    struct AddCol { const char *table; const char *col; const char *ddl; };
+    static const AddCol adds[] = {
+        { "rooms",  "is_space",
+          "ALTER TABLE rooms ADD COLUMN is_space INTEGER NOT NULL DEFAULT 0" },
+        { "rooms",  "child_room_ids",
+          "ALTER TABLE rooms ADD COLUMN child_room_ids TEXT NOT NULL DEFAULT ''" },
+        { "events", "thread_root_id",
+          "ALTER TABLE events ADD COLUMN thread_root_id TEXT NOT NULL DEFAULT ''" },
+    };
+    for (const auto &a : adds) {
+        if (columnExists(db, QLatin1String(a.table), QLatin1String(a.col)))
+            continue;
+        QSqlQuery m(db);
+        if (!m.exec(QLatin1String(a.ddl))) {
+            qCWarning(lcCache) << "migration failed for" << a.table << a.col
+                               << m.lastError().text();
+            // Non-fatal: caller can still operate; new fields just won't
+            // persist for that user.
+        } else {
+            qCInfo(lcCache) << "migrated" << a.table << "->" << a.col;
         }
     }
     return true;
@@ -206,7 +255,8 @@ QList<RoomInfo> CacheStore::loadRooms()
     QSqlQuery q(database());
     q.prepare(QStringLiteral(
         "SELECT id, name, topic, avatar_mxc, encrypted, unread, "
-        "       last_activity_ms, last_preview, prev_batch "
+        "       last_activity_ms, last_preview, prev_batch, "
+        "       is_space, child_room_ids "
         "FROM rooms"));
     if (!q.exec()) {
         qCWarning(lcCache) << "loadRooms" << q.lastError().text();
@@ -225,6 +275,12 @@ QList<RoomInfo> CacheStore::loadRooms()
             r.lastActivity   = QDateTime::fromMSecsSinceEpoch(ms);
         r.lastMessagePreview = q.value(7).toString();
         r.prevBatchToken     = q.value(8).toString();
+        r.isSpace            = q.value(9).toBool();
+        const QString ids    = q.value(10).toString();
+        if (!ids.isEmpty()) {
+            // Matrix room ids never contain commas, so comma-joining is safe.
+            r.childRoomIds = ids.split(QLatin1Char(','), Qt::SkipEmptyParts);
+        }
         // members loaded separately via loadMembers()
         out.append(r);
     }
@@ -237,14 +293,18 @@ void CacheStore::saveRoom(const RoomInfo &r)
     QSqlQuery q(database());
     q.prepare(QStringLiteral(
         "INSERT INTO rooms (id, name, topic, avatar_mxc, encrypted, unread, "
-        "                   last_activity_ms, last_preview, prev_batch) "
-        "VALUES (:id, :name, :topic, :avatar, :enc, :unread, :ts, :prev, :prevBatch) "
+        "                   last_activity_ms, last_preview, prev_batch, "
+        "                   is_space, child_room_ids) "
+        "VALUES (:id, :name, :topic, :avatar, :enc, :unread, :ts, :prev, :prevBatch,"
+        "        :space, :children) "
         "ON CONFLICT(id) DO UPDATE SET "
         "  name=excluded.name, topic=excluded.topic, avatar_mxc=excluded.avatar_mxc,"
         "  encrypted=excluded.encrypted, unread=excluded.unread,"
         "  last_activity_ms=excluded.last_activity_ms,"
         "  last_preview=excluded.last_preview,"
-        "  prev_batch=excluded.prev_batch"));
+        "  prev_batch=excluded.prev_batch,"
+        "  is_space=excluded.is_space,"
+        "  child_room_ids=excluded.child_room_ids"));
     q.bindValue(QStringLiteral(":id"),        r.id);
     q.bindValue(QStringLiteral(":name"),      r.name);
     q.bindValue(QStringLiteral(":topic"),     r.topic);
@@ -255,6 +315,8 @@ void CacheStore::saveRoom(const RoomInfo &r)
                 r.lastActivity.isValid() ? r.lastActivity.toMSecsSinceEpoch() : 0);
     q.bindValue(QStringLiteral(":prev"),      r.lastMessagePreview);
     q.bindValue(QStringLiteral(":prevBatch"), r.prevBatchToken);
+    q.bindValue(QStringLiteral(":space"),     r.isSpace ? 1 : 0);
+    q.bindValue(QStringLiteral(":children"),  r.childRoomIds.join(QLatin1Char(',')));
     if (!q.exec())
         qCWarning(lcCache) << "saveRoom" << q.lastError().text();
 }
@@ -298,6 +360,7 @@ static TimelineEvent readEvent(QSqlQuery &q)
     e.mediaHeight       = q.value(17).toInt();
     e.mediaThumbnailMxcUrl = q.value(18).toString();
     e.reactions         = decodeReactions(q.value(19).toByteArray());
+    e.threadRootId      = q.value(20).toString();
     return e;
 }
 
@@ -312,7 +375,8 @@ QList<TimelineEvent> CacheStore::loadTimeline(const QString &roomId, int limit)
         "SELECT event_id, room_id, sender, ts_ms, type, status, body, "
         "       edited, redacted, reply_to, reply_sender, reply_preview, "
         "       media_mxc, media_mimetype, media_filename, media_size, "
-        "       media_width, media_height, media_thumb, reactions "
+        "       media_width, media_height, media_thumb, reactions, "
+        "       thread_root_id "
         "FROM events WHERE room_id = :r "
         "ORDER BY ts_ms DESC, event_id DESC LIMIT :lim"));
     q.bindValue(QStringLiteral(":r"),   roomId);
@@ -341,12 +405,14 @@ void CacheStore::updateEvent(const TimelineEvent &e)
         "  (event_id, room_id, sender, ts_ms, type, status, body, edited, redacted,"
         "   reply_to, reply_sender, reply_preview,"
         "   media_mxc, media_mimetype, media_filename, media_size,"
-        "   media_width, media_height, media_thumb, reactions) "
+        "   media_width, media_height, media_thumb, reactions,"
+        "   thread_root_id) "
         "VALUES "
         "  (:id, :room, :sender, :ts, :type, :status, :body, :edited, :redacted,"
         "   :reply, :replyS, :replyP,"
         "   :mxc, :mime, :fname, :size,"
-        "   :w, :h, :thumb, :react) "
+        "   :w, :h, :thumb, :react,"
+        "   :thread) "
         "ON CONFLICT(event_id) DO UPDATE SET "
         "   sender=excluded.sender, ts_ms=excluded.ts_ms, type=excluded.type,"
         "   status=excluded.status, body=excluded.body,"
@@ -356,7 +422,8 @@ void CacheStore::updateEvent(const TimelineEvent &e)
         "   media_mxc=excluded.media_mxc, media_mimetype=excluded.media_mimetype,"
         "   media_filename=excluded.media_filename, media_size=excluded.media_size,"
         "   media_width=excluded.media_width, media_height=excluded.media_height,"
-        "   media_thumb=excluded.media_thumb, reactions=excluded.reactions"));
+        "   media_thumb=excluded.media_thumb, reactions=excluded.reactions,"
+        "   thread_root_id=excluded.thread_root_id"));
     q.bindValue(QStringLiteral(":id"),      e.eventId);
     q.bindValue(QStringLiteral(":room"),    e.roomId);
     q.bindValue(QStringLiteral(":sender"),  e.sender);
@@ -378,6 +445,7 @@ void CacheStore::updateEvent(const TimelineEvent &e)
     q.bindValue(QStringLiteral(":h"),       e.mediaHeight);
     q.bindValue(QStringLiteral(":thumb"),   e.mediaThumbnailMxcUrl);
     q.bindValue(QStringLiteral(":react"),   encodeReactions(e.reactions));
+    q.bindValue(QStringLiteral(":thread"),  e.threadRootId);
     if (!q.exec())
         qCWarning(lcCache) << "updateEvent" << q.lastError().text();
 }
