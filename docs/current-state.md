@@ -1,6 +1,6 @@
-# Current state (v0.5.0-prep+2)
+# Current state (v0.5.0-prep)
 
-Last updated: 2026-07-05 (v0.5.0-prep+2 pass).
+Last updated: 2026-07-05 (Matrix Rust SDK backend foundation pass).
 
 This is the "where the repo actually is" doc. Treat it as ground truth
 for a fresh LLM continuation session — read this before
@@ -26,8 +26,8 @@ code.
   - `41a9f69` v0.4.8: cache NOT NULL repair, delegate anchor warning, Connected status
   - `6f389aa` v0.5.0-prep: C++ groundwork for E2EE via matrix-sdk (crate not linked yet)
   - `9ade51b` v0.5.0-prep+1: --reset-crypto-store shows resolved paths; matrix-sdk still blocked at classifier layer
-  - `v0.5-e2ee-rust-sdk` fast-forward-merged into `main`; branch retained on the remote.
-  - HEAD after this pass: `v0.5.0-prep+2: settings.local.json allowlist landed in .gitignore; classifier now names matrix-sdk block as HARD boundary; docs updated with escape hatches`
+  - `8205606` rust: pull matrix-sdk deps for offline builds
+  - This pass: Rust SDK backend foundation wired on `main`
   - Branch: `main`
 
 ## Layered architecture (unchanged from v0.4)
@@ -61,31 +61,34 @@ Crypto:      src/crypto/CryptoManager (capability surface only, no crypto)
   for build-system compatibility (Q_APPLICATION_NAME too — keeps the
   QSettings scope stable across the rename). The login-screen
   sub-heading is backend-aware (v0.4.5).
-- **v0.5.0-prep+2 (this pass)**: fast-forward-merged
-  `v0.5-e2ee-rust-sdk` into `main` and made a third attempt to
-  pull `matrix-sdk`. The user had added
-  `.claude/settings.local.json` with a targeted allow-list for
-  `nix develop -c cargo *` — but the classifier still blocked
-  `cargo fetch`, and this time its own message named the block
-  a **HARD-style boundary that user-level authorization in
-  prompts cannot clear** (settings allow-lists included). The
-  Untrusted-Code-Integration policy is enforced at the Claude
-  Code runtime layer independently of the local settings file.
+- **This pass**: the optional Rust backend is no longer just a
+  scaffold. `matrix-sdk` v0.18 is in `rust/Cargo.toml`, `Cargo.lock`
+  is committed, and the Rust crate builds offline. The Rust FFI now
+  owns a Matrix SDK client, SDK SQLite store, async work threads, and
+  a JSON event queue drained by C++ on a `QTimer`.
 
-  Escape hatches documented in `docs/next-prompts.md` Prompt 1:
-  1. Run Claude Code with `--dangerously-skip-permissions`
-     (the documented CLI flag for exactly this class of block).
-  2. Run `cargo fetch` + `cargo build` yourself in a normal
-     shell, commit `Cargo.lock`, then a follow-up Claude Code
-     pass uses `cargo build --offline` (which the classifier
-     tolerates, since nothing external is being fetched anew).
-  3. Do the full integration yourself, have Claude Code review.
+  Implemented through the Rust path:
+  - password login via `matrix_auth().login_username(...)`;
+  - session restore via `MatrixSession` and `restore_session(...)`;
+  - joined-room sync via `sync_with_callback(...)`;
+  - room list events, including room name/topic/avatar/encrypted/Space
+    flags where the SDK exposes them;
+  - basic text/notice/emote timeline events through SDK event handlers;
+  - plain text sends into unencrypted rooms, with C++ local echo
+    reconciliation.
 
-  Files touched in this pass: `.gitignore` (persists the
-  `.claude/settings.local.json` line the user added locally),
-  `docs/next-prompts.md` (Prompt 1 preamble rewritten with the
-  escape hatches above), `docs/current-state.md` (this
-  paragraph).
+  Still not claimed:
+  - E2EE is not enabled. `mx_rust_supports_e2ee()` returns 0 and
+    `CryptoManager::supportsE2ee()` remains false.
+  - Encrypted sends are blocked until encrypted read and send are
+    verified end to end.
+  - Rich timeline features in the Rust backend (pagination, replies,
+    edits, reactions, media, typing, read receipts, Space child
+    hierarchy) are still missing or partial.
+
+  Store path: `${XDG_DATA_HOME}/matrix-client/<safeUserId>/matrix-rust-sdk-store/`.
+  This is separate from the C++ `cache.sqlite` and never stores access
+  tokens; tokens remain in `SecretStore`.
 
 - **v0.5.0-prep+1**: added --reset-crypto-store path resolution
   and documented the classifier block at the settings layer.
@@ -182,9 +185,13 @@ Crypto:      src/crypto/CryptoManager (capability surface only, no crypto)
   Encrypted rooms are read-only placeholders; sends into encrypted
   rooms are blocked with a clear error.
 - **Rust backend** (`--backend=rust`, only with
-  `-DENABLE_RUST_SDK_BACKEND=ON`): scaffold that links against
-  `rust/`. Reports backend name/status/version through a small C ABI.
-  Refuses login and all sends honestly. No `matrix-sdk` dependency yet.
+  `-DENABLE_RUST_SDK_BACKEND=ON`): Matrix Rust SDK backend
+  foundation. Rust owns the SDK client/runtime/store and pushes JSON
+  events through a C ABI queue. C++ `RustSdkMatrixClient` keeps the UI
+  isolated from Rust and emits the existing `MatrixClient` signals.
+  Login, restore, joined-room sync, basic text timeline events, and
+  plain text send are wired. E2EE is still disabled and encrypted sends
+  are blocked honestly.
 - **SecretStore**: libsecret (Secret Service via glib) backend when
   available; `InsecureFallbackSecretStore` (QSettings under `secrets/*`)
   when the session bus is unreachable. Legacy plaintext
@@ -251,17 +258,18 @@ Crypto:      src/crypto/CryptoManager (capability surface only, no crypto)
   emit a clean "not implemented" error. QML is not wired to these yet
   (Settings screen is the natural spot in a follow-up).
 
-## What is *stubbed* — code exists but does not do the work
+## What is *stubbed or partial* — code exists but does not do the work
 
-- `RustSdkMatrixClient`: compiles and links; every send / login / paginate
-  operation refuses with a "not implemented" `errorOccurred`.
 - `NotificationManager`: logs "notify" via QLoggingCategory. No tray, no
   native notify.
 - `CryptoManager`: capability surface only. `supportsE2ee` is a pure
   compile-time expression — it becomes true only if
   `ENABLE_RUST_SDK_BACKEND` **and** `RUST_SDK_E2EE_WIRED` are both
-  defined, AND the active backend is "rust". Neither is defined right
-  now.
+  defined, AND the active backend is "rust". `RUST_SDK_E2EE_WIRED` is
+  not defined in this pass.
+- `RustSdkMatrixClient` rich operations: pagination, replies, edits,
+  redactions, reactions, media send/receive, typing, read receipts,
+  and Space child hierarchy are not wired through Rust yet.
 - `AccountManager`: tracks the single active user id from the session.
   Multi-account (per-account SecretStore keyspace, cache path, sync
   loop) is not implemented — foundation described in
@@ -269,8 +277,10 @@ Crypto:      src/crypto/CryptoManager (capability surface only, no crypto)
 
 ## What is *intentionally missing*
 
-- Real E2EE. The Rust backend does not implement Olm/Megolm yet, and
-  we will not hand-roll cryptography in C++.
+- Verified E2EE. The Rust backend links the SDK but encrypted
+  read/send have not been manually verified end to end, so Lightning
+  still reports no E2EE support and will not hand-roll cryptography in
+  C++.
 - Authenticated media (`/_matrix/client/v1/media/*`) — v0.3/v0.4 use
   legacy `/_matrix/media/v3/*`.
 - Full SSO / OIDC / MAS login flow.
@@ -286,11 +296,14 @@ Crypto:      src/crypto/CryptoManager (capability surface only, no crypto)
 
 - Default: `nix develop -c cmake -S . -B build -G Ninja && nix develop -c cmake --build build`.
 - With Rust: `nix develop -c cmake -S . -B build-rust -G Ninja -DENABLE_RUST_SDK_BACKEND=ON && nix develop -c cmake --build build-rust`.
+- Rust-only offline: `cd rust && nix develop -c cargo build --release --offline`.
 - Smoke: `QT_QPA_PLATFORM=offscreen timeout 3 ./build/matrix-client --mock`
   should exit 124 with no QML warnings and no crashes.
 - Rejection: `QT_QPA_PLATFORM=offscreen ./build/matrix-client --backend=bogus`
-  and `./build/matrix-client --backend=rust` (in the non-Rust build) both
-  exit 2 with a clear stderr message.
+  and `./build/matrix-client --backend=rust` (in the non-Rust build)
+  both exit 2 with a clear stderr message. In the Rust build,
+  `QT_QPA_PLATFORM=offscreen timeout 3 ./build-rust/matrix-client --backend=rust`
+  should start without crashing.
 
 ## Rules for continuation
 

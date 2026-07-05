@@ -15,10 +15,10 @@ void CryptoManager::setBackendName(const QString &backendName)
 
 bool CryptoManager::supportsE2ee() const
 {
-    // Only the Rust SDK backend implements E2EE. Even when compiled in, the
-    // v0.4 scaffold does not yet route real Matrix crypto — so report false
-    // until the scaffold graduates. This function is the single source of
-    // truth for the UI: no other layer may claim E2EE support.
+    // Only the Rust SDK backend may eventually implement E2EE. Even when
+    // compiled in, it must report false until encrypted read and encrypted
+    // send both work end-to-end. This function is the single source of truth
+    // for the UI: no other layer may claim E2EE support.
 #ifdef ENABLE_RUST_SDK_BACKEND
 #  ifdef RUST_SDK_E2EE_WIRED
     return m_backendName == QLatin1String("rust");
@@ -63,9 +63,9 @@ QString CryptoManager::backendDescription() const
             "keys, and E2EE.");
 #  else
         return QStringLiteral(
-            "Matrix Rust SDK backend (scaffold). Compiled in but not yet "
-            "feature-complete — login/sync/crypto are not wired. Encrypted "
-            "sends are blocked and encrypted messages show placeholders.");
+            "Matrix Rust SDK backend. Login, restore, joined-room sync, and "
+            "plain text send are wired through matrix-sdk. E2EE remains "
+            "disabled until encrypted read/send are verified.");
 #  endif
 #else
         return QStringLiteral(
@@ -81,7 +81,7 @@ QString CryptoManager::statusString() const
     if (supportsE2ee())
         return QStringLiteral("E2EE active");
     if (m_backendName == QLatin1String("rust"))
-        return QStringLiteral("Rust backend scaffold (E2EE not yet wired)");
+        return QStringLiteral("Rust backend active (E2EE not yet verified)");
     return QStringLiteral("E2EE not available on this backend");
 }
 

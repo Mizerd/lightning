@@ -29,9 +29,8 @@ public:
     QString currentUserId() const;
     QString lastError() const { return m_lastError; }
 
-    // Password login is always available on the mock and http backends;
-    // the rust scaffold refuses cleanly, driven by MatrixClient::login()
-    // itself.
+    // Password login is available on all compiled backends. Rust may still
+    // surface SDK-side login errors through MatrixClient::login().
     bool supportsPasswordLogin() const { return true; }
     // v0.4.1: capability advertisements only — no protocol implementation.
     // Real SSO / OIDC flow is v0.5. Setting these to false keeps the UI

@@ -26,7 +26,7 @@ and never the other way around.
 └──┬──────────────────┬──────────────────────┬─────────┘
    │                  │                      │
 ┌──▼──────────┐   ┌───▼──────────────┐   ┌───▼───────────────────────┐
-│ Mock (v0.1) │   │ CppHttp (v0.2/3) │   │ RustSdk scaffold (v0.4)   │
+│ Mock (v0.1) │   │ CppHttp (v0.2/3) │   │ RustSdk backend (v0.5)    │
 │ --backend=  │   │ --backend=http   │   │ --backend=rust            │
 │   mock      │   │  (default)       │   │ (requires -DENABLE_RUST_  │
 │ (alias:     │   │                  │   │   SDK_BACKEND=ON)         │
@@ -41,12 +41,16 @@ Storage layer (v0.4):
                                    with a visible warning)
   CacheStore (SQLite)            – rooms + last N events + members
                                    at ${XDG_DATA_HOME}/matrix-client/<userId>/
+  Rust SDK store                 – SDK state/crypto database at
+                                   ${XDG_DATA_HOME}/matrix-client/<safeUserId>/
+                                   matrix-rust-sdk-store/ when the Rust
+                                   backend is used
 
 Cross-cutting:
   Storage Layer (QSettings + SecretStore + SQLite)
   Platform Layer (NotificationManager, MediaManager, tray, keychain)
   Crypto Layer (interface + honest capability surface;
-                 real crypto lands in v0.4.x when the Rust SDK is wired)
+                 E2EE remains false until encrypted read/send are verified)
 ```
 
 ## Ownership and lifetimes
@@ -63,9 +67,9 @@ Cross-cutting:
 
 1. QML calls `app.auth.login(...)`.
 2. `AuthManager` forwards to `MatrixClient::login`.
-3. Mock backend emits `loginSucceeded` → `AuthManager` re-emits →
+3. Backend emits `loginSucceeded` → `AuthManager` re-emits →
    `AppController::onLoginSucceeded` starts sync and switches to `MainScreen`.
-4. Mock backend emits `roomsChanged` / `timelineReset` / `eventAppended`.
+4. Backend emits `roomsChanged` / `timelineReset` / `eventAppended`.
 5. `RoomListModel` and `TimelineModel` update their `QAbstractListModel` rows.
 6. QML `ListView`s repaint.
 
@@ -90,7 +94,7 @@ Any concrete `MatrixClient` implementation must:
 | Draft state, composer UX | ✅ | ❌ |
 | Room ordering rules | ✅ (sort in model) | delivers unsorted list |
 | Sync protocol details | ❌ | ✅ |
-| E2EE key material | ❌ | ✅ (v0.4 via Rust SDK) |
+| E2EE key material | ❌ | ✅ (Rust SDK only, once enabled) |
 | Media transport | ❌ | ✅ |
 | Notification presentation | ✅ | delivers events |
 
@@ -104,7 +108,7 @@ Any concrete `MatrixClient` implementation must:
 
 ## What is intentionally *not* done in v0.2
 
-- No crypto. `m.room.encrypted` events render as `[encrypted message - E2EE not implemented yet]`. Sends into encrypted rooms are blocked with a clear error. `CryptoManager::supportsE2ee()` still returns `false`. Real E2EE ships in v0.4 via the Matrix Rust SDK.
+- No crypto. `m.room.encrypted` events render as `[encrypted message - E2EE not implemented yet]`. Sends into encrypted rooms are blocked with a clear error. `CryptoManager::supportsE2ee()` still returns `false`. Real E2EE ships through the Matrix Rust SDK, not C++ crypto.
 - No secure storage. `SettingsManager::saveSession` writes `access_token` / `user_id` / `device_id` / `sync_token` to QSettings in plaintext. The Settings screen warns. Keychain integration ships in v0.4.
 - No profile lookup. Sender display names default to the MXID.
 - No media, replies, edits, redactions, reactions, receipts, typing indicators, mentions, or pagination. All ship in v0.3.
@@ -170,19 +174,29 @@ warning when the fallback is active.
 `RustSdkMatrixClient` (in `src/matrix/`, compiled only when
 `ENABLE_RUST_SDK_BACKEND` is defined) implements `MatrixClient` and links
 against the `matrix_client_rust` static library from the `rust/` crate.
-The Rust surface today is intentionally tiny (`mx_rust_backend_name`,
-`mx_rust_status_string`, `mx_rust_supports_e2ee`, `mx_rust_version`,
-`mx_rust_free_cstring`). Every `MatrixClient` write op emits
-`errorOccurred` or `loginFailed` with an honest reason — nothing
-pretends E2EE works.
+The Rust surface is a hand-authored C ABI:
+
+- lifecycle: create/destroy/login/restore/logout;
+- sync: start/stop plus `mx_rust_poll_event()`;
+- send: plain text send with caller-provided transaction id;
+- capability: `mx_rust_supports_e2ee()` returns 0 until verified.
+
+Rust owns the Matrix SDK client, async work, SDK SQLite store, and a
+JSON event queue. C++ polls that queue on the Qt main thread and turns
+events into the existing `MatrixClient` signals. QML and the models do
+not know whether the event came from HTTP or Rust.
+
+Current Rust scope is login, restore, joined-room sync, room-list
+events, basic text timeline events, and unencrypted plain text send.
+Encrypted sends stay blocked and `CryptoManager::supportsE2ee()`
+stays false until encrypted read/send work end to end.
 
 ### CryptoManager as capability surface
 
 `CryptoManager::supportsE2ee()` returns `true` only when both:
 1. `ENABLE_RUST_SDK_BACKEND` was defined at build time, AND
-2. `RUST_SDK_E2EE_WIRED` is defined (added later when the SDK is wired),
+2. `RUST_SDK_E2EE_WIRED` is defined (added only after encrypted read/send),
 AND
 3. the active backend is `"rust"`.
 
 Every other layer defers to this single source of truth for the UI.
-

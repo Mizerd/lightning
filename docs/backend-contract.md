@@ -154,14 +154,31 @@ their `RoomInfo` / `TimelineEvent` instances and call the usual
 `saveRoom` / `updateEvent` cache helpers; the schema migrates in
 place via `ALTER TABLE ADD COLUMN` for pre-v0.4.5 databases.
 
-## Rust SDK backend (v0.5.0-prep — expected shape when wired)
+## Rust SDK backend (v0.5.0-prep foundation)
 
 `RustSdkMatrixClient` is compiled iff `ENABLE_RUST_SDK_BACKEND=ON`.
-As of v0.5.0-prep it refuses login and every send, honestly — the
-`matrix-sdk` crate is not yet a Cargo dependency (see
-`docs/next-prompts.md` Prompt 1 for the wiring task).
+It is the C++ `QObject` backend wrapper; QML never calls Rust. Rust
+owns the Matrix SDK client, async work, SDK SQLite store, and a JSON
+event queue drained by C++ on a short `QTimer`.
 
-When the SDK lands, these rules must hold:
+Current Rust backend scope:
+
+- password login through matrix-sdk;
+- session restore from `SettingsManager`/`SecretStore` access token;
+- joined-room sync;
+- room-list events;
+- basic text/notice/emote timeline events;
+- plain text sends into unencrypted rooms.
+
+Current Rust backend non-scope:
+
+- no E2EE support claim yet;
+- encrypted sends are blocked;
+- pagination, replies, edits, redactions, reactions, media, typing,
+  read receipts, Space child hierarchy, key backup, and verification
+  are not wired through Rust yet.
+
+These rules must hold:
 
 1. **Crypto store isolation.** The SDK owns its own SQLite (or
    sled) store at `${XDG_DATA_HOME}/matrix-client/<safeUserId>/matrix-rust-sdk-store/`.
@@ -174,12 +191,12 @@ When the SDK lands, these rules must hold:
    own thread. C++ never blocks on Rust. Prefer a queue-and-poll
    pattern: Rust enqueues serialised event JSON, C++ drains via a
    short `QTimer` on the main thread. No cross-thread callbacks.
-3. **Panic isolation.** Every `extern "C"` entry point wraps its
-   body in `catch_unwind`, converting panics into error strings.
-   A Rust panic must never abort the Qt process.
-4. **Encrypted send NOT blocked at composer.** With the SDK wired,
-   the composer stops treating encrypted rooms as read-only. The
-   SDK handles Olm/Megolm session setup internally.
+3. **Panic isolation.** FFI entry points should convert recoverable
+   failures into error strings or queued error events. Do not rely on
+   C++ to recover from Rust panics.
+4. **Encrypted send remains blocked until verified.** The composer may
+   allow encrypted sends only after the Rust backend has real encrypted
+   read/send and `CryptoManager::supportsE2ee()` returns true.
 5. **Historical undecryptable messages still render placeholders.**
    Cross-signing, key backup, and secret storage are NOT scope for
    the initial matrix-sdk landing. Messages from before the
@@ -189,11 +206,11 @@ When the SDK lands, these rules must hold:
    `[encrypted message - E2EE not implemented yet]`.
 6. **`CryptoManager::supportsE2ee` gate.** The compile-time gate
    `RUST_SDK_E2EE_WIRED` is defined only by the CMake path that
-   links matrix-sdk. When both `ENABLE_RUST_SDK_BACKEND` and
-   `RUST_SDK_E2EE_WIRED` are defined AND the active backend is
-   `rust`, `supportsE2ee` returns true. Any other combination
-   returns false. Do not add a runtime override that flips this to
-   true without recompiling.
+   has verified encrypted read/send. When both
+   `ENABLE_RUST_SDK_BACKEND` and `RUST_SDK_E2EE_WIRED` are defined
+   AND the active backend is `rust`, `supportsE2ee` returns true. Any
+   other combination returns false. Do not add a runtime override that
+   flips this to true without recompiling.
 
 ## Initial sync capability (v0.4.6)
 

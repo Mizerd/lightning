@@ -2,16 +2,15 @@
 
 #include "matrix/MatrixClient.h"
 
+#include <QHash>
+#include <QPair>
+#include <QTimer>
+
 class SettingsManager;
 
-// v0.4 scaffold: implements the MatrixClient interface by delegating to the
-// Rust FFI in rust/. Currently reports backend identity/version through the
-// FFI but does not talk to a homeserver — login/sync/send are stubbed so
-// the UI shows an honest "backend present, not feature complete" state.
-//
-// Full login/sync/E2EE wiring is a follow-up task tracked in
-// docs/roadmap.md. Only ever constructed when ENABLE_RUST_SDK_BACKEND is
-// defined.
+// QObject/C++ wrapper for the Matrix Rust SDK bridge. QML and models still
+// talk only to MatrixClient; Rust owns the SDK client, async work, and SDK
+// SQLite store behind the C ABI.
 class RustSdkMatrixClient final : public MatrixClient
 {
     Q_OBJECT
@@ -26,31 +25,29 @@ public:
     bool    rustSupportsE2ee() const;
 
     // MatrixClient interface -------------------------------------------------
-    // All operations are stubbed for the v0.4 scaffold. Sends emit
-    // errorOccurred; queries return empty. This is honest — the client is
-    // present but does not do the work yet.
     void login(const QString &homeserver,
                const QString &user,
                const QString &password) override;
     void logout() override;
     bool restoreSession() override;
-    bool isLoggedIn() const override { return false; }
-    QString currentUserId() const override { return {}; }
-    QString homeserverUrl() const override { return {}; }
+    bool isLoggedIn() const override { return m_loggedIn; }
+    QString currentUserId() const override { return m_userId; }
+    QString homeserverUrl() const override { return m_homeserver; }
 
     void startSync() override;
     void stopSync() override;
-    ConnectionState connectionState() const override { return Disconnected; }
+    ConnectionState connectionState() const override { return m_state; }
+    bool initialSyncDone() const override { return m_initialSyncDone; }
 
-    QList<RoomInfo> rooms() const override { return {}; }
-    QList<TimelineEvent> timeline(const QString &) const override { return {}; }
+    QList<RoomInfo> rooms() const override;
+    QList<TimelineEvent> timeline(const QString &roomId) const override;
 
-    QString displayNameFor(const QString &, const QString &) const override { return {}; }
-    QString avatarMxcFor(const QString &, const QString &) const override { return {}; }
-    QStringList typingUsersFor(const QString &) const override { return {}; }
+    QString displayNameFor(const QString &roomId, const QString &userId) const override;
+    QString avatarMxcFor(const QString &roomId, const QString &userId) const override;
+    QStringList typingUsersFor(const QString &roomId) const override;
 
-    QUrl mediaDownloadUrl(const QString &) const override { return {}; }
-    QUrl mediaThumbnailUrl(const QString &, int, int, bool) const override { return {}; }
+    QUrl mediaDownloadUrl(const QString &mxcUrl) const override;
+    QUrl mediaThumbnailUrl(const QString &mxcUrl, int width, int height, bool crop) const override;
 
     void sendTextMessage(const QString &roomId, const QString &body) override;
     void sendReply(const QString &roomId,
@@ -75,7 +72,43 @@ public:
     bool paginating(const QString &) const override { return false; }
 
 private:
+    struct PendingSend {
+        QString roomId;
+        QString localEventId;
+    };
+
     void refuseSend(const char *op);
+    void setState(ConnectionState state);
+    void setInitialSyncDone(bool done);
+    void clearLocalState(bool clearPersisted);
+    void ensurePollTimer();
+    bool ensureRustHandleForUser(const QString &userIdForStore);
+    QString rustStorePathForUser(const QString &userIdForStore) const;
+    void pollRustEvents();
+    void handleRustEvent(const QJsonObject &event);
+    void handleRoomsEvent(const QJsonArray &rooms);
+    void handleTimelineEvent(const QJsonObject &event);
+    void handleSendOk(const QJsonObject &event);
+    void handleSendFailed(const QJsonObject &event);
+    QString nextTxnId();
+    bool isRoomEncrypted(const QString &roomId) const;
+    TimelineEvent buildOwnEcho(const QString &roomId,
+                               const QString &body,
+                               TimelineEvent::Type type) const;
+    void failPendingSend(const QString &transactionId, const QString &message);
 
     SettingsManager *m_settings;
+    void *m_rustHandle = nullptr;
+    QString m_storePath;
+    QString m_homeserver;
+    QString m_userId;
+    QString m_deviceId;
+    bool m_loggedIn = false;
+    ConnectionState m_state = Disconnected;
+    bool m_initialSyncDone = false;
+    QTimer m_pollTimer;
+    QHash<QString, RoomInfo> m_rooms;
+    QHash<QString, QList<TimelineEvent>> m_timelines;
+    QHash<QString, PendingSend> m_pendingSends;
+    quint64 m_txnCounter = 0;
 };

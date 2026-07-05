@@ -12,11 +12,6 @@ name = "matrix_client_rust"
 # cdylib would require runtime loader plumbing we do not need here.
 crate-type = ["staticlib"]
 
-# v0.5.0-prep: no matrix-sdk dependency yet. See docs/next-prompts.md for
-# the wiring recipe. Adding the crate is blocked at the environment level
-# by the untrusted-code-integration classifier — the user needs to add a
-# project-scoped Bash permission rule for `nix develop -c cargo *` inside
-# `rust/` before the next attempt.
 [dependencies]
 matrix-sdk = { version = "0.18", default-features = false, features = ["e2e-encryption", "sqlite"] }
 once_cell = "1"

@@ -46,12 +46,21 @@ Expected configure output includes:
 
 ```
 -- libsecret-1 found (…) — enabling native secure storage
+-- Found SQLite3: …
 -- Rust SDK backend enabled (cargo profile: debug)
 ```
 
 The Rust crate at `rust/` builds a `libmatrix_client_rust.a` static
-library which is linked into the C++ binary. There is no matrix-sdk
-dependency yet — the crate is a small C ABI shim.
+library which is linked into the C++ binary. CMake invokes Cargo with
+`--offline --locked`, so the Rust-enabled build uses the committed
+`Cargo.lock` and the already-fetched local crate cache.
+
+Rust-only offline check:
+
+```bash
+cd rust
+nix develop -c cargo build --release --offline
+```
 
 ## Smoke tests
 
@@ -65,9 +74,13 @@ nix develop -c bash -lc 'QT_QPA_PLATFORM=offscreen timeout 3 ./build/matrix-clie
 nix develop -c bash -lc 'QT_QPA_PLATFORM=offscreen timeout 3 ./build/matrix-client --backend=http'
 nix develop -c bash -lc 'QT_QPA_PLATFORM=offscreen ./build/matrix-client --backend=rust'   # exits 2 with a clean message
 nix develop -c bash -lc 'QT_QPA_PLATFORM=offscreen ./build/matrix-client --backend=bogus'  # exits 2 with a clean message
+nix develop -c bash -lc './build/matrix-client --http || true'
+nix develop -c bash -lc './build/matrix-client --rust || true'
 
 # Rust build
 nix develop -c bash -lc 'QT_QPA_PLATFORM=offscreen timeout 3 ./build-rust/matrix-client --backend=rust'
+nix develop -c bash -lc './build-rust/matrix-client --reset-crypto-store || true'
+nix develop -c bash -lc './build-rust/matrix-client --version'
 ```
 
 Pre-flight validation runs before QGuiApplication in `src/main.cpp`,
@@ -189,15 +202,26 @@ Any credentials work. Mock rooms appear immediately. Verify:
 nix develop -c ./build-rust/matrix-client --backend=rust
 ```
 
-- Settings screen shows "Crypto backend: Matrix Rust SDK backend
-  (scaffold). Compiled in but not yet feature-complete — login/sync/
-  crypto are not wired."
-- Login sub-heading on the login screen says "Rust backend scaffold
-  — login is not wired yet".
-- Attempt login: "Rust SDK backend scaffold present but login is not
-  wired in v0.5.0-prep. matrix-sdk is not linked in yet — see
-  docs/next-prompts.md. Use --backend=http for a working session."
-- All send operations refuse cleanly.
+- Settings screen shows that the Rust backend is active, but E2EE is
+  not verified/supported.
+- Login against a real homeserver. Expected path:
+  `Not connected` → `Connecting…` → `Loading rooms…` → `Connected`.
+- The Rust SDK store is created at
+  `${XDG_DATA_HOME}/matrix-client/<safeUserId>/matrix-rust-sdk-store/`.
+  This directory is separate from the C++ `cache.sqlite`.
+- Joined rooms should appear after the first SDK sync callback.
+- Basic text/notice/emote timeline events should appear as SDK events
+  arrive. If the SDK emits a decrypted encrypted text event, Lightning
+  shows the decrypted body; otherwise E2EE is not claimed and no fake
+  placeholder is converted into plaintext.
+- Sending plain text in an unencrypted room should create a local echo
+  and then replace it with the server event id.
+- Sending into an encrypted room must fail with a clear error until
+  encrypted send is verified and `CryptoManager::supportsE2ee()` is
+  deliberately enabled.
+- Replies, edits, redactions, reactions, media, pagination, typing,
+  read receipts, and Space child hierarchy are still HTTP-only or
+  missing in Rust.
 
 ### `--reset-crypto-store`
 
@@ -206,32 +230,23 @@ nix develop -c ./build-rust/matrix-client --backend=rust
 ```
 
 Recognised in the pre-flight parser (works with or without the
-`build-rust` binary — no display needed). In v0.5.0-prep this is an
-honest no-op:
+`build-rust` binary — no display needed). It deletes only per-account
+Rust SDK store directories:
 
 ```
-matrix-client --reset-crypto-store (v0.5.0-prep, read-only)
+matrix-client --reset-crypto-store
 
 Base:    /home/…/.local/share/matrix-client
 
-No Rust SDK crypto store directories found.
-matrix-sdk is not linked into this build yet, so no
-store has been created for any account. When the SDK
-is wired in (see docs/next-prompts.md Prompt 1), this
-command becomes destructive and removes the per-account
-'matrix-rust-sdk-store' directory only. It will never
-touch cache.sqlite or the SecretStore access token.
+No Rust SDK store directories found.
 ```
 
 If any account directory already contains a
-`matrix-rust-sdk-store/`, the flag lists it under `Would delete:`
-without actually deleting anything (still v0.5.0-prep behaviour;
-becomes destructive once the SDK is wired in).
-
-Exit code 0. When matrix-sdk is wired in the follow-up pass, the
-flag becomes the destructive reset it advertises — it will delete
-the per-account Rust SDK store directory but never touch
-`cache.sqlite` or the SecretStore token.
+`matrix-rust-sdk-store/`, the flag deletes that directory and lists it
+under `Deleted:`. It never removes `${safeUserId}/cache.sqlite`, never
+touches QSettings session metadata, and never touches SecretStore
+access tokens. Exit code 0 when nothing is found or deletion succeeds;
+exit code 3 if a store directory cannot be removed.
 
 ## Troubleshooting
 

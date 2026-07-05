@@ -180,6 +180,8 @@ endif()
 # `cmake -B build` never requires the Rust toolchain.
 # ---------------------------------------------------------------------------
 if(ENABLE_RUST_SDK_BACKEND)
+    find_package(SQLite3 REQUIRED)
+
     find_program(CARGO_EXECUTABLE cargo)
     if(NOT CARGO_EXECUTABLE)
         message(FATAL_ERROR
@@ -205,8 +207,12 @@ if(ENABLE_RUST_SDK_BACKEND)
         COMMAND ${CMAKE_COMMAND} -E env
             CARGO_TARGET_DIR=${_rust_out_dir}
             ${CARGO_EXECUTABLE} build ${_cargo_profile_flag}
+                --offline --locked
                 --manifest-path ${_rust_dir}/Cargo.toml
-        DEPENDS ${_rust_dir}/src/lib.rs ${_rust_dir}/Cargo.toml
+        DEPENDS ${_rust_dir}/src/lib.rs
+                ${_rust_dir}/include/matrix_rust.h
+                ${_rust_dir}/Cargo.toml
+                ${_rust_dir}/Cargo.lock
         COMMENT "Building Rust SDK backend (cargo ${_cargo_profile})"
         VERBATIM
     )
@@ -220,7 +226,7 @@ if(ENABLE_RUST_SDK_BACKEND)
         INTERFACE_INCLUDE_DIRECTORIES "${_rust_dir}/include"
     )
 
-    target_link_libraries(matrix-client PRIVATE matrix-client-rust)
+    target_link_libraries(matrix-client PRIVATE matrix-client-rust SQLite::SQLite3)
     if(UNIX AND NOT APPLE)
         # Rust static libs typically pull in libdl / libpthread / libm at
         # some scale — link them defensively so growing the Rust surface

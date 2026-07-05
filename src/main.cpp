@@ -54,6 +54,7 @@ struct PreflightResult {
         Continue,      // proceed with normal startup
         ExitSuccess,   // e.g. --help emitted, exit 0
         ExitError,     // bad argument, exit 2
+        ExitResetError, // --reset-crypto-store failed, exit 3
     };
     Action action = Continue;
     AppController::Backend backend = AppController::HttpBackend;
@@ -84,13 +85,13 @@ PreflightResult preflightParse(int argc, char *argv[])
                 "  --backend=NAME       Backend to use. NAME is one of:\n"
                 "                         mock  — in-memory, hardcoded rooms\n"
                 "                         http  — Matrix Client-Server HTTP API (default)\n"
-                "                         rust  — Matrix Rust SDK scaffold (v0.5.0-prep;\n"
+                "                         rust  — Matrix Rust SDK backend foundation;\n"
                 "                                 requires -DENABLE_RUST_SDK_BACKEND=ON\n"
-                "                                 at build time; login not wired yet)\n"
-                "  --reset-crypto-store Delete the Rust SDK crypto store for the last\n"
-                "                       signed-in account (safe no-op in v0.5.0-prep,\n"
-                "                       since matrix-sdk is not yet linked). Exit code 0\n"
-                "                       when nothing to delete; exit code 3 on error.\n"
+                "                                 at build time)\n"
+                "  --reset-crypto-store Delete per-account Rust SDK stores under\n"
+                "                       ${XDG_DATA_HOME}/matrix-client/*/matrix-rust-sdk-store.\n"
+                "                       It never touches cache.sqlite or SecretStore tokens.\n"
+                "                       Exit code 0 when nothing is found; exit code 3 on error.\n"
                 "\n"
                 "See docs/build-and-test.md and docs/backend-contract.md for details.\n");
             return r;
@@ -105,12 +106,6 @@ PreflightResult preflightParse(int argc, char *argv[])
             continue;
         }
         if (a == QLatin1String("--reset-crypto-store")) {
-            // v0.5.0-prep: read-only diagnostic. When matrix-sdk lands, this
-            // will delete `<per-account>/matrix-rust-sdk-store/`. Right now
-            // no store can exist yet, so we walk the accounts directory,
-            // list what's there, and honestly report that there's nothing
-            // crypto-related to reset. This is safer than pretending we
-            // deleted something.
             r.action = PreflightResult::ExitSuccess;
 
             // Resolve the same XDG_DATA_HOME the app itself uses via
@@ -130,7 +125,8 @@ PreflightResult preflightParse(int argc, char *argv[])
             const std::string accountsDir = base + "/matrix-client";
             const QString accountsDirQ = QString::fromStdString(accountsDir);
 
-            QString stores;
+            QString deleted;
+            QString failed;
             QDir accountsQDir(accountsDirQ);
             if (accountsQDir.exists()) {
                 const auto accounts = accountsQDir.entryList(
@@ -140,32 +136,31 @@ PreflightResult preflightParse(int argc, char *argv[])
                                                 + QLatin1Char('/') + acct
                                                 + QLatin1String("/matrix-rust-sdk-store");
                     if (QFileInfo::exists(cryptoPath)) {
-                        stores += QStringLiteral("    %1  (WOULD DELETE)\n").arg(cryptoPath);
+                        QDir storeDir(cryptoPath);
+                        if (storeDir.removeRecursively()) {
+                            deleted += QStringLiteral("    %1\n").arg(cryptoPath);
+                        } else {
+                            failed += QStringLiteral("    %1\n").arg(cryptoPath);
+                        }
                     }
                 }
             }
 
             r.stdoutMsg = QStringLiteral(
-                "matrix-client --reset-crypto-store (v0.5.0-prep, read-only)\n"
+                "matrix-client --reset-crypto-store\n"
                 "\n"
                 "Base:    %1\n"
                 "\n").arg(accountsDirQ);
-            if (stores.isEmpty()) {
+            if (!deleted.isEmpty())
+                r.stdoutMsg += QStringLiteral("Deleted:\n%1\n").arg(deleted);
+            if (deleted.isEmpty() && failed.isEmpty()) {
                 r.stdoutMsg += QStringLiteral(
-                    "No Rust SDK crypto store directories found.\n"
-                    "matrix-sdk is not linked into this build yet, so no\n"
-                    "store has been created for any account. When the SDK\n"
-                    "is wired in (see docs/next-prompts.md Prompt 1), this\n"
-                    "command becomes destructive and removes the per-account\n"
-                    "'matrix-rust-sdk-store' directory only. It will never\n"
-                    "touch cache.sqlite or the SecretStore access token.\n");
-            } else {
-                r.stdoutMsg += QStringLiteral(
-                    "Would delete:\n%1\n"
-                    "(But this is v0.5.0-prep: matrix-sdk is not linked yet,\n"
-                    "so the directory above almost certainly came from a\n"
-                    "future build. Nothing is being deleted right now.)\n"
-                    ).arg(stores);
+                    "No Rust SDK store directories found.\n");
+            }
+            if (!failed.isEmpty()) {
+                r.action = PreflightResult::ExitResetError;
+                r.stderrMsg = QStringLiteral(
+                    "Failed to delete Rust SDK store directories:\n%1").arg(failed);
             }
             return r;
         }
@@ -264,6 +259,11 @@ int main(int argc, char *argv[])
     if (pf.action == PreflightResult::ExitError) {
         QTextStream(stderr) << pf.stderrMsg;
         return 2;
+    }
+    if (pf.action == PreflightResult::ExitResetError) {
+        QTextStream(stdout) << pf.stdoutMsg;
+        QTextStream(stderr) << pf.stderrMsg;
+        return 3;
     }
 
     // Second preflight: refuse to construct QGuiApplication when no display

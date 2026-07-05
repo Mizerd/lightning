@@ -59,7 +59,7 @@ public:
 
     // True if this build actually contains an implementation for the given
     // backend. main.cpp uses this to reject --backend=rust cleanly when the
-    // Rust scaffold was not compiled in.
+    // Rust backend was not compiled in.
     static bool isBackendCompiled(Backend backend);
 
     explicit AppController(Backend backend = HttpBackend, QObject *parent = nullptr);

@@ -38,7 +38,7 @@ Item {
                     if (app.backendName === "mock")
                         return qsTr("Mock backend — any credentials work")
                     if (app.backendName === "rust")
-                        return qsTr("Rust backend scaffold — login is not wired yet")
+                        return qsTr("Rust SDK backend — E2EE is not verified yet")
                     return qsTr("HTTP backend — sign in with your Matrix account")
                 }
                 color: AppTheme.textMuted

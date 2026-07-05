@@ -42,234 +42,132 @@ the `MessageDelegate` no longer prints `QML Column: Cannot specify
 says `Connected` once initial sync is done + long-poll is the
 steady state.
 
-**As of v0.5.0-prep, the C++ side is ready to host matrix-sdk**:
-version label bumped, `--reset-crypto-store` CLI recognised,
-`RustSdkMatrixClient` refusal messages updated, docs sweep. What
-remains is wiring the actual crate — see the new Prompt 1 below,
-which supersedes the previous multi-account-first plan for v0.5.
+**As of the current v0.5.0-prep foundation pass, matrix-sdk is linked
+and the optional Rust backend has real login/restore/sync/plain text
+send plumbing.** E2EE is still deliberately disabled:
+`CryptoManager::supportsE2ee()` returns false, encrypted sends are
+blocked, and encrypted read/send must be verified against a real
+homeserver before the UI may claim support.
 
-Ordering rationale: real E2EE unblocks the majority of user-visible
-"encrypted rooms show placeholders" complaints. Multi-account,
-SSO/OIDC, authenticated media, key backup, and sliding sync are all
-downstream of matrix-sdk being linked in — do that first.
+Ordering rationale: first harden the Rust backend against the test
+homeserver with unencrypted rooms and session restore. Then add
+encrypted read/send and flip the E2EE gate only after real encrypted
+round trips work.
 
 ---
 
-## Prompt 1 — Wire matrix-sdk end-to-end for E2EE
+## Prompt 1 — Verify and harden the Rust backend foundation
 
-**Precondition — this is a HARD classifier boundary, not a
-settings-fixable check.** Three attempts to `cargo fetch matrix-sdk`
-from inside Claude Code have now been blocked (v0.5.0-prep, a
-follow-up retry, and a post-`.claude/settings.local.json` retry).
-The classifier's own message on the third attempt reads:
+Continue from `main`. Do not create a branch. Do not refetch crates
+unless a real build error proves the committed lockfile/cache is
+insufficient.
 
-> user-level authorization in prompts cannot clear this HARD-style
-> boundary and prior attempts were correctly blocked.
-
-That is: `.claude/settings.local.json` allow-lists do NOT override
-this specific rule. The Untrusted-Code-Integration policy fires
-because `matrix-sdk` is a ~500-crate transitive graph pulled from
-crates.io and linked statically into the shipping binary, and
-Claude Code refuses to auto-approve that no matter what the local
-project settings say.
-
-### Paths that actually work
-
-Pick one:
-
-1. **Run Claude Code with `--dangerously-skip-permissions`** for
-   this specific session. This is the documented escape hatch for
-   the auto-mode classifier. Once the flag is on, the same
-   settings-file allow-list this project already has kicks in and
-   the below steps run to completion. This is the recommended
-   path.
-
-2. **Fetch and build once yourself, then hand me `Cargo.lock`.**
-   From your own shell (not Claude Code):
-   ```bash
-   cd /home/roksme/git/lightning/rust
-   # 1. Paste the matrix-sdk deps into Cargo.toml (see below).
-   nix develop -c cargo fetch
-   nix develop -c cargo build --release
-   git add Cargo.toml Cargo.lock
-   git commit -m "rust: pull matrix-sdk deps"
-   ```
-   After that a subsequent Claude Code pass can run
-   `cargo build --offline` (which the classifier does tolerate,
-   since no external code is being fetched anew) and do the FFI
-   wiring work.
-
-3. **Do the full integration yourself in your shell**, then have
-   Claude Code review and refactor. This is the most conservative
-   option and how you'd land it if the E2EE work took multiple
-   evenings.
-
-Once one of the above unblocks the fetch, everything below is the
-recipe Claude Code follows.
-
-### 1. Cargo.toml (paste-ready)
-
-Replace `rust/Cargo.toml` `[dependencies]` with:
-
-```toml
-[dependencies]
-matrix-sdk = { version = "0.18", default-features = false, features = [
-    "rustls-tls",
-    "e2e-encryption",
-    "sqlite",
-] }
-tokio = { version = "1", default-features = false, features = [
-    "rt-multi-thread",
-    "macros",
-    "sync",
-] }
-serde        = { version = "1", features = ["derive"] }
-serde_json   = "1"
-```
-
-Bump `[package].version` to `"0.5.0"`. Confirm build:
+Start with:
 
 ```bash
+cd /home/roksme/git/lightning
+git status
+git pull --ff-only origin main
 cd rust
-timeout 900 nix develop -c cargo build --release
+nix develop -c cargo build --release --offline
+cd ..
 ```
 
-Expected: 5-15 minutes from cold, ~700 MB of `.cargo/target/`,
-final `libmatrix_client_rust.a` around 60-120 MB (LTO release).
+Read:
 
-If Nix cannot resolve OpenSSL system libs even with `rustls-tls`,
-add `pkgs.openssl` to `flake.nix` `buildInputs` as a fallback. Do
-NOT switch to `default-features = true` — the extra features drag
-in async-runtime dependencies we don't want.
-
-### 2. FFI expansion
-
-Grow `rust/src/lib.rs` to expose (via C ABI, hand-authored — do NOT
-introduce cbindgen in the same pass):
-
-```c
-/* Session lifecycle. */
-void*  mx_rust_create(const char *store_path);
-void   mx_rust_destroy(void *client);
-char*  mx_rust_login(void *client,
-                     const char *homeserver,
-                     const char *user,
-                     const char *password);   /* returns "" on ok, "error:…" on fail */
-char*  mx_rust_restore(void *client,
-                       const char *homeserver,
-                       const char *user,
-                       const char *device_id,
-                       const char *access_token);
-void   mx_rust_logout(void *client);
-
-/* Sync loop. */
-void   mx_rust_start_sync(void *client);
-void   mx_rust_stop_sync(void *client);
-
-/* Event queue polled from the C++ side on a QTimer. Rust runs its
- * Tokio runtime on a dedicated thread and enqueues serialised JSON
- * events; C++ dequeues on the main thread and turns each into a
- * MatrixClient signal. This avoids cross-thread callbacks. */
-char*  mx_rust_poll_event(void *client);      /* returns "" when queue empty */
-
-/* Sending. */
-char*  mx_rust_send_text(void *client,
-                         const char *room_id,
-                         const char *body);   /* returns "" on ok, "error:…" on fail */
-
-/* Capability. */
-int    mx_rust_supports_e2ee(void *client);   /* now returns 1 */
+```bash
+cat CLAUDE.md 2>/dev/null || true
+cat README.md
+cat docs/current-state.md
+cat docs/backend-contract.md
+cat docs/matrix-feature-status.md
+cat docs/build-and-test.md
+cat docs/architecture.md
+cat docs/threat-model.md
 ```
 
-The `create(store_path)` argument must point at a per-account,
-account-scoped directory — the C++ side picks
-`${XDG_DATA_HOME}/matrix-client/<safeUserId>/matrix-rust-sdk-store/`
-before calling create. See `SecretStore::LibSecretStore` /
-`CacheStore::openFor` for the safeUserId convention (already
-implemented in v0.4).
+Task:
 
-Panic isolation: wrap every FFI entry point in
-`std::panic::catch_unwind` and turn any panic into an `"error:…"`
-return string. Never let a Rust panic abort the whole Qt app.
+1. Build clean default and Rust-enabled trees:
+   ```bash
+   rm -rf build build-rust
+   nix develop -c cmake -S . -B build -G Ninja
+   nix develop -c cmake --build build
+   nix develop -c cmake -S . -B build-rust -G Ninja -DENABLE_RUST_SDK_BACKEND=ON
+   nix develop -c cmake --build build-rust
+   ```
+2. Run all smoke tests from `docs/build-and-test.md`.
+3. Manually test `./build-rust/matrix-client --backend=rust` against
+   the disposable homeserver account documented in
+   `docs/build-and-test.md`:
+   - password login succeeds or fails with a useful Matrix SDK error;
+   - session restore works after relaunch;
+   - joined room list appears;
+   - basic text timeline events appear;
+   - unencrypted text send creates local echo then server event id;
+   - encrypted room send is blocked;
+   - E2EE status remains false.
+4. Fix the smallest concrete bugs found. Likely areas:
+   - store path when login input is a localpart instead of a full MXID;
+   - sync-loop cancellation and restart;
+   - duplicate timeline events after local echo replacement;
+   - room display names/avatars/unread counts from SDK metadata;
+   - useful status/error propagation to C++ without logging tokens or
+     message bodies.
+5. Keep HTTP and mock untouched except for build break fixes.
+6. Update docs with verified manual results.
+7. Commit and push:
+   ```bash
+   git status
+   git add .
+   git commit -m "Harden Matrix Rust SDK backend foundation"
+   git push origin main
+   ```
 
-### 3. C++ side changes
+Do not flip `CryptoManager::supportsE2ee()` in this prompt.
 
-- `src/matrix/RustSdkMatrixClient.{h,cpp}` gains a `QTimer` (250 ms)
-  that calls `mx_rust_poll_event()` and dispatches each JSON blob
-  to the correct existing `MatrixClient` signal (`eventAppended`,
-  `roomsChanged`, `eventEdited`, etc.). No new interface signals.
-- `login()` / `restoreSession()` / `sendTextMessage()` /
-  `startSync()` / `stopSync()` now call the FFI instead of
-  refusing. Encrypted-room sends must NOT be blocked at the
-  composer — the SDK does its own encryption.
-- On `login()` success, persist `(homeserver, userId, deviceId,
-  access_token)` via `SettingsManager::saveSession` +
-  `SecretStore` as usual. Access tokens NEVER go into the
-  Rust SDK's sqlite store nor into the app's `CacheStore.sqlite`.
-- `CryptoManager::supportsE2ee()` — flip the gate:
-  ```cpp
-  #ifdef ENABLE_RUST_SDK_BACKEND
-  #  ifdef RUST_SDK_E2EE_WIRED
-      return m_backendName == QLatin1String("rust");
-  ```
-  and define `RUST_SDK_E2EE_WIRED` in `CMakeLists.txt` in the
-  Rust-enabled branch.
+## Prompt 2 — Add initial encrypted read/send via Matrix Rust SDK
 
-### 4. Store paths + reset
+Precondition: Prompt 1 has manually verified Rust login, restore, room
+sync, basic timeline, and unencrypted send on a real homeserver.
 
-Confirm `--reset-crypto-store` (already stubbed in v0.5.0-prep)
-actually walks `${XDG_DATA_HOME}/matrix-client/*/matrix-rust-sdk-store/`
-and deletes it. Never delete the SQLite CacheStore (which is
-non-secret display cache) as part of a crypto reset — those are
-separate. Update the CLI help text to drop the "safe no-op"
-disclaimer.
+Goal: make encrypted rooms work through matrix-sdk without manual C++
+crypto. Keep QML isolated from Rust and keep HTTP/mock unchanged.
 
-### 5. QML changes
+Task:
 
-None. The existing TimelineModel signals + MessageComposer +
-RoomListModel cover everything. If the SDK's decrypted messages
-arrive via the same `eventAppended` path the HTTP backend uses,
-QML is transparent to the source.
+1. Audit current SDK event handling for encrypted rooms. Only show
+   plaintext when matrix-sdk emits a decrypted `m.room.message`; never
+   manufacture decrypted bodies in C++.
+2. Wire encrypted text send through the SDK. Remove the encrypted-room
+   send block only after the SDK path sends a real encrypted event.
+3. Handle honest failure modes:
+   - unable to decrypt;
+   - missing room key;
+   - device not verified;
+   - store open failure.
+4. Add the smallest UI/status plumbing needed to distinguish
+   "encrypted but not decryptable" from "E2EE not supported".
+5. Verify manually:
+   - send encrypted text from Lightning, read it in Element;
+   - send encrypted text from Element, read it in Lightning;
+   - restore session and read/send again;
+   - logout does not leak tokens or key material into C++ cache.
+6. Only after both encrypted read and encrypted send work, define
+   `RUST_SDK_E2EE_WIRED` in the Rust-enabled CMake path and let
+   `CryptoManager::supportsE2ee()` return true for active backend
+   `rust`.
+7. Update README and docs. Commit:
+   ```bash
+   git commit -m "Add initial E2EE support via Matrix Rust SDK"
+   ```
 
-### 6. Verification
-
-Manual test against `@test:matrix.smetonis.net` (see
-`docs/build-and-test.md` — password interactive-only):
-
-- Login. `matrix.rust:` log line should announce `store_path=…`,
-  session id (redacted), and initial sync starting.
-- Open the encrypted room. Messages that the SDK can decrypt
-  should render as normal text (no `[encrypted message]`
-  placeholder). Messages it cannot yet decrypt (e.g. history from
-  before this device joined) still render placeholder — see the
-  honesty caveat in `docs/matrix-feature-status.md`.
-- Send a text message into the encrypted room from Lightning.
-  Verify Element (or another Matrix client on the same account)
-  sees it as a normal decrypted message.
-- Send from Element. Verify Lightning receives + decrypts it.
-- Session restore + logout must still work.
-
-Do NOT claim v0.5.0 "done" unless both directions of encrypted
-send/receive work against a real homeserver. If they don't, land a
-partial `v0.5.0-alpha` with the SDK linked but E2EE gate still
-`false`.
-
-### 7. What NOT to do in this pass
-
-- No SAS device verification UI.
-- No key backup / secret storage / cross-signing UI.
-- No sliding sync.
-- No multi-account.
-- No authenticated media.
-- No QML redesign.
-- No changing the SQLite `CacheStore` schema.
-
-Those are all downstream prompts; opening any of them here risks
-turning a bounded matrix-sdk landing into an unbuildable mess.
+Do not add SAS verification, key backup, cross-signing UI, sliding
+sync, multi-account, authenticated media, or QML redesign in this pass.
 
 ---
 
-## Prompt 2 (previously "Prompt 1", superseded — landed in v0.4.5)
+## Archived prompt — Space/thread cache persistence landed in v0.4.5
 
 Formerly "Persist Space + thread metadata in CacheStore". Landed in
 v0.4.5:
@@ -283,7 +181,7 @@ v0.4.5:
 - No interface change, no QML change.
 
 The full task text is preserved below for archival reference. It is no
-longer the recommended next step — jump to Prompt 2.
+longer a recommended next step.
 
 <details>
 <summary>Archived (do not run — already applied)</summary>
@@ -335,7 +233,7 @@ Do NOT touch the interface. Do NOT touch QML. Do NOT change
 
 ---
 
-## Prompt 2 — Multi-account foundation (data model + switcher UI)
+## Prompt 3 — Multi-account foundation (data model + switcher UI)
 
 Currently `AccountManager` tracks the single active user id. To land
 multi-account safely in one pass:
@@ -377,7 +275,7 @@ switching between them; both room lists should be independent.
 
 ---
 
-## Prompt 3 — SSO login via system browser
+## Prompt 4 — SSO login via system browser
 
 Password-only auth is limiting for homeservers that require SSO. Task:
 
@@ -399,28 +297,6 @@ Password-only auth is limiting for homeservers that require SSO. Task:
    `app.auth.supportsSsoLogin`.
 
 Do **not** flip `CryptoManager::supportsE2ee`. SSO does not imply E2EE.
-
----
-
-## Prompt 4 — Small Rust step: wire matrix-sdk `Client::builder`
-
-The Rust scaffold currently has no `matrix-sdk` dependency. Trying to
-pull the whole SDK in one pass is unstable. Small step:
-
-1. In `rust/Cargo.toml`, add `matrix-sdk = { version = "…", default-features = false, features = ["rustls-tls"] }`. Use the latest that builds in Nix cleanly.
-2. In `rust/src/lib.rs`, add:
-   - `mx_rust_login(homeserver: *const c_char, user: *const c_char, password: *const c_char) -> *mut c_char` — build a `Client`, log in, return the resulting `user_id` as a heap string. On failure, return an error string prefixed with `"error: "`. Do not panic — catch every `Result` and translate.
-3. Extend `rust/include/matrix_rust.h`.
-4. In `src/matrix/RustSdkMatrixClient.cpp`, call `mx_rust_login` from
-   `login()`. Emit `loginSucceeded` on success, `loginFailed` with the
-   error string otherwise. Do not emit `loggedOut` on failure.
-5. Only if all of the above compiles and passes smoke tests in **both**
-   `nix develop` build modes, commit. If the matrix-sdk build fails in
-   Nix (missing OpenSSL headers, git deps, etc), stop and document
-   what you learned — do not commit a half-wired FFI.
-
-Do **not** flip `CryptoManager::supportsE2ee` or define
-`RUST_SDK_E2EE_WIRED` in this step — login alone is not encryption.
 
 ---
 

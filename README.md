@@ -12,40 +12,31 @@ across the rename. The product name is **Lightning**.
 
 ## Status
 
-**v0.5.0-prep** — v0.5 groundwork on the C++ side. No E2EE yet.
+**v0.5.0-prep** — Matrix Rust SDK backend foundation. No E2EE claim yet.
 
-The v0.4.x stabilisation window closed with v0.4.8 (all HTTP-backend
-regressions triaged: login transition, sync bring-up, cache
-constraint spam, QML anchor warnings, `Connected` status text). The
-v0.5 headline goal is real E2EE via the Matrix Rust SDK. This pass
-lands the C++ / QML groundwork for that plus the `--reset-crypto-store`
-CLI hook, without pulling `matrix-sdk` into `rust/Cargo.toml` yet
-(that step needs explicit user authorization for ~500 transitive
-crates from crates.io and a ~15-minute from-scratch link — it lives
-in its own gated follow-up pass, see
-[`docs/next-prompts.md`](docs/next-prompts.md) Prompt 1).
+The default HTTP backend remains the working production path. This pass
+links `matrix-sdk` v0.18 into the optional Rust backend and wires a real
+Rust-owned SDK client behind the existing C++ `MatrixClient` seam:
+login, session restore, joined-room sync, room-list events, basic text
+timeline events, and plain text sends for unencrypted rooms. QML still
+talks only to C++ models and signals.
 
-**New in v0.5.0-prep:**
+**New in this pass:**
 
-- Version label bumped from `0.4.0` to `0.5.0-prep`. Window title,
-  `--version`, and `--help` output all reflect this.
-- `--reset-crypto-store` CLI: recognised, honest no-op today (prints
-  the future store path under
-  `${XDG_DATA_HOME}/matrix-client/<safeUserId>/matrix-rust-sdk-store/`
-  and exits 0). When `matrix-sdk` lands, this flag becomes the
-  destructive reset it advertises.
-- Rust FFI status strings and `RustSdkMatrixClient` refusal messages
-  updated to name `v0.5.0-prep` instead of `v0.4`, and point at
-  `docs/next-prompts.md` for the wiring step. No behaviour change —
-  login and every send still refuse honestly.
-- Documentation sweep: `docs/next-prompts.md` Prompt 1 is now the
-  full matrix-sdk-wiring recipe (feature flags, expected build
-  cost, FFI event-queue design, crypto-store isolation, exact QML
-  no-code changes).
+- `rust/` builds offline against the committed `Cargo.lock` and
+  `matrix-sdk` dependency.
+- `RustSdkMatrixClient` now owns the C++ wrapper state and polls a Rust
+  event queue via `QTimer`.
+- Rust owns the SDK client, async work, and SDK SQLite store under
+  `${XDG_DATA_HOME}/matrix-client/<safeUserId>/matrix-rust-sdk-store/`.
+- `--reset-crypto-store` now deletes only those Rust SDK store
+  directories. It never touches `cache.sqlite` or SecretStore tokens.
+- `CryptoManager::supportsE2ee()` still returns `false`. Encrypted
+  room sends remain blocked until encrypted read and send are verified
+  end to end.
 
-Everything below carried over from earlier passes. See
-[`docs/current-state.md`](docs/current-state.md) for the ground-truth
-snapshot.
+See [`docs/current-state.md`](docs/current-state.md) for the
+ground-truth snapshot.
 
 **Previously in v0.4.8** — Cache constraint repair, timeline-delegate anchor
 warning fixed, `Connected` status text, docs sweep.
@@ -124,7 +115,7 @@ The dev shell brings in Qt 6 (qtbase, qtdeclarative, qtsvg, qtwayland,
 qttools), CMake, Ninja, gcc, pkg-config, libsecret, glib,
 xkeyboard_config, rustc, cargo.
 
-Optional Rust SDK scaffold:
+Optional Rust SDK backend foundation:
 
 ```bash
 cmake -S . -B build-rust -G Ninja -DENABLE_RUST_SDK_BACKEND=ON
@@ -148,10 +139,14 @@ rm -rf build
 nix develop -c cmake -S . -B build -G Ninja
 nix develop -c cmake --build build
 
-# Full clean build with Rust SDK scaffold linked in.
+# Full clean build with Rust SDK backend linked in.
 rm -rf build-rust
 nix develop -c cmake -S . -B build-rust -G Ninja -DENABLE_RUST_SDK_BACKEND=ON
 nix develop -c cmake --build build-rust
+
+# Rust-only offline dependency check.
+cd rust
+nix develop -c cargo build --release --offline
 
 # Smoke tests (offscreen QPA — exit 124 = healthy).
 nix develop -c bash -lc 'QT_QPA_PLATFORM=offscreen timeout 3 ./build/matrix-client --mock'
@@ -175,7 +170,7 @@ start; no live switching.
 |---|---|
 | `mock` | In-memory hardcoded rooms, Space + threaded conversation demo, no network. `--mock` is an alias. Useful for offline UI work. |
 | `http` | Talks Matrix Client-Server API directly with `QNetworkAccessManager`. Password login, `/sync` long-poll, replies / edits / redactions / reactions / media / typing / receipts, Spaces + real `m.thread`. **Default.** No E2EE. |
-| `rust` | Scaffold that links a static Rust library from `rust/`. Reports backend name / version through a C ABI. Login and every send **refuse honestly** — the real Matrix Rust SDK is a v0.5+ target. Only built when `-DENABLE_RUST_SDK_BACKEND=ON`. |
+| `rust` | Optional Matrix Rust SDK backend foundation. Rust owns the SDK client/runtime/store; C++ polls FFI events and exposes them through existing models. Login/restore/sync/plain text send are wired; E2EE still reports unsupported and encrypted sends are blocked. Only built when `-DENABLE_RUST_SDK_BACKEND=ON`. |
 
 ---
 
@@ -202,10 +197,12 @@ Highlights:
 
 ## What is intentionally missing
 
-- Real E2EE — Olm/Megolm sessions, device verification, cross-signing,
-  secret storage. Ships via the Matrix Rust SDK in v0.5+. Lightning
-  will not hand-roll cryptography in C++.
-- Full Rust SDK integration — the scaffold links but refuses login.
+- Verified E2EE — encrypted-room read/send, device verification,
+  cross-signing, key backup, secret storage. Lightning will not
+  hand-roll cryptography in C++.
+- Full Rust SDK parity — pagination, replies, edits, reactions, media,
+  Spaces hierarchy, typing, receipts, and sliding sync are still missing
+  from the Rust backend.
 - SSO / OIDC / Matrix Authentication Service login. Password login
   works; SSO/OIDC placeholders are wired but do nothing.
 - Multi-account sync — `AccountManager` tracks a single active user.
@@ -267,7 +264,7 @@ for the full list. Common ones:
   spam on every message — fixed in v0.4.8. The `MessageDelegate`
   hover-catcher is now a `HoverHandler`, which is Column-safe.
 - **`--backend=rust` doesn't work in the default build** — Rust
-  scaffold is opt-in. Configure with
+  backend is opt-in. Configure with
   `-DENABLE_RUST_SDK_BACKEND=ON` and rebuild into `build-rust/`.
 
 ---
@@ -275,18 +272,17 @@ for the full list. Common ones:
 ## Next safe prompts
 
 Full list in [`docs/next-prompts.md`](docs/next-prompts.md). Recommended
-next single-pass step: **multi-account foundation** (data model + UI
-skeleton, single-active behaviour retained; full simultaneous sync
-deferred).
+next single-pass step: **verify and harden Rust backend login/sync
+against the real test homeserver**, then move to encrypted read/send.
 
 After that, in order:
 
-1. Multi-account foundation.
-2. SSO / OIDC login (system browser + local loopback callback).
-3. Small `matrix-sdk` step in the Rust scaffold: wire
-   `Client::builder` and `login`, keep `CryptoManager::supportsE2ee`
-   `false` until crypto is actually there.
-4. Authenticated media (`/_matrix/client/v1/media/*`).
+1. Rust backend manual login/restore/sync/send verification and fixes.
+2. Initial encrypted read/send through Matrix Rust SDK; flip E2EE only
+   after real encrypted round trips work.
+3. Multi-account foundation.
+4. SSO / OIDC login (system browser + local loopback callback).
+5. Authenticated media (`/_matrix/client/v1/media/*`).
 
 ---
 

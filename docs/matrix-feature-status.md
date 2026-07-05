@@ -12,13 +12,13 @@ Legend:
 - ⏳ Stubbed / placeholder in code, not usable end-to-end.
 - ❌ Not present.
 
-| Feature | Mock | HTTP | Rust (scaffold) |
+| Feature | Mock | HTTP | Rust SDK |
 |---|---|---|---|
-| Password login (`m.login.password`) | ✅ (any creds) | ✅ | ❌ refuses |
-| Session persistence + `/whoami` restore | 🟡 in-mem | ✅ | ❌ |
-| Long-poll `/sync` | ⏳ | ✅ (v0.4.7: initial call uses timeout=0 + full_state; stale token is discarded if cache has no visible rooms) | ❌ |
-| Initial-sync UX (`initialSyncDone` capability) | n/a | ✅ (v0.4.6) | n/a — refuses login |
-| Text message send / receive | ✅ | ✅ | ❌ |
+| Password login (`m.login.password`) | ✅ (any creds) | ✅ | 🟡 wired via SDK; needs manual homeserver verification |
+| Session persistence + restore | 🟡 in-mem | ✅ (`/whoami`) | 🟡 restore via SDK session token; needs manual verification |
+| Long-poll `/sync` | ⏳ | ✅ (v0.4.7: initial call uses timeout=0 + full_state; stale token is discarded if cache has no visible rooms) | 🟡 joined-room SDK sync wired |
+| Initial-sync UX (`initialSyncDone` capability) | n/a | ✅ (v0.4.6) | ✅ flips after first SDK sync callback |
+| Text message send / receive | ✅ | ✅ | 🟡 basic text/notice/emote only; unencrypted send only |
 | Backfill pagination | ✅ | ✅ | ❌ |
 | Read receipts (self → server) | ✅ | ✅ | ❌ |
 | Typing indicator (send + display) | ✅ | ✅ | ❌ |
@@ -29,10 +29,10 @@ Legend:
 | Media send (image/file, legacy `/media/v3/upload`) | 🟡 no-op | ✅ | ❌ |
 | Media receive (image/file, legacy `/media/v3/download`) | ✅ | ✅ | ❌ |
 | Authenticated media (`/client/v1/media/*`) | ❌ | ❌ | ❌ |
-| Local SQLite cache | n/a | ✅ | ❌ |
-| **Spaces — recognise `m.room.create type:m.space`** | ✅ seeded | ✅ (v0.4.2) | ❌ |
+| Local SQLite cache | n/a | ✅ | 🟡 Rust SDK store only; no C++ CacheStore timeline cache |
+| **Spaces — recognise `m.room.create type:m.space`** | ✅ seeded | ✅ (v0.4.2) | 🟡 SDK `room.is_space()` surfaced |
 | **Spaces — `m.space.child` hierarchy** | ✅ seeded | ✅ (v0.4.2) | ❌ |
-| **Spaces — filter room list by active Space** | ✅ (chip strip) | ✅ (v0.4.2) | ❌ |
+| **Spaces — filter room list by active Space** | ✅ (chip strip) | ✅ (v0.4.2) | 🟡 works only for surfaced Space flags/children |
 | **Spaces — persistence across restart (before /sync)** | n/a | ✅ (v0.4.5) | ❌ |
 | **Threads — detect `m.thread` relation** | ✅ seeded | ✅ (v0.4.4) | ❌ |
 | **Threads — compose thread reply** | ✅ (Mock preserves grouping) | ✅ (v0.4.4, real m.thread relation) | ❌ refuses |
@@ -40,7 +40,7 @@ Legend:
 | **Threads — server-side aggregation (`unsigned["m.relations"]["m.thread"]`)** | n/a | ❌ (v0.5) | ❌ |
 | **Threads — dedicated thread panel / per-thread timeline model** | ❌ | ❌ (v0.5+) | ❌ |
 | **Threads — persistence across restart (before /sync)** | n/a | ✅ (v0.4.5) | ❌ |
-| Encrypted room read | ❌ placeholder | ❌ placeholder | ❌ |
+| Encrypted room read | ❌ placeholder | ❌ placeholder | ❌ not claimed; only SDK-decrypted text events would be shown |
 | Encrypted send | ❌ blocked | ❌ blocked | ❌ blocked |
 | Device verification / cross-signing | ❌ | ❌ | ❌ |
 | Encrypted media | ❌ placeholder | ❌ placeholder | ❌ |
@@ -119,9 +119,13 @@ Legend:
   if a Space references rooms you haven't joined, they simply do not
   appear in the filtered list — the app never crashes on a dangling
   reference.
-- **Everything on Rust**: scaffold refuses. The Rust FFI reports name /
-  status / version; login and every send emit `errorOccurred` /
-  `loginFailed`.
+- **Rust SDK backend**: foundation is wired, but still narrower than
+  HTTP. Rust owns the SDK client/runtime/store and C++ polls JSON
+  events. Login/restore/sync/plain text send are implemented, but not
+  manually verified against credentials in this pass. It does not use
+  the C++ `CacheStore`, does not implement pagination/rich relations,
+  and still blocks encrypted sends. E2EE remains unsupported until
+  encrypted read and encrypted send are both verified end to end.
 
 ## Where the honest E2EE flag lives
 
@@ -143,7 +147,8 @@ bool CryptoManager::supportsE2ee() const
 ```
 
 `RUST_SDK_E2EE_WIRED` is not defined anywhere yet. Do not flip this
-without a real matrix-sdk integration that decrypts and encrypts.
+without verified encrypted read and encrypted send through the Matrix
+Rust SDK.
 
 ## SecretStore honesty
 

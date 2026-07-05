@@ -9,8 +9,8 @@
 | v0.3 | Usable chat UX | `CppHttpMatrixClient` + local SQLite cache + `MockMatrixClient` (`--mock`) |
 | v0.4 | Secure storage + Rust backend scaffold | HTTP default; `--mock`; optional `--backend=rust` behind `-DENABLE_RUST_SDK_BACKEND=ON` — scaffold only, refuses login/sends |
 | v0.4.5-8 | HTTP polish (sync bring-up, cache repair, delegate anchor fix, Connected label) | HTTP feature-complete short of E2EE |
-| **v0.5.0-prep (current)** | C++ groundwork for matrix-sdk (version bump, `--reset-crypto-store` CLI, doc recipe) | HTTP default; Rust scaffold still honest |
-| v0.5.0 | E2EE via Matrix Rust SDK | Rust backend wires SDK login/sync/crypto; matrix-sdk crate linked |
+| **v0.5.0-prep (current)** | Matrix Rust SDK backend foundation | HTTP default; Rust backend links matrix-sdk and wires login/restore/sync/plain text send; E2EE still disabled |
+| v0.5.0 | E2EE via Matrix Rust SDK | Rust backend verifies encrypted read/send, then enables the E2EE gate |
 | v0.5.x | Advanced Matrix UX | Rust SDK; sliding sync, multi-account, SSO/OIDC, authenticated media, key backup |
 | v1.0 | Polished release | Rust SDK; hardware-backed secure storage, packaging, i18n complete |
 
@@ -105,9 +105,9 @@
     for the user (in addition to the existing SQLite cache wipe).
 - Backend selection CLI cleanup: `--backend={mock,http,rust}`, with old
   `--mock` kept as an alias. Unknown values reject with a clean stderr
-  message and exit 2. `--backend=rust` refuses cleanly when Rust scaffold
+  message and exit 2. `--backend=rust` refuses cleanly when the Rust backend
   is not compiled in.
-- Rust SDK backend scaffold behind `option(ENABLE_RUST_SDK_BACKEND OFF)`.
+- Initial Rust SDK backend scaffold behind `option(ENABLE_RUST_SDK_BACKEND OFF)`.
   - `rust/` crate producing `libmatrix_client_rust.a`; hand-authored C
     ABI at `rust/include/matrix_rust.h`.
   - `RustSdkMatrixClient` (C++) implements `MatrixClient`, links against
@@ -115,7 +115,7 @@
     login / sync operations refuse honestly — no fake E2EE.
 - `CryptoManager` becomes a capability surface driven by the active
   backend. `supportsE2ee` is `false` for mock and http, and remains
-  `false` for the rust scaffold until `RUST_SDK_E2EE_WIRED` is defined.
+  `false` for the rust backend until `RUST_SDK_E2EE_WIRED` is defined.
 - Settings screen surfaces:
   - active secret backend name,
   - a red warning when the insecure fallback is active,
@@ -124,10 +124,26 @@
 
 ## Next milestones after v0.4
 
-### v0.4.x — Wire the Rust SDK
+### v0.5.0-prep — Rust SDK foundation
 
-- Depend on `matrix-sdk` in `rust/Cargo.toml`; grow the FFI to cover
-  login, sync, timeline, and send.
+- `matrix-sdk` v0.18 is in `rust/Cargo.toml`; `Cargo.lock` is
+  committed and offline Rust builds work.
+- FFI covers create/destroy/login/restore/logout, start/stop sync,
+  event polling, E2EE capability, and plain text send.
+- `RustSdkMatrixClient` polls Rust events and feeds the existing C++
+  models/signals.
+- Rust owns the SDK client/runtime/store at
+  `${XDG_DATA_HOME}/matrix-client/<safeUserId>/matrix-rust-sdk-store/`.
+- Login, restore, joined-room sync, room-list events, basic text
+  timeline events, and unencrypted plain text sends are wired.
+- `CryptoManager::supportsE2ee` remains false; encrypted sends are
+  blocked.
+
+### v0.5.0 — Verify and enable E2EE
+
+- Manually verify Rust login/restore/sync/send against the real test
+  homeserver and fix any SDK/runtime issues.
+- Add encrypted read and encrypted send through the Matrix Rust SDK.
 - Introduce `cbindgen` once the C ABI outgrows a hand-authored header.
 - Route Rust panics through a `MatrixClient::errorOccurred` signal so
   they surface in the UI status bar instead of aborting.
