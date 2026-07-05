@@ -1,4 +1,4 @@
-# Threat model (v0.4)
+# Threat model (v0.5.0-prep)
 
 Scoped to what v0.4 needs a reader to know. Full model is v1.0 material.
 
@@ -27,7 +27,7 @@ Scoped to what v0.4 needs a reader to know. Full model is v1.0 material.
 | Access token | `SecretStore` — libsecret (Secret Service / KWallet with libsecret) when reachable; plaintext QSettings fallback with a visible warning otherwise. Migrated on first read from any legacy `session/accessToken` plaintext key. Not in the SQLite cache. | Same store; hardware-backed keychains as follow-up. |
 | Device id, user id, homeserver URL | QSettings (non-secret in themselves) | unchanged |
 | Sync token | QSettings (restart-recoverable state, not a credential) | unchanged |
-| Device keys | Not present. When the Rust backend graduates, keys will be owned by the Matrix Rust SDK's own store, separate from the app SQLite cache. | Rust SDK store, encrypted at rest by the SDK |
+| Device keys | Not present. The v0.5.0 wiring will store them in the Matrix Rust SDK's own SQLite database under `${XDG_DATA_HOME}/matrix-client/<safeUserId>/matrix-rust-sdk-store/`. That directory is per-account, disjoint from `cache.sqlite`, and never contains an access token. `--reset-crypto-store` removes it. | Rust SDK store, encrypted at rest by the SDK once available; considered destroyed by `--reset-crypto-store`. |
 | Message content in transit | TLS to homeserver via `QNetworkAccessManager` (HTTP backend). Rust backend will use the SDK's own transport. | Rust SDK encrypted transports |
 | Encrypted message plaintext | Not decrypted by HTTP backend or v0.4 Rust scaffold (placeholder text only) | Held in-process; not written to disk in plaintext once E2EE lands |
 | Local cache | **SQLite** at `${XDG_DATA_HOME}/matrix-client/<safeUserId>/cache.sqlite`. Contains rooms, last 200 events per room, and members. **No** access tokens. Non-E2E timeline bodies are stored plaintext by design. | Same schema; E2E rooms cached decrypted only when the Rust SDK opens the store with the user's session key |

@@ -7,9 +7,11 @@
 | v0.1 | Native app shell | `MockMatrixClient` only |
 | v0.2 | Basic real client | `CppHttpMatrixClient` (default) + `MockMatrixClient` (`--mock`) |
 | v0.3 | Usable chat UX | `CppHttpMatrixClient` + local SQLite cache + `MockMatrixClient` (`--mock`) |
-| **v0.4** | Secure storage + Rust backend scaffold (current) | HTTP default; `--mock`; optional `--backend=rust` behind `-DENABLE_RUST_SDK_BACKEND=ON` — scaffold only, refuses login/sends |
-| v0.4.x | E2EE via Matrix Rust SDK (follow-up) | Rust backend wires SDK login/sync/crypto |
-| v0.5 | Advanced Matrix UX | Rust SDK; sliding sync, spaces, threads, multi-account, SSO/OIDC |
+| v0.4 | Secure storage + Rust backend scaffold | HTTP default; `--mock`; optional `--backend=rust` behind `-DENABLE_RUST_SDK_BACKEND=ON` — scaffold only, refuses login/sends |
+| v0.4.5-8 | HTTP polish (sync bring-up, cache repair, delegate anchor fix, Connected label) | HTTP feature-complete short of E2EE |
+| **v0.5.0-prep (current)** | C++ groundwork for matrix-sdk (version bump, `--reset-crypto-store` CLI, doc recipe) | HTTP default; Rust scaffold still honest |
+| v0.5.0 | E2EE via Matrix Rust SDK | Rust backend wires SDK login/sync/crypto; matrix-sdk crate linked |
+| v0.5.x | Advanced Matrix UX | Rust SDK; sliding sync, multi-account, SSO/OIDC, authenticated media, key backup |
 | v1.0 | Polished release | Rust SDK; hardware-backed secure storage, packaging, i18n complete |
 
 ## Feature classification

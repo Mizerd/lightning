@@ -56,14 +56,16 @@ bool RustSdkMatrixClient::rustSupportsE2ee() const
 void RustSdkMatrixClient::refuseSend(const char *op)
 {
     Q_EMIT errorOccurred(tr("Rust SDK backend is present but '%1' is not "
-                            "implemented in the v0.4 scaffold.").arg(QLatin1String(op)));
+                            "implemented in the v0.5.0-prep scaffold.")
+                         .arg(QLatin1String(op)));
 }
 
 void RustSdkMatrixClient::login(const QString &, const QString &, const QString &)
 {
     Q_EMIT loginFailed(tr("Rust SDK backend scaffold present but login is not "
-                          "wired in v0.4. Use --backend=http for a working "
-                          "session."));
+                          "wired in v0.5.0-prep. matrix-sdk is not linked in "
+                          "yet — see docs/next-prompts.md. Use --backend=http "
+                          "for a working session."));
 }
 
 void RustSdkMatrixClient::logout()

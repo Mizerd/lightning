@@ -192,9 +192,35 @@ nix develop -c ./build-rust/matrix-client --backend=rust
 - Settings screen shows "Crypto backend: Matrix Rust SDK backend
   (scaffold). Compiled in but not yet feature-complete — login/sync/
   crypto are not wired."
+- Login sub-heading on the login screen says "Rust backend scaffold
+  — login is not wired yet".
 - Attempt login: "Rust SDK backend scaffold present but login is not
-  wired in v0.4. Use --backend=http for a working session."
+  wired in v0.5.0-prep. matrix-sdk is not linked in yet — see
+  docs/next-prompts.md. Use --backend=http for a working session."
 - All send operations refuse cleanly.
+
+### `--reset-crypto-store`
+
+```bash
+./build/matrix-client --reset-crypto-store
+```
+
+Recognised in the pre-flight parser (works with or without the
+`build-rust` binary — no display needed). In v0.5.0-prep this is an
+honest no-op:
+
+```
+matrix-client: no Rust SDK crypto store exists yet.
+  matrix-sdk is not linked into this build (v0.5.0-prep).
+  Once the SDK is wired in, this command will delete
+  ${XDG_DATA_HOME}/matrix-client/<safeUserId>/matrix-rust-sdk-store/
+  See docs/next-prompts.md for the wiring task.
+```
+
+Exit code 0. When matrix-sdk is wired in the follow-up pass, the
+flag becomes the destructive reset it advertises — it will delete
+the per-account Rust SDK store directory but never touch
+`cache.sqlite` or the SecretStore token.
 
 ## Troubleshooting
 

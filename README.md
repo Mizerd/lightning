@@ -12,7 +12,42 @@ across the rename. The product name is **Lightning**.
 
 ## Status
 
-**v0.4.8** — Cache constraint repair, timeline-delegate anchor
+**v0.5.0-prep** — v0.5 groundwork on the C++ side. No E2EE yet.
+
+The v0.4.x stabilisation window closed with v0.4.8 (all HTTP-backend
+regressions triaged: login transition, sync bring-up, cache
+constraint spam, QML anchor warnings, `Connected` status text). The
+v0.5 headline goal is real E2EE via the Matrix Rust SDK. This pass
+lands the C++ / QML groundwork for that plus the `--reset-crypto-store`
+CLI hook, without pulling `matrix-sdk` into `rust/Cargo.toml` yet
+(that step needs explicit user authorization for ~500 transitive
+crates from crates.io and a ~15-minute from-scratch link — it lives
+in its own gated follow-up pass, see
+[`docs/next-prompts.md`](docs/next-prompts.md) Prompt 1).
+
+**New in v0.5.0-prep:**
+
+- Version label bumped from `0.4.0` to `0.5.0-prep`. Window title,
+  `--version`, and `--help` output all reflect this.
+- `--reset-crypto-store` CLI: recognised, honest no-op today (prints
+  the future store path under
+  `${XDG_DATA_HOME}/matrix-client/<safeUserId>/matrix-rust-sdk-store/`
+  and exits 0). When `matrix-sdk` lands, this flag becomes the
+  destructive reset it advertises.
+- Rust FFI status strings and `RustSdkMatrixClient` refusal messages
+  updated to name `v0.5.0-prep` instead of `v0.4`, and point at
+  `docs/next-prompts.md` for the wiring step. No behaviour change —
+  login and every send still refuse honestly.
+- Documentation sweep: `docs/next-prompts.md` Prompt 1 is now the
+  full matrix-sdk-wiring recipe (feature flags, expected build
+  cost, FFI event-queue design, crypto-store isolation, exact QML
+  no-code changes).
+
+Everything below carried over from earlier passes. See
+[`docs/current-state.md`](docs/current-state.md) for the ground-truth
+snapshot.
+
+**Previously in v0.4.8** — Cache constraint repair, timeline-delegate anchor
 warning fixed, `Connected` status text, docs sweep.
 
 **New in v0.4.8:**

@@ -1,9 +1,15 @@
 cmake_minimum_required(VERSION 3.21)
 project(matrix-client
-    VERSION 0.4.0
-    DESCRIPTION "Native C++/Qt Matrix desktop client"
+    VERSION 0.5.0
+    DESCRIPTION "Lightning — native C++/Qt Matrix desktop client"
     LANGUAGES CXX
 )
+
+# Human-facing label. v0.5.0-prep = C++ side is ready to host the Matrix
+# Rust SDK E2EE backend, but the SDK itself is not linked in yet. Bump
+# to "0.5.0" (no suffix) only once matrix-sdk is wired and encrypted
+# rooms actually round-trip.
+set(APP_VERSION_LABEL "0.5.0-prep")
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -159,7 +165,7 @@ target_link_libraries(matrix-client PRIVATE
 )
 
 target_compile_definitions(matrix-client PRIVATE
-    APP_VERSION="${PROJECT_VERSION}"
+    APP_VERSION="${APP_VERSION_LABEL}"
     $<$<CONFIG:Release>:QT_NO_DEBUG_OUTPUT>
 )
 

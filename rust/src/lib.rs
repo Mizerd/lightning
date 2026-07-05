@@ -1,8 +1,17 @@
-//! matrix-client-rust — v0.4 FFI scaffold.
+//! matrix-client-rust — v0.5.0-prep FFI scaffold.
 //!
 //! Exposes a minimal C ABI that the C++ RustSdkMatrixClient calls to prove
 //! the link, report backend identity, and (later) drive login/sync via the
-//! Matrix Rust SDK. Kept intentionally tiny in v0.4:
+//! Matrix Rust SDK.
+//!
+//! v0.5.0-prep: the crate still has no matrix-sdk dependency. Adding it is
+//! a materially bigger step (~500 transitive crates, ~15 min from-scratch
+//! build) that lives in a dedicated follow-up pass — see
+//! docs/next-prompts.md Prompt 1. The v0.5 work landed on the C++ side:
+//! the app is now labelled 0.5.0-prep, --reset-crypto-store is a
+//! recognised CLI flag, and all capability surfaces stay honest.
+//!
+//! Current FFI surface:
 //!
 //! * `mx_rust_backend_name`   -> "matrix-rust-sdk (scaffold)".
 //! * `mx_rust_status_string`  -> "compiled but not feature complete".
@@ -36,12 +45,13 @@ pub extern "C" fn mx_rust_backend_name() -> *mut c_char {
 pub extern "C" fn mx_rust_status_string() -> *mut c_char {
     to_c_string(
         "Matrix Rust SDK backend scaffold compiled and linked. Login, sync, \
-         and E2EE are not wired in v0.4 — this reports capability honestly \
-         so the UI does not claim features that do not exist.",
+         and E2EE are not wired in v0.5.0-prep — the matrix-sdk crate is \
+         intentionally not a dependency yet. This reports capability \
+         honestly so the UI does not claim features that do not exist.",
     )
 }
 
-/// 0 = no, 1 = yes. Always 0 in v0.4 — real crypto is a follow-up.
+/// 0 = no, 1 = yes. Always 0 in v0.5.0-prep — real crypto is a follow-up.
 #[no_mangle]
 pub extern "C" fn mx_rust_supports_e2ee() -> c_int {
     0

@@ -81,9 +81,13 @@ PreflightResult preflightParse(int argc, char *argv[])
                 "  --backend=NAME       Backend to use. NAME is one of:\n"
                 "                         mock  — in-memory, hardcoded rooms\n"
                 "                         http  — Matrix Client-Server HTTP API (default)\n"
-                "                         rust  — Matrix Rust SDK scaffold (v0.4;\n"
+                "                         rust  — Matrix Rust SDK scaffold (v0.5.0-prep;\n"
                 "                                 requires -DENABLE_RUST_SDK_BACKEND=ON\n"
                 "                                 at build time; login not wired yet)\n"
+                "  --reset-crypto-store Delete the Rust SDK crypto store for the last\n"
+                "                       signed-in account (safe no-op in v0.5.0-prep,\n"
+                "                       since matrix-sdk is not yet linked). Exit code 0\n"
+                "                       when nothing to delete; exit code 3 on error.\n"
                 "\n"
                 "See docs/build-and-test.md and docs/backend-contract.md for details.\n");
             return r;
@@ -96,6 +100,20 @@ PreflightResult preflightParse(int argc, char *argv[])
         if (a == QLatin1String("--mock")) {
             r.mockAliasUsed = true;
             continue;
+        }
+        if (a == QLatin1String("--reset-crypto-store")) {
+            // v0.5.0-prep: honest no-op. When matrix-sdk lands, this will
+            // find the per-account crypto-store directory and delete it.
+            // For now the store doesn't exist yet, so we exit 0 with a
+            // clear message rather than pretending we deleted something.
+            r.action = PreflightResult::ExitSuccess;
+            r.stdoutMsg = QStringLiteral(
+                "matrix-client: no Rust SDK crypto store exists yet.\n"
+                "  matrix-sdk is not linked into this build (v0.5.0-prep).\n"
+                "  Once the SDK is wired in, this command will delete\n"
+                "  ${XDG_DATA_HOME}/matrix-client/<safeUserId>/matrix-rust-sdk-store/\n"
+                "  See docs/next-prompts.md for the wiring task.\n");
+            return r;
         }
         // v0.4.3: catch the user-friendly-looking shortcuts before Qt sees
         // them. QCommandLineParser would otherwise treat them as unknown

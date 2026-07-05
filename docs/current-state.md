@@ -1,6 +1,6 @@
-# Current state (v0.4.8)
+# Current state (v0.5.0-prep)
 
-Last updated: 2026-07-05 (v0.4.8 pass).
+Last updated: 2026-07-05 (v0.5.0-prep pass).
 
 This is the "where the repo actually is" doc. Treat it as ground truth
 for a fresh LLM continuation session — read this before
@@ -23,7 +23,9 @@ code.
   - `dbb28e0` v0.4.5: HTTP login transition fix + Lightning branding + Space/thread cache persistence
   - `31cbc22` v0.4.6: HTTP /sync bring-up polish + initialSyncDone capability + docs sweep
   - `50d4a6e` v0.4.7: HTTP restore recovers from stale Space-only cache
-  - HEAD after this pass: `v0.4.8: cache NOT NULL repair, delegate anchor warning, Connected status`
+  - `41a9f69` v0.4.8: cache NOT NULL repair, delegate anchor warning, Connected status
+  - HEAD after this pass: `v0.5.0-prep: C++ groundwork for E2EE via matrix-sdk (crate not linked yet)`
+  - Branch: `v0.5-e2ee-rust-sdk`
 
 ## Layered architecture (unchanged from v0.4)
 
@@ -56,6 +58,36 @@ Crypto:      src/crypto/CryptoManager (capability surface only, no crypto)
   for build-system compatibility (Q_APPLICATION_NAME too — keeps the
   QSettings scope stable across the rename). The login-screen
   sub-heading is backend-aware (v0.4.5).
+- **v0.5.0-prep (this pass)**: the C++ side is groomed to host the
+  Matrix Rust SDK, but the SDK crate is intentionally NOT added to
+  `rust/Cargo.toml` yet. Concretely:
+  - `CMakeLists.txt` `PROJECT_VERSION` → `0.5.0`; `APP_VERSION_LABEL`
+    → `"0.5.0-prep"`. The QML title, `--version`, and `--help`
+    all reflect the new label. When `matrix-sdk` lands and E2EE
+    round-trips against a real homeserver, drop the `-prep` suffix.
+  - `--reset-crypto-store` recognised in the pre-flight CLI parser
+    (`src/main.cpp`). Today it's an honest no-op: prints the future
+    store path (`${XDG_DATA_HOME}/matrix-client/<safeUserId>/matrix-rust-sdk-store/`)
+    and exits 0. When the SDK is wired in, this flag actually
+    deletes that directory.
+  - `RustSdkMatrixClient`, `rust/src/lib.rs`, and the CLI help text
+    now speak of `v0.5.0-prep` (was `v0.4`), and all refusal
+    messages point at `docs/next-prompts.md` for the wiring step.
+    `mx_rust_supports_e2ee()` still returns 0, and
+    `CryptoManager::supportsE2ee()` still returns false — no
+    honesty regression.
+  - **`docs/next-prompts.md` Prompt 1** is now the concrete
+    matrix-sdk wiring recipe: Cargo.toml feature flags, FFI event-
+    queue design (Rust ↔ C++ via `QTimer`-driven `mx_rust_poll_event`,
+    no cross-thread callbacks), where the crypto store lives, and
+    what NOT to do in the same pass. Read it before starting the
+    actual SDK integration.
+  - Why the SDK isn't in this commit: Claude Code's auto-mode
+    classifier correctly flagged the ~500 transitive crates that
+    `matrix-sdk` pulls from crates.io as untrusted-code integration
+    that needs explicit user authorization for the specific
+    dependency choice. That authorization is a per-session, per-user
+    decision; the follow-up pass gates on it.
 - **Stabilisation (v0.4.8)**: three targeted fixes on top of v0.4.7:
   - **CacheStore NOT NULL repair**: previous versions bound null
     `QString` values to `rooms.child_room_ids` / `events.thread_root_id`
