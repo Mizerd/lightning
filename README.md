@@ -55,7 +55,9 @@ This requires `cargo` in `PATH`. The Rust static library is built via `cargo bui
 
 ### NixOS
 
-The dev shell bundles Qt 6, CMake, Ninja, gcc, libsecret, glib, cargo, and rustc so both build modes work out of the box:
+The dev shell bundles Qt 6, CMake, Ninja, gcc, libsecret, glib,
+xkeyboard_config, cargo, and rustc so both build modes work out of the
+box:
 
 ```bash
 nix develop            # or: nix-shell
@@ -63,6 +65,19 @@ cmake -S . -B build -G Ninja
 cmake --build build
 ./build/matrix-client
 ```
+
+**Important on KDE / GNOME sessions**: always launch the built binary
+from *inside* the dev shell (either the interactive `nix develop`
+subshell or `nix develop -c ./build/matrix-client`). The shellHook
+purges the Qt env variables (`QT_PLUGIN_PATH`,
+`QT_QPA_PLATFORM_PLUGIN_PATH`, `QML_IMPORT_PATH`, …) that a running
+KDE Plasma or GNOME session exports at a different qtbase version, and
+sets them consistently against the flake's Qt. Launching outside the
+dev shell can pick up the session's `QT_PLUGIN_PATH` pointing at a
+different qtbase and abort at plugin load with the message
+`"Could not load the Qt platform plugin"`. If that happens, re-enter
+`nix develop` first. This is documented in
+[`docs/build-and-test.md`](docs/build-and-test.md#troubleshooting).
 
 ### Windows / macOS
 

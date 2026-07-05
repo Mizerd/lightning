@@ -1,6 +1,6 @@
-# Current state (v0.4.2)
+# Current state (v0.4.3)
 
-Last updated: 2026-07-05 (v0.4.2 pass).
+Last updated: 2026-07-05 (v0.4.3 pass).
 
 This is the "where the repo actually is" doc. Treat it as ground truth
 for a fresh LLM continuation session — read this before
@@ -17,7 +17,8 @@ code.
   - `4310913` Fix Nix dev shell: drop stale qtquickcontrols2 attr, add .gitignore
   - `d251948` v0.4: SecretStore + backend CLI cleanup + Rust SDK backend scaffold
   - `13adf73` v0.4.1: Spaces + Threads foundations, SSO/OIDC flags, continuation docs
-  - HEAD after this pass: `v0.4.2: HTTP Spaces parsing + no-display preflight hardening`
+  - `1a5adba` v0.4.2: HTTP Spaces parsing + no-display preflight hardening
+  - HEAD after this pass: `v0.4.3: Nix Qt platform runtime fix + --http/--rust CLI hint`
 
 ## Layered architecture (unchanged from v0.4)
 
@@ -51,7 +52,18 @@ Crypto:      src/crypto/CryptoManager (capability surface only, no crypto)
   preflight check refuses to construct `QGuiApplication` when neither
   `DISPLAY` nor `WAYLAND_DISPLAY` is set and `QT_QPA_PLATFORM` is not
   forced — exits 3 with a clear message instead of Qt's `qFatal`
-  abort() (that is what caused the reported v0.4.0 coredump).
+  abort(). **v0.4.3**: `--http` and `--rust` are rejected pre-flight
+  with a message pointing at `--backend=http` / `--backend=rust`.
+- **Nix dev-shell runtime (v0.4.3)**: `flake.nix` / `shell.nix`
+  `shellHook` now purges `QT_PLUGIN_PATH`, `QT_QPA_PLATFORM_PLUGIN_PATH`,
+  `QML_IMPORT_PATH`, `QML2_IMPORT_PATH`, `QT_QUICK_CONTROLS_STYLE`,
+  `QT_QUICK_CONTROLS_STYLE_PATH`, and `QT_QPA_PLATFORMTHEME` inherited
+  from the outer KDE / GNOME session, then exports flake-consistent
+  values against `${qt.qtbase}` and `${qt.qtwayland}` plus
+  `QT_XKB_CONFIG_ROOT`. This fixes the reported crash where a KDE
+  Plasma session's qtbase 6.11.0 helper plugin was being loaded into a
+  6.11.1 executable and aborting at plugin init. Details in
+  `docs/build-and-test.md`.
 - **Mock backend** (`--backend=mock`): hardcoded rooms, one Space
   containing two rooms, one standalone room, one threaded conversation,
   synthetic reactions/edits/redactions/media/pagination.

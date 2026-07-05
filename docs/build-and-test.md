@@ -162,3 +162,64 @@ nix develop -c ./build-rust/matrix-client --backend=rust
 - Attempt login: "Rust SDK backend scaffold present but login is not
   wired in v0.4. Use --backend=http for a working session."
 - All send operations refuse cleanly.
+
+## Troubleshooting
+
+### Qt platform plugin fails to load on NixOS / KDE / GNOME
+
+Symptom (from the v0.4.2 report):
+
+```
+qt.qpa.plugin: Could not load the Qt platform plugin "wayland" ...
+qt.qpa.plugin: Could not load the Qt platform plugin "xcb" ...
+This application failed to start because no Qt platform plugin could be initialized.
+Aborted (core dumped)
+```
+
+Stack trace ended in
+`QGuiApplicationPrivate::createPlatformIntegration → qFatal → abort`.
+
+**Root cause (v0.4.3)**: a running KDE Plasma / GNOME session on
+NixOS exports `QT_PLUGIN_PATH` pointing at the system-wide qtbase
+(e.g. 6.11.0). The dev-shell's Qt from `nixos-unstable` may be a
+different patch version (e.g. 6.11.1), and the executable is linked
+against *that*. When Qt initialises its platform plugin, it walks
+`QT_PLUGIN_PATH` first, loads a helper plugin from the 6.11.0 tree
+into the 6.11.1 process, and aborts on the version check *before* it
+prints any error — which is why `QT_DEBUG_PLUGINS=1` produced no
+output in the wild.
+
+**Fix (v0.4.3)**: `flake.nix` and `shell.nix` shellHooks now
+`unset` `QT_PLUGIN_PATH`, `QT_QPA_PLATFORM_PLUGIN_PATH`,
+`QML_IMPORT_PATH`, `QML2_IMPORT_PATH`, `QT_QUICK_CONTROLS_STYLE`,
+`QT_QUICK_CONTROLS_STYLE_PATH`, `QT_QPA_PLATFORMTHEME` before
+setting flake-consistent values against `${qt.qtbase}`. Also adds
+`xkeyboard_config` to `buildInputs` and exports
+`QT_XKB_CONFIG_ROOT` so the xcb platform plugin can find keymaps.
+
+**Verification**:
+
+```bash
+nix develop -c bash -lc 'QT_QPA_PLATFORM=wayland timeout 2 ./build/matrix-client --mock'
+# → exit 124 (timeout, event loop running)
+
+nix develop -c bash -lc 'QT_QPA_PLATFORM=xcb     timeout 2 ./build/matrix-client --mock'
+# → exit 124
+```
+
+Both work now. `nix develop -c ./build/matrix-client --mock` (auto
+platform selection on a graphical session) also succeeds — the app
+opens.
+
+If you still see the crash, you are probably running the binary
+*outside* the dev shell (bare shell, tmux without `nix develop -c`,
+IDE terminal without env inheritance). Re-enter `nix develop` and
+retry — the shellHook is what makes the fix take effect.
+
+### `--http` / `--rust` are not accepted
+
+Use `--backend=http` / `--backend=rust`. The intentionally-shortcut
+flags are rejected in the pre-flight parser (exit 2) with a hint,
+before `QGuiApplication` is constructed. This keeps a typo from
+being interpreted by Qt's own parser and potentially aborting on a
+platform-plugin issue instead of surfacing the CLI error.

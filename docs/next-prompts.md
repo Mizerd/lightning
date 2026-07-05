@@ -9,6 +9,11 @@ Read `docs/current-state.md`, `docs/backend-contract.md`, and
 Order matters — prompts higher in the list unlock features that later
 prompts depend on. Do not skip ahead.
 
+**As of v0.4.3, runtime is stable**: the reported KDE-session Qt
+platform plugin crash was fixed in `flake.nix` / `shell.nix` (see the
+`Troubleshooting` section in `docs/build-and-test.md`). Feature work
+can resume with Prompt 1 below.
+
 ---
 
 ## Prompt 1 — Real `m.thread` relation for HTTP sends

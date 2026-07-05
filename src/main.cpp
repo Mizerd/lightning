@@ -76,6 +76,8 @@ PreflightResult preflightParse(int argc, char *argv[])
                 "  -h, --help           Show this help and exit.\n"
                 "  -v, --version        Show version and exit.\n"
                 "  --mock               Alias for --backend=mock.\n"
+                "                       Note: --http and --rust are NOT accepted;\n"
+                "                       use --backend=http / --backend=rust instead.\n"
                 "  --backend=NAME       Backend to use. NAME is one of:\n"
                 "                         mock  — in-memory, hardcoded rooms\n"
                 "                         http  — Matrix Client-Server HTTP API (default)\n"
@@ -94,6 +96,20 @@ PreflightResult preflightParse(int argc, char *argv[])
         if (a == QLatin1String("--mock")) {
             r.mockAliasUsed = true;
             continue;
+        }
+        // v0.4.3: catch the user-friendly-looking shortcuts before Qt sees
+        // them. QCommandLineParser would otherwise treat them as unknown
+        // options AFTER QGuiApplication is constructed — that path can
+        // abort on a Qt platform-plugin problem before the error message
+        // reaches the user. Reject cleanly with a hint.
+        if (a == QLatin1String("--http") || a == QLatin1String("--rust")) {
+            const QString value = a.mid(2); // strip leading "--"
+            r.action = PreflightResult::ExitError;
+            r.stderrMsg = QStringLiteral(
+                "matrix-client: '%1' is not a supported flag. "
+                "Use '--backend=%2' instead.\n"
+                "Run with --help for the full list.\n").arg(a, value);
+            return r;
         }
         if (a.startsWith(QLatin1String("--backend="))) {
             const QString value = a.mid(QStringLiteral("--backend=").size());
