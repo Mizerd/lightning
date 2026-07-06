@@ -124,7 +124,11 @@ Optional environment:
   the post-send wait window when `EXPECT_TEXT` is configured. Default
   is 90 s, clamped to [1, 3600]. During the wait the harness keeps
   syncing and watching decrypted bodies for the marker; the moment it
-  arrives, the wait is cancelled and the harness exits.
+  arrives, the wait is cancelled and the harness exits. As of
+  v0.5.0-prep+8 the harness's global budget scales with this value
+  (`max(60, expect_wait + 30)`, plus 30 s more when
+  `LIGHTNING_TEST_RECOVERY_KEY` is set) so the wait actually runs to
+  completion. The old hard 60 s kill is gone.
 - `LIGHTNING_TEST_RECOVERY_KEY='<base58-recovery-key>'` (v0.5.0-prep+7)
   — after `initial_sync=done` and while the send/probe phase runs,
   call matrix-sdk's `client.encryption().recovery().recover(...)` to

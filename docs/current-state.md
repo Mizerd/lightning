@@ -1,3 +1,85 @@
+# Current state (v0.5.0-prep+8, receive smoke reliability)
+
+## v0.5.0-prep+8 additions
+
+Fixes uncovered by the first live `EXPECT_TEXT` run against the
+persistent store:
+
+- **Dynamic global budget.** The old hard 60 s kill silently
+  overrode `LIGHTNING_TEST_EXPECT_WAIT_SECONDS=180`, so the marker
+  test never actually waited 3 minutes. Budget now scales:
+  `max(60, expect_wait + 30)` when a marker is set, plus another
+  30 s of headroom when a recovery key is set. Clamped to
+  `[1, 3660]`. Printed once at startup as `smoke: budget timeout_s=N`,
+  and the timeout emits `smoke: budget=exhausted timeout_s=N` before
+  finalising cleanly.
+- **Clean process exit / no deadpool panic.** matrix-sdk 0.18 uses
+  `deadpool-sqlite` internally, whose async-drop paths require a
+  live Tokio runtime when a `Client` is dropped. The smoke harness
+  used per-call `current_thread` runtimes that were long gone by
+  the time C++ tore down the wrapper — dropping the SDK Client from
+  the main thread panicked with `there is no reactor running`
+  AFTER the summary line had already been emitted. Fix: after
+  `QCoreApplication::exec()` returns, the smoke harness now stops
+  sync, sleeps 300 ms, prints `shutdown=leaked_for_process_exit`,
+  and releases the unique_ptr without destroying it. The OS
+  reclaims memory / FDs at process exit; no destructor path runs.
+  Only smoke leaks — the interactive GUI still calls
+  `mx_rust_destroy` normally (its own clean-shutdown story is
+  documented as a known follow-up).
+- **No more room-list spam.** The Rust SDK's sync callback fires
+  many `rooms` events during a long wait; the harness now only
+  prints `rooms joined=N encrypted=M spaces=S` when the counts
+  actually change.
+- **Duplicate `key_backup=attempted` gone.** The C++ side now
+  relies on the `keyBackupResult` event handler to print the state
+  (Rust bridge already emits `state=attempted` first, then `ok`/
+  `failed`).
+- **Long-wait heartbeat + since-counters.** During
+  `expect_text=waiting`, a heartbeat every 30 s prints
+  `sync=alive elapsed_s=N` plus the running
+  `timeline_events_since_expect` / `encrypted_events_since_expect` /
+  `decrypted_events_since_expect` / `undecryptable_since_expect`.
+  New `timeline_events_since_expect` counter joins the existing
+  three in the summary. `first_timeline_after_expect=yes` is
+  printed the moment the first timeline event arrives during the
+  wait.
+
+## matrix-sdk 0.18 research findings (do not remove)
+
+Confirmed by reading the locked source at
+`~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/matrix-sdk-0.18.0/`:
+
+- `client.encryption().recovery().recover(key)` does exactly
+  `secret_storage().open_secret_store(key)` → `import_secrets()` →
+  `update_recovery_state()`. It imports **secrets** (including the
+  backup recovery key + cross-signing seeds if present) into the
+  local store. It does **not** synchronously download or import
+  room keys.
+- Room keys are then fetched **lazily** as encrypted events
+  arrive on `/sync` — matrix-sdk detects a missing session and
+  requests it from server-side backup / from other devices in
+  the background. The smoke harness must therefore keep sync
+  running long enough for that dance to complete.
+- `client.encryption().backups().wait_for_steady_state()` is for
+  **upload** progress after enabling backup, not for download.
+  No public 0.18 API waits for room-key downloads to finish.
+- `client.encryption().recovery().state()` returns a
+  `RecoveryState` (Unknown / Disabled / Enabled / Incomplete).
+  Useful to log post-recover, TODO in a future pass.
+- No `recover_and_fix_backup` in 0.18 — that's newer. Available
+  API used here is just `recover(&str)`.
+
+Practical implication for `LIGHTNING_TEST_EXPECT_TEXT`: sending
+the marker from Element **after** the Lightning smoke run has
+called `recover()` is required. If the marker was sent long
+before, the SDK will still try to fetch keys via backup + device
+key requests, but only when a new sync response references those
+events. Increase `LIGHTNING_TEST_EXPECT_WAIT_SECONDS` and/or send
+a fresh marker after `key_backup=ok` prints.
+
+## v0.5.0-prep+7 additions (retained)
+
 # Current state (v0.5.0-prep+7, Rust SDK key backup probe + EXPECT_TEXT wait loop)
 
 ## v0.5.0-prep+7 additions

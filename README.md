@@ -12,6 +12,18 @@ across the rename. The product name is **Lightning**.
 
 ## Status
 
+**v0.5.0-prep+8** — Fixes the smoke harness so `EXPECT_TEXT` waits
+can actually complete. Dynamic global budget replaces the hard 60 s
+kill (scales with `LIGHTNING_TEST_EXPECT_WAIT_SECONDS` and adds
+headroom when `LIGHTNING_TEST_RECOVERY_KEY` is set). Room-list "joined
+= N encrypted = M spaces = S" line no longer spams; only prints on
+change. Clean process exit — the deadpool-sqlite reactor panic on
+shutdown is avoided by intentionally leaking the Rust handle at
+smoke exit (safe: OS reclaims immediately). Sync heartbeat every 30
+s during long expect waits so a stalled sync is obvious. Duplicate
+`key_backup=attempted` line eliminated. `CryptoManager::supportsE2ee()`
+still returns `false`.
+
 **v0.5.0-prep+7** — Adds a key-backup recovery probe via matrix-sdk
 0.18 and a bounded EXPECT_TEXT wait loop for the smoke harness so
 Element Classic → Lightning encrypted receive can actually be tested.
