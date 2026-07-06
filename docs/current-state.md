@@ -1,3 +1,38 @@
+# Current state (v0.5.0-prep+13, SAS API surface research)
+
+## v0.5.0-prep+13 — SAS emoji verification API research
+
+Concrete SAS implementation was NOT attempted this pass. Rather
+than land half-wired scaffolding that could leave a real
+verification request stranded on the server, this pass records
+the exact locked matrix-sdk 0.18 API surface for the next agent
+to implement cleanly, and updates the Settings wording to remain
+honest ("Session (SAS emoji) verification UI: not implemented yet").
+
+The full API reference — including which methods on
+`VerificationRequest` vs `SasVerification` do what, the concrete
+enum variants of `VerificationRequestState` and `SasState`, and
+the fact that matrix-sdk 0.18 has **no** public
+`recv_verification_requests()` (event-handler subscription only)
+— is documented in `docs/next-prompts.md` under
+"Prompt — Implement Matrix SAS emoji verification UI".
+
+Key finding that would have broken a rushed implementation:
+`Client::add_event_handler` for the appropriate `to_device` /
+`OriginalSyncKeyVerificationRequestEvent` type is the canonical way
+to notice incoming requests on 0.18; polling / `recv_verification_requests`
+does not exist here. Once received, the handler must call
+`client.encryption().get_verification_request(user, flow_id)` to
+hydrate the `VerificationRequest` and drive it.
+
+**No code changes shipped in this pass** beyond
+`CMakeLists.txt APP_VERSION_LABEL` bump to `0.5.0-prep+13` and
+this section + the enhanced next-prompt. All invariants from
+prep+12 preserved: `CryptoManager::supportsE2ee()` still `true`
+for Rust only, `CacheStore` still refuses encrypted rows, GUI
+recovery-key restore + timeline reload + store mismatch reset all
+work.
+
 # Current state (v0.5.0-prep+11, timeline reload + store mismatch guard)
 
 ## v0.5.0-prep+11 additions

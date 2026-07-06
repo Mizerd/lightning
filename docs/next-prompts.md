@@ -291,28 +291,91 @@ Do NOT touch the interface. Do NOT touch QML. Do NOT change
 
 ## Prompt — Implement Matrix SAS emoji verification UI
 
-Precondition: v0.5.0-prep+10 shipped GUI recovery-key restore for
-the Rust backend and Rust E2EE send + receive are verified live.
-The Settings panel already says "Session (SAS emoji) verification
-UI: not implemented yet".
+Precondition: v0.5.0-prep+12/+13 shipped the desktop polish + SAS
+API research. The Settings panel says "Session (SAS emoji)
+verification UI: not implemented yet".
 
 Goal: let a user complete SAS emoji verification of the Lightning
 device from Element Classic without leaving Lightning. Do not
-manually implement crypto in C++; use matrix-sdk 0.18 APIs
-identified via the locked source at
-`~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/matrix-sdk-0.18.0/`:
+manually implement crypto in C++; use matrix-sdk 0.18 APIs.
 
-- `client.encryption().recv_verification_requests()` — a Stream of
-  incoming verification requests.
-- `VerificationRequest::accept()` / `cancel()`.
-- Transition to `SasVerification` state machine on accept.
-- `SasVerification::accept_with_settings(AcceptSettings)` (choose
-  emoji short-authentication-string).
-- `emoji()` / `decimals()` — SAS the user must compare.
-- `confirm()` when the user says the emoji match, `mismatch()`
-  when they don't, `cancel()` for abort.
-- Watch state via `changes()` / `state()` stream until Done or
-  Cancelled.
+### Locked matrix-sdk 0.18 SAS API surface (verified against source)
+
+Path: `~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/matrix-sdk-0.18.0/`.
+This is authoritative — do NOT copy from docs of a newer matrix-sdk
+release.
+
+**Entry point / lookup (from `src/encryption/mod.rs`):**
+
+- `client.encryption().get_verification_request(user_id: &UserId,
+   flow_id: &str) -> Option<VerificationRequest>` — resolves a
+   request by flow id + user. Returns None if unknown.
+- `client.encryption().get_verification(user_id: &UserId,
+   flow_id: &str) -> Option<Verification>` — after a
+   VerificationRequest is transitioned via `start_sas()` / accept, the
+   Verification is either `SasV1(SasVerification)` or
+   `QrV1(QrVerification)`. We only care about `SasV1`.
+- `client.encryption().verification_state() -> Subscriber<VerificationState>`
+   — device / cross-signing verification state stream.
+
+**There is NO public `recv_verification_requests()` on 0.18.**
+Incoming requests arrive via to-device / in-room events. Register:
+
+- `client.add_event_handler(|ev: OriginalSyncKeyVerificationRequestEvent,
+                             _: Room, client: Client| async move { … })`
+   for in-room requests, and/or
+- `client.add_event_handler(|ev: ToDeviceKeyVerificationRequestEvent,
+                             client: Client| async move { … })`
+   for to-device requests.
+   (Both event types live under
+   `matrix_sdk::ruma::events::key::verification::request`.)
+
+Inside the handler, call `client.encryption().get_verification_request(
+&ev.sender, ev.content.transaction_id().to_string().as_str())` to hydrate
+the `VerificationRequest`.
+
+**`VerificationRequest` methods used in a receive-first flow
+(`src/encryption/verification/requests.rs`):**
+
+- `.flow_id() -> &str`
+- `.other_user_id() -> &UserId`
+- `.state() -> VerificationRequestState` (returns enum
+   `Created | Requested | Ready | Transitioned | Done | Cancelled(CancelInfo)`)
+- `.changes() -> impl Stream<Item = VerificationRequestState>`
+- `.accept() -> Result<()>` (async) — accepts with all our supported
+   methods
+- `.accept_with_methods(Vec<VerificationMethod>)` — accept with a
+   specific method set (use `VerificationMethod::SasV1`)
+- `.start_sas() -> Result<Option<SasVerification>>` (async) — returns
+   the SAS state machine once transitioned
+- `.cancel() -> Result<()>` (async)
+- `.is_done() / .is_cancelled() / .is_ready() / .is_passive()`
+- `.we_started() -> bool`
+- `.is_self_verification() -> bool`
+
+**`SasVerification` methods (`src/encryption/verification/sas.rs`):**
+
+- `.state() -> SasState` (enum: `Created | Started {…} | Accepted |
+   KeysExchanged { emojis: Option<[Emoji;7]>, decimals: (u16,u16,u16) }
+   | Confirmed | Done { verified_devices, verified_identities } |
+   Cancelled(CancelInfo)`)
+- `.changes() -> impl Stream<Item = SasState>`
+- `.accept() -> Result<()>` (async)
+- `.accept_with_settings(AcceptSettings) -> Result<()>` (async) — for
+   forcing emoji-only mode
+- `.emoji() -> Option<[Emoji; 7]>` — post-KeysExchanged
+- `.decimals() -> Option<(u16, u16, u16)>` — fallback
+- `.confirm() -> Result<()>` (async)
+- `.mismatch() -> Result<()>` (async)
+- `.cancel() -> Result<()>` (async)
+- `.other_device() -> &DeviceData`
+- `.other_user_id() / .own_user_id() / .flow_id()`
+
+**`Emoji` shape (`matrix_sdk_crypto::verification::Emoji`):**
+
+- `.symbol: &'static str` (the emoji character)
+- `.description: &'static str` (English name — safe to display /
+   translate)
 
 Scope:
 1. Rust FFI additions: `mx_rust_start_verification_listener`,

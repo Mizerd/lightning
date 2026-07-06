@@ -12,6 +12,16 @@ across the rename. The product name is **Lightning**.
 
 ## Status
 
+**v0.5.0-prep+13** — SAS emoji verification API research pass. No
+functional SAS wiring shipped this cycle — rather than land
+half-wired scaffolding that could leave a real verification
+request stranded, the exact locked matrix-sdk 0.18 API surface has
+been documented in `docs/next-prompts.md` for the next agent to
+implement cleanly. Settings still says "Session (SAS emoji)
+verification UI: not implemented yet". All prep+12 functionality
+(E2EE gate for Rust, GUI recovery-key restore, timeline reload,
+store mismatch reset, desktop polish) preserved.
+
 **v0.5.0-prep+11** — Two Rust-GUI bug fixes:
 1. **Encrypted rooms no longer look empty after restart.** New Rust
    FFI `mx_rust_reload_room_timeline` calls matrix-sdk 0.18
