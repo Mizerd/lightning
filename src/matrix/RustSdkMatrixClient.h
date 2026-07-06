@@ -68,6 +68,13 @@ public:
                             const QString &body,
                             const QString &marker);
 
+    // Key-backup recovery (v0.5.0-prep+7). Wraps
+    // mx_rust_recover_from_backup so the smoke harness can attempt to
+    // restore room keys via matrix-sdk's server-side secret storage
+    // WITHOUT the recovery key ever transiting a log or QML property.
+    // Result flows through keyBackupResult(...). Do NOT expose to QML.
+    void recoverFromBackup(const QString &recoveryKey);
+
     // MatrixClient interface -------------------------------------------------
     void login(const QString &homeserver,
                const QString &user,
@@ -128,6 +135,13 @@ Q_SIGNALS:
                                   bool ok,
                                   const QString &serverEventId,
                                   const QString &message);
+
+    // v0.5.0-prep+7. Fires once per recoverFromBackup call.
+    // `state`: "attempted" (dispatch received) or "ok" / "failed" once
+    //          matrix-sdk finishes. `message`: non-secret failure detail
+    //          or empty. Never contains the recovery key or imported
+    //          key material.
+    void keyBackupResult(const QString &state, const QString &message);
 
 private:
     struct PendingSend {

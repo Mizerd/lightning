@@ -120,6 +120,26 @@ Optional environment:
   actually decrypt it. Combine with `LIGHTNING_TEST_REQUIRE_EXPECT=1`
   to make an un-seen marker return non-zero (exit 14) instead of
   the default advisory `expect_text=not_seen`.
+- `LIGHTNING_TEST_EXPECT_WAIT_SECONDS=<n>` (v0.5.0-prep+7) — override
+  the post-send wait window when `EXPECT_TEXT` is configured. Default
+  is 90 s, clamped to [1, 3600]. During the wait the harness keeps
+  syncing and watching decrypted bodies for the marker; the moment it
+  arrives, the wait is cancelled and the harness exits.
+- `LIGHTNING_TEST_RECOVERY_KEY='<base58-recovery-key>'` (v0.5.0-prep+7)
+  — after `initial_sync=done` and while the send/probe phase runs,
+  call matrix-sdk's `client.encryption().recovery().recover(...)` to
+  import backed-up room keys from server-side secret storage. Runs
+  only when `LIGHTNING_TEST_PERSISTENT_STORE=1` (a fresh temp store
+  can't retain the keys). The recovery key is never printed and never
+  crosses a log line. Status is emitted as
+  `smoke: key_backup=attempted` → `key_backup=ok` or
+  `key_backup=failed reason=<safe>`.
+- `LIGHTNING_TEST_RECOVERY_PASSPHRASE='<phrase>'` (v0.5.0-prep+7) —
+  reserved. matrix-sdk 0.18's clean recovery API takes a recovery
+  *key*, not a passphrase, so the harness reports
+  `key_backup=failed reason=passphrase_not_supported` when this is
+  set without a key. Convert your passphrase to a recovery key in
+  Element first.
 - `LIGHTNING_TEST_SEND_ENCRYPTED=1` (v0.5.0-prep+6) — probe encrypted
   send. Picks the first encrypted joined room (or the room named by
   `LIGHTNING_TEST_ROOM_ID`) and asks matrix-sdk to encrypt + send a
@@ -171,6 +191,8 @@ Exit codes:
   `send=ok`/`skipped`/`blocked` when `LIGHTNING_TEST_SEND=1`, plus
   `encrypted_send=ok`/`skipped` when `LIGHTNING_TEST_SEND_ENCRYPTED=1`,
   plus `expect_text=seen` when `LIGHTNING_TEST_REQUIRE_EXPECT=1`.
+  `key_backup=not_configured` / `attempted` / `ok` / `failed` are
+  advisory and never affect the exit code by themselves.
 - `2` — missing env vars OR `--rust-sdk-smoke-test` used without
   `--backend=rust`, OR the current build has no Rust backend.
 - `10` — login failed.

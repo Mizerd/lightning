@@ -69,6 +69,16 @@ char *mx_rust_probe_encrypted_send(void *client,
                                    const char *body,
                                    const char *transaction_id);
 
+/*
+ * Key-backup recovery probe (v0.5.0-prep+7). Calls
+ * matrix-sdk's client.encryption().recovery().recover(<key>) so the SDK
+ * imports backed-up room keys from server-side secret storage. The FFI
+ * never logs the recovery key. Result events land on the poll queue as
+ *   {"type":"key_backup_status","state":"attempted|ok|failed",...}
+ */
+char *mx_rust_recover_from_backup(void *client,
+                                  const char *recovery_key);
+
 /* 0 = no, 1 = yes. Reports honestly — 0 until verified encrypted read/send. */
 int mx_rust_supports_e2ee(void *client);
 

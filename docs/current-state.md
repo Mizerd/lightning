@@ -1,4 +1,36 @@
-# Current state (v0.5.0-prep+6, persistent Rust smoke store for receive verification)
+# Current state (v0.5.0-prep+7, Rust SDK key backup probe + EXPECT_TEXT wait loop)
+
+## v0.5.0-prep+7 additions
+
+- New Rust FFI `mx_rust_recover_from_backup(recovery_key)` calling
+  matrix-sdk 0.18 `client.encryption().recovery().recover(...)` to
+  import backed-up room keys from server-side secret storage. FFI
+  never logs the key or the imported material. Result flows through
+  `key_backup_status` events on the poll queue.
+- New C++ `RustSdkMatrixClient::recoverFromBackup(recoveryKey)` +
+  signal `keyBackupResult(state, message)`.
+- Smoke harness reads `LIGHTNING_TEST_RECOVERY_KEY` (base58 recovery
+  key) after `initial_sync=done` and only when
+  `LIGHTNING_TEST_PERSISTENT_STORE=1`. `LIGHTNING_TEST_RECOVERY_PASSPHRASE`
+  is reserved but reports `passphrase_not_supported` — matrix-sdk
+  0.18's fast-path recovery API takes a key.
+- Smoke harness EXPECT_TEXT no longer finalises the moment
+  `initial_sync=done` fires. When a marker is configured, the
+  harness enters a bounded wait phase after any send/probe step
+  finishes. Default 90 s, override via
+  `LIGHTNING_TEST_EXPECT_WAIT_SECONDS`. New "since expect" counters
+  (`encrypted_events_since_expect`, `decrypted_events_since_expect`,
+  `undecryptable_since_expect`, `first_timeline_after_expect`) tell
+  you whether new events arrived during the wait.
+- SAS verification NOT implemented in this pass. Attempting it
+  headlessly against matrix-sdk 0.18's async verification handshake
+  risks unfinished state that the operator can't easily undo, so it
+  is deferred to a session with a full token budget and interactive
+  Element Classic driving.
+- `CryptoManager::supportsE2ee()` unchanged: still `false`.
+  `RUST_SDK_E2EE_WIRED` still undefined. Interactive UI encrypted
+  sends remain blocked. `CacheStore` still refuses encrypted rows.
+
 
 Last updated: 2026-07-05 (Rust SDK backend live-verified against
 matrix.smetonis.net; encrypted-send probe verified one-way in Element

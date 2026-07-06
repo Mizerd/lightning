@@ -717,6 +717,62 @@ pub unsafe extern "C" fn mx_rust_probe_encrypted_send(
     })
 }
 
+/// Key-backup recovery probe (v0.5.0-prep+7). Calls
+/// `client.encryption().recovery().recover(recovery_key)` on matrix-sdk
+/// v0.18 to import backed-up room keys from the homeserver's secret
+/// storage. The recovery key must arrive here as a plain string; the C++
+/// side is expected to sanitise before calling. This FFI **never** logs
+/// the recovery key or the imported key material. Result events on the
+/// poll queue:
+///   { "type": "key_backup_status", "state": "attempted" }
+///   { "type": "key_backup_status", "state": "ok" }
+///   { "type": "key_backup_status", "state": "failed", "message": "…" }
+///
+/// Recovery-passphrase support is intentionally NOT wired here — the
+/// matrix-sdk API takes a recovery *key* (BASE58) on the fast path. The
+/// smoke harness reports `key_backup=failed reason=passphrase_not_supported`
+/// if a passphrase is provided but no key.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_recover_from_backup(
+    ptr: *mut c_void,
+    recovery_key: *const c_char,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let recovery_key = unsafe { cstr_arg(recovery_key) }?;
+        let Some(client) = bridge.client.lock().ok().and_then(|guard| guard.clone()) else {
+            return Ok("error: Rust SDK session is not logged in.".to_owned());
+        };
+        let events = Arc::clone(&bridge.events);
+        std::thread::spawn(move || {
+            let runtime_events = Arc::clone(&events);
+            run_async(runtime_events, "recover_backup", async move {
+                enqueue(
+                    &events,
+                    json!({ "type": "key_backup_status", "state": "attempted" }),
+                );
+                let recovery = client.encryption().recovery();
+                match recovery.recover(&recovery_key).await {
+                    Ok(_) => enqueue(
+                        &events,
+                        json!({ "type": "key_backup_status", "state": "ok" }),
+                    ),
+                    Err(err) => enqueue(
+                        &events,
+                        json!({
+                            "type": "key_backup_status",
+                            "state": "failed",
+                            "message": format_matrix_error(
+                                "Matrix Rust SDK key backup recover failed", err),
+                        }),
+                    ),
+                }
+            });
+        });
+        Ok(String::new())
+    })
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_free_cstring(ptr: *mut c_char) {
     if ptr.is_null() {

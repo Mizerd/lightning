@@ -720,6 +720,13 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event)
         return;
     }
 
+    if (type == QLatin1String("key_backup_status")) {
+        const QString state = event.value(QStringLiteral("state")).toString();
+        const QString message = event.value(QStringLiteral("message")).toString();
+        Q_EMIT keyBackupResult(state, message);
+        return;
+    }
+
     if (type == QLatin1String("sync_error")) {
         setState(Error);
         Q_EMIT errorOccurred(event.value(QStringLiteral("message")).toString(
@@ -907,6 +914,28 @@ void RustSdkMatrixClient::handleSendFailed(const QJsonObject &event)
     failPendingSend(event.value(QStringLiteral("transaction_id")).toString(),
                     event.value(QStringLiteral("message")).toString(
                         tr("Rust SDK send failed.")));
+}
+
+void RustSdkMatrixClient::recoverFromBackup(const QString &recoveryKey)
+{
+    if (!m_loggedIn || !m_rustHandle) {
+        Q_EMIT keyBackupResult(QStringLiteral("failed"),
+                               tr("Not signed in."));
+        return;
+    }
+    if (recoveryKey.isEmpty()) {
+        Q_EMIT keyBackupResult(QStringLiteral("failed"),
+                               tr("Recovery key is empty."));
+        return;
+    }
+    const QByteArray keyBytes = recoveryKey.toUtf8();
+    const QString result = takeRustString(mx_rust_recover_from_backup(
+        m_rustHandle, keyBytes.constData()));
+    if (!result.isEmpty()) {
+        Q_EMIT keyBackupResult(QStringLiteral("failed"),
+            result.startsWith(QLatin1String("error: "))
+                ? result.mid(7) : result);
+    }
 }
 
 void RustSdkMatrixClient::probeEncryptedSend(const QString &roomId,

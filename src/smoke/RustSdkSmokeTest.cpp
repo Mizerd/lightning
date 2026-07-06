@@ -166,6 +166,18 @@ struct Counters {
     QString expectText;
     bool    requireExpect = false;
     QString expectResult = QStringLiteral("n/a");
+    int     expectWaitSeconds = 90;
+
+    // v0.5.0-prep+7: wait loop after send/probe completes.
+    bool    waitingForExpect = false;
+    bool    firstTimelineAfterExpect = false;
+    int     encryptedEventsSinceExpect = 0;
+    int     decryptedEventsSinceExpect = 0;
+    int     undecryptableSinceExpect = 0;
+
+    // Phase A — key backup recovery via matrix-sdk.
+    QString keyBackupResult = QStringLiteral("n/a");
+    QString keyBackupReason;
 };
 
 // Exit-code policy:
@@ -210,6 +222,17 @@ int runRustSdkSmokeTest(int argc, char *argv[])
     const QString expectText     = envStr("LIGHTNING_TEST_EXPECT_TEXT");
     const bool    requireExpect  =
         envStr("LIGHTNING_TEST_REQUIRE_EXPECT") == QLatin1String("1");
+    const QString recoveryKey    = envStr("LIGHTNING_TEST_RECOVERY_KEY");
+    const QString recoveryPass   = envStr("LIGHTNING_TEST_RECOVERY_PASSPHRASE");
+    int           expectWaitSeconds = 90;
+    {
+        const QString raw = envStr("LIGHTNING_TEST_EXPECT_WAIT_SECONDS");
+        if (!raw.isEmpty()) {
+            bool ok = false;
+            const int v = raw.toInt(&ok);
+            if (ok && v > 0 && v <= 3600) expectWaitSeconds = v;
+        }
+    }
 
     if (homeserver.isEmpty() || user.isEmpty() || password.isEmpty()) {
         QTextStream(stderr) <<
@@ -307,6 +330,7 @@ int runRustSdkSmokeTest(int argc, char *argv[])
     Counters counters;
     counters.expectText = expectText;
     counters.requireExpect = requireExpect;
+    counters.expectWaitSeconds = expectWaitSeconds;
     if (!expectText.isEmpty()) {
         counters.expectResult = QStringLiteral("not_seen");
         // Deliberately not printing the expected text itself.
@@ -327,11 +351,20 @@ int runRustSdkSmokeTest(int argc, char *argv[])
             ? counters.encryptedSendResult
             : QStringLiteral("%1(%2)").arg(counters.encryptedSendResult,
                                            counters.encryptedSendReason);
+        const QString kbSummary = counters.keyBackupReason.isEmpty()
+            ? counters.keyBackupResult
+            : QStringLiteral("%1(%2)").arg(counters.keyBackupResult,
+                                           counters.keyBackupReason);
         say(QStringLiteral(
                 "summary restore=%1 login=%2 sync=%3 rooms=%4 encrypted_rooms=%5 "
                 "spaces=%6 timeline_events=%7 encrypted_events=%8 "
                 "decrypted_events=%9 undecryptable=%10 send=%11 "
-                "encrypted_send=%12 expect_text=%13 supports_e2ee=%14")
+                "encrypted_send=%12 expect_text=%13 key_backup=%14 "
+                "encrypted_events_since_expect=%15 "
+                "decrypted_events_since_expect=%16 "
+                "undecryptable_since_expect=%17 "
+                "first_timeline_after_expect=%18 "
+                "supports_e2ee=%19")
                 .arg(counters.restoreResult, counters.loginResult)
                 .arg(counters.syncResult)
                 .arg(counters.roomCount)
@@ -343,11 +376,50 @@ int runRustSdkSmokeTest(int argc, char *argv[])
                 .arg(counters.undecryptableCount)
                 .arg(sendSummary)
                 .arg(encSendSummary)
-                .arg(counters.expectResult,
+                .arg(counters.expectResult, kbSummary)
+                .arg(counters.encryptedEventsSinceExpect)
+                .arg(counters.decryptedEventsSinceExpect)
+                .arg(counters.undecryptableSinceExpect)
+                .arg(counters.firstTimelineAfterExpect
+                     ? QStringLiteral("yes")
+                     : QStringLiteral("no"),
                      client->rustSupportsE2ee()
                      ? QStringLiteral("true")
                      : QStringLiteral("false")));
         QCoreApplication::exit(exitCodeFor(counters));
+    };
+
+    // v0.5.0-prep+7. Post-send finalise: if EXPECT_TEXT is configured
+    // and we haven't seen the marker yet, enter a bounded wait phase
+    // instead of exiting immediately. Any decrypted event containing
+    // the marker cancels the wait and finalises early.
+    auto postSendFinalise = std::make_shared<std::function<void()>>();
+    *postSendFinalise = [&, finalise]() {
+        if (counters.finalised) return;
+        if (counters.expectText.isEmpty()
+            || counters.expectResult == QLatin1String("seen")) {
+            (*finalise)();
+            return;
+        }
+        if (counters.waitingForExpect) return;
+        counters.waitingForExpect = true;
+        counters.encryptedEventsSinceExpect = 0;
+        counters.decryptedEventsSinceExpect = 0;
+        counters.undecryptableSinceExpect = 0;
+        counters.firstTimelineAfterExpect = false;
+        say(QStringLiteral("expect_text=waiting timeout_s=%1")
+                .arg(counters.expectWaitSeconds));
+        QTimer::singleShot(counters.expectWaitSeconds * 1000, &app,
+                           [&, finalise]() {
+            if (!counters.waitingForExpect) return;
+            counters.waitingForExpect = false;
+            if (counters.expectResult != QLatin1String("seen")) {
+                counters.expectResult = QStringLiteral("not_seen");
+                say(QStringLiteral(
+                    "expect_text=not_seen reason=timeout"));
+            }
+            (*finalise)();
+        });
     };
 
     // Total time budget. If nothing else fires by 60s, wrap up with
@@ -429,7 +501,7 @@ int runRustSdkSmokeTest(int argc, char *argv[])
     });
 
     auto attemptSend = std::make_shared<std::function<void()>>();
-    *attemptSend = [&, finalise]() {
+    *attemptSend = [&, postSendFinalise]() {
         const auto rooms = client->rooms();
         QString target = explicitRoomId;
         const RoomInfo *targetRoom = nullptr;
@@ -446,7 +518,7 @@ int runRustSdkSmokeTest(int argc, char *argv[])
                 counters.sendReason = QStringLiteral("target_not_in_synced_rooms");
                 say(QStringLiteral(
                     "send=blocked reason=target_not_in_synced_rooms"));
-                (*finalise)();
+                (*postSendFinalise)();
                 return;
             }
         } else {
@@ -461,7 +533,7 @@ int runRustSdkSmokeTest(int argc, char *argv[])
                 counters.sendReason = QStringLiteral("no_unencrypted_room");
                 say(QStringLiteral(
                     "send=skipped reason=no_unencrypted_room"));
-                (*finalise)();
+                (*postSendFinalise)();
                 return;
             }
         }
@@ -469,7 +541,7 @@ int runRustSdkSmokeTest(int argc, char *argv[])
             counters.sendResult = QStringLiteral("blocked");
             counters.sendReason = QStringLiteral("target_is_space");
             say(QStringLiteral("send=blocked reason=target_is_space"));
-            (*finalise)();
+            (*postSendFinalise)();
             return;
         }
         if (targetRoom->encrypted) {
@@ -477,7 +549,7 @@ int runRustSdkSmokeTest(int argc, char *argv[])
             counters.sendReason = QStringLiteral("encrypted_room_e2ee_disabled");
             say(QStringLiteral(
                 "send=blocked reason=encrypted_room_e2ee_disabled"));
-            (*finalise)();
+            (*postSendFinalise)();
             return;
         }
         counters.sendActive = true;
@@ -485,18 +557,18 @@ int runRustSdkSmokeTest(int argc, char *argv[])
             .arg(QDateTime::currentSecsSinceEpoch());
         say(QStringLiteral("send=start room=%1").arg(target));
         client->sendTextMessage(target, body);
-        QTimer::singleShot(15000, &app, [&, finalise]() {
+        QTimer::singleShot(15000, &app, [&, postSendFinalise]() {
             if (counters.sendActive) {
                 warn(QStringLiteral("send did not confirm within 15s"));
                 counters.sendResult = QStringLiteral("timeout");
                 counters.sendActive = false;
-                (*finalise)();
+                (*postSendFinalise)();
             }
         });
     };
 
     auto attemptEncryptedProbe = std::make_shared<std::function<void()>>();
-    *attemptEncryptedProbe = [&, finalise]() {
+    *attemptEncryptedProbe = [&, postSendFinalise]() {
         const auto rooms = client->rooms();
         QString target = explicitRoomId;
         const RoomInfo *targetRoom = nullptr;
@@ -509,7 +581,7 @@ int runRustSdkSmokeTest(int argc, char *argv[])
                 counters.encryptedSendReason = QStringLiteral("target_not_encrypted_room");
                 say(QStringLiteral(
                     "encrypted_send=skipped reason=target_not_encrypted_room"));
-                (*finalise)();
+                (*postSendFinalise)();
                 return;
             }
         } else {
@@ -524,7 +596,7 @@ int runRustSdkSmokeTest(int argc, char *argv[])
                 counters.encryptedSendReason = QStringLiteral("no_encrypted_room");
                 say(QStringLiteral(
                     "encrypted_send=skipped reason=no_encrypted_room"));
-                (*finalise)();
+                (*postSendFinalise)();
                 return;
             }
         }
@@ -539,20 +611,20 @@ int runRustSdkSmokeTest(int argc, char *argv[])
         say(QStringLiteral("encrypted_send=start room=%1 marker=%2")
                 .arg(target, counters.encryptedSendMarker));
         client->probeEncryptedSend(target, body, counters.encryptedSendMarker);
-        QTimer::singleShot(30000, &app, [&, finalise]() {
+        QTimer::singleShot(30000, &app, [&, postSendFinalise]() {
             if (counters.encryptedSendActive) {
                 warn(QStringLiteral(
                     "encrypted-send probe did not confirm within 30s"));
                 counters.encryptedSendResult = QStringLiteral("timeout");
                 counters.encryptedSendActive = false;
-                (*finalise)();
+                (*postSendFinalise)();
             }
         });
     };
 
     QObject::connect(client.get(),
                      &RustSdkMatrixClient::encryptedSendProbeResult, &app,
-                     [&, finalise](const QString &,
+                     [&, postSendFinalise](const QString &,
                                    const QString &marker,
                                    bool ok,
                                    const QString &serverEventId,
@@ -572,24 +644,67 @@ int runRustSdkSmokeTest(int argc, char *argv[])
                     "encrypted_send=failed marker=%1 reason=%2")
                     .arg(marker, counters.encryptedSendReason));
         }
-        (*finalise)();
+        (*postSendFinalise)();
+    });
+
+    // Phase A — key backup recovery. Fires the moment login-then-sync
+    // stabilises (see initial_sync=done chain below). Never prints the
+    // recovery key or the imported key material.
+    QObject::connect(client.get(),
+                     &RustSdkMatrixClient::keyBackupResult, &app,
+                     [&](const QString &state, const QString &message) {
+        counters.keyBackupResult = state;
+        if (state == QLatin1String("failed") && !message.isEmpty())
+            counters.keyBackupReason = sanitiseError(message);
+        say(QStringLiteral("key_backup=%1%2")
+                .arg(state,
+                     (state == QLatin1String("failed") && !message.isEmpty())
+                         ? QStringLiteral(" reason=%1")
+                               .arg(sanitiseError(message))
+                         : QString()));
     });
 
     QObject::connect(client.get(), &MatrixClient::initialSyncDoneChanged,
-                     &app, [&, finalise, attemptSend,
-                            attemptEncryptedProbe]() {
+                     &app, [&, postSendFinalise, attemptSend,
+                            attemptEncryptedProbe, recoveryKey,
+                            recoveryPass, persistentStore]() {
         if (!client->initialSyncDone()) return;
         counters.initialSyncDone = true;
         counters.syncResult = QStringLiteral("ok");
         say(QStringLiteral("initial_sync=done"));
-        QTimer::singleShot(2000, &app, [&, finalise, attemptSend,
+
+        // Phase A — kick off key backup recovery if a key was supplied
+        // via env. Runs in parallel with any send/probe; results arrive
+        // asynchronously on keyBackupResult.
+        if (!recoveryKey.isEmpty()) {
+            if (!persistentStore) {
+                counters.keyBackupResult = QStringLiteral("failed");
+                counters.keyBackupReason =
+                    QStringLiteral("persistent_store_required");
+                say(QStringLiteral(
+                    "key_backup=failed reason=persistent_store_required"));
+            } else {
+                counters.keyBackupResult = QStringLiteral("attempted");
+                say(QStringLiteral("key_backup=attempted"));
+                client->recoverFromBackup(recoveryKey);
+            }
+        } else if (!recoveryPass.isEmpty()) {
+            counters.keyBackupResult = QStringLiteral("failed");
+            counters.keyBackupReason =
+                QStringLiteral("passphrase_not_supported");
+            say(QStringLiteral(
+                "key_backup=failed reason=passphrase_not_supported"));
+        } else {
+            counters.keyBackupResult = QStringLiteral("not_configured");
+        }
+
+        QTimer::singleShot(2000, &app, [&, postSendFinalise, attemptSend,
                                         attemptEncryptedProbe]() {
-            // Order: EXPECT_TEXT is passive (event handler already
-            // watches). SEND runs before SEND_ENCRYPTED so a fully-set
-            // caller drives both without either blocking the other.
+            // Order: SEND / SEND_ENCRYPTED run first. postSendFinalise
+            // then either enters the EXPECT_TEXT wait phase or exits.
             if (doSendEncrypted) (*attemptEncryptedProbe)();
             else if (doSend)     (*attemptSend)();
-            else                 (*finalise)();
+            else                 (*postSendFinalise)();
         });
     });
 
@@ -611,11 +726,19 @@ int runRustSdkSmokeTest(int argc, char *argv[])
     });
 
     QObject::connect(client.get(), &MatrixClient::eventAppended,
-                     &app, [&](const QString &, const TimelineEvent &ev) {
+                     &app, [&, finalise](const QString &, const TimelineEvent &ev) {
         ++counters.timelineEventCount;
         if (ev.isEncrypted)   ++counters.encryptedEventCount;
         if (ev.isDecrypted)   ++counters.decryptedEventCount;
         if (ev.undecryptable) ++counters.undecryptableCount;
+
+        if (counters.waitingForExpect) {
+            if (!counters.firstTimelineAfterExpect)
+                counters.firstTimelineAfterExpect = true;
+            if (ev.isEncrypted)   ++counters.encryptedEventsSinceExpect;
+            if (ev.isDecrypted)   ++counters.decryptedEventsSinceExpect;
+            if (ev.undecryptable) ++counters.undecryptableSinceExpect;
+        }
 
         // EXPECT_TEXT match runs against decrypted bodies only. We never
         // echo the marker itself; only "seen" / "not_seen" is exposed.
@@ -626,12 +749,16 @@ int runRustSdkSmokeTest(int argc, char *argv[])
             if (counters.expectResult != QLatin1String("seen")) {
                 counters.expectResult = QStringLiteral("seen");
                 say(QStringLiteral("expect_text=seen"));
+                if (counters.waitingForExpect) {
+                    counters.waitingForExpect = false;
+                    (*finalise)();
+                }
             }
         }
     });
 
     QObject::connect(client.get(), &MatrixClient::eventReplaced,
-                     &app, [&, finalise](const QString &,
+                     &app, [&, postSendFinalise](const QString &,
                                          const QString &,
                                          const TimelineEvent &ev) {
         if (!counters.sendActive) return;
@@ -639,12 +766,12 @@ int runRustSdkSmokeTest(int argc, char *argv[])
             counters.sendResult = QStringLiteral("ok");
             counters.sendActive = false;
             say(QStringLiteral("send=ok"));
-            (*finalise)();
+            (*postSendFinalise)();
         }
     });
 
     QObject::connect(client.get(), &MatrixClient::eventStatusChanged,
-                     &app, [&, finalise](const QString &,
+                     &app, [&, postSendFinalise](const QString &,
                                          const QString &,
                                          TimelineEvent::Status s) {
         if (!counters.sendActive) return;
@@ -652,12 +779,12 @@ int runRustSdkSmokeTest(int argc, char *argv[])
             counters.sendResult = QStringLiteral("ok");
             counters.sendActive = false;
             say(QStringLiteral("send=ok"));
-            (*finalise)();
+            (*postSendFinalise)();
         } else if (s == TimelineEvent::Failed) {
             counters.sendResult = QStringLiteral("failed");
             counters.sendActive = false;
             say(QStringLiteral("send=failed"));
-            (*finalise)();
+            (*postSendFinalise)();
         }
     });
 

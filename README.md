@@ -12,6 +12,12 @@ across the rename. The product name is **Lightning**.
 
 ## Status
 
+**v0.5.0-prep+7** — Adds a key-backup recovery probe via matrix-sdk
+0.18 and a bounded EXPECT_TEXT wait loop for the smoke harness so
+Element Classic → Lightning encrypted receive can actually be tested.
+No E2EE claim change: `CryptoManager::supportsE2ee()` still returns
+`false`. Interactive UI encrypted sends still blocked.
+
 **v0.5.0-prep+6** — Matrix Rust SDK backend foundation, hardened,
 verified live against `matrix.smetonis.net` (login + sync + rooms +
 Space detection + timeline delivery), plus encrypted-receive
