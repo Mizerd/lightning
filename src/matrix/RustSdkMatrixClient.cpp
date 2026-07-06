@@ -11,6 +11,8 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QVariantList>
+#include <QVariantMap>
 #include <QLoggingCategory>
 #include <QTimeZone>
 #include <QUrl>
@@ -743,6 +745,55 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event)
         return;
     }
 
+    if (type == QLatin1String("verification_request_received")) {
+        Q_EMIT verificationRequestReceived(
+            event.value(QStringLiteral("flow_id")).toString(),
+            event.value(QStringLiteral("other_user_id")).toString(),
+            event.value(QStringLiteral("other_device_id")).toString(),
+            event.value(QStringLiteral("is_self_verification")).toBool(false));
+        return;
+    }
+    if (type == QLatin1String("verification_sas_ready")) {
+        QVariantList emojis;
+        for (const auto &v : event.value(QStringLiteral("emojis")).toArray()) {
+            QVariantMap m;
+            m.insert(QStringLiteral("symbol"),
+                     v.toObject().value(QStringLiteral("symbol")).toString());
+            m.insert(QStringLiteral("description"),
+                     v.toObject().value(QStringLiteral("description")).toString());
+            emojis.append(m);
+        }
+        QVariantList decimals;
+        for (const auto &v : event.value(QStringLiteral("decimals")).toArray())
+            decimals.append(v.toInt());
+        Q_EMIT verificationSasReady(
+            event.value(QStringLiteral("flow_id")).toString(),
+            emojis, decimals);
+        return;
+    }
+    if (type == QLatin1String("verification_done")) {
+        Q_EMIT verificationDone(
+            event.value(QStringLiteral("flow_id")).toString());
+        return;
+    }
+    if (type == QLatin1String("verification_cancelled")) {
+        Q_EMIT verificationCancelled(
+            event.value(QStringLiteral("flow_id")).toString(),
+            event.value(QStringLiteral("message")).toString());
+        return;
+    }
+    if (type == QLatin1String("verification_failed")) {
+        Q_EMIT verificationFailed(
+            event.value(QStringLiteral("flow_id")).toString(),
+            event.value(QStringLiteral("message")).toString());
+        return;
+    }
+    // verification_ready / verification_sas_started are informational —
+    // handled by the sas_ready / done / cancelled path. Ignore.
+    if (type == QLatin1String("verification_ready")
+        || type == QLatin1String("verification_sas_started"))
+        return;
+
     if (type == QLatin1String("sync_error")) {
         setState(Error);
         Q_EMIT errorOccurred(event.value(QStringLiteral("message")).toString(
@@ -974,6 +1025,42 @@ void RustSdkMatrixClient::reloadRoomTimeline(const QString &roomId, int limit)
             result.startsWith(QLatin1String("error: "))
                 ? result.mid(7) : result);
     }
+}
+
+void RustSdkMatrixClient::acceptVerification(const QString &flowId)
+{
+    if (!m_rustHandle || flowId.isEmpty()) return;
+    const QByteArray b = flowId.toUtf8();
+    const QString r = takeRustString(mx_rust_accept_verification(m_rustHandle, b.constData()));
+    if (!r.isEmpty()) Q_EMIT verificationFailed(flowId,
+        r.startsWith(QLatin1String("error: ")) ? r.mid(7) : r);
+}
+
+void RustSdkMatrixClient::confirmVerification(const QString &flowId)
+{
+    if (!m_rustHandle || flowId.isEmpty()) return;
+    const QByteArray b = flowId.toUtf8();
+    const QString r = takeRustString(mx_rust_confirm_verification(m_rustHandle, b.constData()));
+    if (!r.isEmpty()) Q_EMIT verificationFailed(flowId,
+        r.startsWith(QLatin1String("error: ")) ? r.mid(7) : r);
+}
+
+void RustSdkMatrixClient::mismatchVerification(const QString &flowId)
+{
+    if (!m_rustHandle || flowId.isEmpty()) return;
+    const QByteArray b = flowId.toUtf8();
+    const QString r = takeRustString(mx_rust_mismatch_verification(m_rustHandle, b.constData()));
+    if (!r.isEmpty()) Q_EMIT verificationFailed(flowId,
+        r.startsWith(QLatin1String("error: ")) ? r.mid(7) : r);
+}
+
+void RustSdkMatrixClient::cancelVerification(const QString &flowId)
+{
+    if (!m_rustHandle || flowId.isEmpty()) return;
+    const QByteArray b = flowId.toUtf8();
+    const QString r = takeRustString(mx_rust_cancel_verification(m_rustHandle, b.constData()));
+    if (!r.isEmpty()) Q_EMIT verificationFailed(flowId,
+        r.startsWith(QLatin1String("error: ")) ? r.mid(7) : r);
 }
 
 void RustSdkMatrixClient::probeEncryptedSend(const QString &roomId,

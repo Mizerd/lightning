@@ -176,6 +176,51 @@ AppController::AppController(Backend backend, QObject *parent)
             if (roomId == m_currentRoomId)
                 Q_EMIT currentRoomTimelineReloaded(t, d, u);
         });
+        // v0.5.0 SAS verification signal bridge. QML binds
+        // verificationStateChanged() and reads the seven derived
+        // properties. All state lives in AppController so QML doesn't
+        // reach into concrete backend types.
+        connect(rust, &RustSdkMatrixClient::verificationRequestReceived,
+                this, [this](const QString &flowId, const QString &otherUser,
+                             const QString &otherDevice, bool isSelf) {
+            m_verificationFlowId = flowId;
+            m_verificationOtherUser = otherUser;
+            m_verificationOtherDevice = otherDevice;
+            m_verificationIsSelf = isSelf;
+            m_verificationState = QStringLiteral("requested");
+            m_verificationEmojis.clear();
+            m_verificationDecimals.clear();
+            Q_EMIT verificationStateChanged();
+        });
+        connect(rust, &RustSdkMatrixClient::verificationSasReady,
+                this, [this](const QString &flowId,
+                             const QVariantList &emojis,
+                             const QVariantList &decimals) {
+            if (flowId != m_verificationFlowId) return;
+            m_verificationEmojis = emojis;
+            m_verificationDecimals = decimals;
+            m_verificationState = QStringLiteral("sas_ready");
+            Q_EMIT verificationStateChanged();
+        });
+        connect(rust, &RustSdkMatrixClient::verificationDone,
+                this, [this](const QString &flowId) {
+            if (flowId != m_verificationFlowId) return;
+            m_verificationState = QStringLiteral("done");
+            Q_EMIT verificationStateChanged();
+        });
+        connect(rust, &RustSdkMatrixClient::verificationCancelled,
+                this, [this](const QString &flowId, const QString &) {
+            if (flowId != m_verificationFlowId) return;
+            m_verificationState = QStringLiteral("cancelled");
+            Q_EMIT verificationStateChanged();
+        });
+        connect(rust, &RustSdkMatrixClient::verificationFailed,
+                this, [this](const QString &flowId, const QString &msg) {
+            if (flowId != m_verificationFlowId) return;
+            m_verificationState = QStringLiteral("failed:%1").arg(msg);
+            Q_EMIT verificationStateChanged();
+        });
+
         // v0.5.0-prep+11: detect the SDK "account in the store doesn't
         // match" error and expose it as a distinct signal QML can bind
         // a reset button to.
@@ -316,6 +361,51 @@ void AppController::reloadCurrentRoomTimeline(int limit)
         rust->reloadRoomTimeline(m_currentRoomId, limit);
 #else
     Q_UNUSED(limit);
+#endif
+}
+
+void AppController::acceptVerification()
+{
+#ifdef ENABLE_RUST_SDK_BACKEND
+    if (m_backend != RustBackend || !m_client || m_verificationFlowId.isEmpty())
+        return;
+    if (auto *rust = qobject_cast<RustSdkMatrixClient *>(m_client.get()))
+        rust->acceptVerification(m_verificationFlowId);
+#endif
+}
+
+void AppController::confirmVerification()
+{
+#ifdef ENABLE_RUST_SDK_BACKEND
+    if (m_backend != RustBackend || !m_client || m_verificationFlowId.isEmpty())
+        return;
+    if (auto *rust = qobject_cast<RustSdkMatrixClient *>(m_client.get()))
+        rust->confirmVerification(m_verificationFlowId);
+#endif
+}
+
+void AppController::mismatchVerification()
+{
+#ifdef ENABLE_RUST_SDK_BACKEND
+    if (m_backend != RustBackend || !m_client || m_verificationFlowId.isEmpty())
+        return;
+    if (auto *rust = qobject_cast<RustSdkMatrixClient *>(m_client.get()))
+        rust->mismatchVerification(m_verificationFlowId);
+#endif
+}
+
+void AppController::cancelVerification()
+{
+#ifdef ENABLE_RUST_SDK_BACKEND
+    if (m_backend != RustBackend || !m_client || m_verificationFlowId.isEmpty())
+        return;
+    if (auto *rust = qobject_cast<RustSdkMatrixClient *>(m_client.get()))
+        rust->cancelVerification(m_verificationFlowId);
+    m_verificationFlowId.clear();
+    m_verificationState.clear();
+    m_verificationEmojis.clear();
+    m_verificationDecimals.clear();
+    Q_EMIT verificationStateChanged();
 #endif
 }
 

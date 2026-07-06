@@ -163,8 +163,119 @@ Item {
                         text: qsTr(
                             "Encrypted send: initial verified · Encrypted receive: initial verified · " +
                             "Key backup restore: available below · " +
-                            "Session (SAS emoji) verification UI: not implemented yet · " +
+                            "Session (SAS emoji) verification: receive-first flow implemented · " +
                             "Cross-signing UI: not implemented yet")
+                    }
+
+                    // v0.5.0 SAS emoji verification UI. Receive-first —
+                    // the Rust bridge listens for verification requests
+                    // and surfaces them here. Visible only while a flow
+                    // is active.
+                    Pane {
+                        Layout.fillWidth: true
+                        visible: app.verificationActive
+                        background: Rectangle {
+                            color: AppTheme.surfaceAlt
+                            border.color: AppTheme.accent
+                            radius: AppTheme.radiusSm
+                        }
+                        ColumnLayout {
+                            width: parent.width
+                            spacing: AppTheme.spacingS
+
+                            Label {
+                                text: qsTr("Session verification request")
+                                color: AppTheme.text
+                                font.weight: Font.DemiBold
+                            }
+                            Label {
+                                Layout.fillWidth: true
+                                wrapMode: Text.WordWrap
+                                color: AppTheme.textMuted
+                                text: {
+                                    if (app.verificationState === "requested")
+                                        return qsTr("Incoming from %1")
+                                            .arg(app.verificationOtherUser)
+                                    if (app.verificationState === "sas_ready")
+                                        return qsTr("Compare these emojis with the " +
+                                                    "other device. Confirm only if they match.")
+                                    if (app.verificationState === "done")
+                                        return qsTr("Verification complete.")
+                                    if (app.verificationState === "cancelled")
+                                        return qsTr("Verification cancelled.")
+                                    if (app.verificationState.indexOf("failed") === 0)
+                                        return qsTr("Verification failed.")
+                                    return qsTr("Waiting…")
+                                }
+                            }
+                            Flow {
+                                Layout.fillWidth: true
+                                spacing: AppTheme.spacingS
+                                visible: app.verificationState === "sas_ready"
+                                Repeater {
+                                    model: app.verificationEmojis
+                                    delegate: Rectangle {
+                                        color: AppTheme.surface
+                                        border.color: AppTheme.border
+                                        radius: AppTheme.radiusSm
+                                        implicitWidth: 84
+                                        implicitHeight: 78
+                                        ColumnLayout {
+                                            anchors.centerIn: parent
+                                            spacing: 2
+                                            Label {
+                                                text: modelData.symbol || ""
+                                                font.pixelSize: 28
+                                                horizontalAlignment: Text.AlignHCenter
+                                                Layout.alignment: Qt.AlignHCenter
+                                            }
+                                            Label {
+                                                text: modelData.description || ""
+                                                font.pixelSize: AppTheme.fontSizeXS
+                                                color: AppTheme.textMuted
+                                                horizontalAlignment: Text.AlignHCenter
+                                                Layout.alignment: Qt.AlignHCenter
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: AppTheme.spacingS
+                                Button {
+                                    text: qsTr("Accept")
+                                    visible: app.verificationState === "requested"
+                                    highlighted: true
+                                    onClicked: app.acceptVerification()
+                                }
+                                Button {
+                                    text: qsTr("They match")
+                                    visible: app.verificationState === "sas_ready"
+                                    highlighted: true
+                                    onClicked: app.confirmVerification()
+                                }
+                                Button {
+                                    text: qsTr("They do not match")
+                                    visible: app.verificationState === "sas_ready"
+                                    onClicked: app.mismatchVerification()
+                                }
+                                Item { Layout.fillWidth: true }
+                                Button {
+                                    text: qsTr("Cancel")
+                                    visible: app.verificationState === "requested"
+                                            || app.verificationState === "sas_ready"
+                                    onClicked: app.cancelVerification()
+                                }
+                                Button {
+                                    text: qsTr("Dismiss")
+                                    visible: app.verificationState === "done"
+                                            || app.verificationState === "cancelled"
+                                            || app.verificationState.indexOf("failed") === 0
+                                    onClicked: app.cancelVerification()
+                                }
+                            }
+                        }
                     }
                     Label {
                         Layout.fillWidth: true

@@ -13,6 +13,7 @@
 
 #include <QObject>
 #include <QString>
+#include <QVariantList>
 #include <memory>
 
 class MatrixClient;
@@ -36,6 +37,16 @@ class AppController : public QObject
     // exposing the full id. Empty when the backend is not Rust or the
     // client has not yet logged in.
     Q_PROPERTY(QString rustDeviceIdRedacted READ rustDeviceIdRedacted NOTIFY rustDeviceIdChanged)
+
+    // v0.5.0 SAS emoji verification. QML binds all of these.
+    Q_PROPERTY(bool verificationActive READ verificationActive NOTIFY verificationStateChanged)
+    Q_PROPERTY(QString verificationFlowId READ verificationFlowId NOTIFY verificationStateChanged)
+    Q_PROPERTY(QString verificationOtherUser READ verificationOtherUser NOTIFY verificationStateChanged)
+    Q_PROPERTY(QString verificationOtherDevice READ verificationOtherDevice NOTIFY verificationStateChanged)
+    Q_PROPERTY(bool verificationIsSelfVerification READ verificationIsSelfVerification NOTIFY verificationStateChanged)
+    Q_PROPERTY(QString verificationState READ verificationState NOTIFY verificationStateChanged)
+    Q_PROPERTY(QVariantList verificationEmojis READ verificationEmojis NOTIFY verificationStateChanged)
+    Q_PROPERTY(QVariantList verificationDecimals READ verificationDecimals NOTIFY verificationStateChanged)
 
     Q_PROPERTY(SettingsManager* settings READ settings CONSTANT)
     Q_PROPERTY(AuthManager* auth READ auth CONSTANT)
@@ -120,6 +131,21 @@ public Q_SLOTS:
     // time — the wrapper dedupes by event_id. No-op on non-Rust.
     Q_INVOKABLE void reloadCurrentRoomTimeline(int limit = 30);
 
+    // v0.5.0 SAS emoji verification invocables.
+    Q_INVOKABLE void acceptVerification();
+    Q_INVOKABLE void confirmVerification();
+    Q_INVOKABLE void mismatchVerification();
+    Q_INVOKABLE void cancelVerification();
+
+    bool verificationActive() const { return !m_verificationFlowId.isEmpty(); }
+    QString verificationFlowId() const { return m_verificationFlowId; }
+    QString verificationOtherUser() const { return m_verificationOtherUser; }
+    QString verificationOtherDevice() const { return m_verificationOtherDevice; }
+    bool verificationIsSelfVerification() const { return m_verificationIsSelf; }
+    QString verificationState() const { return m_verificationState; }
+    QVariantList verificationEmojis() const { return m_verificationEmojis; }
+    QVariantList verificationDecimals() const { return m_verificationDecimals; }
+
 Q_SIGNALS:
     void currentScreenChanged();
     void initialSyncDoneChanged();
@@ -147,6 +173,9 @@ Q_SIGNALS:
     void currentRoomTimelineReloaded(int totalEvents,
                                      int decryptedEvents,
                                      int undecryptableEvents);
+
+    // v0.5.0 SAS verification.
+    void verificationStateChanged();
 
 private:
     void setCurrentScreen(Screen s);
@@ -178,4 +207,13 @@ private:
     std::unique_ptr<CryptoManager> m_crypto;
     std::unique_ptr<SpaceManager> m_spaces;
     std::unique_ptr<ThreadManager> m_threads;
+
+    // v0.5.0 SAS verification state cache.
+    QString m_verificationFlowId;
+    QString m_verificationOtherUser;
+    QString m_verificationOtherDevice;
+    bool    m_verificationIsSelf = false;
+    QString m_verificationState;
+    QVariantList m_verificationEmojis;
+    QVariantList m_verificationDecimals;
 };

@@ -1,3 +1,114 @@
+# Current state (v0.5.0 — SAS verification receive-first)
+
+**The `prep+N` nomenclature is retired.** The prep series ended at
+`0.5.0-prep+13`. Active line is now `0.5.x`; the next bug-fix pass
+should use `0.5.1`.
+
+## v0.5.0 — Matrix SAS emoji verification (receive-first)
+
+Landed the SAS state machine using the source-verified matrix-sdk
+0.18 API from prep+13's research pass.
+
+Rust FFI additions (`rust/src/lib.rs` / `rust/include/matrix_rust.h`):
+
+- Event handler for `ToDeviceKeyVerificationRequestEvent` installed
+  during `install_event_handlers`. When a request arrives, the
+  handler hydrates the request via
+  `client.encryption().get_verification_request(user, flow_id)` and
+  stores it in `RustClient::active_request` (single-flow policy —
+  matches the "one dialog at a time" GUI intent). Emits
+  `verification_request_received` on the FFI queue.
+- `mx_rust_accept_verification(flow_id)` — drives
+  `request.accept()`, polls for the SDK to transition into
+  `Verification::SasV1(...)` via `get_verification`, calls
+  `sas.accept()`, then polls `sas.state()` at 500 ms cadence for up
+  to 120 s. Emits `verification_sas_ready` with the seven emojis +
+  three-decimal fallback when `SasState::KeysExchanged` is reached,
+  `verification_done` on `SasState::Done`, or
+  `verification_cancelled` on `SasState::Cancelled`. Poll-based on
+  purpose so we don't have to introduce a futures-util dependency.
+- `mx_rust_confirm_verification(flow_id)` → `sas.confirm().await`.
+- `mx_rust_mismatch_verification(flow_id)` → `sas.mismatch().await`.
+- `mx_rust_cancel_verification(flow_id)` — SAS-level cancel if a
+  SAS is active, else request-level cancel. Clears both slots.
+
+C++ wrapper (`src/matrix/RustSdkMatrixClient.{h,cpp}`):
+
+- New methods: `acceptVerification`, `confirmVerification`,
+  `mismatchVerification`, `cancelVerification`.
+- New signals: `verificationRequestReceived(flowId, otherUser,
+  otherDevice, isSelfVerification)`, `verificationSasReady(flowId,
+  emojis, decimals)`, `verificationDone(flowId)`,
+  `verificationCancelled(flowId, message)`,
+  `verificationFailed(flowId, message)`.
+- Rust `verification_*` JSON queue events dispatched into those
+  signals in `handleRustEvent`.
+
+AppController (`src/app/AppController.{h,cpp}`):
+
+- New properties (all `NOTIFY verificationStateChanged`):
+  `verificationActive`, `verificationFlowId`,
+  `verificationOtherUser`, `verificationOtherDevice`,
+  `verificationIsSelfVerification`, `verificationState`,
+  `verificationEmojis` (QVariantList of {symbol, description}),
+  `verificationDecimals` (QVariantList of int).
+- New invocables: `acceptVerification()`, `confirmVerification()`,
+  `mismatchVerification()`, `cancelVerification()` — all no-op on
+  non-Rust backends.
+- Bridges `RustSdkMatrixClient::verification*` signals into
+  `verificationStateChanged`; caches the state so QML doesn't
+  need to hold onto anything.
+- `cancelVerification()` clears the local state after the FFI
+  call so the dialog dismisses cleanly.
+
+QML (`qml/SettingsScreen.qml`):
+
+- New verification card inside the Encryption pane, visible only
+  while `app.verificationActive`. Shows the incoming user,
+  contextual status text, a Flow of seven emoji tiles with
+  descriptions when `verificationState === "sas_ready"`, and
+  action buttons (`Accept`, `They match`, `They do not match`,
+  `Cancel`, `Dismiss`) whose visibility follows the state.
+- The pane's static status line switches from "not implemented
+  yet" to "Session (SAS emoji) verification: receive-first flow
+  implemented".
+
+### matrix-sdk 0.18 quirks worked around
+
+- `SasVerification` does NOT expose `flow_id()` on 0.18. We track
+  the flow id externally in `active_sas: Mutex<Option<(String,
+  SasVerification)>>`.
+- No public `recv_verification_requests()` stream on 0.18 — the
+  install_event_handlers path uses `add_event_handler` for
+  `ToDeviceKeyVerificationRequestEvent` (research pass confirmed
+  this in prep+13).
+- No `futures-util` direct dep added; the SAS state watcher polls
+  `sas.state()` at 500 ms cadence instead of consuming the
+  `.changes()` Stream.
+
+### Current verification limitations
+
+- **Receive-first only.** Lightning can accept a SAS request that
+  Element Classic (or any other client) initiates. Initiating a
+  verification from Lightning is a follow-up prompt.
+- Single active flow at a time (a second incoming request while
+  one is in progress overwrites the slot).
+- No in-room verification path — only to-device requests are
+  observed.
+- Cross-signing UI: not implemented.
+- Key backup management UI: not implemented.
+
+### Cache / security invariants (preserved)
+
+- `CryptoManager::supportsE2ee()` still returns `true` for Rust
+  only; `RUST_SDK_E2EE_WIRED` still defined only under
+  `ENABLE_RUST_SDK_BACKEND`.
+- `CacheStore` still refuses encrypted `TimelineEvent` rows.
+- Emojis + descriptions are safe to display by SAS design. Flow
+  ids, user ids, and device ids appear in logs at INFO; passwords
+  / access tokens / recovery keys / crypto keys / decrypted
+  message bodies never appear anywhere in logs.
+
 # Current state (v0.5.0-prep+13, SAS API surface research)
 
 ## v0.5.0-prep+13 — SAS emoji verification API research

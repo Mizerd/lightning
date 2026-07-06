@@ -23,11 +23,15 @@ use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use matrix_sdk::{
     authentication::matrix::MatrixSession,
     config::SyncSettings,
+    encryption::verification::{SasState, SasVerification, VerificationRequest},
     room::MessagesOptions,
     ruma::{
-        events::room::{
-            encrypted::OriginalSyncRoomEncryptedEvent,
-            message::{MessageType, OriginalSyncRoomMessageEvent, RoomMessageEventContent},
+        events::{
+            key::verification::request::ToDeviceKeyVerificationRequestEvent,
+            room::{
+                encrypted::OriginalSyncRoomEncryptedEvent,
+                message::{MessageType, OriginalSyncRoomMessageEvent, RoomMessageEventContent},
+            },
         },
         uint, OwnedDeviceId, OwnedTransactionId, OwnedUserId, RoomId, UInt, UserId,
     },
@@ -43,6 +47,13 @@ struct RustClient {
     client: Arc<Mutex<Option<Client>>>,
     events: Arc<Mutex<VecDeque<String>>>,
     sync_stop: Arc<Mutex<Option<Arc<AtomicBool>>>>,
+    // v0.5.0: SAS verification state. Single active flow at a time keeps
+    // the FFI simple; if a second request arrives we cancel the first.
+    // Both slots are cleared when the flow reaches Done or Cancelled.
+    active_request: Arc<Mutex<Option<VerificationRequest>>>,
+    // (flow_id, sas) — SasVerification has no flow_id() accessor on
+    // matrix-sdk 0.18, so we track it externally.
+    active_sas: Arc<Mutex<Option<(String, SasVerification)>>>,
 }
 
 impl RustClient {
@@ -53,6 +64,8 @@ impl RustClient {
             client: Arc::new(Mutex::new(None)),
             events: Arc::new(Mutex::new(VecDeque::new())),
             sync_stop: Arc::new(Mutex::new(None)),
+            active_request: Arc::new(Mutex::new(None)),
+            active_sas: Arc::new(Mutex::new(None)),
         })
     }
 
@@ -179,12 +192,17 @@ pub unsafe extern "C" fn mx_rust_login(
         let session_file = Arc::clone(&bridge.session_file);
         let client_slot = Arc::clone(&bridge.client);
         let events = Arc::clone(&bridge.events);
+        let active_request = Arc::clone(&bridge.active_request);
         std::thread::spawn(move || {
             let runtime_events = Arc::clone(&events);
             run_async(runtime_events, "login", async move {
                 match build_client(&homeserver, &store_path).await {
                     Ok(client) => {
-                        install_event_handlers(&client, Arc::clone(&events));
+                        install_event_handlers(
+                            &client,
+                            Arc::clone(&events),
+                            Arc::clone(&active_request),
+                        );
                         let login = client
                             .matrix_auth()
                             .login_username(&user, &password)
@@ -264,6 +282,7 @@ pub unsafe extern "C" fn mx_rust_restore_from_file(
         let store_path = bridge.store_path.clone();
         let client_slot = Arc::clone(&bridge.client);
         let events = Arc::clone(&bridge.events);
+        let active_request = Arc::clone(&bridge.active_request);
         std::thread::spawn(move || {
             let runtime_events = Arc::clone(&events);
             run_async(runtime_events, "restore_from_file", async move {
@@ -308,7 +327,11 @@ pub unsafe extern "C" fn mx_rust_restore_from_file(
                     .await
                 {
                     Ok(client) => {
-                        install_event_handlers(&client, Arc::clone(&events));
+                        install_event_handlers(
+                            &client,
+                            Arc::clone(&events),
+                            Arc::clone(&active_request),
+                        );
                         if let Err(err) =
                             save_persistent_session(&session_file, &homeserver, &stored.session)
                         {
@@ -371,6 +394,7 @@ pub unsafe extern "C" fn mx_rust_restore(
         let store_path = bridge.store_path.clone();
         let client_slot = Arc::clone(&bridge.client);
         let events = Arc::clone(&bridge.events);
+        let active_request = Arc::clone(&bridge.active_request);
         std::thread::spawn(move || {
             let runtime_events = Arc::clone(&events);
             run_async(runtime_events, "restore", async move {
@@ -378,7 +402,11 @@ pub unsafe extern "C" fn mx_rust_restore(
                     .await
                 {
                     Ok(client) => {
-                        install_event_handlers(&client, Arc::clone(&events));
+                        install_event_handlers(
+                            &client,
+                            Arc::clone(&events),
+                            Arc::clone(&active_request),
+                        );
                         if let Ok(mut guard) = client_slot.lock() {
                             *guard = Some(client);
                         }
@@ -937,6 +965,271 @@ pub unsafe extern "C" fn mx_rust_reload_room_timeline(
     })
 }
 
+/// SAS emoji verification — accept an incoming request and drive it to
+/// the KeysExchanged state (v0.5.0). Emits `verification_sas_ready` with
+/// the emoji list when the SDK finishes key exchange; `verification_done`
+/// / `verification_cancelled` when the flow reaches a terminal state.
+///
+/// Poll-based state watching (500 ms cadence, 120 s cap) is used
+/// deliberately instead of a futures Stream so we don't introduce a
+/// direct futures-util dep — matrix-sdk exposes state() as a snapshot.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_accept_verification(
+    ptr: *mut c_void,
+    flow_id: *const c_char,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let flow_id = unsafe { cstr_arg(flow_id) }?;
+
+        let request = match bridge.active_request.lock() {
+            Ok(g) => g.clone(),
+            Err(_) => None,
+        };
+        let Some(request) = request else {
+            return Ok("error: no active verification request.".to_owned());
+        };
+        if request.flow_id() != flow_id {
+            return Ok("error: verification flow id mismatch.".to_owned());
+        }
+        let Some(client) = bridge.client.lock().ok().and_then(|g| g.clone()) else {
+            return Ok("error: Rust SDK session is not logged in.".to_owned());
+        };
+        let events = Arc::clone(&bridge.events);
+        let sas_slot = Arc::clone(&bridge.active_sas);
+        let request_slot = Arc::clone(&bridge.active_request);
+        std::thread::spawn(move || {
+            let runtime_events = Arc::clone(&events);
+            run_async(runtime_events, "verification_accept", async move {
+                if let Err(err) = request.accept().await {
+                    enqueue(&events, json!({
+                        "type": "verification_failed",
+                        "flow_id": request.flow_id().to_string(),
+                        "message": format_matrix_error(
+                            "Matrix Rust SDK verification accept failed", err),
+                    }));
+                    return;
+                }
+                enqueue(&events, json!({
+                    "type": "verification_ready",
+                    "flow_id": request.flow_id().to_string(),
+                }));
+
+                // Wait for the request to transition into SasV1; poll
+                // for up to 60s. matrix-sdk drives the handshake
+                // automatically after accept().
+                let sas: Option<SasVerification> = {
+                    let mut sas: Option<SasVerification> = None;
+                    for _ in 0..120 {
+                        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                        if let Some(v) = client
+                            .encryption()
+                            .get_verification(request.other_user_id(),
+                                              request.flow_id())
+                            .await
+                        {
+                            if let matrix_sdk::encryption::verification::Verification::SasV1(s) = v {
+                                sas = Some(s);
+                                break;
+                            }
+                        }
+                        if request.is_cancelled() {
+                            break;
+                        }
+                    }
+                    sas
+                };
+                let Some(sas) = sas else {
+                    enqueue(&events, json!({
+                        "type": "verification_failed",
+                        "flow_id": request.flow_id().to_string(),
+                        "message": "Timed out waiting for SAS handshake.",
+                    }));
+                    return;
+                };
+                // Start the SAS flow with the SDK's default settings.
+                let sas_flow_id = request.flow_id().to_string();
+                if let Err(err) = sas.accept().await {
+                    enqueue(&events, json!({
+                        "type": "verification_failed",
+                        "flow_id": sas_flow_id,
+                        "message": format_matrix_error(
+                            "SAS accept failed", err),
+                    }));
+                    return;
+                }
+                if let Ok(mut g) = sas_slot.lock() {
+                    *g = Some((sas_flow_id.clone(), sas.clone()));
+                }
+                enqueue(&events, json!({
+                    "type": "verification_sas_started",
+                    "flow_id": sas_flow_id,
+                }));
+
+                // Poll state for up to 120 s waiting for KeysExchanged /
+                // Done / Cancelled. matrix-sdk emits emojis at
+                // KeysExchanged.
+                let mut emitted_emojis = false;
+                for _ in 0..240 {
+                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                    let state = sas.state();
+                    match state {
+                        SasState::KeysExchanged { .. } if !emitted_emojis => {
+                            emitted_emojis = true;
+                            let mut emoji_list: Vec<serde_json::Value> = Vec::new();
+                            if let Some(emojis) = sas.emoji() {
+                                for e in emojis.iter() {
+                                    emoji_list.push(json!({
+                                        "symbol": e.symbol,
+                                        "description": e.description,
+                                    }));
+                                }
+                            }
+                            let dec = sas.decimals().map(|(a, b, c)| json!([a, b, c]))
+                                .unwrap_or(json!([]));
+                            enqueue(&events, json!({
+                                "type": "verification_sas_ready",
+                                "flow_id": sas_flow_id,
+                                "emojis": emoji_list,
+                                "decimals": dec,
+                            }));
+                        }
+                        SasState::Done { .. } => {
+                            enqueue(&events, json!({
+                                "type": "verification_done",
+                                "flow_id": sas_flow_id,
+                            }));
+                            if let Ok(mut g) = sas_slot.lock() { *g = None; }
+                            if let Ok(mut g) = request_slot.lock() { *g = None; }
+                            return;
+                        }
+                        SasState::Cancelled(info) => {
+                            enqueue(&events, json!({
+                                "type": "verification_cancelled",
+                                "flow_id": sas_flow_id,
+                                "message": format!("{:?}", info.reason()),
+                            }));
+                            if let Ok(mut g) = sas_slot.lock() { *g = None; }
+                            if let Ok(mut g) = request_slot.lock() { *g = None; }
+                            return;
+                        }
+                        _ => {}
+                    }
+                }
+                enqueue(&events, json!({
+                    "type": "verification_failed",
+                    "flow_id": sas_flow_id,
+                    "message": "Timed out waiting for SAS completion.",
+                }));
+                if let Ok(mut g) = sas_slot.lock() { *g = None; }
+                if let Ok(mut g) = request_slot.lock() { *g = None; }
+            });
+        });
+        Ok(String::new())
+    })
+}
+
+fn ffi_sas_action(
+    ptr: *mut c_void,
+    flow_id: *const c_char,
+    label: &'static str,
+    action: fn(SasVerification)
+        -> std::pin::Pin<Box<dyn std::future::Future<Output = matrix_sdk::Result<()>> + Send>>,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let flow_id = unsafe { cstr_arg(flow_id) }?;
+        let entry = match bridge.active_sas.lock() {
+            Ok(g) => g.clone(),
+            Err(_) => None,
+        };
+        let Some((stored_flow, sas)) = entry else {
+            return Ok("error: no active SAS verification.".to_owned());
+        };
+        if stored_flow != flow_id {
+            return Ok("error: SAS verification flow id mismatch.".to_owned());
+        }
+        let events = Arc::clone(&bridge.events);
+        std::thread::spawn(move || {
+            let runtime_events = Arc::clone(&events);
+            run_async(runtime_events, label, async move {
+                if let Err(err) = action(sas.clone()).await {
+                    enqueue(&events, json!({
+                        "type": "verification_failed",
+                        "flow_id": stored_flow,
+                        "message": format_matrix_error(label, err),
+                    }));
+                }
+            });
+        });
+        Ok(String::new())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_confirm_verification(
+    ptr: *mut c_void,
+    flow_id: *const c_char,
+) -> *mut c_char {
+    ffi_sas_action(ptr, flow_id, "verification_confirm", |sas| Box::pin(async move {
+        sas.confirm().await
+    }))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_mismatch_verification(
+    ptr: *mut c_void,
+    flow_id: *const c_char,
+) -> *mut c_char {
+    ffi_sas_action(ptr, flow_id, "verification_mismatch", |sas| Box::pin(async move {
+        sas.mismatch().await
+    }))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_cancel_verification(
+    ptr: *mut c_void,
+    flow_id: *const c_char,
+) -> *mut c_char {
+    // Try SAS-level cancel first; if no active SAS, fall back to request-level.
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let flow_id = unsafe { cstr_arg(flow_id) }?;
+        let sas_entry = bridge.active_sas.lock().ok().and_then(|g| g.clone());
+        let request = bridge.active_request.lock().ok().and_then(|g| g.clone());
+        let events = Arc::clone(&bridge.events);
+        let sas_slot = Arc::clone(&bridge.active_sas);
+        let request_slot = Arc::clone(&bridge.active_request);
+        std::thread::spawn(move || {
+            let runtime_events = Arc::clone(&events);
+            run_async(runtime_events, "verification_cancel", async move {
+                if let Some((stored_flow, sas)) = sas_entry {
+                    if stored_flow == flow_id {
+                        let _ = sas.cancel().await;
+                        enqueue(&events, json!({
+                            "type": "verification_cancelled",
+                            "flow_id": flow_id,
+                            "message": "cancelled",
+                        }));
+                    }
+                } else if let Some(request) = request {
+                    if request.flow_id() == flow_id {
+                        let _ = request.cancel().await;
+                        enqueue(&events, json!({
+                            "type": "verification_cancelled",
+                            "flow_id": flow_id,
+                            "message": "cancelled",
+                        }));
+                    }
+                }
+                if let Ok(mut g) = sas_slot.lock() { *g = None; }
+                if let Ok(mut g) = request_slot.lock() { *g = None; }
+            });
+        });
+        Ok(String::new())
+    })
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_free_cstring(ptr: *mut c_char) {
     if ptr.is_null() {
@@ -1048,7 +1341,61 @@ fn save_persistent_session(
     Ok(())
 }
 
-fn install_event_handlers(client: &Client, events: Arc<Mutex<VecDeque<String>>>) {
+fn install_event_handlers(
+    client: &Client,
+    events: Arc<Mutex<VecDeque<String>>>,
+    active_request: Arc<Mutex<Option<VerificationRequest>>>,
+) {
+    // v0.5.0: SAS emoji verification, receive-first. matrix-sdk 0.18 does
+    // NOT expose a public `recv_verification_requests` stream, so we
+    // observe incoming requests via a to-device event handler and then
+    // hydrate the `VerificationRequest` via
+    // `client.encryption().get_verification_request(user, flow_id)`.
+    //
+    // The active flow (single-flow policy) is stored in
+    // `active_request`; the FFI accept path drives `accept()` +
+    // `start_sas()` from that stored handle. No secret material is
+    // ever forwarded through the FFI — only flow id, mxid, device id,
+    // is_self_verification, and SAS emojis (which are safe to display
+    // by SAS design).
+    let verif_events = Arc::clone(&events);
+    let verif_slot = Arc::clone(&active_request);
+    let client_clone = client.clone();
+    client.add_event_handler(
+        move |ev: ToDeviceKeyVerificationRequestEvent| {
+            let events = Arc::clone(&verif_events);
+            let slot = Arc::clone(&verif_slot);
+            let client = client_clone.clone();
+            async move {
+                let flow_id = ev.content.transaction_id.to_string();
+                let Some(request) = client
+                    .encryption()
+                    .get_verification_request(&ev.sender, &flow_id)
+                    .await
+                else {
+                    return;
+                };
+                let other_device = request
+                    .their_supported_methods()
+                    .map(|_| String::new())
+                    .unwrap_or_default();
+                enqueue(
+                    &events,
+                    json!({
+                        "type": "verification_request_received",
+                        "flow_id": request.flow_id().to_string(),
+                        "other_user_id": request.other_user_id().to_string(),
+                        "other_device_id": other_device,
+                        "is_self_verification": request.is_self_verification(),
+                        "we_started": request.we_started(),
+                    }),
+                );
+                if let Ok(mut g) = slot.lock() {
+                    *g = Some(request);
+                }
+            }
+        },
+    );
     // Decrypted (or plaintext) room messages — the SDK dispatches this handler
     // for both. `encryption_info` is Some(...) only when the SDK decrypted the
     // payload; when Some, the event on the wire was m.room.encrypted and the

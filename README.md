@@ -12,6 +12,19 @@ across the rename. The product name is **Lightning**.
 
 ## Status
 
+**v0.5.0** — Matrix SAS emoji verification landed for the Rust
+backend (receive-first). Lightning can now accept a verification
+request initiated from Element Classic, display the seven emojis
+with descriptions, and confirm / mismatch / cancel the flow — all
+via matrix-sdk 0.18's own state machine. The prep series ended at
+`0.5.0-prep+13`; future bugfix / polish commits will use `0.5.1`,
+`0.5.2`, etc.
+
+Initiating verification from Lightning is a follow-up; the current
+pass covers accept + confirm + mismatch + cancel as documented in
+`docs/next-prompts.md`. `CryptoManager::supportsE2ee()` still `true`
+for Rust only; `CacheStore` still refuses encrypted rows.
+
 **v0.5.0-prep+13** — SAS emoji verification API research pass. No
 functional SAS wiring shipped this cycle — rather than land
 half-wired scaffolding that could leave a real verification

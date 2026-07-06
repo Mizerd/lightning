@@ -5,6 +5,7 @@
 #include <QHash>
 #include <QPair>
 #include <QTimer>
+#include <QVariantList>
 
 class SettingsManager;
 
@@ -83,6 +84,16 @@ public:
     // message on failure.
     void reloadRoomTimeline(const QString &roomId, int limit = 30);
 
+    // v0.5.0. SAS emoji verification (receive-first). Drives
+    // mx_rust_accept_verification / confirm / mismatch / cancel.
+    // Results flow through the verification* signals below. Only one
+    // active flow at a time in the Rust bridge; calling accept on a
+    // stale flow id returns a non-secret error via errorOccurred.
+    void acceptVerification(const QString &flowId);
+    void confirmVerification(const QString &flowId);
+    void mismatchVerification(const QString &flowId);
+    void cancelVerification(const QString &flowId);
+
     // MatrixClient interface -------------------------------------------------
     void login(const QString &homeserver,
                const QString &user,
@@ -156,6 +167,18 @@ Q_SIGNALS:
                               int totalEvents,
                               int decryptedEvents,
                               int undecryptableEvents);
+
+    // v0.5.0. SAS emoji verification lifecycle.
+    void verificationRequestReceived(const QString &flowId,
+                                     const QString &otherUserId,
+                                     const QString &otherDeviceId,
+                                     bool isSelfVerification);
+    void verificationSasReady(const QString &flowId,
+                              const QVariantList &emojis,
+                              const QVariantList &decimals);
+    void verificationDone(const QString &flowId);
+    void verificationCancelled(const QString &flowId, const QString &message);
+    void verificationFailed(const QString &flowId, const QString &message);
 
 private:
     struct PendingSend {

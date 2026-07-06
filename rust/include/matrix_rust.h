@@ -93,6 +93,26 @@ char *mx_rust_reload_room_timeline(void *client,
                                    const char *room_id,
                                    unsigned int limit);
 
+/*
+ * SAS emoji verification (v0.5.0). Receive-first flow: the Rust bridge
+ * installs a to-device verification-request handler at
+ * install_event_handlers time and emits `verification_request_received`
+ * for incoming requests. From C++:
+ *   accept   -> drive request -> SAS handshake, emit `verification_sas_ready`
+ *              with the 7 emojis + decimals when ready.
+ *   confirm  -> user says "they match".
+ *   mismatch -> user says "they do not match".
+ *   cancel   -> either SAS-level or request-level cancel, depending on
+ *              where the flow currently is.
+ * Only one active flow at a time (single-flow policy). All flow ids are
+ * safe to log; emojis are also safe (SAS design). No secrets are ever
+ * forwarded through this FFI.
+ */
+char *mx_rust_accept_verification(void *client, const char *flow_id);
+char *mx_rust_confirm_verification(void *client, const char *flow_id);
+char *mx_rust_mismatch_verification(void *client, const char *flow_id);
+char *mx_rust_cancel_verification(void *client, const char *flow_id);
+
 /* 0 = no, 1 = yes. Reports honestly — 0 until verified encrypted read/send. */
 int mx_rust_supports_e2ee(void *client);
 
