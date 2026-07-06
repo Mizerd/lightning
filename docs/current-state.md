@@ -1,3 +1,66 @@
+# Current state (v0.5.1 — post-verification retry decryption)
+
+## v0.5.1 — retry decryption after verification
+
+Reported after v0.5.0: even after Element Classic marked the
+Lightning session verified, historical `[unable to decrypt yet]`
+placeholders in the Lightning timeline remained.
+
+Research pass in this cycle:
+
+- Read `~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/matrix-sdk-0.18.0/src/event_cache/redecryptor.rs`.
+- matrix-sdk 0.18 has NO public per-event "request room key" or
+  "retry decryption" method on `Client`. The
+  `event_cache/redecryptor.rs` module runs internally and
+  re-decrypts as room keys arrive on the sync loop.
+- Related lower-level APIs exist on `OlmMachine`
+  (`query_missing_secrets_from_other_sessions`,
+  `get_missing_sessions`) but are not exposed at the public
+  `Client` surface in 0.18.
+- Practical action from the public API surface: reload the room
+  via `Room::messages` after key material has (hopefully) arrived.
+  matrix-sdk will attempt decryption again on the returned events.
+
+Concrete change:
+
+- `AppController::verificationDone` handler (bridged from
+  `RustSdkMatrixClient::verificationDone`) now calls
+  `reloadCurrentRoomTimeline(50)` when a room is open. Idempotent
+  by `event_id` in `handleTimelineEvent`.
+- Settings verification card status message updated: after Done
+  the card now says *"Verification complete. Refreshing current
+  room… Some old messages may remain undecryptable until another
+  verified session shares their room keys."* — sets accurate
+  expectations without pretending automatic decryption.
+- `matrix.app: verification=done; reloading current room …` INFO
+  log so a stalled retry is visible.
+- Existing "Refresh current room" Settings button already handles
+  the same reload; the post-verification path just triggers it
+  automatically.
+
+Retained invariants:
+
+- `CryptoManager::supportsE2ee()` still true for Rust only.
+- `RUST_SDK_E2EE_WIRED` unchanged.
+- `CacheStore` still refuses encrypted `TimelineEvent` rows —
+  decrypted plaintext stays memory-only.
+- Passwords / access tokens / recovery keys / crypto keys /
+  decrypted bodies never logged. Room ids appear in the reload
+  log at INFO with only the last 12 characters shown.
+
+What still remains undecryptable, and why:
+
+- Events sent to the room BEFORE any of your currently-verified
+  devices joined and received the associated Megolm session key
+  simply cannot be recovered from client-side APIs. matrix-sdk
+  0.18's public surface has no "please share key X from device Y"
+  action; that gossip happens automatically at the lower level
+  when both devices trust each other and are online at the same
+  time. If the sending device is offline / has since forgotten
+  the key / never shared it forward, the event will stay
+  `[unable to decrypt yet]` forever unless recovered from the
+  backup you already imported via `Restore keys`.
+
 # Current state (v0.5.0 — SAS verification receive-first)
 
 **The `prep+N` nomenclature is retired.** The prep series ended at

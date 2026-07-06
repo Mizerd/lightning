@@ -200,7 +200,9 @@ Item {
                                         return qsTr("Compare these emojis with the " +
                                                     "other device. Confirm only if they match.")
                                     if (app.verificationState === "done")
-                                        return qsTr("Verification complete.")
+                                        return qsTr("Verification complete. Refreshing current room… " +
+                                                    "Some old messages may remain undecryptable until " +
+                                                    "another verified session shares their room keys.")
                                     if (app.verificationState === "cancelled")
                                         return qsTr("Verification cancelled.")
                                     if (app.verificationState.indexOf("failed") === 0)

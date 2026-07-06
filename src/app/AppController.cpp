@@ -207,6 +207,18 @@ AppController::AppController(Backend backend, QObject *parent)
             if (flowId != m_verificationFlowId) return;
             m_verificationState = QStringLiteral("done");
             Q_EMIT verificationStateChanged();
+            // v0.5.1: post-verification retry. matrix-sdk 0.18 does not
+            // expose an explicit per-event "request room key" API on
+            // Client — internal event_cache/redecryptor.rs re-runs
+            // automatically as keys arrive. Best surface action is a
+            // Room::messages reload; if verified peers have shared
+            // keys since we first saw the events, decryption succeeds
+            // this time. Idempotent by event_id.
+            if (!m_currentRoomId.isEmpty()) {
+                qCInfo(lcApp) << "verification=done; reloading current room"
+                              << m_currentRoomId.right(12);
+                reloadCurrentRoomTimeline(50);
+            }
         });
         connect(rust, &RustSdkMatrixClient::verificationCancelled,
                 this, [this](const QString &flowId, const QString &) {

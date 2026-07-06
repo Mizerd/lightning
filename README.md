@@ -12,6 +12,16 @@ across the rename. The product name is **Lightning**.
 
 ## Status
 
+**v0.5.1** — Post-verification retry decryption. When SAS
+verification completes and the current Lightning room already has
+`[unable to decrypt yet]` placeholders, AppController now
+automatically calls `reloadCurrentRoomTimeline(50)` — matrix-sdk
+0.18 has no public per-event "request room key" API (the internal
+`event_cache/redecryptor.rs` re-runs automatically as keys arrive
+on sync), so a `Room::messages` reload is the correct public
+action after cross-signing propagates. Settings card status
+updated to set accurate expectations about historical keys.
+
 **v0.5.0** — Matrix SAS emoji verification landed for the Rust
 backend (receive-first). Lightning can now accept a verification
 request initiated from Element Classic, display the seven emojis
