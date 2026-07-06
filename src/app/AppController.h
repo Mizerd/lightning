@@ -31,6 +31,12 @@ class AppController : public QObject
     Q_PROPERTY(QString connectionStatus READ connectionStatus NOTIFY connectionStatusChanged)
     Q_PROPERTY(bool initialSyncDone READ initialSyncDone NOTIFY initialSyncDoneChanged)
 
+    // v0.5.0-prep+10: redacted Rust SDK device id (e.g. "GAOT...GBSK")
+    // so Settings can show which Lightning session is running without
+    // exposing the full id. Empty when the backend is not Rust or the
+    // client has not yet logged in.
+    Q_PROPERTY(QString rustDeviceIdRedacted READ rustDeviceIdRedacted NOTIFY rustDeviceIdChanged)
+
     Q_PROPERTY(SettingsManager* settings READ settings CONSTANT)
     Q_PROPERTY(AuthManager* auth READ auth CONSTANT)
     Q_PROPERTY(AccountManager* accounts READ accounts CONSTANT)
@@ -72,6 +78,7 @@ public:
     QString backendName() const;
     QString connectionStatus() const { return m_connectionStatus; }
     bool initialSyncDone() const;
+    QString rustDeviceIdRedacted() const;
 
     SettingsManager *settings() const;
     AuthManager *auth() const;
@@ -92,6 +99,15 @@ public Q_SLOTS:
     void showSettings();
     void openRoom(const QString &roomId);
 
+    // v0.5.0-prep+10: GUI recovery-key restore. The QML Settings panel
+    // calls this from a password-style TextField and never keeps the
+    // key in a QML property beyond the invocation. The recovery key is
+    // routed straight into the RustSdkMatrixClient wrapper (which sends
+    // it to Rust via mx_rust_recover_from_backup) and is never logged.
+    // No-op on non-Rust backends. Results arrive via
+    // recoveryStateChanged().
+    Q_INVOKABLE void requestRecoverFromBackup(const QString &recoveryKey);
+
 Q_SIGNALS:
     void currentScreenChanged();
     void initialSyncDoneChanged();
@@ -99,6 +115,12 @@ Q_SIGNALS:
     void loggedInChanged();
     void connectionStatusChanged();
     void errorReported(const QString &message);
+    void rustDeviceIdChanged();
+    // v0.5.0-prep+10. Fires once per requestRecoverFromBackup call.
+    // `state`: "attempted" / "ok" / "failed". `message`: non-secret
+    // detail for failures, empty on success. Never contains the
+    // recovery key or imported key material.
+    void recoveryStateChanged(const QString &state, const QString &message);
 
 private:
     void setCurrentScreen(Screen s);

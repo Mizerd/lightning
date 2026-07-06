@@ -1,3 +1,69 @@
+# Current state (v0.5.0-prep+10, GUI recovery + honest E2EE settings)
+
+## v0.5.0-prep+10 — GUI E2EE controls
+
+Reported symptoms after prep+9 landed:
+- Rust GUI worked for sending, but the footer displayed
+  "HTTP backend • Connected" even though the app was launched
+  with `--backend=rust`.
+- Timeline still showed many `[unable to decrypt yet]`
+  placeholders for messages sent before the current Lightning
+  device was created — expected, because the GUI had no way to
+  restore the recovery key.
+- No visible option in the GUI to verify the Lightning session or
+  paste a recovery key.
+
+Fixes in this pass:
+
+- **Footer label.** `qml/Main.qml` now picks per backend:
+  `Matrix Rust SDK • <status>`, `Mock backend • <status>`, or
+  `HTTP backend • <status>`.
+- **Settings E2EE panel.** New `Pane` in `qml/SettingsScreen.qml`,
+  visible only when `app.backendName === "rust"`. Shows the
+  redacted device id, a status line calling out what is / isn't
+  implemented ("initial verified" for send + receive, "not
+  implemented yet" for SAS emoji UI and cross-signing UI), and a
+  recovery-key entry.
+- **Recovery-key restore.** `AppController::requestRecoverFromBackup(QString)`
+  invocable routes into `RustSdkMatrixClient::recoverFromBackup`.
+  Recovery key TextField is `Password`-echo, wiped the moment the
+  button is pressed, never held in a QML property beyond the
+  invocation. Status flows back through
+  `AppController::recoveryStateChanged(state, message)` which the
+  Settings panel binds to via `Connections { target: app; … }`.
+  States: `attempted` (button disables, shows "Recovery started"),
+  `ok` (green "Recovery complete …" text), `failed` (red
+  "Recovery failed: <safe reason>").
+- **Local reset.** GUI reset button deliberately NOT implemented
+  in this pass; the Settings panel points users at
+  `matrix-client --reset-crypto-store` on the CLI, which already
+  scans the correct roots (v0.5.0-prep+5). A dedicated GUI reset
+  is a later step so we don't build a half-safe destroy path.
+- **Undecryptable hint.** Settings panel now includes an inline
+  note: "Some old messages may show '[unable to decrypt yet]'
+  until you restore your recovery key here, or until another
+  verified device shares the room keys." Placeholder rendering in
+  the timeline is unchanged.
+
+Not changed and preserved:
+- `CryptoManager::supportsE2ee()` still returns `true` for Rust
+  only. `RUST_SDK_E2EE_WIRED` still defined only under
+  `ENABLE_RUST_SDK_BACKEND`.
+- `CacheStore` still refuses encrypted `TimelineEvent` rows.
+- Encrypted send/receive still route through matrix-sdk. C++
+  never sees ciphertext or keys. Recovery key never logged.
+- Smoke harness / persistent-store mode / `--reset-crypto-store`
+  / encrypted-send probe FFI all untouched.
+
+Known limitations (still):
+- No SAS emoji verification UI (Settings panel says so).
+- No GUI reset button (CLI works).
+- No cross-signing management UI.
+- No "Copy device ID" button (device id is displayed as
+  redacted only; full id not yet exposed to QML).
+- Interactive GUI shutdown still uses `mx_rust_destroy` — the
+  deadpool-sqlite drop path from prep+8 is a follow-up.
+
 # Current state (v0.5.0-prep+9, initial E2EE support enabled for Rust backend)
 
 ## v0.5.0-prep+9 — initial E2EE gate open

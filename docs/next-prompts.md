@@ -289,6 +289,65 @@ Do NOT touch the interface. Do NOT touch QML. Do NOT change
 
 ---
 
+## Prompt — Implement Matrix SAS emoji verification UI
+
+Precondition: v0.5.0-prep+10 shipped GUI recovery-key restore for
+the Rust backend and Rust E2EE send + receive are verified live.
+The Settings panel already says "Session (SAS emoji) verification
+UI: not implemented yet".
+
+Goal: let a user complete SAS emoji verification of the Lightning
+device from Element Classic without leaving Lightning. Do not
+manually implement crypto in C++; use matrix-sdk 0.18 APIs
+identified via the locked source at
+`~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/matrix-sdk-0.18.0/`:
+
+- `client.encryption().recv_verification_requests()` — a Stream of
+  incoming verification requests.
+- `VerificationRequest::accept()` / `cancel()`.
+- Transition to `SasVerification` state machine on accept.
+- `SasVerification::accept_with_settings(AcceptSettings)` (choose
+  emoji short-authentication-string).
+- `emoji()` / `decimals()` — SAS the user must compare.
+- `confirm()` when the user says the emoji match, `mismatch()`
+  when they don't, `cancel()` for abort.
+- Watch state via `changes()` / `state()` stream until Done or
+  Cancelled.
+
+Scope:
+1. Rust FFI additions: `mx_rust_start_verification_listener`,
+   `mx_rust_accept_verification`, `mx_rust_sas_emoji`,
+   `mx_rust_sas_confirm`, `mx_rust_sas_cancel`. Never log the
+   full SAS emoji list to matrix.rust; emoji themselves are fine
+   to print in the UI (SAS design), but the incoming verification
+   request's flow id / other user id should not appear in logs.
+2. C++ wrapper on `RustSdkMatrixClient`: signals
+   `verificationRequestReceived(flowId, otherUserId, otherDeviceId)`,
+   `verificationSasReady(flowId, emojiList)`, `verificationDone(flowId)`,
+   `verificationCancelled(flowId, reason)`. Methods `acceptVerification(flowId)`,
+   `confirmSas(flowId)`, `cancelVerification(flowId)`.
+3. QML: a modal `VerificationDialog.qml` in `qml/`. Shows the 7 emoji
+   plus their spec-defined English names. "They match" button →
+   `confirm`. "They don't match" → `cancel`. Also visible from
+   Settings for outgoing verification (secondary path via
+   `client.encryption().request_verification()` for the current
+   device).
+4. Smoke harness envs:
+   `LIGHTNING_TEST_SAS_VERIFY=1` — auto-accept incoming request,
+   log emoji list on stdout as `smoke: verification_emojis=<comma-sep>`,
+   then wait for `LIGHTNING_TEST_SAS_CONFIRM=1` (else `cancel`).
+5. Preserve all v0.5.0-prep+9 / +10 invariants:
+   `CacheStore` still refuses encrypted rows; recovery-key path
+   unchanged; footer/backend label logic unchanged; interactive
+   encrypted send remains allowed.
+
+Do NOT wire cross-signing / key backup management UI in the same
+pass. Those are separate.
+
+Commit message when done: `Add Rust SDK SAS emoji verification UI`.
+
+---
+
 ## Prompt 3 — Multi-account foundation (data model + switcher UI)
 
 Currently `AccountManager` tracks the single active user id. To land

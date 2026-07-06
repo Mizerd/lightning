@@ -125,6 +125,146 @@ Item {
                 }
             }
 
+            // v0.5.0-prep+10: Rust E2EE controls. Visible only on the
+            // Rust backend; the section is a no-op on http/mock.
+            Pane {
+                Layout.fillWidth: true
+                visible: app.backendName === "rust"
+                background: Rectangle {
+                    color: AppTheme.surface
+                    border.color: AppTheme.border
+                    radius: AppTheme.radius
+                }
+                ColumnLayout {
+                    width: parent.width
+                    spacing: AppTheme.spacingS
+
+                    Label {
+                        text: qsTr("Encryption (Matrix Rust SDK)")
+                        font.weight: Font.DemiBold
+                        color: AppTheme.text
+                    }
+
+                    Label {
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                        color: AppTheme.textMuted
+                        text: qsTr(
+                            "Lightning session device: %1")
+                            .arg(app.rustDeviceIdRedacted !== ""
+                                 ? app.rustDeviceIdRedacted
+                                 : qsTr("(not yet available)"))
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                        color: AppTheme.textMuted
+                        font.pixelSize: 11
+                        text: qsTr(
+                            "Encrypted send: initial verified · Encrypted receive: initial verified · " +
+                            "Key backup restore: available below · " +
+                            "Session (SAS emoji) verification UI: not implemented yet · " +
+                            "Cross-signing UI: not implemented yet")
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                        color: AppTheme.textMuted
+                        font.pixelSize: 11
+                        text: qsTr(
+                            "Some old messages may show \"[unable to decrypt yet]\" until " +
+                            "you restore your recovery key here, or until another " +
+                            "verified device shares the room keys.")
+                    }
+
+                    // Recovery-key restore.
+                    Label {
+                        text: qsTr("Recovery key")
+                        font.weight: Font.DemiBold
+                        color: AppTheme.text
+                    }
+                    RowLayout {
+                        Layout.fillWidth: true
+                        TextField {
+                            id: recoveryField
+                            Layout.fillWidth: true
+                            echoMode: TextInput.Password
+                            placeholderText: qsTr("Paste the Element recovery key")
+                            enabled: !recoveryPanel.running
+                        }
+                        Button {
+                            text: recoveryPanel.running
+                                ? qsTr("Restoring…")
+                                : qsTr("Restore keys")
+                            enabled: !recoveryPanel.running
+                                && recoveryField.text.length > 0
+                            onClicked: {
+                                recoveryPanel.running = true
+                                recoveryPanel.statusText = qsTr("Recovery started")
+                                recoveryPanel.statusColor = AppTheme.textMuted
+                                app.requestRecoverFromBackup(recoveryField.text)
+                                // Wipe local copy immediately — recovery key
+                                // never sits in a QML property beyond this
+                                // call.
+                                recoveryField.text = ""
+                            }
+                        }
+                    }
+                    Label {
+                        id: recoveryStatusLabel
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                        visible: recoveryPanel.statusText !== ""
+                        color: recoveryPanel.statusColor
+                        text: recoveryPanel.statusText
+                    }
+
+                    QtObject {
+                        id: recoveryPanel
+                        property bool running: false
+                        property string statusText: ""
+                        property color statusColor: AppTheme.textMuted
+                    }
+
+                    Connections {
+                        target: app
+                        function onRecoveryStateChanged(state, message) {
+                            if (state === "attempted") {
+                                recoveryPanel.running = true
+                                recoveryPanel.statusText = qsTr("Recovery started")
+                                recoveryPanel.statusColor = AppTheme.textMuted
+                            } else if (state === "ok") {
+                                recoveryPanel.running = false
+                                recoveryPanel.statusText = qsTr(
+                                    "Recovery complete. New messages should " +
+                                    "decrypt as keys arrive. Some old messages may " +
+                                    "still require another verified device to share " +
+                                    "keys.")
+                                recoveryPanel.statusColor = AppTheme.success
+                            } else if (state === "failed") {
+                                recoveryPanel.running = false
+                                recoveryPanel.statusText = qsTr(
+                                    "Recovery failed: %1").arg(message)
+                                recoveryPanel.statusColor = AppTheme.error
+                            }
+                        }
+                    }
+
+                    Label {
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                        color: AppTheme.textMuted
+                        font.pixelSize: 11
+                        text: qsTr(
+                            "To fully reset Lightning's local Rust SDK store for " +
+                            "this account, quit and run: " +
+                            "matrix-client --reset-crypto-store. This deletes only " +
+                            "Lightning's local store; it does not touch server messages " +
+                            "or Element data.")
+                    }
+                }
+            }
+
             Pane {
                 Layout.fillWidth: true
                 background: Rectangle {

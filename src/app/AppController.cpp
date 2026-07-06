@@ -19,6 +19,8 @@
 #include "matrix/RustSdkMatrixClient.h"
 #endif
 
+#include "matrix/MatrixClient.h"
+
 #include <QLoggingCategory>
 
 Q_LOGGING_CATEGORY(lcApp, "matrix.app")
@@ -139,11 +141,33 @@ AppController::AppController(Backend backend, QObject *parent)
     });
     setConnectionStatus(tr("Not connected"));
 
+    // v0.5.0-prep+10: recovery-key restore wiring. The Rust backend
+    // exposes keyBackupResult(state, message); we bridge it into
+    // AppController::recoveryStateChanged so QML can bind without
+    // caring which concrete backend is active. Also proxy the redacted
+    // device id so the Settings screen can show which Lightning
+    // session is running.
+#ifdef ENABLE_RUST_SDK_BACKEND
+    if (auto *rust = qobject_cast<RustSdkMatrixClient *>(m_client.get())) {
+        connect(rust, &RustSdkMatrixClient::keyBackupResult,
+                this, [this](const QString &state, const QString &message) {
+            Q_EMIT recoveryStateChanged(state, message);
+        });
+        // The device id becomes available once login/restore
+        // completes; propagate on both.
+        connect(rust, &MatrixClient::loginSucceeded,
+                this, [this](const QString &) {
+            Q_EMIT rustDeviceIdChanged();
+        });
+    }
+#endif
+
     // Session restore is only meaningful for backends that can actually talk
     // to a homeserver. The mock backend synthesizes its own state.
     if ((m_backend == HttpBackend || m_backend == RustBackend)
         && m_settings->hasSession()) {
         m_client->restoreSession();
+        Q_EMIT rustDeviceIdChanged();
     }
 }
 
@@ -178,6 +202,53 @@ ThreadManager *AppController::threads() const { return m_threads.get(); }
 bool AppController::initialSyncDone() const
 {
     return m_client && m_client->initialSyncDone();
+}
+
+QString AppController::rustDeviceIdRedacted() const
+{
+#ifdef ENABLE_RUST_SDK_BACKEND
+    if (m_backend != RustBackend || !m_client)
+        return {};
+    auto *rust = qobject_cast<const RustSdkMatrixClient *>(m_client.get());
+    if (!rust) return {};
+    const QString id = rust->currentDeviceId().trimmed();
+    if (id.isEmpty()) return {};
+    if (id.size() <= 8) return id;
+    return id.left(4) + QLatin1String("...") + id.right(4);
+#else
+    return {};
+#endif
+}
+
+void AppController::requestRecoverFromBackup(const QString &recoveryKey)
+{
+#ifdef ENABLE_RUST_SDK_BACKEND
+    if (m_backend != RustBackend || !m_client) {
+        Q_EMIT recoveryStateChanged(QStringLiteral("failed"),
+            tr("Recovery is only available on the Rust backend."));
+        return;
+    }
+    if (recoveryKey.trimmed().isEmpty()) {
+        Q_EMIT recoveryStateChanged(QStringLiteral("failed"),
+            tr("Recovery key is empty."));
+        return;
+    }
+    auto *rust = qobject_cast<RustSdkMatrixClient *>(m_client.get());
+    if (!rust) {
+        Q_EMIT recoveryStateChanged(QStringLiteral("failed"),
+            tr("Rust backend not available."));
+        return;
+    }
+    // Emit "attempted" first so the button flips to "Running…" the
+    // moment the user clicks. matrix-sdk will subsequently emit its
+    // own attempted event over the FFI; the QML side is idempotent.
+    Q_EMIT recoveryStateChanged(QStringLiteral("attempted"), QString());
+    rust->recoverFromBackup(recoveryKey);
+#else
+    Q_UNUSED(recoveryKey);
+    Q_EMIT recoveryStateChanged(QStringLiteral("failed"),
+        tr("This build has no Rust SDK backend."));
+#endif
 }
 
 void AppController::setCurrentRoomId(const QString &roomId)

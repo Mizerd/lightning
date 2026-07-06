@@ -12,6 +12,21 @@ across the rename. The product name is **Lightning**.
 
 ## Status
 
+**v0.5.0-prep+10** — GUI recovery-key restore and honest E2EE
+Settings section for the Rust backend, plus the footer/backend label
+fix. Settings now shows the Lightning device id (redacted), a
+recovery-key TextField backed by `AppController::requestRecoverFromBackup`,
+and clear labelling of what is and isn't in the GUI yet (no SAS
+emoji UI, no GUI cross-signing UI). Footer no longer misreports
+`HTTP backend` on the Rust build: it now reads
+`Matrix Rust SDK • Connected` when launched with
+`--backend=rust`, `Mock backend • …` for the mock, `HTTP backend • …`
+for HTTP. Recovery key never leaves the invocation: TextField is
+`Password`-echo, cleared immediately after the button is pressed,
+routed straight into the Rust FFI without a QML property retaining
+it. Undecryptable messages still render as `[unable to decrypt yet]`
+with an inline hint in Settings about how to restore keys.
+
 **v0.5.0-prep+9** — **Initial E2EE support enabled for the Rust
 backend.** Both directions have been round-tripped live against
 Element Classic via the smoke harness:

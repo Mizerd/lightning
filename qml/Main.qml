@@ -116,9 +116,14 @@ ApplicationWindow {
             anchors.margins: AppTheme.spacingS
             spacing: AppTheme.spacingM
             Label {
-                text: app.backendName === "mock"
-                      ? qsTr("Mock backend • %1").arg(app.connectionStatus)
-                      : qsTr("HTTP backend • %1").arg(app.connectionStatus)
+                text: {
+                    var label = qsTr("HTTP backend")
+                    if (app.backendName === "mock")
+                        label = qsTr("Mock backend")
+                    else if (app.backendName === "rust")
+                        label = qsTr("Matrix Rust SDK")
+                    return qsTr("%1 • %2").arg(label).arg(app.connectionStatus)
+                }
                 color: AppTheme.textMuted
                 font.pixelSize: 12
             }
