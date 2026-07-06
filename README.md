@@ -12,6 +12,20 @@ across the rename. The product name is **Lightning**.
 
 ## Status
 
+**v0.5.0-prep+9** — **Initial E2EE support enabled for the Rust
+backend.** Both directions have been round-tripped live against
+Element Classic via the smoke harness:
+`expect_text=seen decrypted_events_since_expect=1` (Element → Lightning)
+and `encrypted_send=ok` displayed as readable text in Element
+(Lightning → Element). `CryptoManager::supportsE2ee()` now returns
+`true` for the Rust backend only. The C++ `RustSdkMatrixClient` no
+longer refuses encrypted-room sends on the interactive UI path.
+matrix-sdk does the encryption end-to-end; C++ never sees ciphertext
+or keys. `CacheStore` still refuses encrypted `TimelineEvent` rows,
+so decrypted plaintext is memory-only. HTTP and Mock backends are
+unchanged: still no E2EE. No SAS emoji UI, no GUI recovery-key
+flow, no cross-signing UI yet.
+
 **v0.5.0-prep+8** — Fixes the smoke harness so `EXPECT_TEXT` waits
 can actually complete. Dynamic global budget replaces the hard 60 s
 kill (scales with `LIGHTNING_TEST_EXPECT_WAIT_SECONDS` and adds

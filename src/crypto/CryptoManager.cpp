@@ -59,8 +59,10 @@ QString CryptoManager::backendDescription() const
 #ifdef ENABLE_RUST_SDK_BACKEND
 #  ifdef RUST_SDK_E2EE_WIRED
         return QStringLiteral(
-            "Matrix Rust SDK backend. Handles Olm/Megolm sessions, device "
-            "keys, and E2EE.");
+            "Matrix Rust SDK backend. Initial E2EE support (v0.5.0-prep+9): "
+            "encrypted send + receive verified against Element Classic. "
+            "SAS emoji UI, GUI recovery-key flow, cross-signing, and key "
+            "backup management are not implemented yet.");
 #  else
         return QStringLiteral(
             "Matrix Rust SDK backend. Login, restore, joined-room sync, and "
@@ -79,7 +81,7 @@ QString CryptoManager::backendDescription() const
 QString CryptoManager::statusString() const
 {
     if (supportsE2ee())
-        return QStringLiteral("E2EE active");
+        return QStringLiteral("E2EE initial support active (Rust SDK)");
     if (m_backendName == QLatin1String("rust"))
         return QStringLiteral("Rust backend active (E2EE not yet verified)");
     return QStringLiteral("E2EE not available on this backend");

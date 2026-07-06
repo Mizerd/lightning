@@ -7,7 +7,7 @@ project(matrix-client
 
 # Human-facing label. Keep the prep suffix until Matrix Rust SDK encrypted
 # rooms round-trip in both directions and the E2EE gate can be enabled.
-set(APP_VERSION_LABEL "0.5.0-prep+8")
+set(APP_VERSION_LABEL "0.5.0-prep+9")
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -237,7 +237,14 @@ if(ENABLE_RUST_SDK_BACKEND)
     endif()
 
     target_compile_definitions(matrix-client PRIVATE ENABLE_RUST_SDK_BACKEND=1)
-    message(STATUS "Rust SDK backend enabled (cargo profile: ${_cargo_profile})")
+
+    # v0.5.0-prep+9: initial E2EE gate. Both directions verified live
+    # against matrix.smetonis.net (Element Classic ↔ Lightning marker
+    # round-trip: expect_text=seen + encrypted_send=ok). Flip so
+    # CryptoManager::supportsE2ee() returns true for the Rust backend.
+    # HTTP and Mock still return false regardless.
+    target_compile_definitions(matrix-client PRIVATE RUST_SDK_E2EE_WIRED=1)
+    message(STATUS "Rust SDK backend enabled (cargo profile: ${_cargo_profile}); initial E2EE gate open")
 else()
     message(STATUS "Rust SDK backend disabled (use -DENABLE_RUST_SDK_BACKEND=ON to build it)")
 endif()

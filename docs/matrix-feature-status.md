@@ -1,4 +1,4 @@
-# Matrix feature status (v0.5.0-prep+6)
+# Matrix feature status (v0.5.0-prep+9)
 
 Honest per-feature status per backend. Ground truth for anything the UI
 claims about support. Do not check anything as "done" here that is not
@@ -40,8 +40,8 @@ Legend:
 | **Threads — server-side aggregation (`unsigned["m.relations"]["m.thread"]`)** | n/a | ❌ (v0.5) | ❌ |
 | **Threads — dedicated thread panel / per-thread timeline model** | ❌ | ❌ (v0.5+) | ❌ |
 | **Threads — persistence across restart (before /sync)** | n/a | ✅ (v0.4.5) | ❌ |
-| Encrypted room read | ❌ placeholder | ❌ placeholder | 🟡 encrypted-timeline dispatch verified live (v0.5.0-prep+6, all 4 observed events were `undecryptable=true` from a fresh temp store); persistent smoke store/session mode is implemented for stable-device receive testing, but Element Classic → Lightning `expect_text=seen` is not verified yet |
-| Encrypted send | ❌ blocked | ❌ blocked | 🟡 smoke-only `probeEncryptedSend` succeeded and Element Classic displayed the Lightning probe as readable text; interactive UI still refuses encrypted sends until receive is verified too |
+| Encrypted room read | ❌ placeholder | ❌ placeholder | ✅ initial E2EE support (v0.5.0-prep+9): verified live against Element Classic on a persistent SDK store — `expect_text=seen`, `decrypted_events_since_expect=1`, `undecryptable_since_expect=0`. Undecryptable events still render as `[unable to decrypt yet]` |
+| Encrypted send | ❌ blocked | ❌ blocked | ✅ initial E2EE support (v0.5.0-prep+9): matrix-sdk auto-encrypts on the interactive UI path; the encrypted-send probe was displayed as readable text in Element Classic |
 | Device verification / cross-signing | ❌ | ❌ | ❌ |
 | Encrypted media | ❌ placeholder | ❌ placeholder | ❌ |
 | SSO login | ❌ capability flag `false` | ❌ capability flag `false` | ❌ |

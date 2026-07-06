@@ -1,3 +1,68 @@
+# Current state (v0.5.0-prep+9, initial E2EE support enabled for Rust backend)
+
+## v0.5.0-prep+9 — initial E2EE gate open
+
+Both directions of the Rust SDK E2EE path have been verified live
+against `matrix.smetonis.net`:
+
+- **Element Classic → Lightning encrypted receive** (from the last
+  smoke run):
+
+  ```
+  smoke: first_timeline_after_expect=yes
+  smoke: expect_text=seen
+  smoke: summary ...
+         timeline_events_since_expect=1
+         encrypted_events_since_expect=1
+         decrypted_events_since_expect=1
+         undecryptable_since_expect=0
+         first_timeline_after_expect=yes
+         supports_e2ee=false
+  exit=0
+  ```
+
+- **Lightning → Element Classic encrypted send** (from the earlier
+  prep+6 verification): `encrypted_send=ok marker=SMK-… event_id=$…`
+  and Element Classic displayed the Lightning encrypted-send probe
+  as readable text.
+
+Concrete changes flipping the gate this pass:
+
+- `CMakeLists.txt` defines `RUST_SDK_E2EE_WIRED=1` inside the
+  `ENABLE_RUST_SDK_BACKEND` branch. HTTP and Mock builds do NOT
+  define it.
+- `CryptoManager::supportsE2ee()` returns `true` for the Rust
+  backend only (both compile-time defines set AND the active
+  backend name is `"rust"`).
+- Rust FFI `mx_rust_supports_e2ee` returns `1`.
+- Rust `mx_rust_send_text` no longer refuses encrypted rooms.
+  matrix-sdk auto-encrypts via its `e2e-encryption + sqlite`
+  features. C++ still gates the UI via
+  `RustSdkMatrixClient::sendTextMessage`, which now passes the send
+  through because `rustSupportsE2ee()` is true.
+- `CryptoManager` status text / description updated to speak
+  honestly: "Initial E2EE support (v0.5.0-prep+9): encrypted send
+  + receive verified against Element Classic. SAS emoji UI, GUI
+  recovery-key flow, cross-signing, and key backup management are
+  not implemented yet."
+
+`CacheStore` unchanged: encrypted `TimelineEvent` rows are still
+refused, so decrypted encrypted-room plaintext remains memory-only.
+`--reset-crypto-store`, persistent-store smoke mode, recovery-key
+env var, and the encrypted-send probe are all preserved.
+
+Known limitations (documented for honesty):
+- No SAS emoji verification UI. Device verification currently
+  happens externally through Element Classic ("Yes, it was me" +
+  cross-signing propagation).
+- No GUI recovery-key flow. Recovery is only exercised via
+  `LIGHTNING_TEST_RECOVERY_KEY` in the smoke harness.
+- No cross-signing management UI.
+- No key backup management UI.
+- Interactive GUI shutdown still uses the deadpool-sqlite drop
+  path (only the smoke harness leaks). A clean GUI shutdown
+  redesign is a follow-up.
+
 # Current state (v0.5.0-prep+8, receive smoke reliability)
 
 ## v0.5.0-prep+8 additions

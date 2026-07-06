@@ -89,13 +89,21 @@ pub extern "C" fn mx_rust_backend_name() -> *mut c_char {
 #[no_mangle]
 pub extern "C" fn mx_rust_status_string() -> *mut c_char {
     ffi_string(|| {
-        Ok("Matrix Rust SDK backend linked. Login, session restore, joined-room sync, and plain text send are wired through the SDK event queue. E2EE capability remains disabled until encrypted read/send is verified end-to-end.".to_owned())
+        Ok("Matrix Rust SDK backend linked. Initial E2EE support enabled via matrix-sdk (v0.5.0-prep+9): password login, session restore, joined-room sync, plain and encrypted text send, and receive of both plain and SDK-decrypted encrypted messages all go through the SDK event queue. No SAS emoji UI, no GUI recovery-key flow, no cross-signing UI yet.".to_owned())
     })
 }
 
+// v0.5.0-prep+9: initial E2EE support gate. The FFI reports 1 because
+// matrix-sdk 0.18 is compiled in with the `e2e-encryption` feature and
+// the encrypted receive + encrypted send paths were both verified live
+// against `matrix.smetonis.net` (Element Classic ↔ Lightning marker
+// round-trip). The C++ CryptoManager gate remains the source of truth
+// for the UI; this only unblocks the `sendTextMessage` refusal inside
+// RustSdkMatrixClient when the interactive user is sending into an
+// encrypted room.
 #[no_mangle]
 pub extern "C" fn mx_rust_supports_e2ee(_client: *mut c_void) -> c_int {
-    0
+    1
 }
 
 #[no_mangle]
@@ -578,19 +586,14 @@ pub unsafe extern "C" fn mx_rust_send_text(
                     return;
                 };
 
-                if room.encryption_state().is_encrypted() {
-                    enqueue(
-                        &events,
-                        json!({
-                            "type": "send_failed",
-                            "room_id": room_id,
-                            "transaction_id": transaction_id,
-                            "message": "Cannot send to encrypted rooms yet: Rust SDK encrypted send has not been verified.",
-                        }),
-                    );
-                    return;
-                }
-
+                // v0.5.0-prep+9: encrypted rooms are now allowed on the
+                // interactive UI send path. matrix-sdk auto-encrypts via
+                // its `e2e-encryption` feature when the room's
+                // encryption state says so; if it can't (missing keys,
+                // untrusted target device, etc.) the SDK returns an
+                // error that flows back through send_failed. The C++
+                // side still refuses when CryptoManager::supportsE2ee()
+                // is false — see RustSdkMatrixClient::sendTextMessage.
                 let content = RoomMessageEventContent::text_plain(body);
                 let txn: OwnedTransactionId = transaction_id.clone().into();
                 match room.send(content).with_transaction_id(txn).await {
