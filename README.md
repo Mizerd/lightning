@@ -12,6 +12,22 @@ across the rename. The product name is **Lightning**.
 
 ## Status
 
+**v0.5.2** — Design-token foundation pass. First slice of the UI
+redesign: `qml/AppTheme.qml` now exposes the full light + dark
+palette from the redesign spec (background / sidebar / card /
+hover / selection / accent / semantic-text / border), the full
+spacing scale (`spacing2..spacing24`), radii (`radiusSm/Md/Lg/Pill`),
+font-size scale (`fontSizeXS..fontSizePageTitle`, incl.
+`fontSizeRoom` and `fontSizeHeader`), and font-family stacks
+(`uiFontFamilies` = Inter + SF Pro Display + Segoe UI Variable
++ system sans; `monoFontFamilies` = JetBrains Mono + fallbacks).
+Legacy aliases (`text`, `textMuted`, `surfaceAlt`, `spacingXS..XL`,
+`radius`, `fontSizeL/XL`, `error`, `ownBubble`, `selectedBg`) are
+preserved so no existing QML file breaks. **No backend, no Rust,
+no E2EE, no SAS, no recovery-key behavior changed.** The larger
+layout / split Spaces+Rooms navigation / bottom-left gear rework
+is the next design pass.
+
 **v0.5.1** — Post-verification retry decryption. When SAS
 verification completes and the current Lightning room already has
 `[unable to decrypt yet]` placeholders, AppController now

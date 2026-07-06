@@ -1,3 +1,64 @@
+# Current state (v0.5.2 — design-token foundation)
+
+## v0.5.2 — design tokens + palette foundation
+
+First slice of the UI redesign, deliberately scoped to design
+tokens only. **Layout, sidebar structure, timeline, composer,
+Settings placement, and login form are unchanged.** The larger
+split Spaces + Rooms navigation and the bottom-left gear rework
+are the next pass.
+
+Concrete change:
+
+- `qml/AppTheme.qml` rewritten around a semantic-token model.
+  Consumers now reach `background`, `sidebar`, `surface`, `card`,
+  `cardElevated`, `hover`, `selected`, `selectedText`, `accent`,
+  `success`, `warning`, `danger`, `textPrimary`, `textSecondary`,
+  `textMuted`, `border`, `separator`, `inputBackground`,
+  `inputBorder`, `focusRing`, `ownMessageBubble`,
+  `otherMessageBubble`, `undecryptableText`.
+- Full spacing scale: `spacing2 / 4 / 6 / 8 / 12 / 16 / 20 / 24`.
+- Radii: `radiusSm=4`, `radiusMd=8`, `radiusLg=12`, `radiusPill=999`.
+- Typography: `fontSizeXS=11`, `fontSizeS=13` (up from 12),
+  `fontSizeM=14`, `fontSizeRoom=16`, `fontSizeHeader=18`,
+  `fontSizePageTitle=24`.
+- Font stacks: `uiFontFamilies = [Inter, SF Pro Display, Segoe
+  UI Variable, Segoe UI, system-ui, sans-serif]` and
+  `monoFontFamilies = [JetBrains Mono, Fira Mono, SF Mono,
+  Consolas, monospace]`. Consumers can now bind
+  `Label { font.families: AppTheme.uiFontFamilies }` for real
+  cross-platform fallback.
+- Palette values updated in place to the redesign spec:
+  Light — background `#F6F8FC`, sidebar/card `#FFFFFF`,
+    accent `#4F7CFF`, hover `#EDF3FF`, selection `#DCE8FF`,
+    text `#1E293B / #64748B / #94A3B8`, border `#E2E8F0`.
+  Dark — background `#0F172A`, sidebar `#111827`, card `#1E293B`,
+    accent `#4F7CFF`, hover `#243B6B`, selection `#2D4FA8`,
+    text `#F8FAFC / #CBD5E1 / #94A3B8`, border `#334155`.
+- Legacy aliases (`text`, `textMuted`, `surfaceAlt`,
+  `spacingXS..XL`, `radius`, `fontSizeL/XL`, `error`, `ownBubble`,
+  `otherBubble`, `selectedBg`, `muted`) all preserved so every
+  existing QML file compiles and renders unchanged.
+- Selected-item contrast rule enforced at token level:
+  `selectedText` is near-white in dark mode (`#F8FAFC`) and the
+  main dark ink in light mode (`#1E293B`); no consumer needs to
+  branch on theme when they're already using `selectedText`.
+
+Accessibility notes:
+
+- Light: `#1E293B` on `#F6F8FC` primary text ≈ 13.6 : 1 contrast.
+- Light: `#64748B` secondary on `#F6F8FC` ≈ 5.1 : 1.
+- Dark: `#F8FAFC` on `#0F172A` ≈ 15.9 : 1.
+- Dark: `#CBD5E1` secondary on `#0F172A` ≈ 10.9 : 1.
+- Dark: `selectedText` `#F8FAFC` on `selected` `#2D4FA8` ≈ 7.1 : 1
+  (fixes the previously-flagged grey-on-blue readability risk).
+- `focusRing = accent = #4F7CFF` is visible on both `#F6F8FC` and
+  `#0F172A`.
+
+No backend / Matrix protocol / Rust FFI / E2EE / SAS / recovery
+change. `CryptoManager::supportsE2ee()` still true for Rust only.
+`CacheStore` still refuses encrypted `TimelineEvent` rows.
+
 # Current state (v0.5.1 — post-verification retry decryption)
 
 ## v0.5.1 — retry decryption after verification
