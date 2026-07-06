@@ -265,13 +265,36 @@ Item {
                     RowLayout {
                         Layout.fillWidth: true
                         Button {
-                            text: qsTr("Reset local Lightning session")
-                            onClicked: resetConfirmDialog.open()
-                        }
-                        Button {
                             text: qsTr("Refresh current room")
                             enabled: app.currentRoomId !== ""
                             onClicked: app.reloadCurrentRoomTimeline(50)
+                        }
+                        Item { Layout.fillWidth: true }
+                        // v0.5.0-prep+12: destructive-styled reset button.
+                        // Foreground white on danger red so it stands
+                        // clearly apart from the refresh button.
+                        Button {
+                            id: resetDangerButton
+                            text: qsTr("Reset local Lightning session")
+                            onClicked: resetConfirmDialog.open()
+                            contentItem: Label {
+                                text: resetDangerButton.text
+                                color: AppTheme.dangerText
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                                font.weight: Font.DemiBold
+                                font.pixelSize: AppTheme.fontSizeS
+                            }
+                            background: Rectangle {
+                                radius: AppTheme.radiusSm
+                                color: resetDangerButton.pressed
+                                        ? Qt.darker(AppTheme.danger, 1.2)
+                                        : (resetDangerButton.hovered
+                                            ? Qt.darker(AppTheme.danger, 1.1)
+                                            : AppTheme.danger)
+                                border.color: Qt.darker(AppTheme.danger, 1.3)
+                                border.width: 1
+                            }
                         }
                     }
                     Label {

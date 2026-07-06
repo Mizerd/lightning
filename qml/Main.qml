@@ -115,6 +115,23 @@ ApplicationWindow {
             anchors.fill: parent
             anchors.margins: AppTheme.spacingS
             spacing: AppTheme.spacingM
+            // v0.5.0-prep+12: coloured status dot + backend label so
+            // "Connected" / "Error" is legible at a glance.
+            Rectangle {
+                id: statusDot
+                width: 8; height: 8
+                radius: width / 2
+                color: {
+                    var s = app.connectionStatus
+                    if (s === qsTr("Connected"))    return AppTheme.success
+                    if (s === qsTr("Error"))        return AppTheme.error
+                    if (s === qsTr("Connecting…") ||
+                        s === qsTr("Syncing")   ||
+                        s === qsTr("Loading rooms…")) return AppTheme.warning
+                    return AppTheme.muted
+                }
+                anchors.verticalCenter: parent.verticalCenter
+            }
             Label {
                 text: {
                     var label = qsTr("HTTP backend")
@@ -125,7 +142,7 @@ ApplicationWindow {
                     return qsTr("%1 • %2").arg(label).arg(app.connectionStatus)
                 }
                 color: AppTheme.textMuted
-                font.pixelSize: 12
+                font.pixelSize: AppTheme.fontSizeS
             }
             Item { Layout.fillWidth: true }
             Label {

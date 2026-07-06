@@ -27,6 +27,17 @@ QtObject {
     readonly property color otherBubbleText: dark ? "#e6e8ee" : "#1a1d22"
     readonly property color error:           "#e5484d"
     readonly property color success:         "#30a46c"
+    // v0.5.0-prep+12: semantic colors used by the polished UI.
+    readonly property color warning:         "#e5a23c"
+    // Destructive-action button (reset local session, logout, etc).
+    readonly property color danger:          "#c53030"
+    readonly property color dangerText:      "#ffffff"
+    // Subtle "encrypted / undecryptable" tone: less alarming than
+    // error red, distinguishable from normal text.
+    readonly property color muted:           dark ? "#7c8291" : "#7a808b"
+    // Selected room tinted background — lighter than accent so the
+    // sidebar doesn't shout when many rooms are visible.
+    readonly property color selectedBg:      dark ? "#2f394f" : "#dbe4ff"
 
     readonly property int   spacingXS: 4
     readonly property int   spacingS:  8
@@ -34,4 +45,13 @@ QtObject {
     readonly property int   spacingL:  16
     readonly property int   spacingXL: 24
     readonly property int   radius:    8
+    // v0.5.0-prep+12: additional radii + font-size scale so QML
+    // stops sprinkling magic numbers.
+    readonly property int   radiusSm:  4
+    readonly property int   radiusPill: 999
+    readonly property int   fontSizeXS: 11
+    readonly property int   fontSizeS:  12
+    readonly property int   fontSizeM:  13
+    readonly property int   fontSizeL:  15
+    readonly property int   fontSizeXL: 18
 }

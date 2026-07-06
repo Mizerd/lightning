@@ -122,12 +122,31 @@ Item {
                             if (model.isImage && model.body === model.mediaFilename) return ""
                             return model.body || ""
                         }
-                        color: model.isOwn ? AppTheme.ownBubbleText : AppTheme.otherBubbleText
-                        font.pixelSize: 13
-                        font.italic: model.redacted
+                        color: (model.undecryptable === true)
+                               ? AppTheme.muted
+                               : (model.isOwn ? AppTheme.ownBubbleText
+                                              : AppTheme.otherBubbleText)
+                        font.pixelSize: AppTheme.fontSizeM
+                        font.italic: model.redacted || model.undecryptable === true
                         wrapMode: Text.Wrap
                         Layout.maximumWidth: root.width * 0.72
                         textFormat: Text.PlainText
+
+                        // v0.5.0-prep+12: hover tooltip for undecryptable rows
+                        // so the user knows why the body is a placeholder.
+                        // Text is deliberately reassuring, not alarming.
+                        HoverHandler {
+                            id: undecryptHover
+                            enabled: model.undecryptable === true
+                        }
+                        ToolTip {
+                            visible: undecryptHover.hovered
+                            delay: 400
+                            text: qsTr(
+                                "Missing room key. Restore your recovery key " +
+                                "in Settings, or wait for another verified " +
+                                "device to share the key.")
+                        }
                     }
 
                     RowLayout {

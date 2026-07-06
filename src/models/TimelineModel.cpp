@@ -151,6 +151,10 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
         }
         return c;
     }
+    case IsEncryptedRole:        return e.isEncrypted;
+    case IsDecryptedRole:        return e.isDecrypted;
+    case UndecryptableRole:      return e.undecryptable;
+    case ErrorKindRole:          return e.errorKind;
     default:                     return {};
     }
 }
@@ -185,6 +189,10 @@ QHash<int, QByteArray> TimelineModel::roleNames() const
         { ThreadRootIdRole,        "threadRootId" },
         { IsThreadRootRole,        "isThreadRoot" },
         { ThreadReplyCountRole,    "threadReplyCount" },
+        { IsEncryptedRole,         "isEncrypted" },
+        { IsDecryptedRole,         "isDecrypted" },
+        { UndecryptableRole,       "undecryptable" },
+        { ErrorKindRole,           "errorKind" },
     };
 }
 
