@@ -20,6 +20,11 @@
 #endif
 
 #include "matrix/MatrixClient.h"
+#include "storage/AppDataPaths.h"
+
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
 
 #include <QLoggingCategory>
 
@@ -152,12 +157,35 @@ AppController::AppController(Backend backend, QObject *parent)
         connect(rust, &RustSdkMatrixClient::keyBackupResult,
                 this, [this](const QString &state, const QString &message) {
             Q_EMIT recoveryStateChanged(state, message);
+            // v0.5.0-prep+11: on successful key backup recovery, ask
+            // the SDK to reload the current room so previously
+            // undecryptable events get another chance.
+            if (state == QLatin1String("ok") && !m_currentRoomId.isEmpty()) {
+                reloadCurrentRoomTimeline(30);
+            }
         });
         // The device id becomes available once login/restore
         // completes; propagate on both.
         connect(rust, &MatrixClient::loginSucceeded,
                 this, [this](const QString &) {
             Q_EMIT rustDeviceIdChanged();
+        });
+        // v0.5.0-prep+11: bubble timeline reload results.
+        connect(rust, &RustSdkMatrixClient::roomTimelineReloaded,
+                this, [this](const QString &roomId, int t, int d, int u) {
+            if (roomId == m_currentRoomId)
+                Q_EMIT currentRoomTimelineReloaded(t, d, u);
+        });
+        // v0.5.0-prep+11: detect the SDK "account in the store doesn't
+        // match" error and expose it as a distinct signal QML can bind
+        // a reset button to.
+        connect(rust, &MatrixClient::loginFailed,
+                this, [this](const QString &reason) {
+            if (reason.contains(QLatin1String(
+                    "account in the store doesn't match"),
+                    Qt::CaseInsensitive)) {
+                Q_EMIT storeDeviceMismatchDetected(reason);
+            }
         });
     }
 #endif
@@ -268,6 +296,84 @@ void AppController::showSettings()   { setCurrentScreen(SettingsScreen); }
 void AppController::openRoom(const QString &roomId)
 {
     setCurrentRoomId(roomId);
+    // v0.5.0-prep+11: Rust backend doesn't persist encrypted event
+    // plaintext to CacheStore (by design), so after a restart the
+    // room appears empty. Reload recent history from matrix-sdk on
+    // room selection; the wrapper dedupes by event_id.
+#ifdef ENABLE_RUST_SDK_BACKEND
+    if (m_backend == RustBackend && !roomId.isEmpty()) {
+        reloadCurrentRoomTimeline(30);
+    }
+#endif
+}
+
+void AppController::reloadCurrentRoomTimeline(int limit)
+{
+#ifdef ENABLE_RUST_SDK_BACKEND
+    if (m_backend != RustBackend || !m_client || m_currentRoomId.isEmpty())
+        return;
+    if (auto *rust = qobject_cast<RustSdkMatrixClient *>(m_client.get()))
+        rust->reloadRoomTimeline(m_currentRoomId, limit);
+#else
+    Q_UNUSED(limit);
+#endif
+}
+
+void AppController::resetLocalRustStore()
+{
+#ifdef ENABLE_RUST_SDK_BACKEND
+    if (m_backend != RustBackend) {
+        Q_EMIT localRustStoreResetResult(false,
+            tr("Reset is only available on the Rust backend."));
+        return;
+    }
+    QString userId = m_settings ? m_settings->userId() : QString();
+    if (userId.isEmpty() && m_client)
+        userId = m_client->currentUserId();
+    if (userId.isEmpty()) {
+        Q_EMIT localRustStoreResetResult(false,
+            tr("No known Matrix user id — cannot compute the account "
+               "store path. Sign in first, or run "
+               "'matrix-client --reset-crypto-store' from a terminal."));
+        return;
+    }
+
+    // Stop any live sync first to give the SDK a chance to release
+    // file handles before we recursively remove the store dir.
+    if (m_client) m_client->stopSync();
+    if (m_client) m_client->logout();
+
+    const QString store = matrix::app_data::rustSdkStorePath(userId);
+    const QString session = matrix::app_data::rustSdkSmokeSessionPath(userId);
+
+    QString deleted;
+    QString failed;
+    if (!store.isEmpty() && QFileInfo::exists(store)) {
+        QDir d(store);
+        if (d.removeRecursively()) deleted += store + QLatin1Char('\n');
+        else                       failed  += store + QLatin1Char('\n');
+    }
+    if (!session.isEmpty() && QFile::exists(session)) {
+        if (QFile::remove(session)) deleted += session + QLatin1Char('\n');
+        else                        failed  += session + QLatin1Char('\n');
+    }
+
+    qCInfo(lcApp) << "reset_local_rust_store deleted=" << deleted
+                  << "failed=" << failed;
+
+    if (!failed.isEmpty()) {
+        Q_EMIT localRustStoreResetResult(false,
+            tr("Reset partially failed for:\n%1").arg(failed));
+        return;
+    }
+    Q_EMIT localRustStoreResetResult(true, deleted.isEmpty()
+        ? tr("No local Rust SDK store found to remove.")
+        : tr("Local Rust SDK store removed. Sign in again to create a "
+             "fresh device."));
+#else
+    Q_EMIT localRustStoreResetResult(false,
+        tr("This build has no Rust SDK backend."));
+#endif
 }
 
 void AppController::setCurrentScreen(Screen s)

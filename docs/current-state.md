@@ -1,3 +1,90 @@
+# Current state (v0.5.0-prep+11, timeline reload + store mismatch guard)
+
+## v0.5.0-prep+11 additions
+
+Two reported bugs land in one pass:
+
+### Bug 1: encrypted rooms empty after restart
+
+`CacheStore` refuses encrypted `TimelineEvent` rows (E2E plaintext
+never persisted), so after quitting the Rust GUI the timeline was
+empty until new live events arrived. Fix:
+
+- New Rust FFI `mx_rust_reload_room_timeline(room_id, limit)`
+  calls matrix-sdk 0.18 `Room::messages(MessagesOptions::backward())`
+  and re-emits each event through the same `timeline_event`
+  shape live sync uses. `handleTimelineEvent` dedupes by
+  `event_id`, so double-emission is harmless. Body plaintext is
+  only forwarded when the SDK actually decrypted the event;
+  ciphertext is never forwarded (undecryptable rows get empty
+  body + `undecryptable=true`).
+- `RustSdkMatrixClient::reloadRoomTimeline(roomId, limit=30)`
+  wraps the FFI + emits `roomTimelineReloaded(roomId, total,
+  decrypted, undecryptable)` when the SDK finishes.
+- `AppController::openRoom` now calls `reloadCurrentRoomTimeline(30)`
+  automatically on the Rust backend when a room is selected.
+- After `keyBackupResult("ok", ...)` (successful recovery-key
+  restore), AppController also triggers a current-room reload so
+  previously undecryptable events get another chance to decrypt.
+- New Q_INVOKABLE `reloadCurrentRoomTimeline(limit)` + signal
+  `currentRoomTimelineReloaded(t, d, u)` for future QML wiring.
+- Settings pane adds a **Refresh current room** button and the
+  Rust bridge logs `matrix.rust: reload_timeline start room=…
+  limit=…` at INFO. No bodies, no keys.
+- `CacheStore` guard preserved — decrypted E2E plaintext still
+  memory-only.
+
+### Bug 2: store/device mismatch on fresh login
+
+If the on-disk Rust SDK store belongs to a different device (e.g.
+the user deleted their session server-side then password-logs-in
+fresh), matrix-sdk rejects the login with
+`"the account in the store doesn't match the account in the
+constructor"`. Fix:
+
+- `AppController::onLoginFailed` handler now watches for that
+  specific reason string and emits new signal
+  `storeDeviceMismatchDetected(displayMessage)`.
+- New `Q_INVOKABLE resetLocalRustStore()` on AppController
+  computes the account's paths via `matrix::app_data::rustSdkStorePath`
+  + `rustSdkSmokeSessionPath`, stops sync, calls `logout()`,
+  and removes only those paths. Emits
+  `localRustStoreResetResult(ok, message)`. Never touches other
+  accounts, other backends, `cache.sqlite`, SecretStore, or
+  server data. Safe INFO log: `matrix.app: reset_local_rust_store
+  deleted=… failed=…` — paths only.
+- `qml/LoginScreen.qml` binds `Connections { target: app;
+  onStoreDeviceMismatchDetected() }` to reveal a red banner + a
+  "Reset local Lightning session" button + a result label. The
+  banner hides itself after `localRustStoreResetResult(ok=true)`.
+- `qml/SettingsScreen.qml` gets an equivalent "Reset local
+  Lightning session" button in the Encryption pane, guarded by a
+  confirmation Dialog.
+- `--reset-crypto-store` CLI (prep+5 layout) still works and
+  still scans both roots.
+
+### Not changed
+
+- `CryptoManager::supportsE2ee()` returns `true` for Rust only.
+- `RUST_SDK_E2EE_WIRED` still defined only under
+  `ENABLE_RUST_SDK_BACKEND`.
+- `CacheStore` still refuses encrypted rows.
+- HTTP / Mock backends untouched.
+- Smoke harness / persistent-store / recovery-key / probe FFI /
+  encrypted-send / expect-text wait / shutdown-leak all
+  preserved.
+
+### Known limitations
+
+- No SAS emoji verification UI yet (see next-prompts.md).
+- Reload uses `Room::messages` (server round-trip). A pure
+  local-cache read on top of matrix-sdk's event cache is a
+  possible future optimisation.
+- No incremental pagination beyond the single reload window;
+  `loadOlderMessages` is still a no-op on the Rust backend.
+- Interactive GUI shutdown still uses `mx_rust_destroy` — the
+  deadpool-sqlite drop path from prep+8 remains a follow-up.
+
 # Current state (v0.5.0-prep+10, GUI recovery + honest E2EE settings)
 
 ## v0.5.0-prep+10 — GUI E2EE controls

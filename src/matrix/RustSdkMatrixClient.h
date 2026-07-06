@@ -75,6 +75,14 @@ public:
     // Result flows through keyBackupResult(...). Do NOT expose to QML.
     void recoverFromBackup(const QString &recoveryKey);
 
+    // v0.5.0-prep+11. Reload a room's recent timeline from matrix-sdk
+    // (calls Room::messages). Timeline events dedupe by event_id in
+    // handleTimelineEvent so this is safe to call at any time. Emits
+    // roomTimelineReloaded(roomId, total, decrypted, undecryptable)
+    // when the SDK finishes, or errorOccurred with a non-secret
+    // message on failure.
+    void reloadRoomTimeline(const QString &roomId, int limit = 30);
+
     // MatrixClient interface -------------------------------------------------
     void login(const QString &homeserver,
                const QString &user,
@@ -142,6 +150,12 @@ Q_SIGNALS:
     //          or empty. Never contains the recovery key or imported
     //          key material.
     void keyBackupResult(const QString &state, const QString &message);
+
+    // v0.5.0-prep+11. Fires once per reloadRoomTimeline() call.
+    void roomTimelineReloaded(const QString &roomId,
+                              int totalEvents,
+                              int decryptedEvents,
+                              int undecryptableEvents);
 
 private:
     struct PendingSend {

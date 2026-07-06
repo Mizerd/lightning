@@ -727,6 +727,22 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event)
         return;
     }
 
+    if (type == QLatin1String("reload_timeline_done")) {
+        Q_EMIT roomTimelineReloaded(
+            event.value(QStringLiteral("room_id")).toString(),
+            event.value(QStringLiteral("events")).toInt(0),
+            event.value(QStringLiteral("decrypted")).toInt(0),
+            event.value(QStringLiteral("undecryptable")).toInt(0));
+        return;
+    }
+
+    if (type == QLatin1String("reload_timeline_failed")) {
+        Q_EMIT errorOccurred(tr("Reload timeline failed: %1").arg(
+            event.value(QStringLiteral("message")).toString(
+                tr("Matrix Rust SDK error."))));
+        return;
+    }
+
     if (type == QLatin1String("sync_error")) {
         setState(Error);
         Q_EMIT errorOccurred(event.value(QStringLiteral("message")).toString(
@@ -933,6 +949,28 @@ void RustSdkMatrixClient::recoverFromBackup(const QString &recoveryKey)
         m_rustHandle, keyBytes.constData()));
     if (!result.isEmpty()) {
         Q_EMIT keyBackupResult(QStringLiteral("failed"),
+            result.startsWith(QLatin1String("error: "))
+                ? result.mid(7) : result);
+    }
+}
+
+void RustSdkMatrixClient::reloadRoomTimeline(const QString &roomId, int limit)
+{
+    if (!m_loggedIn || !m_rustHandle) {
+        Q_EMIT errorOccurred(tr("Reload timeline: not signed in."));
+        return;
+    }
+    if (roomId.isEmpty()) return;
+    const QByteArray idBytes = roomId.toUtf8();
+    const unsigned int clamped =
+        limit <= 0 ? 30u
+                   : static_cast<unsigned int>(std::min(limit, 200));
+    qCInfo(lcRust) << "reload_timeline start room=" << roomId.right(12)
+                   << "limit=" << clamped;
+    const QString result = takeRustString(mx_rust_reload_room_timeline(
+        m_rustHandle, idBytes.constData(), clamped));
+    if (!result.isEmpty()) {
+        Q_EMIT errorOccurred(
             result.startsWith(QLatin1String("error: "))
                 ? result.mid(7) : result);
     }

@@ -256,11 +256,60 @@ Item {
                         color: AppTheme.textMuted
                         font.pixelSize: 11
                         text: qsTr(
-                            "To fully reset Lightning's local Rust SDK store for " +
-                            "this account, quit and run: " +
-                            "matrix-client --reset-crypto-store. This deletes only " +
+                            "You can also reset the local Lightning Rust SDK store " +
+                            "for this account below, or from a terminal: " +
+                            "matrix-client --reset-crypto-store. Reset deletes only " +
                             "Lightning's local store; it does not touch server messages " +
                             "or Element data.")
+                    }
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Button {
+                            text: qsTr("Reset local Lightning session")
+                            onClicked: resetConfirmDialog.open()
+                        }
+                        Button {
+                            text: qsTr("Refresh current room")
+                            enabled: app.currentRoomId !== ""
+                            onClicked: app.reloadCurrentRoomTimeline(50)
+                        }
+                    }
+                    Label {
+                        id: resetStatusLabel
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                        visible: resetStatus.text !== ""
+                        color: resetStatus.ok ? AppTheme.success : AppTheme.error
+                        text: resetStatus.text
+                    }
+                    QtObject {
+                        id: resetStatus
+                        property bool ok: false
+                        property string text: ""
+                    }
+                    Connections {
+                        target: app
+                        function onLocalRustStoreResetResult(ok, message) {
+                            resetStatus.ok = ok
+                            resetStatus.text = message
+                        }
+                    }
+                    Dialog {
+                        id: resetConfirmDialog
+                        title: qsTr("Reset local Lightning session?")
+                        standardButtons: Dialog.Ok | Dialog.Cancel
+                        modal: true
+                        Label {
+                            width: 380
+                            wrapMode: Text.WordWrap
+                            text: qsTr(
+                                "This deletes Lightning's local Matrix Rust SDK " +
+                                "store and any saved smoke session for this " +
+                                "account. Server messages, Element data, and " +
+                                "other accounts are untouched. You will need to " +
+                                "sign in again after this.")
+                        }
+                        onAccepted: app.resetLocalRustStore()
                     }
                 }
             }

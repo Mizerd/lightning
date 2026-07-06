@@ -108,6 +108,18 @@ public Q_SLOTS:
     // recoveryStateChanged().
     Q_INVOKABLE void requestRecoverFromBackup(const QString &recoveryKey);
 
+    // v0.5.0-prep+11. Delete only this app's local Rust SDK store
+    // for the currently-configured homeserver + user slug. Does not
+    // touch other accounts, other backends, or server-side data.
+    // Emits localRustStoreResetResult(ok, message). No-op on non-Rust
+    // backends.
+    Q_INVOKABLE void resetLocalRustStore();
+
+    // v0.5.0-prep+11. Manually reload the current room's recent
+    // timeline via matrix-sdk's Room::messages. Safe to call at any
+    // time — the wrapper dedupes by event_id. No-op on non-Rust.
+    Q_INVOKABLE void reloadCurrentRoomTimeline(int limit = 30);
+
 Q_SIGNALS:
     void currentScreenChanged();
     void initialSyncDoneChanged();
@@ -121,6 +133,20 @@ Q_SIGNALS:
     // detail for failures, empty on success. Never contains the
     // recovery key or imported key material.
     void recoveryStateChanged(const QString &state, const QString &message);
+
+    // v0.5.0-prep+11. Emitted when login/restore failed because the
+    // Rust SDK store on disk belongs to a different Matrix device.
+    // QML LoginScreen shows a "Reset local Lightning session" button
+    // in response.
+    void storeDeviceMismatchDetected(const QString &displayMessage);
+
+    // v0.5.0-prep+11. Emitted after resetLocalRustStore() finishes.
+    void localRustStoreResetResult(bool ok, const QString &message);
+
+    // v0.5.0-prep+11. Fires after reloadCurrentRoomTimeline completes.
+    void currentRoomTimelineReloaded(int totalEvents,
+                                     int decryptedEvents,
+                                     int undecryptableEvents);
 
 private:
     void setCurrentScreen(Screen s);

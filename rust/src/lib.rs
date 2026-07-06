@@ -23,12 +23,13 @@ use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use matrix_sdk::{
     authentication::matrix::MatrixSession,
     config::SyncSettings,
+    room::MessagesOptions,
     ruma::{
         events::room::{
             encrypted::OriginalSyncRoomEncryptedEvent,
             message::{MessageType, OriginalSyncRoomMessageEvent, RoomMessageEventContent},
         },
-        OwnedDeviceId, OwnedTransactionId, OwnedUserId, RoomId, UserId,
+        uint, OwnedDeviceId, OwnedTransactionId, OwnedUserId, RoomId, UInt, UserId,
     },
     store::RoomLoadSettings,
     Client, LoopCtrl, Room, SessionMeta, SessionTokens,
@@ -769,6 +770,166 @@ pub unsafe extern "C" fn mx_rust_recover_from_backup(
                                 "Matrix Rust SDK key backup recover failed", err),
                         }),
                     ),
+                }
+            });
+        });
+        Ok(String::new())
+    })
+}
+
+/// Timeline reload for a specific room via matrix-sdk 0.18 Room::messages.
+/// Emits the same `timeline_event` shape the live event handlers use, so the
+/// C++ side dedupes by event_id automatically. Body plaintext is only
+/// forwarded when the SDK decrypted the event (or when it was never
+/// encrypted); ciphertext is never forwarded — undecryptable rows emit an
+/// empty body + undecryptable=true, exactly like the live path.
+///
+/// Also emits a summary event on the poll queue:
+///   { "type": "reload_timeline_done",
+///     "room_id": "...", "events": N, "decrypted": N, "undecryptable": N }
+///   { "type": "reload_timeline_failed", "room_id": "...", "message": "..." }
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_reload_room_timeline(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    limit: u32,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let Some(client) = bridge.client.lock().ok().and_then(|g| g.clone()) else {
+            return Ok("error: Rust SDK session is not logged in.".to_owned());
+        };
+
+        let events = Arc::clone(&bridge.events);
+        std::thread::spawn(move || {
+            let runtime_events = Arc::clone(&events);
+            run_async(runtime_events, "reload_timeline", async move {
+                let Ok(room_ref) = RoomId::parse(&room_id) else {
+                    enqueue(&events, json!({
+                        "type": "reload_timeline_failed",
+                        "room_id": room_id,
+                        "message": "Invalid Matrix room id.",
+                    }));
+                    return;
+                };
+                let Some(room) = client.get_room(&room_ref) else {
+                    enqueue(&events, json!({
+                        "type": "reload_timeline_failed",
+                        "room_id": room_id,
+                        "message": "Rust SDK does not know that room yet.",
+                    }));
+                    return;
+                };
+
+                let mut opts = MessagesOptions::backward();
+                // Clamp limit to a sane range; matrix-sdk's default is 10.
+                let clamped: u64 = if limit == 0 { 30 } else {
+                    std::cmp::min(limit as u64, 200)
+                };
+                opts.limit = UInt::new(clamped).unwrap_or(uint!(30));
+
+                match room.messages(opts).await {
+                    Ok(messages) => {
+                        let mut total = 0u32;
+                        let mut decrypted = 0u32;
+                        let mut undecryptable_count = 0u32;
+                        // messages.chunk is newest-first for backward();
+                        // reverse so C++ inserts oldest-first, matching
+                        // the live sync ordering.
+                        for ev in messages.chunk.into_iter().rev() {
+                            total += 1;
+                            let event_id = ev
+                                .event_id()
+                                .map(|i| i.to_string())
+                                .unwrap_or_default();
+                            let sender = ev
+                                .sender()
+                                .map(|i| i.to_string())
+                                .unwrap_or_default();
+                            if event_id.is_empty() {
+                                continue;
+                            }
+                            let is_decrypted = ev.encryption_info().is_some();
+
+                            let raw = ev.raw();
+                            let value: serde_json::Value = match serde_json::from_str(
+                                raw.json().get(),
+                            ) {
+                                Ok(v) => v,
+                                Err(_) => continue,
+                            };
+                            let ts_ms = value
+                                .get("origin_server_ts")
+                                .and_then(|v| v.as_u64())
+                                .unwrap_or(0);
+                            let type_str = value
+                                .get("type")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("");
+                            let content = value.get("content");
+
+                            let (is_encrypted, undecryptable, msgtype, body) =
+                                if type_str == "m.room.encrypted" {
+                                    undecryptable_count += 1;
+                                    (true, true, "encrypted".to_owned(), String::new())
+                                } else if type_str == "m.room.message" {
+                                    let mt = content
+                                        .and_then(|c| c.get("msgtype"))
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("m.text");
+                                    let bd = content
+                                        .and_then(|c| c.get("body"))
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("")
+                                        .to_owned();
+                                    let kind = match mt {
+                                        "m.notice" => "notice",
+                                        "m.emote" => "emote",
+                                        _ => "text",
+                                    }
+                                    .to_owned();
+                                    if is_decrypted {
+                                        decrypted += 1;
+                                    }
+                                    (is_decrypted, false, kind, bd)
+                                } else {
+                                    // Skip state / other event types on
+                                    // this path — the live sync handles
+                                    // room state separately.
+                                    continue;
+                                };
+
+                            enqueue(&events, json!({
+                                "type": "timeline_event",
+                                "room_id": room_id.clone(),
+                                "event": {
+                                    "event_id": event_id,
+                                    "sender": sender,
+                                    "body": body,
+                                    "msgtype": msgtype,
+                                    "timestamp_ms": ts_ms,
+                                    "is_encrypted": is_encrypted,
+                                    "is_decrypted": is_decrypted,
+                                    "undecryptable": undecryptable,
+                                    "decrypted": is_decrypted,
+                                }
+                            }));
+                        }
+                        enqueue(&events, json!({
+                            "type": "reload_timeline_done",
+                            "room_id": room_id,
+                            "events": total,
+                            "decrypted": decrypted,
+                            "undecryptable": undecryptable_count,
+                        }));
+                    }
+                    Err(err) => enqueue(&events, json!({
+                        "type": "reload_timeline_failed",
+                        "room_id": room_id,
+                        "message": format_matrix_error(
+                            "Matrix Rust SDK Room::messages failed", err),
+                    })),
                 }
             });
         });

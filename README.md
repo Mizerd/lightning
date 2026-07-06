@@ -12,6 +12,23 @@ across the rename. The product name is **Lightning**.
 
 ## Status
 
+**v0.5.0-prep+11** — Two Rust-GUI bug fixes:
+1. **Encrypted rooms no longer look empty after restart.** New Rust
+   FFI `mx_rust_reload_room_timeline` calls matrix-sdk 0.18
+   `Room::messages` and re-emits recent events through the normal
+   `timeline_event` path (deduped by `event_id`). AppController
+   triggers it automatically on room selection and after a
+   successful recovery-key restore. Settings gains a "Refresh
+   current room" button. `CacheStore` still refuses encrypted rows;
+   plaintext stays memory-only.
+2. **Rust store/device mismatch is now recoverable in the GUI.**
+   When matrix-sdk returns the SDK's "account in the store doesn't
+   match" login error, `AppController::storeDeviceMismatchDetected`
+   fires and both LoginScreen and SettingsScreen show a "Reset
+   local Lightning session" button. It removes only that account's
+   `matrix-rust-sdk-store/` + smoke session sidecar; server data,
+   other accounts, and Element are untouched.
+
 **v0.5.0-prep+10** — GUI recovery-key restore and honest E2EE
 Settings section for the Rust backend, plus the footer/backend label
 fix. Settings now shows the Lightning device id (redacted), a

@@ -97,6 +97,58 @@ Item {
                 Layout.fillWidth: true
                 horizontalAlignment: Text.AlignHCenter
             }
+
+            // v0.5.0-prep+11: Rust SDK store/device mismatch recovery.
+            // Only visible when AppController reports the "account in
+            // the store doesn't match" SDK error, and only on the Rust
+            // backend.
+            QtObject {
+                id: mismatchPanel
+                property bool visible: false
+                property string message: ""
+            }
+            Connections {
+                target: app
+                function onStoreDeviceMismatchDetected(displayMessage) {
+                    mismatchPanel.visible = true
+                    mismatchPanel.message = displayMessage
+                }
+                function onLocalRustStoreResetResult(ok, message) {
+                    if (ok) {
+                        mismatchPanel.visible = false
+                        mismatchPanel.message = ""
+                    } else {
+                        mismatchPanel.message = message
+                    }
+                }
+            }
+            Label {
+                visible: mismatchPanel.visible
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                color: AppTheme.error
+                text: qsTr(
+                    "This device's local Lightning Rust SDK store belongs to "
+                    + "a different Matrix session. Reset the local Lightning "
+                    + "session for this account and sign in again to create a "
+                    + "fresh device. This does not delete server messages or "
+                    + "Element data.")
+            }
+            Button {
+                visible: mismatchPanel.visible
+                Layout.fillWidth: true
+                text: qsTr("Reset local Lightning session")
+                onClicked: app.resetLocalRustStore()
+            }
+            Label {
+                visible: mismatchPanel.visible
+                                   && mismatchPanel.message !== ""
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                color: AppTheme.textMuted
+                font.pixelSize: 11
+                text: mismatchPanel.message
+            }
         }
     }
 }
