@@ -9,9 +9,10 @@
 | v0.3 | Usable chat UX | `CppHttpMatrixClient` + local SQLite cache + `MockMatrixClient` (`--mock`) |
 | v0.4 | Secure storage + Rust backend scaffold | HTTP default; `--mock`; optional `--backend=rust` behind `-DENABLE_RUST_SDK_BACKEND=ON` — scaffold only, refuses login/sends |
 | v0.4.5-8 | HTTP polish (sync bring-up, cache repair, delegate anchor fix, Connected label) | HTTP feature-complete short of E2EE |
-| **v0.5.0-prep (current)** | Matrix Rust SDK backend foundation | HTTP default; Rust backend links matrix-sdk and wires login/restore/sync/plain text send; E2EE still disabled |
-| v0.5.0 | E2EE via Matrix Rust SDK | Rust backend verifies encrypted read/send, then enables the E2EE gate |
-| v0.5.x | Advanced Matrix UX | Rust SDK; sliding sync, multi-account, SSO/OIDC, authenticated media, key backup |
+| v0.5.0 | E2EE via Matrix Rust SDK | Rust backend + encrypted send/receive + SAS verification + recovery key |
+| v0.5.2 | Design-token foundation | `AppTheme` semantic tokens, spacing, radii, typography, light/dark palettes |
+| **v0.5.3 (current)** | Split Spaces + Rooms sidebar | `SpacesPanel` + `RoomsPanel` with independent scroll/search; bottom-left gear Settings |
+| v0.5.x | UI polish + advanced features | Timeline/composer redesign; login redesign; multi-account; SSO/OIDC; authenticated media |
 | v1.0 | Polished release | Rust SDK; hardware-backed secure storage, packaging, i18n complete |
 
 ## Feature classification

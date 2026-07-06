@@ -7,7 +7,7 @@ project(matrix-client
 
 # Human-facing label. Keep the prep suffix until Matrix Rust SDK encrypted
 # rooms round-trip in both directions and the E2EE gate can be enabled.
-set(APP_VERSION_LABEL "0.5.2")
+set(APP_VERSION_LABEL "0.5.3")
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -124,6 +124,8 @@ set(APP_QML_FILES
     qml/SettingsScreen.qml
     qml/MainScreen.qml
     qml/RoomListPane.qml
+    qml/SpacesPanel.qml
+    qml/RoomsPanel.qml
     qml/TimelinePane.qml
     qml/RoomDelegate.qml
     qml/MessageDelegate.qml

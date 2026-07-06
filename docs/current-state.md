@@ -1,3 +1,94 @@
+# Current state (v0.5.3 — split Spaces + Rooms sidebar)
+
+## v0.5.3 — split navigation sidebar foundation
+
+Second slice of the UI redesign. Replaces the single
+`RoomListPane` + horizontal chip strip with a proper split left
+sidebar that mirrors the three-panel layout of Discord, Slack,
+Element X, and Telegram Desktop.
+
+Concrete changes:
+
+- **`qml/SpacesPanel.qml`** (new): top section of the sidebar.
+  Header "SPACES" with a collapse toggle (▼/▶). Search field
+  ("Search spaces") filters real Spaces case-insensitively; the
+  "All rooms" and "Other rooms" pseudo-rows always pass the
+  filter. First-letter avatar rectangle for each real Space.
+  Selecting a row still calls `app.spaces.activeSpaceId = ...`
+  which triggers the existing `RoomListModel` filter downstream.
+  When no real Matrix Spaces exist, shows a compact "No spaces"
+  label instead of search + list. `collapsed: false` default;
+  toggling hides search + list and shrinks the panel to
+  header-height only so `RoomsPanel` absorbs the freed space.
+  Uses `AppTheme.sidebar/hover/selected/selectedText/accent/
+  cardElevated/textPrimary/textMuted/textSecondary/fontSizeXS/S/
+  spacing4/8/12/radiusSm` tokens.
+
+- **`qml/RoomsPanel.qml`** (new): bottom section of the sidebar.
+  Header "ROOMS" with live room count. Search field ("Search
+  rooms") filters the visible delegates case-insensitively by
+  display name without mutating the backend `RoomListModel`.
+  Filtered delegates collapse to `height: 0` so the ListView
+  layout remains continuous. `RoomDelegate` is reused for each
+  row — encrypted lock icon, first-letter avatar, unread badge,
+  last message preview, and selected highlight all preserved.
+  `app.openRoom(roomId)` is still the click target.
+  Independent `ScrollBar.vertical` so rooms scroll without moving
+  the Spaces list.
+
+- **`qml/MainScreen.qml`** (rewritten): outer `SplitView`
+  unchanged (horizontal, sidebar left / chat right). The old
+  `RoomListPane` reference is replaced with a sidebar
+  `Rectangle` (min 240 px, preferred 300 px, max 360 px)
+  containing a `ColumnLayout`:
+  - `SpacesPanel` (no `Layout.fillHeight` — height from
+    `implicitHeight`, capped at `min(280, sidebar.height × 0.42)`)
+  - 1 px separator (hidden when no Spaces)
+  - `RoomsPanel` (`Layout.fillHeight: true`)
+  - Bottom footer — a `ToolButton` with `⚙` text, tooltip
+    "Settings", opens `app.showSettings()`.
+  `TimelinePane` on the right is unchanged.
+
+- **`qml/RoomListPane.qml`**: still registered in
+  `APP_QML_FILES` and intact on disk; no longer referenced
+  by `MainScreen`.
+
+- **`CMakeLists.txt`**: `APP_VERSION_LABEL` → `"0.5.3"`.
+  `SpacesPanel.qml` and `RoomsPanel.qml` added to
+  `APP_QML_FILES`.
+
+- **Top-right Settings link** in `qml/Main.qml` header: still
+  present as a fallback. Removal is follow-up work.
+
+Scroll independence:
+  - `SpacesPanel` has its own `ListView` with `ScrollBar.vertical`.
+  - `RoomsPanel` has its own `ListView` with `ScrollBar.vertical`.
+  - The two lists scroll entirely independently.
+
+Search behaviour:
+  - Spaces search: in-delegate filter; `matchesFilter` on each
+    delegate. `height: 0` when filtered, preventing gaps.
+  - Rooms search: same in-delegate pattern on `RoomDelegate`
+    instances. Backend model untouched.
+
+Backend / E2EE behaviour — **unchanged**:
+  - Rust backend connection, `supportsE2ee`, HTTP blocked sends.
+  - SAS receive-first verification UI (`SettingsScreen.qml`).
+  - Recovery-key restore flow.
+  - Post-verification room reload.
+  - Timeline reload after room open.
+  - Store/device mismatch reset.
+  - `CacheStore` encrypted plaintext guard.
+
+Known limitations and follow-up work:
+  - Top-right Settings button in the header not yet removed.
+  - "No search results" feedback when a room search yields no
+    visible delegates — the empty label shows only when the
+    model is truly empty (follow-up).
+  - `RoomListPane.qml` still registered in QML module (harmless
+    dead file — can be removed in a cleanup pass).
+  - Timeline, composer, and login form redesign are future passes.
+
 # Current state (v0.5.2 — design-token foundation)
 
 ## v0.5.2 — design tokens + palette foundation
