@@ -3,6 +3,8 @@
 #include "matrix/MatrixClient.h"
 #include "spaces/SpaceManager.h"
 
+#include <algorithm>
+
 RoomListModel::RoomListModel(QObject *parent)
     : QAbstractListModel(parent)
 {
@@ -64,6 +66,9 @@ QVariant RoomListModel::data(const QModelIndex &index, int role) const
     case UnreadCountRole:        return r.unreadCount;
     case EncryptedRole:          return r.encrypted;
     case IsSpaceRole:            return r.isSpace;
+    case MemberCountRole:        return static_cast<int>(r.members.size());
+    case CategoryRole:           return (r.members.size() > 0 && r.members.size() <= 2)
+                                     ? QStringLiteral("dm") : QStringLiteral("room");
     default:                     return {};
     }
 }
@@ -80,6 +85,8 @@ QHash<int, QByteArray> RoomListModel::roleNames() const
         { UnreadCountRole,        "unreadCount" },
         { EncryptedRole,          "encrypted" },
         { IsSpaceRole,            "isSpace" },
+        { MemberCountRole,        "memberCount" },
+        { CategoryRole,           "category" },
     };
 }
 
@@ -124,6 +131,14 @@ void RoomListModel::refresh()
             if (passesFilter(r))
                 m_rooms.append(r);
         }
+        // DMs first, then rooms; within each category sort by recency.
+        std::stable_sort(m_rooms.begin(), m_rooms.end(), [](const RoomInfo &a, const RoomInfo &b) {
+            bool aDM = (a.members.size() > 0 && a.members.size() <= 2);
+            bool bDM = (b.members.size() > 0 && b.members.size() <= 2);
+            if (aDM != bDM)
+                return aDM > bDM;
+            return a.lastActivity > b.lastActivity;
+        });
     }
     endResetModel();
 }

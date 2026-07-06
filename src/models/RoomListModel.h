@@ -24,6 +24,8 @@ public:
         UnreadCountRole,
         EncryptedRole,
         IsSpaceRole,
+        MemberCountRole, // r.members.size() — safe read-only heuristic
+        CategoryRole,    // "dm" (1-2 members) or "room" — used for QML sections
     };
 
     explicit RoomListModel(QObject *parent = nullptr);

@@ -34,40 +34,15 @@ ApplicationWindow {
             anchors.fill: parent
             anchors.leftMargin: AppTheme.spacingM
             anchors.rightMargin: AppTheme.spacingM
-            spacing: AppTheme.spacingM
 
             Label {
                 text: qsTr("Lightning")
-                color: AppTheme.text
-                font.pixelSize: 16
+                color: AppTheme.textPrimary
+                font.pixelSize: 15
                 font.weight: Font.DemiBold
             }
 
-            Label {
-                text: app.accounts && app.accounts.hasActiveAccount
-                      ? app.accounts.activeUserId
-                      : qsTr("Not signed in")
-                color: AppTheme.textMuted
-                Layout.leftMargin: AppTheme.spacingS
-            }
-
             Item { Layout.fillWidth: true }
-
-            ToolButton {
-                text: qsTr("Rooms")
-                enabled: app.loggedIn && app.currentScreen !== app.MainScreen
-                visible: app.loggedIn
-                onClicked: app.showMain()
-            }
-            ToolButton {
-                text: qsTr("Settings")
-                onClicked: app.showSettings()
-            }
-            ToolButton {
-                text: qsTr("Sign out")
-                visible: app.loggedIn
-                onClicked: app.auth.logout()
-            }
         }
     }
 

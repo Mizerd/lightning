@@ -3,13 +3,10 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// v0.5.3: left sidebar — Rooms section.
-// Sits below SpacesPanel (or fills the sidebar when there are no Spaces).
-// Has its own search bar and independent ScrollView. Room filtering is
-// done in-delegate: delegates shrink to height 0 when the name does not
-// match, so the backend model is never mutated by the search.
-// Existing openRoom / currentRoomId / encrypted lock / avatar / unread
-// behaviour is preserved unchanged.
+// v0.5.4: Rooms column with DM / Room sections and a user footer.
+// Section grouping uses RoomListModel's "category" role ("dm" | "room");
+// the C++ refresh() sorts DMs before groups so section headers appear in order.
+// The user footer (avatar + userId + ⚙ + ↪) replaces the old sidebar gear.
 Rectangle {
     id: root
     color: AppTheme.sidebar
@@ -18,59 +15,31 @@ Rectangle {
         anchors.fill: parent
         spacing: 0
 
-        // ── Header ───────────────────────────────────────────────────────
+        // ── Search bar ────────────────────────────────────────────────────
         Rectangle {
             Layout.fillWidth: true
             color: AppTheme.sidebar
-            implicitHeight: headerRow.implicitHeight + AppTheme.spacing8 * 2
+            implicitHeight: roomSearch.implicitHeight + AppTheme.spacing8 * 2
 
-            RowLayout {
-                id: headerRow
-                anchors.fill: parent
-                anchors.leftMargin: AppTheme.spacing12
-                anchors.rightMargin: AppTheme.spacing8
-                anchors.topMargin: AppTheme.spacing8
-                anchors.bottomMargin: AppTheme.spacing8
-                spacing: AppTheme.spacing4
-
-                Label {
-                    text: qsTr("ROOMS")
-                    color: AppTheme.textMuted
-                    font.pixelSize: AppTheme.fontSizeXS
-                    font.weight: Font.DemiBold
-                    font.letterSpacing: 1.0
+            TextField {
+                id: roomSearch
+                anchors {
+                    left: parent.left; right: parent.right
+                    verticalCenter: parent.verticalCenter
+                    leftMargin: AppTheme.spacing8; rightMargin: AppTheme.spacing8
                 }
-
-                Item { Layout.fillWidth: true }
-
-                // Show room count once the initial sync has landed.
-                Label {
-                    text: app.initialSyncDone ? roomList.count.toString() : ""
-                    color: AppTheme.textMuted
-                    font.pixelSize: AppTheme.fontSizeXS
+                placeholderText: qsTr("Search rooms…")
+                font.pixelSize: AppTheme.fontSizeS
+                background: Rectangle {
+                    color: AppTheme.inputBackground
+                    border.color: roomSearch.activeFocus ? AppTheme.focusRing : AppTheme.inputBorder
+                    border.width: roomSearch.activeFocus ? 2 : 1
+                    radius: AppTheme.radiusSm
                 }
             }
         }
 
-        // ── Search ───────────────────────────────────────────────────────
-        TextField {
-            id: roomSearch
-            Layout.fillWidth: true
-            Layout.leftMargin: AppTheme.spacing8
-            Layout.rightMargin: AppTheme.spacing8
-            Layout.bottomMargin: AppTheme.spacing4
-            placeholderText: qsTr("Search rooms")
-            font.pixelSize: AppTheme.fontSizeS
-            background: Rectangle {
-                color: AppTheme.inputBackground
-                border.color: roomSearch.activeFocus ? AppTheme.focusRing
-                                                     : AppTheme.inputBorder
-                border.width: roomSearch.activeFocus ? 2 : 1
-                radius: AppTheme.radiusSm
-            }
-        }
-
-        // ── Rooms ListView ────────────────────────────────────────────────
+        // ── Room list with DM / ROOMS section headers ─────────────────────
         ListView {
             id: roomList
             Layout.fillWidth: true
@@ -82,31 +51,42 @@ Rectangle {
 
             ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
 
-            // Use RoomDelegate directly as the delegate. Two extra properties
-            // are added to each instance: `visible` (filtered) and `height`
-            // (collapses to 0 when filtered out). QML allows extending
-            // component instances inline; `model.*` roles are still accessible
-            // from the ListView context throughout the delegate tree.
+            // Section grouping driven by the "category" role from RoomListModel.
+            // C++ sorts DMs first so "dm" section appears above "room" section.
+            section.property: "category"
+            section.criteria: ViewSection.FullString
+            section.delegate: Rectangle {
+                required property string section
+                width: roomList.width
+                height: 28
+                color: AppTheme.sidebar
+
+                Label {
+                    anchors {
+                        left: parent.left; verticalCenter: parent.verticalCenter
+                        leftMargin: AppTheme.spacing12
+                    }
+                    text: section === "dm" ? qsTr("DIRECT MESSAGES") : qsTr("ROOMS")
+                    color: AppTheme.textMuted
+                    font.pixelSize: AppTheme.fontSizeXS
+                    font.weight: Font.DemiBold
+                    font.letterSpacing: 1.0
+                }
+            }
+
             delegate: RoomDelegate {
-                id: roomItem
                 width: ListView.view.width
                 selected: model.roomId === app.currentRoomId
                 onClicked: app.openRoom(model.roomId)
 
-                // Case-insensitive name filter. Empty search shows all rooms.
                 visible: roomSearch.text === "" ||
                          (model.name &&
                           model.name.toLowerCase().indexOf(
                               roomSearch.text.toLowerCase()) >= 0)
-
-                // Collapse vertical space when filtered out so ListView
-                // layout is continuous. `implicitHeight` is RoomDelegate's
-                // computed height (content + spacing); we keep it as-is when
-                // visible and override to 0 when hidden.
                 height: visible ? implicitHeight : 0
             }
 
-            // ── Empty / loading state ─────────────────────────────────────
+            // Empty / loading state
             Label {
                 anchors.centerIn: parent
                 width: parent.width - AppTheme.spacing24 * 2
@@ -114,18 +94,114 @@ Rectangle {
                 wrapMode: Text.WordWrap
                 visible: roomList.count === 0
                 text: {
-                    if (!app.loggedIn)
-                        return qsTr("Sign in to see rooms")
-                    if (!app.initialSyncDone)
-                        return qsTr("Loading rooms…")
-                    if (app.spaces && app.spaces.activeSpaceId
-                            && app.spaces.activeSpaceId !== ""
-                            && app.spaces.activeSpaceId !== "@orphans")
+                    if (!app.loggedIn) return qsTr("Sign in to see rooms")
+                    if (!app.initialSyncDone) return qsTr("Loading rooms…")
+                    if (app.spaces && app.spaces.activeSpaceId &&
+                            app.spaces.activeSpaceId !== "" &&
+                            app.spaces.activeSpaceId !== "@orphans")
                         return qsTr("No rooms in this Space")
                     return qsTr("No joined rooms")
                 }
                 color: AppTheme.textMuted
                 font.pixelSize: AppTheme.fontSizeS
+            }
+        }
+
+        // ── User footer ───────────────────────────────────────────────────
+        // Shows avatar + userId + Settings gear + Sign-out button.
+        // Hidden when not logged in.
+        Rectangle {
+            Layout.fillWidth: true
+            implicitHeight: footerRow.implicitHeight + AppTheme.spacing8 * 2
+            color: AppTheme.sidebar
+            visible: app.loggedIn
+
+            // Top separator line
+            Rectangle {
+                anchors.top: parent.top
+                anchors.left: parent.left
+                anchors.right: parent.right
+                height: 1
+                color: AppTheme.separator
+            }
+
+            RowLayout {
+                id: footerRow
+                anchors {
+                    fill: parent
+                    topMargin: AppTheme.spacing8 + 1   // +1 for separator
+                    bottomMargin: AppTheme.spacing8
+                    leftMargin: AppTheme.spacing8
+                    rightMargin: AppTheme.spacing4
+                }
+                spacing: AppTheme.spacing8
+
+                // Avatar circle — first letter of local part of the MXID
+                Rectangle {
+                    width: 32; height: 32
+                    radius: AppTheme.radiusPill
+                    color: AppTheme.accent
+
+                    Label {
+                        anchors.centerIn: parent
+                        text: {
+                            var uid = app.accounts ? app.accounts.activeUserId : ""
+                            if (!uid || uid.length === 0) return "?"
+                            var local = uid.startsWith("@") ? uid.slice(1) : uid
+                            return local.length > 0 ? local[0].toUpperCase() : "?"
+                        }
+                        font.pixelSize: 14
+                        font.weight: Font.DemiBold
+                        color: AppTheme.accentText
+                    }
+                }
+
+                // Truncated user ID
+                Label {
+                    Layout.fillWidth: true
+                    text: app.accounts ? app.accounts.activeUserId : ""
+                    color: AppTheme.textSecondary
+                    font.pixelSize: AppTheme.fontSizeS
+                    elide: Label.ElideRight
+                }
+
+                // Settings gear ⚙
+                ToolButton {
+                    id: settingsBtn
+                    implicitWidth: 30; implicitHeight: 30
+                    contentItem: Label {
+                        text: "⚙"
+                        font.pixelSize: 16
+                        color: AppTheme.textSecondary
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                    background: Rectangle {
+                        radius: AppTheme.radiusSm
+                        color: settingsBtn.hovered ? AppTheme.hover : "transparent"
+                    }
+                    onClicked: app.showSettings()
+                    ToolTip { text: qsTr("Settings"); visible: parent.hovered; delay: 500 }
+                }
+
+                // Sign-out ↪
+                ToolButton {
+                    id: signOutBtn
+                    implicitWidth: 30; implicitHeight: 30
+                    contentItem: Label {
+                        text: "↪"
+                        font.pixelSize: 16
+                        color: AppTheme.textSecondary
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                    background: Rectangle {
+                        radius: AppTheme.radiusSm
+                        color: signOutBtn.hovered ? AppTheme.hover : "transparent"
+                    }
+                    onClicked: app.auth.logout()
+                    ToolTip { text: qsTr("Sign out"); visible: parent.hovered; delay: 500 }
+                }
             }
         }
     }

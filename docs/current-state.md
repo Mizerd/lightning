@@ -1,4 +1,58 @@
-# Current state (v0.5.3 — split Spaces + Rooms sidebar)
+# Current state (v0.5.4 — 3-column navigation + room grouping)
+
+## v0.5.4 — 3-column navigation layout and room grouping
+
+Third slice of the UI redesign. Converts the sidebar into a proper
+3-column layout (Spaces rail + Rooms column + Chat area), splits the
+room list into "DIRECT MESSAGES" and "ROOMS" sections, softens the
+light palette, moves Settings/Sign-out to a user footer in the sidebar,
+and cleans up the app header.
+
+Concrete changes:
+
+- **`qml/SpacesRail.qml`** (new, replaces SpacesPanel): narrow 56 px
+  fixed-width rail. Each row is a 40×40 circle avatar (pill when
+  inactive → rounded-square when active, animated). A 3 px left-edge
+  accent bar marks the active space. Unread count badge on inactive
+  items. ToolTip shows full space name on hover. Pseudo-rows (All rooms,
+  Other rooms) render ⊞/◦ symbols. Hidden entirely when there are no
+  real Matrix Spaces (`app.spaces.hasSpaces` = false).
+
+- **`qml/RoomsPanel.qml`** (rewritten): search bar at the top;
+  `ListView` with `section.property: "category"` that shows
+  "DIRECT MESSAGES" and "ROOMS" section headers driven by the new
+  `CategoryRole` from `RoomListModel`; `RoomDelegate` delegates with
+  height-collapse filter; user footer at the bottom (accent avatar circle
+  with first letter of MXID, truncated user ID label, ⚙ Settings
+  ToolButton, ↪ Sign-out ToolButton) — replaces the old bottom-left gear.
+
+- **`qml/MainScreen.qml`** (rewritten): `SplitView` with 3 columns:
+  `SpacesRail` (56 px fixed), `RoomsPanel` (200–360 px), `TimelinePane`
+  (fills remainder). SpacesRail collapses automatically when not visible.
+
+- **`src/models/RoomListModel.h/.cpp`**: two new roles —
+  `MemberCountRole` ("memberCount", returns `r.members.size()`) and
+  `CategoryRole` ("category", returns "dm" for 1-2 member rooms or
+  "room" otherwise). `refresh()` now `std::stable_sort`s the visible
+  rooms so DMs appear before groups (required for Qt's section grouping
+  to produce two contiguous sections rather than interleaving).
+
+- **`qml/AppTheme.qml`**: softer light palette —
+  background #EBF0F7, sidebar #F4F8FC, cardElevated #E8EEF7,
+  hover #DCE8FF, selected #BEDBFF, border #C4D2E7.
+
+- **`qml/Main.qml`**: header simplified to branding label only —
+  Rooms/Settings/Sign-out ToolButtons removed (now in sidebar footer).
+
+- **`qml/SettingsScreen.qml`**: Connection and Appearance split into
+  separate panes; Sign out button added to the footer row.
+
+- **`CMakeLists.txt`**: version 0.5.4; SpacesRail.qml added;
+  SpacesPanel.qml and RoomListPane.qml removed from QML_FILES.
+
+All E2EE / SAS / recovery / backend behaviour unchanged.
+
+---
 
 ## v0.5.3 — split navigation sidebar foundation
 

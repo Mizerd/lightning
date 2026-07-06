@@ -11,7 +11,8 @@
 | v0.4.5-8 | HTTP polish (sync bring-up, cache repair, delegate anchor fix, Connected label) | HTTP feature-complete short of E2EE |
 | v0.5.0 | E2EE via Matrix Rust SDK | Rust backend + encrypted send/receive + SAS verification + recovery key |
 | v0.5.2 | Design-token foundation | `AppTheme` semantic tokens, spacing, radii, typography, light/dark palettes |
-| **v0.5.3 (current)** | Split Spaces + Rooms sidebar | `SpacesPanel` + `RoomsPanel` with independent scroll/search; bottom-left gear Settings |
+| v0.5.3 | Split Spaces + Rooms sidebar | `SpacesPanel` + `RoomsPanel` with independent scroll/search; bottom-left gear Settings |
+| **v0.5.4 (current)** | 3-column navigation + room grouping | `SpacesRail` (56 px) + `RoomsPanel` with DM/Room sections + user footer; softer light palette |
 | v0.5.x | UI polish + advanced features | Timeline/composer redesign; login redesign; multi-account; SSO/OIDC; authenticated media |
 | v1.0 | Polished release | Rust SDK; hardware-backed secure storage, packaging, i18n complete |
 

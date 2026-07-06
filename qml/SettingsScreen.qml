@@ -24,6 +24,7 @@ Item {
                 font.weight: Font.DemiBold
             }
 
+            // ── Connection ────────────────────────────────────────────────
             Pane {
                 Layout.fillWidth: true
                 background: Rectangle {
@@ -35,15 +36,32 @@ Item {
                     width: parent.width
                     spacing: AppTheme.spacingM
 
-                    Label { text: qsTr("Homeserver"); font.weight: Font.DemiBold; color: AppTheme.text }
+                    Label { text: qsTr("Connection"); font.weight: Font.DemiBold; color: AppTheme.text }
+                    Label { text: qsTr("Homeserver URL"); color: AppTheme.textSecondary; font.pixelSize: AppTheme.fontSizeS }
                     TextField {
                         Layout.fillWidth: true
                         text: app.settings.homeserverUrl
                         placeholderText: "https://matrix.org"
                         onEditingFinished: app.settings.homeserverUrl = text
                     }
+                }
+            }
+
+            // ── Appearance ────────────────────────────────────────────────
+            Pane {
+                Layout.fillWidth: true
+                background: Rectangle {
+                    color: AppTheme.surface
+                    border.color: AppTheme.border
+                    radius: AppTheme.radius
+                }
+                ColumnLayout {
+                    width: parent.width
+                    spacing: AppTheme.spacingM
 
                     Label { text: qsTr("Appearance"); font.weight: Font.DemiBold; color: AppTheme.text }
+
+                    Label { text: qsTr("Theme"); color: AppTheme.textSecondary; font.pixelSize: AppTheme.fontSizeS }
                     ComboBox {
                         Layout.fillWidth: true
                         model: [qsTr("System"), qsTr("Light"), qsTr("Dark")]
@@ -51,7 +69,7 @@ Item {
                         onActivated: app.settings.theme = currentIndex
                     }
 
-                    Label { text: qsTr("Language"); font.weight: Font.DemiBold; color: AppTheme.text }
+                    Label { text: qsTr("Language"); color: AppTheme.textSecondary; font.pixelSize: AppTheme.fontSizeS }
                     ComboBox {
                         Layout.fillWidth: true
                         model: ["en", "lt"]
@@ -59,9 +77,9 @@ Item {
                         onActivated: app.settings.language = model[currentIndex]
                     }
                     Label {
-                        text: qsTr("Language switching requires an app restart in v0.1.")
+                        text: qsTr("Language switching requires an app restart.")
                         color: AppTheme.textMuted
-                        font.pixelSize: 11
+                        font.pixelSize: AppTheme.fontSizeXS
                     }
 
                     CheckBox {
@@ -470,7 +488,29 @@ Item {
 
             RowLayout {
                 Layout.fillWidth: true
+
+                // Sign out — only visible when authenticated
+                Button {
+                    visible: app.loggedIn
+                    text: qsTr("Sign out")
+                    onClicked: app.auth.logout()
+                    contentItem: Label {
+                        text: parent.text
+                        color: AppTheme.danger
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                    background: Rectangle {
+                        radius: AppTheme.radiusSm
+                        color: parent.pressed ? Qt.lighter(AppTheme.border, 0.9)
+                             : parent.hovered ? AppTheme.hover : AppTheme.surface
+                        border.color: AppTheme.danger
+                        border.width: 1
+                    }
+                }
+
                 Item { Layout.fillWidth: true }
+
                 Button {
                     text: qsTr("Back")
                     onClicked: app.loggedIn ? app.showMain() : app.showLogin()
