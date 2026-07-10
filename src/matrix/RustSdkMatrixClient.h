@@ -339,6 +339,7 @@ private:
     QHash<QString, RoomInfo> m_rooms;
     QStringList m_roomOrder;
     QString m_syncMode = QStringLiteral("stopped");
+    QString m_lastSyncState;
     QHash<QString, QString> m_lastReceiptSent;
     QString m_typingRoom;
     QHash<QString, QList<TimelineEvent>> m_timelines;

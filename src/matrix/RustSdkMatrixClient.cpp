@@ -168,6 +168,7 @@ void RustSdkMatrixClient::clearLocalState()
     m_roomOrder.clear();
     m_lastReceiptSent.clear();
     m_syncMode = QStringLiteral("stopped");
+    m_lastSyncState.clear();
     m_timelines.clear();
     m_pendingSends.clear();
     m_pendingProbes.clear();
@@ -1213,6 +1214,14 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
 
     if (type == QLatin1String("room_list_sync_state")) {
         const QString state = event.value(QStringLiteral("state")).toString();
+        // v0.5.8: the classic path re-announces "running" on every /sync
+        // callback. Collapse consecutive identical states so the log and
+        // downstream handling see each transition once. setState() is
+        // already idempotent; distinct transitions (running → offline →
+        // retrying → running) are never coalesced, so reconnect is intact.
+        if (state == m_lastSyncState)
+            return;
+        m_lastSyncState = state;
         qCInfo(lcRust) << "sync state=" << state;
         if (state == QLatin1String("offline")) setState(Offline);
         else if (state == QLatin1String("starting") || state == QLatin1String("retrying"))

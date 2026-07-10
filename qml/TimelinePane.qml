@@ -108,12 +108,25 @@ Rectangle {
 
                 // Auto-scroll to end on new events when already near the bottom.
                 property bool stickToBottom: true
+
+                // Scroll to the newest row *after* the model/view have finished
+                // reconciling. Calling positionViewAtEnd() synchronously inside
+                // onCountChanged during a reset (e.g. switching from a 10-row
+                // room to a 2-row snapshot) made the backing DelegateModel try
+                // to cancel a delegate at a now-out-of-range index
+                // ("DelegateModel::cancel: index out range 10 2"). Qt.callLater
+                // coalesces repeated requests into a single deferred call and
+                // re-checks state at fire time, so it never runs mid-reset.
+                function scrollToEndDeferred() {
+                    if (count > 0 && stickToBottom)
+                        positionViewAtEnd()
+                }
                 onContentYChanged: {
                     if (!moving) return
                     stickToBottom = (contentY + height >= contentHeight - 40)
                 }
                 onCountChanged: {
-                    if (stickToBottom) positionViewAtEnd()
+                    if (stickToBottom) Qt.callLater(scrollToEndDeferred)
                     if (count > 0 && stickToBottom
                             && Qt.application.state === Qt.ApplicationActive)
                         app.timeline.markVisibleAsRead(0, count - 1)
@@ -123,7 +136,7 @@ Rectangle {
                             && Qt.application.state === Qt.ApplicationActive)
                         app.timeline.markVisibleAsRead(0, count - 1)
                 }
-                Component.onCompleted: positionViewAtEnd()
+                Component.onCompleted: Qt.callLater(scrollToEndDeferred)
 
                 // Pagination trigger: scroll to top with backfill available.
                 onAtYBeginningChanged: {

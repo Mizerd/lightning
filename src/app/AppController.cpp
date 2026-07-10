@@ -535,16 +535,24 @@ void AppController::showSettings()
 
 void AppController::openRoom(const QString &roomId)
 {
+    // v0.5.8: skip reopening the room that is already open. Clicking the
+    // active room in the list previously stopped and restarted its SDK
+    // subscription, forcing an avoidable full timeline reset (a source of
+    // spurious DelegateModel churn on rapid clicks). An explicit refresh
+    // still goes through reloadCurrentRoomTimeline().
+    const bool alreadyOpen = (m_currentRoomId == roomId);
     setCurrentRoomId(roomId);
     // v0.5.7: the Rust backend opens a persistent matrix-sdk-ui timeline
     // for the room. Rust cancels the previous room's subscription, sends
     // one snapshot, and then streams incremental diffs — including
     // in-place decryption updates after key import.
 #ifdef ENABLE_RUST_SDK_BACKEND
-    if (m_backend == RustBackend && !roomId.isEmpty()) {
+    if (m_backend == RustBackend && !roomId.isEmpty() && !alreadyOpen) {
         if (auto *rust = qobject_cast<RustSdkMatrixClient *>(m_client.get()))
             rust->openRoomTimeline(roomId);
     }
+#else
+    Q_UNUSED(alreadyOpen);
 #endif
 }
 

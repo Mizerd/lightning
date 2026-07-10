@@ -100,6 +100,7 @@ ApplicationWindow {
             // "Connected" / "Error" is legible at a glance.
             Rectangle {
                 id: statusDot
+                Layout.alignment: Qt.AlignVCenter
                 width: 8; height: 8
                 radius: width / 2
                 color: {
@@ -112,7 +113,6 @@ ApplicationWindow {
                         s === qsTr("Loading rooms…")) return AppTheme.warning
                     return AppTheme.muted
                 }
-                anchors.verticalCenter: parent.verticalCenter
             }
             Label {
                 text: {
