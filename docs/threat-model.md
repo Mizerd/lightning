@@ -1,7 +1,30 @@
-# Threat model (v0.5.0-prep+6 persistent smoke store)
+# Threat model (v0.5.5 Rust session lifecycle)
 
 Scoped to what the current v0.5.0-prep foundation needs a reader to
 know. Full model is v1.0 material.
+
+## Rust sign-out and local reset
+
+- Explicit Rust sign-out captures one canonical account identity before
+  clearing memory. It invalidates the old callback generation, cancels and
+  joins sync, attempts Matrix logout, releases the Rust client, clears only
+  that MXID's saved Lightning session, then removes only the account's
+  `matrix-rust-sdk-store/` and existing smoke-session sidecar/temporary file.
+- An `M_UNKNOWN_TOKEN` returned by logout or an invalidated sync during this
+  intentional shutdown is expected and cannot become a footer error. The same
+  authentication error from the active generation remains a real error.
+- Login-screen reset derives the account in C++ from homeserver plus full MXID
+  or localpart. `AppDataPaths` rejects malformed identities, traversal, empty
+  slugs, broad parent targets, and symlinked account roots. QML never deletes
+  files or constructs a path.
+- Reset is idempotent and preserves `cache.sqlite`, unrelated account-local
+  files, every other Lightning account, Element data, and server messages.
+  A partial SecretStore/filesystem failure is reported and leaves reset
+  available for retry.
+- A subsequent password login may create a new Matrix device. The user may
+  need Secure Backup recovery and/or SAS verification again. A recovery key
+  unlocks backed-up Megolm room keys; it cannot recover messages whose room
+  keys were never backed up or shared.
 
 ## Verification harness (v0.5.0-prep+4)
 
@@ -72,9 +95,9 @@ minimises:
 | Smoke MatrixSession sidecar | Only when `LIGHTNING_TEST_PERSISTENT_STORE=1`: `${XDG_DATA_HOME}/MatrixClient/matrix-client/<safeUserId>/matrix-rust-sdk-smoke-session.json`. Contains an access token, is 0600 on Unix, and is never printed. | Replace with a dedicated secure smoke credential store if this becomes more than a test harness. |
 | Device id, user id, homeserver URL | QSettings (non-secret in themselves) | unchanged |
 | Sync token | QSettings (restart-recoverable state, not a credential) | unchanged |
-| Device keys | Rust SDK store path exists for the Rust backend: `${XDG_DATA_HOME}/MatrixClient/matrix-client/<safeUserId>/matrix-rust-sdk-store/`. E2EE is not enabled/claimed yet, so any SDK crypto material there is treated as SDK-owned state, separate from `cache.sqlite`. `--reset-crypto-store` removes it. | Rust SDK store, considered destroyed by `--reset-crypto-store`; key backup/verification later. |
+| Device keys | Rust SDK-owned state at `${XDG_DATA_HOME}/MatrixClient/matrix-client/<safeUserId>/matrix-rust-sdk-store/`, separate from `cache.sqlite`. Explicit Rust sign-out and the one-account Login reset remove it after releasing the SDK client. The CLI bulk repair can remove stores without touching session metadata. | New devices may require key-backup recovery and/or SAS verification. |
 | Message content in transit | TLS to homeserver via `QNetworkAccessManager` (HTTP backend) or the Matrix Rust SDK transport (Rust backend). | Rust SDK encrypted transports once E2EE is verified |
-| Encrypted message plaintext | HTTP backend does not decrypt. Rust backend only displays text events that the Matrix SDK emits as decrypted events, but Lightning does not claim E2EE support yet. `CacheStore` skips encrypted `TimelineEvent` rows, so decrypted encrypted-room plaintext is not written to `cache.sqlite`. | Held in-process until an explicit encrypted-cache design exists |
+| Encrypted message plaintext | HTTP backend does not decrypt. Rust displays plaintext only after matrix-sdk decrypts it. `CacheStore` skips every encrypted `TimelineEvent`, including successfully decrypted events, so encrypted-room plaintext is not written to `cache.sqlite`. | Held in-process until an explicit encrypted-cache design exists |
 | Local cache | **SQLite** at `${XDG_DATA_HOME}/MatrixClient/matrix-client/<safeUserId>/cache.sqlite`. Contains rooms, last 200 non-encrypted events per room, and members. **No** access tokens and no encrypted-room plaintext. Non-E2E timeline bodies are stored plaintext by design. | Same schema unless an encrypted-cache design is added |
 | Media in transit / at rest | Fetched over HTTPS from `/_matrix/media/v3/download` (unauthenticated legacy endpoint). Rendered images sit in Qt's Image cache (in-memory). No custom media cache on disk yet. | Switch to authenticated `/_matrix/client/v1/media/*`; on-disk media cache with expiry |
 
@@ -97,10 +120,8 @@ bus will fall back to the insecure store. This is expected and warned about.
 
 - Does not authenticate media downloads. Legacy `/_matrix/media/v3/*` is
   used by design in v0.3/v0.4.
-- Does not claim E2EE support. The smoke-only encrypted-send probe is
-  verified one-way in Element Classic, but encrypted receive is not
-  considered supported unless persistent smoke reports
-  `expect_text=seen` for a marker sent from Element Classic.
+- Does not claim cryptographic independence from matrix-sdk. All Rust-backend
+  E2EE, recovery, and verification operations remain SDK-owned.
 - Does not protect the SQLite cache. Anyone with read access to the user's
   home directory can read cached non-E2E message bodies.
 - Does not treat the Rust backend as feature-complete. `--backend=rust`
@@ -116,15 +137,16 @@ bus will fall back to the insecure store. This is expected and warned about.
 - SQLite cache never contains access tokens or raw crypto key material.
 - Rust SDK state is stored separately from the C++ cache at
   `${XDG_DATA_HOME}/MatrixClient/matrix-client/<safeUserId>/matrix-rust-sdk-store/`.
-- `--reset-crypto-store` deletes only Rust SDK store directories and
-  never touches `cache.sqlite`, QSettings session metadata, or
-  SecretStore access tokens.
+- Explicit Rust sign-out and the Login reset delete only one validated
+  account's Rust SDK store/session state. They never touch `cache.sqlite`,
+  other accounts, Element data, or server messages. The legacy CLI reset is
+  broader across Lightning account slugs but still deletes Rust stores only.
 - `CacheStore` refuses to persist encrypted `TimelineEvent` rows, so
   decrypted encrypted-room message bodies remain memory-only for now.
 - Raw access tokens are never logged.
-- `clearSession()` (logout, `/whoami` 401, `/sync` 401) wipes QSettings
-  session keys, deletes the SecretStore entry for that user, and clears
-  the SQLite cache for that user.
+- `clearSessionForAccount()` removes only the matching MXID's QSettings
+  session metadata and SecretStore entry. The HTTP backend retains its
+  existing separate cache-clear behavior; Rust reset preserves cache data.
 - On first run after upgrading from v0.2/v0.3, any legacy
   `session/accessToken` value in QSettings is migrated into the
   SecretStore and the plaintext key is removed. The migration runs

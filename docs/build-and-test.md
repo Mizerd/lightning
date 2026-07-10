@@ -62,6 +62,18 @@ cd rust
 nix develop -c cargo build --release --offline
 ```
 
+Unit tests (no live homeserver or credentials required):
+
+```bash
+nix develop -c ctest --test-dir build --output-on-failure
+nix develop -c ctest --test-dir build-rust --output-on-failure
+```
+
+The suites cover canonical account derivation and traversal rejection,
+account-scoped/idempotent Rust-state removal, preservation of cache/other
+accounts, partial cleanup failure, lifecycle generations, stale callback
+rejection, active-versus-shutdown 401 semantics, and store mismatch policy.
+
 ## Smoke tests
 
 All smoke tests run under offscreen QPA. Exit code 124 (timeout) with
@@ -383,9 +395,14 @@ nix develop -c ./build/matrix-client        # equivalent to --backend=http
    non-thread-aware clients still see a reply chain. Server-side
    aggregation counts (`unsigned["m.relations"]["m.thread"]`) are
    not consumed yet — v0.4.4 counts by scanning the loaded timeline.
-9. **Logout**. Toolbar → Sign out. Settings entry is cleared; the
-   SecretStore entry is deleted (verify by re-launching; you should
-   be back at the login screen).
+9. **Logout**. Rooms footer or Settings → Sign out. With the Rust backend,
+   sync is cancelled/joined, Matrix logout is attempted, the old callback
+   generation is invalidated, the client handle is released, and only this
+   account's saved Lightning session plus Rust SDK store are removed. Verify
+   the Login screen remains clean: no late `M_UNKNOWN_TOKEN`, no repopulated
+   room/timeline state, and a later password login does not reuse the old
+   device store. HTTP behavior remains its existing server-logout + local
+   session/cache clear flow.
 
 ### Reproducible test account
 
@@ -437,8 +454,8 @@ Any credentials work. Mock rooms appear immediately. Verify:
 nix develop -c ./build-rust/matrix-client --backend=rust
 ```
 
-- Settings screen shows that the Rust backend is active, but E2EE is
-  not verified/supported.
+- Settings shows the Rust backend with initial E2EE support enabled through
+  matrix-sdk. Lightning does not implement Matrix cryptography itself.
 - Login against a real homeserver. Expected path:
   `Not connected` → `Connecting…` → `Loading rooms…` → `Connected`.
 - The Rust SDK store is created at
@@ -451,11 +468,9 @@ nix develop -c ./build-rust/matrix-client --backend=rust
   placeholder is converted into plaintext.
 - Sending plain text in an unencrypted room should create a local echo
   and then replace it with the server event id.
-- Sending into an encrypted room must fail with a clear error until
-  both encrypted receive and encrypted send are verified and
-  `CryptoManager::supportsE2ee()` is deliberately enabled. The
-  smoke-only encrypted-send probe is verified one-way; that is not
-  enough to enable the UI path.
+- Sending into an encrypted room is delegated to matrix-sdk. Decrypted bodies
+  may be displayed in memory, but encrypted `TimelineEvent` rows remain
+  excluded from `cache.sqlite`.
 - Replies, edits, redactions, reactions, media, pagination, typing,
   read receipts, and Space child hierarchy are still HTTP-only or
   missing in Rust.
@@ -493,6 +508,16 @@ SecretStore access tokens. Exit code 0 when nothing is found or
 deletion succeeds; exit code 3 if a store directory cannot be
 removed.
 
+This CLI flag is a bulk legacy repair tool: it scans every Lightning account
+slug under the known current and legacy roots and removes Rust store
+directories only. It does **not** know the Login form identity and does not
+clear QSettings/SecretStore metadata. For the normal v0.5.5 mismatch flow,
+prefer the Login-screen **Reset local Lightning session** action. That action
+derives one canonical account from the entered homeserver and MXID/localpart,
+releases a lingering Rust handle, removes that account's SDK store and
+existing smoke-session sidecar, and clears only that account's saved
+Lightning session. It never removes `cache.sqlite` or unrelated account data.
+
 **Crypto-store account/device mismatch.** If the Rust SDK login
 fails with
 
@@ -502,8 +527,10 @@ store doesn't match the account in the constructor: expected
 @user:hs:DEV1, got @user:hs:DEV2
 ```
 
-you have a stale SDK store from a previous login for that MXID.
-Run `--reset-crypto-store` (which now scans both roots) and retry.
+you have a stale SDK store from a previous login for that MXID. On the Login
+screen, enter the homeserver and full MXID/localpart, choose **Reset local
+Lightning session**, and retry. The fields remain populated. Use the bulk
+`--reset-crypto-store` tool only for legacy/headless repair.
 Pre-v0.5.0-prep+5 the reset scanned the wrong root and could leave
 a stale store behind — that specific bug is fixed.
 

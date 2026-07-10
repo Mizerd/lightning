@@ -12,6 +12,28 @@ across the rename. The product name is **Lightning**.
 
 ## Status
 
+**v0.5.5** — Rust sign-out/session-store lifecycle fix. Explicit
+Rust sign-out now captures the current account, invalidates the active
+callback generation, cancels and joins sync, attempts Matrix logout,
+releases the SDK client, clears that account's saved Lightning session,
+and removes only its `matrix-rust-sdk-store/` plus the existing persistent
+smoke-session sidecar (including an interrupted-write `.tmp`). A late
+callback from the old handle cannot repopulate rooms/timelines or turn a
+clean sign-out into an `M_UNKNOWN_TOKEN` error. Active-session 401s remain
+real errors.
+
+Password login is blocked when an existing store cannot be paired safely
+with saved account/device metadata. The Login-screen action **Reset local
+Lightning session** derives the same canonical account slug from its current
+homeserver and full MXID/localpart fields, so it also works while signed out.
+It preserves `cache.sqlite`, other files in the account directory, every
+other Lightning account, Element data, and all server messages. A later
+password login may create a new Matrix device; Secure Backup recovery and/or
+SAS verification may therefore be required again. A recovery key unlocks
+backed-up Megolm room keys only—it cannot decrypt events whose room keys were
+never backed up or shared. Decrypted encrypted-room plaintext remains
+memory-only and is still rejected by `CacheStore`.
+
 **v0.5.2** — Design-token foundation pass. First slice of the UI
 redesign: `qml/AppTheme.qml` now exposes the full light + dark
 palette from the redesign spec (background / sidebar / card /

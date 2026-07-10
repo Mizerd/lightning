@@ -1,6 +1,8 @@
 #pragma once
 
 #include "matrix/MatrixClient.h"
+#include "matrix/SessionLifecycleGuard.h"
+#include "storage/AppDataPaths.h"
 
 #include <QHash>
 #include <QPair>
@@ -49,6 +51,12 @@ public:
     // handle and deletes only the currently selected account's SDK store path.
     // It never touches cache.sqlite, QSettings, or SecretStore entries.
     bool resetRustStore();
+
+    // Signed-out, account-scoped reset used by AppController. Any lingering
+    // handle for this account is stopped and released before deletion. The
+    // result includes SecretStore/QSettings cleanup as well as Rust files.
+    bool resetLocalSession(const matrix::app_data::AccountIdentity &identity,
+                           QString *message = nullptr);
 
     // Smoke-only restore path. Uses the configured persistent session sidecar,
     // not QSettings/SecretStore.
@@ -180,6 +188,10 @@ Q_SIGNALS:
     void verificationCancelled(const QString &flowId, const QString &message);
     void verificationFailed(const QString &flowId, const QString &message);
 
+    // Structured lifecycle state consumed by AppController/QML.
+    void localSessionResetRequired(const QString &reasonCode);
+    void localSessionCleanupFinished(bool ok, const QString &message);
+
 private:
     struct PendingSend {
         QString roomId;
@@ -194,12 +206,16 @@ private:
     void refuseSend(const char *op);
     void setState(ConnectionState state);
     void setInitialSyncDone(bool done);
-    void clearLocalState(bool clearPersisted);
+    void clearLocalState();
     void ensurePollTimer();
     bool ensureRustHandleForUser(const QString &userIdForStore);
+    void releaseRustHandle();
     QString rustStorePathForUser(const QString &userIdForStore) const;
     void pollRustEvents();
-    void handleRustEvent(const QJsonObject &event);
+    void handleRustEvent(const QJsonObject &event, quint64 eventGeneration);
+    void finishSignOut(const QString &serverResult, const QString &serverMessage);
+    bool clearPersistedAccount(const matrix::app_data::AccountIdentity &identity);
+    void requireLocalReset(const QString &reasonCode);
     void handleRoomsEvent(const QJsonArray &rooms);
     void handleTimelineEvent(const QJsonObject &event);
     void handleSendOk(const QJsonObject &event);
@@ -224,6 +240,10 @@ private:
     bool m_loggedIn = false;
     ConnectionState m_state = Disconnected;
     bool m_initialSyncDone = false;
+    SessionLifecycleGuard m_lifecycle;
+    quint64 m_handleGeneration = 0;
+    matrix::app_data::AccountIdentity m_signOutIdentity;
+    QString m_signOutDeviceId;
     QTimer m_pollTimer;
     QHash<QString, RoomInfo> m_rooms;
     QHash<QString, QList<TimelineEvent>> m_timelines;

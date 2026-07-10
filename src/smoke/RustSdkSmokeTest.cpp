@@ -5,6 +5,7 @@
 #include "matrix/MatrixClient.h"
 #include "matrix/RoomInfo.h"
 #include "matrix/RustSdkMatrixClient.h"
+#include "matrix/RustSessionPolicy.h"
 #include "matrix/TimelineEvent.h"
 #include "storage/AppDataPaths.h"
 
@@ -23,7 +24,6 @@
 #include <QTextStream>
 #include <QThread>
 #include <QTimer>
-#include <QUrl>
 
 #include <cstdlib>
 #include <functional>
@@ -72,26 +72,6 @@ const char *stateLabel(MatrixClient::ConnectionState s)
     return "?";
 }
 
-QString sanitizeHomeserver(QString homeserver)
-{
-    homeserver = homeserver.trimmed();
-    while (homeserver.endsWith(QLatin1Char('/')))
-        homeserver.chop(1);
-    return homeserver;
-}
-
-QString userIdForLoginStore(const QString &homeserver, const QString &user)
-{
-    const QString trimmed = user.trimmed();
-    if (trimmed.startsWith(QLatin1Char('@')))
-        return trimmed;
-
-    const QString host = QUrl(homeserver).host();
-    if (!host.isEmpty())
-        return QStringLiteral("@%1:%2").arg(trimmed, host);
-    return trimmed;
-}
-
 QString redactedDeviceId(const QString &deviceId)
 {
     const QString id = deviceId.trimmed();
@@ -100,13 +80,6 @@ QString redactedDeviceId(const QString &deviceId)
     if (id.size() <= 8)
         return id;
     return id.left(4) + QLatin1String("...") + id.right(4);
-}
-
-bool isAccountDeviceMismatch(const QString &reason)
-{
-    return reason.contains(
-        QLatin1String("account in the store doesn't match the account in the constructor"),
-        Qt::CaseInsensitive);
 }
 
 struct StoredSessionMeta {
@@ -251,8 +224,15 @@ int runRustSdkSmokeTest(int argc, char *argv[])
     QCoreApplication::setApplicationName(QStringLiteral("matrix-client-smoke"));
     QCoreApplication::setApplicationVersion(QLatin1String(APP_VERSION));
 
-    const QString canonicalUserId =
-        userIdForLoginStore(sanitizeHomeserver(homeserver), user);
+    matrix::app_data::AccountIdentity requestedIdentity;
+    if (!matrix::app_data::resolveAccountIdentity(
+            homeserver, user, &requestedIdentity)) {
+        QTextStream(stderr) <<
+            "matrix-client --rust-sdk-smoke-test: invalid homeserver or user.\n";
+        return 2;
+    }
+    const QString canonicalHomeserver = requestedIdentity.homeserver;
+    const QString canonicalUserId = requestedIdentity.userId;
 
     std::unique_ptr<QTemporaryDir> tempStore;
     QString storePath;
@@ -274,10 +254,13 @@ int runRustSdkSmokeTest(int argc, char *argv[])
 
         storedSession = readStoredSessionMeta(sessionPath);
         if (storedSession.exists && storedSession.valid) {
+            matrix::app_data::AccountIdentity storedIdentity;
             const bool accountMatches =
-                storedSession.userId == canonicalUserId
-                && sanitizeHomeserver(storedSession.homeserver)
-                   == sanitizeHomeserver(homeserver);
+                matrix::app_data::resolveAccountIdentity(
+                    storedSession.homeserver, storedSession.userId,
+                    &storedIdentity)
+                && storedIdentity.userId == canonicalUserId
+                && storedIdentity.homeserver == canonicalHomeserver;
             storeAccountMatch = accountMatches
                 ? QStringLiteral("yes")
                 : QStringLiteral("no");
@@ -485,7 +468,7 @@ int runRustSdkSmokeTest(int argc, char *argv[])
     auto startPasswordLogin = std::make_shared<std::function<void()>>();
     *startPasswordLogin = [&]() {
         authAttempt = AuthAttempt::Login;
-        client->login(homeserver, user, password);
+        client->login(canonicalHomeserver, canonicalUserId, password);
     };
 
     auto resetStoreAndRetry = std::make_shared<std::function<void(const QString &)>>();
@@ -531,7 +514,8 @@ int runRustSdkSmokeTest(int argc, char *argv[])
 
     QObject::connect(client.get(), &MatrixClient::loginFailed,
                      &app, [&, finalise](const QString &reason) {
-        if (persistentStore && !resetRetried && isAccountDeviceMismatch(reason)) {
+        if (persistentStore && !resetRetried
+            && matrix::rust_session::isStoreOwnershipMismatch(reason)) {
             (*resetStoreAndRetry)(reason);
             return;
         }
@@ -855,13 +839,14 @@ int runRustSdkSmokeTest(int argc, char *argv[])
         warn(sanitiseError(err));
     });
 
-    say(QStringLiteral("start homeserver=%1").arg(homeserver));
+    say(QStringLiteral("start homeserver=%1").arg(canonicalHomeserver));
     QTimer::singleShot(0, &app, [&, startPasswordLogin]() {
         if (persistentStore && restoreAvailable) {
             authAttempt = AuthAttempt::Restore;
             counters.restoreResult = QStringLiteral("attempted");
             say(QStringLiteral("restore=attempted"));
-            if (!client->restoreSessionFromFile(homeserver, canonicalUserId)) {
+            if (!client->restoreSessionFromFile(
+                    canonicalHomeserver, canonicalUserId)) {
                 counters.restoreResult = QStringLiteral("failed");
                 say(QStringLiteral("restore=failed reason=%1")
                         .arg(QStringLiteral("restore_start_failed")));

@@ -74,7 +74,15 @@ public:
                      const QString &deviceId,
                      const QString &accessToken);
     void setSyncToken(const QString &token);
-    void clearSession();
+    // Clear the active session, including stale metadata whose token is
+    // already absent. Returns false only when the account's SecretStore
+    // entries could not be removed; non-secret metadata is still cleared.
+    bool clearSession();
+
+    // Account-scoped variant used by signed-out reset. It always clears
+    // secrets for `userId`, but removes the global active-session metadata
+    // only when that metadata belongs to the same account.
+    bool clearSessionForAccount(const QString &userId);
 
 Q_SIGNALS:
     void homeserverUrlChanged();

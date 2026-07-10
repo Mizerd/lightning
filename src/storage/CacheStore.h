@@ -11,7 +11,7 @@
 
 // A minimal per-user SQLite cache for rooms, timeline events and per-room
 // members. Backed by QSqlDatabase (SQLite driver) under
-// ${XDG_DATA_HOME}/matrix-client/<safeUserId>/cache.sqlite.
+// ${XDG_DATA_HOME}/MatrixClient/matrix-client/<safeUserId>/cache.sqlite.
 //
 // v0.3 scope:
 //   - Store enough state to render the room list + last N timeline events

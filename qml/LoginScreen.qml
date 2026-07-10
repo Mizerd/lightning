@@ -73,7 +73,7 @@ Item {
             }
 
             Label {
-                visible: app.auth.lastError !== ""
+                visible: app.auth.lastError !== "" && !app.localRustResetRequired
                 text: app.auth.lastError
                 color: AppTheme.error
                 font.pixelSize: 12
@@ -104,48 +104,43 @@ Item {
             // backend.
             QtObject {
                 id: mismatchPanel
-                property bool visible: false
                 property string message: ""
+                property bool ok: false
             }
             Connections {
                 target: app
                 function onStoreDeviceMismatchDetected(displayMessage) {
-                    mismatchPanel.visible = true
-                    mismatchPanel.message = displayMessage
+                    mismatchPanel.message = ""
+                    mismatchPanel.ok = false
                 }
                 function onLocalRustStoreResetResult(ok, message) {
-                    if (ok) {
-                        mismatchPanel.visible = false
-                        mismatchPanel.message = ""
-                    } else {
-                        mismatchPanel.message = message
-                    }
+                    mismatchPanel.ok = ok
+                    mismatchPanel.message = message
                 }
             }
             Label {
-                visible: mismatchPanel.visible
+                visible: app.localRustResetRequired
                 Layout.fillWidth: true
                 wrapMode: Text.WordWrap
                 color: AppTheme.error
                 text: qsTr(
-                    "This device's local Lightning Rust SDK store belongs to "
-                    + "a different Matrix session. Reset the local Lightning "
-                    + "session for this account and sign in again to create a "
-                    + "fresh device. This does not delete server messages or "
-                    + "Element data.")
+                    "This local Lightning Rust SDK store belongs to a different "
+                    + "Matrix session or device. Reset the local Lightning session "
+                    + "for this account, then sign in again. This does not delete "
+                    + "server messages or Element data.")
             }
             Button {
-                visible: mismatchPanel.visible
+                visible: app.localRustResetRequired
                 Layout.fillWidth: true
                 text: qsTr("Reset local Lightning session")
-                onClicked: app.resetLocalRustStore()
+                onClicked: app.resetLocalRustSession(
+                    homeserverField.text, userField.text)
             }
             Label {
-                visible: mismatchPanel.visible
-                                   && mismatchPanel.message !== ""
+                visible: mismatchPanel.message !== ""
                 Layout.fillWidth: true
                 wrapMode: Text.WordWrap
-                color: AppTheme.textMuted
+                color: mismatchPanel.ok ? AppTheme.success : AppTheme.error
                 font.pixelSize: 11
                 text: mismatchPanel.message
             }

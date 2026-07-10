@@ -1,13 +1,14 @@
 cmake_minimum_required(VERSION 3.21)
 project(matrix-client
-    VERSION 0.5.0
+    VERSION 0.5.5
     DESCRIPTION "Lightning — native C++/Qt Matrix desktop client"
     LANGUAGES CXX
 )
 
-# Human-facing label. Keep the prep suffix until Matrix Rust SDK encrypted
-# rooms round-trip in both directions and the E2EE gate can be enabled.
-set(APP_VERSION_LABEL "0.5.4")
+include(CTest)
+
+# Human-facing release label. Keep in sync with project() and rust/Cargo.toml.
+set(APP_VERSION_LABEL "0.5.5")
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -76,6 +77,9 @@ set(APP_SOURCES
     src/matrix/CppHttpMatrixClient.cpp
     src/matrix/MediaHelpers.h
     src/matrix/MediaHelpers.cpp
+    src/matrix/RustSessionPolicy.h
+    src/matrix/RustSessionPolicy.cpp
+    src/matrix/SessionLifecycleGuard.h
     src/matrix/RoomInfo.h
     src/matrix/TimelineEvent.h
 
@@ -255,6 +259,38 @@ if(MSVC)
 else()
     target_compile_options(matrix-client PRIVATE
         -Wall -Wextra -Wpedantic -Wno-unused-parameter)
+endif()
+
+if(BUILD_TESTING)
+    find_package(Qt6 6.5 REQUIRED COMPONENTS Test)
+
+    qt_add_executable(app-data-paths-test
+        tests/AppDataPathsTest.cpp
+        src/storage/AppDataPaths.cpp
+    )
+    target_include_directories(app-data-paths-test PRIVATE src)
+    target_link_libraries(app-data-paths-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME app-data-paths COMMAND app-data-paths-test)
+
+    qt_add_executable(rust-session-lifecycle-test
+        tests/RustSessionLifecycleTest.cpp
+        src/storage/AppDataPaths.cpp
+        src/matrix/RustSessionPolicy.cpp
+    )
+    target_include_directories(rust-session-lifecycle-test PRIVATE src)
+    target_link_libraries(rust-session-lifecycle-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME rust-session-lifecycle COMMAND rust-session-lifecycle-test)
+
+    qt_add_executable(settings-session-test
+        tests/SettingsSessionTest.cpp
+        src/app/SettingsManager.h
+        src/app/SettingsManager.cpp
+        src/storage/SecretStore.h
+        src/storage/AppDataPaths.cpp
+    )
+    target_include_directories(settings-session-test PRIVATE src)
+    target_link_libraries(settings-session-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME settings-session COMMAND settings-session-test)
 endif()
 
 install(TARGETS matrix-client

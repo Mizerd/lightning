@@ -1,3 +1,64 @@
+# Current state (v0.5.5 — Rust sign-out session reset)
+
+## v0.5.5 — coordinated Rust sign-out and account-scoped reset
+
+The Rust backend previously stopped sync by setting a flag and launched
+logout on a detached thread. It did not join sync, destroy the Rust client,
+or delete the SDK store. All old tasks shared one event queue, so a sync
+request could report `M_UNKNOWN_TOKEN` after logout and change the footer to
+Error. `logged_out` later cleared QSettings/SecretStore metadata, but the old
+device's SDK crypto store remained. A password login then created a new
+device and tried to attach it to that retained store, which matrix-sdk
+correctly rejected as an account/device ownership mismatch. The Login reset
+also depended on already-saved `SettingsManager::userId()`, which logout had
+just cleared.
+
+The corrected order is:
+
+1. Capture normalized homeserver, full MXID, device id, canonical slug,
+   account root, Rust store, and existing smoke-session paths.
+2. Mark intentional sign-out and advance the lifecycle generation.
+3. Cancel the Rust sync future and join its owned thread.
+4. Reject every event from the invalidated handle except its `logged_out`
+   completion.
+5. Attempt Matrix SDK logout. `M_UNKNOWN_TOKEN` here means the session is
+   already logged out; other server failures are logged safely and do not
+   prevent local cleanup.
+6. Release the Rust client handle, clear in-memory account/room/timeline/send
+   state, clear only that MXID's SettingsManager/SecretStore session, and
+   remove only `<account>/matrix-rust-sdk-store/`,
+   `<account>/matrix-rust-sdk-smoke-session.json`, and its `.tmp` form.
+7. Return to Login with a clean footer. Partial local cleanup exposes the
+   reset action and a safe failure message.
+
+`matrix::app_data::resolveAccountIdentity()` is now the canonical derivation
+for full MXIDs and localparts plus homeserver. It normalizes whitespace,
+scheme/host casing, and trailing slashes; rejects malformed/traversal input;
+and validates every deletion target beneath one direct account child of the
+application-data root. `CacheStore` also uses `AppDataPaths::accountRoot()`;
+QML never builds a slug or filesystem path.
+
+Password login refuses to open any existing account store because password
+login can create a new Matrix device; an existing store must instead be
+opened by a complete saved session/device restore. Missing metadata, missing
+device id, another account's metadata, missing store during restore, and the
+SDK's narrow ownership-mismatch error all produce the same reset-required
+state. Unrelated password/network failures remain ordinary login failures.
+
+The Login-screen reset passes its current homeserver and user fields into
+C++, works while signed out, is idempotent, and leaves both fields populated.
+It preserves `cache.sqlite`, unrelated account-local files, other Lightning
+accounts, Element data, and server messages. A fresh password login may create
+a new Matrix device, so Secure Backup recovery and/or SAS verification may be
+needed again. Recovery can restore only backed-up Megolm room keys. Stale
+callbacks are ignored, and decrypted encrypted-room plaintext remains
+memory-only because `CacheStore` still refuses encrypted events.
+
+Automated coverage is in `tests/AppDataPathsTest.cpp`,
+`tests/RustSessionLifecycleTest.cpp`, and `tests/SettingsSessionTest.cpp`.
+
+---
+
 # Current state (v0.5.4 — 3-column navigation + room grouping)
 
 ## v0.5.4 — 3-column navigation layout and room grouping

@@ -22,6 +22,8 @@ AuthManager::AuthManager(MatrixClient *client, QObject *parent)
     });
 
     connect(m_client, &MatrixClient::loggedOut, this, [this] {
+        setLoggingIn(false);
+        setLastError({});
         Q_EMIT isLoggedInChanged();
         Q_EMIT loggedOut();
     });
@@ -58,6 +60,11 @@ void AuthManager::restoreSession()
     if (m_client->restoreSession()) {
         Q_EMIT isLoggedInChanged();
     }
+}
+
+void AuthManager::clearLastError()
+{
+    setLastError({});
 }
 
 void AuthManager::beginSsoLogin(const QString &homeserver)

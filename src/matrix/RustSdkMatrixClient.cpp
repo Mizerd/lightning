@@ -2,6 +2,7 @@
 
 #include "app/SettingsManager.h"
 #include "matrix/MediaHelpers.h"
+#include "matrix/RustSessionPolicy.h"
 #include "matrix_rust.h"
 #include "storage/AppDataPaths.h"
 
@@ -32,24 +33,10 @@ QString takeRustString(char *raw)
     return out;
 }
 
-QString sanitizeHomeserver(QString homeserver)
+bool pathExistsOrIsLink(const QString &path)
 {
-    homeserver = homeserver.trimmed();
-    while (homeserver.endsWith(QLatin1Char('/')))
-        homeserver.chop(1);
-    return homeserver;
-}
-
-QString userIdForLoginStore(const QString &homeserver, const QString &user)
-{
-    const QString trimmed = user.trimmed();
-    if (trimmed.startsWith(QLatin1Char('@')))
-        return trimmed;
-
-    const QString host = QUrl(homeserver).host();
-    if (!host.isEmpty())
-        return QStringLiteral("@%1:%2").arg(trimmed, host);
-    return trimmed;
+    const QFileInfo info(path);
+    return info.exists() || info.isSymLink();
 }
 
 QDateTime timestampFromMs(qint64 ms)
@@ -95,11 +82,8 @@ RustSdkMatrixClient::RustSdkMatrixClient(SettingsManager *settings, QObject *par
 RustSdkMatrixClient::~RustSdkMatrixClient()
 {
     m_pollTimer.stop();
-    if (m_rustHandle) {
-        mx_rust_stop_sync(m_rustHandle);
-        mx_rust_destroy(m_rustHandle);
-        m_rustHandle = nullptr;
-    }
+    m_lifecycle.invalidate();
+    releaseRustHandle();
 }
 
 QString RustSdkMatrixClient::rustBackendName() const
@@ -173,7 +157,7 @@ void RustSdkMatrixClient::setInitialSyncDone(bool done)
     Q_EMIT initialSyncDoneChanged();
 }
 
-void RustSdkMatrixClient::clearLocalState(bool clearPersisted)
+void RustSdkMatrixClient::clearLocalState()
 {
     m_loggedIn = false;
     m_homeserver.clear();
@@ -182,9 +166,8 @@ void RustSdkMatrixClient::clearLocalState(bool clearPersisted)
     m_rooms.clear();
     m_timelines.clear();
     m_pendingSends.clear();
+    m_pendingProbes.clear();
     setInitialSyncDone(false);
-    if (clearPersisted && m_settings)
-        m_settings->clearSession();
     Q_EMIT roomsChanged();
     setState(Disconnected);
 }
@@ -208,16 +191,16 @@ QString RustSdkMatrixClient::rustStorePathForUser(const QString &userIdForStore)
 bool RustSdkMatrixClient::ensureRustHandleForUser(const QString &userIdForStore)
 {
     const QString storePath = rustStorePathForUser(userIdForStore);
-    if (m_rustHandle && m_storePath == storePath) {
-        ensurePollTimer();
-        return true;
+    if (storePath.isEmpty())
+        return false;
+    if (m_storePathOverride.isEmpty() && QFileInfo(storePath).isSymLink()) {
+        qCWarning(lcRust) << "refusing symlinked Rust SDK store";
+        return false;
     }
 
-    if (m_rustHandle) {
-        mx_rust_stop_sync(m_rustHandle);
-        mx_rust_destroy(m_rustHandle);
-        m_rustHandle = nullptr;
-    }
+    // A handle/event queue is never reused across login generations. This is
+    // the ownership boundary that makes stale async callbacks unobservable.
+    releaseRustHandle();
 
     if (!QDir().mkpath(storePath)) {
         Q_EMIT errorOccurred(tr("Failed to create Rust SDK store directory: %1").arg(storePath));
@@ -247,6 +230,7 @@ bool RustSdkMatrixClient::ensureRustHandleForUser(const QString &userIdForStore)
     }
 
     m_storePath = storePath;
+    m_handleGeneration = m_lifecycle.beginSession();
 
     if (!m_sessionFilePath.isEmpty()) {
         const QByteArray sessionPath = m_sessionFilePath.toUtf8();
@@ -255,6 +239,7 @@ bool RustSdkMatrixClient::ensureRustHandleForUser(const QString &userIdForStore)
         if (!result.isEmpty()) {
             mx_rust_destroy(m_rustHandle);
             m_rustHandle = nullptr;
+            m_handleGeneration = 0;
             Q_EMIT errorOccurred(result.startsWith(QLatin1String("error: "))
                                  ? result.mid(7)
                                  : result);
@@ -266,25 +251,61 @@ bool RustSdkMatrixClient::ensureRustHandleForUser(const QString &userIdForStore)
     return true;
 }
 
+void RustSdkMatrixClient::releaseRustHandle()
+{
+    m_pollTimer.stop();
+    if (!m_rustHandle)
+        return;
+    const bool stopped = mx_rust_stop_sync(m_rustHandle) != 0;
+    qCInfo(lcRust) << "rust sync stop result="
+                   << (stopped ? "ok" : "already_stopped");
+    mx_rust_destroy(m_rustHandle);
+    m_rustHandle = nullptr;
+    m_handleGeneration = 0;
+    m_storePath.clear();
+    qCInfo(lcRust) << "rust client released";
+}
+
 void RustSdkMatrixClient::login(const QString &homeserver,
                                 const QString &user,
                                 const QString &password)
 {
-    const QString hs = sanitizeHomeserver(homeserver);
-    const QString loginUser = user.trimmed();
-    if (hs.isEmpty() || loginUser.isEmpty() || password.isEmpty()) {
+    matrix::app_data::AccountIdentity identity;
+    if (!matrix::app_data::resolveAccountIdentity(homeserver, user, &identity)
+        || password.isEmpty()) {
         Q_EMIT loginFailed(tr("Homeserver, user, and password are required."));
         return;
     }
 
-    if (!ensureRustHandleForUser(userIdForLoginStore(hs, loginUser))) {
+    const bool storeExists = pathExistsOrIsLink(identity.rustStorePath);
+    const auto block = matrix::rust_session::passwordLoginBlockReason(
+        identity,
+        storeExists,
+        m_settings && m_settings->hasSession(),
+        m_settings ? m_settings->homeserverUrl() : QString{},
+        m_settings ? m_settings->userId() : QString{},
+        m_settings ? m_settings->deviceId() : QString{});
+    if (block != matrix::rust_session::StoreBlockReason::None) {
+        qCWarning(lcRust) << "login blocked reason=local_store_session_mismatch"
+                          << "detail=" << matrix::rust_session::diagnosticName(block)
+                          << "slug=" << identity.slug;
+        requireLocalReset(matrix::rust_session::diagnosticName(block));
+        setState(Error);
+        Q_EMIT loginFailed(tr(
+            "This local Lightning Rust SDK store belongs to a different "
+            "Matrix session or device. Reset the local Lightning session "
+            "for this account, then sign in again. This does not delete "
+            "server messages or Element data."));
+        return;
+    }
+
+    if (!ensureRustHandleForUser(identity.userId)) {
         setState(Error);
         Q_EMIT loginFailed(tr("Rust SDK backend could not be initialized."));
         return;
     }
 
-    stopSync();
-    m_homeserver = hs;
+    m_homeserver = identity.homeserver;
     m_userId.clear();
     m_deviceId.clear();
     m_loggedIn = false;
@@ -295,8 +316,8 @@ void RustSdkMatrixClient::login(const QString &homeserver,
     Q_EMIT roomsChanged();
     setState(Connecting);
 
-    const QByteArray hsBytes = hs.toUtf8();
-    const QByteArray userBytes = loginUser.toUtf8();
+    const QByteArray hsBytes = identity.homeserver.toUtf8();
+    const QByteArray userBytes = identity.userId.toUtf8();
     const QByteArray passwordBytes = password.toUtf8();
     const QString result = takeRustString(mx_rust_login(m_rustHandle,
                                                         hsBytes.constData(),
@@ -315,12 +336,40 @@ bool RustSdkMatrixClient::restoreSession()
     if (!m_settings || !m_settings->hasSession())
         return false;
 
-    const QString hs = sanitizeHomeserver(m_settings->homeserverUrl());
+    matrix::app_data::AccountIdentity identity;
+    if (!matrix::app_data::resolveAccountIdentity(
+            m_settings->homeserverUrl(), m_settings->userId(), &identity)) {
+        requireLocalReset(QStringLiteral("invalid_saved_account_identity"));
+        Q_EMIT loginFailed(tr(
+            "This local Lightning Rust SDK store belongs to a different "
+            "Matrix session or device. Reset the local Lightning session "
+            "for this account, then sign in again. This does not delete "
+            "server messages or Element data."));
+        return false;
+    }
+
+    const QString hs = identity.homeserver;
     const QString userId = m_settings->userId();
     const QString deviceId = m_settings->deviceId();
     const QString accessToken = m_settings->accessToken();
     if (hs.isEmpty() || userId.isEmpty() || accessToken.isEmpty())
         return false;
+
+    const auto block = matrix::rust_session::restoreBlockReason(
+        identity, pathExistsOrIsLink(identity.rustStorePath), deviceId);
+    if (block != matrix::rust_session::StoreBlockReason::None) {
+        qCWarning(lcRust) << "restore blocked reason=local_store_session_mismatch"
+                          << "detail=" << matrix::rust_session::diagnosticName(block)
+                          << "slug=" << identity.slug;
+        requireLocalReset(matrix::rust_session::diagnosticName(block));
+        setState(Error);
+        Q_EMIT loginFailed(tr(
+            "This local Lightning Rust SDK store belongs to a different "
+            "Matrix session or device. Reset the local Lightning session "
+            "for this account, then sign in again. This does not delete "
+            "server messages or Element data."));
+        return false;
+    }
 
     if (!ensureRustHandleForUser(userId)) {
         setState(Error);
@@ -361,10 +410,13 @@ bool RustSdkMatrixClient::restoreSession()
 bool RustSdkMatrixClient::restoreSessionFromFile(const QString &homeserver,
                                                  const QString &userIdForStore)
 {
-    const QString hs = sanitizeHomeserver(homeserver);
-    const QString expectedUser = userIdForStore.trimmed();
-    if (hs.isEmpty() || expectedUser.isEmpty() || m_sessionFilePath.isEmpty())
+    matrix::app_data::AccountIdentity identity;
+    if (!matrix::app_data::resolveAccountIdentity(
+            homeserver, userIdForStore, &identity)
+        || m_sessionFilePath.isEmpty())
         return false;
+    const QString hs = identity.homeserver;
+    const QString expectedUser = identity.userId;
 
     if (!ensureRustHandleForUser(expectedUser)) {
         setState(Error);
@@ -372,7 +424,6 @@ bool RustSdkMatrixClient::restoreSessionFromFile(const QString &homeserver,
         return false;
     }
 
-    stopSync();
     m_homeserver = hs;
     m_userId = expectedUser;
     m_deviceId.clear();
@@ -402,13 +453,10 @@ bool RustSdkMatrixClient::restoreSessionFromFile(const QString &homeserver,
 bool RustSdkMatrixClient::resetRustStore()
 {
     const QString storePath = m_storePath;
-    if (m_rustHandle) {
-        mx_rust_stop_sync(m_rustHandle);
-        mx_rust_destroy(m_rustHandle);
-        m_rustHandle = nullptr;
-    }
+    m_lifecycle.invalidate();
+    releaseRustHandle();
     m_storePath.clear();
-    clearLocalState(false);
+    clearLocalState();
 
     if (storePath.isEmpty() || !QFileInfo::exists(storePath))
         return true;
@@ -417,12 +465,92 @@ bool RustSdkMatrixClient::resetRustStore()
     return storeDir.removeRecursively();
 }
 
+bool RustSdkMatrixClient::clearPersistedAccount(
+    const matrix::app_data::AccountIdentity &identity)
+{
+    return !m_settings || m_settings->clearSessionForAccount(identity.userId);
+}
+
+bool RustSdkMatrixClient::resetLocalSession(
+    const matrix::app_data::AccountIdentity &identity,
+    QString *message)
+{
+    if (message)
+        message->clear();
+    if (!identity.isValid()) {
+        if (message) {
+            *message = tr("Enter a valid homeserver and Matrix user ID before "
+                          "resetting the local Lightning session.");
+        }
+        return false;
+    }
+    if (m_loggedIn || m_lifecycle.signingOut()) {
+        if (message) {
+            *message = tr("Lightning could not completely reset the local "
+                          "session for this account. Check the application "
+                          "logs and filesystem permissions, then try again.");
+        }
+        return false;
+    }
+    if (m_rustHandle && !m_storePath.isEmpty()
+        && QFileInfo(m_storePath).absoluteFilePath()
+            != QFileInfo(identity.rustStorePath).absoluteFilePath()) {
+        if (message) {
+            *message = tr("Lightning could not completely reset the local "
+                          "session for this account. Check the application "
+                          "logs and filesystem permissions, then try again.");
+        }
+        return false;
+    }
+
+    m_lifecycle.invalidate();
+    releaseRustHandle();
+    m_storePath.clear();
+    clearLocalState();
+    const bool sessionOk = clearPersistedAccount(identity);
+    const auto files = matrix::app_data::removeAccountRustState(identity);
+    const bool ok = sessionOk && files.ok();
+    qCInfo(lcRust) << "local Rust reset"
+                   << "slug=" << identity.slug
+                   << "deleted=" << files.deleted
+                   << "missing=" << files.missing
+                   << "failed=" << files.failed
+                   << "session=" << (sessionOk ? "ok" : "failed");
+
+    if (ok) {
+        if (message)
+            *message = tr("Local Lightning session reset. You can sign in again.");
+    } else {
+        requireLocalReset(QStringLiteral("cleanup_incomplete"));
+        if (message) {
+            *message = tr("Lightning could not completely reset the local "
+                          "session for this account. Check the application "
+                          "logs and filesystem permissions, then try again.");
+        }
+    }
+    return ok;
+}
+
 void RustSdkMatrixClient::logout()
 {
-    if (m_rustHandle)
+    if (m_lifecycle.signingOut())
+        return;
+
+    matrix::app_data::resolveAccountIdentity(
+        m_homeserver, m_userId, &m_signOutIdentity);
+    m_signOutDeviceId = m_deviceId;
+    qCInfo(lcRust) << "rust sign-out started"
+                   << "slug=" << m_signOutIdentity.slug
+                   << "device_known=" << !m_signOutDeviceId.isEmpty();
+    m_lifecycle.beginSignOut(m_handleGeneration);
+    stopSync();
+
+    if (m_rustHandle) {
         mx_rust_logout(m_rustHandle);
-    else
-        clearLocalState(true);
+        ensurePollTimer();
+    } else {
+        finishSignOut(QStringLiteral("no_active_session"), QString{});
+    }
 }
 
 void RustSdkMatrixClient::startSync()
@@ -436,8 +564,11 @@ void RustSdkMatrixClient::startSync()
 
 void RustSdkMatrixClient::stopSync()
 {
-    if (m_rustHandle)
-        mx_rust_stop_sync(m_rustHandle);
+    if (m_rustHandle) {
+        const bool stopped = mx_rust_stop_sync(m_rustHandle) != 0;
+        qCInfo(lcRust) << "rust sync stop result="
+                       << (stopped ? "ok" : "already_stopped");
+    }
     if (m_state == Syncing)
         setState(Disconnected);
 }
@@ -621,6 +752,7 @@ void RustSdkMatrixClient::pollRustEvents()
     if (!m_rustHandle)
         return;
 
+    const quint64 eventGeneration = m_handleGeneration;
     for (int i = 0; i < 64; ++i) {
         const QString raw = takeRustString(mx_rust_poll_event(m_rustHandle));
         if (raw.isEmpty())
@@ -631,12 +763,93 @@ void RustSdkMatrixClient::pollRustEvents()
             qCWarning(lcRust) << "discarding malformed Rust SDK event";
             continue;
         }
-        handleRustEvent(doc.object());
+        const QJsonObject event = doc.object();
+        const QString type = event.value(QStringLiteral("type")).toString();
+        if (m_lifecycle.acceptsActive(eventGeneration)) {
+            handleRustEvent(event, eventGeneration);
+            continue;
+        }
+        if (type == QLatin1String("logged_out")
+            && m_lifecycle.acceptsShutdownCompletion(eventGeneration)) {
+            handleRustEvent(event, eventGeneration);
+            return; // finishSignOut releases the handle being polled.
+        }
+
+        qCInfo(lcRust) << "ignored stale callback"
+                       << "type=" << type
+                       << "generation=" << eventGeneration
+                       << "active_generation=" << m_lifecycle.activeGeneration();
     }
 }
 
-void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event)
+void RustSdkMatrixClient::requireLocalReset(const QString &reasonCode)
 {
+    qCWarning(lcRust) << "local session reset required reason=" << reasonCode;
+    Q_EMIT localSessionResetRequired(reasonCode);
+}
+
+void RustSdkMatrixClient::finishSignOut(const QString &serverResult,
+                                        const QString &serverMessage)
+{
+    const auto identity = m_signOutIdentity;
+    if (serverResult == QLatin1String("already_invalid")) {
+        qCInfo(lcRust) << "rust server logout result=already_logged_out";
+    } else if (serverResult == QLatin1String("failed")) {
+        // Safe diagnostic only. Local cleanup remains authoritative and the
+        // user is intentionally signing out, so this is not a fatal UI error.
+        qCWarning(lcRust) << "rust server logout result=failed"
+                          << "message=" << serverMessage;
+    } else {
+        qCInfo(lcRust) << "rust server logout result=" << serverResult;
+    }
+
+    releaseRustHandle();
+    clearLocalState();
+    const bool sessionOk = identity.isValid() && clearPersistedAccount(identity);
+    const auto files = identity.isValid()
+        ? matrix::app_data::removeAccountRustState(identity)
+        : matrix::app_data::RemovalSummary{0, 0, 1};
+    const bool ok = sessionOk && files.ok();
+
+    qCInfo(lcRust) << "rust local sign-out cleanup"
+                   << "slug=" << identity.slug
+                   << "session=" << (sessionOk ? "ok" : "failed")
+                   << "store_and_sidecars=" << (files.ok() ? "ok" : "failed")
+                   << "deleted=" << files.deleted
+                   << "missing=" << files.missing
+                   << "failed=" << files.failed;
+
+    m_storePath.clear();
+    m_signOutIdentity = {};
+    m_signOutDeviceId.clear();
+    m_lifecycle.finishSignOut();
+
+    Q_EMIT loggedOut();
+    if (ok) {
+        Q_EMIT localSessionCleanupFinished(
+            true, tr("Local Lightning session reset. You can sign in again."));
+    } else {
+        requireLocalReset(QStringLiteral("cleanup_incomplete"));
+        const QString failure = tr(
+            "Lightning could not completely reset the local session for this "
+            "account. Check the application logs and filesystem permissions, "
+            "then try again.");
+        Q_EMIT localSessionCleanupFinished(false, failure);
+        Q_EMIT errorOccurred(failure);
+    }
+}
+
+void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
+                                          quint64 eventGeneration)
+{
+    if (!m_lifecycle.acceptsActive(eventGeneration)
+        && !m_lifecycle.acceptsShutdownCompletion(eventGeneration)) {
+        qCInfo(lcRust) << "ignored stale callback"
+                       << "generation=" << eventGeneration
+                       << "active_generation=" << m_lifecycle.activeGeneration();
+        return;
+    }
+
     const QString type = event.value(QStringLiteral("type")).toString();
     if (type == QLatin1String("status")) {
         const QString state = event.value(QStringLiteral("state")).toString();
@@ -656,7 +869,13 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event)
         // `event` or the extracted `accessToken` to a log stream. The token
         // must flow only into SecretStore-backed SettingsManager::saveSession
         // and then be forgotten locally. No qCDebug / qCInfo of `event` here.
-        m_homeserver = sanitizeHomeserver(event.value(QStringLiteral("homeserver")).toString(m_homeserver));
+        matrix::app_data::AccountIdentity identity;
+        if (matrix::app_data::resolveAccountIdentity(
+                event.value(QStringLiteral("homeserver")).toString(m_homeserver),
+                event.value(QStringLiteral("user_id")).toString(m_userId),
+                &identity)) {
+            m_homeserver = identity.homeserver;
+        }
         m_userId = event.value(QStringLiteral("user_id")).toString(m_userId);
         m_deviceId = event.value(QStringLiteral("device_id")).toString(m_deviceId);
         m_loggedIn = !m_userId.isEmpty();
@@ -676,14 +895,25 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event)
     if (type == QLatin1String("login_failed")) {
         m_loggedIn = false;
         setState(Error);
-        Q_EMIT loginFailed(event.value(QStringLiteral("message")).toString(
-            tr("Rust SDK login failed.")));
+        const QString message = event.value(QStringLiteral("message")).toString(
+            tr("Rust SDK login failed."));
+        if (matrix::rust_session::isStoreOwnershipMismatch(message)) {
+            requireLocalReset(QStringLiteral("sdk_store_ownership_mismatch"));
+            Q_EMIT loginFailed(tr(
+                "This local Lightning Rust SDK store belongs to a different "
+                "Matrix session or device. Reset the local Lightning session "
+                "for this account, then sign in again. This does not delete "
+                "server messages or Element data."));
+        } else {
+            Q_EMIT loginFailed(message);
+        }
         return;
     }
 
     if (type == QLatin1String("logged_out")) {
-        clearLocalState(true);
-        Q_EMIT loggedOut();
+        finishSignOut(event.value(QStringLiteral("result")).toString(
+                          QStringLiteral("ok")),
+                      event.value(QStringLiteral("message")).toString());
         return;
     }
 
@@ -795,6 +1025,9 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event)
         return;
 
     if (type == QLatin1String("sync_error")) {
+        // This branch is reachable only for the active generation. Shutdown
+        // callbacks were rejected in pollRustEvents, so M_UNKNOWN_TOKEN keeps
+        // its real error semantics for a live signed-in session.
         setState(Error);
         Q_EMIT errorOccurred(event.value(QStringLiteral("message")).toString(
             tr("Rust SDK sync failed.")));

@@ -31,6 +31,8 @@ class AppController : public QObject
     Q_PROPERTY(QString backendName READ backendName CONSTANT)
     Q_PROPERTY(QString connectionStatus READ connectionStatus NOTIFY connectionStatusChanged)
     Q_PROPERTY(bool initialSyncDone READ initialSyncDone NOTIFY initialSyncDoneChanged)
+    Q_PROPERTY(bool localRustResetRequired READ localRustResetRequired
+               NOTIFY localRustResetRequiredChanged)
 
     // v0.5.0-prep+10: redacted Rust SDK device id (e.g. "GAOT...GBSK")
     // so Settings can show which Lightning session is running without
@@ -90,6 +92,7 @@ public:
     QString connectionStatus() const { return m_connectionStatus; }
     bool initialSyncDone() const;
     QString rustDeviceIdRedacted() const;
+    bool localRustResetRequired() const { return m_localRustResetRequired; }
 
     SettingsManager *settings() const;
     AuthManager *auth() const;
@@ -126,6 +129,11 @@ public Q_SLOTS:
     // backends.
     Q_INVOKABLE void resetLocalRustStore();
 
+    // Login-screen reset. Account identity is derived canonically in C++ from
+    // the current form values; QML never computes paths or deletes files.
+    Q_INVOKABLE void resetLocalRustSession(const QString &homeserver,
+                                           const QString &user);
+
     // v0.5.0-prep+11. Manually reload the current room's recent
     // timeline via matrix-sdk's Room::messages. Safe to call at any
     // time — the wrapper dedupes by event_id. No-op on non-Rust.
@@ -154,6 +162,7 @@ Q_SIGNALS:
     void connectionStatusChanged();
     void errorReported(const QString &message);
     void rustDeviceIdChanged();
+    void localRustResetRequiredChanged();
     // v0.5.0-prep+10. Fires once per requestRecoverFromBackup call.
     // `state`: "attempted" / "ok" / "failed". `message`: non-secret
     // detail for failures, empty on success. Never contains the
@@ -182,6 +191,7 @@ private:
     void setConnectionStatus(const QString &s);
     void onLoginSucceeded();
     void onLoggedOut();
+    void setLocalRustResetRequired(bool required);
 
     static std::unique_ptr<MatrixClient> makeClient(Backend backend,
                                                     SettingsManager *settings,
@@ -191,6 +201,8 @@ private:
     Screen m_currentScreen = LoginScreen;
     QString m_currentRoomId;
     QString m_connectionStatus;
+    bool m_localRustResetRequired = false;
+    bool m_resetResultPending = false;
 
     // Order matters: SecretStore is constructed first so SettingsManager can
     // be wired to it before any code touches accessToken() / hasSession().

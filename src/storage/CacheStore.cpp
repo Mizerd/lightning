@@ -1,5 +1,7 @@
 #include "storage/CacheStore.h"
 
+#include "storage/AppDataPaths.h"
+
 #include <QCoreApplication>
 #include <QDir>
 #include <QJsonArray>
@@ -8,23 +10,11 @@
 #include <QLoggingCategory>
 #include <QSqlError>
 #include <QSqlQuery>
-#include <QStandardPaths>
 #include <QUuid>
 
 Q_LOGGING_CATEGORY(lcCache, "matrix.cache")
 
 namespace {
-
-QString safeSlug(const QString &userId)
-{
-    // "@alice:example.com" → "alice_example.com"
-    QString s = userId;
-    if (s.startsWith(QLatin1Char('@')))
-        s.remove(0, 1);
-    s.replace(QLatin1Char(':'), QLatin1Char('_'));
-    s.replace(QLatin1Char('/'), QLatin1Char('_'));
-    return s;
-}
 
 QByteArray encodeReactions(const QList<Reaction> &reactions)
 {
@@ -78,10 +68,11 @@ bool CacheStore::openFor(const QString &userId)
 {
     close();
 
-    const QString root = QStandardPaths::writableLocation(
-                             QStandardPaths::AppLocalDataLocation)
-                         + QLatin1Char('/')
-                         + safeSlug(userId);
+    const QString root = matrix::app_data::accountRoot(userId);
+    if (root.isEmpty()) {
+        qCWarning(lcCache) << "refusing invalid account cache path";
+        return false;
+    }
     if (!QDir().mkpath(root)) {
         qCWarning(lcCache) << "cannot create cache dir" << root;
         return false;

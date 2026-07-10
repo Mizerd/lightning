@@ -46,7 +46,8 @@ char *mx_rust_restore(void *client,
 void  mx_rust_logout(void *client);
 
 void  mx_rust_start_sync(void *client);
-void  mx_rust_stop_sync(void *client);
+/* Cancels and joins the owned sync task. 1 = stopped, 0 = already stopped. */
+int   mx_rust_stop_sync(void *client);
 char *mx_rust_poll_event(void *client);
 
 char *mx_rust_send_text(void *client,

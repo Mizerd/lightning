@@ -22,10 +22,6 @@
 #include "matrix/MatrixClient.h"
 #include "storage/AppDataPaths.h"
 
-#include <QDir>
-#include <QFile>
-#include <QFileInfo>
-
 #include <QLoggingCategory>
 
 Q_LOGGING_CATEGORY(lcApp, "matrix.app")
@@ -233,15 +229,21 @@ AppController::AppController(Backend backend, QObject *parent)
             Q_EMIT verificationStateChanged();
         });
 
-        // v0.5.0-prep+11: detect the SDK "account in the store doesn't
-        // match" error and expose it as a distinct signal QML can bind
-        // a reset button to.
-        connect(rust, &MatrixClient::loginFailed,
-                this, [this](const QString &reason) {
-            if (reason.contains(QLatin1String(
-                    "account in the store doesn't match"),
-                    Qt::CaseInsensitive)) {
-                Q_EMIT storeDeviceMismatchDetected(reason);
+        connect(rust, &RustSdkMatrixClient::localSessionResetRequired,
+                this, [this](const QString &) {
+            setLocalRustResetRequired(true);
+            Q_EMIT storeDeviceMismatchDetected(tr(
+                "This local Lightning Rust SDK store belongs to a different "
+                "Matrix session or device. Reset the local Lightning session "
+                "for this account, then sign in again. This does not delete "
+                "server messages or Element data."));
+        });
+        connect(rust, &RustSdkMatrixClient::localSessionCleanupFinished,
+                this, [this](bool ok, const QString &message) {
+            setLocalRustResetRequired(!ok);
+            if (m_resetResultPending) {
+                m_resetResultPending = false;
+                Q_EMIT localRustStoreResetResult(ok, message);
             }
         });
     }
@@ -429,53 +431,79 @@ void AppController::resetLocalRustStore()
             tr("Reset is only available on the Rust backend."));
         return;
     }
-    QString userId = m_settings ? m_settings->userId() : QString();
-    if (userId.isEmpty() && m_client)
-        userId = m_client->currentUserId();
-    if (userId.isEmpty()) {
+    const QString homeserver = m_client && !m_client->homeserverUrl().isEmpty()
+        ? m_client->homeserverUrl()
+        : (m_settings ? m_settings->homeserverUrl() : QString{});
+    const QString userId = m_client && !m_client->currentUserId().isEmpty()
+        ? m_client->currentUserId()
+        : (m_settings ? m_settings->userId() : QString{});
+    if (homeserver.isEmpty() || userId.isEmpty()) {
         Q_EMIT localRustStoreResetResult(false,
-            tr("No known Matrix user id — cannot compute the account "
-               "store path. Sign in first, or run "
-               "'matrix-client --reset-crypto-store' from a terminal."));
+            tr("Enter a valid homeserver and Matrix user ID before resetting "
+               "the local Lightning session."));
         return;
     }
 
-    // Stop any live sync first to give the SDK a chance to release
-    // file handles before we recursively remove the store dir.
-    if (m_client) m_client->stopSync();
-    if (m_client) m_client->logout();
-
-    const QString store = matrix::app_data::rustSdkStorePath(userId);
-    const QString session = matrix::app_data::rustSdkSmokeSessionPath(userId);
-
-    QString deleted;
-    QString failed;
-    if (!store.isEmpty() && QFileInfo::exists(store)) {
-        QDir d(store);
-        if (d.removeRecursively()) deleted += store + QLatin1Char('\n');
-        else                       failed  += store + QLatin1Char('\n');
+    if (m_client && m_client->isLoggedIn()) {
+        // The normal Rust sign-out lifecycle performs the same account-scoped
+        // deletion after server logout and handle release.
+        m_resetResultPending = true;
+        m_auth->logout();
+    } else {
+        resetLocalRustSession(homeserver, userId);
     }
-    if (!session.isEmpty() && QFile::exists(session)) {
-        if (QFile::remove(session)) deleted += session + QLatin1Char('\n');
-        else                        failed  += session + QLatin1Char('\n');
-    }
-
-    qCInfo(lcApp) << "reset_local_rust_store deleted=" << deleted
-                  << "failed=" << failed;
-
-    if (!failed.isEmpty()) {
-        Q_EMIT localRustStoreResetResult(false,
-            tr("Reset partially failed for:\n%1").arg(failed));
-        return;
-    }
-    Q_EMIT localRustStoreResetResult(true, deleted.isEmpty()
-        ? tr("No local Rust SDK store found to remove.")
-        : tr("Local Rust SDK store removed. Sign in again to create a "
-             "fresh device."));
 #else
     Q_EMIT localRustStoreResetResult(false,
         tr("This build has no Rust SDK backend."));
 #endif
+}
+
+void AppController::resetLocalRustSession(const QString &homeserver,
+                                          const QString &user)
+{
+#ifdef ENABLE_RUST_SDK_BACKEND
+    if (m_backend != RustBackend || !m_client) {
+        Q_EMIT localRustStoreResetResult(false,
+            tr("Reset is only available on the Rust backend."));
+        return;
+    }
+
+    matrix::app_data::AccountIdentity identity;
+    if (!matrix::app_data::resolveAccountIdentity(
+            homeserver, user, &identity)) {
+        Q_EMIT localRustStoreResetResult(false,
+            tr("Enter a valid homeserver and Matrix user ID before resetting "
+               "the local Lightning session."));
+        return;
+    }
+
+    auto *rust = qobject_cast<RustSdkMatrixClient *>(m_client.get());
+    QString message;
+    const bool ok = rust && rust->resetLocalSession(identity, &message);
+    setLocalRustResetRequired(!ok);
+    if (ok) {
+        m_auth->clearLastError();
+        Q_EMIT errorReported(QString{});
+    }
+    Q_EMIT localRustStoreResetResult(ok, message.isEmpty()
+        ? tr("Lightning could not completely reset the local session for this "
+             "account. Check the application logs and filesystem permissions, "
+             "then try again.")
+        : message);
+#else
+    Q_UNUSED(homeserver);
+    Q_UNUSED(user);
+    Q_EMIT localRustStoreResetResult(false,
+        tr("This build has no Rust SDK backend."));
+#endif
+}
+
+void AppController::setLocalRustResetRequired(bool required)
+{
+    if (m_localRustResetRequired == required)
+        return;
+    m_localRustResetRequired = required;
+    Q_EMIT localRustResetRequiredChanged();
 }
 
 void AppController::setCurrentScreen(Screen s)
@@ -499,9 +527,12 @@ void AppController::setConnectionStatus(const QString &s)
 void AppController::onLoginSucceeded()
 {
     const QString uid = m_auth->currentUserId();
-    qCInfo(lcApp) << "login succeeded for" << uid
+    qCInfo(lcApp) << "login succeeded slug="
+                  << matrix::app_data::safeUserSlug(uid)
                   << "— switching to main + starting sync";
     m_accounts->setActiveUser(uid);
+    setLocalRustResetRequired(false);
+    Q_EMIT errorReported(QString{});
     m_client->startSync();
     setCurrentScreen(MainScreen);
     Q_EMIT loggedInChanged();
@@ -512,6 +543,7 @@ void AppController::onLoggedOut()
     m_currentRoomId.clear();
     Q_EMIT currentRoomIdChanged();
     m_accounts->clearActiveUser();
+    Q_EMIT errorReported(QString{});
     setCurrentScreen(LoginScreen);
     Q_EMIT loggedInChanged();
 }

@@ -26,6 +26,7 @@ use matrix_sdk::{
     encryption::verification::{SasState, SasVerification, VerificationRequest},
     room::MessagesOptions,
     ruma::{
+        api::error::ErrorKind,
         events::{
             key::verification::request::ToDeviceKeyVerificationRequestEvent,
             room::{
@@ -46,7 +47,7 @@ struct RustClient {
     session_file: Arc<Mutex<Option<PathBuf>>>,
     client: Arc<Mutex<Option<Client>>>,
     events: Arc<Mutex<VecDeque<String>>>,
-    sync_stop: Arc<Mutex<Option<Arc<AtomicBool>>>>,
+    sync_task: Mutex<Option<SyncTask>>,
     // v0.5.0: SAS verification state. Single active flow at a time keeps
     // the FFI simple; if a second request arrives we cancel the first.
     // Both slots are cleared when the flow reaches Done or Cancelled.
@@ -63,7 +64,7 @@ impl RustClient {
             session_file: Arc::new(Mutex::new(None)),
             client: Arc::new(Mutex::new(None)),
             events: Arc::new(Mutex::new(VecDeque::new())),
-            sync_stop: Arc::new(Mutex::new(None)),
+            sync_task: Mutex::new(None),
             active_request: Arc::new(Mutex::new(None)),
             active_sas: Arc::new(Mutex::new(None)),
         })
@@ -73,13 +74,39 @@ impl RustClient {
         enqueue(&self.events, value);
     }
 
-    fn abort_sync(&self) {
-        if let Ok(mut guard) = self.sync_stop.lock() {
-            if let Some(stop) = guard.take() {
-                stop.store(true, Ordering::SeqCst);
+    fn stop_sync_and_wait(&self) -> bool {
+        let task = self.sync_task.lock().ok().and_then(|mut guard| guard.take());
+        if let Some(mut task) = task {
+            if let Some(cancel) = task.cancel.take() {
+                let _ = cancel.send(());
             }
+            if let Some(thread) = task.thread.take() {
+                let _ = thread.join();
+            }
+            true
+        } else {
+            false
         }
     }
+
+    fn reap_finished_sync(&self) {
+        let finished = self
+            .sync_task
+            .lock()
+            .ok()
+            .and_then(|guard| guard.as_ref().map(|task| {
+                task.thread.as_ref().is_some_and(std::thread::JoinHandle::is_finished)
+            }))
+            .unwrap_or(false);
+        if finished {
+            self.stop_sync_and_wait();
+        }
+    }
+}
+
+struct SyncTask {
+    cancel: Option<tokio::sync::oneshot::Sender<()>>,
+    thread: Option<std::thread::JoinHandle<()>>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -91,7 +118,7 @@ struct PersistentSessionFile {
 
 impl Drop for RustClient {
     fn drop(&mut self) {
-        self.abort_sync();
+        self.stop_sync_and_wait();
     }
 }
 
@@ -185,7 +212,7 @@ pub unsafe extern "C" fn mx_rust_login(
         let user = unsafe { cstr_arg(user) }?;
         let password = unsafe { cstr_arg(password) }?;
 
-        bridge.abort_sync();
+        bridge.stop_sync_and_wait();
         bridge.enqueue(json!({ "type": "status", "state": "connecting" }));
 
         let store_path = bridge.store_path.clone();
@@ -241,13 +268,18 @@ pub unsafe extern "C" fn mx_rust_login(
                                     }),
                                 );
                             }
-                            Err(err) => enqueue(
-                                &events,
-                                json!({
-                                    "type": "login_failed",
-                                    "message": format_matrix_error("Matrix Rust SDK login failed", err),
-                                }),
-                            ),
+                            Err(err) => {
+                                // Release SDK/store ownership before C++ can
+                                // react to login_failed with a local reset.
+                                drop(client);
+                                enqueue(
+                                    &events,
+                                    json!({
+                                        "type": "login_failed",
+                                        "message": format_matrix_error("Matrix Rust SDK login failed", err),
+                                    }),
+                                );
+                            }
                         }
                     }
                     Err(err) => enqueue(
@@ -276,7 +308,7 @@ pub unsafe extern "C" fn mx_rust_restore_from_file(
             return Ok("error: Rust SDK smoke session file is not configured.".to_owned());
         };
 
-        bridge.abort_sync();
+        bridge.stop_sync_and_wait();
         bridge.enqueue(json!({ "type": "status", "state": "connecting" }));
 
         let store_path = bridge.store_path.clone();
@@ -388,7 +420,7 @@ pub unsafe extern "C" fn mx_rust_restore(
         let device_id = unsafe { cstr_arg(device_id) }?;
         let access_token = unsafe { cstr_arg(access_token) }?;
 
-        bridge.abort_sync();
+        bridge.stop_sync_and_wait();
         bridge.enqueue(json!({ "type": "status", "state": "connecting" }));
 
         let store_path = bridge.store_path.clone();
@@ -441,19 +473,51 @@ pub unsafe extern "C" fn mx_rust_logout(ptr: *mut c_void) {
         let Ok(bridge) = (unsafe { bridge(ptr) }) else {
             return;
         };
-        bridge.abort_sync();
+        bridge.stop_sync_and_wait();
         let client = bridge.client.lock().ok().and_then(|guard| guard.clone());
         let events = Arc::clone(&bridge.events);
         if let Some(client) = client {
             std::thread::spawn(move || {
                 let runtime_events = Arc::clone(&events);
+                let logout_events = Arc::clone(&events);
+                let completed = Arc::new(AtomicBool::new(false));
+                let completion_flag = Arc::clone(&completed);
                 run_async(runtime_events, "logout", async move {
-                    let _ = client.matrix_auth().logout().await;
-                    enqueue(&events, json!({ "type": "logged_out" }));
+                    let event = match client.matrix_auth().logout().await {
+                        Ok(_) => json!({ "type": "logged_out", "result": "ok" }),
+                        Err(err) if matches!(
+                            err.client_api_error_kind(),
+                            Some(ErrorKind::UnknownToken { .. })
+                        ) => json!({
+                            "type": "logged_out",
+                            "result": "already_invalid",
+                        }),
+                        Err(err) => json!({
+                            "type": "logged_out",
+                            "result": "failed",
+                            "message": format_matrix_error(
+                                "Matrix Rust SDK logout failed", err),
+                        }),
+                    };
+                    completion_flag.store(true, Ordering::SeqCst);
+                    enqueue(&logout_events, event);
                 });
+                if !completed.load(Ordering::SeqCst) {
+                    enqueue(
+                        &events,
+                        json!({
+                            "type": "logged_out",
+                            "result": "failed",
+                            "message": "Matrix Rust SDK logout task could not complete.",
+                        }),
+                    );
+                }
             });
         } else {
-            bridge.enqueue(json!({ "type": "logged_out" }));
+            bridge.enqueue(json!({
+                "type": "logged_out",
+                "result": "no_active_session",
+            }));
         }
         if let Ok(mut guard) = bridge.client.lock() {
             *guard = None;
@@ -475,28 +539,20 @@ pub unsafe extern "C" fn mx_rust_start_sync(ptr: *mut c_void) {
             return;
         };
 
-        // Atomically check-and-reserve the sync slot so two rapid
-        // start_sync() calls can't both spawn a sync loop (the earlier
-        // code released the lock between the check and the assignment,
-        // leaving a race that leaked the first loop's `stop` flag).
-        let stop = Arc::new(AtomicBool::new(false));
-        {
-            let mut guard = match bridge.sync_stop.lock() {
-                Ok(g) => g,
-                Err(_) => return,
-            };
-            if guard.is_some() {
-                return;
-            }
-            *guard = Some(Arc::clone(&stop));
+        bridge.reap_finished_sync();
+        let mut task_slot = match bridge.sync_task.lock() {
+            Ok(g) => g,
+            Err(_) => return,
+        };
+        if task_slot.is_some() {
+            return;
         }
 
         let events = Arc::clone(&bridge.events);
         bridge.enqueue(json!({ "type": "status", "state": "syncing" }));
 
-        let callback_stop = Arc::clone(&stop);
-        let sync_stop_slot = Arc::clone(&bridge.sync_stop);
-        std::thread::spawn(move || {
+        let (cancel, cancel_rx) = tokio::sync::oneshot::channel::<()>();
+        let thread = std::thread::spawn(move || {
             let runtime_events = Arc::clone(&events);
             run_async(runtime_events, "sync", async move {
                 let first_response = Arc::new(AtomicBool::new(true));
@@ -507,53 +563,60 @@ pub unsafe extern "C" fn mx_rust_start_sync(ptr: *mut c_void) {
                 let callback_client = client.clone();
                 let callback_events = Arc::clone(&events);
                 let callback_first = Arc::clone(&first_response);
-                let callback_stop = Arc::clone(&callback_stop);
-                let result = client
-                    .sync_with_callback(settings, move |_response| {
+                let sync = client.sync_with_callback(settings, move |_response| {
                         let client = callback_client.clone();
                         let events = Arc::clone(&callback_events);
                         let first_response = Arc::clone(&callback_first);
-                        let stop = Arc::clone(&callback_stop);
                         async move {
-                            if stop.load(Ordering::SeqCst) {
-                                return LoopCtrl::Break;
-                            }
                             enqueue_rooms(&events, &client).await;
                             if first_response.swap(false, Ordering::SeqCst) {
                                 enqueue(&events, json!({ "type": "initial_sync_done" }));
                             }
                             LoopCtrl::Continue
                         }
-                    })
-                    .await;
-
-                if let Err(err) = result {
-                    enqueue(
-                        &events,
-                        json!({
-                            "type": "sync_error",
-                            "message": format_matrix_error("Matrix Rust SDK sync failed", err),
-                        }),
-                    );
-                }
-
-                if let Ok(mut guard) = sync_stop_slot.lock() {
-                    *guard = None;
+                    });
+                tokio::pin!(sync);
+                tokio::select! {
+                    result = &mut sync => {
+                        if let Err(err) = result {
+                            enqueue(
+                                &events,
+                                json!({
+                                    "type": "sync_error",
+                                    "message": format_matrix_error(
+                                        "Matrix Rust SDK sync failed", err),
+                                }),
+                            );
+                        }
+                    }
+                    _ = cancel_rx => {
+                        // Dropping the sync future cancels the in-flight
+                        // request. No error event is emitted for an
+                        // intentional stop.
+                    }
                 }
             });
+        });
+        *task_slot = Some(SyncTask {
+            cancel: Some(cancel),
+            thread: Some(thread),
         });
     }));
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn mx_rust_stop_sync(ptr: *mut c_void) {
-    let _ = catch_unwind(AssertUnwindSafe(|| {
+pub unsafe extern "C" fn mx_rust_stop_sync(ptr: *mut c_void) -> c_int {
+    match catch_unwind(AssertUnwindSafe(|| {
         let Ok(bridge) = (unsafe { bridge(ptr) }) else {
-            return;
+            return false;
         };
-        bridge.abort_sync();
+        let stopped = bridge.stop_sync_and_wait();
         bridge.enqueue(json!({ "type": "status", "state": "disconnected" }));
-    }));
+        stopped
+    })) {
+        Ok(true) => 1,
+        Ok(false) | Err(_) => 0,
+    }
 }
 
 #[no_mangle]
@@ -1246,7 +1309,7 @@ async fn build_client(homeserver: &str, store_path: &Path) -> Result<Client, Str
     Client::builder()
         .homeserver_url(homeserver)
         .sqlite_store(store_path, None)
-        .user_agent("Lightning/0.5.0")
+        .user_agent("Lightning/0.5.5")
         .build()
         .await
         .map_err(|err| format_matrix_error("failed to build Matrix Rust SDK client", err))

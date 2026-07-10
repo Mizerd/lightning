@@ -43,6 +43,7 @@ public:
                            const QString &password);
     Q_INVOKABLE void logout();
     Q_INVOKABLE void restoreSession();
+    void clearLastError();
 
     // Placeholders for the SSO / OIDC flows. Both surface a controlled
     // "not implemented" error via lastError so the UI can react.

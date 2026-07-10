@@ -1,6 +1,7 @@
 #include "app/SettingsManager.h"
 
 #include "storage/SecretStore.h"
+#include "storage/AppDataPaths.h"
 
 #include <QLoggingCategory>
 
@@ -224,17 +225,56 @@ void SettingsManager::setSyncToken(const QString &token)
     m_store->setValue(kSyncToken, token);
 }
 
-void SettingsManager::clearSession()
+bool SettingsManager::clearSession()
 {
-    if (!hasSession())
-        return;
     const QString uid = userId();
-    m_store->remove(kUserId);
-    m_store->remove(kDeviceId);
-    m_store->remove(kSyncToken);
-    m_store->remove(kAccessTokenLegacy);
-    if (m_secretStore && !uid.isEmpty()) {
-        m_secretStore->clearAccountSecrets(uid);
+    if (uid.isEmpty()) {
+        m_store->remove(kDeviceId);
+        m_store->remove(kSyncToken);
+        m_store->remove(kAccessTokenLegacy);
+        return true;
     }
-    Q_EMIT sessionChanged();
+    return clearSessionForAccount(uid);
+}
+
+bool SettingsManager::clearSessionForAccount(const QString &uid)
+{
+    const QString target = uid.trimmed();
+    if (target.isEmpty())
+        return false;
+
+    const QString activeUser = userId();
+    bool activeAccount = activeUser == target;
+    if (!activeAccount && !activeUser.isEmpty()) {
+        matrix::app_data::AccountIdentity activeIdentity;
+        matrix::app_data::AccountIdentity targetIdentity;
+        activeAccount = matrix::app_data::resolveAccountIdentity(
+                            homeserverUrl(), activeUser, &activeIdentity)
+            && matrix::app_data::resolveAccountIdentity(
+                homeserverUrl(), target, &targetIdentity)
+            && activeIdentity.userId == targetIdentity.userId;
+    }
+    if (activeAccount) {
+        m_store->remove(kUserId);
+        m_store->remove(kDeviceId);
+        m_store->remove(kSyncToken);
+        m_store->remove(kAccessTokenLegacy);
+    }
+
+    bool secretsCleared = true;
+    if (m_secretStore) {
+        // Use the exact key originally persisted for a normalized match so a
+        // legacy mixed-case homeserver cannot orphan its SecretStore entry.
+        const QString secretUser = activeAccount ? activeUser : target;
+        secretsCleared = m_secretStore->clearAccountSecrets(secretUser);
+        if (!secretsCleared) {
+            qCWarning(lcSettings)
+                << "failed to clear account secrets from SecretStore:"
+                << m_secretStore->lastError();
+        }
+    }
+
+    if (activeAccount)
+        Q_EMIT sessionChanged();
+    return secretsCleared;
 }
