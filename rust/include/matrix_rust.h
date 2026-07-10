@@ -189,6 +189,63 @@ char *mx_rust_import_room_keys(void *client,
  * gate sign-out and duplicate imports. Read-only. */
 int mx_rust_room_key_import_active(void *client);
 
+/*
+ * Live SDK timeline (v0.5.7). Rust owns a persistent matrix-sdk-ui Timeline
+ * for the currently open room (single active subscription). All functions
+ * return "" on accepted dispatch or "error: …" synchronously. Results arrive
+ * on the poll queue:
+ *   {"type":"timeline_reset","room_id","room_generation","lifecycle",
+ *    "items":[…]}                        — initial snapshot (atomic with the
+ *                                          subscription; no event gap)
+ *   {"type":"timeline_diff","op":"append|push_back|push_front|insert|set|
+ *    remove|pop_front|pop_back|clear|truncate|reset", "index","length",
+ *    "item","items", …}                  — incremental VectorDiff updates
+ *   {"type":"timeline_pagination","state":"loading|idle|failed",
+ *    "reached_start":bool,"category"}    — backward pagination lifecycle
+ *   {"type":"timeline_send_failed","category"}
+ *   {"type":"timeline_retry_decryption","state":"started|done","sessions":N}
+ *   {"type":"timeline_error","category"}
+ *   {"type":"timeline_closed","room_id"}
+ * Every event is stamped with room_generation + lifecycle; the C++ side must
+ * reject stale generations. Item payloads carry UI-safe metadata only —
+ * never ciphertext, keys, or raw event JSON.
+ */
+char *mx_rust_timeline_open(void *client, const char *room_id);
+char *mx_rust_timeline_close(void *client);
+char *mx_rust_timeline_paginate_back(void *client,
+                                     const char *room_id,
+                                     unsigned short count);
+char *mx_rust_timeline_send_text(void *client,
+                                 const char *room_id,
+                                 const char *body);
+char *mx_rust_timeline_send_reply(void *client,
+                                  const char *room_id,
+                                  const char *in_reply_to_event_id,
+                                  const char *body);
+char *mx_rust_timeline_edit(void *client,
+                            const char *room_id,
+                            const char *target_event_id,
+                            const char *new_body);
+char *mx_rust_timeline_toggle_reaction(void *client,
+                                       const char *room_id,
+                                       const char *target_event_id,
+                                       const char *key);
+char *mx_rust_timeline_redact(void *client,
+                              const char *room_id,
+                              const char *target_event_id,
+                              const char *reason);
+char *mx_rust_timeline_retry_send(void *client,
+                                  const char *room_id,
+                                  const char *transaction_id);
+
+/*
+ * Deterministic shutdown of all managed async work: timeline subscriptions
+ * are cancelled and joined, an in-flight room-key import is joined (bounded
+ * last-resort timeout), the sync loop is stopped. Must be called before the
+ * SDK store is deleted. Returns a short safe status string for logging.
+ */
+char *mx_rust_shutdown_tasks(void *client);
+
 /* 0 = no, 1 = yes. Reports honestly — 0 until verified encrypted read/send. */
 int mx_rust_supports_e2ee(void *client);
 

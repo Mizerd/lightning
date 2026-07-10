@@ -21,6 +21,12 @@ struct TimelineEvent {
         File,
         StateChange,
         Unknown,
+        // v0.5.7: virtual SDK timeline rows. Appended after Unknown so the
+        // integer values CacheStore persisted for the HTTP backend stay
+        // stable. Virtual rows are never persisted.
+        DateDivider,
+        ReadMarker,
+        TimelineStart,
     };
 
     enum Status {
@@ -79,4 +85,25 @@ struct TimelineEvent {
     bool    isDecrypted = false;
     bool    undecryptable = false;
     QString errorKind;
+
+    // Live SDK timeline metadata (v0.5.7). Populated only by the Rust
+    // backend's matrix-sdk-ui timeline path.
+    //   itemId            — the SDK's stable unique timeline-item id. The
+    //                       authoritative row identity for diff application;
+    //                       survives local-echo → remote reconciliation and
+    //                       undecryptable → decrypted replacement.
+    //   transactionId     — send-queue transaction id while the row is a
+    //                       local echo; used for retryFailedSend.
+    //   isLocalEcho       — true until the SDK reconciles the remote echo.
+    //   sendErrorCategory — coarse non-secret category ("network",
+    //                       "rejected") when status == Failed.
+    QString itemId;
+    QString transactionId;
+    bool    isLocalEcho = false;
+    QString sendErrorCategory;
+
+    bool isVirtual() const
+    {
+        return type == DateDivider || type == ReadMarker || type == TimelineStart;
+    }
 };

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "matrix/MatrixClient.h"
+#include "matrix/RustTimelineIngest.h"
 #include "matrix/SessionLifecycleGuard.h"
 #include "storage/AppDataPaths.h"
 
@@ -90,7 +91,22 @@ public:
     // roomTimelineReloaded(roomId, total, decrypted, undecryptable)
     // when the SDK finishes, or errorOccurred with a non-secret
     // message on failure.
+    //
+    // v0.5.7: kept only as a smoke-test helper. The interactive room
+    // history path is openRoomTimeline() below — do not use this for UI
+    // room opens; it cannot update already-visible rows in place.
     void reloadRoomTimeline(const QString &roomId, int limit = 30);
+
+    // v0.5.7. Open (or re-open) the live matrix-sdk-ui timeline for a
+    // room. Rust cancels any previous room subscription, builds a
+    // persistent SDK Timeline, sends one timeline_reset snapshot, and
+    // streams incremental VectorDiff updates that are applied in place —
+    // including undecryptable → decrypted replacements after room-key
+    // import, SDK local echoes with send-state transitions, and backward
+    // pagination prepends. Safe to call repeatedly; each call advances
+    // the Rust room generation and stale callbacks are rejected.
+    void openRoomTimeline(const QString &roomId);
+    void closeRoomTimeline();
 
     // v0.5.0. SAS emoji verification (receive-first). Drives
     // mx_rust_accept_verification / confirm / mismatch / cancel.
@@ -169,8 +185,11 @@ public:
     void sendFile(const QString &roomId, const QString &localPath) override;
 
     void loadOlderMessages(const QString &roomId) override;
-    bool canPaginate(const QString &) const override { return false; }
-    bool paginating(const QString &) const override { return false; }
+    bool canPaginate(const QString &roomId) const override;
+    bool paginating(const QString &roomId) const override;
+    bool paginationFailed(const QString &roomId) const override;
+    void retryFailedSend(const QString &roomId,
+                         const QString &transactionId) override;
 
 Q_SIGNALS:
     // v0.5.0-prep+6. Fires exactly once per probeEncryptedSend call.
@@ -240,6 +259,11 @@ Q_SIGNALS:
                            const QStringList &roomIds);
     void roomKeyImportFailed(const QString &category, const QString &message);
 
+    // v0.5.7. Emitted after a room-key import triggered an immediate
+    // decryption retry on the open SDK timeline. Counts only — imported
+    // session identifiers stay inside Rust.
+    void roomKeysApplied(const QString &roomId, int sessionCount);
+
     // Structured lifecycle state consumed by AppController/QML.
     void localSessionResetRequired(const QString &reasonCode);
     void localSessionCleanupFinished(bool ok, const QString &message);
@@ -270,6 +294,14 @@ private:
     void requireLocalReset(const QString &reasonCode);
     void handleRoomsEvent(const QJsonArray &rooms);
     void handleTimelineEvent(const QJsonObject &event);
+    // v0.5.7 live-timeline event handlers.
+    void handleTimelineReset(const QJsonObject &event);
+    void handleTimelineDiff(const QJsonObject &event);
+    void handleTimelinePagination(const QJsonObject &event);
+    void handleTimelineRetryDecryption(const QJsonObject &event);
+    void updateRoomPreviewFrom(const QString &roomId,
+                               const QList<TimelineEvent> &newestFirstCandidates);
+    bool timelineActiveFor(const QString &roomId) const;
     void handleSendOk(const QJsonObject &event);
     void handleSendFailed(const QJsonObject &event);
     void handleEncryptedSendOk(const QJsonObject &event);
@@ -302,4 +334,15 @@ private:
     QHash<QString, PendingSend> m_pendingSends;
     QHash<QString, PendingProbe> m_pendingProbes;
     quint64 m_txnCounter = 0;
+
+    // v0.5.7 live SDK timeline state. The tracker adopts the Rust room
+    // generation from timeline_reset and rejects stale diffs; pagination
+    // state is per room and reset on every (re)open.
+    struct PaginationState {
+        bool loading = false;
+        bool reachedStart = false;
+        bool failed = false;
+    };
+    matrix::rust_timeline::TimelineGenerationTracker m_timelineTracker;
+    QHash<QString, PaginationState> m_pagination;
 };

@@ -12,6 +12,32 @@ across the rename. The product name is **Lightning**.
 
 ## Status
 
+**v0.5.7** — Live SDK timeline and immediate decryption retry.
+The Rust backend's room history now runs on persistent
+`matrix-sdk-ui 0.18.0` **Timeline** objects instead of one-shot
+`Room::messages` snapshots. Opening a room builds a live timeline
+(atomic initial snapshot + `VectorDiff` subscription); every SDK
+update — new events, edits, reactions, redactions, read-state, local
+echoes — is applied to the Qt `TimelineModel` incrementally, in place,
+with stable item identity. The headline fix: importing an encrypted
+room-key export now retries decryption **immediately** on the open
+timeline (`Timeline::retry_decryption` with the imported Megolm
+session IDs, which never leave Rust) — already-visible
+"[unable to decrypt yet]" rows update in place with no restart, no
+room switch, and no manual refresh. Also new: backward pagination
+(scroll to the top to load older history, with loading / retry /
+end-of-history states), SDK-owned local echoes with sending → sent /
+failed transitions and a per-message **Retry** action, and
+replies/edits/reactions/redactions on the Rust backend via the
+official timeline APIs. Sign-out now performs a deterministic
+managed-task shutdown (timeline subscriptions and any in-flight key
+import are joined before the crypto store is released) instead of the
+old 5-second flag poll. Stale timeline callbacks are rejected by
+room + lifecycle generations on both sides of the FFI. The Settings
+**Security & Recovery** section no longer clips at narrow widths.
+`CacheStore` still refuses decrypted encrypted-room plaintext — now
+locked in by a dedicated regression test.
+
 **v0.5.6** — Session verification and encrypted room-key import.
 Lightning can now (a) initiate a Matrix SAS emoji verification of the
 current session against another session belonging to the same Matrix

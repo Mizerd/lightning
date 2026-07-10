@@ -5,13 +5,38 @@ import MatrixClient
 
 Item {
     id: root
-    implicitHeight: layout.implicitHeight + AppTheme.spacingXS
+    // v0.5.7: virtual SDK timeline rows (date divider / read marker /
+    // timeline start) render as thin separators instead of bubbles.
+    // eventType: 7 = DateDivider, 8 = ReadMarker, 9 = TimelineStart.
+    readonly property bool isVirtualRow: model.isVirtual === true
+    implicitHeight: isVirtualRow ? virtualRow.implicitHeight
+                                 : layout.implicitHeight + AppTheme.spacingXS
 
     // Hardcoded reaction palette (v0.3). Real emoji picker is v0.5+.
     readonly property var reactionPalette: ["👍", "❤️", "😂", "🎉", "😢"]
 
+    Item {
+        id: virtualRow
+        visible: root.isVirtualRow
+        width: parent.width
+        implicitHeight: virtualLabel.visible
+                        ? virtualLabel.implicitHeight + AppTheme.spacingS
+                        : 0
+        Label {
+            id: virtualLabel
+            anchors.centerIn: parent
+            visible: root.isVirtualRow && model.eventType !== 8 // hide ReadMarker
+            text: model.eventType === 7
+                  ? Qt.locale().toString(model.timestamp, "dddd, d MMMM yyyy")
+                  : (model.eventType === 9 ? qsTr("Beginning of conversation") : "")
+            color: AppTheme.textMuted
+            font.pixelSize: 11
+        }
+    }
+
     ColumnLayout {
         id: layout
+        visible: !root.isVirtualRow
         width: parent.width
         spacing: 2
 
@@ -165,6 +190,21 @@ Item {
                             }
                             color: model.isOwn ? Qt.rgba(1, 1, 1, 0.75) : AppTheme.textMuted
                             font.pixelSize: 10
+                        }
+                        // v0.5.7: retry action for failed local echoes. The
+                        // SDK send queue re-attempts the same queued item,
+                        // so retrying never duplicates the message.
+                        Label {
+                            visible: model.isOwn && model.status === 2
+                            text: qsTr("Retry")
+                            color: model.isOwn ? Qt.rgba(1, 1, 1, 0.9) : AppTheme.accent
+                            font.pixelSize: 10
+                            font.underline: true
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: app.timeline.retrySend(index)
+                            }
                         }
                         // v0.4.1: thread indicator on the root event.
                         Label {

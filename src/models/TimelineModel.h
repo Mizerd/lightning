@@ -18,6 +18,8 @@ class TimelineModel : public QAbstractListModel
     Q_PROPERTY(QString typingText READ typingText NOTIFY typingTextChanged)
     Q_PROPERTY(bool canPaginate READ canPaginate NOTIFY paginationChanged)
     Q_PROPERTY(bool paginating READ paginating NOTIFY paginationChanged)
+    // v0.5.7: last backward pagination failed; QML shows a Retry affordance.
+    Q_PROPERTY(bool paginationFailed READ paginationFailed NOTIFY paginationChanged)
 
 public:
     enum Roles {
@@ -56,6 +58,11 @@ public:
         IsDecryptedRole,
         UndecryptableRole,
         ErrorKindRole,
+        // v0.5.7: live SDK timeline roles.
+        ItemIdRole,          // Stable SDK item id (survives in-place updates).
+        IsLocalEchoRole,     // True until the remote echo reconciles.
+        SendErrorRole,       // Coarse category when status == Failed.
+        IsVirtualRole,       // Date divider / read marker / timeline start.
     };
 
     explicit TimelineModel(QObject *parent = nullptr);
@@ -69,6 +76,7 @@ public:
     QString typingText() const { return m_typingText; }
     bool canPaginate() const;
     bool paginating() const;
+    bool paginationFailed() const;
 
     int rowCount(const QModelIndex &parent = {}) const override;
     QVariant data(const QModelIndex &index, int role) const override;
@@ -77,6 +85,11 @@ public:
     Q_INVOKABLE void requestOlder();
     Q_INVOKABLE void markVisibleAsRead(int firstVisibleRow, int lastVisibleRow);
     Q_INVOKABLE QString ownUserId() const { return m_selfUserId; }
+
+    // v0.5.7: retry a failed outgoing message (row must be a failed local
+    // echo with a transaction id). Routed to the backend send queue; the
+    // SDK re-attempts the same queued item, so no duplicate can appear.
+    Q_INVOKABLE void retrySend(int row);
 
 Q_SIGNALS:
     void roomIdChanged();
@@ -97,6 +110,15 @@ private Q_SLOTS:
     void onReactionsChanged(const QString &roomId, const QString &eventId);
     void onEventsPrepended(const QString &roomId, const QList<TimelineEvent> &events);
     void onTimelineReset(const QString &roomId);
+    // v0.5.7 index-based diff application. Every index is validated
+    // against the local copy; on mismatch the model self-heals by
+    // reloading the backend's full timeline instead of corrupting state.
+    void onEventInsertedAt(const QString &roomId, int index,
+                           const TimelineEvent &event);
+    void onEventChangedAt(const QString &roomId, int index,
+                          const TimelineEvent &event);
+    void onEventRemovedAt(const QString &roomId, int index);
+    void onEventsTruncatedTo(const QString &roomId, int length);
     void onLoggedOut();
     void onTypingChanged(const QString &roomId);
     void onMembersChanged(const QString &roomId);

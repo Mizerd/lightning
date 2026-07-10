@@ -335,21 +335,26 @@ AppController::AppController(Backend backend, QObject *parent)
             m_roomKeyImportState = QStringLiteral("done");
             Q_EMIT roomKeyImportStateChanged();
             Q_EMIT roomKeyImportCompleted(imported, total, affected);
-            // Reprocess: if the current room is in the affected set,
-            // reload its timeline. matrix-sdk's Room::messages will
-            // now use the freshly imported inbound sessions.
-            if (!m_currentRoomId.isEmpty()
-                && roomIds.contains(m_currentRoomId)) {
-                reloadCurrentRoomTimeline(50);
-            } else if (!m_currentRoomId.isEmpty() && !roomIds.isEmpty()) {
-                // Refresh anyway — key import may have surfaced older
-                // messages of the current room even if the SDK didn't
-                // enumerate it under `keys`.
-                reloadCurrentRoomTimeline(50);
-            }
+            // v0.5.7: no timeline reload needed here. Rust keeps the
+            // imported Megolm session IDs and immediately calls the SDK
+            // timeline's retry-decryption; already-visible undecryptable
+            // rows update in place via Set diffs. roomKeysApplied()
+            // below reports the retry back to the UI.
             // Room-key import never affects verification/trust; do NOT
             // touch m_sessionTrustState here.
             Q_UNUSED(rust);
+        });
+        // v0.5.7: post-import decryption retry completed on the open
+        // timeline. Surface a safe, honest status line — it claims the
+        // keys were applied, not that every event decrypted.
+        connect(rust, &RustSdkMatrixClient::roomKeysApplied,
+                this, [this](const QString &roomId, int sessionCount) {
+            Q_UNUSED(sessionCount);
+            if (roomId != m_currentRoomId)
+                return;
+            m_roomKeyImportMessage =
+                tr("Imported room keys applied to the open timeline.");
+            Q_EMIT roomKeyImportStateChanged();
         });
         connect(rust, &RustSdkMatrixClient::roomKeyImportFailed,
                 this, [this](const QString &category, const QString &message) {
@@ -504,13 +509,14 @@ void AppController::showSettings()   { setCurrentScreen(SettingsScreen); }
 void AppController::openRoom(const QString &roomId)
 {
     setCurrentRoomId(roomId);
-    // v0.5.0-prep+11: Rust backend doesn't persist encrypted event
-    // plaintext to CacheStore (by design), so after a restart the
-    // room appears empty. Reload recent history from matrix-sdk on
-    // room selection; the wrapper dedupes by event_id.
+    // v0.5.7: the Rust backend opens a persistent matrix-sdk-ui timeline
+    // for the room. Rust cancels the previous room's subscription, sends
+    // one snapshot, and then streams incremental diffs — including
+    // in-place decryption updates after key import.
 #ifdef ENABLE_RUST_SDK_BACKEND
     if (m_backend == RustBackend && !roomId.isEmpty()) {
-        reloadCurrentRoomTimeline(30);
+        if (auto *rust = qobject_cast<RustSdkMatrixClient *>(m_client.get()))
+            rust->openRoomTimeline(roomId);
     }
 #endif
 }
@@ -520,8 +526,13 @@ void AppController::reloadCurrentRoomTimeline(int limit)
 #ifdef ENABLE_RUST_SDK_BACKEND
     if (m_backend != RustBackend || !m_client || m_currentRoomId.isEmpty())
         return;
+    // v0.5.7: "Refresh current room" re-opens the SDK timeline (fresh
+    // snapshot + new subscription generation) instead of the old
+    // Room::messages snapshot path. `limit` is retained for API
+    // compatibility; the SDK snapshot covers the cached history.
+    Q_UNUSED(limit);
     if (auto *rust = qobject_cast<RustSdkMatrixClient *>(m_client.get()))
-        rust->reloadRoomTimeline(m_currentRoomId, limit);
+        rust->openRoomTimeline(m_currentRoomId);
 #else
     Q_UNUSED(limit);
 #endif

@@ -44,12 +44,25 @@ use matrix_sdk::{
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
+mod timeline;
+
 struct RustClient {
     store_path: PathBuf,
     session_file: Arc<Mutex<Option<PathBuf>>>,
     client: Arc<Mutex<Option<Client>>>,
     events: Arc<Mutex<VecDeque<String>>>,
     sync_task: Mutex<Option<SyncTask>>,
+    // v0.5.7: shared multi-thread runtime for everything with a lifetime
+    // longer than one FFI call — SDK timelines, their subscription
+    // forwarders, the send queue, the event cache, and room-key import.
+    // The per-call `run_async` runtimes cannot host those: tasks spawned
+    // on them die when the call's runtime is dropped.
+    runtime: Arc<tokio::runtime::Runtime>,
+    // v0.5.7: live timeline registry (single active room timeline).
+    timelines: Arc<timeline::TimelineRegistry>,
+    // v0.5.7: managed room-key import task so sign-out can join it
+    // deterministically instead of polling a flag with a timeout.
+    import_task: Mutex<Option<tokio::task::JoinHandle<()>>>,
     // v0.5.0: SAS verification state. Single active flow at a time keeps
     // the FFI simple; if a second request arrives we cancel the first.
     // Both slots are cleared when the flow reaches Done or Cancelled.
@@ -66,12 +79,22 @@ struct RustClient {
 
 impl RustClient {
     fn new(store_path: PathBuf) -> Result<Self, String> {
+        let events: Arc<Mutex<VecDeque<String>>> = Arc::new(Mutex::new(VecDeque::new()));
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .thread_name("lightning-sdk")
+            .enable_all()
+            .build()
+            .map_err(|err| format!("failed to create shared Tokio runtime: {err}"))?;
         Ok(Self {
             store_path,
             session_file: Arc::new(Mutex::new(None)),
             client: Arc::new(Mutex::new(None)),
-            events: Arc::new(Mutex::new(VecDeque::new())),
+            events: Arc::clone(&events),
             sync_task: Mutex::new(None),
+            runtime: Arc::new(runtime),
+            timelines: Arc::new(timeline::TimelineRegistry::new(events)),
+            import_task: Mutex::new(None),
             active_request: Arc::new(Mutex::new(None)),
             active_sas: Arc::new(Mutex::new(None)),
             import_active: Arc::new(AtomicBool::new(false)),
@@ -95,6 +118,37 @@ impl RustClient {
         } else {
             false
         }
+    }
+
+    /// v0.5.7: deterministic teardown of everything the shared runtime
+    /// hosts. Order matters: timelines first (they hold event-cache /
+    /// send-queue references), then the managed room-key import (joined,
+    /// never abandoned mid-write — the crypto store must not be deleted
+    /// under it), then the sync loop. A bounded timeout remains only as a
+    /// last-resort error boundary after the deterministic join.
+    fn shutdown_managed_tasks(&self) -> (bool, bool) {
+        self.timelines.shutdown(&self.runtime);
+
+        let import = self.import_task.lock().ok().and_then(|mut guard| guard.take());
+        let mut import_joined = true;
+        if let Some(handle) = import {
+            if !handle.is_finished() {
+                let joined = self.runtime.block_on(async {
+                    tokio::time::timeout(
+                        std::time::Duration::from_secs(
+                            timeline::SHUTDOWN_JOIN_TIMEOUT_SECS,
+                        ),
+                        handle,
+                    )
+                    .await
+                    .is_ok()
+                });
+                import_joined = joined;
+            }
+        }
+
+        let sync_stopped = self.stop_sync_and_wait();
+        (import_joined, sync_stopped)
     }
 
     fn reap_finished_sync(&self) {
@@ -126,7 +180,7 @@ struct PersistentSessionFile {
 
 impl Drop for RustClient {
     fn drop(&mut self) {
-        self.stop_sync_and_wait();
+        let _ = self.shutdown_managed_tasks();
     }
 }
 
@@ -138,7 +192,7 @@ pub extern "C" fn mx_rust_backend_name() -> *mut c_char {
 #[no_mangle]
 pub extern "C" fn mx_rust_status_string() -> *mut c_char {
     ffi_string(|| {
-        Ok("Matrix Rust SDK backend linked. E2EE support via matrix-sdk 0.18 (Lightning 0.5.6): password login, session restore, joined-room sync, plain and encrypted text send/receive, receive- and initiate-first SAS emoji verification, Secure Backup recovery-key restore, and encrypted Megolm room-key import all go through the SDK event queue. Cross-signing is queried from the SDK; no manual crypto in C++.".to_owned())
+        Ok("Matrix Rust SDK backend linked. E2EE support via matrix-sdk 0.18 (Lightning 0.5.7): password login, session restore, joined-room sync, live matrix-sdk-ui room timelines (incremental diffs, SDK local echoes, backward pagination, immediate decryption retry after room-key import), plain and encrypted text send/receive, receive- and initiate-first SAS emoji verification, Secure Backup recovery-key restore, and encrypted Megolm room-key import all go through the SDK event queue. Cross-signing is queried from the SDK; no manual crypto in C++.".to_owned())
     })
 }
 
@@ -1660,9 +1714,11 @@ pub unsafe extern "C" fn mx_rust_import_room_keys(
 
         let events = Arc::clone(&bridge.events);
         let import_flag = Arc::clone(&bridge.import_active);
-        std::thread::spawn(move || {
-            let runtime_events = Arc::clone(&events);
-            run_async(runtime_events, "room_key_import", async move {
+        let registry = Arc::clone(&bridge.timelines);
+        // v0.5.7: the import is a managed task on the shared runtime.
+        // Sign-out joins this handle deterministically instead of polling
+        // the import_active flag against a wall clock.
+        let handle = bridge.runtime.spawn(async move {
                 enqueue(&events, json!({
                     "type": "room_key_import_started",
                 }));
@@ -1717,6 +1773,17 @@ pub unsafe extern "C" fn mx_rust_import_room_keys(
                             "affected_rooms": room_ids.len(),
                             "room_ids": room_ids,
                         }));
+                        // v0.5.7: immediate decryption retry. The imported
+                        // Megolm session IDs stay inside Rust; only counts
+                        // and (public) room ids ever cross the FFI. The SDK
+                        // timeline emits in-place Set diffs for every item
+                        // it can now decrypt — no restart, no manual
+                        // refresh, no room switch.
+                        let sessions_by_room =
+                            timeline::sessions_by_room_from_import(&import.keys);
+                        registry
+                            .retry_decryption_after_import(&sessions_by_room)
+                            .await;
                     }
                     Err(err) => {
                         let display = err.to_string();
@@ -1729,8 +1796,10 @@ pub unsafe extern "C" fn mx_rust_import_room_keys(
                     }
                 }
                 import_flag.store(false, Ordering::SeqCst);
-            });
         });
+        if let Ok(mut guard) = bridge.import_task.lock() {
+            *guard = Some(handle);
+        }
         Ok(String::new())
     })
 }
@@ -1746,6 +1815,183 @@ pub unsafe extern "C" fn mx_rust_room_key_import_active(
         if bridge.import_active.load(Ordering::SeqCst) { 1 } else { 0 }
     }));
     result.unwrap_or(0)
+}
+
+// ---------------------------------------------------------------------------
+// v0.5.7: live SDK timeline FFI. All functions return "" when the command was
+// accepted for async execution or "error: …" synchronously. Results arrive on
+// the poll queue as timeline_reset / timeline_diff / timeline_pagination /
+// timeline_send_failed / timeline_retry_decryption / timeline_error events,
+// each stamped with room_generation + lifecycle for stale-callback rejection.
+// ---------------------------------------------------------------------------
+
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_timeline_open(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        if room_id.trim().is_empty() {
+            return Err("empty room id".to_owned());
+        }
+        let Some(client) = bridge.client.lock().ok().and_then(|g| g.clone()) else {
+            return Err("Rust SDK session is not logged in.".to_owned());
+        };
+        bridge.timelines.open_room(&bridge.runtime, client, room_id);
+        Ok(String::new())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_timeline_close(ptr: *mut c_void) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        bridge.timelines.close();
+        Ok(String::new())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_timeline_paginate_back(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    count: u16,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        bridge
+            .timelines
+            .paginate_back(&bridge.runtime, room_id, count)
+            .map(|_| String::new())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_timeline_send_text(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    body: *const c_char,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let body = unsafe { cstr_arg(body) }?;
+        bridge
+            .timelines
+            .send_text(&bridge.runtime, room_id, body)
+            .map(|_| String::new())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_timeline_send_reply(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    in_reply_to_event_id: *const c_char,
+    body: *const c_char,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let reply_to = unsafe { cstr_arg(in_reply_to_event_id) }?;
+        let body = unsafe { cstr_arg(body) }?;
+        bridge
+            .timelines
+            .send_reply(&bridge.runtime, room_id, reply_to, body)
+            .map(|_| String::new())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_timeline_edit(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    target_event_id: *const c_char,
+    new_body: *const c_char,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let target = unsafe { cstr_arg(target_event_id) }?;
+        let new_body = unsafe { cstr_arg(new_body) }?;
+        bridge
+            .timelines
+            .edit(&bridge.runtime, room_id, target, new_body)
+            .map(|_| String::new())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_timeline_toggle_reaction(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    target_event_id: *const c_char,
+    key: *const c_char,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let target = unsafe { cstr_arg(target_event_id) }?;
+        let key = unsafe { cstr_arg(key) }?;
+        bridge
+            .timelines
+            .toggle_reaction(&bridge.runtime, room_id, target, key)
+            .map(|_| String::new())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_timeline_redact(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    target_event_id: *const c_char,
+    reason: *const c_char,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let target = unsafe { cstr_arg(target_event_id) }?;
+        let reason = unsafe { cstr_arg(reason) }?;
+        bridge
+            .timelines
+            .redact(&bridge.runtime, room_id, target, reason)
+            .map(|_| String::new())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_timeline_retry_send(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    transaction_id: *const c_char,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let txn = unsafe { cstr_arg(transaction_id) }?;
+        bridge
+            .timelines
+            .retry_send(&bridge.runtime, room_id, txn)
+            .map(|_| String::new())
+    })
+}
+
+/// Deterministic shutdown of all managed async work (timeline
+/// subscriptions, room-key import, sync). Called by C++ before server
+/// logout and store cleanup so nothing still owns the crypto store when it
+/// is deleted. Returns a short safe status string for logging.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_shutdown_tasks(ptr: *mut c_void) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let (import_joined, sync_stopped) = bridge.shutdown_managed_tasks();
+        Ok(format!(
+            "import_joined={import_joined} sync_stopped={sync_stopped}"
+        ))
+    })
 }
 
 #[no_mangle]
@@ -1764,7 +2010,7 @@ async fn build_client(homeserver: &str, store_path: &Path) -> Result<Client, Str
     Client::builder()
         .homeserver_url(homeserver)
         .sqlite_store(store_path, None)
-        .user_agent("Lightning/0.5.6")
+        .user_agent("Lightning/0.5.7")
         .build()
         .await
         .map_err(|err| format_matrix_error("failed to build Matrix Rust SDK client", err))
@@ -2051,7 +2297,7 @@ async fn room_name(room: &Room) -> String {
 /// initial sync of a real account.
 const EVENT_QUEUE_CAP: usize = 4096;
 
-fn enqueue(events: &Arc<Mutex<VecDeque<String>>>, value: serde_json::Value) {
+pub(crate) fn enqueue(events: &Arc<Mutex<VecDeque<String>>>, value: serde_json::Value) {
     let Ok(serialized) = serde_json::to_string(&value) else {
         return;
     };

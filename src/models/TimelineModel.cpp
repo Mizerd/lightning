@@ -32,6 +32,14 @@ void TimelineModel::setClient(MatrixClient *client)
                 this, &TimelineModel::onReactionsChanged);
         connect(m_client, &MatrixClient::eventsPrepended,
                 this, &TimelineModel::onEventsPrepended);
+        connect(m_client, &MatrixClient::eventInsertedAt,
+                this, &TimelineModel::onEventInsertedAt);
+        connect(m_client, &MatrixClient::eventChangedAt,
+                this, &TimelineModel::onEventChangedAt);
+        connect(m_client, &MatrixClient::eventRemovedAt,
+                this, &TimelineModel::onEventRemovedAt);
+        connect(m_client, &MatrixClient::eventsTruncatedTo,
+                this, &TimelineModel::onEventsTruncatedTo);
         connect(m_client, &MatrixClient::timelineReset,
                 this, &TimelineModel::onTimelineReset);
         connect(m_client, &MatrixClient::loggedOut,
@@ -155,6 +163,10 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
     case IsDecryptedRole:        return e.isDecrypted;
     case UndecryptableRole:      return e.undecryptable;
     case ErrorKindRole:          return e.errorKind;
+    case ItemIdRole:             return e.itemId;
+    case IsLocalEchoRole:        return e.isLocalEcho;
+    case SendErrorRole:          return e.sendErrorCategory;
+    case IsVirtualRole:          return e.isVirtual();
     default:                     return {};
     }
 }
@@ -193,6 +205,10 @@ QHash<int, QByteArray> TimelineModel::roleNames() const
         { IsDecryptedRole,         "isDecrypted" },
         { UndecryptableRole,       "undecryptable" },
         { ErrorKindRole,           "errorKind" },
+        { ItemIdRole,              "itemId" },
+        { IsLocalEchoRole,         "isLocalEcho" },
+        { SendErrorRole,           "sendErrorCategory" },
+        { IsVirtualRole,           "isVirtual" },
     };
 }
 
@@ -309,6 +325,67 @@ void TimelineModel::onTimelineReset(const QString &roomId)
     reload();
 }
 
+void TimelineModel::onEventInsertedAt(const QString &roomId, int index,
+                                      const TimelineEvent &event)
+{
+    if (roomId != m_roomId)
+        return;
+    if (index < 0 || index > m_events.size()) {
+        // Never apply a corrupt index — self-heal from the backend copy.
+        reload();
+        return;
+    }
+    beginInsertRows({}, index, index);
+    m_events.insert(index, event);
+    endInsertRows();
+    Q_EMIT countChanged();
+}
+
+void TimelineModel::onEventChangedAt(const QString &roomId, int index,
+                                     const TimelineEvent &event)
+{
+    if (roomId != m_roomId)
+        return;
+    if (index < 0 || index >= m_events.size()) {
+        reload();
+        return;
+    }
+    m_events[index] = event;
+    const auto idx = this->index(index);
+    Q_EMIT dataChanged(idx, idx);
+}
+
+void TimelineModel::onEventRemovedAt(const QString &roomId, int index)
+{
+    if (roomId != m_roomId)
+        return;
+    if (index < 0 || index >= m_events.size()) {
+        reload();
+        return;
+    }
+    beginRemoveRows({}, index, index);
+    m_events.removeAt(index);
+    endRemoveRows();
+    Q_EMIT countChanged();
+}
+
+void TimelineModel::onEventsTruncatedTo(const QString &roomId, int length)
+{
+    if (roomId != m_roomId)
+        return;
+    if (length < 0 || length > m_events.size()) {
+        reload();
+        return;
+    }
+    if (length == m_events.size())
+        return;
+    beginRemoveRows({}, length, m_events.size() - 1);
+    while (m_events.size() > length)
+        m_events.removeLast();
+    endRemoveRows();
+    Q_EMIT countChanged();
+}
+
 void TimelineModel::onLoggedOut()
 {
     beginResetModel();
@@ -380,6 +457,7 @@ void TimelineModel::markVisibleAsRead(int firstVisibleRow, int lastVisibleRow)
     if (!m_client || m_roomId.isEmpty()) return;
     if (lastVisibleRow < 0 || lastVisibleRow >= m_events.size()) return;
     const QString eventId = m_events.at(lastVisibleRow).eventId;
+    if (eventId.isEmpty()) return;                           // virtual/local echo rows
     if (eventId.startsWith(QLatin1String("local:"))) return; // don't ack unsent
     m_client->sendReadReceipt(m_roomId, eventId);
 }
@@ -394,6 +472,22 @@ bool TimelineModel::paginating() const
 {
     if (!m_client || m_roomId.isEmpty()) return false;
     return m_client->paginating(m_roomId);
+}
+
+bool TimelineModel::paginationFailed() const
+{
+    if (!m_client || m_roomId.isEmpty()) return false;
+    return m_client->paginationFailed(m_roomId);
+}
+
+void TimelineModel::retrySend(int row)
+{
+    if (!m_client || m_roomId.isEmpty()) return;
+    if (row < 0 || row >= m_events.size()) return;
+    const auto &e = m_events.at(row);
+    if (e.status != TimelineEvent::Failed || e.transactionId.isEmpty())
+        return;
+    m_client->retryFailedSend(m_roomId, e.transactionId);
 }
 
 void TimelineModel::reload()

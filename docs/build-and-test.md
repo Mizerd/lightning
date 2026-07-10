@@ -74,12 +74,80 @@ account-scoped/idempotent Rust-state removal, preservation of cache/other
 accounts, partial cleanup failure, lifecycle generations, stale callback
 rejection, active-versus-shutdown 401 semantics, and store mismatch policy.
 
-Rust-side unit tests (import-error classifier, no network, no credentials):
+v0.5.7 adds three suites that run in **both** build trees (no cargo, no
+network, no credentials):
+
+- `rust-timeline-ingest` — every live-timeline `VectorDiff` envelope
+  (append / push_back / push_front / insert / set / remove / pop_front /
+  pop_back / clear / truncate / reset), index/count validation with
+  malformed-diff rejection (mirror untouched), undecryptable → decrypted
+  in-place replacement, local-echo → remote reconciliation via `set`,
+  and `TimelineGenerationTracker` stale room/generation/lifecycle
+  rejection.
+- `timeline-model-diff` — `TimelineModel` diff application (insert /
+  replace / remove / truncate / reset with correct Qt model
+  notifications), invalid-index self-heal, no duplicate event or
+  transaction ids after reconciliation, failed-send retry routing, and
+  role-name stability for QML.
+- `cache-store-security` — every `CacheStore` write path refuses
+  encrypted-room rows (decrypted, undecryptable, local echo, edit,
+  reply preview, replacement) and a raw scan proves the unique marker
+  plaintext never reaches `cache.sqlite`.
+
+Rust-side unit tests (import-error classifier + imported-session-to-retry
+mapping, no network, no credentials):
 
 ```bash
 cd rust
 nix develop /home/roksme/git/lightning -c cargo test --offline --locked
 ```
+
+## Manual v0.5.7 timeline tests
+
+These require a signed-in Rust-backend session; none require credentials
+in logs. Do not commit real key exports.
+
+**Immediate import/decryption retry (primary 0.5.7 acceptance):** Sign
+into a fresh Lightning session where selected historical messages show
+"[unable to decrypt yet]". Keep an affected room open. Import an
+encrypted Element room-key export (Settings → Security & Recovery →
+Import room keys) and confirm a non-zero imported-session count. Without
+restarting, leaving the room, or clicking Refresh: the visible
+placeholders must update in place, with no duplicate rows, stable scroll
+position, untouched composer text, and unchanged verification status.
+The import summary should add "Imported room keys applied to the open
+timeline."
+
+**Re-import:** Import the same export again — expect 0 imported
+sessions, no error, no duplicates, no verification change.
+
+**Backward pagination:** Open a room with long history, scroll to the
+top. Expect a single "Loading older messages…" spinner per batch, older
+messages prepending with a stable scroll anchor, no duplicates, and the
+header disappearing at the start of history. On a network failure the
+header shows "Could not load older messages — Retry". Switching rooms
+mid-pagination must not leak results into the new room.
+
+**Local echo / failed send:** Send text in an encrypted room — it must
+appear instantly with a subtle "sending…" state and reconcile to sent
+without a duplicate when the remote echo arrives. Disconnect the
+network, send again, expect the "failed" state plus a **Retry** action;
+reconnect and retry — exactly one message must end up in the room.
+
+**Replies / edits / reactions / redactions:** Exercise each in both
+directions (Lightning ↔ Element): reply preview renders, edits replace
+the original bubble (no extra row), reaction counts aggregate and
+toggle, redactions collapse to "[message deleted]".
+
+**Sign-out races:** Sign out during (a) pagination, (b) an in-flight
+send, (c) a key import. Expect no crash/hang, no late updates on the
+Login screen, and a clean next login.
+
+**Cache plaintext check:** Send `LIGHTNING_CACHE_TEST_057` in an
+encrypted test room, confirm it decrypts, close Lightning, then
+`strings …/cache.sqlite | grep LIGHTNING_CACHE_TEST_057` — it must not
+appear. (The automated `cache-store-security` test covers the same
+invariant without credentials.)
 
 ## Manual v0.5.6 verification tests
 

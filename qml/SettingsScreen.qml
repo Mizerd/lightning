@@ -204,6 +204,9 @@ Item {
                             "signed in to this Matrix account. This does not import " +
                             "room keys — key import is a separate action below.")
                     }
+                    // v0.5.7 layout fix: the verified confirmation used to
+                    // sit unconstrained in this row and clipped at narrow
+                    // widths. It now fills the remaining width and wraps.
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: AppTheme.spacingS
@@ -215,12 +218,16 @@ Item {
                             enabled: app.loggedIn
                             onClicked: app.startOwnVerification()
                         }
-                        Item { Layout.fillWidth: true }
                         Label {
                             visible: app.sessionTrustState === "Verified"
+                            Layout.fillWidth: true
                             color: AppTheme.success
                             text: qsTr("This Lightning session is verified through Matrix cross-signing.")
                             wrapMode: Text.WordWrap
+                        }
+                        Item {
+                            visible: app.sessionTrustState !== "Verified"
+                            Layout.fillWidth: true
                         }
                     }
 
@@ -307,7 +314,10 @@ Item {
                                     }
                                 }
                             }
-                            RowLayout {
+                            // v0.5.7 layout fix: Flow instead of RowLayout so
+                            // the action buttons wrap at narrow widths
+                            // instead of clipping.
+                            Flow {
                                 Layout.fillWidth: true
                                 spacing: AppTheme.spacingS
                                 Button {
@@ -327,7 +337,6 @@ Item {
                                     visible: app.verificationState === "sas_ready"
                                     onClicked: app.mismatchVerification()
                                 }
-                                Item { Layout.fillWidth: true }
                                 Button {
                                     text: qsTr("Cancel verification")
                                     visible: app.verificationState === "requested"
@@ -363,11 +372,20 @@ Item {
                         font.weight: Font.DemiBold
                         color: AppTheme.text
                     }
-                    RowLayout {
+                    // v0.5.7 layout fix: responsive grid — the recovery
+                    // input and button sit side by side when there is
+                    // room and stack vertically at narrow widths instead
+                    // of clipping.
+                    GridLayout {
+                        id: recoveryRow
                         Layout.fillWidth: true
+                        columnSpacing: AppTheme.spacingS
+                        rowSpacing: AppTheme.spacingS
+                        columns: width < 360 ? 1 : 2
                         TextField {
                             id: recoveryField
                             Layout.fillWidth: true
+                            Layout.minimumWidth: 160
                             echoMode: TextInput.Password
                             placeholderText: qsTr("Paste the Element recovery key")
                             enabled: !recoveryPanel.running
@@ -557,13 +575,20 @@ Item {
                                 importPanel.statusColor = AppTheme.textMuted
                             } else if (state === "done") {
                                 importPanel.running = false
-                                importPanel.statusText = qsTr(
+                                var doneText = qsTr(
                                     "Room-key import complete.\n" +
                                     "Imported sessions: %1\n" +
                                     "Affected rooms: %2\n" +
                                     "Note: importing keys does not verify this session.")
                                     .arg(app.roomKeyImportImportedCount)
                                     .arg(app.roomKeyImportAffectedRoomCount)
+                                // v0.5.7: the Rust side retries decryption
+                                // on the open timeline right after import;
+                                // surface that honestly (keys applied — not
+                                // "everything decrypted").
+                                if (app.roomKeyImportLastMessage !== "")
+                                    doneText += "\n" + app.roomKeyImportLastMessage
+                                importPanel.statusText = doneText
                                 importPanel.statusColor = AppTheme.success
                                 // Clear file selection for the next round;
                                 // keep the completion summary visible.
@@ -603,14 +628,26 @@ Item {
                             "Lightning's local store; it does not touch server messages " +
                             "or Element data.")
                     }
-                    RowLayout {
+                    // v0.5.7 layout fix: responsive grid — the two buttons
+                    // share a row when there is room and stack at narrow
+                    // widths, keeping the destructive reset button fully
+                    // visible (and visually separated by its danger
+                    // styling) instead of clipping off the right edge.
+                    GridLayout {
+                        id: maintenanceRow
                         Layout.fillWidth: true
+                        columnSpacing: AppTheme.spacingS
+                        rowSpacing: AppTheme.spacingS
+                        columns: width < 420 ? 1 : 3
                         Button {
                             text: qsTr("Refresh current room")
                             enabled: app.currentRoomId !== ""
                             onClicked: app.reloadCurrentRoomTimeline(50)
                         }
-                        Item { Layout.fillWidth: true }
+                        Item {
+                            Layout.fillWidth: true
+                            visible: maintenanceRow.columns === 3
+                        }
                         // v0.5.0-prep+12: destructive-styled reset button.
                         // Foreground white on danger red so it stands
                         // clearly apart from the refresh button.

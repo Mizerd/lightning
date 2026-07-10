@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.21)
 project(matrix-client
-    VERSION 0.5.6
+    VERSION 0.5.7
     DESCRIPTION "Lightning — native C++/Qt Matrix desktop client"
     LANGUAGES CXX
 )
@@ -8,7 +8,7 @@ project(matrix-client
 include(CTest)
 
 # Human-facing release label. Keep in sync with project() and rust/Cargo.toml.
-set(APP_VERSION_LABEL "0.5.6")
+set(APP_VERSION_LABEL "0.5.7")
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -77,6 +77,8 @@ set(APP_SOURCES
     src/matrix/CppHttpMatrixClient.cpp
     src/matrix/MediaHelpers.h
     src/matrix/MediaHelpers.cpp
+    src/matrix/RustTimelineIngest.h
+    src/matrix/RustTimelineIngest.cpp
     src/matrix/RustSessionPolicy.h
     src/matrix/RustSessionPolicy.cpp
     src/matrix/SessionLifecycleGuard.h
@@ -291,6 +293,40 @@ if(BUILD_TESTING)
     target_include_directories(settings-session-test PRIVATE src)
     target_link_libraries(settings-session-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME settings-session COMMAND settings-session-test)
+
+    # v0.5.7: live-timeline diff translation + generation tracking. Pure
+    # Qt (no cargo), so it runs in both build trees.
+    qt_add_executable(rust-timeline-ingest-test
+        tests/RustTimelineIngestTest.cpp
+        src/matrix/RustTimelineIngest.cpp
+    )
+    target_include_directories(rust-timeline-ingest-test PRIVATE src)
+    target_link_libraries(rust-timeline-ingest-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME rust-timeline-ingest COMMAND rust-timeline-ingest-test)
+
+    # v0.5.7: TimelineModel diff application (insert/replace/remove/
+    # truncate/reset, local-echo reconciliation, invalid-index self-heal).
+    qt_add_executable(timeline-model-diff-test
+        tests/TimelineModelDiffTest.cpp
+        src/models/TimelineModel.h
+        src/models/TimelineModel.cpp
+        src/matrix/MatrixClient.h
+        src/matrix/MatrixClient.cpp
+    )
+    target_include_directories(timeline-model-diff-test PRIVATE src)
+    target_link_libraries(timeline-model-diff-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME timeline-model-diff COMMAND timeline-model-diff-test)
+
+    # v0.5.7: CacheStore must refuse encrypted-room rows on every write
+    # path — decrypted plaintext stays memory-only.
+    qt_add_executable(cache-store-security-test
+        tests/CacheStoreSecurityTest.cpp
+        src/storage/CacheStore.cpp
+        src/storage/AppDataPaths.cpp
+    )
+    target_include_directories(cache-store-security-test PRIVATE src)
+    target_link_libraries(cache-store-security-test PRIVATE Qt6::Core Qt6::Sql Qt6::Test)
+    add_test(NAME cache-store-security COMMAND cache-store-security-test)
 endif()
 
 install(TARGETS matrix-client

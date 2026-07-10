@@ -106,6 +106,24 @@ public:
     virtual bool canPaginate(const QString &roomId) const = 0;
     virtual bool paginating(const QString &roomId) const = 0;
 
+    // v0.5.7: true when the last backward pagination for this room failed
+    // and can be retried. Backends without failure tracking return false.
+    virtual bool paginationFailed(const QString &roomId) const
+    {
+        Q_UNUSED(roomId);
+        return false;
+    }
+
+    // v0.5.7: retry a failed outgoing message identified by its send-queue
+    // transaction id. Only the Rust backend (SDK local echoes) implements
+    // this; the default is a no-op so HTTP/Mock behavior is unchanged.
+    virtual void retryFailedSend(const QString &roomId,
+                                 const QString &transactionId)
+    {
+        Q_UNUSED(roomId);
+        Q_UNUSED(transactionId);
+    }
+
 Q_SIGNALS:
     void loginSucceeded(const QString &userId);
     void loginFailed(const QString &reason);
@@ -125,6 +143,18 @@ Q_SIGNALS:
     void eventReplaced(const QString &roomId,
                        const QString &oldEventId,
                        const TimelineEvent &newEvent);
+
+    // v0.5.7: index-based diff signals for backends whose timeline is a
+    // mirrored SDK vector (RustSdkMatrixClient). Indices refer to the
+    // backend's timeline(roomId) list AFTER the operation was applied to
+    // it; TimelineModel validates them again defensively before mutating
+    // its copy.
+    void eventInsertedAt(const QString &roomId, int index,
+                         const TimelineEvent &event);
+    void eventChangedAt(const QString &roomId, int index,
+                        const TimelineEvent &event);
+    void eventRemovedAt(const QString &roomId, int index);
+    void eventsTruncatedTo(const QString &roomId, int length);
     void eventEdited(const QString &roomId, const QString &eventId);
     void eventRedacted(const QString &roomId, const QString &eventId);
     void reactionsChanged(const QString &roomId, const QString &eventId);

@@ -1,7 +1,44 @@
-# Threat model (v0.5.6 verification and room-key import)
+# Threat model (v0.5.7 live timeline, verification, and room-key import)
 
 Scoped to what the current v0.5.0-prep foundation needs a reader to
 know. Full model is v1.0 material.
+
+## Live SDK timeline and decryption retry (v0.5.7)
+
+- The Rust bridge owns persistent `matrix-sdk-ui` Timeline objects; item
+  payloads that cross the FFI carry only UI-safe metadata (stable item
+  id, event/transaction id, sender, timestamp, body plaintext the SDK
+  already produced for display, send state, coarse UTD reason
+  categories). Ciphertext, Megolm/Olm session keys, sender keys, device
+  keys, and raw event JSON never cross the FFI.
+- Post-import decryption retry keeps the imported Megolm **session
+  identifiers** inside Rust (`RoomKeyImportResult.keys`, flattened to
+  room → session-id lists; sender keys dropped). Only counts and
+  already-public room IDs are surfaced to C++/QML. Session IDs are not
+  logged; log lines carry counts and coarse categories only.
+- Decrypted encrypted-room plaintext remains memory-only. The Rust
+  backend does not use `CacheStore` at all, and `CacheStore` refuses
+  `isEncrypted` rows on every write path — including retry-decrypted
+  events, local echoes, edits, reply previews, and local-echo
+  replacements. `tests/CacheStoreSecurityTest.cpp` scans the raw
+  `cache.sqlite` bytes for a unique marker to lock this in.
+- Stale-callback rejection is two-layered: Rust stamps every timeline
+  event with a room generation and a lifecycle generation and stops
+  forwarding when either advances; C++ additionally tracks the adopted
+  generation per requested room and rejects mismatches. A diff from a
+  previous room, a previous open of the same room, or a signed-out
+  session cannot mutate visible state or repopulate the Login screen.
+- Sign-out performs a deterministic managed-task shutdown
+  (`mx_rust_shutdown_tasks`): the timeline subscription is aborted and
+  joined, an in-flight room-key import is **joined** (bounded 15 s
+  timeout only as a last-resort error boundary), sync stops, and only
+  then is the client released and the store deleted. The store can no
+  longer be deleted while a task still owns it; this replaces the
+  v0.5.6 ~5 s `import_active` poll.
+- Send failures surface as coarse categories ("network", "rejected");
+  raw SDK/server error strings from the send path are not forwarded to
+  the UI or logs. Failed-send retry uses the SDK send queue's unwedge on
+  the same queued item, so a retry cannot duplicate a message.
 
 ## Session verification (v0.5.6)
 
@@ -53,10 +90,12 @@ know. Full model is v1.0 material.
 - Only one import runs at a time per Rust client. A second request while
   one is active is rejected via the atomic `import_active` flag and
   surfaces as an `already_running` failure, not a parallel decrypt.
-- Sign-out waits up to ~5 s for an active import to finish before
-  releasing the Rust client. The wait is bounded so a stuck import can
-  never permanently block sign-out. A late import completion for a
-  released client is ignored by the generation check.
+- Sign-out joins an active import deterministically (v0.5.7
+  `mx_rust_shutdown_tasks`; a bounded 15 s timeout remains only as a
+  last-resort error boundary), so a stuck import can never permanently
+  block sign-out and the store is never deleted mid-write. A late
+  import completion for a released client is ignored by the generation
+  check.
 - Room-key import never modifies verification / cross-signing state.
   The UI shows "Not verified" side-by-side with "Import complete" as a
   deliberate signal that these are separate operations.

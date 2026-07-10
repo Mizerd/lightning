@@ -1,4 +1,142 @@
-# Current state (v0.5.6 — session verification and room-key import)
+# Current state (v0.5.7 — live SDK timeline and immediate decryption retry)
+
+## v0.5.7 — Live SDK timeline, decryption retry, pagination, local echoes
+
+### Why
+
+v0.5.6 proved that encrypted room-key import works (keys persisted; a full
+restart made old messages decrypt) but the loaded timeline never
+reprocessed existing undecryptable events. Root cause: the Rust backend's
+history path was a snapshot (`Room::messages`) fed into an append-only,
+event-id-deduplicated C++ list — a re-fetched, now-decryptable event was
+*skipped* because its event id already existed, so the placeholder row
+could never be replaced without rebuilding everything from scratch
+(i.e. restarting).
+
+### Timeline architecture
+
+- The Rust bridge now owns persistent `matrix_sdk_ui::Timeline` objects
+  (`matrix-sdk-ui 0.18.0`, the exact release matching the pinned
+  `matrix-sdk 0.18.0`; `matrix-sdk` itself was **not** upgraded).
+- `rust/src/timeline.rs` hosts a `TimelineRegistry` with a single active
+  room timeline (simplest safe design): opening a room advances the
+  **room generation**, aborts + drops the previous subscription/timeline,
+  builds a fresh `TimelineBuilder::new(&room).build()`, and calls
+  `Timeline::subscribe()` — the SDK returns the initial item vector and
+  the diff stream atomically, so no live event can fall in between.
+- A shared multi-thread Tokio runtime (2 workers) now lives on the
+  bridge. Timeline tasks, the SDK event cache, the send queue, and
+  room-key import all run there; the old per-FFI-call throwaway runtimes
+  could not host anything that outlives one call.
+- Every `VectorDiff` variant is forwarded over the existing poll queue as
+  a `timeline_diff` JSON envelope: `append`, `push_back`, `push_front`,
+  `insert`, `set`, `remove`, `pop_front`, `pop_back`, `clear`,
+  `truncate`, `reset` — each stamped with `room_generation` + `lifecycle`.
+- C++ (`src/matrix/RustTimelineIngest.{h,cpp}`) validates each envelope
+  against a mirrored list before mutating it; malformed or out-of-range
+  diffs are rejected (mirror untouched) and recovered with one fresh
+  snapshot. `TimelineGenerationTracker` adopts the generation from the
+  most recently *requested* room's `timeline_reset` and rejects
+  everything stale — diffs from a previous room, a previous open of the
+  same room, or a signed-out lifecycle can never mutate visible state.
+- `TimelineModel` gained index-based diff application
+  (`eventInsertedAt` / `eventChangedAt` / `eventRemovedAt` /
+  `eventsTruncatedTo` interface signals) with correct
+  `beginInsertRows`/`beginRemoveRows`/`dataChanged` notifications and
+  defensive re-validation (invalid index → full reload, never
+  corruption). Full model resets happen only for the initial snapshot
+  and the SDK's own `Clear`/`Reset` diffs.
+- Item identity is the SDK's `TimelineUniqueId` (`itemId` role), so an
+  undecryptable placeholder becomes its decrypted form **in place**, a
+  local echo becomes the remote event in place, and edits/redactions/
+  reactions update the original row. Virtual items (date divider, read
+  marker, timeline start) are forwarded as rows so diff indices stay
+  aligned; QML renders them as thin separators.
+- Live-sync `timeline_event`s for the open room now only refresh the
+  room-list preview — the SDK timeline is the single source of truth for
+  visible rows, eliminating the duplicate-source problem
+  (Room::messages + live sync + C++ echoes all appending to one list).
+
+### Immediate decryption retry (the 0.5.7 acceptance fix)
+
+- `mx_rust_import_room_keys` keeps the `RoomKeyImportResult.keys` map
+  in Rust, flattens it to `(room_id, [megolm session ids])` pairs
+  (sender keys dropped, key material never present), and — right after
+  emitting `room_key_import_done` — awaits the pinned SDK's
+  `Timeline::retry_decryption(session_ids)` on the open room's timeline
+  when it appears in the import result.
+- The SDK emits in-place `Set` diffs for every item it can now decrypt;
+  they flow through the normal subscription channel. No restart, no
+  manual "Refresh current room", no room switch, no duplicate rows, no
+  scroll jump (a `Set` does not change the row count), composer text
+  untouched.
+- The UI shows "Imported room keys applied to the open timeline." —
+  keys applied, deliberately not "everything decrypted".
+- Import still never changes verification state. Re-importing the same
+  export reports 0 sessions and is a no-op.
+- Rooms not currently open decrypt naturally when opened later (their
+  timeline is rebuilt with the imported keys already in the store).
+
+### Backward pagination
+
+- Scrolling near the top triggers `Timeline::paginate_backwards(20)`
+  (`PAGINATION_BATCH`, documented constant on both sides).
+- Single-flight per room (atomic guard in Rust); states are
+  idle / loading / failed / end-reached, surfaced to QML as
+  `canPaginate` / `paginating` / `paginationFailed`.
+- Failure shows "Could not load older messages — Retry"; end of history
+  removes the header entirely; prepends keep the visible scroll anchor.
+- Stale pagination completions (room switched / signed out mid-flight)
+  are dropped by generation checks on both sides.
+
+### Local echoes and send state
+
+- Text sends in rooms with a live timeline go through `Timeline::send`
+  (send queue): the SDK creates the local echo instantly, drives
+  sending → sent/failed, and reconciles the remote echo in place — the
+  old C++-built `local:` echo path is no longer used on this route.
+- Failed sends show a coarse safe category ("network" / "rejected") and
+  a **Retry** action that calls `SendHandle::unwedge()` — the same
+  queued item is re-attempted, so retries cannot duplicate.
+- Replies / edits / reactions / redactions on the Rust backend now use
+  the official timeline APIs (`send_reply`, `edit`, `toggle_reaction`,
+  `redact`) — no hand-built relation JSON. The HTTP backend keeps its
+  existing behavior; encrypted sends remain blocked there.
+
+### Lifecycle and shutdown
+
+- New `mx_rust_shutdown_tasks`: advances the lifecycle generation,
+  aborts + joins the timeline subscription, **joins** an in-flight
+  room-key import (a bounded 15 s timeout remains only as a last-resort
+  error boundary after the deterministic join), then stops sync. Called
+  on sign-out before server logout and store cleanup, and again on
+  handle release — the crypto store can no longer be deleted while a
+  task still owns it. This replaces the v0.5.6 ~5 s `import_active`
+  poll loop.
+- Room switching, sign-out during pagination/import/retry, and app
+  shutdown all resolve through the same generation + abort/join path.
+
+### Security invariants (unchanged, now regression-tested)
+
+- Decrypted encrypted-room plaintext stays memory-only; `CacheStore`
+  refuses `isEncrypted` rows on every write path
+  (`tests/CacheStoreSecurityTest.cpp` proves the unique marker never
+  reaches `cache.sqlite`, including local echoes, edits, replies, and
+  replacements). The Rust backend does not use `CacheStore` at all.
+- No Megolm/Olm/session-key material crosses the FFI; retry uses session
+  *identifiers* kept in Rust. Logs carry counts and coarse categories,
+  never message bodies or key material.
+
+### Known limitations
+
+- Sliding Sync is not adopted; classic sync remains.
+- The room list is not on `RoomListService`.
+- One active room timeline (no LRU cache of recently open rooms yet);
+  switching rooms rebuilds from the SDK event cache.
+- Media on the Rust backend: plain (unencrypted) mxc sources only;
+  encrypted media download/decrypt is future work.
+- Stickers, polls, live location render as safe placeholders.
+- QR verification and full device management remain unimplemented.
 
 ## v0.5.6 — Lightning-initiated SAS and encrypted room-key import
 

@@ -149,6 +149,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4288f83726785267c6f2ef073a3d83dc3f9b81464e9f99898240cced85fce35a"
 
 [[package]]
+name = "async-rx"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a82c1a761cd7b772912fd2500f2c0a850c0c72f5f66543038393ac6cfaa3659a"
+dependencies = [
+ "futures-core",
+ "pin-project-lite",
+]
+
+[[package]]
 name = "async-stream"
 version = "0.3.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -179,6 +189,15 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.118",
+]
+
+[[package]]
+name = "async_cell"
+version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "447ab28afbb345f5408b120702a44e5529ebf90b1796ec76e9528df8e288e6c2"
+dependencies = [
+ "loom",
 ]
 
 [[package]]
@@ -760,6 +779,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "91622ff5e7162018101f2fea40d6ebf4a78bbe5a49736a2020649edf9693679e"
 
 [[package]]
+name = "emojis"
+version = "0.8.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0a4d5d50b0b58df5173d8ff1192b4d1422ceae5d981b30d4b6f8ed1d673a2bc4"
+dependencies = [
+ "phf",
+]
+
+[[package]]
 name = "equivalent"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -820,6 +848,20 @@ dependencies = [
  "imbl",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "eyeball-im-util"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "809fa2e8e59c25a41f5b2440aa937f1e84df6ae48b707e65f69ce259b1c44bda"
+dependencies = [
+ "arrayvec",
+ "eyeball-im",
+ "futures-core",
+ "imbl",
+ "pin-project-lite",
+ "smallvec",
 ]
 
 [[package]]
@@ -971,6 +1013,30 @@ dependencies = [
  "memchr",
  "pin-project-lite",
  "slab",
+]
+
+[[package]]
+name = "fuzzy-matcher"
+version = "0.3.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "54614a3312934d066701a80f20f15fa3b56d67ac7722b39eea5b4c9dd1d66c94"
+dependencies = [
+ "thread_local",
+]
+
+[[package]]
+name = "generator"
+version = "0.8.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b3b854b0e584ead1a33f18b2fcad7cf7be18b3875c78816b753639aa501513ae"
+dependencies = [
+ "cc",
+ "cfg-if",
+ "libc",
+ "log",
+ "rustversion",
+ "windows-link",
+ "windows-result",
 ]
 
 [[package]]
@@ -1621,6 +1687,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0ceec5bc11778974d1bcb055b18002eba7f4b3518b6a0081b3af5f21666da9ad"
 
 [[package]]
+name = "loom"
+version = "0.7.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "419e0dc8046cb947daa77eb95ae174acfbddb7673b4151f56d1eed8e93fbfaca"
+dependencies = [
+ "cfg-if",
+ "generator",
+ "scoped-tls",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "lru-slab"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1692,10 +1771,22 @@ dependencies = [
 ]
 
 [[package]]
-name = "matrix-client-rust"
-version = "0.5.6"
+name = "matchers"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d1525a2a28c7f4fa0fc98bb91ae755d1e2d1505079e05539e35bc876b5d65ae9"
 dependencies = [
+ "regex-automata",
+]
+
+[[package]]
+name = "matrix-client-rust"
+version = "0.5.7"
+dependencies = [
+ "futures-util",
  "matrix-sdk",
+ "matrix-sdk-base",
+ "matrix-sdk-ui",
  "once_cell",
  "serde",
  "serde_json",
@@ -1958,6 +2049,45 @@ dependencies = [
  "sha2",
  "thiserror 2.0.18",
  "zeroize",
+]
+
+[[package]]
+name = "matrix-sdk-ui"
+version = "0.18.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6d1f2b8a8cf57164d7cee4eb61c0b9f074b2e11d766a9391b7db0b9f2cbd83d8"
+dependencies = [
+ "as_variant",
+ "async-rx",
+ "async-stream",
+ "async_cell",
+ "bitflags",
+ "chrono",
+ "emojis",
+ "eyeball",
+ "eyeball-im",
+ "eyeball-im-util",
+ "futures-core",
+ "futures-util",
+ "fuzzy-matcher",
+ "growable-bloom-filter",
+ "imbl",
+ "indexmap",
+ "itertools 0.14.0",
+ "matrix-sdk",
+ "matrix-sdk-base",
+ "matrix-sdk-common",
+ "mime",
+ "pin-project-lite",
+ "ruma",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-stream",
+ "tracing",
+ "unicode-normalization",
+ "unicode-segmentation",
 ]
 
 [[package]]
@@ -2714,6 +2844,7 @@ dependencies = [
  "js_int",
  "js_option",
  "ruma-common",
+ "ruma-html",
  "ruma-macros",
  "serde",
  "serde_json",
@@ -2904,6 +3035,12 @@ checksum = "91c1b7e4904c873ef0710c1f407dde2e6287de2bebc1bbbf7d430bb7cbffd939"
 dependencies = [
  "windows-sys 0.61.2",
 ]
+
+[[package]]
+name = "scoped-tls"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e1cf6437eb19a8f4a6cc0f7dca544973b0b78843adbfeb3683d1a94a0024a294"
 
 [[package]]
 name = "scopeguard"
@@ -3533,6 +3670,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "db97caf9d906fbde555dd62fa95ddba9eecfd14cb388e4f491a66d74cd5fb79a"
 dependencies = [
  "once_cell",
+ "valuable",
+]
+
+[[package]]
+name = "tracing-log"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ee855f1f400bd0e5c02d150ae5de3840039a3f54b025156404e34c23c03f47c3"
+dependencies = [
+ "log",
+ "once_cell",
+ "tracing-core",
 ]
 
 [[package]]
@@ -3541,11 +3690,16 @@ version = "0.3.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cb7f578e5945fb242538965c2d0b04418d38ec25c79d160cd279bf0731c8d319"
 dependencies = [
+ "matchers",
  "nu-ansi-term",
+ "once_cell",
+ "regex-automata",
  "sharded-slab",
  "smallvec",
  "thread_local",
+ "tracing",
  "tracing-core",
+ "tracing-log",
 ]
 
 [[package]]
@@ -3590,6 +3744,12 @@ checksum = "5fd4f6878c9cb28d874b009da9e8d183b5abc80117c40bbd187a1fde336be6e8"
 dependencies = [
  "tinyvec",
 ]
+
+[[package]]
+name = "unicode-segmentation"
+version = "1.13.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c6f5d3c3b1bf09027a88a6bc961fc00497d651009560b5463668dc81b0fa87a8"
 
 [[package]]
 name = "unicode-xid"
@@ -3655,6 +3815,12 @@ dependencies = [
  "serde_core",
  "wasm-bindgen",
 ]
+
+[[package]]
+name = "valuable"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ba73ea9cf16a25df0c8caa16c51acb937d5712a8429db78a3ee29d5dcacd3a65"
 
 [[package]]
 name = "vcpkg"

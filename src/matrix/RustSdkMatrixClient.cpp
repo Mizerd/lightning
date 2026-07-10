@@ -9,7 +9,6 @@
 #include <QDateTime>
 #include <QDir>
 #include <QFileInfo>
-#include <QThread>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -168,6 +167,8 @@ void RustSdkMatrixClient::clearLocalState()
     m_timelines.clear();
     m_pendingSends.clear();
     m_pendingProbes.clear();
+    m_timelineTracker.reset();
+    m_pagination.clear();
     setInitialSyncDone(false);
     Q_EMIT roomsChanged();
     setState(Disconnected);
@@ -257,9 +258,14 @@ void RustSdkMatrixClient::releaseRustHandle()
     m_pollTimer.stop();
     if (!m_rustHandle)
         return;
-    const bool stopped = mx_rust_stop_sync(m_rustHandle) != 0;
-    qCInfo(lcRust) << "rust sync stop result="
-                   << (stopped ? "ok" : "already_stopped");
+    // v0.5.7: deterministic teardown — timeline subscriptions are cancelled
+    // and joined, an in-flight room-key import is joined (bounded last-resort
+    // timeout), the sync loop is stopped. Only then is the handle destroyed,
+    // so no task can still own the SDK store when callers delete it.
+    const QString shutdown = takeRustString(mx_rust_shutdown_tasks(m_rustHandle));
+    qCInfo(lcRust) << "rust managed-task shutdown" << shutdown;
+    m_timelineTracker.reset();
+    m_pagination.clear();
     mx_rust_destroy(m_rustHandle);
     m_rustHandle = nullptr;
     m_handleGeneration = 0;
@@ -537,23 +543,6 @@ void RustSdkMatrixClient::logout()
     if (m_lifecycle.signingOut())
         return;
 
-    // Wait briefly for an in-flight room-key import to finish before
-    // tearing down the SDK store. matrix-sdk's import writes to the
-    // sqlite crypto store; releasing the client during the write would
-    // corrupt the store on disk. The wait is bounded so a stuck import
-    // can never permanently block sign-out.
-    if (m_rustHandle && mx_rust_room_key_import_active(m_rustHandle)) {
-        qCInfo(lcRust) << "logout: waiting for active room key import to finish";
-        for (int i = 0; i < 100; ++i) {
-            if (!mx_rust_room_key_import_active(m_rustHandle))
-                break;
-            QThread::msleep(50);
-        }
-        if (mx_rust_room_key_import_active(m_rustHandle)) {
-            qCWarning(lcRust) << "logout: import did not finish in time; proceeding anyway";
-        }
-    }
-
     matrix::app_data::resolveAccountIdentity(
         m_homeserver, m_userId, &m_signOutIdentity);
     m_signOutDeviceId = m_deviceId;
@@ -561,6 +550,23 @@ void RustSdkMatrixClient::logout()
                    << "slug=" << m_signOutIdentity.slug
                    << "device_known=" << !m_signOutDeviceId.isEmpty();
     m_lifecycle.beginSignOut(m_handleGeneration);
+
+    // v0.5.7: deterministic managed-task shutdown replaces the 0.5.6
+    // import_active poll loop. Rust cancels and *joins* the timeline
+    // subscription, joins an in-flight room-key import (the crypto store
+    // must never be deleted under a live write), and stops the sync loop.
+    // The bounded timeout inside is a last-resort error boundary only.
+    if (m_rustHandle) {
+        const QString shutdown =
+            takeRustString(mx_rust_shutdown_tasks(m_rustHandle));
+        qCInfo(lcRust) << "logout: managed-task shutdown" << shutdown;
+        if (mx_rust_room_key_import_active(m_rustHandle)) {
+            qCWarning(lcRust)
+                << "logout: import did not finish in time; proceeding anyway";
+        }
+    }
+    m_timelineTracker.reset();
+    m_pagination.clear();
     stopSync();
 
     if (m_rustHandle) {
@@ -697,6 +703,23 @@ void RustSdkMatrixClient::sendTextMessage(const QString &roomId, const QString &
         return;
     }
 
+    // v0.5.7: rooms with a live SDK timeline send through Timeline::send —
+    // the SDK creates the local echo, drives sending → sent/failed
+    // transitions, and reconciles the remote echo in place. No C++-side
+    // echo, no duplicate.
+    if (timelineActiveFor(roomId)) {
+        const QByteArray roomBytes = roomId.toUtf8();
+        const QByteArray bodyBytes = body.toUtf8();
+        const QString result = takeRustString(mx_rust_timeline_send_text(
+            m_rustHandle, roomBytes.constData(), bodyBytes.constData()));
+        if (!result.isEmpty()) {
+            Q_EMIT errorOccurred(result.startsWith(QLatin1String("error: "))
+                                     ? result.mid(7)
+                                     : result);
+        }
+        return;
+    }
+
     const QString txnId = nextTxnId();
     TimelineEvent echo = buildOwnEcho(roomId, body, TimelineEvent::TextMessage);
     echo.eventId = QLatin1String("local:") + txnId;
@@ -718,24 +741,92 @@ void RustSdkMatrixClient::sendTextMessage(const QString &roomId, const QString &
     }
 }
 
-void RustSdkMatrixClient::sendReply(const QString &, const QString &, const QString &)
+// v0.5.7: replies, edits, reactions, and redactions route through the
+// official matrix-sdk-ui timeline actions when the room's live timeline is
+// open (relation JSON is never hand-built in C++). Rooms without a live
+// timeline keep the previous refusal.
+void RustSdkMatrixClient::sendReply(const QString &roomId,
+                                    const QString &replyToEventId,
+                                    const QString &body)
 {
-    refuseSend("sendReply");
+    if (!timelineActiveFor(roomId)) {
+        refuseSend("sendReply");
+        return;
+    }
+    const QByteArray roomBytes = roomId.toUtf8();
+    const QByteArray targetBytes = replyToEventId.toUtf8();
+    const QByteArray bodyBytes = body.toUtf8();
+    const QString result = takeRustString(mx_rust_timeline_send_reply(
+        m_rustHandle, roomBytes.constData(), targetBytes.constData(),
+        bodyBytes.constData()));
+    if (!result.isEmpty()) {
+        Q_EMIT errorOccurred(result.startsWith(QLatin1String("error: "))
+                                 ? result.mid(7)
+                                 : result);
+    }
 }
 
-void RustSdkMatrixClient::editMessage(const QString &, const QString &, const QString &)
+void RustSdkMatrixClient::editMessage(const QString &roomId,
+                                      const QString &targetEventId,
+                                      const QString &newBody)
 {
-    refuseSend("editMessage");
+    if (!timelineActiveFor(roomId)) {
+        refuseSend("editMessage");
+        return;
+    }
+    const QByteArray roomBytes = roomId.toUtf8();
+    const QByteArray targetBytes = targetEventId.toUtf8();
+    const QByteArray bodyBytes = newBody.toUtf8();
+    const QString result = takeRustString(mx_rust_timeline_edit(
+        m_rustHandle, roomBytes.constData(), targetBytes.constData(),
+        bodyBytes.constData()));
+    if (!result.isEmpty()) {
+        Q_EMIT errorOccurred(result.startsWith(QLatin1String("error: "))
+                                 ? result.mid(7)
+                                 : result);
+    }
 }
 
-void RustSdkMatrixClient::redactEvent(const QString &, const QString &, const QString &)
+void RustSdkMatrixClient::redactEvent(const QString &roomId,
+                                      const QString &eventId,
+                                      const QString &reason)
 {
-    refuseSend("redactEvent");
+    if (!timelineActiveFor(roomId)) {
+        refuseSend("redactEvent");
+        return;
+    }
+    const QByteArray roomBytes = roomId.toUtf8();
+    const QByteArray targetBytes = eventId.toUtf8();
+    const QByteArray reasonBytes = reason.toUtf8();
+    const QString result = takeRustString(mx_rust_timeline_redact(
+        m_rustHandle, roomBytes.constData(), targetBytes.constData(),
+        reasonBytes.constData()));
+    if (!result.isEmpty()) {
+        Q_EMIT errorOccurred(result.startsWith(QLatin1String("error: "))
+                                 ? result.mid(7)
+                                 : result);
+    }
 }
 
-void RustSdkMatrixClient::toggleReaction(const QString &, const QString &, const QString &)
+void RustSdkMatrixClient::toggleReaction(const QString &roomId,
+                                         const QString &targetEventId,
+                                         const QString &key)
 {
-    refuseSend("toggleReaction");
+    if (!timelineActiveFor(roomId)) {
+        refuseSend("toggleReaction");
+        return;
+    }
+    const QByteArray roomBytes = roomId.toUtf8();
+    const QByteArray targetBytes = targetEventId.toUtf8();
+    const QByteArray keyBytes = key.toUtf8();
+    const QString result = takeRustString(mx_rust_timeline_toggle_reaction(
+        m_rustHandle, roomBytes.constData(), targetBytes.constData(),
+        keyBytes.constData()));
+    if (!result.isEmpty()) {
+        Q_EMIT errorOccurred(result.startsWith(QLatin1String("error: "))
+                                 ? result.mid(7)
+                                 : result);
+    }
 }
 
 void RustSdkMatrixClient::sendTyping(const QString &, bool, int)
@@ -756,8 +847,102 @@ void RustSdkMatrixClient::sendFile(const QString &, const QString &)
     refuseSend("sendFile");
 }
 
-void RustSdkMatrixClient::loadOlderMessages(const QString &)
+namespace {
+// One pagination batch. Matches timeline::PAGINATION_BATCH on the Rust
+// side; large enough to fill a screen, small enough to stay responsive.
+constexpr unsigned short kPaginationBatch = 20;
+} // namespace
+
+void RustSdkMatrixClient::loadOlderMessages(const QString &roomId)
 {
+    if (!timelineActiveFor(roomId))
+        return;
+    auto &state = m_pagination[roomId];
+    if (state.loading || state.reachedStart)
+        return;
+    const QByteArray roomBytes = roomId.toUtf8();
+    const QString result = takeRustString(mx_rust_timeline_paginate_back(
+        m_rustHandle, roomBytes.constData(), kPaginationBatch));
+    if (!result.isEmpty()) {
+        qCWarning(lcRust) << "timeline pagination dispatch failed";
+        state.failed = true;
+        Q_EMIT paginationStateChanged(roomId);
+    }
+}
+
+bool RustSdkMatrixClient::canPaginate(const QString &roomId) const
+{
+    if (!timelineActiveFor(roomId))
+        return false;
+    const auto it = m_pagination.constFind(roomId);
+    if (it == m_pagination.constEnd())
+        return true;
+    return !it->loading && !it->reachedStart;
+}
+
+bool RustSdkMatrixClient::paginating(const QString &roomId) const
+{
+    const auto it = m_pagination.constFind(roomId);
+    return it != m_pagination.constEnd() && it->loading;
+}
+
+bool RustSdkMatrixClient::paginationFailed(const QString &roomId) const
+{
+    const auto it = m_pagination.constFind(roomId);
+    return it != m_pagination.constEnd() && it->failed;
+}
+
+void RustSdkMatrixClient::retryFailedSend(const QString &roomId,
+                                          const QString &transactionId)
+{
+    if (!timelineActiveFor(roomId) || transactionId.isEmpty())
+        return;
+    const QByteArray roomBytes = roomId.toUtf8();
+    const QByteArray txnBytes = transactionId.toUtf8();
+    const QString result = takeRustString(mx_rust_timeline_retry_send(
+        m_rustHandle, roomBytes.constData(), txnBytes.constData()));
+    if (!result.isEmpty()) {
+        Q_EMIT errorOccurred(result.startsWith(QLatin1String("error: "))
+                                 ? result.mid(7)
+                                 : result);
+    }
+}
+
+bool RustSdkMatrixClient::timelineActiveFor(const QString &roomId) const
+{
+    return m_rustHandle && !roomId.isEmpty()
+        && (m_timelineTracker.activeRoom() == roomId
+            || m_timelineTracker.requestedRoom() == roomId);
+}
+
+void RustSdkMatrixClient::openRoomTimeline(const QString &roomId)
+{
+    if (!m_loggedIn || !m_rustHandle || roomId.isEmpty())
+        return;
+    m_timelineTracker.request(roomId);
+    m_pagination.insert(roomId, PaginationState{});
+    qCInfo(lcRust) << "timeline open room=" << roomId.right(12);
+    const QByteArray roomBytes = roomId.toUtf8();
+    const QString result = takeRustString(
+        mx_rust_timeline_open(m_rustHandle, roomBytes.constData()));
+    if (!result.isEmpty()) {
+        m_timelineTracker.reset();
+        Q_EMIT errorOccurred(result.startsWith(QLatin1String("error: "))
+                                 ? result.mid(7)
+                                 : result);
+        return;
+    }
+    Q_EMIT paginationStateChanged(roomId);
+}
+
+void RustSdkMatrixClient::closeRoomTimeline()
+{
+    if (m_rustHandle && m_timelineTracker.hasActiveTimeline()) {
+        const QString room = m_timelineTracker.activeRoom();
+        takeRustString(mx_rust_timeline_close(m_rustHandle));
+        qCInfo(lcRust) << "timeline close room=" << room.right(12);
+    }
+    m_timelineTracker.reset();
 }
 
 void RustSdkMatrixClient::refuseSend(const char *op)
@@ -947,6 +1132,49 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
 
     if (type == QLatin1String("timeline_event")) {
         handleTimelineEvent(event);
+        return;
+    }
+
+    // v0.5.7 live SDK timeline events.
+    if (type == QLatin1String("timeline_reset")) {
+        handleTimelineReset(event);
+        return;
+    }
+    if (type == QLatin1String("timeline_diff")) {
+        handleTimelineDiff(event);
+        return;
+    }
+    if (type == QLatin1String("timeline_pagination")) {
+        handleTimelinePagination(event);
+        return;
+    }
+    if (type == QLatin1String("timeline_retry_decryption")) {
+        handleTimelineRetryDecryption(event);
+        return;
+    }
+    if (type == QLatin1String("timeline_send_failed")) {
+        const QString category =
+            event.value(QStringLiteral("category")).toString(
+                QStringLiteral("rejected"));
+        qCWarning(lcRust) << "timeline send state=failed category=" << category;
+        Q_EMIT errorOccurred(tr("Message could not be sent. You can retry "
+                                "from the message's Retry action."));
+        return;
+    }
+    if (type == QLatin1String("timeline_error")) {
+        const QString category =
+            event.value(QStringLiteral("category")).toString(
+                QStringLiteral("unknown"));
+        qCWarning(lcRust) << "timeline error category=" << category;
+        if (category != QLatin1String("unknown_room")) {
+            Q_EMIT errorOccurred(tr("The room timeline could not be opened."));
+        }
+        return;
+    }
+    if (type == QLatin1String("timeline_closed")
+        || type == QLatin1String("timeline_shutdown")) {
+        qCInfo(lcRust) << "timeline subscription stopped"
+                       << "kind=" << type;
         return;
     }
 
@@ -1183,6 +1411,25 @@ void RustSdkMatrixClient::handleTimelineEvent(const QJsonObject &event)
     if (roomId.isEmpty() || eventId.isEmpty())
         return;
 
+    // v0.5.7: rooms with a live SDK timeline are fed exclusively through
+    // timeline_reset / timeline_diff — appending the raw sync event here
+    // would duplicate rows. Keep only the room-list preview update.
+    if (m_timelineTracker.activeRoom() == roomId
+        || m_timelineTracker.requestedRoom() == roomId) {
+        auto roomIt = m_rooms.find(roomId);
+        if (roomIt != m_rooms.end()) {
+            const QString body = obj.value(QStringLiteral("body")).toString();
+            if (!body.isEmpty())
+                roomIt->lastMessagePreview = body;
+            const QDateTime ts = timestampFromMs(static_cast<qint64>(
+                obj.value(QStringLiteral("timestamp_ms")).toDouble(0)));
+            if (ts.isValid())
+                roomIt->lastActivity = ts;
+            Q_EMIT roomUpdated(roomId);
+        }
+        return;
+    }
+
     auto &timeline = m_timelines[roomId];
     for (const auto &existing : timeline) {
         if (existing.eventId == eventId)
@@ -1240,6 +1487,153 @@ void RustSdkMatrixClient::handleTimelineEvent(const QJsonObject &event)
         roomIt->lastActivity = timelineEvent.timestamp;
         Q_EMIT roomUpdated(roomId);
     }
+}
+
+void RustSdkMatrixClient::updateRoomPreviewFrom(
+    const QString &roomId, const QList<TimelineEvent> &newestFirstCandidates)
+{
+    auto roomIt = m_rooms.find(roomId);
+    if (roomIt == m_rooms.end())
+        return;
+    for (const auto &event : newestFirstCandidates) {
+        if (event.isVirtual())
+            continue;
+        roomIt->lastMessagePreview = previewFor(event);
+        if (event.timestamp.isValid())
+            roomIt->lastActivity = event.timestamp;
+        Q_EMIT roomUpdated(roomId);
+        return;
+    }
+}
+
+void RustSdkMatrixClient::handleTimelineReset(const QJsonObject &event)
+{
+    const QString roomId = event.value(QStringLiteral("room_id")).toString();
+    const auto generation = static_cast<quint64>(
+        event.value(QStringLiteral("room_generation")).toDouble(0));
+    if (!m_timelineTracker.adoptReset(roomId, generation)) {
+        qCInfo(lcRust) << "timeline stale reset ignored"
+                       << "generation=" << generation
+                       << "adopted=" << m_timelineTracker.generation();
+        return;
+    }
+
+    const QJsonArray items = event.value(QStringLiteral("items")).toArray();
+    m_timelines[roomId] =
+        matrix::rust_timeline::eventsFromItemArray(items, roomId);
+    qCInfo(lcRust) << "timeline subscription started"
+                   << "room_generation=" << generation
+                   << "items=" << m_timelines[roomId].size();
+    Q_EMIT timelineReset(roomId);
+    Q_EMIT paginationStateChanged(roomId);
+
+    QList<TimelineEvent> newestFirst = m_timelines[roomId];
+    std::reverse(newestFirst.begin(), newestFirst.end());
+    updateRoomPreviewFrom(roomId, newestFirst);
+}
+
+void RustSdkMatrixClient::handleTimelineDiff(const QJsonObject &event)
+{
+    const QString roomId = event.value(QStringLiteral("room_id")).toString();
+    const auto generation = static_cast<quint64>(
+        event.value(QStringLiteral("room_generation")).toDouble(0));
+    if (!m_timelineTracker.accepts(roomId, generation)) {
+        qCInfo(lcRust) << "timeline stale diff ignored"
+                       << "generation=" << generation
+                       << "adopted=" << m_timelineTracker.generation();
+        return;
+    }
+
+    using matrix::rust_timeline::DiffOutcome;
+    auto &mirror = m_timelines[roomId];
+    const DiffOutcome outcome =
+        matrix::rust_timeline::applyTimelineDiff(mirror, event, roomId);
+
+    switch (outcome.kind) {
+    case DiffOutcome::Appended:
+        for (const auto &item : outcome.items)
+            Q_EMIT eventAppended(roomId, item);
+        {
+            QList<TimelineEvent> newestFirst = outcome.items;
+            std::reverse(newestFirst.begin(), newestFirst.end());
+            updateRoomPreviewFrom(roomId, newestFirst);
+        }
+        break;
+    case DiffOutcome::Prepended:
+        Q_EMIT eventsPrepended(roomId, outcome.items);
+        break;
+    case DiffOutcome::Inserted:
+        Q_EMIT eventInsertedAt(roomId, outcome.index, outcome.items.first());
+        break;
+    case DiffOutcome::Changed:
+        Q_EMIT eventChangedAt(roomId, outcome.index, outcome.items.first());
+        break;
+    case DiffOutcome::Removed:
+        Q_EMIT eventRemovedAt(roomId, outcome.index);
+        break;
+    case DiffOutcome::Cleared:
+    case DiffOutcome::Reset:
+        Q_EMIT timelineReset(roomId);
+        break;
+    case DiffOutcome::Truncated:
+        Q_EMIT eventsTruncatedTo(roomId, outcome.length);
+        break;
+    case DiffOutcome::Invalid:
+        // Never apply a malformed/stale diff. Recover with one fresh
+        // snapshot instead of corrupting model state. No message bodies
+        // in this log line.
+        qCWarning(lcRust) << "timeline invalid diff rejected"
+                          << "op=" << event.value(QStringLiteral("op")).toString()
+                          << "index=" << event.value(QStringLiteral("index")).toInt(-1)
+                          << "mirror_size=" << mirror.size();
+        openRoomTimeline(roomId);
+        break;
+    }
+}
+
+void RustSdkMatrixClient::handleTimelinePagination(const QJsonObject &event)
+{
+    const QString roomId = event.value(QStringLiteral("room_id")).toString();
+    const auto generation = static_cast<quint64>(
+        event.value(QStringLiteral("room_generation")).toDouble(0));
+    if (!m_timelineTracker.accepts(roomId, generation)) {
+        qCInfo(lcRust) << "timeline stale pagination ignored"
+                       << "generation=" << generation;
+        return;
+    }
+
+    auto &state = m_pagination[roomId];
+    const QString paginationState =
+        event.value(QStringLiteral("state")).toString();
+    if (paginationState == QLatin1String("loading")) {
+        state.loading = true;
+        state.failed = false;
+        qCInfo(lcRust) << "timeline pagination started";
+    } else if (paginationState == QLatin1String("idle")) {
+        state.loading = false;
+        state.failed = false;
+        state.reachedStart =
+            event.value(QStringLiteral("reached_start")).toBool(false);
+        qCInfo(lcRust) << "timeline pagination complete reached_start="
+                       << state.reachedStart;
+    } else if (paginationState == QLatin1String("failed")) {
+        state.loading = false;
+        state.failed = true;
+        qCWarning(lcRust) << "timeline pagination failed category="
+                          << event.value(QStringLiteral("category")).toString();
+    }
+    Q_EMIT paginationStateChanged(roomId);
+}
+
+void RustSdkMatrixClient::handleTimelineRetryDecryption(const QJsonObject &event)
+{
+    const QString roomId = event.value(QStringLiteral("room_id")).toString();
+    const QString state = event.value(QStringLiteral("state")).toString();
+    const int sessions = event.value(QStringLiteral("sessions")).toInt(0);
+    qCInfo(lcRust) << "timeline retry decryption" << state
+                   << "sessions=" << sessions;
+    if (state == QLatin1String("done"))
+        Q_EMIT roomKeysApplied(roomId, sessions);
 }
 
 void RustSdkMatrixClient::handleSendOk(const QJsonObject &event)

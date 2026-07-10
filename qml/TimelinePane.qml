@@ -118,24 +118,48 @@ Rectangle {
 
                 header: Item {
                     width: timeline.width
-                    height: paginationHeader.visible ? 30 : 0
+                    height: paginationHeader.visible ? paginationHeader.implicitHeight + 8
+                                                     : 0
                     Row {
                         id: paginationHeader
                         anchors.centerIn: parent
                         spacing: 6
+                        // v0.5.7: hidden entirely once the start of history
+                        // is reached (no permanent placeholder).
                         visible: app.currentRoomId !== ""
-                                 && (app.timeline.canPaginate || app.timeline.paginating)
+                                 && (app.timeline.canPaginate
+                                     || app.timeline.paginating
+                                     || app.timeline.paginationFailed)
                         BusyIndicator {
                             width: 16; height: 16
+                            anchors.verticalCenter: parent.verticalCenter
                             running: app.timeline.paginating
                             visible: app.timeline.paginating
                         }
                         Label {
+                            anchors.verticalCenter: parent.verticalCenter
                             text: app.timeline.paginating
                                   ? qsTr("Loading older messages…")
-                                  : qsTr("Scroll up to load more history")
-                            color: AppTheme.textMuted
+                                  : (app.timeline.paginationFailed
+                                     ? qsTr("Could not load older messages —")
+                                     : qsTr("Scroll up to load more history"))
+                            color: app.timeline.paginationFailed
+                                   ? AppTheme.error : AppTheme.textMuted
                             font.pixelSize: 11
+                        }
+                        Label {
+                            anchors.verticalCenter: parent.verticalCenter
+                            visible: app.timeline.paginationFailed
+                                     && !app.timeline.paginating
+                            text: qsTr("Retry")
+                            color: AppTheme.accent
+                            font.pixelSize: 11
+                            font.underline: true
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: app.timeline.requestOlder()
+                            }
                         }
                     }
                 }
