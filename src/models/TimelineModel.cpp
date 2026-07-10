@@ -454,12 +454,24 @@ void TimelineModel::requestOlder()
 void TimelineModel::markVisibleAsRead(int firstVisibleRow, int lastVisibleRow)
 {
     Q_UNUSED(firstVisibleRow);
-    if (!m_client || m_roomId.isEmpty()) return;
-    if (lastVisibleRow < 0 || lastVisibleRow >= m_events.size()) return;
-    const QString eventId = m_events.at(lastVisibleRow).eventId;
-    if (eventId.isEmpty()) return;                           // virtual/local echo rows
-    if (eventId.startsWith(QLatin1String("local:"))) return; // don't ack unsent
-    m_client->sendReadReceipt(m_roomId, eventId);
+    if (!m_client || m_roomId.isEmpty() || m_events.isEmpty()) return;
+    // Scan backward from the last visible row for the newest event that
+    // carries a real remote event ID. The last row is often a virtual item
+    // (SDK read marker, date divider) or a local echo — acking only the
+    // literal count-1 row silently failed in those cases, which is why a
+    // live incoming message stayed unread until a manual Mark as read
+    // (RoomListModel::markRoomRead already scans backward the same way).
+    int start = lastVisibleRow;
+    if (start < 0 || start >= m_events.size())
+        start = m_events.size() - 1;
+    for (int i = start; i >= 0; --i) {
+        const auto &e = m_events.at(i);
+        if (e.isVirtual()) continue;                          // date divider / marker
+        if (e.eventId.isEmpty()) continue;                    // no remote id yet
+        if (e.eventId.startsWith(QLatin1String("local:"))) continue; // unsent echo
+        m_client->sendReadReceipt(m_roomId, e.eventId);       // deduped downstream
+        return;
+    }
 }
 
 bool TimelineModel::canPaginate() const

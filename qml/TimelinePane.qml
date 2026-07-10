@@ -17,22 +17,27 @@ Rectangle {
 
     Connections {
         target: app
-        function onCurrentRoomIdChanged() { refreshCurrentRoom() }
+        function onCurrentRoomIdChanged() {
+            refreshCurrentRoom()
+            // A pinned message-action toolbar belongs to the room it was
+            // pinned in; drop it when the room changes.
+            timeline.pinnedActionsKey = ""
+        }
+    }
+
+    // Escape closes any pinned message-action toolbar.
+    Shortcut {
+        sequence: "Escape"
+        enabled: timeline.pinnedActionsKey !== ""
+        onActivated: timeline.pinnedActionsKey = ""
     }
     Connections {
         target: app.roomList
         function onDataChanged() { refreshCurrentRoom() }
         function onModelReset() { refreshCurrentRoom() }
     }
-    Connections {
-        target: Qt.application
-        function onStateChanged() {
-            if (Qt.application.state === Qt.ApplicationActive
-                    && timeline.count > 0
-                    && timeline.contentY + timeline.height >= timeline.contentHeight - 40)
-                app.timeline.markVisibleAsRead(0, timeline.count - 1)
-        }
-    }
+    // Read-state on focus change is handled by the ListView's own
+    // maybeMarkRead() gate (see the timeline below).
     Component.onCompleted: refreshCurrentRoom()
 
     ColumnLayout {
@@ -109,6 +114,11 @@ Rectangle {
                 // Auto-scroll to end on new events when already near the bottom.
                 property bool stickToBottom: true
 
+                // Which message currently has its action toolbar pinned open
+                // (by a click). Shared across delegates so only one can be
+                // pinned at a time; keyed by the SDK item id (or event id).
+                property string pinnedActionsKey: ""
+
                 // Scroll to the newest row *after* the model/view have finished
                 // reconciling. Calling positionViewAtEnd() synchronously inside
                 // onCountChanged during a reset (e.g. switching from a 10-row
@@ -121,22 +131,59 @@ Rectangle {
                     if (count > 0 && stickToBottom)
                         positionViewAtEnd()
                 }
+
+                // Single read-state gate. Marks the room read only when the
+                // user is following the conversation at the bottom of the
+                // OPEN room while Lightning is focused. markVisibleAsRead
+                // scans backward for the newest real remote event and the
+                // receipt is deduped/debounced downstream, so this is safe to
+                // call from every trigger (arrival, open, focus, scroll end).
+                function maybeMarkRead() {
+                    if (Qt.application.state === Qt.ApplicationActive
+                            && count > 0 && stickToBottom
+                            && !app.timeline.paginating)
+                        app.timeline.markVisibleAsRead(0, count - 1)
+                }
                 onContentYChanged: {
                     if (!moving) return
                     stickToBottom = (contentY + height >= contentHeight - 40)
                 }
                 onCountChanged: {
+                    // A new event arrived (or the timeline reset). Follow the
+                    // bottom and re-check read state.
                     if (stickToBottom) Qt.callLater(scrollToEndDeferred)
-                    if (count > 0 && stickToBottom
-                            && Qt.application.state === Qt.ApplicationActive)
-                        app.timeline.markVisibleAsRead(0, count - 1)
+                    maybeMarkRead()
                 }
                 onMovementEnded: {
-                    if (count > 0 && contentY + height >= contentHeight - 40
-                            && Qt.application.state === Qt.ApplicationActive)
-                        app.timeline.markVisibleAsRead(0, count - 1)
+                    // Scrolling settled: recompute whether we are at the
+                    // bottom, then re-check read state (return-to-bottom must
+                    // clear unread).
+                    stickToBottom = atYEnd
+                                    || (contentY + height >= contentHeight - 40)
+                    maybeMarkRead()
                 }
-                Component.onCompleted: Qt.callLater(scrollToEndDeferred)
+                Component.onCompleted: {
+                    Qt.callLater(scrollToEndDeferred)
+                    maybeMarkRead()
+                }
+                // The window regaining focus must re-check read state.
+                Connections {
+                    target: Qt.application
+                    function onStateChanged() { timeline.maybeMarkRead() }
+                }
+                // A room switch / fresh timeline snapshot opens at the bottom:
+                // reset stickToBottom (it may have been left false after
+                // scrolling up in the previous room) and re-check read state
+                // once the model has settled.
+                Connections {
+                    target: app.timeline
+                    function onModelReset() {
+                        timeline.stickToBottom = true
+                        timeline.pinnedActionsKey = ""
+                        Qt.callLater(timeline.scrollToEndDeferred)
+                        Qt.callLater(timeline.maybeMarkRead)
+                    }
+                }
 
                 // Pagination trigger: scroll to top with backfill available.
                 onAtYBeginningChanged: {

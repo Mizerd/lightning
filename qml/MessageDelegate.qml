@@ -15,6 +15,21 @@ Item {
     // Hardcoded reaction palette (v0.3). Real emoji picker is v0.5+.
     readonly property var reactionPalette: ["👍", "❤️", "😂", "🎉", "😢"]
 
+    // Stable key for the pin-one-toolbar-at-a-time state on the ListView.
+    // Prefer the SDK item id; fall back to the event id for backends that
+    // don't set it. Empty for virtual rows (they have no actions).
+    readonly property string actionKey: (model.itemId && model.itemId.length > 0)
+                                        ? model.itemId
+                                        : (model.eventId || "")
+    readonly property bool actionsPinned: ListView.view
+            && ListView.view.pinnedActionsKey !== ""
+            && ListView.view.pinnedActionsKey === actionKey
+    function toggleActionsPin() {
+        if (!ListView.view || actionKey === "") return
+        ListView.view.pinnedActionsKey =
+            actionsPinned ? "" : actionKey
+    }
+
     Item {
         id: virtualRow
         visible: root.isVirtualRow
@@ -40,11 +55,24 @@ Item {
         width: parent.width
         spacing: 2
 
-        // Message bubble line + hover actions in a horizontal row.
+        // Message bubble line + action toolbar in a horizontal row.
+        //
+        // v0.5.8: one shared HoverHandler over the whole row (bubble +
+        // spacing + toolbar) keeps the toolbar visible while the pointer
+        // crosses the gap from the bubble toward the buttons. The old design
+        // used a MouseArea on the bubble and a separate HoverHandler on the
+        // toolbar; the gap between them registered as "not hovered" on either,
+        // so the toolbar vanished before it could be clicked. layoutDirection
+        // places the toolbar on the INNER side of the bubble (left of your own
+        // right-aligned messages, right of others') so it never runs off the
+        // right edge of the viewport.
         Row {
             id: bubbleRow
             Layout.alignment: model.isOwn ? Qt.AlignRight : Qt.AlignLeft
+            layoutDirection: model.isOwn ? Qt.RightToLeft : Qt.LeftToRight
             spacing: AppTheme.spacingXS
+
+            HoverHandler { id: rowHover }
 
             // Bubble
             Rectangle {
@@ -56,19 +84,21 @@ Item {
                                            mediaBox.implicitWidth,
                                            metaLabel.implicitWidth)
                                   + AppTheme.spacingL
-                    return Math.min(natural, root.width * 0.78)
+                    // Cap leaves room for the action toolbar so it stays inside
+                    // the viewport instead of clipping at the right edge.
+                    return Math.min(natural, root.width * 0.72)
                 }
                 implicitHeight: bubbleContent.implicitHeight + AppTheme.spacingM
                 color: model.isOwn ? AppTheme.ownBubble : AppTheme.otherBubble
                 radius: AppTheme.radius
                 opacity: model.redacted ? 0.65 : 1.0
 
-                MouseArea {
-                    id: bubbleHover
-                    anchors.fill: parent
-                    hoverEnabled: true
-                    acceptedButtons: Qt.NoButton
-                    propagateComposedEvents: true
+                // Click the bubble to pin the action toolbar open (click again
+                // or press Escape to close). Does not consume media/link taps,
+                // which have their own handlers on top.
+                TapHandler {
+                    acceptedButtons: Qt.LeftButton
+                    onTapped: root.toggleActionsPin()
                 }
 
                 ColumnLayout {
@@ -238,29 +268,28 @@ Item {
                 }
             }
 
-            // Hover action buttons.
-            //
-            // v0.4.8: replaced an inner `MouseArea { anchors.fill: parent }`
-            // with a HoverHandler. Column does not allow anchors on its
-            // direct children (`anchors.fill/top/bottom/verticalCenter/
-            // centerIn`) and QML logged that warning on every message.
-            // HoverHandler hovers over its containing Item without needing
-            // explicit geometry and works fine inside a Column.
-            Column {
-                spacing: 2
-                visible: bubbleHover.containsMouse
-                         || actionsHover.hovered
-                         || moreMenu.opened
-
-                HoverHandler {
-                    id: actionsHover
-                    acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
-                }
+            // Action toolbar. Visible while the shared row hover is active,
+            // while it is pinned open by a click, or while one of its menus
+            // is open — so it never vanishes as the pointer travels from the
+            // bubble to the buttons. Subtle AppTheme surface/border framing.
+            Rectangle {
+                id: actionBar
+                visible: rowHover.hovered || root.actionsPinned
+                         || reactionMenu.opened || moreMenu.opened
+                radius: AppTheme.radiusSm
+                color: AppTheme.surface
+                border.color: AppTheme.border
+                border.width: 1
+                implicitWidth: actionRow.implicitWidth + 8
+                implicitHeight: actionRow.implicitHeight + 6
 
                 Row {
+                    id: actionRow
+                    anchors.centerIn: parent
                     spacing: 2
                     ToolButton {
                         text: "\u{1F60A}"
+                        Accessible.name: qsTr("React to message")
                         ToolTip.text: qsTr("React")
                         ToolTip.visible: hovered
                         ToolTip.delay: 500
@@ -275,6 +304,7 @@ Item {
                                     ToolButton {
                                         text: modelData
                                         font.pixelSize: 16
+                                        Accessible.name: qsTr("React with %1").arg(modelData)
                                         onClicked: {
                                             app.composer.reactTo(root.eventIdForActions(), modelData)
                                             reactionMenu.close()
@@ -286,6 +316,7 @@ Item {
                     }
                     ToolButton {
                         text: "↰"
+                        Accessible.name: qsTr("Reply to message")
                         ToolTip.text: qsTr("Reply")
                         ToolTip.visible: hovered
                         ToolTip.delay: 500
@@ -300,6 +331,7 @@ Item {
                     }
                     ToolButton {
                         text: "…"
+                        Accessible.name: qsTr("More message actions")
                         ToolTip.text: qsTr("More")
                         ToolTip.visible: hovered
                         ToolTip.delay: 500
