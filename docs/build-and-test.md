@@ -102,6 +102,37 @@ cd rust
 nix develop /home/roksme/git/lightning -c cargo test --offline --locked
 ```
 
+## v0.5.8 room-state validation
+
+The automated coverage below is what has actually been run. The modern
+Sliding Sync path, live `m.direct`/Spaces/invite/unread/receipt/typing
+behaviour, and the offline→reconnect transitions require a real homeserver
+and credentials and were **not** exercised in the development environment;
+they are listed as manual checks pending Rokas's live run.
+
+`room-state-model` runs in both build trees. It proves that a two-member room
+absent from `m.direct` remains a normal room, a larger mapped room is a DM,
+live mapping changes update the role, invites remain separate, invalid diff
+indexes/duplicate IDs are rejected, and nested/multiple-parent/cyclic Space
+graphs terminate and deduplicate. `cache-store-security` additionally writes
+`LIGHTNING_ROOM_PREVIEW_CACHE_TEST_058` as an encrypted room preview and
+proves the marker is absent from the raw database.
+
+For a live Rust session, verify the footer reports **Modern room list** on a
+server advertising `org.matrix.simplified_msc3575`. To force compatibility,
+use a test homeserver whose public `/versions` response omits that flag; the
+footer must report **Compatibility mode** while E2EE and the persistent
+timeline continue through the one classic sync loop. Do not falsify the
+capability on a real account store.
+
+Manual checks: change `m.direct` in another client and observe the row move;
+select nested Spaces and a multiply-parented room; accept and reject invites;
+receive normal/highlight unread state; verify no clearing while unfocused or
+scrolled above bottom; mark unread/read; type in both directions; disconnect
+and reconnect; sign out during an invite, receipt, typing renewal and Space
+update. Repeat the 0.5.7 E2EE, verification, backup/import/decryption-retry,
+pagination, local-echo and timeline-action regression checks.
+
 ## Manual v0.5.7 timeline tests
 
 These require a signed-in Rust-backend session; none require credentials

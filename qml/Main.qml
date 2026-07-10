@@ -41,6 +41,12 @@ ApplicationWindow {
                 font.pixelSize: 15
                 font.weight: Font.DemiBold
             }
+            Label {
+                visible: app.syncModeLabel !== ""
+                text: app.syncModeLabel
+                color: AppTheme.textMuted
+                font.pixelSize: AppTheme.fontSizeXS
+            }
 
             Item { Layout.fillWidth: true }
         }
@@ -100,6 +106,7 @@ ApplicationWindow {
                     var s = app.connectionStatus
                     if (s === qsTr("Connected"))    return AppTheme.success
                     if (s === qsTr("Error"))        return AppTheme.error
+                    if (s === qsTr("Offline — retrying")) return AppTheme.warning
                     if (s === qsTr("Connecting…") ||
                         s === qsTr("Syncing")   ||
                         s === qsTr("Loading rooms…")) return AppTheme.warning

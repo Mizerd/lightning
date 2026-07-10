@@ -23,6 +23,7 @@ public:
         Connecting,
         Syncing,
         Error,
+        Offline,
     };
     Q_ENUM(ConnectionState)
 
@@ -50,6 +51,7 @@ public:
     // need to override and toggle this. QML consumes it to distinguish
     // "still loading rooms" from "sync loop is live but there are no rooms".
     virtual bool initialSyncDone() const { return true; }
+    virtual QString syncMode() const { return QStringLiteral("classic_fallback"); }
 
     // Room + timeline queries
     virtual QList<RoomInfo> rooms() const = 0;
@@ -98,6 +100,13 @@ public:
                             int timeoutMs = 20000) = 0;
     virtual void sendReadReceipt(const QString &roomId,
                                  const QString &eventId) = 0;
+    virtual void setRoomMarkedUnread(const QString &roomId, bool unread)
+    {
+        Q_UNUSED(roomId);
+        Q_UNUSED(unread);
+    }
+    virtual void acceptInvite(const QString &roomId) { Q_UNUSED(roomId); }
+    virtual void rejectInvite(const QString &roomId) { Q_UNUSED(roomId); }
     virtual void sendImage(const QString &roomId, const QString &localPath) = 0;
     virtual void sendFile(const QString &roomId, const QString &localPath) = 0;
 
@@ -131,6 +140,7 @@ Q_SIGNALS:
 
     void connectionStateChanged(ConnectionState state);
     void initialSyncDoneChanged();
+    void syncModeChanged();
     void roomsChanged();
     void roomUpdated(const QString &roomId);
     void timelineReset(const QString &roomId);

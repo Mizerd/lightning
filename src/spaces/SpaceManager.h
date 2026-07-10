@@ -41,6 +41,8 @@ public:
         AvatarUrlRole,
         ChildCountRole,
         UnreadTotalRole,
+        HighlightTotalRole,
+        LevelRole,
     };
 
     // Well-known pseudo-space ids surfaced through the model as extra rows
@@ -78,6 +80,8 @@ private:
         RoomInfo info;              // The Space room itself.
         QStringList childRoomIds;   // Ordered list of children.
         int unreadTotal = 0;        // Sum of children's unread counts.
+        int highlightTotal = 0;
+        int level = 0;
     };
 
     void recomputeOrphans();
@@ -88,6 +92,8 @@ private:
     QHash<QString, QSet<QString>> m_membership;    // spaceId → set(roomId)
     QSet<QString> m_allRoomIds;             // Every non-space room id.
     QSet<QString> m_orphanRoomIds;          // Rooms not in any Space.
+    int m_homeUnreadTotal = 0;
+    int m_homeHighlightTotal = 0;
 
     QString m_activeSpaceId; // Empty means "All rooms".
 };

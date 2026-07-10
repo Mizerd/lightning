@@ -168,6 +168,13 @@ void CacheStoreSecurityTest::markerNeverAppearsInDatabaseFile()
     // After all the attempts above, scan the raw database bytes: the
     // unique marker plaintext must not exist anywhere in cache.sqlite.
     m_store->appendEvent(encryptedEvent(QStringLiteral("$final"), kMarker));
+    RoomInfo encryptedRoom;
+    encryptedRoom.id = kRoom;
+    encryptedRoom.name = QStringLiteral("Encrypted room");
+    encryptedRoom.encrypted = true;
+    encryptedRoom.lastMessagePreview =
+        QStringLiteral("LIGHTNING_ROOM_PREVIEW_CACHE_TEST_058");
+    m_store->saveRoom(encryptedRoom);
     m_store->close();
 
     const QString dbPath = databaseFilePath();

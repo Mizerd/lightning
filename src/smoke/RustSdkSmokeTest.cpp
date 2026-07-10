@@ -68,6 +68,7 @@ const char *stateLabel(MatrixClient::ConnectionState s)
     case MatrixClient::Connecting:   return "connecting";
     case MatrixClient::Syncing:      return "syncing";
     case MatrixClient::Error:        return "error";
+    case MatrixClient::Offline:      return "offline";
     }
     return "?";
 }

@@ -155,6 +155,7 @@ public:
     void stopSync() override;
     ConnectionState connectionState() const override { return m_state; }
     bool initialSyncDone() const override { return m_initialSyncDone; }
+    QString syncMode() const override { return m_syncMode; }
 
     QList<RoomInfo> rooms() const override;
     QList<TimelineEvent> timeline(const QString &roomId) const override;
@@ -181,6 +182,9 @@ public:
                         const QString &key) override;
     void sendTyping(const QString &roomId, bool isTyping, int timeoutMs = 20000) override;
     void sendReadReceipt(const QString &roomId, const QString &eventId) override;
+    void setRoomMarkedUnread(const QString &roomId, bool unread) override;
+    void acceptInvite(const QString &roomId) override;
+    void rejectInvite(const QString &roomId) override;
     void sendImage(const QString &roomId, const QString &localPath) override;
     void sendFile(const QString &roomId, const QString &localPath) override;
 
@@ -293,6 +297,9 @@ private:
     bool clearPersistedAccount(const matrix::app_data::AccountIdentity &identity);
     void requireLocalReset(const QString &reasonCode);
     void handleRoomsEvent(const QJsonArray &rooms);
+    void handleRoomListDiff(const QJsonObject &event);
+    void handleSpacesEvent(const QJsonArray &spaces);
+    RoomInfo roomInfoFromJson(const QJsonObject &obj) const;
     void handleTimelineEvent(const QJsonObject &event);
     // v0.5.7 live-timeline event handlers.
     void handleTimelineReset(const QJsonObject &event);
@@ -330,6 +337,10 @@ private:
     QString m_signOutDeviceId;
     QTimer m_pollTimer;
     QHash<QString, RoomInfo> m_rooms;
+    QStringList m_roomOrder;
+    QString m_syncMode = QStringLiteral("stopped");
+    QHash<QString, QString> m_lastReceiptSent;
+    QString m_typingRoom;
     QHash<QString, QList<TimelineEvent>> m_timelines;
     QHash<QString, PendingSend> m_pendingSends;
     QHash<QString, PendingProbe> m_pendingProbes;

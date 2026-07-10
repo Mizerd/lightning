@@ -4,7 +4,7 @@
 //! owns the Matrix SDK client, Tokio runtime, and SDK SQLite store.
 
 use std::{
-    collections::VecDeque,
+    collections::{BTreeSet, HashMap, VecDeque},
     ffi::{c_char, CStr, CString},
     fs::OpenOptions,
     io::Write,
@@ -26,7 +26,7 @@ use matrix_sdk::{
     encryption::verification::{SasState, SasVerification, VerificationRequest},
     room::MessagesOptions,
     ruma::{
-        api::error::ErrorKind,
+        api::{error::ErrorKind, FeatureFlag},
         events::{
             key::verification::{
                 request::ToDeviceKeyVerificationRequestEvent, VerificationMethod,
@@ -35,11 +35,21 @@ use matrix_sdk::{
                 encrypted::OriginalSyncRoomEncryptedEvent,
                 message::{MessageType, OriginalSyncRoomMessageEvent, RoomMessageEventContent},
             },
+            typing::SyncTypingEvent,
         },
-        uint, OwnedDeviceId, OwnedTransactionId, OwnedUserId, RoomId, UInt, UserId,
+        uint, EventId, OwnedDeviceId, OwnedEventId, OwnedTransactionId, OwnedUserId, RoomId,
+        UInt, UserId,
     },
+    room::Receipts,
     store::RoomLoadSettings,
     Client, LoopCtrl, Room, SessionMeta, SessionTokens,
+};
+use futures_util::StreamExt;
+use matrix_sdk_ui::{
+    eyeball_im::VectorDiff,
+    room_list_service::{filters, RoomListItem},
+    spaces::SpaceService,
+    sync_service::{Error as UnifiedSyncError, State as UnifiedSyncState, SyncService},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -52,6 +62,7 @@ struct RustClient {
     client: Arc<Mutex<Option<Client>>>,
     events: Arc<Mutex<VecDeque<String>>>,
     sync_task: Mutex<Option<SyncTask>>,
+    sync_mode: Arc<Mutex<SyncMode>>,
     // v0.5.7: shared multi-thread runtime for everything with a lifetime
     // longer than one FFI call — SDK timelines, their subscription
     // forwarders, the send queue, the event cache, and room-key import.
@@ -63,6 +74,14 @@ struct RustClient {
     // v0.5.7: managed room-key import task so sign-out can join it
     // deterministically instead of polling a flag with a timeout.
     import_task: Mutex<Option<tokio::task::JoinHandle<()>>>,
+    // Short room-state commands (typing, receipts, invite membership and
+    // marked-unread) are owned and joined during shutdown. Nothing spawned by
+    // the 0.5.8 room-state layer is detached.
+    room_action_tasks: Mutex<Vec<tokio::task::JoinHandle<()>>>,
+    active_typing_room: Arc<Mutex<Option<String>>>,
+    receipt_targets: Arc<Mutex<HashMap<String, OwnedEventId>>>,
+    receipt_serial: Arc<tokio::sync::Mutex<()>>,
+    invite_actions: Arc<Mutex<BTreeSet<String>>>,
     // v0.5.0: SAS verification state. Single active flow at a time keeps
     // the FFI simple; if a second request arrives we cancel the first.
     // Both slots are cleared when the flow reaches Done or Cancelled.
@@ -92,9 +111,15 @@ impl RustClient {
             client: Arc::new(Mutex::new(None)),
             events: Arc::clone(&events),
             sync_task: Mutex::new(None),
+            sync_mode: Arc::new(Mutex::new(SyncMode::Stopped)),
             runtime: Arc::new(runtime),
             timelines: Arc::new(timeline::TimelineRegistry::new(events)),
             import_task: Mutex::new(None),
+            room_action_tasks: Mutex::new(Vec::new()),
+            active_typing_room: Arc::new(Mutex::new(None)),
+            receipt_targets: Arc::new(Mutex::new(HashMap::new())),
+            receipt_serial: Arc::new(tokio::sync::Mutex::new(())),
+            invite_actions: Arc::new(Mutex::new(BTreeSet::new())),
             active_request: Arc::new(Mutex::new(None)),
             active_sas: Arc::new(Mutex::new(None)),
             import_active: Arc::new(AtomicBool::new(false)),
@@ -128,6 +153,21 @@ impl RustClient {
     /// last-resort error boundary after the deterministic join.
     fn shutdown_managed_tasks(&self) -> (bool, bool) {
         self.timelines.shutdown(&self.runtime);
+
+        let actions = self.room_action_tasks.lock().ok()
+            .map(|mut guard| std::mem::take(&mut *guard))
+            .unwrap_or_default();
+        self.runtime.block_on(async {
+            for mut handle in actions {
+                if tokio::time::timeout(
+                    std::time::Duration::from_secs(timeline::SHUTDOWN_JOIN_TIMEOUT_SECS),
+                    &mut handle,
+                ).await.is_err() {
+                    handle.abort();
+                    let _ = handle.await;
+                }
+            }
+        });
 
         let import = self.import_task.lock().ok().and_then(|mut guard| guard.take());
         let mut import_joined = true;
@@ -164,11 +204,72 @@ impl RustClient {
             self.stop_sync_and_wait();
         }
     }
+
+    fn spawn_room_action<F>(&self, future: F)
+    where
+        F: std::future::Future<Output = ()> + Send + 'static,
+    {
+        if let Ok(mut tasks) = self.room_action_tasks.lock() {
+            tasks.retain(|task| !task.is_finished());
+            tasks.push(self.runtime.spawn(future));
+        }
+    }
 }
 
 struct SyncTask {
     cancel: Option<tokio::sync::oneshot::Sender<()>>,
     thread: Option<std::thread::JoinHandle<()>>,
+}
+
+/// The authoritative sync path selection. This is deliberately distinct from
+/// transient connectivity: a temporary network loss keeps the selected mode
+/// (SlidingSync / ClassicSyncFallback) and is reported only through the
+/// connection state, so the mode label does not flicker. Only a fatal
+/// authentication failure moves to `Failed`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SyncMode {
+    Probing,
+    SlidingSync,
+    ClassicSyncFallback,
+    Failed,
+    Stopped,
+}
+
+impl SyncMode {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Probing => "probing",
+            Self::SlidingSync => "sliding_sync",
+            Self::ClassicSyncFallback => "classic_fallback",
+            Self::Failed => "failed",
+            Self::Stopped => "stopped",
+        }
+    }
+}
+
+/// Set the authoritative sync mode and announce it — but only when it
+/// actually changes. Deduping at the source keeps the mode label from
+/// flickering when the state machine re-affirms the same mode (e.g. the
+/// modern loop re-entering `SlidingSync` after a transient retry).
+fn set_sync_mode(
+    slot: &Arc<Mutex<SyncMode>>,
+    events: &Arc<Mutex<VecDeque<String>>>,
+    mode: SyncMode,
+    reason: Option<&str>,
+) {
+    let changed = match slot.lock() {
+        Ok(mut guard) => {
+            let changed = *guard != mode;
+            *guard = mode;
+            changed
+        }
+        Err(_) => true,
+    };
+    if changed {
+        enqueue(events, json!({
+            "type": "room_list_mode", "mode": mode.as_str(), "reason": reason
+        }));
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -192,7 +293,7 @@ pub extern "C" fn mx_rust_backend_name() -> *mut c_char {
 #[no_mangle]
 pub extern "C" fn mx_rust_status_string() -> *mut c_char {
     ffi_string(|| {
-        Ok("Matrix Rust SDK backend linked. E2EE support via matrix-sdk 0.18 (Lightning 0.5.7): password login, session restore, joined-room sync, live matrix-sdk-ui room timelines (incremental diffs, SDK local echoes, backward pagination, immediate decryption retry after room-key import), plain and encrypted text send/receive, receive- and initiate-first SAS emoji verification, Secure Backup recovery-key restore, and encrypted Megolm room-key import all go through the SDK event queue. Cross-signing is queried from the SDK; no manual crypto in C++.".to_owned())
+        Ok("Matrix Rust SDK backend linked. Lightning 0.5.8 uses matrix-sdk 0.18 and matrix-sdk-ui 0.18 for a capability-probed modern room list with classic compatibility fallback, SDK-owned E2EE sync, m.direct, Spaces, invites, unread/read state and typing while preserving the 0.5.7 persistent Timeline architecture and immediate decryption retry. No manual crypto in C++.".to_owned())
     })
 }
 
@@ -611,52 +712,14 @@ pub unsafe extern "C" fn mx_rust_start_sync(ptr: *mut c_void) {
         }
 
         let events = Arc::clone(&bridge.events);
+        let sync_mode = Arc::clone(&bridge.sync_mode);
         bridge.enqueue(json!({ "type": "status", "state": "syncing" }));
 
         let (cancel, cancel_rx) = tokio::sync::oneshot::channel::<()>();
         let thread = std::thread::spawn(move || {
             let runtime_events = Arc::clone(&events);
             run_async(runtime_events, "sync", async move {
-                let first_response = Arc::new(AtomicBool::new(true));
-                let settings = SyncSettings::default()
-                    .ignore_timeout_on_first_sync(true)
-                    .full_state(true);
-
-                let callback_client = client.clone();
-                let callback_events = Arc::clone(&events);
-                let callback_first = Arc::clone(&first_response);
-                let sync = client.sync_with_callback(settings, move |_response| {
-                        let client = callback_client.clone();
-                        let events = Arc::clone(&callback_events);
-                        let first_response = Arc::clone(&callback_first);
-                        async move {
-                            enqueue_rooms(&events, &client).await;
-                            if first_response.swap(false, Ordering::SeqCst) {
-                                enqueue(&events, json!({ "type": "initial_sync_done" }));
-                            }
-                            LoopCtrl::Continue
-                        }
-                    });
-                tokio::pin!(sync);
-                tokio::select! {
-                    result = &mut sync => {
-                        if let Err(err) = result {
-                            enqueue(
-                                &events,
-                                json!({
-                                    "type": "sync_error",
-                                    "message": format_matrix_error(
-                                        "Matrix Rust SDK sync failed", err),
-                                }),
-                            );
-                        }
-                    }
-                    _ = cancel_rx => {
-                        // Dropping the sync future cancels the in-flight
-                        // request. No error event is emitted for an
-                        // intentional stop.
-                    }
-                }
+                run_authoritative_sync(client, events, sync_mode, cancel_rx).await;
             });
         });
         *task_slot = Some(SyncTask {
@@ -673,12 +736,217 @@ pub unsafe extern "C" fn mx_rust_stop_sync(ptr: *mut c_void) -> c_int {
             return false;
         };
         let stopped = bridge.stop_sync_and_wait();
+        set_sync_mode(&bridge.sync_mode, &bridge.events, SyncMode::Stopped, None);
         bridge.enqueue(json!({ "type": "status", "state": "disconnected" }));
         stopped
     })) {
         Ok(true) => 1,
         Ok(false) | Err(_) => 0,
     }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_send_typing(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    typing: c_int,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let client = bridge.client.lock().ok().and_then(|guard| guard.clone())
+            .ok_or_else(|| "no active Matrix session".to_owned())?;
+        let room = RoomId::parse(&room_id).ok().and_then(|id| client.get_room(&id))
+            .ok_or_else(|| "unknown room".to_owned())?;
+        let active = Arc::clone(&bridge.active_typing_room);
+        let events = Arc::clone(&bridge.events);
+        let is_typing = typing != 0;
+        let previous = if let Ok(mut guard) = active.lock() {
+            if is_typing {
+                let previous = guard.clone().filter(|old| old != &room_id);
+                *guard = Some(room_id.clone());
+                previous
+            } else {
+                if guard.as_deref() == Some(room_id.as_str()) { *guard = None; }
+                None
+            }
+        } else { None };
+        bridge.spawn_room_action(async move {
+            if let Some(previous) = previous {
+                if let Ok(id) = RoomId::parse(previous) {
+                    if let Some(old_room) = client.get_room(&id) {
+                        let _ = old_room.typing_notice(false).await;
+                    }
+                }
+            }
+            if is_typing && active.lock().ok().and_then(|g| g.clone()).as_deref()
+                != Some(room_id.as_str()) {
+                return;
+            }
+            if room.typing_notice(is_typing).await.is_ok() {
+                enqueue(&events, json!({
+                    "type": "typing_sent", "active": is_typing
+                }));
+            }
+        });
+        Ok(String::new())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_send_read_receipt(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    event_id: *const c_char,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let event_id = unsafe { cstr_arg(event_id) }?;
+        let client = bridge.client.lock().ok().and_then(|guard| guard.clone())
+            .ok_or_else(|| "no active Matrix session".to_owned())?;
+        let room = RoomId::parse(&room_id).ok().and_then(|id| client.get_room(&id))
+            .ok_or_else(|| "unknown room".to_owned())?;
+        let event_id: OwnedEventId = EventId::parse(event_id)
+            .map_err(|_| "invalid event id".to_owned())?;
+        let events = Arc::clone(&bridge.events);
+        let targets = Arc::clone(&bridge.receipt_targets);
+        let serial = Arc::clone(&bridge.receipt_serial);
+        if let Ok(mut guard) = targets.lock() {
+            guard.insert(room_id.clone(), event_id.clone());
+        }
+        bridge.spawn_room_action(async move {
+            let _serial = serial.lock().await;
+            if targets.lock().ok().and_then(|guard| guard.get(&room_id).cloned())
+                .as_ref() != Some(&event_id) {
+                return;
+            }
+            let receipts = Receipts::new()
+                .fully_read_marker(event_id.clone())
+                .public_read_receipt(event_id);
+            if room.send_multiple_receipts(receipts).await.is_ok() {
+                enqueue(&events, json!({ "type": "read_marker_advanced", "room_id": room_id }));
+            } else {
+                enqueue(&events, json!({
+                    "type": "room_action_error", "action": "read_receipt",
+                    "room_id": room_id
+                }));
+            }
+        });
+        Ok(String::new())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_set_marked_unread(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    unread: c_int,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let client = bridge.client.lock().ok().and_then(|guard| guard.clone())
+            .ok_or_else(|| "no active Matrix session".to_owned())?;
+        let room = RoomId::parse(&room_id).ok().and_then(|id| client.get_room(&id))
+            .ok_or_else(|| "unknown room".to_owned())?;
+        let events = Arc::clone(&bridge.events);
+        bridge.spawn_room_action(async move {
+            match room.set_unread_flag(unread != 0).await {
+                Ok(()) => enqueue_rooms(&events, &client).await,
+                Err(_) => enqueue(&events, json!({
+                    "type": "room_action_error", "action": "marked_unread"
+                })),
+            }
+        });
+        Ok(String::new())
+    })
+}
+
+/// RAII cleanup for a pending invite action. Removing the room id from the
+/// pending set on `Drop` guarantees cleanup on *every* task exit — success,
+/// failure, cancellation (task abort), or panic — so a room can never be
+/// left permanently stuck in the pending state.
+struct InviteActionGuard {
+    pending: Arc<Mutex<BTreeSet<String>>>,
+    room_id: String,
+}
+
+impl Drop for InviteActionGuard {
+    fn drop(&mut self) {
+        if let Ok(mut guard) = self.pending.lock() {
+            guard.remove(&self.room_id);
+        }
+    }
+}
+
+fn invite_action(ptr: *mut c_void, room_id: *const c_char, accept: bool) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let client = bridge.client.lock().ok().and_then(|guard| guard.clone())
+            .ok_or_else(|| "no active Matrix session".to_owned())?;
+        // Joined (or any non-invited) rooms can never invoke accept/reject.
+        let room = RoomId::parse(&room_id).ok().and_then(|id| client.get_room(&id))
+            .filter(|room| room.state() == matrix_sdk::RoomState::Invited)
+            .ok_or_else(|| "room is not an invitation".to_owned())?;
+        let pending = Arc::clone(&bridge.invite_actions);
+        if !pending.lock().map_err(|_| "invite action state unavailable".to_owned())?
+            .insert(room_id.clone()) {
+            return Err("invite action already pending".to_owned());
+        }
+        let events = Arc::clone(&bridge.events);
+        bridge.spawn_room_action(async move {
+            // Guard owns the pending-set entry for the whole task lifetime.
+            let _guard = InviteActionGuard {
+                pending: Arc::clone(&pending),
+                room_id: room_id.clone(),
+            };
+            enqueue(&events, json!({
+                "type": "invite_state_update", "room_id": room_id,
+                "action": if accept { "accept" } else { "reject" }, "state": "pending"
+            }));
+            let result = if accept { room.join().await } else { room.leave().await };
+            enqueue(&events, json!({
+                "type": "invite_state_update", "room_id": room_id,
+                "action": if accept { "accept" } else { "reject" },
+                "state": if result.is_ok() { "done" } else { "failed" }
+            }));
+            if result.is_ok() { enqueue_rooms(&events, &client).await; }
+            // `_guard` drops here, clearing the pending entry.
+        });
+        Ok(String::new())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_accept_invite(
+    ptr: *mut c_void, room_id: *const c_char,
+) -> *mut c_char { invite_action(ptr, room_id, true) }
+
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_reject_invite(
+    ptr: *mut c_void, room_id: *const c_char,
+) -> *mut c_char { invite_action(ptr, room_id, false) }
+
+/// Controlled fresh room-list reset. Called by C++ if it ever rejects a
+/// malformed/out-of-range room-list diff, so the model recovers to a
+/// complete, correct snapshot from the SDK's current room set instead of
+/// staying stale. Well-formed diffs from the dynamic adapter should never
+/// trigger this; it is a safety net, not a routine path.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_resync_rooms(ptr: *mut c_void) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let Some(client) = bridge.client.lock().ok().and_then(|guard| guard.clone()) else {
+            return Err("no active Matrix session".to_owned());
+        };
+        let events = Arc::clone(&bridge.events);
+        bridge.spawn_room_action(async move {
+            enqueue_rooms(&events, &client).await;
+        });
+        Ok(String::new())
+    })
 }
 
 #[no_mangle]
@@ -2010,7 +2278,7 @@ async fn build_client(homeserver: &str, store_path: &Path) -> Result<Client, Str
     Client::builder()
         .homeserver_url(homeserver)
         .sqlite_store(store_path, None)
-        .user_agent("Lightning/0.5.7")
+        .user_agent("Lightning/0.5.8")
         .build()
         .await
         .map_err(|err| format_matrix_error("failed to build Matrix Rust SDK client", err))
@@ -2160,6 +2428,32 @@ fn install_event_handlers(
             }
         },
     );
+
+    // m.typing is a replacement event: every payload completely replaces the
+    // room's previous typing set. Bound display metadata resolution while
+    // preserving enough IDs for useful one/two/many UI formatting.
+    let typing_events = Arc::clone(&events);
+    let own_user = client.user_id().map(ToOwned::to_owned);
+    client.add_event_handler(move |ev: SyncTypingEvent, room: Room| {
+        let events = Arc::clone(&typing_events);
+        let own_user = own_user.clone();
+        async move {
+            let mut users = Vec::new();
+            for user_id in ev.content.user_ids.into_iter()
+                .filter(|user_id| Some(user_id) != own_user.as_ref())
+                .take(32) {
+                let display_name = room.get_member_no_sync(&user_id).await.ok().flatten()
+                    .map(|member| member.name().to_owned()).unwrap_or_default();
+                users.push(json!({
+                    "user_id": user_id.to_string(), "display_name": display_name
+                }));
+            }
+            enqueue(&events, json!({
+                "type": "typing_update", "room_id": room.room_id().to_string(),
+                "users": users,
+            }));
+        }
+    });
     // Decrypted (or plaintext) room messages — the SDK dispatches this handler
     // for both. `encryption_info` is Some(...) only when the SDK decrypted the
     // payload; when Some, the event on the wire was m.room.encrypted and the
@@ -2247,30 +2541,414 @@ fn install_event_handlers(
     });
 }
 
-async fn enqueue_rooms(events: &Arc<Mutex<VecDeque<String>>>, client: &Client) {
-    let mut out = Vec::new();
+async fn run_authoritative_sync(
+    client: Client,
+    events: Arc<Mutex<VecDeque<String>>>,
+    sync_mode: Arc<Mutex<SyncMode>>,
+    mut cancel: tokio::sync::oneshot::Receiver<()>,
+) {
+    set_sync_mode(&sync_mode, &events, SyncMode::Probing, None);
+
+    // Probe the exact capability consumed by matrix-sdk 0.18's native
+    // Sliding Sync v5 endpoint. A failed /versions request is connectivity,
+    // not proof of incompatibility: the mode stays `Probing` (no downgrade,
+    // no flicker) and only the connection indicator reports offline while
+    // we retry. Cancellation exits the probe immediately.
+    let modern_supported = loop {
+        let probe = tokio::select! {
+            _ = &mut cancel => return,
+            result = client.supported_versions() => result,
+        };
+        match probe {
+            Ok(versions) => break versions.features.contains(&FeatureFlag::Msc4186),
+            Err(_) => {
+                enqueue(&events, json!({
+                    "type": "room_list_sync_state", "state": "offline"
+                }));
+                tokio::select! {
+                    _ = &mut cancel => return,
+                    _ = tokio::time::sleep(std::time::Duration::from_secs(3)) => {}
+                }
+            }
+        }
+    };
+
+    if modern_supported {
+        if let Some(cancel) = run_modern_sync(
+            client.clone(), Arc::clone(&events), Arc::clone(&sync_mode), cancel
+        ).await {
+            set_sync_mode(
+                &sync_mode, &events, SyncMode::ClassicSyncFallback, Some("unsupported")
+            );
+            run_classic_sync(client, events, cancel).await;
+        }
+    } else {
+        set_sync_mode(
+            &sync_mode, &events, SyncMode::ClassicSyncFallback, Some("unsupported")
+        );
+        run_classic_sync(client, events, cancel).await;
+    }
+}
+
+fn unified_error_kind(error: &UnifiedSyncError) -> Option<&ErrorKind> {
+    use matrix_sdk_ui::{encryption_sync_service, room_list_service};
+    match error {
+        UnifiedSyncError::RoomList(room_list_service::Error::SlidingSync(error)) =>
+            error.client_api_error_kind(),
+        UnifiedSyncError::EncryptionSync(encryption_sync_service::Error::SlidingSync(error))
+        | UnifiedSyncError::EncryptionSync(encryption_sync_service::Error::LockError(error))
+        | UnifiedSyncError::EncryptionSync(encryption_sync_service::Error::ClientError(error)) =>
+            error.client_api_error_kind(),
+        _ => None,
+    }
+}
+
+fn unsupported_modern_error(error: &UnifiedSyncError) -> bool {
+    matches!(unified_error_kind(error), Some(ErrorKind::Unrecognized | ErrorKind::NotFound))
+}
+
+fn authentication_error(error: &UnifiedSyncError) -> bool {
+    matches!(unified_error_kind(error), Some(ErrorKind::UnknownToken { .. } | ErrorKind::Forbidden))
+}
+
+/// Runs matrix-sdk-ui's unified supervisor. Its `EncryptionSyncPermit`
+/// guarantees exactly one encryption Sliding Sync while the room-list sync is
+/// active. Returning `Some(cancel)` is the only path allowed to start classic
+/// sync and happens solely for a verified unsupported endpoint error.
+async fn run_modern_sync(
+    client: Client,
+    events: Arc<Mutex<VecDeque<String>>>,
+    sync_mode: Arc<Mutex<SyncMode>>,
+    mut cancel: tokio::sync::oneshot::Receiver<()>,
+) -> Option<tokio::sync::oneshot::Receiver<()>> {
+    loop {
+        let service = match SyncService::builder(client.clone()).build().await {
+            Ok(service) => service,
+            Err(error) if unsupported_modern_error(&error) => return Some(cancel),
+            Err(error) => {
+                enqueue(&events, json!({
+                    "type": "room_list_error", "category": if authentication_error(&error) {
+                        "authentication"
+                    } else { "temporary" }
+                }));
+                if authentication_error(&error) {
+                    set_sync_mode(&sync_mode, &events, SyncMode::Failed, None);
+                    let _ = (&mut cancel).await;
+                    return None;
+                }
+                tokio::select! {
+                    _ = &mut cancel => return None,
+                    _ = tokio::time::sleep(std::time::Duration::from_secs(3)) => continue,
+                }
+            }
+        };
+
+        let room_list_service = service.room_list_service();
+        let room_list = match room_list_service.all_rooms().await {
+            Ok(list) => list,
+            Err(_) => {
+                enqueue(&events, json!({ "type": "room_list_error", "category": "setup" }));
+                let _ = (&mut cancel).await;
+                return None;
+            }
+        };
+        let (entries, controller) = room_list.entries_with_dynamic_adapters(10_000);
+        controller.set_filter(Box::new(filters::new_filter_non_left()));
+        tokio::pin!(entries);
+
+        let space_service = SpaceService::new(client.clone()).await;
+        let mut unified_state = service.state();
+        let mut list_state = room_list_service.state();
+
+        set_sync_mode(&sync_mode, &events, SyncMode::SlidingSync, None);
+        enqueue(&events, json!({ "type": "room_list_sync_state", "state": "starting" }));
+        service.start().await;
+        let mut first_sync = true;
+        loop {
+            tokio::select! {
+                _ = &mut cancel => {
+                    service.stop().await;
+                    return None;
+                }
+                batch = entries.next() => {
+                    let Some(batch) = batch else { break; };
+                    forward_room_list_diffs(&events, batch).await;
+                    enqueue_spaces(&events, &space_service, &client).await;
+                }
+                state = list_state.next() => {
+                    if let Some(matrix_sdk_ui::room_list_service::State::Running) = state {
+                        enqueue(&events, json!({
+                            "type": "room_list_sync_state", "state": "running"
+                        }));
+                        if first_sync {
+                            first_sync = false;
+                            enqueue(&events, json!({ "type": "initial_sync_done" }));
+                        }
+                    }
+                }
+                state = unified_state.next() => {
+                    match state {
+                        // Transient connectivity loss keeps the selected mode
+                        // (SlidingSync) so the label does not flicker; only the
+                        // connection indicator reports offline. The supervisor
+                        // reconnects on its own.
+                        Some(UnifiedSyncState::Offline) => {
+                            enqueue(&events, json!({
+                                "type": "room_list_sync_state", "state": "offline"
+                            }));
+                        }
+                        Some(UnifiedSyncState::Error(error)) => {
+                            service.stop().await;
+                            // The ONLY path allowed to start classic sync: a
+                            // positively-classified unsupported endpoint.
+                            if unsupported_modern_error(&error) { return Some(cancel); }
+                            // Authentication failure is fatal — never downgrade,
+                            // never sleep-retry; wait for an explicit stop.
+                            if authentication_error(&error) {
+                                set_sync_mode(&sync_mode, &events, SyncMode::Failed, None);
+                                enqueue(&events, json!({
+                                    "type": "room_list_error", "category": "authentication"
+                                }));
+                                let _ = (&mut cancel).await;
+                                return None;
+                            }
+                            // Any other error is treated as transient: keep the
+                            // SlidingSync mode, report offline, and rebuild.
+                            enqueue(&events, json!({
+                                "type": "room_list_sync_state", "state": "offline"
+                            }));
+                            break;
+                        }
+                        Some(UnifiedSyncState::Terminated) => break,
+                        _ => {}
+                    }
+                }
+            }
+        }
+
+        service.stop().await;
+        // Bounded backoff before rebuilding the supervisor. Cancellation exits
+        // immediately; there is no busy loop. The mode stays SlidingSync (the
+        // next iteration re-affirms it, deduped) so only the connection state
+        // reflects the transient retry.
+        tokio::select! {
+            _ = &mut cancel => return None,
+            _ = tokio::time::sleep(std::time::Duration::from_secs(3)) => {
+                enqueue(&events, json!({
+                    "type": "room_list_sync_state", "state": "retrying"
+                }));
+            }
+        }
+    }
+}
+
+async fn run_classic_sync(
+    client: Client,
+    events: Arc<Mutex<VecDeque<String>>>,
+    mut cancel: tokio::sync::oneshot::Receiver<()>,
+) {
+    enqueue(&events, json!({ "type": "room_list_sync_state", "state": "starting" }));
+    let first_response = Arc::new(AtomicBool::new(true));
+    let settings = SyncSettings::default().ignore_timeout_on_first_sync(true).full_state(true);
+    let callback_client = client.clone();
+    let callback_events = Arc::clone(&events);
+    let callback_first = Arc::clone(&first_response);
+    let sync = client.sync_with_callback(settings, move |_response| {
+        let client = callback_client.clone();
+        let events = Arc::clone(&callback_events);
+        let first_response = Arc::clone(&callback_first);
+        async move {
+            enqueue_rooms(&events, &client).await;
+            let spaces = SpaceService::new(client.clone()).await;
+            enqueue_spaces(&events, &spaces, &client).await;
+            enqueue(&events, json!({ "type": "room_list_sync_state", "state": "running" }));
+            if first_response.swap(false, Ordering::SeqCst) {
+                enqueue(&events, json!({ "type": "initial_sync_done" }));
+            }
+            LoopCtrl::Continue
+        }
+    });
+    tokio::pin!(sync);
+    tokio::select! {
+        result = &mut sync => if let Err(err) = result {
+            enqueue(&events, json!({
+                "type": "sync_error",
+                "message": format_matrix_error("Matrix Rust SDK sync failed", err),
+            }));
+        },
+        _ = &mut cancel => {}
+    }
+}
+
+async fn forward_room_list_diffs(
+    events: &Arc<Mutex<VecDeque<String>>>,
+    batches: Vec<VectorDiff<RoomListItem>>,
+) {
+    for diff in batches {
+        let value = match diff {
+            VectorDiff::Reset { values } => {
+                let mut rooms = Vec::with_capacity(values.len());
+                for item in values { rooms.push(room_payload(&item.into_inner()).await); }
+                json!({ "type": "room_list_reset", "rooms": rooms })
+            }
+            VectorDiff::Append { values } => {
+                let mut rooms = Vec::with_capacity(values.len());
+                for item in values { rooms.push(room_payload(&item.into_inner()).await); }
+                json!({ "type": "room_list_append", "rooms": rooms })
+            }
+            VectorDiff::PushFront { value } => json!({
+                "type": "room_list_push_front", "room": room_payload(&value.into_inner()).await
+            }),
+            VectorDiff::PushBack { value } => json!({
+                "type": "room_list_push_back", "room": room_payload(&value.into_inner()).await
+            }),
+            VectorDiff::PopFront => json!({ "type": "room_list_pop_front" }),
+            VectorDiff::PopBack => json!({ "type": "room_list_pop_back" }),
+            VectorDiff::Insert { index, value } => json!({
+                "type": "room_list_insert", "index": index,
+                "room": room_payload(&value.into_inner()).await
+            }),
+            VectorDiff::Set { index, value } => json!({
+                "type": "room_list_set", "index": index,
+                "room": room_payload(&value.into_inner()).await
+            }),
+            VectorDiff::Remove { index } => json!({ "type": "room_list_remove", "index": index }),
+            VectorDiff::Truncate { length } => json!({
+                "type": "room_list_truncate", "length": length
+            }),
+            VectorDiff::Clear => json!({ "type": "room_list_clear" }),
+        };
+        enqueue(events, value);
+    }
+}
+
+async fn enqueue_spaces(
+    events: &Arc<Mutex<VecDeque<String>>>,
+    service: &SpaceService,
+    client: &Client,
+) {
+    let filters = service.space_filters().await;
+    let joined_spaces = client.joined_space_rooms();
+    let space_ids: BTreeSet<String> = joined_spaces.iter()
+        .map(|room| room.room_id().to_string()).collect();
+    let mut parents_by_child = HashMap::<String, Vec<String>>::new();
+    let mut children_by_parent = HashMap::<String, BTreeSet<String>>::new();
+
+    // Ask SpaceService's cycle-pruned graph for every known joined room's
+    // parents. This extends its two presentation-level filters into a full
+    // selectable hierarchy without reparsing raw state in Lightning.
     for room in client.joined_rooms() {
-        let name = room_name(&room).await;
-        let encrypted = room.encryption_state().is_encrypted();
-        out.push(json!({
-            "id": room.room_id().to_string(),
-            "name": name,
-            "topic": room.topic().unwrap_or_default(),
-            "avatar_url": room.avatar_url().map(|url| url.to_string()).unwrap_or_default(),
-            "last_message_preview": "",
-            "last_activity_ms": room
-                .latest_event_timestamp()
-                .map(|ts| u64::from(ts.get()))
-                .unwrap_or(0),
-            "unread_count": room.num_unread_notifications(),
-            "encrypted": encrypted,
-            "is_space": room.is_space(),
-            "prev_batch": room.last_prev_batch().unwrap_or_default(),
-            "child_room_ids": [],
-        }));
+        let child_id = room.room_id().to_string();
+        let parents: Vec<String> = service.joined_parents_of_child(room.room_id()).await
+            .into_iter().map(|parent| parent.room_id.to_string()).collect();
+        for parent in &parents {
+            children_by_parent.entry(parent.clone()).or_default().insert(child_id.clone());
+        }
+        parents_by_child.insert(child_id, parents);
+    }
+    // Preserve inaccessible/unjoined identifiers exposed by the pinned
+    // SpaceFilter even though they cannot become visible room rows.
+    for filter in &filters {
+        let parent = filter.space_room.room_id.to_string();
+        children_by_parent.entry(parent).or_default()
+            .extend(filter.descendants.iter().map(ToString::to_string));
     }
 
-    enqueue(events, json!({ "type": "rooms", "rooms": out }));
+    let mut ordered_ids: Vec<String> = filters.iter()
+        .map(|filter| filter.space_room.room_id.to_string()).collect();
+    for room in &joined_spaces {
+        let id = room.room_id().to_string();
+        if !ordered_ids.contains(&id) { ordered_ids.push(id); }
+    }
+
+    let mut spaces = Vec::with_capacity(ordered_ids.len());
+    for id in ordered_ids {
+        let Some(room) = joined_spaces.iter().find(|room| room.room_id().as_str() == id) else {
+            continue;
+        };
+        let parents = parents_by_child.get(&id).cloned().unwrap_or_default();
+        let mut descendants = BTreeSet::new();
+        let mut pending: Vec<(String, usize)> = children_by_parent.get(&id)
+            .into_iter().flat_map(|children| children.iter().cloned())
+            .map(|child| (child, 1)).collect();
+        while let Some((child, depth)) = pending.pop() {
+            if depth > 64 || child == id || !descendants.insert(child.clone()) { continue; }
+            if let Some(nested) = children_by_parent.get(&child) {
+                pending.extend(nested.iter().cloned().map(|value| (value, depth + 1)));
+            }
+        }
+        let child_spaces: Vec<String> = children_by_parent.get(&id).into_iter()
+            .flat_map(|children| children.iter())
+            .filter(|child| space_ids.contains(*child)).cloned().collect();
+        let level = filters.iter().find(|filter| filter.space_room.room_id.as_str() == id)
+            .map(|filter| filter.level).unwrap_or(2);
+        spaces.push(json!({
+            "id": id,
+            "name": room_name(room).await,
+            "avatar_url": room.avatar_url().map(|url| url.to_string()).unwrap_or_default(),
+            "parents": parents,
+            "child_spaces": child_spaces,
+            "descendants": descendants,
+            "level": level,
+        }));
+    }
+    enqueue(events, json!({ "type": "space_list_reset", "spaces": spaces }));
+}
+
+async fn room_payload(room: &Room) -> serde_json::Value {
+    let membership = match room.state() {
+        matrix_sdk::RoomState::Joined => "joined",
+        matrix_sdk::RoomState::Invited => "invited",
+        matrix_sdk::RoomState::Knocked => "knocked",
+        matrix_sdk::RoomState::Left | matrix_sdk::RoomState::Banned => "left",
+    };
+    let direct_targets: Vec<String> = room.direct_targets().iter().map(ToString::to_string).collect();
+    let notifications = room.unread_notification_counts();
+    let (inviter_user_id, inviter_display_name) = if membership == "invited" {
+        match room.invite_details().await {
+            Ok(invite) => (
+                invite.inviter_id.to_string(),
+                invite.inviter.map(|member| member.name().to_owned()).unwrap_or_default(),
+            ),
+            Err(_) => (String::new(), String::new()),
+        }
+    } else { (String::new(), String::new()) };
+
+    json!({
+        "id": room.room_id().to_string(),
+        "membership": membership,
+        "name": room_name(room).await,
+        "canonical_alias": room.canonical_alias().map(|alias| alias.to_string()).unwrap_or_default(),
+        "topic": room.topic().unwrap_or_default(),
+        "avatar_url": room.avatar_url().map(|url| url.to_string()).unwrap_or_default(),
+        "last_message_preview": "",
+        "last_activity_ms": room.latest_event_timestamp().map(|ts| u64::from(ts.get())).unwrap_or(0),
+        "unread_count": room.num_unread_notifications().max(notifications.notification_count),
+        "highlight_count": room.num_unread_mentions().max(notifications.highlight_count),
+        "marked_unread": room.is_marked_unread(),
+        "has_unread_messages": room.num_unread_messages() > 0,
+        "encrypted": room.encryption_state().is_encrypted(),
+        "is_space": room.is_space(),
+        "is_direct": !direct_targets.is_empty(),
+        "direct_user_id": direct_targets.first().cloned().unwrap_or_default(),
+        "direct_user_ids": direct_targets,
+        "member_count": room.joined_members_count(),
+        "room_type": room.room_type().map(|kind| kind.to_string()).unwrap_or_default(),
+        "prev_batch": room.last_prev_batch().unwrap_or_default(),
+        "inviter_user_id": inviter_user_id,
+        "inviter_display_name": inviter_display_name,
+    })
+}
+
+async fn enqueue_rooms(events: &Arc<Mutex<VecDeque<String>>>, client: &Client) {
+    let mut out = Vec::new();
+    for room in client.rooms() {
+        if matches!(room.state(), matrix_sdk::RoomState::Joined
+            | matrix_sdk::RoomState::Invited | matrix_sdk::RoomState::Knocked) {
+            out.push(room_payload(&room).await);
+        }
+    }
+    enqueue(events, json!({ "type": "room_list_reset", "rooms": out }));
 }
 
 async fn room_name(room: &Room) -> String {

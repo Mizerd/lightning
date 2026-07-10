@@ -12,6 +12,31 @@ across the rename. The product name is **Lightning**.
 
 ## Status
 
+**v0.5.8** — Matrix-native room list and room state. The Rust backend
+now probes the homeserver's `org.matrix.simplified_msc3575` capability
+and uses pinned `matrix-sdk-ui 0.18.0` `SyncService` +
+`RoomListService` when available. That unified supervisor owns both the
+room-list and encryption Sliding Sync tasks. An authoritative missing
+capability or unsupported endpoint selects the existing classic
+`Client::sync_with_callback` path; network/TLS/authentication/store
+errors never cause a silent downgrade. Both paths normalize into one
+ordered room registry and one Qt sidebar model.
+
+Direct Messages now come exclusively from SDK-synchronized `m.direct`
+(`Room::direct_targets`); member count is display-only and a missing or
+malformed mapping causes no guesses. Joined rooms and invitations are
+separate, with SDK `join`/`leave` accept/reject actions. SDK unread,
+highlight, client unread-message and `m.marked_unread` state drive room
+and Space badges. `SpaceService` supplies cycle-pruned joined Space
+filters; Lightning resolves nested descendants, multiple parents and
+Home-view deduplication. Incoming `m.typing` lists replace prior state,
+outgoing typing uses SDK throttling, and visible-at-bottom reads send
+one SDK `send_multiple_receipts` request containing `m.read` plus the
+fully-read marker. Encrypted sidebar previews remain memory-only and
+are now explicitly blanked by `CacheStore::saveRoom` as defense in
+depth. The persistent 0.5.7 Timeline, pagination, local echoes,
+decryption retry, replies, edits, reactions and redactions are unchanged.
+
 **v0.5.7** — Live SDK timeline and immediate decryption retry.
 The Rust backend's room history now runs on persistent
 `matrix-sdk-ui 0.18.0` **Timeline** objects instead of one-shot
@@ -485,7 +510,7 @@ start; no live switching.
 |---|---|
 | `mock` | In-memory hardcoded rooms, Space + threaded conversation demo, no network. `--mock` is an alias. Useful for offline UI work. |
 | `http` | Talks Matrix Client-Server API directly with `QNetworkAccessManager`. Password login, `/sync` long-poll, replies / edits / redactions / reactions / media / typing / receipts, Spaces + real `m.thread`. **Default.** No E2EE. |
-| `rust` | Optional Matrix Rust SDK backend foundation. Rust owns the SDK client/runtime/store; C++ polls FFI events and exposes them through existing models. Login/restore/sync/plain text send are wired. A smoke-only encrypted-send probe is verified one-way, but UI encrypted sends stay blocked and E2EE still reports unsupported until encrypted receive is verified too. Only built when `-DENABLE_RUST_SDK_BACKEND=ON`. |
+| `rust` | Production E2EE backend. Rust owns the SDK client/runtime/store, capability-probed modern room-list + encryption sync (or classic compatibility sync), persistent SDK timeline, m.direct, Spaces, invites, unread/read state, typing, verification, backup and room-key import. Only built when `-DENABLE_RUST_SDK_BACKEND=ON`. |
 
 ---
 

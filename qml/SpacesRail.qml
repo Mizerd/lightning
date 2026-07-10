@@ -10,7 +10,7 @@ import MatrixClient
 Rectangle {
     id: root
     color: AppTheme.sidebar
-    visible: app.spaces && app.spaces.hasSpaces
+    visible: true
 
     ListView {
         id: list
@@ -45,6 +45,7 @@ Rectangle {
                 id: spaceCircle
                 width: 40; height: 40
                 anchors.centerIn: parent
+                anchors.horizontalCenterOffset: model.level > 0 ? 5 : 0
                 radius: spaceItem.isActive ? AppTheme.radiusSm : AppTheme.radiusPill
                 color: spaceItem.isActive ? AppTheme.accent : AppTheme.cardElevated
 
@@ -71,7 +72,7 @@ Rectangle {
                     width: Math.max(18, badgeLabel.implicitWidth + 6)
                     height: 18
                     radius: 9
-                    color: AppTheme.accent
+                    color: model.highlightTotal > 0 ? AppTheme.error : AppTheme.accent
                     anchors.top: parent.top
                     anchors.right: parent.right
                     anchors.topMargin: -3

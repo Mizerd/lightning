@@ -344,7 +344,11 @@ void CacheStore::saveRoom(const RoomInfo &r)
     q.bindValue(QStringLiteral(":unread"),    r.unreadCount);
     q.bindValue(QStringLiteral(":ts"),
                 r.lastActivity.isValid() ? r.lastActivity.toMSecsSinceEpoch() : 0);
-    q.bindValue(QStringLiteral(":prev"),      r.lastMessagePreview);
+    // Sidebar previews for encrypted rooms may contain SDK-decrypted
+    // plaintext. They are useful in memory but must never enter Lightning's
+    // custom C++ cache; the SDK store remains the sole encrypted-state owner.
+    q.bindValue(QStringLiteral(":prev"),
+                r.encrypted ? QString{} : r.lastMessagePreview);
     q.bindValue(QStringLiteral(":prevBatch"), r.prevBatchToken);
     q.bindValue(QStringLiteral(":space"),     r.isSpace ? 1 : 0);
     // v0.4.8: coerce to non-null so the QSQLITE driver writes SQL '' for

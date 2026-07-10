@@ -12,6 +12,13 @@ struct MemberInfo {
 };
 
 struct RoomInfo {
+    enum Membership {
+        Joined,
+        Invited,
+        Knocked,
+        Left,
+    };
+
     QString id;
     QString name;
     QString topic;
@@ -19,8 +26,20 @@ struct RoomInfo {
     QString lastMessagePreview;
     QDateTime lastActivity;
     int unreadCount = 0;
+    int highlightCount = 0;
+    bool markedUnread = false;
+    bool hasUnreadMessages = false;
     bool encrypted = false;
     bool isSpace = false;
+    bool isDirect = false;
+    QString directUserId;
+    QString canonicalAlias;
+    QString inviterUserId;
+    QString inviterDisplayName;
+    QString roomType;
+    Membership membership = Joined;
+    bool invitePending = false;
+    QString inviteError;
     QString spaceId;
 
     // Pagination token from the most recent /sync for backfill via
@@ -42,4 +61,5 @@ struct RoomInfo {
     // hardcoded (Mock). Rooms may appear in multiple spaces (Matrix allows
     // it) — RoomInfo::spaceId stays as a "primary parent" hint.
     QStringList childRoomIds;
+    QStringList parentSpaceIds;
 };

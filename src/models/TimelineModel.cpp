@@ -430,14 +430,14 @@ void TimelineModel::refreshTypingText()
         for (const auto &u : users) {
             if (u == m_selfUserId) continue;
             names.append(m_client->displayNameFor(m_roomId, u));
-            if (names.size() >= 3) break;
+            if (names.size() >= 2) break;
         }
-        if (users.size() > names.size())
-            names.append(tr("others"));
-        if (names.size() == 1)
+        if (users.size() == 1 && names.size() == 1)
             next = tr("%1 is typing…").arg(names.first());
-        else if (names.size() > 1)
-            next = tr("%1 are typing…").arg(names.join(QStringLiteral(", ")));
+        else if (users.size() == 2 && names.size() == 2)
+            next = tr("%1 and %2 are typing…").arg(names.at(0), names.at(1));
+        else if (users.size() >= 3)
+            next = tr("%1 people are typing…").arg(users.size());
     }
     if (next != m_typingText) {
         m_typingText = next;

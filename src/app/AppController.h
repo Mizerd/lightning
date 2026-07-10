@@ -32,6 +32,7 @@ class AppController : public QObject
     Q_PROPERTY(QString appVersion READ appVersion CONSTANT)
     Q_PROPERTY(QString backendName READ backendName CONSTANT)
     Q_PROPERTY(QString connectionStatus READ connectionStatus NOTIFY connectionStatusChanged)
+    Q_PROPERTY(QString syncModeLabel READ syncModeLabel NOTIFY syncModeChanged)
     Q_PROPERTY(bool initialSyncDone READ initialSyncDone NOTIFY initialSyncDoneChanged)
     Q_PROPERTY(bool localRustResetRequired READ localRustResetRequired
                NOTIFY localRustResetRequiredChanged)
@@ -109,6 +110,7 @@ public:
     QString appVersion() const { return QStringLiteral(APP_VERSION); }
     QString backendName() const;
     QString connectionStatus() const { return m_connectionStatus; }
+    QString syncModeLabel() const;
     bool initialSyncDone() const;
     QString rustDeviceIdRedacted() const;
     bool localRustResetRequired() const { return m_localRustResetRequired; }
@@ -205,6 +207,7 @@ Q_SIGNALS:
     void currentRoomIdChanged();
     void loggedInChanged();
     void connectionStatusChanged();
+    void syncModeChanged();
     void errorReported(const QString &message);
     void rustDeviceIdChanged();
     void localRustResetRequiredChanged();

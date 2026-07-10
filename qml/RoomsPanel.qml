@@ -29,6 +29,7 @@ Rectangle {
                     leftMargin: AppTheme.spacing8; rightMargin: AppTheme.spacing8
                 }
                 placeholderText: qsTr("Search rooms…")
+                onTextChanged: app.roomList.searchQuery = text
                 font.pixelSize: AppTheme.fontSizeS
                 background: Rectangle {
                     color: AppTheme.inputBackground
@@ -66,7 +67,8 @@ Rectangle {
                         left: parent.left; verticalCenter: parent.verticalCenter
                         leftMargin: AppTheme.spacing12
                     }
-                    text: section === "dm" ? qsTr("DIRECT MESSAGES") : qsTr("ROOMS")
+                    text: section === "invite" ? qsTr("INVITES")
+                          : section === "dm" ? qsTr("DIRECT MESSAGES") : qsTr("ROOMS")
                     color: AppTheme.textMuted
                     font.pixelSize: AppTheme.fontSizeXS
                     font.weight: Font.DemiBold
@@ -77,13 +79,12 @@ Rectangle {
             delegate: RoomDelegate {
                 width: ListView.view.width
                 selected: model.roomId === app.currentRoomId
-                onClicked: app.openRoom(model.roomId)
+                onClicked: if (model.membership === "joined") app.openRoom(model.roomId)
+                onAcceptInvite: app.roomList.acceptInvite(model.roomId)
+                onRejectInvite: app.roomList.rejectInvite(model.roomId)
+                onMarkRead: app.roomList.markRoomRead(model.roomId)
+                onMarkUnread: app.roomList.markRoomUnread(model.roomId)
 
-                visible: roomSearch.text === "" ||
-                         (model.name &&
-                          model.name.toLowerCase().indexOf(
-                              roomSearch.text.toLowerCase()) >= 0)
-                height: visible ? implicitHeight : 0
             }
 
             // Empty / loading state

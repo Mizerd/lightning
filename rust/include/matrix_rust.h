@@ -50,6 +50,19 @@ void  mx_rust_start_sync(void *client);
 int   mx_rust_stop_sync(void *client);
 char *mx_rust_poll_event(void *client);
 
+/* 0.5.8 Matrix-native room state commands. Results are asynchronous events;
+ * no composer text, raw events, or secret material crosses these calls. */
+char *mx_rust_send_typing(void *client, const char *room_id, int typing);
+char *mx_rust_send_read_receipt(void *client,
+                                const char *room_id,
+                                const char *event_id);
+char *mx_rust_set_marked_unread(void *client, const char *room_id, int unread);
+char *mx_rust_accept_invite(void *client, const char *room_id);
+char *mx_rust_reject_invite(void *client, const char *room_id);
+/* Re-emit a full room_list_reset from the SDK's current room set. Safety
+ * net invoked by C++ only when it rejects a malformed room-list diff. */
+char *mx_rust_resync_rooms(void *client);
+
 char *mx_rust_send_text(void *client,
                         const char *room_id,
                         const char *body,

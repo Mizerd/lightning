@@ -1,4 +1,77 @@
-# Current state (v0.5.7 — live SDK timeline and immediate decryption retry)
+# Current state (v0.5.8 — Matrix-native room list and room state)
+
+## v0.5.8 — Modern room list, Spaces, DMs, invites, unread, receipts and typing
+
+### Authoritative sync ownership
+
+- Login/restore still creates exactly one `matrix_sdk::Client` and installs
+  the existing timeline, E2EE and verification handlers once.
+- `mx_rust_start_sync` enters `probing` and calls the pinned SDK's
+  `Client::supported_versions()`. `FeatureFlag::Msc4186` is the exact signal
+  for ruma 0.24's
+  `/_matrix/client/unstable/org.matrix.simplified_msc3575/sync` endpoint.
+- When supported, `matrix_sdk_ui::sync_service::SyncService` owns the
+  `RoomListService` and `EncryptionSyncService`. Its single
+  `EncryptionSyncPermit` is the proof that no second encryption sync runs.
+  Stop awaits the supervisor, which stops and joins both child streams.
+- Only an authoritative absent capability, `M_UNRECOGNIZED`, or endpoint
+  not-found selects `classic_fallback`. Temporary network/TLS failures stay
+  offline/retrying in the selected mode. Unknown-token/forbidden remains a
+  fatal authentication error. Store/setup failures are never compatibility
+  fallback signals.
+- Compatibility mode uses the existing one `Client::sync_with_callback`
+  loop, including its crypto/to-device processing. It lacks Sliding Sync
+  range loading and unified offline supervision, but emits the same room,
+  Space, DM, invite, unread and typing contract as modern mode.
+
+### Reactive room and Space state
+
+- Modern `RoomList::entries_with_dynamic_adapters` uses the SDK non-left
+  filter and recommended latest-event/recency/name sorting. Every pinned
+  `VectorDiff` variant crosses FFI as a bounded safe envelope. C++ validates
+  indexes and duplicate room IDs before updating its ordered registry.
+  `RoomListModel` then reconciles by stable room ID with insert/remove/move/
+  data-change notifications; an index never identifies the selected room.
+- `Room::direct_targets()`—the SDK projection of global `m.direct` account
+  data—is authoritative. No mapping means no DMs; malformed/stale entries are
+  ignored by SDK deserialization; two-member rooms receive no special case.
+- `SpaceService::space_filters()` supplies joined, ordered, cycle-pruned Space
+  graph data. Lightning combines the SDK's two presentation levels into a
+  transitive descendant set, deduplicates Home and per-Space results, accepts
+  multiple parents, ignores inaccessible/unjoined descendants, and enforces a
+  defensive traversal depth of 64 in C++.
+- Invitations are `RoomState::Invited` rows. Accept calls `Room::join`; reject
+  calls `Room::leave`. Buttons become pending immediately, duplicate clicks
+  are disabled, and lifecycle generation rejection prevents an old action
+  from reaching a new session.
+
+### Unread, receipts and typing
+
+- Room payloads contain SDK client unread messages/notifications/mentions,
+  server notification/highlight counts, and `Room::is_marked_unread()`.
+  Space counts sum each deduplicated joined descendant once.
+- Mark unread calls `Room::set_unread_flag(true)`. A legitimate read uses
+  `Room::send_multiple_receipts(Receipts::fully_read_marker(...)
+  .public_read_receipt(...))`, which also clears marked-unread through the
+  SDK. C++ deduplicates the last event ID. QML only requests a read while the
+  application is active and the timeline is at/near the bottom; pagination
+  and older-history inspection do not mark read.
+- Incoming SDK `SyncTypingEvent` lists replace the previous room set and omit
+  the current user. Display names are resolved from bounded room membership
+  lookups. The composer sends transitions only (not keystrokes), renews every
+  3 seconds for the SDK's 4-second notice, and sends false on clear, send,
+  room/screen switch and sign-out. Composer text is never logged or forwarded.
+
+### Privacy and lifecycle
+
+- Room-state command tasks are owned join handles. Shutdown order is active
+  timeline, room-state commands, room-key import, unified/classic sync, then
+  client/store release. C++ lifecycle generations still reject queued events
+  after sign-out.
+- Encrypted latest-event preview plaintext is memory-only. Even if an
+  encrypted `RoomInfo` reaches `CacheStore::saveRoom`, the preview column is
+  forced empty. `LIGHTNING_ROOM_PREVIEW_CACHE_TEST_058` is scanned from raw
+  `cache.sqlite` bytes by `cache-store-security`.
 
 ## v0.5.7 — Live SDK timeline, decryption retry, pagination, local echoes
 
@@ -343,7 +416,8 @@ Concrete changes:
   accent bar marks the active space. Unread count badge on inactive
   items. ToolTip shows full space name on hover. Pseudo-rows (All rooms,
   Other rooms) render ⊞/◦ symbols. Hidden entirely when there are no
-  real Matrix Spaces (`app.spaces.hasSpaces` = false).
+  real Matrix Spaces (`app.spaces.hasSpaces` = false). **Superseded in
+  v0.5.8:** Home is now always visible.
 
 - **`qml/RoomsPanel.qml`** (rewritten): search bar at the top;
   `ListView` with `section.property: "category"` that shows
@@ -359,8 +433,9 @@ Concrete changes:
 
 - **`src/models/RoomListModel.h/.cpp`**: two new roles —
   `MemberCountRole` ("memberCount", returns `r.members.size()`) and
-  `CategoryRole` ("category", returns "dm" for 1-2 member rooms or
-  "room" otherwise). `refresh()` now `std::stable_sort`s the visible
+  `CategoryRole` (historically used a member-count heuristic).
+  **Superseded in v0.5.8:** `m.direct` is authoritative and member count
+  is display-only. `refresh()` now `std::stable_sort`s the visible
   rooms so DMs appear before groups (required for Qt's section grouping
   to produce two contiguous sections rather than interleaving).
 

@@ -1,7 +1,31 @@
-# Threat model (v0.5.7 live timeline, verification, and room-key import)
+# Threat model (v0.5.8 room state, live timeline, verification, and key import)
 
 Scoped to what the current v0.5.0-prep foundation needs a reader to
 know. Full model is v1.0 material.
+
+## Room-list and sync boundary (v0.5.8)
+
+- Rust is the only layer that probes server support, runs room-list sync,
+  interprets `m.direct`, consumes account/ephemeral data, builds Space filters,
+  and sends typing/receipt/membership actions. QML sees bounded metadata and
+  never receives raw sync/account-data/state events.
+- Modern mode uses matrix-sdk-ui's unified supervisor. Its permit makes the
+  room-list and encryption Sliding Sync pair mutually owned; classic `/sync`
+  is not started concurrently. Compatibility fallback requires a positive
+  unsupported capability/endpoint result, never a transient or authentication
+  failure.
+- Routine logs contain only mode/state/action/category/count information. They
+  exclude room names, previews, mappings, membership lists, composer content,
+  raw receipts/events/responses, credentials and cryptographic material.
+- Typing is ephemeral and never persisted. `m.direct` stays in the SDK store
+  and is not copied into Lightning's custom SQLite database. Receipt/fully-read
+  state is sent through official SDK methods and is not replayed after the
+  owning lifecycle ends.
+- Encrypted sidebar plaintext is memory-only. `CacheStore::saveRoom` blanks
+  encrypted previews, and the 0.5.8 marker regression scans raw database bytes.
+- Room actions have owned join handles. Sign-out invalidates C++ callbacks,
+  stops UI producers, joins room actions/import, then stops and joins the one
+  authoritative sync source before client/store release.
 
 ## Live SDK timeline and decryption retry (v0.5.7)
 

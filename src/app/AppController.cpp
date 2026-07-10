@@ -132,6 +132,9 @@ AppController::AppController(Backend backend, QObject *parent)
         case MatrixClient::Error:
             setConnectionStatus(tr("Error"));
             break;
+        case MatrixClient::Offline:
+            setConnectionStatus(tr("Offline — retrying"));
+            break;
         }
     };
     connect(m_client.get(), &MatrixClient::connectionStateChanged,
@@ -140,6 +143,8 @@ AppController::AppController(Backend backend, QObject *parent)
         refreshConnectionStatus();
         Q_EMIT initialSyncDoneChanged();
     });
+    connect(m_client.get(), &MatrixClient::syncModeChanged,
+            this, &AppController::syncModeChanged);
     setConnectionStatus(tr("Not connected"));
 
     // v0.5.0-prep+10: recovery-key restore wiring. The Rust backend
@@ -445,6 +450,16 @@ bool AppController::initialSyncDone() const
     return m_client && m_client->initialSyncDone();
 }
 
+QString AppController::syncModeLabel() const
+{
+    if (!m_client || m_backend != RustBackend) return {};
+    const QString mode = m_client->syncMode();
+    if (mode == QLatin1String("sliding_sync")) return tr("Modern room list");
+    if (mode == QLatin1String("classic_fallback")) return tr("Compatibility mode");
+    if (mode == QLatin1String("probing")) return tr("Checking server support…");
+    return {};
+}
+
 QString AppController::rustDeviceIdRedacted() const
 {
 #ifdef ENABLE_RUST_SDK_BACKEND
@@ -502,9 +517,21 @@ void AppController::setCurrentRoomId(const QString &roomId)
     Q_EMIT currentRoomIdChanged();
 }
 
-void AppController::showLogin()      { setCurrentScreen(LoginScreen); }
-void AppController::showMain()       { setCurrentScreen(MainScreen); }
-void AppController::showSettings()   { setCurrentScreen(SettingsScreen); }
+void AppController::showLogin()
+{
+    m_composer->setRoomId({});
+    setCurrentScreen(LoginScreen);
+}
+void AppController::showMain()
+{
+    m_composer->setRoomId(m_currentRoomId);
+    setCurrentScreen(MainScreen);
+}
+void AppController::showSettings()
+{
+    m_composer->setRoomId({});
+    setCurrentScreen(SettingsScreen);
+}
 
 void AppController::openRoom(const QString &roomId)
 {

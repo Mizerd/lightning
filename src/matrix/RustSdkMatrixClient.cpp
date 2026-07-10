@@ -15,6 +15,7 @@
 #include <QVariantList>
 #include <QVariantMap>
 #include <QLoggingCategory>
+#include <QSet>
 #include <QTimeZone>
 #include <QUrl>
 
@@ -164,6 +165,9 @@ void RustSdkMatrixClient::clearLocalState()
     m_userId.clear();
     m_deviceId.clear();
     m_rooms.clear();
+    m_roomOrder.clear();
+    m_lastReceiptSent.clear();
+    m_syncMode = QStringLiteral("stopped");
     m_timelines.clear();
     m_pendingSends.clear();
     m_pendingProbes.clear();
@@ -258,6 +262,11 @@ void RustSdkMatrixClient::releaseRustHandle()
     m_pollTimer.stop();
     if (!m_rustHandle)
         return;
+    if (!m_typingRoom.isEmpty()) {
+        const QByteArray room = m_typingRoom.toUtf8();
+        takeRustString(mx_rust_send_typing(m_rustHandle, room.constData(), 0));
+        m_typingRoom.clear();
+    }
     // v0.5.7: deterministic teardown — timeline subscriptions are cancelled
     // and joined, an in-flight room-key import is joined (bounded last-resort
     // timeout), the sync loop is stopped. Only then is the handle destroyed,
@@ -317,6 +326,7 @@ void RustSdkMatrixClient::login(const QString &homeserver,
     m_deviceId.clear();
     m_loggedIn = false;
     m_rooms.clear();
+    m_roomOrder.clear();
     m_timelines.clear();
     m_pendingSends.clear();
     setInitialSyncDone(false);
@@ -389,6 +399,7 @@ bool RustSdkMatrixClient::restoreSession()
     m_deviceId = deviceId;
     m_loggedIn = false;
     m_rooms.clear();
+    m_roomOrder.clear();
     m_timelines.clear();
     m_pendingSends.clear();
     setInitialSyncDone(false);
@@ -436,6 +447,7 @@ bool RustSdkMatrixClient::restoreSessionFromFile(const QString &homeserver,
     m_deviceId.clear();
     m_loggedIn = false;
     m_rooms.clear();
+    m_roomOrder.clear();
     m_timelines.clear();
     m_pendingSends.clear();
     setInitialSyncDone(false);
@@ -551,6 +563,15 @@ void RustSdkMatrixClient::logout()
                    << "device_known=" << !m_signOutDeviceId.isEmpty();
     m_lifecycle.beginSignOut(m_handleGeneration);
 
+    // Queue typing=false before the deterministic join so the old room is
+    // cleared while the client and sync transport still belong to this
+    // lifecycle.
+    if (m_rustHandle && !m_typingRoom.isEmpty()) {
+        const QByteArray room = m_typingRoom.toUtf8();
+        takeRustString(mx_rust_send_typing(m_rustHandle, room.constData(), 0));
+        m_typingRoom.clear();
+    }
+
     // v0.5.7: deterministic managed-task shutdown replaces the 0.5.6
     // import_active poll loop. Rust cancels and *joins* the timeline
     // subscription, joins an in-flight room-key import (the crypto store
@@ -593,7 +614,7 @@ void RustSdkMatrixClient::stopSync()
         qCInfo(lcRust) << "rust sync stop result="
                        << (stopped ? "ok" : "already_stopped");
     }
-    if (m_state == Syncing)
+    if (m_state == Syncing || m_state == Offline)
         setState(Disconnected);
 }
 
@@ -601,17 +622,17 @@ QList<RoomInfo> RustSdkMatrixClient::rooms() const
 {
     QList<RoomInfo> list;
     list.reserve(m_rooms.size());
-    for (const auto &room : m_rooms)
-        list.append(room);
-    std::sort(list.begin(), list.end(), [](const RoomInfo &a, const RoomInfo &b) {
-        if (a.lastActivity.isValid() && b.lastActivity.isValid())
-            return a.lastActivity > b.lastActivity;
-        if (a.lastActivity.isValid())
-            return true;
-        if (b.lastActivity.isValid())
-            return false;
-        return a.name.toLower() < b.name.toLower();
-    });
+    QSet<QString> seen;
+    for (const auto &roomId : m_roomOrder) {
+        const auto it = m_rooms.constFind(roomId);
+        if (it != m_rooms.constEnd() && !seen.contains(roomId)) {
+            list.append(*it);
+            seen.insert(roomId);
+        }
+    }
+    for (auto it = m_rooms.constBegin(); it != m_rooms.constEnd(); ++it) {
+        if (!seen.contains(it.key())) list.append(*it);
+    }
     return list;
 }
 
@@ -829,12 +850,59 @@ void RustSdkMatrixClient::toggleReaction(const QString &roomId,
     }
 }
 
-void RustSdkMatrixClient::sendTyping(const QString &, bool, int)
+void RustSdkMatrixClient::sendTyping(const QString &roomId, bool typing, int)
 {
+    if (!m_rustHandle || roomId.isEmpty()) return;
+    const QByteArray room = roomId.toUtf8();
+    const QString result = takeRustString(mx_rust_send_typing(
+        m_rustHandle, room.constData(), typing ? 1 : 0));
+    if (result.isEmpty()) {
+        if (typing) m_typingRoom = roomId;
+        else if (m_typingRoom == roomId) m_typingRoom.clear();
+    } else {
+        qCWarning(lcRust) << "typing command rejected";
+    }
 }
 
-void RustSdkMatrixClient::sendReadReceipt(const QString &, const QString &)
+void RustSdkMatrixClient::sendReadReceipt(const QString &roomId, const QString &eventId)
 {
+    if (!m_rustHandle || roomId.isEmpty() || eventId.isEmpty()
+        || m_lastReceiptSent.value(roomId) == eventId)
+        return;
+    m_lastReceiptSent.insert(roomId, eventId);
+    const QByteArray room = roomId.toUtf8();
+    const QByteArray event = eventId.toUtf8();
+    const QString result = takeRustString(mx_rust_send_read_receipt(
+        m_rustHandle, room.constData(), event.constData()));
+    if (!result.isEmpty()) {
+        m_lastReceiptSent.remove(roomId);
+        qCWarning(lcRust) << "read receipt command rejected";
+    }
+}
+
+void RustSdkMatrixClient::setRoomMarkedUnread(const QString &roomId, bool unread)
+{
+    if (!m_rustHandle || roomId.isEmpty()) return;
+    const QByteArray room = roomId.toUtf8();
+    const QString result = takeRustString(mx_rust_set_marked_unread(
+        m_rustHandle, room.constData(), unread ? 1 : 0));
+    if (!result.isEmpty()) qCWarning(lcRust) << "marked-unread command rejected";
+}
+
+void RustSdkMatrixClient::acceptInvite(const QString &roomId)
+{
+    if (!m_rustHandle || roomId.isEmpty()) return;
+    const QByteArray room = roomId.toUtf8();
+    const QString result = takeRustString(mx_rust_accept_invite(m_rustHandle, room.constData()));
+    if (!result.isEmpty()) qCWarning(lcRust) << "invite accept command rejected";
+}
+
+void RustSdkMatrixClient::rejectInvite(const QString &roomId)
+{
+    if (!m_rustHandle || roomId.isEmpty()) return;
+    const QByteArray room = roomId.toUtf8();
+    const QString result = takeRustString(mx_rust_reject_invite(m_rustHandle, room.constData()));
+    if (!result.isEmpty()) qCWarning(lcRust) << "invite reject command rejected";
 }
 
 void RustSdkMatrixClient::sendImage(const QString &, const QString &)
@@ -1120,8 +1188,93 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
         return;
     }
 
-    if (type == QLatin1String("rooms")) {
+    if (type == QLatin1String("rooms") || type == QLatin1String("room_list_reset")) {
         handleRoomsEvent(event.value(QStringLiteral("rooms")).toArray());
+        return;
+    }
+
+    if (type.startsWith(QLatin1String("room_list_"))
+        && type != QLatin1String("room_list_mode")
+        && type != QLatin1String("room_list_sync_state")
+        && type != QLatin1String("room_list_error")) {
+        handleRoomListDiff(event);
+        return;
+    }
+
+    if (type == QLatin1String("room_list_mode")) {
+        const QString mode = event.value(QStringLiteral("mode")).toString();
+        if (!mode.isEmpty() && mode != m_syncMode) {
+            m_syncMode = mode;
+            qCInfo(lcRust) << "room_list mode=" << mode;
+            Q_EMIT syncModeChanged();
+        }
+        return;
+    }
+
+    if (type == QLatin1String("room_list_sync_state")) {
+        const QString state = event.value(QStringLiteral("state")).toString();
+        qCInfo(lcRust) << "sync state=" << state;
+        if (state == QLatin1String("offline")) setState(Offline);
+        else if (state == QLatin1String("starting") || state == QLatin1String("retrying"))
+            setState(Syncing);
+        else if (state == QLatin1String("running")) setState(Syncing);
+        return;
+    }
+
+    if (type == QLatin1String("room_list_error")) {
+        const QString category = event.value(QStringLiteral("category")).toString();
+        if (category == QLatin1String("authentication")) {
+            setState(Error);
+            Q_EMIT errorOccurred(tr("Matrix session is no longer authorized."));
+        }
+        return;
+    }
+
+    if (type == QLatin1String("space_list_reset")) {
+        handleSpacesEvent(event.value(QStringLiteral("spaces")).toArray());
+        return;
+    }
+
+    if (type == QLatin1String("typing_update")) {
+        const QString roomId = event.value(QStringLiteral("room_id")).toString();
+        auto room = m_rooms.find(roomId);
+        if (room == m_rooms.end()) return;
+        QStringList users;
+        for (const auto &entry : event.value(QStringLiteral("users")).toArray()) {
+            const auto object = entry.toObject();
+            const QString userId = object.value(QStringLiteral("user_id")).toString();
+            if (userId.isEmpty() || userId == m_userId) continue;
+            users.append(userId);
+            const QString displayName = object.value(QStringLiteral("display_name")).toString();
+            if (!displayName.isEmpty()) {
+                auto member = room->members.value(userId);
+                member.userId = userId;
+                member.displayName = displayName;
+                room->members.insert(userId, member);
+            }
+        }
+        room->typingUserIds = users;
+        Q_EMIT typingChanged(roomId);
+        return;
+    }
+
+    if (type == QLatin1String("invite_state_update")) {
+        const QString roomId = event.value(QStringLiteral("room_id")).toString();
+        auto room = m_rooms.find(roomId);
+        if (room == m_rooms.end()) return;
+        const QString state = event.value(QStringLiteral("state")).toString();
+        room->invitePending = state == QLatin1String("pending");
+        room->inviteError = state == QLatin1String("failed")
+            ? tr("Invite action failed. Try again.") : QString{};
+        Q_EMIT roomUpdated(roomId);
+        return;
+    }
+
+    if (type == QLatin1String("room_action_error")) {
+        const QString action = event.value(QStringLiteral("action")).toString();
+        if (action == QLatin1String("read_receipt"))
+            m_lastReceiptSent.remove(event.value(QStringLiteral("room_id")).toString());
+        qCWarning(lcRust) << "room action failed category=" << action;
         return;
     }
 
@@ -1346,60 +1499,155 @@ void RustSdkMatrixClient::handleRoomsEvent(const QJsonArray &rooms)
 {
     QHash<QString, RoomInfo> nextRooms;
     nextRooms.reserve(rooms.size());
+    QStringList nextOrder;
+    QSet<QString> seen;
 
     for (const auto &value : rooms) {
         const QJsonObject obj = value.toObject();
-        RoomInfo room;
-        room.id = obj.value(QStringLiteral("id")).toString();
-        if (room.id.isEmpty())
-            continue;
+        RoomInfo room = roomInfoFromJson(obj);
+        if (room.id.isEmpty() || seen.contains(room.id)) continue;
+        seen.insert(room.id);
+        nextRooms.insert(room.id, room);
+        nextOrder.append(room.id);
+    }
+    m_rooms = nextRooms;
+    m_roomOrder = nextOrder;
+    Q_EMIT roomsChanged();
+}
 
-        const auto oldIt = m_rooms.constFind(room.id);
-        if (oldIt != m_rooms.constEnd())
-            room = *oldIt;
+RoomInfo RustSdkMatrixClient::roomInfoFromJson(const QJsonObject &obj) const
+{
+    const QString id = obj.value(QStringLiteral("id")).toString();
+    RoomInfo room = m_rooms.value(id);
+    room.id = id;
+    room.name = obj.value(QStringLiteral("name")).toString(room.name);
+    if (room.name.isEmpty()) room.name = room.id;
+    room.topic = obj.value(QStringLiteral("topic")).toString(room.topic);
+    room.canonicalAlias = obj.value(QStringLiteral("canonical_alias")).toString(room.canonicalAlias);
+    room.avatarUrl = obj.value(QStringLiteral("avatar_url")).toString(room.avatarUrl);
+    room.lastMessagePreview = obj.value(QStringLiteral("last_message_preview"))
+                                  .toString(room.lastMessagePreview);
+    const auto activity = timestampFromMs(static_cast<qint64>(
+        obj.value(QStringLiteral("last_activity_ms")).toDouble(0)));
+    if (activity.isValid()) room.lastActivity = activity;
+    room.unreadCount = obj.value(QStringLiteral("unread_count")).toInt(room.unreadCount);
+    room.highlightCount = obj.value(QStringLiteral("highlight_count")).toInt(room.highlightCount);
+    room.markedUnread = obj.value(QStringLiteral("marked_unread")).toBool(room.markedUnread);
+    room.hasUnreadMessages = obj.value(QStringLiteral("has_unread_messages"))
+                                 .toBool(room.hasUnreadMessages || room.unreadCount > 0);
+    room.encrypted = obj.value(QStringLiteral("encrypted")).toBool(room.encrypted);
+    room.isSpace = obj.value(QStringLiteral("is_space")).toBool(room.isSpace);
+    room.isDirect = obj.value(QStringLiteral("is_direct")).toBool(false);
+    room.directUserId = obj.value(QStringLiteral("direct_user_id")).toString();
+    room.roomType = obj.value(QStringLiteral("room_type")).toString();
+    room.prevBatchToken = obj.value(QStringLiteral("prev_batch")).toString(room.prevBatchToken);
+    room.inviterUserId = obj.value(QStringLiteral("inviter_user_id")).toString();
+    room.inviterDisplayName = obj.value(QStringLiteral("inviter_display_name")).toString();
+    const QString membership = obj.value(QStringLiteral("membership")).toString(
+        QStringLiteral("joined"));
+    room.membership = membership == QLatin1String("invited") ? RoomInfo::Invited
+        : membership == QLatin1String("knocked") ? RoomInfo::Knocked
+        : membership == QLatin1String("left") ? RoomInfo::Left : RoomInfo::Joined;
+    return room;
+}
 
-        room.id = obj.value(QStringLiteral("id")).toString(room.id);
-        room.name = obj.value(QStringLiteral("name")).toString(room.name);
-        if (room.name.isEmpty())
-            room.name = room.id;
-        room.topic = obj.value(QStringLiteral("topic")).toString(room.topic);
-        room.avatarUrl = obj.value(QStringLiteral("avatar_url")).toString(room.avatarUrl);
-        room.lastMessagePreview = obj.value(QStringLiteral("last_message_preview"))
-                                      .toString(room.lastMessagePreview);
-        const qint64 lastActivityMs = static_cast<qint64>(
-            obj.value(QStringLiteral("last_activity_ms")).toDouble(0));
-        const QDateTime activity = timestampFromMs(lastActivityMs);
-        if (activity.isValid())
-            room.lastActivity = activity;
-        room.unreadCount = obj.value(QStringLiteral("unread_count")).toInt(room.unreadCount);
-        room.encrypted = obj.value(QStringLiteral("encrypted")).toBool(room.encrypted);
-        room.isSpace = obj.value(QStringLiteral("is_space")).toBool(room.isSpace);
-        room.prevBatchToken = obj.value(QStringLiteral("prev_batch")).toString(room.prevBatchToken);
+void RustSdkMatrixClient::handleRoomListDiff(const QJsonObject &event)
+{
+    const QString type = event.value(QStringLiteral("type")).toString();
+    auto reject = [this, &type] {
+        // Never apply a malformed/out-of-range diff — that is what would
+        // corrupt the ordered registry. Instead request a controlled fresh
+        // snapshot from Rust so the model recovers to a complete, correct
+        // room set rather than staying stale. (Well-formed dynamic-adapter
+        // diffs should never reach here.)
+        qCWarning(lcRust) << "room_list malformed diff rejected op=" << type
+                          << "— requesting fresh room-list snapshot";
+        if (m_rustHandle)
+            takeRustString(mx_rust_resync_rooms(m_rustHandle));
+    };
+    auto addRoom = [this](int index, const QJsonObject &object) {
+        RoomInfo room = roomInfoFromJson(object);
+        if (room.id.isEmpty() || m_rooms.contains(room.id)
+            || index < 0 || index > m_roomOrder.size()) return false;
+        m_rooms.insert(room.id, room);
+        m_roomOrder.insert(index, room.id);
+        return true;
+    };
+
+    bool ok = true;
+    if (type == QLatin1String("room_list_append")) {
+        for (const auto &value : event.value(QStringLiteral("rooms")).toArray())
+            ok = addRoom(m_roomOrder.size(), value.toObject()) && ok;
+    } else if (type == QLatin1String("room_list_push_front")) {
+        ok = addRoom(0, event.value(QStringLiteral("room")).toObject());
+    } else if (type == QLatin1String("room_list_push_back")) {
+        ok = addRoom(m_roomOrder.size(), event.value(QStringLiteral("room")).toObject());
+    } else if (type == QLatin1String("room_list_insert")) {
+        ok = addRoom(event.value(QStringLiteral("index")).toInt(-1),
+                     event.value(QStringLiteral("room")).toObject());
+    } else if (type == QLatin1String("room_list_set")) {
+        const int index = event.value(QStringLiteral("index")).toInt(-1);
+        const RoomInfo room = roomInfoFromJson(event.value(QStringLiteral("room")).toObject());
+        if (index < 0 || index >= m_roomOrder.size() || room.id.isEmpty()) ok = false;
+        else {
+            const QString oldId = m_roomOrder.at(index);
+            if (room.id != oldId && m_rooms.contains(room.id)) ok = false;
+            else {
+                m_rooms.remove(oldId); m_rooms.insert(room.id, room); m_roomOrder[index] = room.id;
+            }
+        }
+    } else if (type == QLatin1String("room_list_remove")) {
+        const int index = event.value(QStringLiteral("index")).toInt(-1);
+        if (index < 0 || index >= m_roomOrder.size()) ok = false;
+        else m_rooms.remove(m_roomOrder.takeAt(index));
+    } else if (type == QLatin1String("room_list_pop_front")) {
+        if (m_roomOrder.isEmpty()) ok = false; else m_rooms.remove(m_roomOrder.takeFirst());
+    } else if (type == QLatin1String("room_list_pop_back")) {
+        if (m_roomOrder.isEmpty()) ok = false; else m_rooms.remove(m_roomOrder.takeLast());
+    } else if (type == QLatin1String("room_list_clear")) {
+        m_rooms.clear(); m_roomOrder.clear();
+    } else if (type == QLatin1String("room_list_truncate")) {
+        const int length = event.value(QStringLiteral("length")).toInt(-1);
+        if (length < 0 || length > m_roomOrder.size()) ok = false;
+        else while (m_roomOrder.size() > length) m_rooms.remove(m_roomOrder.takeLast());
+    } else {
+        ok = false;
+    }
+    if (!ok) { reject(); return; }
+    Q_EMIT roomsChanged();
+}
+
+void RustSdkMatrixClient::handleSpacesEvent(const QJsonArray &spaces)
+{
+    QSet<QString> present;
+    for (const auto &value : spaces) {
+        const auto object = value.toObject();
+        const QString id = object.value(QStringLiteral("id")).toString();
+        if (id.isEmpty()) continue;
+        present.insert(id);
+        RoomInfo room = m_rooms.value(id);
+        room.id = id; room.isSpace = true; room.membership = RoomInfo::Joined;
+        room.name = object.value(QStringLiteral("name")).toString(room.name);
+        room.avatarUrl = object.value(QStringLiteral("avatar_url")).toString(room.avatarUrl);
         room.childRoomIds.clear();
-        for (const auto &child : obj.value(QStringLiteral("child_room_ids")).toArray()) {
+        for (const auto &child : object.value(QStringLiteral("descendants")).toArray()) {
             const QString childId = child.toString();
-            if (!childId.isEmpty())
+            if (!childId.isEmpty() && childId != id && !room.childRoomIds.contains(childId))
                 room.childRoomIds.append(childId);
         }
-
-        nextRooms.insert(room.id, room);
+        room.parentSpaceIds.clear();
+        for (const auto &parent : object.value(QStringLiteral("parents")).toArray()) {
+            const QString parentId = parent.toString();
+            if (!parentId.isEmpty()) room.parentSpaceIds.append(parentId);
+        }
+        m_rooms.insert(id, room);
+        if (!m_roomOrder.contains(id)) m_roomOrder.append(id);
     }
-
-    for (auto it = nextRooms.begin(); it != nextRooms.end(); ++it) {
-        if (!it->isSpace)
-            it->spaceId.clear();
-    }
-    for (auto it = nextRooms.constBegin(); it != nextRooms.constEnd(); ++it) {
-        if (!it->isSpace)
-            continue;
-        for (const QString &childId : it->childRoomIds) {
-            auto childIt = nextRooms.find(childId);
-            if (childIt != nextRooms.end() && childIt->spaceId.isEmpty())
-                childIt->spaceId = it->id;
+    for (auto it = m_rooms.begin(); it != m_rooms.end(); ++it) {
+        if (it->isSpace && !present.contains(it.key())) {
+            it->childRoomIds.clear(); it->parentSpaceIds.clear();
         }
     }
-
-    m_rooms = nextRooms;
     Q_EMIT roomsChanged();
 }
 

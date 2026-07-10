@@ -39,6 +39,8 @@ public:
 
     QList<TimelineEvent> mirror;
     QStringList retriedTransactions;
+    QStringList typingUsers;
+    QHash<QString, QString> displayNames;
 
     void login(const QString &, const QString &, const QString &) override {}
     void logout() override { Q_EMIT loggedOut(); }
@@ -59,13 +61,13 @@ public:
     }
     QString displayNameFor(const QString &, const QString &userId) const override
     {
-        return userId;
+        return displayNames.value(userId, userId);
     }
     QString avatarMxcFor(const QString &, const QString &) const override
     {
         return {};
     }
-    QStringList typingUsersFor(const QString &) const override { return {}; }
+    QStringList typingUsersFor(const QString &) const override { return typingUsers; }
     QUrl mediaDownloadUrl(const QString &) const override { return {}; }
     QUrl mediaThumbnailUrl(const QString &, int, int, bool) const override
     {
@@ -114,6 +116,7 @@ private Q_SLOTS:
     void retrySendIgnoresNonFailedRows();
     void loggedOutClearsModel();
     void stableRoleData();
+    void typingTextFormatsByCount();
 
 private:
     FakeClient *m_client = nullptr;
@@ -387,6 +390,46 @@ void TimelineModelDiffTest::stableRoleData()
              QByteArrayLiteral("eventId"));
     QCOMPARE(names.value(TimelineModel::UndecryptableRole),
              QByteArrayLiteral("undecryptable"));
+}
+
+void TimelineModelDiffTest::typingTextFormatsByCount()
+{
+    // Phase 7 exact phrasing: the current user is always excluded, and the
+    // wording depends on how many *other* users are typing.
+    m_client->displayNames.insert(QStringLiteral("@a:example.org"),
+                                  QStringLiteral("Alice"));
+    m_client->displayNames.insert(QStringLiteral("@b:example.org"),
+                                  QStringLiteral("Bob"));
+
+    // Zero typers.
+    m_client->typingUsers = {};
+    Q_EMIT m_client->typingChanged(kRoom);
+    QCOMPARE(m_model->typingText(), QString{});
+
+    // The current user typing is filtered out → still empty.
+    m_client->typingUsers = { QStringLiteral("@me:example.org") };
+    Q_EMIT m_client->typingChanged(kRoom);
+    QCOMPARE(m_model->typingText(), QString{});
+
+    // One other user.
+    m_client->typingUsers = { QStringLiteral("@a:example.org") };
+    Q_EMIT m_client->typingChanged(kRoom);
+    QCOMPARE(m_model->typingText(), QStringLiteral("Alice is typing…"));
+
+    // Two other users (self filtered even when present in the set).
+    m_client->typingUsers = { QStringLiteral("@a:example.org"),
+                              QStringLiteral("@b:example.org") };
+    Q_EMIT m_client->typingChanged(kRoom);
+    QCOMPARE(m_model->typingText(),
+             QStringLiteral("Alice and Bob are typing…"));
+
+    // Three or more collapses to a count.
+    m_client->typingUsers = { QStringLiteral("@a:example.org"),
+                              QStringLiteral("@b:example.org"),
+                              QStringLiteral("@c:example.org") };
+    Q_EMIT m_client->typingChanged(kRoom);
+    QCOMPARE(m_model->typingText(),
+             QStringLiteral("3 people are typing…"));
 }
 
 QTEST_GUILESS_MAIN(TimelineModelDiffTest)

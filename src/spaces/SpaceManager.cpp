@@ -49,7 +49,9 @@ QVariant SpaceManager::data(const QModelIndex &index, int role) const
         case TopicRole:        return QString{};
         case AvatarUrlRole:    return QString{};
         case ChildCountRole:   return m_allRoomIds.size();
-        case UnreadTotalRole:  return 0;
+        case UnreadTotalRole:  return m_homeUnreadTotal;
+        case HighlightTotalRole: return m_homeHighlightTotal;
+        case LevelRole: return 0;
         }
         return {};
     }
@@ -67,6 +69,8 @@ QVariant SpaceManager::data(const QModelIndex &index, int role) const
             case AvatarUrlRole:   return QString{};
             case ChildCountRole:  return m_orphanRoomIds.size();
             case UnreadTotalRole: return 0;
+            case HighlightTotalRole: return 0;
+            case LevelRole: return 0;
             }
             return {};
         }
@@ -84,6 +88,8 @@ QVariant SpaceManager::data(const QModelIndex &index, int role) const
     case AvatarUrlRole:   return s.info.avatarUrl;
     case ChildCountRole:  return s.childRoomIds.size();
     case UnreadTotalRole: return s.unreadTotal;
+    case HighlightTotalRole: return s.highlightTotal;
+    case LevelRole:       return s.level;
     }
     return {};
 }
@@ -97,6 +103,8 @@ QHash<int, QByteArray> SpaceManager::roleNames() const
         { AvatarUrlRole,   "avatarUrl" },
         { ChildCountRole,  "childCount" },
         { UnreadTotalRole, "unreadTotal" },
+        { HighlightTotalRole, "highlightTotal" },
+        { LevelRole,       "level" },
     };
 }
 
@@ -139,6 +147,8 @@ void SpaceManager::rebuild()
     m_membership.clear();
     m_allRoomIds.clear();
     m_orphanRoomIds.clear();
+    m_homeUnreadTotal = 0;
+    m_homeHighlightTotal = 0;
 
     if (!m_client) {
         endResetModel();
@@ -151,26 +161,48 @@ void SpaceManager::rebuild()
     byId.reserve(rooms.size());
     for (const auto &r : rooms) {
         byId.insert(r.id, r);
-        if (!r.isSpace)
+        if (!r.isSpace && r.membership == RoomInfo::Joined) {
             m_allRoomIds.insert(r.id);
+            m_homeUnreadTotal += r.unreadCount;
+            m_homeHighlightTotal += r.highlightCount;
+        }
     }
 
+    // Resolve descendants iteratively with a visited set. Matrix permits
+    // multiple parents and malformed state can contain cycles; neither may
+    // duplicate rows or recurse forever. The depth cap is a final bound for
+    // adversarial graphs, not a lifecycle timing workaround.
     for (const auto &r : rooms) {
-        if (!r.isSpace) continue;
+        if (!r.isSpace || r.membership != RoomInfo::Joined) continue;
         SpaceEntry e;
         e.info = r;
-        for (const auto &child : r.childRoomIds) {
-            // Only surface children that the client actually has as a
-            // joined non-space room — pending invites / space-of-spaces are
-            // deferred to a later pass.
-            const auto it = byId.constFind(child);
-            if (it == byId.constEnd()) continue;
-            if (it->isSpace) continue;
-            e.childRoomIds.append(child);
+        e.level = r.parentSpaceIds.isEmpty() ? 0 : 1;
+        QList<QPair<QString, int>> pending;
+        for (const auto &child : r.childRoomIds) pending.append({child, 1});
+        QSet<QString> visited{r.id};
+        while (!pending.isEmpty()) {
+            const auto [childId, depth] = pending.takeFirst();
+            if (depth > 64 || visited.contains(childId)) continue;
+            visited.insert(childId);
+            const auto it = byId.constFind(childId);
+            if (it == byId.constEnd()) continue; // inaccessible/unjoined child
+            if (it->isSpace) {
+                for (const auto &nested : it->childRoomIds)
+                    pending.append({nested, depth + 1});
+                continue;
+            }
+            if (it->membership != RoomInfo::Joined) continue;
+            e.childRoomIds.append(childId);
             e.unreadTotal += it->unreadCount;
-            m_membership[r.id].insert(child);
+            e.highlightTotal += it->highlightCount;
+            m_membership[r.id].insert(childId);
         }
         m_spaces.append(std::move(e));
+    }
+
+    if (!m_activeSpaceId.isEmpty() && !m_membership.contains(m_activeSpaceId)) {
+        m_activeSpaceId.clear();
+        Q_EMIT activeSpaceIdChanged();
     }
 
     recomputeOrphans();

@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.21)
 project(matrix-client
-    VERSION 0.5.7
+    VERSION 0.5.8
     DESCRIPTION "Lightning — native C++/Qt Matrix desktop client"
     LANGUAGES CXX
 )
@@ -8,7 +8,7 @@ project(matrix-client
 include(CTest)
 
 # Human-facing release label. Keep in sync with project() and rust/Cargo.toml.
-set(APP_VERSION_LABEL "0.5.7")
+set(APP_VERSION_LABEL "0.5.8")
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -327,6 +327,19 @@ if(BUILD_TESTING)
     target_include_directories(cache-store-security-test PRIVATE src)
     target_link_libraries(cache-store-security-test PRIVATE Qt6::Core Qt6::Sql Qt6::Test)
     add_test(NAME cache-store-security COMMAND cache-store-security-test)
+
+    qt_add_executable(room-state-model-test
+        tests/RoomStateModelTest.cpp
+        src/models/RoomListModel.h
+        src/models/RoomListModel.cpp
+        src/spaces/SpaceManager.h
+        src/spaces/SpaceManager.cpp
+        src/matrix/MatrixClient.h
+        src/matrix/MatrixClient.cpp
+    )
+    target_include_directories(room-state-model-test PRIVATE src)
+    target_link_libraries(room-state-model-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME room-state-model COMMAND room-state-model-test)
 endif()
 
 install(TARGETS matrix-client

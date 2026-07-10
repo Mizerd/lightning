@@ -1,4 +1,4 @@
-# Matrix feature status (v0.5.0-prep+9)
+# Matrix feature status (v0.5.8)
 
 Honest per-feature status per backend. Ground truth for anything the UI
 claims about support. Do not check anything as "done" here that is not
@@ -16,23 +16,23 @@ Legend:
 |---|---|---|---|
 | Password login (`m.login.password`) | ✅ (any creds) | ✅ | ✅ verified live against matrix.smetonis.net (v0.5.0-prep+6) |
 | Session persistence + restore | 🟡 in-mem | ✅ (`/whoami`) | 🟡 interactive restore via SettingsManager/SecretStore is wired; persistent smoke restore now uses a smoke-only MatrixSession sidecar and stable SDK store |
-| Long-poll `/sync` | ⏳ | ✅ (v0.4.7: initial call uses timeout=0 + full_state; stale token is discarded if cache has no visible rooms) | ✅ joined-room SDK sync verified live (v0.5.0-prep+6) |
+| Long-poll `/sync` | ⏳ | ✅ | ✅ classic compatibility mode; modern mode uses unified Sliding Sync |
 | Initial-sync UX (`initialSyncDone` capability) | n/a | ✅ (v0.4.6) | ✅ flips after first SDK sync callback |
 | Text message send / receive | ✅ | ✅ | 🟡 basic text/notice/emote only; unencrypted send only |
-| Backfill pagination | ✅ | ✅ | ❌ |
-| Read receipts (self → server) | ✅ | ✅ | ❌ |
-| Typing indicator (send + display) | ✅ | ✅ | ❌ |
-| Replies (`m.in_reply_to`) | ✅ | ✅ | ❌ |
-| Edits (`m.replace`) | ✅ | ✅ | ❌ |
-| Redactions | ✅ | ✅ | ❌ |
-| Reactions (`m.reaction` / `m.annotation`) | ✅ | ✅ | ❌ |
+| Backfill pagination | ✅ | ✅ | ✅ SDK Timeline |
+| Read receipts (self → server) | ✅ | ✅ | ✅ public receipt + fully-read marker |
+| Typing indicator (send + display) | ✅ | ✅ | ✅ SDK replacement stream + throttled notice |
+| Replies (`m.in_reply_to`) | ✅ | ✅ | ✅ SDK Timeline |
+| Edits (`m.replace`) | ✅ | ✅ | ✅ SDK Timeline |
+| Redactions | ✅ | ✅ | ✅ SDK Timeline |
+| Reactions (`m.reaction` / `m.annotation`) | ✅ | ✅ | ✅ SDK Timeline |
 | Media send (image/file, legacy `/media/v3/upload`) | 🟡 no-op | ✅ | ❌ |
 | Media receive (image/file, legacy `/media/v3/download`) | ✅ | ✅ | ❌ |
 | Authenticated media (`/client/v1/media/*`) | ❌ | ❌ | ❌ |
 | Local SQLite cache | n/a | ✅ | 🟡 Rust SDK store only; no C++ CacheStore timeline cache; encrypted `TimelineEvent` rows are skipped so decrypted encrypted-room plaintext is not cached in `cache.sqlite` |
 | **Spaces — recognise `m.room.create type:m.space`** | ✅ seeded | ✅ (v0.4.2) | 🟡 SDK `room.is_space()` surfaced |
-| **Spaces — `m.space.child` hierarchy** | ✅ seeded | ✅ (v0.4.2) | ❌ |
-| **Spaces — filter room list by active Space** | ✅ (chip strip) | ✅ (v0.4.2) | 🟡 works only for surfaced Space flags/children |
+| **Spaces — `m.space.child` hierarchy** | ✅ seeded | ✅ (v0.4.2) | ✅ SpaceService nested/cycle-safe filters |
+| **Spaces — filter room list by active Space** | ✅ (chip strip) | ✅ (v0.4.2) | ✅ transitive descendants, multiple parents |
 | **Spaces — persistence across restart (before /sync)** | n/a | ✅ (v0.4.5) | ❌ |
 | **Threads — detect `m.thread` relation** | ✅ seeded | ✅ (v0.4.4) | ❌ |
 | **Threads — compose thread reply** | ✅ (Mock preserves grouping) | ✅ (v0.4.4, real m.thread relation) | ❌ refuses |
@@ -42,12 +42,12 @@ Legend:
 | **Threads — persistence across restart (before /sync)** | n/a | ✅ (v0.4.5) | ❌ |
 | Encrypted room read | ❌ placeholder | ❌ placeholder | ✅ initial E2EE support (v0.5.0-prep+9): verified live against Element Classic on a persistent SDK store — `expect_text=seen`, `decrypted_events_since_expect=1`, `undecryptable_since_expect=0`. Undecryptable events still render as `[unable to decrypt yet]` |
 | Encrypted send | ❌ blocked | ❌ blocked | ✅ initial E2EE support (v0.5.0-prep+9): matrix-sdk auto-encrypts on the interactive UI path; the encrypted-send probe was displayed as readable text in Element Classic |
-| Device verification / cross-signing | ❌ | ❌ | ❌ |
+| Device verification / cross-signing | ❌ | ❌ | ✅ SAS + trust snapshot |
 | Encrypted media | ❌ placeholder | ❌ placeholder | ❌ |
 | SSO login | ❌ capability flag `false` | ❌ capability flag `false` | ❌ |
 | OIDC / MAS login | ❌ capability flag `false` | ❌ capability flag `false` | ❌ |
 | Multi-account switching | ❌ single-active | ❌ single-active | ❌ |
-| Sliding sync | ❌ | ❌ | ❌ |
+| Sliding sync | ❌ | ❌ | ✅ capability-probed SyncService with classic fallback |
 | Notifications (native / tray) | ❌ (log only) | ❌ (log only) | ❌ (log only) |
 
 ## Partial-status notes

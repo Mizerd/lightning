@@ -6,6 +6,7 @@
 #include <QHash>
 #include <QList>
 #include <QVariantMap>
+#include <QTimer>
 
 class MatrixClient;
 class SpaceManager;
@@ -13,6 +14,8 @@ class SpaceManager;
 class RoomListModel : public QAbstractListModel
 {
     Q_OBJECT
+    Q_PROPERTY(QString searchQuery READ searchQuery WRITE setSearchQuery NOTIFY searchQueryChanged)
+    Q_PROPERTY(quint64 filterGeneration READ filterGeneration NOTIFY filterGenerationChanged)
 public:
     enum Roles {
         RoomIdRole = Qt::UserRole + 1,
@@ -24,8 +27,17 @@ public:
         UnreadCountRole,
         EncryptedRole,
         IsSpaceRole,
-        MemberCountRole, // r.members.size() — safe read-only heuristic
-        CategoryRole,    // "dm" (1-2 members) or "room" — used for QML sections
+        MemberCountRole, // display/diagnostics only; never used for DM classification
+        CategoryRole,    // "invite" | "dm" | "room"; DM is authoritative m.direct
+        HighlightCountRole,
+        MarkedUnreadRole,
+        HasUnreadRole,
+        MembershipRole,
+        IsDirectRole,
+        DirectUserIdRole,
+        InviterRole,
+        InvitePendingRole,
+        InviteErrorRole,
     };
 
     explicit RoomListModel(QObject *parent = nullptr);
@@ -46,6 +58,23 @@ public:
     // fields the UI actually needs (name, topic, encrypted). Returns an
     // empty map if the room is not present.
     Q_INVOKABLE QVariantMap findRoom(const QString &roomId) const;
+    Q_INVOKABLE void acceptInvite(const QString &roomId);
+    Q_INVOKABLE void rejectInvite(const QString &roomId);
+    Q_INVOKABLE void markRoomRead(const QString &roomId);
+    Q_INVOKABLE void markRoomUnread(const QString &roomId);
+    QString searchQuery() const { return m_searchQuery; }
+    void setSearchQuery(const QString &query);
+    quint64 filterGeneration() const { return m_filterGeneration; }
+
+    void resetRooms(const QList<RoomInfo> &rooms);
+    bool appendRooms(const QList<RoomInfo> &rooms);
+    bool prependRooms(const QList<RoomInfo> &rooms);
+    bool insertRoom(int index, const RoomInfo &room);
+    bool replaceRoom(int index, const RoomInfo &room);
+    bool removeRoom(int index);
+    bool removeRange(int index, int count);
+    bool truncate(int length);
+    void clearRooms();
 
 private Q_SLOTS:
     void refresh();
@@ -53,8 +82,18 @@ private Q_SLOTS:
 
 private:
     bool passesFilter(const RoomInfo &r) const;
+    QList<RoomInfo> desiredRooms() const;
+    void reconcileRooms();
 
     MatrixClient *m_client = nullptr;
     SpaceManager *m_spaces = nullptr;
     QList<RoomInfo> m_rooms; // Filtered subset actually shown.
+    QString m_searchQuery;
+    QString m_pendingSearchQuery;
+    quint64 m_filterGeneration = 1;
+    QTimer m_searchDebounce;
+
+Q_SIGNALS:
+    void searchQueryChanged();
+    void filterGenerationChanged();
 };

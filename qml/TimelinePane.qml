@@ -24,6 +24,15 @@ Rectangle {
         function onDataChanged() { refreshCurrentRoom() }
         function onModelReset() { refreshCurrentRoom() }
     }
+    Connections {
+        target: Qt.application
+        function onStateChanged() {
+            if (Qt.application.state === Qt.ApplicationActive
+                    && timeline.count > 0
+                    && timeline.contentY + timeline.height >= timeline.contentHeight - 40)
+                app.timeline.markVisibleAsRead(0, timeline.count - 1)
+        }
+    }
     Component.onCompleted: refreshCurrentRoom()
 
     ColumnLayout {
@@ -105,8 +114,14 @@ Rectangle {
                 }
                 onCountChanged: {
                     if (stickToBottom) positionViewAtEnd()
-                    // Send read receipt for latest visible.
-                    if (count > 0) app.timeline.markVisibleAsRead(0, count - 1)
+                    if (count > 0 && stickToBottom
+                            && Qt.application.state === Qt.ApplicationActive)
+                        app.timeline.markVisibleAsRead(0, count - 1)
+                }
+                onMovementEnded: {
+                    if (count > 0 && contentY + height >= contentHeight - 40
+                            && Qt.application.state === Qt.ApplicationActive)
+                        app.timeline.markVisibleAsRead(0, count - 1)
                 }
                 Component.onCompleted: positionViewAtEnd()
 

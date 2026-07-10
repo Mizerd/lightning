@@ -3,8 +3,10 @@
 #include "matrix/MatrixClient.h"
 
 namespace {
-constexpr int kTypingRefreshMs = 15000;
-constexpr int kTypingTimeoutMs = 20000;
+// matrix-sdk 0.18 advertises a four-second typing timeout and suppresses
+// redundant calls itself. Renew just before expiry; text is never forwarded.
+constexpr int kTypingRefreshMs = 3000;
+constexpr int kTypingTimeoutMs = 4000;
 }
 
 MessageComposer::MessageComposer(QObject *parent)
