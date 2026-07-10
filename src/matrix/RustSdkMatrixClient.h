@@ -102,6 +102,29 @@ public:
     void mismatchVerification(const QString &flowId);
     void cancelVerification(const QString &flowId);
 
+    // v0.5.6. Lightning-initiated SAS verification of the current
+    // session against another session belonging to the same Matrix
+    // account. Emits verificationStartFailed(reason) synchronously
+    // when the request cannot be dispatched (already active, no own
+    // identity, not logged in); success flows through the normal
+    // verificationRequestStarted / verificationSasReady / verificationDone
+    // events. Only advertises SAS as a method.
+    void startOwnVerification();
+
+    // v0.5.6. Snapshot the current session's cross-signing trust state
+    // from the SDK. Emits ownDeviceStatusUpdated(...) with only the
+    // aggregate fields the UI displays. Safe to call at any time; the
+    // wrapper skips the call when not logged in.
+    void refreshOwnDeviceStatus();
+
+    // v0.5.6. Encrypted Megolm room-key import. The path is passed to
+    // Rust unchanged; the passphrase is forwarded once and never
+    // logged. Results flow through roomKeyImportStarted /
+    // roomKeyImportProgress / roomKeyImportDone / roomKeyImportFailed.
+    // Only one import may be active per Rust client.
+    void importRoomKeys(const QString &filePath, const QString &passphrase);
+    bool roomKeyImportActive() const;
+
     // MatrixClient interface -------------------------------------------------
     void login(const QString &homeserver,
                const QString &user,
@@ -187,6 +210,35 @@ Q_SIGNALS:
     void verificationDone(const QString &flowId);
     void verificationCancelled(const QString &flowId, const QString &message);
     void verificationFailed(const QString &flowId, const QString &message);
+
+    // v0.5.6. Emitted when Lightning successfully dispatches a SAS
+    // verification request through mx_rust_start_own_verification. The
+    // flow id and self-verification flag are safe metadata; the SDK
+    // has already signed and sent the outbound m.key.verification.request.
+    void verificationRequestStarted(const QString &flowId,
+                                    const QString &otherUserId,
+                                    bool isSelfVerification);
+
+    // v0.5.6. Aggregate cross-signing trust snapshot from the SDK. All
+    // fields are non-secret metadata; the UI must derive its "Verified"
+    // label from deviceCrossSigned, not from generic own-device trust.
+    void ownDeviceStatusUpdated(const QString &deviceId,
+                                bool ownIdentityAvailable,
+                                bool ownIdentityVerified,
+                                bool deviceCrossSigned,
+                                bool hasMasterKey,
+                                bool hasSelfSigningKey,
+                                bool hasUserSigningKey);
+
+    // v0.5.6. Encrypted room-key import lifecycle. Aggregate counts and
+    // affected room IDs only; the decrypted export never leaves Rust.
+    void roomKeyImportStarted();
+    void roomKeyImportProgress(int imported, int total);
+    void roomKeyImportDone(int imported,
+                           int total,
+                           int affectedRooms,
+                           const QStringList &roomIds);
+    void roomKeyImportFailed(const QString &category, const QString &message);
 
     // Structured lifecycle state consumed by AppController/QML.
     void localSessionResetRequired(const QString &reasonCode);

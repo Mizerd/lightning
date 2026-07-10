@@ -59,10 +59,13 @@ QString CryptoManager::backendDescription() const
 #ifdef ENABLE_RUST_SDK_BACKEND
 #  ifdef RUST_SDK_E2EE_WIRED
         return QStringLiteral(
-            "Matrix Rust SDK backend. Initial E2EE support (v0.5.0-prep+9): "
-            "encrypted send + receive verified against Element Classic. "
-            "SAS emoji UI, GUI recovery-key flow, cross-signing, and key "
-            "backup management are not implemented yet.");
+            "Matrix Rust SDK backend. E2EE support (v0.5.6): "
+            "encrypted send + receive, receive- and initiate-first SAS "
+            "emoji verification with SDK cross-signing state readout, "
+            "Secure Backup recovery-key restore, and encrypted Megolm "
+            "room-key import via matrix-sdk. QR verification and full "
+            "device / cross-signing management UI are not implemented "
+            "yet.");
 #  else
         return QStringLiteral(
             "Matrix Rust SDK backend. Login, restore, joined-room sync, and "

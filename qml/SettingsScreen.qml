@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Dialogs
 import QtQuick.Layouts
 import MatrixClient
 
@@ -158,31 +159,69 @@ Item {
                     spacing: AppTheme.spacingS
 
                     Label {
-                        text: qsTr("Encryption (Matrix Rust SDK)")
+                        text: qsTr("Security & Recovery")
                         font.weight: Font.DemiBold
                         color: AppTheme.text
                     }
 
+                    // ─── Current session ──────────────────────────────
+                    Label {
+                        text: qsTr("Current session")
+                        color: AppTheme.textSecondary
+                        font.pixelSize: AppTheme.fontSizeS
+                    }
                     Label {
                         Layout.fillWidth: true
                         wrapMode: Text.WordWrap
                         color: AppTheme.textMuted
-                        text: qsTr(
-                            "Lightning session device: %1")
-                            .arg(app.rustDeviceIdRedacted !== ""
-                                 ? app.rustDeviceIdRedacted
-                                 : qsTr("(not yet available)"))
+                        text: qsTr("Device ID: %1").arg(
+                            app.sessionDeviceId !== ""
+                                ? app.sessionDeviceId
+                                : (app.rustDeviceIdRedacted !== ""
+                                    ? app.rustDeviceIdRedacted
+                                    : qsTr("(not yet available)")))
                     }
+                    Label {
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                        color: app.sessionTrustState === "Verified"
+                            ? AppTheme.success
+                            : (app.sessionTrustState === "Not verified"
+                                ? AppTheme.warning
+                                : AppTheme.textMuted)
+                        text: qsTr("Status: %1").arg(app.sessionTrustState)
+                    }
+
+                    // ─── Verify this session ──────────────────────────
                     Label {
                         Layout.fillWidth: true
                         wrapMode: Text.WordWrap
                         color: AppTheme.textMuted
                         font.pixelSize: 11
+                        visible: app.sessionTrustState !== "Verified"
                         text: qsTr(
-                            "Encrypted send: initial verified · Encrypted receive: initial verified · " +
-                            "Key backup restore: available below · " +
-                            "Session (SAS emoji) verification: receive-first flow implemented · " +
-                            "Cross-signing UI: not implemented yet")
+                            "Verify this session using another session already " +
+                            "signed in to this Matrix account. This does not import " +
+                            "room keys — key import is a separate action below.")
+                    }
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: AppTheme.spacingS
+                        visible: !app.verificationActive
+                        Button {
+                            text: app.sessionTrustState === "Verified"
+                                ? qsTr("Verify again")
+                                : qsTr("Verify this session")
+                            enabled: app.loggedIn
+                            onClicked: app.startOwnVerification()
+                        }
+                        Item { Layout.fillWidth: true }
+                        Label {
+                            visible: app.sessionTrustState === "Verified"
+                            color: AppTheme.success
+                            text: qsTr("This Lightning session is verified through Matrix cross-signing.")
+                            wrapMode: Text.WordWrap
+                        }
                     }
 
                     // v0.5.0 SAS emoji verification UI. Receive-first —
@@ -202,7 +241,7 @@ Item {
                             spacing: AppTheme.spacingS
 
                             Label {
-                                text: qsTr("Session verification request")
+                                text: qsTr("Session verification")
                                 color: AppTheme.text
                                 font.weight: Font.DemiBold
                             }
@@ -211,16 +250,24 @@ Item {
                                 wrapMode: Text.WordWrap
                                 color: AppTheme.textMuted
                                 text: {
+                                    if (app.verificationState === "starting")
+                                        return qsTr("Sending verification request…")
+                                    if (app.verificationState === "waiting_for_other_session")
+                                        return qsTr(
+                                            "Verification request sent. Accept it in " +
+                                            "another session, such as Element.")
                                     if (app.verificationState === "requested")
-                                        return qsTr("Incoming from %1")
+                                        return qsTr("Incoming verification request from %1")
                                             .arg(app.verificationOtherUser)
                                     if (app.verificationState === "sas_ready")
-                                        return qsTr("Compare these emojis with the " +
-                                                    "other device. Confirm only if they match.")
+                                        return qsTr(
+                                            "Compare all seven emojis with the other " +
+                                            "session. Confirm only if every emoji matches " +
+                                            "in the same order.")
                                     if (app.verificationState === "done")
-                                        return qsTr("Verification complete. Refreshing current room… " +
-                                                    "Some old messages may remain undecryptable until " +
-                                                    "another verified session shares their room keys.")
+                                        return qsTr(
+                                            "Verification flow complete. Lightning is " +
+                                            "querying the SDK for updated trust state.")
                                     if (app.verificationState === "cancelled")
                                         return qsTr("Verification cancelled.")
                                     if (app.verificationState.indexOf("failed") === 0)
@@ -282,9 +329,11 @@ Item {
                                 }
                                 Item { Layout.fillWidth: true }
                                 Button {
-                                    text: qsTr("Cancel")
+                                    text: qsTr("Cancel verification")
                                     visible: app.verificationState === "requested"
                                             || app.verificationState === "sas_ready"
+                                            || app.verificationState === "waiting_for_other_session"
+                                            || app.verificationState === "starting"
                                     onClicked: app.cancelVerification()
                                 }
                                 Button {
@@ -381,6 +430,167 @@ Item {
                         }
                     }
 
+                    // ─── Encrypted room-key import ────────────────────
+                    Label {
+                        text: qsTr("Import room keys")
+                        font.weight: Font.DemiBold
+                        color: AppTheme.text
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                        color: AppTheme.textMuted
+                        font.pixelSize: 11
+                        text: qsTr(
+                            "Import an encrypted Matrix room-key export from another " +
+                            "session. Imported keys may unlock older encrypted messages, " +
+                            "but they do not verify this session.")
+                    }
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: AppTheme.spacingS
+                        Button {
+                            id: importChooseButton
+                            text: qsTr("Choose key export")
+                            enabled: app.loggedIn && !importPanel.running
+                            onClicked: importFileDialog.open()
+                        }
+                        Label {
+                            Layout.fillWidth: true
+                            wrapMode: Text.WordWrap
+                            elide: Text.ElideMiddle
+                            color: AppTheme.textMuted
+                            text: importPanel.selectedFileName === ""
+                                ? qsTr("(no file selected)")
+                                : importPanel.selectedFileName
+                        }
+                    }
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: AppTheme.spacingS
+                        visible: importPanel.selectedFileUrl.toString() !== ""
+                        TextField {
+                            id: importPassphraseField
+                            Layout.fillWidth: true
+                            echoMode: TextInput.Password
+                            placeholderText: qsTr("Export passphrase")
+                            enabled: !importPanel.running
+                            onAccepted: {
+                                if (text.length > 0)
+                                    importStartButton.clicked()
+                            }
+                        }
+                        Button {
+                            id: importStartButton
+                            text: importPanel.running
+                                ? qsTr("Importing…")
+                                : qsTr("Import")
+                            enabled: !importPanel.running
+                                && importPassphraseField.text.length > 0
+                            onClicked: {
+                                app.importRoomKeys(
+                                    importPanel.selectedFileUrl,
+                                    importPassphraseField.text)
+                                // Wipe the passphrase from the QML field
+                                // immediately — never keep it beyond the
+                                // dispatch.
+                                importPassphraseField.text = ""
+                            }
+                        }
+                        Button {
+                            text: qsTr("Clear")
+                            enabled: !importPanel.running
+                            onClicked: {
+                                importPanel.selectedFileUrl = ""
+                                importPanel.selectedFileName = ""
+                                importPassphraseField.text = ""
+                            }
+                        }
+                    }
+                    ProgressBar {
+                        Layout.fillWidth: true
+                        visible: importPanel.running
+                        indeterminate: app.roomKeyImportTotalCount === 0
+                        from: 0
+                        to: Math.max(1, app.roomKeyImportTotalCount)
+                        value: app.roomKeyImportImportedCount
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                        visible: importPanel.statusText !== ""
+                        color: importPanel.statusColor
+                        text: importPanel.statusText
+                    }
+
+                    QtObject {
+                        id: importPanel
+                        property url selectedFileUrl: ""
+                        property string selectedFileName: ""
+                        property bool running: false
+                        property string statusText: ""
+                        property color statusColor: AppTheme.textMuted
+                    }
+
+                    FileDialog {
+                        id: importFileDialog
+                        title: qsTr("Select encrypted Matrix room-key export")
+                        fileMode: FileDialog.OpenFile
+                        // Deliberately no `nameFilters` filter on extension —
+                        // Element writes .txt exports; users may rename.
+                        onAccepted: {
+                            importPanel.selectedFileUrl = selectedFile
+                            importPanel.selectedFileName =
+                                selectedFile.toString().split('/').pop()
+                            importPanel.statusText = ""
+                        }
+                    }
+
+                    Connections {
+                        target: app
+                        function onRoomKeyImportStateChanged() {
+                            var state = app.roomKeyImportState
+                            if (state === "importing") {
+                                importPanel.running = true
+                                importPanel.statusText =
+                                    qsTr("Importing room keys…")
+                                importPanel.statusColor = AppTheme.textMuted
+                            } else if (state === "done") {
+                                importPanel.running = false
+                                importPanel.statusText = qsTr(
+                                    "Room-key import complete.\n" +
+                                    "Imported sessions: %1\n" +
+                                    "Affected rooms: %2\n" +
+                                    "Note: importing keys does not verify this session.")
+                                    .arg(app.roomKeyImportImportedCount)
+                                    .arg(app.roomKeyImportAffectedRoomCount)
+                                importPanel.statusColor = AppTheme.success
+                                // Clear file selection for the next round;
+                                // keep the completion summary visible.
+                                importPanel.selectedFileUrl = ""
+                                importPanel.selectedFileName = ""
+                                importPassphraseField.text = ""
+                            } else if (state === "failed") {
+                                importPanel.running = false
+                                importPanel.statusText =
+                                    app.roomKeyImportLastMessage
+                                importPanel.statusColor = AppTheme.error
+                                importPassphraseField.text = ""
+                            }
+                        }
+                    }
+
+                    // ─── Recovery distinctions ─────────────────────────
+                    Label {
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                        color: AppTheme.textMuted
+                        font.pixelSize: 11
+                        text: qsTr(
+                            "Verification establishes trust in this session. " +
+                            "Secure Backup and room-key imports provide decryption keys " +
+                            "for message history. These are separate operations.")
+                    }
                     Label {
                         Layout.fillWidth: true
                         wrapMode: Text.WordWrap

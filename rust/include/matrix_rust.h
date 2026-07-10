@@ -114,6 +114,81 @@ char *mx_rust_confirm_verification(void *client, const char *flow_id);
 char *mx_rust_mismatch_verification(void *client, const char *flow_id);
 char *mx_rust_cancel_verification(void *client, const char *flow_id);
 
+/*
+ * Lightning-initiated (outbound) SAS verification (v0.5.6). Requests
+ * verification of the current session against another session belonging
+ * to the SAME Matrix account. Advertises SAS as the only method. Uses
+ * the SDK's `UserIdentity::request_verification_with_methods` path, which
+ * for the account owner sends the request over to-device to the user's
+ * other E2EE-capable devices.
+ *
+ * Result events on the poll queue:
+ *   { "type": "verification_request_started", "flow_id": "..." }
+ * followed later by the usual verification_ready / verification_sas_ready
+ * / verification_done / verification_cancelled events, exactly like the
+ * receive-first flow.
+ *
+ * Returns "error: ..." synchronously if there is already an active flow,
+ * the SDK does not have the account's own user identity available, or
+ * the client is not logged in.
+ */
+char *mx_rust_start_own_verification(void *client);
+
+/*
+ * Report the current session's cross-signing trust state (v0.5.6).
+ * Returns JSON:
+ *   { "device_id": "...",
+ *     "own_identity_available": true|false,
+ *     "own_identity_verified": true|false,
+ *     "device_cross_signed": true|false,
+ *     "has_master": true|false,
+ *     "has_self_signing": true|false,
+ *     "has_user_signing": true|false }
+ *
+ * "device_cross_signed" is the source of truth for the UI's "Verified"
+ * label — the SDK sets it to true only after cross-signing has actually
+ * signed the current device. Never contains keys or signatures.
+ * Returns "error: ..." when not logged in.
+ */
+char *mx_rust_query_own_device_status(void *client);
+
+/*
+ * Encrypted Megolm room-key import (v0.5.6). Decrypts an
+ * Element/Matrix-SDK-compatible encrypted export file with `passphrase`
+ * and imports the extracted inbound room-session keys into the active
+ * SDK crypto store via `Encryption::import_room_keys`.
+ *
+ * The C++ side passes only a local file path and the passphrase. This
+ * FFI never returns decrypted key material or JSON to C++. Only
+ * aggregate counts and affected room IDs are surfaced. Passphrase
+ * buffers are zeroized after use (via `zeroize::Zeroizing` inside the
+ * SDK).
+ *
+ * Poll-queue events:
+ *   { "type": "room_key_import_started" }
+ *   { "type": "room_key_import_progress", "imported": N, "total": N }
+ *      (currently emitted once at completion; the SDK does not surface
+ *      intermediate progress in v0.18.)
+ *   { "type": "room_key_import_done",
+ *     "imported": N, "total": N, "affected_rooms": N,
+ *     "room_ids": ["!...","!..."] }
+ *   { "type": "room_key_import_failed",
+ *     "category": "not_signed_in|invalid_file|bad_passphrase|read_failed|
+ *                  import_failed|already_running|generation_stale",
+ *     "message": "..." }
+ *
+ * Only one import may be active per client. Attempting a second while one
+ * is running returns "already_running" via room_key_import_failed rather
+ * than starting a second parallel task.
+ */
+char *mx_rust_import_room_keys(void *client,
+                               const char *file_path,
+                               const char *passphrase);
+
+/* 0 = no import active, 1 = one in progress. Used by the C++ side to
+ * gate sign-out and duplicate imports. Read-only. */
+int mx_rust_room_key_import_active(void *client);
+
 /* 0 = no, 1 = yes. Reports honestly — 0 until verified encrypted read/send. */
 int mx_rust_supports_e2ee(void *client);
 

@@ -1,3 +1,131 @@
+# Current state (v0.5.6 — session verification and room-key import)
+
+## v0.5.6 — Lightning-initiated SAS and encrypted room-key import
+
+Two conceptually distinct security capabilities landed in this release, and
+the Settings UI now enforces the distinction:
+
+1. **Session (device) verification** — Lightning can initiate a Matrix SAS
+   verification against another session belonging to the same account.
+   Element (or any other cross-signed session) receives the request and
+   accepts it; both sides then display and confirm the same seven emojis.
+   After the flow completes, Lightning re-queries the SDK's cross-signing
+   state and only labels the session **Verified** when
+   `Device::is_cross_signed_by_owner()` returns true.
+
+2. **Encrypted Megolm room-key import** — Lightning can decrypt a
+   passphrase-protected Element/Matrix-SDK-compatible room-key export and
+   import its inbound room sessions into the local Rust SDK crypto store.
+   Imported keys may unlock older encrypted messages but **do not** verify
+   the session, do not cross-sign the current device, and do not replace
+   SAS verification.
+
+Neither operation is Secure Backup restoration — the existing recovery-key
+button is preserved and clearly separated in the UI ("Recovery key" → Secure
+Backup; "Import room keys" → local file; "Verify this session" → SAS).
+
+### Rust FFI additions
+
+`rust/src/lib.rs` / `rust/include/matrix_rust.h`:
+
+- `mx_rust_start_own_verification` — dispatches
+  `UserIdentity::request_verification_with_methods(vec![VerificationMethod::SasV1])`
+  against the account's own identity, then drives the SAS state machine.
+  Reuses the existing `active_request` / `active_sas` slots and the same
+  `verification_ready` / `verification_sas_ready` / `verification_done`
+  events, so inbound and outbound flows share every downstream handler.
+  Emits `verification_request_started` synchronously so the UI can flip to
+  "Waiting for the other session…" immediately.
+- `mx_rust_query_own_device_status` — returns a JSON snapshot with
+  `device_id`, `own_identity_available`, `own_identity_verified`,
+  `device_cross_signed`, `has_master`, `has_self_signing`,
+  `has_user_signing`. `device_cross_signed` (from
+  `Encryption::get_own_device()::is_cross_signed_by_owner()`) is the sole
+  source of truth for the UI's "Verified" label.
+- `mx_rust_import_room_keys` — delegates to
+  `Encryption::import_room_keys(path, passphrase)`. Passphrase and decrypted
+  key material stay inside the SDK's Zeroizing buffer; the FFI only forwards
+  aggregate counts and (already-public) affected room IDs back to C++.
+- `mx_rust_room_key_import_active` — atomic flag that gates duplicate
+  imports and lets the sign-out path wait for an in-flight import to finish
+  before dropping the SDK store.
+- `classify_import_error` — pure classifier for wrong-passphrase / invalid
+  file / read-failed / import-failed. Rust unit-tested in `#[cfg(test)]`.
+
+### C++ layer
+
+`src/matrix/RustSdkMatrixClient`:
+
+- Adds `startOwnVerification`, `refreshOwnDeviceStatus`, `importRoomKeys`,
+  `roomKeyImportActive`. Adds the matching signals:
+  `verificationRequestStarted`, `ownDeviceStatusUpdated`,
+  `roomKeyImportStarted/Progress/Done/Failed`.
+- `logout()` waits up to ~5 s for an active import to complete before
+  releasing the Rust client and deleting the store. Sign-out remains
+  authoritative and bounded — a stuck import cannot pin the app.
+
+`src/app/AppController`:
+
+- Adds an application-facing security state: `sessionTrustState`
+  (`Unknown` / `Not verified` / `Verified` / `Cross-signing unavailable`),
+  `sessionDeviceId`, `ownIdentityAvailable`, `crossSigningAvailable`.
+- Adds room-key import state: `roomKeyImportState`,
+  `roomKeyImportImportedCount`, `roomKeyImportTotalCount`,
+  `roomKeyImportAffectedRoomCount`, `roomKeyImportLastMessage`,
+  `roomKeyImportRunning`, plus `roomKeyImportCompleted(imported, total,
+  affected)`.
+- Adds `Q_INVOKABLE`s `startOwnVerification`, `refreshSessionTrustState`,
+  `importRoomKeys(fileUrl, passphrase)`. The passphrase is never stored in
+  a member field; it flows straight through to Rust.
+- Verification-done handler re-queries the SDK trust state. It never
+  promotes the label to Verified locally.
+- Logout clears the verification / security / room-key-import caches so a
+  freshly logged-in session cannot inherit stale results.
+
+### QML
+
+`qml/SettingsScreen.qml`:
+
+- Renames the Rust encryption pane to **Security & Recovery** and lays it
+  out as three explicit blocks:
+  - **Current session** — device ID + `Status:` label (Verified / Not
+    verified / Unknown / Cross-signing unavailable).
+  - **Verify this session** — button; shows waiting state and the seven
+    emojis once the SDK reaches `KeysExchanged`. Confirm / mismatch /
+    cancel are shared with the receive-first flow.
+  - **Recovery key** — existing Secure Backup restore, unchanged.
+  - **Import room keys** — file picker + password-echo passphrase field +
+    progress bar + aggregate result summary. Passphrase is cleared on
+    dispatch, on success, on failure, and on Clear.
+- Explanatory copy under the section explicitly disambiguates SAS
+  verification, Secure Backup recovery, and encrypted room-key import.
+
+### Threat model
+
+- Passphrase lifetime is bounded to one dispatch: QML wipes the field
+  after `app.importRoomKeys(...)`, C++ forwards a stack `QByteArray` and
+  zeroes it before return, Rust wraps it in `zeroize::Zeroizing` inside
+  `Encryption::import_room_keys`. No `QSettings` / `SecretStore` /
+  SQLite / log ever holds it.
+- Decrypted key material never crosses the FFI. `mx_rust_import_room_keys`
+  returns only `{imported, total, affected_rooms, room_ids}`.
+- No plaintext temporary file — the decrypt path is streamed inside the
+  SDK.
+- The source export file is opened read-only by `matrix-sdk`. Lightning
+  never modifies, renames, or deletes it.
+- `CacheStore` continues to refuse encrypted `TimelineEvent` rows, so
+  decrypted encrypted-room plaintext still remains memory-only even after
+  imported keys unlock older messages.
+- Verification trust promotion depends on
+  `Device::is_cross_signed_by_owner()`, not on a local
+  "user pressed 'They match'" flag.
+
+Automated coverage: existing tests still pass in both build trees plus new
+`#[cfg(test)]` unit tests inside the Rust crate for the import-error
+classifier.
+
+---
+
 # Current state (v0.5.5 — Rust sign-out session reset)
 
 ## v0.5.5 — coordinated Rust sign-out and account-scoped reset

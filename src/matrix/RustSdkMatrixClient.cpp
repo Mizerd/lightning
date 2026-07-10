@@ -9,6 +9,7 @@
 #include <QDateTime>
 #include <QDir>
 #include <QFileInfo>
+#include <QThread>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -536,6 +537,23 @@ void RustSdkMatrixClient::logout()
     if (m_lifecycle.signingOut())
         return;
 
+    // Wait briefly for an in-flight room-key import to finish before
+    // tearing down the SDK store. matrix-sdk's import writes to the
+    // sqlite crypto store; releasing the client during the write would
+    // corrupt the store on disk. The wait is bounded so a stuck import
+    // can never permanently block sign-out.
+    if (m_rustHandle && mx_rust_room_key_import_active(m_rustHandle)) {
+        qCInfo(lcRust) << "logout: waiting for active room key import to finish";
+        for (int i = 0; i < 100; ++i) {
+            if (!mx_rust_room_key_import_active(m_rustHandle))
+                break;
+            QThread::msleep(50);
+        }
+        if (mx_rust_room_key_import_active(m_rustHandle)) {
+            qCWarning(lcRust) << "logout: import did not finish in time; proceeding anyway";
+        }
+    }
+
     matrix::app_data::resolveAccountIdentity(
         m_homeserver, m_userId, &m_signOutIdentity);
     m_signOutDeviceId = m_deviceId;
@@ -983,6 +1001,52 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
             event.value(QStringLiteral("is_self_verification")).toBool(false));
         return;
     }
+    if (type == QLatin1String("verification_request_started")) {
+        Q_EMIT verificationRequestStarted(
+            event.value(QStringLiteral("flow_id")).toString(),
+            event.value(QStringLiteral("other_user_id")).toString(),
+            event.value(QStringLiteral("is_self_verification")).toBool(true));
+        return;
+    }
+    if (type == QLatin1String("room_key_import_started")) {
+        Q_EMIT roomKeyImportStarted();
+        return;
+    }
+    if (type == QLatin1String("room_key_import_progress")) {
+        Q_EMIT roomKeyImportProgress(
+            event.value(QStringLiteral("imported")).toInt(0),
+            event.value(QStringLiteral("total")).toInt(0));
+        return;
+    }
+    if (type == QLatin1String("room_key_import_done")) {
+        QStringList roomIds;
+        for (const auto &v : event.value(QStringLiteral("room_ids")).toArray()) {
+            const QString id = v.toString();
+            if (!id.isEmpty()) roomIds.append(id);
+        }
+        const int imported = event.value(QStringLiteral("imported")).toInt(0);
+        const int total = event.value(QStringLiteral("total")).toInt(0);
+        const int affected = event.value(QStringLiteral("affected_rooms"))
+                                 .toInt(roomIds.size());
+        qCInfo(lcRust) << "room key import completed"
+                       << "imported=" << imported
+                       << "total=" << total
+                       << "affected_rooms=" << affected;
+        Q_EMIT roomKeyImportDone(imported, total, affected, roomIds);
+        return;
+    }
+    if (type == QLatin1String("room_key_import_failed")) {
+        const QString category =
+            event.value(QStringLiteral("category")).toString(
+                QStringLiteral("import_failed"));
+        // Never log the raw message — categorized only.
+        qCWarning(lcRust) << "room key import failed category=" << category;
+        Q_EMIT roomKeyImportFailed(
+            category,
+            event.value(QStringLiteral("message")).toString(
+                tr("Room-key import failed.")));
+        return;
+    }
     if (type == QLatin1String("verification_sas_ready")) {
         QVariantList emojis;
         for (const auto &v : event.value(QStringLiteral("emojis")).toArray()) {
@@ -1294,6 +1358,75 @@ void RustSdkMatrixClient::cancelVerification(const QString &flowId)
     const QString r = takeRustString(mx_rust_cancel_verification(m_rustHandle, b.constData()));
     if (!r.isEmpty()) Q_EMIT verificationFailed(flowId,
         r.startsWith(QLatin1String("error: ")) ? r.mid(7) : r);
+}
+
+void RustSdkMatrixClient::startOwnVerification()
+{
+    if (!m_loggedIn || !m_rustHandle) {
+        Q_EMIT verificationFailed(QString{}, tr("Not signed in."));
+        return;
+    }
+    const QString r = takeRustString(mx_rust_start_own_verification(m_rustHandle));
+    if (!r.isEmpty()) {
+        Q_EMIT verificationFailed(QString{},
+            r.startsWith(QLatin1String("error: ")) ? r.mid(7) : r);
+    }
+}
+
+void RustSdkMatrixClient::refreshOwnDeviceStatus()
+{
+    if (!m_loggedIn || !m_rustHandle)
+        return;
+    const QString raw = takeRustString(mx_rust_query_own_device_status(m_rustHandle));
+    if (raw.isEmpty() || raw.startsWith(QLatin1String("error: ")))
+        return;
+    const QJsonDocument doc = QJsonDocument::fromJson(raw.toUtf8());
+    if (!doc.isObject()) return;
+    const QJsonObject obj = doc.object();
+    Q_EMIT ownDeviceStatusUpdated(
+        obj.value(QStringLiteral("device_id")).toString(),
+        obj.value(QStringLiteral("own_identity_available")).toBool(false),
+        obj.value(QStringLiteral("own_identity_verified")).toBool(false),
+        obj.value(QStringLiteral("device_cross_signed")).toBool(false),
+        obj.value(QStringLiteral("has_master")).toBool(false),
+        obj.value(QStringLiteral("has_self_signing")).toBool(false),
+        obj.value(QStringLiteral("has_user_signing")).toBool(false));
+}
+
+void RustSdkMatrixClient::importRoomKeys(const QString &filePath,
+                                         const QString &passphrase)
+{
+    if (!m_loggedIn || !m_rustHandle) {
+        Q_EMIT roomKeyImportFailed(QStringLiteral("not_signed_in"),
+                                   tr("Not signed in."));
+        return;
+    }
+    if (filePath.isEmpty()) {
+        Q_EMIT roomKeyImportFailed(QStringLiteral("invalid_file"),
+                                   tr("No file selected."));
+        return;
+    }
+    // Convert once and pass through — do NOT keep a QString copy of the
+    // passphrase alive in the C++ layer beyond this call.
+    QByteArray pathBytes = filePath.toUtf8();
+    QByteArray passphraseBytes = passphrase.toUtf8();
+    const QString r = takeRustString(mx_rust_import_room_keys(
+        m_rustHandle, pathBytes.constData(), passphraseBytes.constData()));
+    // Best-effort scrub. QByteArray is not zeroizing but the buffers go
+    // out of scope on return and the passphrase is not kept anywhere in
+    // C++ after this line.
+    for (int i = 0; i < passphraseBytes.size(); ++i)
+        passphraseBytes[i] = 0;
+    if (!r.isEmpty()) {
+        Q_EMIT roomKeyImportFailed(QStringLiteral("import_failed"),
+            r.startsWith(QLatin1String("error: ")) ? r.mid(7) : r);
+    }
+}
+
+bool RustSdkMatrixClient::roomKeyImportActive() const
+{
+    if (!m_rustHandle) return false;
+    return mx_rust_room_key_import_active(m_rustHandle) != 0;
 }
 
 void RustSdkMatrixClient::probeEncryptedSend(const QString &roomId,

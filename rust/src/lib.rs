@@ -28,7 +28,9 @@ use matrix_sdk::{
     ruma::{
         api::error::ErrorKind,
         events::{
-            key::verification::request::ToDeviceKeyVerificationRequestEvent,
+            key::verification::{
+                request::ToDeviceKeyVerificationRequestEvent, VerificationMethod,
+            },
             room::{
                 encrypted::OriginalSyncRoomEncryptedEvent,
                 message::{MessageType, OriginalSyncRoomMessageEvent, RoomMessageEventContent},
@@ -55,6 +57,11 @@ struct RustClient {
     // (flow_id, sas) — SasVerification has no flow_id() accessor on
     // matrix-sdk 0.18, so we track it externally.
     active_sas: Arc<Mutex<Option<(String, SasVerification)>>>,
+    // v0.5.6: encrypted room-key import is serialized per client — a
+    // second attempt while one is in flight is rejected synchronously.
+    // The flag is also read by C++ before sign-out to wait for a live
+    // import to finish before dropping the store.
+    import_active: Arc<AtomicBool>,
 }
 
 impl RustClient {
@@ -67,6 +74,7 @@ impl RustClient {
             sync_task: Mutex::new(None),
             active_request: Arc::new(Mutex::new(None)),
             active_sas: Arc::new(Mutex::new(None)),
+            import_active: Arc::new(AtomicBool::new(false)),
         })
     }
 
@@ -130,7 +138,7 @@ pub extern "C" fn mx_rust_backend_name() -> *mut c_char {
 #[no_mangle]
 pub extern "C" fn mx_rust_status_string() -> *mut c_char {
     ffi_string(|| {
-        Ok("Matrix Rust SDK backend linked. Initial E2EE support enabled via matrix-sdk (v0.5.0-prep+9): password login, session restore, joined-room sync, plain and encrypted text send, and receive of both plain and SDK-decrypted encrypted messages all go through the SDK event queue. No SAS emoji UI, no GUI recovery-key flow, no cross-signing UI yet.".to_owned())
+        Ok("Matrix Rust SDK backend linked. E2EE support via matrix-sdk 0.18 (Lightning 0.5.6): password login, session restore, joined-room sync, plain and encrypted text send/receive, receive- and initiate-first SAS emoji verification, Secure Backup recovery-key restore, and encrypted Megolm room-key import all go through the SDK event queue. Cross-signing is queried from the SDK; no manual crypto in C++.".to_owned())
     })
 }
 
@@ -1293,6 +1301,453 @@ pub unsafe extern "C" fn mx_rust_cancel_verification(
     })
 }
 
+/// Lightning-initiated (outbound) SAS verification of the current
+/// session against another session belonging to the same Matrix
+/// account. Advertises SAS as the only method so the SDK does not
+/// send an m.qr_code.* request Lightning cannot follow through.
+///
+/// Emits `verification_request_started` synchronously (before the SDK
+/// finishes sending) so the QML side can flip to "Waiting…"
+/// immediately. Subsequent `verification_ready` / `verification_sas_ready`
+/// / `verification_done` / `verification_cancelled` events follow the
+/// same shape as the receive-first path — the C++ SAS state machine
+/// is shared.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_start_own_verification(
+    ptr: *mut c_void,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let Some(client) = bridge.client.lock().ok().and_then(|g| g.clone()) else {
+            return Ok("error: Rust SDK session is not logged in.".to_owned());
+        };
+        // Reject a duplicate start if a flow is already active.
+        let has_active = bridge.active_request.lock().ok().and_then(|g| g.clone()).is_some()
+            || bridge.active_sas.lock().ok().and_then(|g| g.clone()).is_some();
+        if has_active {
+            return Ok("error: A verification is already in progress.".to_owned());
+        }
+
+        let events = Arc::clone(&bridge.events);
+        let request_slot = Arc::clone(&bridge.active_request);
+        let sas_slot = Arc::clone(&bridge.active_sas);
+        std::thread::spawn(move || {
+            let runtime_events = Arc::clone(&events);
+            run_async(runtime_events, "verification_start_own", async move {
+                let Some(user_id) = client.user_id().map(|u| u.to_owned()) else {
+                    enqueue(&events, json!({
+                        "type": "verification_failed",
+                        "flow_id": "",
+                        "message": "Rust SDK client has no user id yet.",
+                    }));
+                    return;
+                };
+
+                // Look up own identity locally first; if missing, force a
+                // /keys/query to refresh it (matches Element's flow).
+                let identity_res = client.encryption().get_user_identity(&user_id).await;
+                let identity = match identity_res {
+                    Ok(Some(id)) => Some(id),
+                    Ok(None) => match client.encryption().request_user_identity(&user_id).await {
+                        Ok(id) => id,
+                        Err(err) => {
+                            enqueue(&events, json!({
+                                "type": "verification_failed",
+                                "flow_id": "",
+                                "message": format_matrix_error(
+                                    "own identity lookup failed", err),
+                            }));
+                            return;
+                        }
+                    },
+                    Err(err) => {
+                        enqueue(&events, json!({
+                            "type": "verification_failed",
+                            "flow_id": "",
+                            "message": format_matrix_error(
+                                "own identity lookup failed", err),
+                        }));
+                        return;
+                    }
+                };
+                let Some(identity) = identity else {
+                    enqueue(&events, json!({
+                        "type": "verification_failed",
+                        "flow_id": "",
+                        "message": "This Matrix account has no cross-signing identity. Sign in with a session that has cross-signing set up first.",
+                    }));
+                    return;
+                };
+
+                let request = match identity
+                    .request_verification_with_methods(vec![VerificationMethod::SasV1])
+                    .await
+                {
+                    Ok(r) => r,
+                    Err(err) => {
+                        enqueue(&events, json!({
+                            "type": "verification_failed",
+                            "flow_id": "",
+                            "message": format_matrix_error(
+                                "verification request send failed", err),
+                        }));
+                        return;
+                    }
+                };
+
+                let flow_id = request.flow_id().to_string();
+                let other_user = request.other_user_id().to_string();
+                let is_self = request.is_self_verification();
+
+                if let Ok(mut g) = request_slot.lock() {
+                    *g = Some(request.clone());
+                }
+                enqueue(&events, json!({
+                    "type": "verification_request_started",
+                    "flow_id": flow_id.clone(),
+                    "other_user_id": other_user,
+                    "is_self_verification": is_self,
+                }));
+
+                // Wait for the request to become ready (the peer accepts).
+                // Poll for up to 5 minutes so the user can pick up the
+                // request in Element without racing our timer.
+                let mut ready = false;
+                for _ in 0..600 {
+                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                    if request.is_cancelled() || request.is_done() {
+                        break;
+                    }
+                    if request.is_ready() {
+                        ready = true;
+                        break;
+                    }
+                }
+                if !ready {
+                    if !request.is_cancelled() && !request.is_done() {
+                        let _ = request.cancel().await;
+                    }
+                    enqueue(&events, json!({
+                        "type": "verification_cancelled",
+                        "flow_id": flow_id,
+                        "message": "timed_out_waiting_for_peer",
+                    }));
+                    if let Ok(mut g) = request_slot.lock() { *g = None; }
+                    return;
+                }
+
+                enqueue(&events, json!({
+                    "type": "verification_ready",
+                    "flow_id": flow_id.clone(),
+                }));
+
+                // Start SAS exactly once. `start_sas` returns None when the
+                // peer has already started; in that case fetch the current
+                // Verification via get_verification and continue.
+                let sas = match request.start_sas().await {
+                    Ok(Some(sas)) => sas,
+                    Ok(None) => {
+                        let mut found: Option<SasVerification> = None;
+                        for _ in 0..20 {
+                            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+                            if let Some(v) = client
+                                .encryption()
+                                .get_verification(request.other_user_id(), request.flow_id())
+                                .await
+                            {
+                                if let matrix_sdk::encryption::verification::Verification::SasV1(s) = v {
+                                    found = Some(s);
+                                    break;
+                                }
+                            }
+                        }
+                        match found {
+                            Some(s) => s,
+                            None => {
+                                enqueue(&events, json!({
+                                    "type": "verification_failed",
+                                    "flow_id": flow_id,
+                                    "message": "SAS did not become available.",
+                                }));
+                                if let Ok(mut g) = request_slot.lock() { *g = None; }
+                                return;
+                            }
+                        }
+                    }
+                    Err(err) => {
+                        enqueue(&events, json!({
+                            "type": "verification_failed",
+                            "flow_id": flow_id,
+                            "message": format_matrix_error(
+                                "SAS start failed", err),
+                        }));
+                        if let Ok(mut g) = request_slot.lock() { *g = None; }
+                        return;
+                    }
+                };
+
+                if let Ok(mut g) = sas_slot.lock() {
+                    *g = Some((flow_id.clone(), sas.clone()));
+                }
+                enqueue(&events, json!({
+                    "type": "verification_sas_started",
+                    "flow_id": flow_id.clone(),
+                }));
+
+                let mut emitted_emojis = false;
+                for _ in 0..240 {
+                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                    let state = sas.state();
+                    match state {
+                        SasState::KeysExchanged { .. } if !emitted_emojis => {
+                            emitted_emojis = true;
+                            let mut emoji_list: Vec<serde_json::Value> = Vec::new();
+                            if let Some(emojis) = sas.emoji() {
+                                for e in emojis.iter() {
+                                    emoji_list.push(json!({
+                                        "symbol": e.symbol,
+                                        "description": e.description,
+                                    }));
+                                }
+                            }
+                            let dec = sas.decimals().map(|(a, b, c)| json!([a, b, c]))
+                                .unwrap_or(json!([]));
+                            enqueue(&events, json!({
+                                "type": "verification_sas_ready",
+                                "flow_id": flow_id.clone(),
+                                "emojis": emoji_list,
+                                "decimals": dec,
+                            }));
+                        }
+                        SasState::Done { .. } => {
+                            enqueue(&events, json!({
+                                "type": "verification_done",
+                                "flow_id": flow_id,
+                            }));
+                            if let Ok(mut g) = sas_slot.lock() { *g = None; }
+                            if let Ok(mut g) = request_slot.lock() { *g = None; }
+                            return;
+                        }
+                        SasState::Cancelled(info) => {
+                            enqueue(&events, json!({
+                                "type": "verification_cancelled",
+                                "flow_id": flow_id,
+                                "message": format!("{:?}", info.reason()),
+                            }));
+                            if let Ok(mut g) = sas_slot.lock() { *g = None; }
+                            if let Ok(mut g) = request_slot.lock() { *g = None; }
+                            return;
+                        }
+                        _ => {}
+                    }
+                }
+                enqueue(&events, json!({
+                    "type": "verification_failed",
+                    "flow_id": flow_id,
+                    "message": "Timed out waiting for SAS completion.",
+                }));
+                if let Ok(mut g) = sas_slot.lock() { *g = None; }
+                if let Ok(mut g) = request_slot.lock() { *g = None; }
+            });
+        });
+        Ok(String::new())
+    })
+}
+
+/// Report the cross-signing state of the current session. Only aggregate,
+/// non-secret metadata crosses the FFI — device keys and signatures never
+/// do. `device_cross_signed = true` is the source of truth for the
+/// "Verified" label in the UI.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_query_own_device_status(
+    ptr: *mut c_void,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let Some(client) = bridge.client.lock().ok().and_then(|g| g.clone()) else {
+            return Ok("error: Rust SDK session is not logged in.".to_owned());
+        };
+        // Run the async query on a short-lived Tokio runtime so we can
+        // return the JSON synchronously — this is a status query, not a
+        // long-running action.
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(|err| format!("failed to build status runtime: {err}"))?;
+
+        let result: serde_json::Value = runtime.block_on(async move {
+            let user_id = client.user_id().map(|u| u.to_owned());
+            let device_id_opt = client.device_id().map(|d| d.to_string());
+            let mut own_identity_available = false;
+            let mut own_identity_verified = false;
+            let mut device_cross_signed = false;
+            let mut has_master = false;
+            let mut has_self_signing = false;
+            let mut has_user_signing = false;
+            if let Some(uid) = &user_id {
+                if let Ok(Some(identity)) = client.encryption().get_user_identity(uid).await {
+                    own_identity_available = true;
+                    own_identity_verified = identity.is_verified();
+                }
+            }
+            if let Ok(Some(device)) = client.encryption().get_own_device().await {
+                device_cross_signed = device.is_cross_signed_by_owner();
+            }
+            if let Some(status) = client.encryption().cross_signing_status().await {
+                has_master = status.has_master;
+                has_self_signing = status.has_self_signing;
+                has_user_signing = status.has_user_signing;
+            }
+            json!({
+                "device_id": device_id_opt.unwrap_or_default(),
+                "own_identity_available": own_identity_available,
+                "own_identity_verified": own_identity_verified,
+                "device_cross_signed": device_cross_signed,
+                "has_master": has_master,
+                "has_self_signing": has_self_signing,
+                "has_user_signing": has_user_signing,
+            })
+        });
+        Ok(serde_json::to_string(&result).unwrap_or_else(|_| "{}".to_owned()))
+    })
+}
+
+/// Encrypted Megolm room-key import (v0.5.6). Delegates to
+/// `Encryption::import_room_keys`, which internally uses
+/// `matrix_sdk_base::crypto::decrypt_room_key_export` and imports the
+/// resulting inbound room sessions into the active crypto store. The
+/// SDK wraps the passphrase in `zeroize::Zeroizing` so it is scrubbed
+/// after decrypt regardless of the return path.
+///
+/// Decrypted key material is NEVER returned to C++ — this FFI only
+/// forwards aggregate result counts and (already-public) affected room
+/// IDs so the UI can reprocess timelines.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_import_room_keys(
+    ptr: *mut c_void,
+    file_path: *const c_char,
+    passphrase: *const c_char,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let file_path = unsafe { cstr_arg(file_path) }?;
+        // Read passphrase into an owned String and immediately drop the
+        // C string reference; matrix-sdk wraps it in Zeroizing before
+        // decrypt so this buffer is the only copy we ever keep.
+        let passphrase = unsafe { cstr_arg(passphrase) }?;
+
+        let Some(client) = bridge.client.lock().ok().and_then(|g| g.clone()) else {
+            return Ok("error: Rust SDK session is not logged in.".to_owned());
+        };
+        if file_path.trim().is_empty() {
+            return Ok("error: The selected file path is empty.".to_owned());
+        }
+
+        // Serialize imports through an atomic flag.
+        if bridge
+            .import_active
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_err()
+        {
+            let events = Arc::clone(&bridge.events);
+            enqueue(&events, json!({
+                "type": "room_key_import_failed",
+                "category": "already_running",
+                "message": "A room-key import is already in progress.",
+            }));
+            return Ok(String::new());
+        }
+
+        let events = Arc::clone(&bridge.events);
+        let import_flag = Arc::clone(&bridge.import_active);
+        std::thread::spawn(move || {
+            let runtime_events = Arc::clone(&events);
+            run_async(runtime_events, "room_key_import", async move {
+                enqueue(&events, json!({
+                    "type": "room_key_import_started",
+                }));
+                let path_buf = PathBuf::from(&file_path);
+                // Quick pre-flight so we can emit clearer errors than the
+                // SDK does when e.g. the user picks a directory.
+                match std::fs::metadata(&path_buf) {
+                    Ok(md) if md.is_dir() => {
+                        enqueue(&events, json!({
+                            "type": "room_key_import_failed",
+                            "category": "invalid_file",
+                            "message": "Selected path is a directory, not a file.",
+                        }));
+                        import_flag.store(false, Ordering::SeqCst);
+                        return;
+                    }
+                    Ok(_) => {}
+                    Err(err) => {
+                        enqueue(&events, json!({
+                            "type": "room_key_import_failed",
+                            "category": "read_failed",
+                            "message": format!("Failed to read the selected file: {err}"),
+                        }));
+                        import_flag.store(false, Ordering::SeqCst);
+                        return;
+                    }
+                }
+
+                let result = client
+                    .encryption()
+                    .import_room_keys(path_buf, &passphrase)
+                    .await;
+                // `passphrase` goes out of scope here — no explicit
+                // zeroize on this side (matrix-sdk holds the Zeroizing
+                // copy). We deliberately never route this value into a
+                // log.
+                match result {
+                    Ok(import) => {
+                        let mut room_ids: Vec<String> = Vec::new();
+                        for room in import.keys.keys() {
+                            room_ids.push(room.to_string());
+                        }
+                        enqueue(&events, json!({
+                            "type": "room_key_import_progress",
+                            "imported": import.imported_count,
+                            "total": import.total_count,
+                        }));
+                        enqueue(&events, json!({
+                            "type": "room_key_import_done",
+                            "imported": import.imported_count,
+                            "total": import.total_count,
+                            "affected_rooms": room_ids.len(),
+                            "room_ids": room_ids,
+                        }));
+                    }
+                    Err(err) => {
+                        let display = err.to_string();
+                        let category = classify_import_error(&display);
+                        enqueue(&events, json!({
+                            "type": "room_key_import_failed",
+                            "category": category,
+                            "message": display,
+                        }));
+                    }
+                }
+                import_flag.store(false, Ordering::SeqCst);
+            });
+        });
+        Ok(String::new())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_room_key_import_active(
+    ptr: *mut c_void,
+) -> c_int {
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        let Ok(bridge) = (unsafe { bridge(ptr) }) else {
+            return 0;
+        };
+        if bridge.import_active.load(Ordering::SeqCst) { 1 } else { 0 }
+    }));
+    result.unwrap_or(0)
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_free_cstring(ptr: *mut c_char) {
     if ptr.is_null() {
@@ -1309,7 +1764,7 @@ async fn build_client(homeserver: &str, store_path: &Path) -> Result<Client, Str
     Client::builder()
         .homeserver_url(homeserver)
         .sqlite_store(store_path, None)
-        .user_agent("Lightning/0.5.5")
+        .user_agent("Lightning/0.5.6")
         .build()
         .await
         .map_err(|err| format_matrix_error("failed to build Matrix Rust SDK client", err))
@@ -1688,4 +2143,62 @@ fn to_c_string(s: &str) -> *mut c_char {
 
 fn format_matrix_error(context: &str, err: impl std::fmt::Display) -> String {
     format!("{context}: {err}")
+}
+
+/// Categorize an `import_room_keys` error message into a safe UI code.
+///
+/// Kept as a free function so it can be unit-tested without a live
+/// SDK. The heuristics look at coarse substrings only — the raw
+/// message (which comes from matrix-sdk / matrix-sdk-base and is
+/// therefore already safe) is passed through separately; this
+/// classifier decides which localized string the UI shows.
+fn classify_import_error(message: &str) -> &'static str {
+    let lc = message.to_lowercase();
+    if lc.contains("mac")
+        || lc.contains("passphrase")
+        || lc.contains("password")
+        || lc.contains("hmac")
+        || lc.contains("decrypt")
+    {
+        "bad_passphrase"
+    } else if lc.contains("header")
+        || lc.contains("version")
+        || lc.contains("base64")
+        || lc.contains("invalid")
+    {
+        "invalid_file"
+    } else if lc.contains("io") || lc.contains("read") {
+        "read_failed"
+    } else {
+        "import_failed"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::classify_import_error;
+
+    #[test]
+    fn wrong_passphrase_becomes_bad_passphrase() {
+        assert_eq!(classify_import_error("MAC verification failed"), "bad_passphrase");
+        assert_eq!(classify_import_error("Wrong passphrase supplied"), "bad_passphrase");
+        assert_eq!(classify_import_error("failed to decrypt export"), "bad_passphrase");
+    }
+
+    #[test]
+    fn corrupt_file_becomes_invalid_file() {
+        assert_eq!(classify_import_error("Invalid header line"), "invalid_file");
+        assert_eq!(classify_import_error("Unsupported version 7"), "invalid_file");
+        assert_eq!(classify_import_error("base64 decode error"), "invalid_file");
+    }
+
+    #[test]
+    fn io_becomes_read_failed() {
+        assert_eq!(classify_import_error("io error: file not found"), "read_failed");
+    }
+
+    #[test]
+    fn other_errors_default_to_import_failed() {
+        assert_eq!(classify_import_error("crypto store unavailable"), "import_failed");
+    }
 }

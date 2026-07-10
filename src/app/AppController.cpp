@@ -161,10 +161,39 @@ AppController::AppController(Backend backend, QObject *parent)
             }
         });
         // The device id becomes available once login/restore
-        // completes; propagate on both.
+        // completes; propagate on both. Also snapshot the SDK trust
+        // state so Settings can show the right label immediately.
         connect(rust, &MatrixClient::loginSucceeded,
-                this, [this](const QString &) {
+                this, [this, rust](const QString &) {
             Q_EMIT rustDeviceIdChanged();
+            rust->refreshOwnDeviceStatus();
+        });
+        connect(rust, &MatrixClient::loggedOut,
+                this, [this] {
+            // Clear the caches so the Login screen never inherits a
+            // stale verification / import result from a signed-out
+            // session.
+            m_verificationFlowId.clear();
+            m_verificationOtherUser.clear();
+            m_verificationOtherDevice.clear();
+            m_verificationIsSelf = false;
+            m_verificationState.clear();
+            m_verificationEmojis.clear();
+            m_verificationDecimals.clear();
+            Q_EMIT verificationStateChanged();
+            m_sessionTrustState = QStringLiteral("Unknown");
+            m_sessionDeviceId.clear();
+            m_ownIdentityAvailable = false;
+            m_crossSigningAvailable = false;
+            m_roomKeyImportState.clear();
+            m_roomKeyImportImported = 0;
+            m_roomKeyImportTotal = 0;
+            m_roomKeyImportAffected = 0;
+            m_roomKeyImportMessage.clear();
+            m_roomKeyImportRunning = false;
+            m_roomKeyImportAffectedRoomIds.clear();
+            Q_EMIT securityStateChanged();
+            Q_EMIT roomKeyImportStateChanged();
         });
         // v0.5.0-prep+11: bubble timeline reload results.
         connect(rust, &RustSdkMatrixClient::roomTimelineReloaded,
@@ -199,10 +228,15 @@ AppController::AppController(Backend backend, QObject *parent)
             Q_EMIT verificationStateChanged();
         });
         connect(rust, &RustSdkMatrixClient::verificationDone,
-                this, [this](const QString &flowId) {
+                this, [this, rust](const QString &flowId) {
             if (flowId != m_verificationFlowId) return;
             m_verificationState = QStringLiteral("done");
             Q_EMIT verificationStateChanged();
+            // v0.5.6: after a successful flow, re-query the SDK trust
+            // state so the Settings pane doesn't fall back to the local
+            // "confirmed" guess. Do NOT set the trust state from here —
+            // only the SDK snapshot may promote to "Verified".
+            rust->refreshOwnDeviceStatus();
             // v0.5.1: post-verification retry. matrix-sdk 0.18 does not
             // expose an explicit per-event "request room key" API on
             // Client — internal event_cache/redecryptor.rs re-runs
@@ -227,6 +261,121 @@ AppController::AppController(Backend backend, QObject *parent)
             if (flowId != m_verificationFlowId) return;
             m_verificationState = QStringLiteral("failed:%1").arg(msg);
             Q_EMIT verificationStateChanged();
+        });
+
+        // v0.5.6 outbound-initiated verification: reuses the same UI
+        // state cache. `verification_request_started` mirrors the
+        // receive-first `verification_request_received` handler above
+        // but flips the direction flag.
+        connect(rust, &RustSdkMatrixClient::verificationRequestStarted,
+                this, [this](const QString &flowId,
+                             const QString &otherUser,
+                             bool isSelf) {
+            m_verificationFlowId = flowId;
+            m_verificationOtherUser = otherUser;
+            m_verificationOtherDevice.clear();
+            m_verificationIsSelf = isSelf;
+            m_verificationState = QStringLiteral("waiting_for_other_session");
+            m_verificationEmojis.clear();
+            m_verificationDecimals.clear();
+            Q_EMIT verificationStateChanged();
+        });
+
+        // v0.5.6 Security & Recovery: aggregate cross-signing snapshot
+        // and room-key import lifecycle. Only the SDK-provided
+        // "device_cross_signed" flag promotes the label to Verified.
+        connect(rust, &RustSdkMatrixClient::ownDeviceStatusUpdated,
+                this, [this](const QString &deviceId,
+                             bool ownIdentityAvailable,
+                             bool /*ownIdentityVerified*/,
+                             bool deviceCrossSigned,
+                             bool hasMaster,
+                             bool hasSelf,
+                             bool hasUser) {
+            m_sessionDeviceId = deviceId;
+            m_ownIdentityAvailable = ownIdentityAvailable;
+            m_crossSigningAvailable = hasMaster || hasSelf || hasUser
+                                      || ownIdentityAvailable;
+            if (!ownIdentityAvailable) {
+                m_sessionTrustState = QStringLiteral("Cross-signing unavailable");
+            } else if (deviceCrossSigned) {
+                m_sessionTrustState = QStringLiteral("Verified");
+            } else {
+                m_sessionTrustState = QStringLiteral("Not verified");
+            }
+            Q_EMIT securityStateChanged();
+            Q_EMIT rustDeviceIdChanged();
+        });
+        connect(rust, &RustSdkMatrixClient::roomKeyImportStarted,
+                this, [this] {
+            m_roomKeyImportState = QStringLiteral("importing");
+            m_roomKeyImportImported = 0;
+            m_roomKeyImportTotal = 0;
+            m_roomKeyImportAffected = 0;
+            m_roomKeyImportMessage.clear();
+            m_roomKeyImportRunning = true;
+            m_roomKeyImportAffectedRoomIds.clear();
+            Q_EMIT roomKeyImportStateChanged();
+        });
+        connect(rust, &RustSdkMatrixClient::roomKeyImportProgress,
+                this, [this](int imported, int total) {
+            m_roomKeyImportImported = imported;
+            m_roomKeyImportTotal = total;
+            Q_EMIT roomKeyImportStateChanged();
+        });
+        connect(rust, &RustSdkMatrixClient::roomKeyImportDone,
+                this, [this, rust](int imported, int total, int affected,
+                                   const QStringList &roomIds) {
+            m_roomKeyImportImported = imported;
+            m_roomKeyImportTotal = total;
+            m_roomKeyImportAffected = affected;
+            m_roomKeyImportAffectedRoomIds = roomIds;
+            m_roomKeyImportMessage.clear();
+            m_roomKeyImportRunning = false;
+            m_roomKeyImportState = QStringLiteral("done");
+            Q_EMIT roomKeyImportStateChanged();
+            Q_EMIT roomKeyImportCompleted(imported, total, affected);
+            // Reprocess: if the current room is in the affected set,
+            // reload its timeline. matrix-sdk's Room::messages will
+            // now use the freshly imported inbound sessions.
+            if (!m_currentRoomId.isEmpty()
+                && roomIds.contains(m_currentRoomId)) {
+                reloadCurrentRoomTimeline(50);
+            } else if (!m_currentRoomId.isEmpty() && !roomIds.isEmpty()) {
+                // Refresh anyway — key import may have surfaced older
+                // messages of the current room even if the SDK didn't
+                // enumerate it under `keys`.
+                reloadCurrentRoomTimeline(50);
+            }
+            // Room-key import never affects verification/trust; do NOT
+            // touch m_sessionTrustState here.
+            Q_UNUSED(rust);
+        });
+        connect(rust, &RustSdkMatrixClient::roomKeyImportFailed,
+                this, [this](const QString &category, const QString &message) {
+            m_roomKeyImportRunning = false;
+            m_roomKeyImportState = QStringLiteral("failed");
+            // Categorized safe user message; never the raw passphrase.
+            if (category == QLatin1String("bad_passphrase")) {
+                m_roomKeyImportMessage = tr(
+                    "The passphrase is incorrect or the key export is corrupted.");
+            } else if (category == QLatin1String("invalid_file")) {
+                m_roomKeyImportMessage = tr(
+                    "The selected file is not a supported encrypted Matrix "
+                    "room-key export.");
+            } else if (category == QLatin1String("read_failed")) {
+                m_roomKeyImportMessage = tr(
+                    "Lightning could not read the selected file.");
+            } else if (category == QLatin1String("already_running")) {
+                m_roomKeyImportMessage = tr(
+                    "A room-key import is already in progress.");
+            } else if (category == QLatin1String("not_signed_in")) {
+                m_roomKeyImportMessage = tr("Not signed in.");
+            } else {
+                m_roomKeyImportMessage = tr("Room-key import failed.");
+            }
+            Q_UNUSED(message);
+            Q_EMIT roomKeyImportStateChanged();
         });
 
         connect(rust, &RustSdkMatrixClient::localSessionResetRequired,
@@ -420,6 +569,83 @@ void AppController::cancelVerification()
     m_verificationEmojis.clear();
     m_verificationDecimals.clear();
     Q_EMIT verificationStateChanged();
+#endif
+}
+
+void AppController::startOwnVerification()
+{
+#ifdef ENABLE_RUST_SDK_BACKEND
+    if (m_backend != RustBackend || !m_client) {
+        Q_EMIT errorReported(tr(
+            "Verification is only available on the Rust backend."));
+        return;
+    }
+    // One flow at a time.
+    if (!m_verificationFlowId.isEmpty()
+        && m_verificationState != QLatin1String("done")
+        && m_verificationState != QLatin1String("cancelled")
+        && !m_verificationState.startsWith(QLatin1String("failed"))) {
+        Q_EMIT errorReported(tr("A verification is already in progress."));
+        return;
+    }
+    // Clear stale state from any previous flow so QML re-renders cleanly.
+    m_verificationFlowId.clear();
+    m_verificationEmojis.clear();
+    m_verificationDecimals.clear();
+    m_verificationState = QStringLiteral("starting");
+    Q_EMIT verificationStateChanged();
+    if (auto *rust = qobject_cast<RustSdkMatrixClient *>(m_client.get()))
+        rust->startOwnVerification();
+#endif
+}
+
+void AppController::refreshSessionTrustState()
+{
+#ifdef ENABLE_RUST_SDK_BACKEND
+    if (m_backend != RustBackend || !m_client) return;
+    if (auto *rust = qobject_cast<RustSdkMatrixClient *>(m_client.get()))
+        rust->refreshOwnDeviceStatus();
+#endif
+}
+
+void AppController::importRoomKeys(const QUrl &fileUrl, const QString &passphrase)
+{
+#ifdef ENABLE_RUST_SDK_BACKEND
+    if (m_backend != RustBackend || !m_client) {
+        m_roomKeyImportState = QStringLiteral("failed");
+        m_roomKeyImportMessage = tr(
+            "Room-key import is only available on the Rust backend.");
+        m_roomKeyImportRunning = false;
+        Q_EMIT roomKeyImportStateChanged();
+        return;
+    }
+    // Only accept local files. Reject arbitrary URL schemes and
+    // directories at the boundary.
+    if (!fileUrl.isValid() || !fileUrl.isLocalFile() || fileUrl.isEmpty()) {
+        m_roomKeyImportState = QStringLiteral("failed");
+        m_roomKeyImportMessage = tr(
+            "Lightning could not read the selected file.");
+        m_roomKeyImportRunning = false;
+        Q_EMIT roomKeyImportStateChanged();
+        return;
+    }
+    const QString path = fileUrl.toLocalFile();
+    if (path.isEmpty()) {
+        m_roomKeyImportState = QStringLiteral("failed");
+        m_roomKeyImportMessage = tr(
+            "Lightning could not read the selected file.");
+        m_roomKeyImportRunning = false;
+        Q_EMIT roomKeyImportStateChanged();
+        return;
+    }
+    if (auto *rust = qobject_cast<RustSdkMatrixClient *>(m_client.get()))
+        rust->importRoomKeys(path, passphrase);
+    // Note: `passphrase` is passed by const-ref and goes out of scope on
+    // return. It is never copied to a member field.
+    Q_UNUSED(passphrase);
+#else
+    Q_UNUSED(fileUrl);
+    Q_UNUSED(passphrase);
 #endif
 }
 

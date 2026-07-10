@@ -1693,7 +1693,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-client-rust"
-version = "0.5.5"
+version = "0.5.6"
 dependencies = [
  "matrix-sdk",
  "once_cell",

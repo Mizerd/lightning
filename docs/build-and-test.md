@@ -74,6 +74,52 @@ account-scoped/idempotent Rust-state removal, preservation of cache/other
 accounts, partial cleanup failure, lifecycle generations, stale callback
 rejection, active-versus-shutdown 401 semantics, and store mismatch policy.
 
+Rust-side unit tests (import-error classifier, no network, no credentials):
+
+```bash
+cd rust
+nix develop /home/roksme/git/lightning -c cargo test --offline --locked
+```
+
+## Manual v0.5.6 verification tests
+
+None of the following require credentials to appear on stdout or in a
+log. Do not commit real key exports.
+
+**Element → Lightning receive-first verification (regression):**
+Sign in on Lightning, initiate verification from Element for Lightning's
+device. Accept in Lightning; confirm the seven emojis match in both apps;
+confirm from both sides. Settings should show **Status: Verified** after
+the SDK trust snapshot refreshes.
+
+**Lightning → Element outbound verification (new):** Sign in on Lightning
+with a session Settings currently reports as **Not verified**. Click
+**Verify this session**. Confirm Element receives the request, accept it
+there. Lightning transitions to the seven-emoji view; confirm they match
+on both sides. Settings should update to **Verified** only after the
+SDK cross-signing snapshot completes.
+
+**Wrong-passphrase key-import test:** From Element, export room keys with
+a temporary strong passphrase. In Lightning, choose the file and enter a
+deliberately wrong passphrase; confirm the failure message is
+"The passphrase is incorrect or the key export is corrupted." and that
+no passphrase appears in any log line. Repeat with the correct
+passphrase; the completion summary should show `Imported sessions: N`
+and `Affected rooms: M`.
+
+**Import-alone-does-not-verify test (mandatory acceptance):** Start with
+Settings showing **Not verified**. Import a valid encrypted room-key
+export as above. Confirm Settings still reports **Not verified** after
+the import completes. Then run SAS verification; confirm Settings
+transitions independently to **Verified**.
+
+**Sign-out during import:** Start an import against a large export (or
+one that can be arranged to take at least a couple of seconds), and
+click Sign out before it finishes. Lightning must not crash or hang,
+must not surface a success toast on the Login screen, must clear the
+passphrase field, and must not leave a detached completion callback
+against the released client.
+
 ## Smoke tests
 
 All smoke tests run under offscreen QPA. Exit code 124 (timeout) with

@@ -13,6 +13,8 @@
 
 #include <QObject>
 #include <QString>
+#include <QStringList>
+#include <QUrl>
 #include <QVariantList>
 #include <memory>
 
@@ -39,6 +41,23 @@ class AppController : public QObject
     // exposing the full id. Empty when the backend is not Rust or the
     // client has not yet logged in.
     Q_PROPERTY(QString rustDeviceIdRedacted READ rustDeviceIdRedacted NOTIFY rustDeviceIdChanged)
+
+    // v0.5.6 Security & Recovery. Aggregate cross-signing/verification
+    // state cached from the SDK; QML must not compute this. Distinct
+    // from generic own-device trust because Matrix SDK reports it
+    // separately.
+    Q_PROPERTY(QString sessionTrustState READ sessionTrustState NOTIFY securityStateChanged)
+    Q_PROPERTY(QString sessionDeviceId READ sessionDeviceId NOTIFY securityStateChanged)
+    Q_PROPERTY(bool ownIdentityAvailable READ ownIdentityAvailable NOTIFY securityStateChanged)
+    Q_PROPERTY(bool crossSigningAvailable READ crossSigningAvailable NOTIFY securityStateChanged)
+
+    // v0.5.6 Encrypted room-key import.
+    Q_PROPERTY(QString roomKeyImportState READ roomKeyImportState NOTIFY roomKeyImportStateChanged)
+    Q_PROPERTY(int roomKeyImportImportedCount READ roomKeyImportImportedCount NOTIFY roomKeyImportStateChanged)
+    Q_PROPERTY(int roomKeyImportTotalCount READ roomKeyImportTotalCount NOTIFY roomKeyImportStateChanged)
+    Q_PROPERTY(int roomKeyImportAffectedRoomCount READ roomKeyImportAffectedRoomCount NOTIFY roomKeyImportStateChanged)
+    Q_PROPERTY(QString roomKeyImportLastMessage READ roomKeyImportLastMessage NOTIFY roomKeyImportStateChanged)
+    Q_PROPERTY(bool roomKeyImportRunning READ roomKeyImportRunning NOTIFY roomKeyImportStateChanged)
 
     // v0.5.0 SAS emoji verification. QML binds all of these.
     Q_PROPERTY(bool verificationActive READ verificationActive NOTIFY verificationStateChanged)
@@ -145,6 +164,19 @@ public Q_SLOTS:
     Q_INVOKABLE void mismatchVerification();
     Q_INVOKABLE void cancelVerification();
 
+    // v0.5.6. Initiate SAS verification of this Lightning session
+    // against another session belonging to the same Matrix account.
+    Q_INVOKABLE void startOwnVerification();
+
+    // v0.5.6. Re-query the SDK trust state so the Settings pane can
+    // refresh after a manual action.
+    Q_INVOKABLE void refreshSessionTrustState();
+
+    // v0.5.6. Kick off encrypted Megolm room-key import from a local
+    // file. The passphrase is passed straight to Rust and never stored
+    // in QML properties, C++ members, QSettings, or logs.
+    Q_INVOKABLE void importRoomKeys(const QUrl &fileUrl, const QString &passphrase);
+
     bool verificationActive() const { return !m_verificationFlowId.isEmpty(); }
     QString verificationFlowId() const { return m_verificationFlowId; }
     QString verificationOtherUser() const { return m_verificationOtherUser; }
@@ -153,6 +185,19 @@ public Q_SLOTS:
     QString verificationState() const { return m_verificationState; }
     QVariantList verificationEmojis() const { return m_verificationEmojis; }
     QVariantList verificationDecimals() const { return m_verificationDecimals; }
+
+    // v0.5.6 Security & Recovery accessors.
+    QString sessionTrustState() const { return m_sessionTrustState; }
+    QString sessionDeviceId() const { return m_sessionDeviceId; }
+    bool ownIdentityAvailable() const { return m_ownIdentityAvailable; }
+    bool crossSigningAvailable() const { return m_crossSigningAvailable; }
+
+    QString roomKeyImportState() const { return m_roomKeyImportState; }
+    int roomKeyImportImportedCount() const { return m_roomKeyImportImported; }
+    int roomKeyImportTotalCount() const { return m_roomKeyImportTotal; }
+    int roomKeyImportAffectedRoomCount() const { return m_roomKeyImportAffected; }
+    QString roomKeyImportLastMessage() const { return m_roomKeyImportMessage; }
+    bool roomKeyImportRunning() const { return m_roomKeyImportRunning; }
 
 Q_SIGNALS:
     void currentScreenChanged();
@@ -185,6 +230,13 @@ Q_SIGNALS:
 
     // v0.5.0 SAS verification.
     void verificationStateChanged();
+
+    // v0.5.6 Security & Recovery.
+    void securityStateChanged();
+    void roomKeyImportStateChanged();
+    // Emitted after a successful room-key import completes, with the
+    // aggregate counts the UI should display. Non-secret.
+    void roomKeyImportCompleted(int imported, int total, int affectedRooms);
 
 private:
     void setCurrentScreen(Screen s);
@@ -228,4 +280,20 @@ private:
     QString m_verificationState;
     QVariantList m_verificationEmojis;
     QVariantList m_verificationDecimals;
+
+    // v0.5.6 Security & Recovery cache.
+    QString m_sessionTrustState = QStringLiteral("Unknown");
+    QString m_sessionDeviceId;
+    bool    m_ownIdentityAvailable = false;
+    bool    m_crossSigningAvailable = false;
+
+    // v0.5.6 Room-key import cache. State values:
+    //   "" (idle), "importing", "done", "failed".
+    QString m_roomKeyImportState;
+    int     m_roomKeyImportImported = 0;
+    int     m_roomKeyImportTotal = 0;
+    int     m_roomKeyImportAffected = 0;
+    QString m_roomKeyImportMessage;
+    bool    m_roomKeyImportRunning = false;
+    QStringList m_roomKeyImportAffectedRoomIds;
 };

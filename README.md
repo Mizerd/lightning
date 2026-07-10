@@ -12,6 +12,28 @@ across the rename. The product name is **Lightning**.
 
 ## Status
 
+**v0.5.6** — Session verification and encrypted room-key import.
+Lightning can now (a) initiate a Matrix SAS emoji verification of the
+current session against another session belonging to the same Matrix
+account, such as Element, reusing the existing receive-first UI and
+`active_request` / `active_sas` slots so exactly one flow is in flight
+at any moment, and (b) import a passphrase-encrypted Megolm room-key
+export via `matrix-sdk::Encryption::import_room_keys` — decryption and
+import happen entirely inside Rust, the passphrase is wrapped in
+`zeroize::Zeroizing` and never persisted, and only aggregate counts
+plus (already-public) affected room IDs cross the FFI. Settings ships
+a new **Security & Recovery** section that shows the current session's
+device ID and cross-signing state, exposes **Verify this session**,
+keeps the existing recovery-key restore, and adds **Import room keys**
+with a file picker + password-echo passphrase field + progress bar +
+aggregate result summary. The UI enforces the conceptual separation:
+SAS verification does not import keys; key import does not verify a
+session; Secure Backup restoration is neither. The **Verified** label
+is only shown when the SDK's cross-signing state reports the current
+device as cross-signed by the account owner. Sign-out waits up to ~5 s
+for an active import to finish before releasing the crypto store.
+`CacheStore` still refuses decrypted encrypted-room plaintext.
+
 **v0.5.5** — Rust sign-out/session-store lifecycle fix. Explicit
 Rust sign-out now captures the current account, invalidates the active
 callback generation, cancels and joins sync, attempts Matrix logout,

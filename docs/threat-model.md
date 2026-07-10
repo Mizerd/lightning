@@ -1,7 +1,65 @@
-# Threat model (v0.5.5 Rust session lifecycle)
+# Threat model (v0.5.6 verification and room-key import)
 
 Scoped to what the current v0.5.0-prep foundation needs a reader to
 know. Full model is v1.0 material.
+
+## Session verification (v0.5.6)
+
+- SAS verification is initiated with `VerificationMethod::SasV1` as the
+  only advertised method, so the SDK never sends an `m.qr_code.*` request
+  Lightning cannot follow through. Inbound and outbound flows share the
+  same active-request / active-SAS slots, so exactly one verification is
+  in flight at any moment.
+- SAS emojis are safe to display and log by SAS design; Lightning still
+  clears them from `AppController` on completion, cancellation, sign-out,
+  and next-flow start so the QML cache never holds stale material.
+- The label promoted to **Verified** comes solely from
+  `Device::is_cross_signed_by_owner()`, queried through
+  `mx_rust_query_own_device_status`. Local "they match" clicks do not
+  set the label; the SDK snapshot does.
+- Sign-out invalidates the active verification's lifecycle generation.
+  A late `verification_done` / `verification_cancelled` callback from a
+  previous session cannot mark the next login verified because the
+  generation check in `pollRustEvents` rejects it, and
+  `MatrixClient::loggedOut` clears the verification cache in
+  `AppController`.
+- Non-SAS verification (QR, in-room verification requests, arbitrary
+  other-user verification, device deletion, cross-signing bootstrap /
+  reset, Secure Secret Storage setup) is intentionally out of scope for
+  0.5.6.
+
+## Encrypted room-key import (v0.5.6)
+
+- Decryption and import happen entirely inside
+  `matrix-sdk::Encryption::import_room_keys`, which internally uses
+  `matrix_sdk_base::crypto::decrypt_room_key_export` and wraps the
+  passphrase in `zeroize::Zeroizing`. Lightning never implements PBKDF /
+  AES / HMAC / base64 framing / MAC verification itself.
+- The passphrase lifetime is one dispatch. QML clears its `TextField`
+  after `app.importRoomKeys(...)`. C++ forwards a stack `QByteArray` and
+  zeroes it before return. Neither QSettings, SecretStore, SQLite, nor
+  a log ever sees it.
+- Decrypted key material stays inside Rust. The FFI reply is only
+  `{imported, total, affected_rooms, room_ids}`. `room_ids` are already
+  public Matrix room identifiers, not room keys.
+- No plaintext temporary file is created. Lightning does not write a
+  decrypted copy to `/tmp` or into the app cache.
+- The source export file is opened read-only by matrix-sdk. Lightning
+  never modifies, renames, truncates, or deletes it.
+- Only the active Rust crypto store is written. `CacheStore` still
+  refuses encrypted `TimelineEvent` rows and the timeline reprocess path
+  never inserts decrypted encrypted-room plaintext into the SQLite
+  cache.
+- Only one import runs at a time per Rust client. A second request while
+  one is active is rejected via the atomic `import_active` flag and
+  surfaces as an `already_running` failure, not a parallel decrypt.
+- Sign-out waits up to ~5 s for an active import to finish before
+  releasing the Rust client. The wait is bounded so a stuck import can
+  never permanently block sign-out. A late import completion for a
+  released client is ignored by the generation check.
+- Room-key import never modifies verification / cross-signing state.
+  The UI shows "Not verified" side-by-side with "Import complete" as a
+  deliberate signal that these are separate operations.
 
 ## Rust sign-out and local reset
 
