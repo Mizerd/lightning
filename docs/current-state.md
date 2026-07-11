@@ -1,4 +1,37 @@
-# Current state (v0.5.9 — conversation creation, membership and the media bridge foundation)
+# Current state (v0.5.10 — complete local Unicode emoji picker)
+
+## v0.5.10 — reactions and composer emoji picker
+
+One reusable `EmojiPicker.qml` now serves reaction and composer modes. Its
+immutable C++ `EmojiCatalog` parses the embedded generated TSV once, while
+filtered views retain catalogue indexes and cap global search at 512 results.
+The `GridView` creates only visible cells; a 150 ms UI debounce avoids work for
+every keystroke. Search is case-insensitive across CLDR English names, group
+names and GitHub/gemoji aliases. Categories are Recently Used, Smileys &
+Emotion, People & Body, Animals & Nature, Food & Drink, Travel & Places,
+Activities, Objects, Symbols and Flags.
+
+The committed 3,943-sequence dataset is generated from `emojis 0.8.2`, already
+pinned by `matrix-sdk-ui 0.18.0` and now an exact direct development-time
+dependency. It uses Unicode Emoji 17.0 CLDR order and contains flags, ZWJ
+families/professions and validated default/single/mixed skin-tone sequences.
+Licensing is `(MIT OR Apache-2.0) AND Unicode-3.0`; only metadata and Unicode
+text are bundled, never artwork. Runtime loading is local and never accesses
+the network or Matrix FFI.
+
+Recent emoji are a shared, deduplicated, most-recent-first QSettings list
+bounded to 32 sequences; invalid persisted values are ignored by the model.
+The optional preferred tone is also local. Right-click, long-press or Alt+V
+opens only dataset-provided variants, including the base/default choice.
+
+The reaction picker preserves the stable item/event keyed toolbar pin and
+calls the existing `MessageComposer::reactTo` / `MatrixClient::toggleReaction`
+path exactly once. Matrix reaction keys remain exact Unicode sequences. The
+composer saves the QML TextArea's UTF-16 selection/cursor, replaces the
+selection or inserts at that boundary, advances by the chosen QString length,
+and restores focus; it never sends or touches attachments. Popups live in the
+window overlay, clamp on every edge, close on outside press/Escape, expose
+accessible names/tooltips, and use a virtualized keyboard-navigable grid.
 
 ## v0.5.9 — user search, DMs, room creation, invites, room info; media FFI foundation
 
@@ -6,8 +39,8 @@ Scope note: this release delivers the conversation-creation and membership
 milestone (the original plan's Phases 7–10), the full media pipeline
 (Phases 12–15: composer attachments, received media, image viewer), the
 semantic theme system (Phase 2), the account menu with the relocated Sign
-out (Phase 3) and the two-pane Settings redesign (Phase 4). The emoji
-picker was dropped from the release entirely.
+out (Phase 3) and the two-pane Settings redesign (Phase 4). The emoji picker
+was delivered in the following v0.5.10 release.
 `docs/matrix-feature-status.md` reflects exactly what is wired.
 
 ### Theme system (Phase 2)

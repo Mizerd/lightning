@@ -13,6 +13,9 @@ constexpr auto kTheme               = "ui/theme";
 constexpr auto kLanguage            = "ui/language";
 constexpr auto kStartMinimized      = "ui/startMinimized";
 constexpr auto kNotifications       = "notifications/enabled";
+constexpr auto kRecentEmoji         = "emoji/recent";
+constexpr auto kPreferredEmojiTone  = "emoji/preferredTone";
+constexpr int kRecentEmojiLimit     = 32;
 // v0.2/v0.3 stored the access token here in plaintext. v0.4 migrates it out
 // on first read; the key stays defined only so the migration code can find
 // and delete the legacy value.
@@ -124,6 +127,33 @@ void SettingsManager::setStartMinimized(bool v)
 bool SettingsManager::notificationsEnabled() const
 {
     return m_store->value(kNotifications, true).toBool();
+}
+
+QStringList SettingsManager::recentEmoji() const
+{
+    return m_store->value(kRecentEmoji).toStringList();
+}
+
+void SettingsManager::recordRecentEmoji(const QString &emoji)
+{
+    if (emoji.isEmpty()) return;
+    QStringList recent = recentEmoji();
+    recent.removeAll(emoji);
+    recent.prepend(emoji);
+    while (recent.size() > kRecentEmojiLimit) recent.removeLast();
+    m_store->setValue(kRecentEmoji, recent);
+}
+
+void SettingsManager::clearRecentEmoji() { m_store->remove(kRecentEmoji); }
+
+QString SettingsManager::preferredEmojiTone() const
+{
+    return m_store->value(kPreferredEmojiTone).toString();
+}
+
+void SettingsManager::setPreferredEmojiTone(const QString &tone)
+{
+    m_store->setValue(kPreferredEmojiTone, tone);
 }
 
 void SettingsManager::setNotificationsEnabled(bool v)

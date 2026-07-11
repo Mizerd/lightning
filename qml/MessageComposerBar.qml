@@ -16,6 +16,37 @@ Rectangle {
 
     // Transient validation feedback ("folder rejected", "too large", …).
     property string attachmentNotice: ""
+    property int emojiSelectionStart: 0
+    property int emojiSelectionEnd: 0
+    property int emojiCursorPosition: 0
+
+    function openEmojiPicker() {
+        emojiSelectionStart = input.selectionStart
+        emojiSelectionEnd = input.selectionEnd
+        emojiCursorPosition = input.cursorPosition
+        var p = emojiButton.mapToItem(Overlay.overlay,
+                                      emojiButton.width / 2, 0)
+        emojiPicker.anchorPoint = p
+        emojiPicker.open()
+    }
+
+    function insertEmoji(emoji) {
+        var start = Math.min(emojiSelectionStart, emojiSelectionEnd)
+        var end = Math.max(emojiSelectionStart, emojiSelectionEnd)
+        if (start === end) start = end = emojiCursorPosition
+        input.remove(start, end)
+        input.insert(start, emoji)
+        input.cursorPosition = start + emoji.length
+        app.composer.text = input.text
+        input.forceActiveFocus()
+    }
+
+    EmojiPicker {
+        id: emojiPicker
+        mode: "composer"
+        onEmojiChosen: (emoji) => root.insertEmoji(emoji)
+        onClosed: Qt.callLater(input.forceActiveFocus)
+    }
     Timer {
         id: noticeTimer
         interval: 6000
@@ -242,6 +273,18 @@ Rectangle {
                 ToolTip.text: qsTr("Attach")
                 ToolTip.visible: hovered
                 ToolTip.delay: 500
+            }
+
+            ToolButton {
+                id: emojiButton
+                text: "☺"
+                font.pixelSize: 18
+                enabled: app.currentRoomId !== ""
+                Accessible.name: qsTr("Insert emoji")
+                ToolTip.text: qsTr("Emoji")
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+                onClicked: root.openEmojiPicker()
             }
 
             TextArea {

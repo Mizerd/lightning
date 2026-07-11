@@ -1,4 +1,4 @@
-# Matrix feature status (v0.5.9)
+# Matrix feature status (v0.5.10)
 
 Honest per-feature status per backend. Ground truth for anything the UI
 claims about support. Do not check anything as "done" here that is not
@@ -25,7 +25,8 @@ Legend:
 | Replies (`m.in_reply_to`) | ✅ | ✅ | ✅ SDK Timeline |
 | Edits (`m.replace`) | ✅ | ✅ | ✅ SDK Timeline |
 | Redactions | ✅ | ✅ | ✅ SDK Timeline |
-| Reactions (`m.reaction` / `m.annotation`) | ✅ | ✅ | ✅ SDK Timeline |
+| Reactions (`m.reaction` / `m.annotation`) | ✅ complete local Unicode 17.0 picker | ✅ complete local Unicode 17.0 picker | ✅ complete picker → SDK Timeline toggle |
+| Composer emoji insertion | ✅ cursor/selection aware | ✅ cursor/selection aware | ✅ cursor/selection aware |
 | Media send (image/file, legacy `/media/v3/upload`) | 🟡 no-op | ✅ | ✅ (v0.5.9) `Timeline::send_attachment().use_send_queue()` — composer tray (picker/drag-drop/clipboard paste), SDK local echo + retry, MIME from content, server upload-limit gate |
 | Media receive (image/file, legacy `/media/v3/download`) | ✅ | ✅ | ✅ (v0.5.9) media bridge: Rust-side `MediaSource` registry + `Media::get_media_content` (decrypts) + binary take/free FFI + C++ LRU cache/image provider; timeline thumbnails, in-app image viewer (zoom/pan/prev/next, GIF), explicit Save As (atomic, sanitized, never auto-opened) |
 | User directory search (`/user_directory/search`) | ❌ | ❌ | ✅ (v0.5.9) debounced, stale-result-safe `UserSearchModel` |

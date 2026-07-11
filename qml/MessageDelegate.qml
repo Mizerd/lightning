@@ -12,9 +12,6 @@ Item {
     implicitHeight: isVirtualRow ? virtualRow.implicitHeight
                                  : layout.implicitHeight + AppTheme.spacingXS
 
-    // Hardcoded reaction palette (v0.3). Real emoji picker is v0.5+.
-    readonly property var reactionPalette: ["👍", "❤️", "😂", "🎉", "😢"]
-
     // Stable key for the pin-one-toolbar-at-a-time state on the ListView.
     // Prefer the SDK item id; fall back to the event id for backends that
     // don't set it. Empty for virtual rows (they have no actions).
@@ -296,7 +293,7 @@ Item {
             Rectangle {
                 id: actionBar
                 visible: rowHover.hovered || root.actionsPinned
-                         || reactionMenu.opened || moreMenu.opened
+                         || reactionPicker.opened || moreMenu.opened
                 radius: AppTheme.radiusSm
                 color: AppTheme.surface
                 border.color: AppTheme.border
@@ -309,30 +306,20 @@ Item {
                     anchors.centerIn: parent
                     spacing: 2
                     ToolButton {
+                        id: reactButton
                         text: "\u{1F60A}"
                         Accessible.name: qsTr("React to message")
                         ToolTip.text: qsTr("React")
                         ToolTip.visible: hovered
                         ToolTip.delay: 500
-                        onClicked: reactionMenu.open()
-                        Menu {
-                            id: reactionMenu
-                            Row {
-                                padding: 4
-                                spacing: 2
-                                Repeater {
-                                    model: root.reactionPalette
-                                    ToolButton {
-                                        text: modelData
-                                        font.pixelSize: 16
-                                        Accessible.name: qsTr("React with %1").arg(modelData)
-                                        onClicked: {
-                                            app.composer.reactTo(root.eventIdForActions(), modelData)
-                                            reactionMenu.close()
-                                        }
-                                    }
-                                }
-                            }
+                        onClicked: {
+                            if (ListView.view)
+                                ListView.view.pinnedActionsKey = root.actionKey
+                            var p = reactButton.mapToItem(Overlay.overlay,
+                                                          reactButton.width / 2,
+                                                          reactButton.height)
+                            reactionPicker.anchorPoint = p
+                            reactionPicker.open()
                         }
                     }
                     ToolButton {
@@ -442,6 +429,15 @@ Item {
                 }
             }
         }
+    }
+
+    EmojiPicker {
+        id: reactionPicker
+        mode: "reaction"
+        onOpened: if (ListView.view) ListView.view.emojiPickerOpen = true
+        onClosed: if (ListView.view) ListView.view.emojiPickerOpen = false
+        onEmojiChosen: (emoji) =>
+            app.composer.reactTo(root.eventIdForActions(), emoji)
     }
 
     // JS helper: models expose reactions as QVariantList. Return as-is for Repeater.

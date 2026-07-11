@@ -9,6 +9,7 @@
 #include "media/MediaBridge.h"
 #include "media/MediaManager.h"
 #include "models/MessageComposer.h"
+#include "models/EmojiCatalog.h"
 #include "models/RoomListModel.h"
 #include "models/TimelineModel.h"
 #include "spaces/SpaceManager.h"
@@ -79,6 +80,7 @@ class AppController : public QObject
     Q_PROPERTY(RoomListModel* roomList READ roomList CONSTANT)
     Q_PROPERTY(TimelineModel* timeline READ timeline CONSTANT)
     Q_PROPERTY(MessageComposer* composer READ composer CONSTANT)
+    Q_PROPERTY(EmojiCatalog* emojiCatalog READ emojiCatalog CONSTANT)
     Q_PROPERTY(MediaManager* media READ media CONSTANT)
     Q_PROPERTY(CryptoManager* crypto READ crypto CONSTANT)
     Q_PROPERTY(SpaceManager* spaces READ spaces CONSTANT)
@@ -129,6 +131,7 @@ public:
     RoomListModel *roomList() const;
     TimelineModel *timeline() const;
     MessageComposer *composer() const;
+    EmojiCatalog *emojiCatalog() const { return m_emojiCatalog.get(); }
     MediaManager *media() const;
     CryptoManager *crypto() const;
     SpaceManager *spaces() const;
@@ -287,6 +290,7 @@ private:
     std::unique_ptr<RoomListModel> m_roomList;
     std::unique_ptr<TimelineModel> m_timeline;
     std::unique_ptr<MessageComposer> m_composer;
+    std::unique_ptr<EmojiCatalog> m_emojiCatalog;
     std::unique_ptr<NotificationManager> m_notifications;
     std::unique_ptr<MediaManager> m_media;
     std::unique_ptr<CryptoManager> m_crypto;

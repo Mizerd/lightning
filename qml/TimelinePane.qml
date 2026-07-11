@@ -49,7 +49,8 @@ Rectangle {
     // Escape closes the room info panel first, then any pinned toolbar.
     Shortcut {
         sequence: "Escape"
-        enabled: root.infoOpen || timeline.pinnedActionsKey !== ""
+        enabled: !timeline.emojiPickerOpen
+                 && (root.infoOpen || timeline.pinnedActionsKey !== "")
         onActivated: {
             if (root.infoOpen)
                 root.infoOpen = false
@@ -189,6 +190,7 @@ Rectangle {
                 // (by a click). Shared across delegates so only one can be
                 // pinned at a time; keyed by the SDK item id (or event id).
                 property string pinnedActionsKey: ""
+                property bool emojiPickerOpen: false
 
                 // v0.5.9: delegate entry points into the media UI. Kept on
                 // the view so MessageDelegate needs no external ids.
@@ -263,6 +265,7 @@ Rectangle {
                     function onModelReset() {
                         timeline.stickToBottom = true
                         timeline.pinnedActionsKey = ""
+                        timeline.emojiPickerOpen = false
                         Qt.callLater(timeline.scrollToEndDeferred)
                         Qt.callLater(timeline.maybeMarkRead)
                     }

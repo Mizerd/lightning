@@ -1,6 +1,6 @@
 [package]
 name = "matrix-client-rust"
-version = "0.5.9"
+version = "0.5.10"
 edition = "2021"
 description = "FFI bridge to the Matrix Rust SDK for the C++/Qt Lightning matrix client"
 license = "MIT OR Apache-2.0"
@@ -29,6 +29,10 @@ once_cell = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }
+# Development-time source for the committed local emoji catalogue. This exact
+# crate is already pinned transitively by matrix-sdk-ui 0.18.0; the application
+# never sends catalogue data through FFI and performs no runtime download.
+emojis = "=0.8.2"
 
 [profile.release]
 lto = true

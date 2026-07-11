@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.21)
 project(matrix-client
-    VERSION 0.5.9
+    VERSION 0.5.10
     DESCRIPTION "Lightning — native C++/Qt Matrix desktop client"
     LANGUAGES CXX
 )
@@ -8,7 +8,7 @@ project(matrix-client
 include(CTest)
 
 # Human-facing release label. Keep in sync with project() and rust/Cargo.toml.
-set(APP_VERSION_LABEL "0.5.9")
+set(APP_VERSION_LABEL "0.5.10")
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -106,6 +106,8 @@ set(APP_SOURCES
     src/models/TimelineModel.cpp
     src/models/MessageComposer.h
     src/models/MessageComposer.cpp
+    src/models/EmojiCatalog.h
+    src/models/EmojiCatalog.cpp
     src/models/AttachmentQueueModel.h
     src/models/AttachmentQueueModel.cpp
     src/models/UserSearchModel.h
@@ -147,6 +149,7 @@ set(APP_QML_FILES
     qml/RoomDelegate.qml
     qml/MessageDelegate.qml
     qml/MessageComposerBar.qml
+    qml/EmojiPicker.qml
     qml/UserPicker.qml
     qml/NewConversationDialog.qml
     qml/InvitePeopleDialog.qml
@@ -176,6 +179,7 @@ qt_add_qml_module(matrix-client
     URI MatrixClient
     VERSION 1.0
     QML_FILES ${APP_QML_FILES}
+    RESOURCES data/emoji-catalog.tsv
     RESOURCE_PREFIX /qt/qml
 )
 
@@ -312,6 +316,28 @@ if(BUILD_TESTING)
     target_include_directories(settings-session-test PRIVATE src)
     target_link_libraries(settings-session-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME settings-session COMMAND settings-session-test)
+
+    qt_add_executable(emoji-catalog-test
+        tests/EmojiCatalogTest.cpp
+        src/models/EmojiCatalog.h
+        src/models/EmojiCatalog.cpp
+        src/app/SettingsManager.h
+        src/app/SettingsManager.cpp
+        src/storage/SecretStore.h
+        src/storage/AppDataPaths.cpp
+    )
+    qt_add_resources(emoji-catalog-test "emoji-test-data"
+        PREFIX "/qt/qml/MatrixClient"
+        FILES data/emoji-catalog.tsv)
+    target_include_directories(emoji-catalog-test PRIVATE src)
+    target_link_libraries(emoji-catalog-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME emoji-catalog COMMAND emoji-catalog-test)
+
+    qt_add_executable(emoji-ui-contract-test tests/EmojiUiContractTest.cpp)
+    target_compile_definitions(emoji-ui-contract-test PRIVATE
+        QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
+    target_link_libraries(emoji-ui-contract-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME emoji-ui-contract COMMAND emoji-ui-contract-test)
 
     # v0.5.7: live-timeline diff translation + generation tracking. Pure
     # Qt (no cargo), so it runs in both build trees.

@@ -85,7 +85,7 @@
 - Replies via `m.in_reply_to`; the composer surfaces a "Replying to …" banner; the target's preview is captured on both send and receive.
 - Edits via `m.replace`; the wrapper event is suppressed and the target's body updates in place with an `edited` marker. Limitation: original body is not retained (edit history UI is v0.5+).
 - Redactions via `PUT /rooms/{id}/redact/{eventId}/{txnId}`; local timeline flips to `[message deleted]` on `/sync`.
-- Reactions via `m.reaction` / `m.annotation` with toggle-off through redacting the local `event_id`; UI is a 5-emoji palette.
+- Reactions via `m.reaction` / `m.annotation` with toggle-off through redacting the local `event_id`; since v0.5.10 the UI uses the complete local Unicode 17.0 picker shared with the composer.
 - Typing indicator: composer sends `PUT /typing/{userId}` with 15s keep-alive and false on clear / room change / send; timeline header renders "*Alice* is typing…".
 - Read receipts: latest visible event is acked via `POST /receipt/m.read/{eventId}`, debounced per room.
 - Local SQLite cache (`${XDG_DATA_HOME}/matrix-client/<safeUserId>/cache.sqlite`) with rooms, last 200 events per room, and members. Loaded on session restore before `/whoami` completes. Access tokens are **not** stored here.

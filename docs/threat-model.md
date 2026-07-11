@@ -1,7 +1,22 @@
-# Threat model (v0.5.8 room state, live timeline, verification, and key import)
+# Threat model (v0.5.10 emoji picker, room state, timeline, verification, and key import)
 
 Scoped to what the current v0.5.0-prep foundation needs a reader to
 know. Full model is v1.0 material.
+
+## Local emoji data and privacy (v0.5.10)
+
+- Emoji metadata is a committed Unicode Emoji 17.0 dataset generated from the
+  pinned `emojis 0.8.2` crate under `(MIT OR Apache-2.0) AND Unicode-3.0`.
+  Runtime picker use performs no download, remote lookup, image decoding or
+  Matrix FFI transfer; rendering uses system text/emoji fonts.
+- Recently used emoji and the optional preferred tone are non-secret local
+  QSettings preferences, shared across reaction/composer modes and bounded to
+  32 exact Unicode sequences. They are not associated with a room or user and
+  are never synced to Matrix.
+- Routine logging reports only catalogue version/count/load failures. Selected
+  reactions, recent history and composer content are never logged. Matrix sees
+  a reaction only after the user chooses it, via the existing exact Unicode
+  reaction-key path; composer selection merely edits the local draft.
 
 ## Room-list and sync boundary (v0.5.8)
 

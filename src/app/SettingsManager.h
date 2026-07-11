@@ -53,6 +53,12 @@ public:
     bool notificationsEnabled() const;
     void setNotificationsEnabled(bool v);
 
+    QStringList recentEmoji() const;
+    void recordRecentEmoji(const QString &emoji);
+    void clearRecentEmoji();
+    QString preferredEmojiTone() const;
+    void setPreferredEmojiTone(const QString &tone);
+
     // Session storage.
     //
     // v0.4: accessToken lives in the SecretStore (libsecret when available,

@@ -4,6 +4,22 @@ Everything below assumes NixOS. On non-Nix Linux with system Qt 6.5+
 you can drop the `nix develop -c` wrapper and the same commands work.
 Windows / macOS are not targeted yet.
 
+The v0.5.10 deterministic suites include `emoji-catalog` (Unicode 17.0
+completeness, uniqueness, required known ZWJ/flag/tone sequences, categories,
+search/aliases, recents and tone persistence) and `emoji-ui-contract`
+(virtualization, local-only picker, accessibility, stable reaction path and
+composer cursor/selection insertion contract). Regenerate the committed data
+offline with:
+
+```bash
+nix develop -c cargo run --offline --locked --manifest-path rust/Cargo.toml \
+  --bin generate_emoji_catalog -- data/emoji-catalog.tsv
+```
+
+The source is `emojis 0.8.2`, Unicode Emoji 17.0, licensed `(MIT OR
+Apache-2.0) AND Unicode-3.0`; generation is a development step, never an
+application startup/build/runtime network dependency.
+
 ## Enter the dev shell
 
 ```bash
@@ -516,7 +532,7 @@ nix develop -c ./build/matrix-client        # equivalent to --backend=http
    "sending…" and flip to a plain timestamp within a second.
 4. **Reply / edit / redact / react**. Hover on your own message → the
    `…` menu offers Edit / Delete / Reply in thread. Hover on a
-   received message → the emoji menu opens a 5-emoji palette.
+   received message → React opens the searchable full Unicode emoji picker.
 5. **Media**. `+` in the composer opens an image / file picker; upload
    progress is visible in the status bar; the image renders inline.
 6. **Pagination**. Scroll to the top of the timeline. Older messages

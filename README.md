@@ -12,6 +12,19 @@ across the rename. The product name is **Lightning**.
 
 ## Status
 
+**v0.5.10** — Complete local Unicode emoji picker for reactions and the
+composer. Lightning embeds a generated Unicode Emoji 17.0 catalogue (3,943
+sequences including validated skin-tone variants) sourced reproducibly from
+the pinned `emojis 0.8.2` crate. Search covers CLDR names and GitHub/gemoji
+aliases; all nine Unicode groups plus local Recently Used navigation are
+available. The picker is window-overlay based, virtualized, edge-clamped,
+keyboard accessible, and renders Unicode through the system font stack.
+Recents and the optional preferred tone are local QSettings preferences only.
+Reactions use the unchanged Matrix Unicode-key toggle path; the composer
+inserts at its saved cursor or replaces the saved selection without sending.
+There is no emoji network request, downloaded artwork, GIF reaction, custom
+server emoji, or sticker support.
+
 **v0.5.8** — Matrix-native room list and room state. The Rust backend
 now probes the homeserver's `org.matrix.simplified_msc3575` capability
 and uses pinned `matrix-sdk-ui 0.18.0` `SyncService` +

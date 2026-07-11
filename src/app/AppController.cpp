@@ -8,6 +8,7 @@
 #include "matrix/MockMatrixClient.h"
 #include "media/MediaManager.h"
 #include "models/MessageComposer.h"
+#include "models/EmojiCatalog.h"
 #include "models/RoomListModel.h"
 #include "models/TimelineModel.h"
 #include "notifications/NotificationManager.h"
@@ -82,6 +83,7 @@ AppController::AppController(Backend backend, QObject *parent)
     m_roomList     = std::make_unique<RoomListModel>(this);
     m_timeline     = std::make_unique<TimelineModel>(this);
     m_composer     = std::make_unique<MessageComposer>(this);
+    m_emojiCatalog = std::make_unique<EmojiCatalog>(m_settings.get(), this);
     m_notifications= std::make_unique<NotificationManager>(this);
     m_media        = std::make_unique<MediaManager>(this);
     m_crypto       = std::make_unique<CryptoManager>(this);
