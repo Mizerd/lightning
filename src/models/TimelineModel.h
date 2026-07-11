@@ -92,6 +92,18 @@ public:
     Q_INVOKABLE void markVisibleAsRead(int firstVisibleRow, int lastVisibleRow);
     Q_INVOKABLE QString ownUserId() const { return m_selfUserId; }
 
+    // v0.5.11: newest event that may legitimately receive a read receipt —
+    // skips virtual rows, local echoes without a remote id, and failed
+    // sends. Optionally reports the event's origin timestamp so callers can
+    // enforce "never regress to an older receipt".
+    QString latestReadableEventId(qint64 *timestampMs = nullptr) const;
+
+    // v0.5.11: stable-anchor plumbing for backward-pagination scroll
+    // preservation. stableIdAt prefers the SDK item id (survives in-place
+    // updates) over the event id; rowForStableId matches either.
+    Q_INVOKABLE QString stableIdAt(int row) const;
+    Q_INVOKABLE int rowForStableId(const QString &stableId) const;
+
     // v0.5.7: retry a failed outgoing message (row must be a failed local
     // echo with a transaction id). Routed to the backend send queue; the
     // SDK re-attempts the same queued item, so no duplicate can appear.
@@ -112,6 +124,9 @@ Q_SIGNALS:
     void countChanged();
     void typingTextChanged();
     void paginationChanged();
+    // v0.5.11: a backward-pagination batch prepended `count` rows; existing
+    // rows shifted down by exactly that amount.
+    void olderPrepended(int count);
 
 private Q_SLOTS:
     void onEventAppended(const QString &roomId, const TimelineEvent &event);

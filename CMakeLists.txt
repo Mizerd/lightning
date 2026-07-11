@@ -112,6 +112,10 @@ set(APP_SOURCES
     src/models/AttachmentQueueModel.cpp
     src/models/UserSearchModel.h
     src/models/UserSearchModel.cpp
+    src/models/PaginationController.h
+    src/models/PaginationController.cpp
+    src/models/ReadReceiptCoordinator.h
+    src/models/ReadReceiptCoordinator.cpp
 
     src/notifications/NotificationManager.h
     src/notifications/NotificationManager.cpp
@@ -415,6 +419,34 @@ if(BUILD_TESTING)
     target_include_directories(conversation-flow-test PRIVATE src)
     target_link_libraries(conversation-flow-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME conversation-flow COMMAND conversation-flow-test)
+
+    # v0.5.11: backward-pagination policy — single-flight, viewport-fill
+    # budget, no-progress stop, retry, stale room/reset/sign-out isolation.
+    qt_add_executable(pagination-controller-test
+        tests/PaginationControllerTest.cpp
+        src/models/PaginationController.h
+        src/models/PaginationController.cpp
+        src/matrix/MatrixClient.h
+        src/matrix/MatrixClient.cpp
+    )
+    target_include_directories(pagination-controller-test PRIVATE src)
+    target_link_libraries(pagination-controller-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME pagination-controller COMMAND pagination-controller-test)
+
+    # v0.5.11: automatic read receipts — visibility conjunction, debounce
+    # cancellation, eligibility, duplicate suppression, ordering.
+    qt_add_executable(read-receipt-coordinator-test
+        tests/ReadReceiptCoordinatorTest.cpp
+        src/models/ReadReceiptCoordinator.h
+        src/models/ReadReceiptCoordinator.cpp
+        src/models/TimelineModel.h
+        src/models/TimelineModel.cpp
+        src/matrix/MatrixClient.h
+        src/matrix/MatrixClient.cpp
+    )
+    target_include_directories(read-receipt-coordinator-test PRIVATE src)
+    target_link_libraries(read-receipt-coordinator-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME read-receipt-coordinator COMMAND read-receipt-coordinator-test)
 
     qt_add_executable(room-state-model-test
         tests/RoomStateModelTest.cpp

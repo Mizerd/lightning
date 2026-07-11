@@ -10,6 +10,8 @@
 #include "media/MediaManager.h"
 #include "models/MessageComposer.h"
 #include "models/EmojiCatalog.h"
+#include "models/PaginationController.h"
+#include "models/ReadReceiptCoordinator.h"
 #include "models/RoomListModel.h"
 #include "models/TimelineModel.h"
 #include "spaces/SpaceManager.h"
@@ -90,6 +92,9 @@ class AppController : public QObject
     Q_PROPERTY(ConversationController* conversations READ conversations CONSTANT)
     Q_PROPERTY(RoomInfoController* roomInfo READ roomInfo CONSTANT)
     Q_PROPERTY(MediaBridge* mediaBridge READ mediaBridge CONSTANT)
+    // v0.5.11: backward-pagination policy and automatic read receipts.
+    Q_PROPERTY(PaginationController* pagination READ pagination CONSTANT)
+    Q_PROPERTY(ReadReceiptCoordinator* readReceipts READ readReceipts CONSTANT)
 
 public:
     enum Screen {
@@ -139,6 +144,8 @@ public:
     ConversationController *conversations() const { return m_conversations.get(); }
     RoomInfoController *roomInfo() const { return m_roomInfo.get(); }
     MediaBridge *mediaBridge() const { return m_mediaBridge.get(); }
+    PaginationController *pagination() const { return m_pagination.get(); }
+    ReadReceiptCoordinator *readReceipts() const { return m_readReceipts.get(); }
     SecretStore *secretStore() const { return m_secretStore.get(); }
 
 public Q_SLOTS:
@@ -299,6 +306,8 @@ private:
     std::unique_ptr<ConversationController> m_conversations;
     std::unique_ptr<RoomInfoController> m_roomInfo;
     std::unique_ptr<MediaBridge> m_mediaBridge;
+    std::unique_ptr<PaginationController> m_pagination;
+    std::unique_ptr<ReadReceiptCoordinator> m_readReceipts;
 
     // v0.5.0 SAS verification state cache.
     QString m_verificationFlowId;

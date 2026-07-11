@@ -385,6 +385,10 @@ void TimelineModel::onEventsPrepended(const QString &roomId,
         m_events.prepend(events.at(i));
     endInsertRows();
     Q_EMIT countChanged();
+    // v0.5.11: scroll-anchor hook. A backward-pagination prepend shifts
+    // every existing row down by `count`; QML re-anchors on the stable id
+    // it captured before requesting the batch.
+    Q_EMIT olderPrepended(static_cast<int>(events.size()));
 }
 
 void TimelineModel::onTimelineReset(const QString &roomId)
@@ -523,24 +527,59 @@ void TimelineModel::requestOlder()
 void TimelineModel::markVisibleAsRead(int firstVisibleRow, int lastVisibleRow)
 {
     Q_UNUSED(firstVisibleRow);
-    if (!m_client || m_roomId.isEmpty() || m_events.isEmpty()) return;
-    // Scan backward from the last visible row for the newest event that
-    // carries a real remote event ID. The last row is often a virtual item
-    // (SDK read marker, date divider) or a local echo — acking only the
-    // literal count-1 row silently failed in those cases, which is why a
-    // live incoming message stayed unread until a manual Mark as read
-    // (RoomListModel::markRoomRead already scans backward the same way).
-    int start = lastVisibleRow;
-    if (start < 0 || start >= m_events.size())
-        start = m_events.size() - 1;
-    for (int i = start; i >= 0; --i) {
+    Q_UNUSED(lastVisibleRow);
+    if (!m_client || m_roomId.isEmpty()) return;
+    // v0.5.11: the scan is shared with ReadReceiptCoordinator. This direct
+    // path remains for explicit user gestures; the automatic policy
+    // (focus/visibility/debounce) lives in the coordinator.
+    const QString eventId = latestReadableEventId();
+    if (!eventId.isEmpty())
+        m_client->sendReadReceipt(m_roomId, eventId); // deduped downstream
+}
+
+QString TimelineModel::latestReadableEventId(qint64 *timestampMs) const
+{
+    if (timestampMs)
+        *timestampMs = 0;
+    // Scan backward for the newest event that carries a real remote event
+    // ID. The last row is often a virtual item (SDK read marker, date
+    // divider) or a local echo — acking only the literal count-1 row
+    // silently failed in those cases, which is why a live incoming message
+    // stayed unread until a manual Mark as read (RoomListModel::markRoomRead
+    // scans backward the same way).
+    for (int i = static_cast<int>(m_events.size()) - 1; i >= 0; --i) {
         const auto &e = m_events.at(i);
         if (e.isVirtual()) continue;                          // date divider / marker
         if (e.eventId.isEmpty()) continue;                    // no remote id yet
         if (e.eventId.startsWith(QLatin1String("local:"))) continue; // unsent echo
-        m_client->sendReadReceipt(m_roomId, e.eventId);       // deduped downstream
-        return;
+        if (e.status == TimelineEvent::Failed) continue;      // failed outgoing
+        if (timestampMs && e.timestamp.isValid())
+            *timestampMs = e.timestamp.toMSecsSinceEpoch();
+        return e.eventId;
     }
+    return {};
+}
+
+QString TimelineModel::stableIdAt(int row) const
+{
+    if (row < 0 || row >= m_events.size())
+        return {};
+    const auto &e = m_events.at(row);
+    // The SDK item id survives in-place updates (local echo reconciliation,
+    // late decryption); prefer it and fall back to the event id.
+    return e.itemId.isEmpty() ? e.eventId : e.itemId;
+}
+
+int TimelineModel::rowForStableId(const QString &stableId) const
+{
+    if (stableId.isEmpty())
+        return -1;
+    for (int i = 0; i < m_events.size(); ++i) {
+        const auto &e = m_events.at(i);
+        if (e.itemId == stableId || e.eventId == stableId)
+            return i;
+    }
+    return -1;
 }
 
 bool TimelineModel::canPaginate() const

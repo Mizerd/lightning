@@ -23,6 +23,7 @@
 #include "matrix/MatrixClient.h"
 #include "storage/AppDataPaths.h"
 
+#include <QGuiApplication>
 #include <QLoggingCategory>
 
 Q_LOGGING_CATEGORY(lcApp, "matrix.app")
@@ -92,6 +93,8 @@ AppController::AppController(Backend backend, QObject *parent)
     m_conversations= std::make_unique<ConversationController>(this);
     m_roomInfo     = std::make_unique<RoomInfoController>(this);
     m_mediaBridge  = std::make_unique<MediaBridge>(this);
+    m_pagination   = std::make_unique<PaginationController>(this);
+    m_readReceipts = std::make_unique<ReadReceiptCoordinator>(this);
 
     m_crypto->setBackendName(backendName());
 
@@ -105,6 +108,21 @@ AppController::AppController(Backend backend, QObject *parent)
     m_conversations->setClient(m_client.get());
     m_roomInfo->setClient(m_client.get());
     m_mediaBridge->setClient(m_client.get());
+    m_pagination->setClient(m_client.get());
+    m_readReceipts->setClient(m_client.get());
+    m_readReceipts->setTimelineModel(m_timeline.get());
+
+    // The read-receipt coordinator needs the real application activation
+    // state; QML reports only timeline visibility and scroll position.
+    if (auto *guiApp =
+            qobject_cast<QGuiApplication *>(QCoreApplication::instance())) {
+        m_readReceipts->setWindowActive(guiApp->applicationState()
+                                        == Qt::ApplicationActive);
+        connect(guiApp, &QGuiApplication::applicationStateChanged, this,
+                [this](Qt::ApplicationState state) {
+            m_readReceipts->setWindowActive(state == Qt::ApplicationActive);
+        });
+    }
 
     // v0.5.9: a created (or reused) conversation opens once the room is
     // present in the authoritative room list. Leaving the open room closes
@@ -546,6 +564,7 @@ void AppController::setCurrentRoomId(const QString &roomId)
     m_currentRoomId = roomId;
     m_timeline->setRoomId(roomId);
     m_composer->setRoomId(roomId);
+    m_pagination->setRoomId(roomId);
     Q_EMIT currentRoomIdChanged();
 }
 

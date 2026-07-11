@@ -217,49 +217,58 @@ Rectangle {
                         positionViewAtEnd()
                 }
 
-                // Single read-state gate. Marks the room read only when the
-                // user is following the conversation at the bottom of the
-                // OPEN room while Lightning is focused. markVisibleAsRead
-                // scans backward for the newest real remote event and the
-                // receipt is deduped/debounced downstream, so this is safe to
-                // call from every trigger (arrival, open, focus, scroll end).
-                function maybeMarkRead() {
-                    if (Qt.application.state === Qt.ApplicationActive
-                            && count > 0 && stickToBottom
-                            && !app.timeline.paginating)
-                        app.timeline.markVisibleAsRead(0, count - 1)
+                // v0.5.11: read state is decided by ReadReceiptCoordinator
+                // in C++ (window focus, debounce, event eligibility,
+                // duplicate suppression). QML only reports what it alone
+                // knows: whether the timeline is on screen and whether the
+                // user is following the bottom of the conversation.
+                Binding {
+                    target: app.readReceipts
+                    property: "timelineVisible"
+                    value: timeline.visible && app.currentRoomId !== ""
                 }
+                Binding {
+                    target: app.readReceipts
+                    property: "nearBottom"
+                    value: timeline.stickToBottom
+                }
+
+                // v0.5.11: ask the pagination controller for one more batch
+                // whenever the loaded content cannot fill the viewport (a
+                // short initial snapshot never scrolls, so a scroll-position
+                // trigger alone would deadlock). The controller enforces the
+                // fill budget, no-progress stop and single-flight, so calling
+                // this from every size change is safe.
+                function maybeFillViewport() {
+                    if (app.currentRoomId !== "" && contentHeight < height)
+                        app.pagination.requestViewportFill()
+                }
+                onContentHeightChanged: maybeFillViewport()
+                onHeightChanged: maybeFillViewport()
+
                 onContentYChanged: {
                     if (!moving) return
                     stickToBottom = (contentY + height >= contentHeight - 40)
                 }
                 onCountChanged: {
                     // A new event arrived (or the timeline reset). Follow the
-                    // bottom and re-check read state.
+                    // bottom.
                     if (stickToBottom) Qt.callLater(scrollToEndDeferred)
-                    maybeMarkRead()
                 }
                 onMovementEnded: {
                     // Scrolling settled: recompute whether we are at the
-                    // bottom, then re-check read state (return-to-bottom must
-                    // clear unread).
+                    // bottom (return-to-bottom must clear unread — the
+                    // coordinator reacts to the nearBottom binding).
                     stickToBottom = atYEnd
                                     || (contentY + height >= contentHeight - 40)
-                    maybeMarkRead()
                 }
                 Component.onCompleted: {
                     Qt.callLater(scrollToEndDeferred)
-                    maybeMarkRead()
-                }
-                // The window regaining focus must re-check read state.
-                Connections {
-                    target: Qt.application
-                    function onStateChanged() { timeline.maybeMarkRead() }
+                    maybeFillViewport()
                 }
                 // A room switch / fresh timeline snapshot opens at the bottom:
                 // reset stickToBottom (it may have been left false after
-                // scrolling up in the previous room) and re-check read state
-                // once the model has settled.
+                // scrolling up in the previous room).
                 Connections {
                     target: app.timeline
                     function onModelReset() {
@@ -267,14 +276,16 @@ Rectangle {
                         timeline.pinnedActionsKey = ""
                         timeline.emojiPickerOpen = false
                         Qt.callLater(timeline.scrollToEndDeferred)
-                        Qt.callLater(timeline.maybeMarkRead)
+                        Qt.callLater(timeline.maybeFillViewport)
                     }
                 }
 
                 // Pagination trigger: scroll to top with backfill available.
+                // Duplicate and reached-start suppression live in the
+                // controller.
                 onAtYBeginningChanged: {
-                    if (atYBeginning && app.timeline.canPaginate && !app.timeline.paginating)
-                        app.timeline.requestOlder()
+                    if (atYBeginning)
+                        app.pagination.requestNearTop()
                 }
 
                 header: Item {
@@ -319,7 +330,7 @@ Rectangle {
                             MouseArea {
                                 anchors.fill: parent
                                 cursorShape: Qt.PointingHandCursor
-                                onClicked: app.timeline.requestOlder()
+                                onClicked: app.pagination.retry()
                             }
                         }
                     }
