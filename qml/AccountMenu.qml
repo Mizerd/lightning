@@ -135,6 +135,9 @@ Popup {
         id: signOutConfirm
         parent: Overlay.overlay
         anchors.centerIn: parent
+        // Bound to the overlay, not to content implicitWidth: the content
+        // can wrap without feeding its preferred size back into the Dialog.
+        width: Math.max(240, Math.min(420, parent ? parent.width - 32 : 420))
         modal: true
         title: qsTr("Sign out?")
         standardButtons: Dialog.NoButton
@@ -150,7 +153,6 @@ Popup {
             spacing: AppTheme.spacing12
             Label {
                 Layout.fillWidth: true
-                Layout.maximumWidth: 380
                 text: qsTr("You will be signed out of this session. "
                            + "Lightning's local data for this account is "
                            + "removed from this computer; your messages stay "

@@ -350,6 +350,14 @@ if(BUILD_TESTING)
     target_link_libraries(emoji-ui-contract-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME emoji-ui-contract COMMAND emoji-ui-contract-test)
 
+    # v0.5.12: guard the non-circular sizing/visibility contracts for the
+    # two confirmation dialogs and timeline pagination header.
+    qt_add_executable(qml-binding-contract-test tests/QmlBindingContractTest.cpp)
+    target_compile_definitions(qml-binding-contract-test PRIVATE
+        QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
+    target_link_libraries(qml-binding-contract-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME qml-binding-contract COMMAND qml-binding-contract-test)
+
     # v0.5.7: live-timeline diff translation + generation tracking. Pure
     # Qt (no cargo), so it runs in both build trees.
     qt_add_executable(rust-timeline-ingest-test

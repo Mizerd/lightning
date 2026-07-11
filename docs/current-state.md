@@ -11,6 +11,11 @@ Information, and member-list avatars share the account-scoped media bridge.
 The account footer still lacks an exposed own-profile avatar, and message
 sender avatars remain pending a dedicated timeline role.
 
+Confirmation dialogs now use explicit viewport-bounded widths with wrapping
+content, and the timeline pagination header separates logical visibility from
+fixed geometry. This removes the Room Information, account-menu, and
+pagination-status binding loops while preserving narrow-window behavior.
+
 ## v0.5.11 — pagination, media, avatars, themes, link previews
 
 This release completes the QML/C++ integration on top of the 0.5.11 backend

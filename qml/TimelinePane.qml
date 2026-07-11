@@ -9,6 +9,11 @@ Rectangle {
     color: AppTheme.background
 
     property var currentRoom: ({})
+    // Logical pagination state is deliberately independent of header
+    // geometry, ListView content height, and viewport-fill calculations.
+    readonly property bool showPaginationStatus:
+        app.currentRoomId !== ""
+        && (app.pagination.busy || app.pagination.failed)
     // v0.5.9: Room Information side panel (Phases 6/10 surface).
     property bool infoOpen: false
 
@@ -364,15 +369,12 @@ Rectangle {
                 // viewport cannot scroll.
                 header: Item {
                     width: timeline.width
-                    height: paginationHeader.visible ? paginationHeader.implicitHeight + 8
-                                                     : 0
+                    height: root.showPaginationStatus ? 32 : 0
                     Row {
                         id: paginationHeader
                         anchors.centerIn: parent
                         spacing: 6
-                        visible: app.currentRoomId !== ""
-                                 && (app.pagination.busy
-                                     || app.pagination.failed)
+                        visible: root.showPaginationStatus
                         BusyIndicator {
                             width: 16; height: 16
                             anchors.verticalCenter: parent.verticalCenter

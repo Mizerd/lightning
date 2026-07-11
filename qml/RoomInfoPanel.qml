@@ -544,6 +544,9 @@ Rectangle {
         id: leaveConfirm
         parent: Overlay.overlay
         anchors.centerIn: parent
+        // An explicit viewport-bounded width keeps Dialog implicit sizing
+        // independent from the wrapping label/layout inside it.
+        width: Math.max(240, Math.min(400, parent ? parent.width - 32 : 400))
         modal: true
         title: qsTr("Leave room?")
         standardButtons: Dialog.NoButton
@@ -559,7 +562,6 @@ Rectangle {
             spacing: AppTheme.spacing12
             Label {
                 Layout.fillWidth: true
-                Layout.maximumWidth: 360
                 text: qsTr("You will stop receiving messages from this room. "
                            + "Server history is not deleted, and you can be "
                            + "invited again later.")
