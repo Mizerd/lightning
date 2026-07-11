@@ -5,8 +5,11 @@
 #include <QMutex>
 #include <QObject>
 #include <QQueue>
+#include <QSet>
 #include <QString>
 #include <QUrl>
+#include <QTemporaryDir>
+#include <memory>
 
 class MatrixClient;
 
@@ -38,6 +41,11 @@ public:
     Q_INVOKABLE QString avatarSource(const QString &mxcUri, int size);
     // Provider URL for an already-cached key ("" when evicted meanwhile).
     Q_INVOKABLE QString cachedSource(const QString &cacheKey) const;
+    // Confirmed GIFs use original SDK-fetched/decrypted bytes written
+    // atomically beneath a short-lived account/session cache directory.
+    Q_INVOKABLE QString animatedSource(const QString &mediaKey);
+    Q_INVOKABLE QString previewAnimatedSource(const QString &dataSource,
+                                              const QString &mimetype);
 
     // v0.5.11: failure state. A failed fetch marks its cache key so QML
     // repolling cannot hammer the backend; retry() clears the mark so the
@@ -63,6 +71,7 @@ public:
 Q_SIGNALS:
     void supportedChanged();
     void mediaCached(const QString &cacheKey);
+    void animatedMediaReady(const QString &cacheKey);
     void mediaFetchFailed(const QString &cacheKey, const QString &category);
     void saveFinished(bool ok, const QString &message);
 
@@ -93,6 +102,8 @@ private:
     bool alreadyPending(const QString &cacheKey) const;
     static QString sanitizedFileName(const QString &name);
     void writeSaveFile(const QUrl &destination, const QByteArray &bytes);
+    QString writeAnimatedFile(const QString &cacheKey, const QByteArray &bytes,
+                              const QString &mimetype);
 
     MatrixClient *m_client = nullptr;
 
@@ -106,6 +117,13 @@ private:
     // v0.5.11: cache keys whose last fetch failed, with the coarse
     // category. Bounded; cleared on sign-out and per key via retry().
     QHash<QString, QString> m_failed;
+    std::unique_ptr<QTemporaryDir> m_animatedDir;
+    QHash<QString, QString> m_animatedFiles;
+    QHash<QString, qint64> m_animatedSizes;
+    QList<QString> m_animatedLru;
+    QSet<QString> m_animatedWanted;
     static constexpr int kMaxConcurrent = 4;
     static constexpr int kMaxFailureMarks = 512;
+    static constexpr qint64 kAnimatedCacheBytes = 64 * 1024 * 1024;
+    static constexpr int kAnimatedCacheEntries = 64;
 };

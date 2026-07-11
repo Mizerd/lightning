@@ -3,7 +3,9 @@
 #include "matrix/MatrixClient.h"
 
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
+#include <QCryptographicHash>
 #include <QMutexLocker>
 #include <QSaveFile>
 
@@ -23,6 +25,8 @@ QString mxcCacheKey(const QString &mxc, int size)
 MediaBridge::MediaBridge(QObject *parent)
     : QObject(parent)
 {
+    m_animatedDir = std::make_unique<QTemporaryDir>(
+        QDir::tempPath() + QStringLiteral("/lightning-animated-XXXXXX"));
 }
 
 void MediaBridge::setClient(MatrixClient *client)
@@ -148,6 +152,60 @@ QString MediaBridge::mediaSource(const QString &mediaKey, const QString &kind)
     return {};
 }
 
+QString MediaBridge::animatedSource(const QString &mediaKey)
+{
+    if (mediaKey.isEmpty() || mediaKey.contains(QLatin1String("send-queue.localhost"))
+        || !supported())
+        return {};
+    const QString cacheKey = mediaCacheKey(mediaKey, 0);
+    const QString path = m_animatedFiles.value(cacheKey);
+    if (!path.isEmpty() && QFileInfo::exists(path)) {
+        m_animatedLru.removeOne(cacheKey);
+        m_animatedLru.prepend(cacheKey);
+        return QUrl::fromLocalFile(path).toString();
+    }
+    m_animatedWanted.insert(cacheKey);
+    if (m_failed.contains(cacheKey))
+        return {};
+    const QByteArray cached = cachedBytes(cacheKey);
+    if (!cached.isEmpty()) {
+        const QString written = writeAnimatedFile(cacheKey, cached,
+                                                   QStringLiteral("image/gif"));
+        return written.isEmpty() ? QString{} : QUrl::fromLocalFile(written).toString();
+    }
+    if (!alreadyPending(cacheKey)) {
+        Pending request;
+        request.cacheKey = cacheKey;
+        request.mediaKey = mediaKey;
+        request.kind = 0;
+        dispatch(request);
+    }
+    return {};
+}
+
+QString MediaBridge::previewAnimatedSource(const QString &dataSource,
+                                           const QString &mimetype)
+{
+    if (mimetype != QLatin1String("image/gif")
+        || !dataSource.startsWith(QLatin1String("data:image/gif;base64,")))
+        return {};
+    const QByteArray bytes = QByteArray::fromBase64(
+        dataSource.mid(dataSource.indexOf(QLatin1Char(',')) + 1).toLatin1(),
+        QByteArray::AbortOnBase64DecodingErrors);
+    if (bytes.isEmpty())
+        return {};
+    const QString cacheKey = QStringLiteral("preview:") + QString::fromLatin1(
+        QCryptographicHash::hash(bytes, QCryptographicHash::Sha256).toHex());
+    const QString existing = m_animatedFiles.value(cacheKey);
+    if (!existing.isEmpty() && QFileInfo::exists(existing)) {
+        m_animatedLru.removeOne(cacheKey);
+        m_animatedLru.prepend(cacheKey);
+        return QUrl::fromLocalFile(existing).toString();
+    }
+    const QString path = writeAnimatedFile(cacheKey, bytes, mimetype);
+    return path.isEmpty() ? QString{} : QUrl::fromLocalFile(path).toString();
+}
+
 QString MediaBridge::avatarSource(const QString &mxcUri, int size)
 {
     if (!mxcUri.startsWith(QLatin1String("mxc://")) || !supported())
@@ -205,7 +263,6 @@ void MediaBridge::onMediaReady(quint64 opId, const QString &mediaKey, int kind,
 {
     Q_UNUSED(mediaKey);
     Q_UNUSED(kind);
-    Q_UNUSED(mimetype);
     Q_UNUSED(filename);
     const auto it = m_inflight.find(opId);
     if (it == m_inflight.end())
@@ -220,7 +277,49 @@ void MediaBridge::onMediaReady(quint64 opId, const QString &mediaKey, int kind,
     }
     m_failed.remove(request.cacheKey);
     insertCache(request.cacheKey, bytes);
+    if (m_animatedWanted.remove(request.cacheKey)) {
+        if (!writeAnimatedFile(request.cacheKey, bytes, mimetype).isEmpty())
+            Q_EMIT animatedMediaReady(request.cacheKey);
+        else
+            Q_EMIT mediaFetchFailed(request.cacheKey, QStringLiteral("invalid_gif"));
+    }
     Q_EMIT mediaCached(request.cacheKey);
+}
+
+QString MediaBridge::writeAnimatedFile(const QString &cacheKey,
+                                       const QByteArray &bytes,
+                                       const QString &mimetype)
+{
+    constexpr qsizetype maxGifBytes = 20 * 1024 * 1024;
+    if (mimetype.section(QLatin1Char(';'), 0, 0).trimmed().toLower()
+            != QLatin1String("image/gif")
+        || bytes.size() < 10 || bytes.size() > maxGifBytes
+        || !(bytes.startsWith("GIF87a") || bytes.startsWith("GIF89a"))
+        || !m_animatedDir || !m_animatedDir->isValid())
+        return {};
+    const QString name = QString::fromLatin1(
+        QCryptographicHash::hash(cacheKey.toUtf8(), QCryptographicHash::Sha256).toHex())
+        + QStringLiteral(".gif");
+    const QString path = m_animatedDir->filePath(name);
+    QSaveFile file(path);
+    if (!file.open(QIODevice::WriteOnly)
+        || file.write(bytes) != bytes.size() || !file.commit())
+        return {};
+    m_animatedFiles.insert(cacheKey, path);
+    m_animatedSizes.insert(cacheKey, bytes.size());
+    m_animatedLru.removeOne(cacheKey);
+    m_animatedLru.prepend(cacheKey);
+    qint64 total = 0;
+    for (qint64 size : std::as_const(m_animatedSizes))
+        total += size;
+    while ((total > kAnimatedCacheBytes
+            || m_animatedFiles.size() > kAnimatedCacheEntries)
+           && m_animatedLru.size() > 1) {
+        const QString victim = m_animatedLru.takeLast();
+        total -= m_animatedSizes.take(victim);
+        QFile::remove(m_animatedFiles.take(victim));
+    }
+    return path;
 }
 
 void MediaBridge::markFailed(const Pending &request, const QString &category)
@@ -310,6 +409,13 @@ void MediaBridge::clear()
     m_inflight.clear();
     m_queue.clear();
     m_failed.clear();
+    m_animatedFiles.clear();
+    m_animatedSizes.clear();
+    m_animatedLru.clear();
+    m_animatedWanted.clear();
+    m_animatedDir.reset(); // recursively removes decrypted temporary files
+    m_animatedDir = std::make_unique<QTemporaryDir>(
+        QDir::tempPath() + QStringLiteral("/lightning-animated-XXXXXX"));
 }
 
 void MediaBridge::onLoggedOut()

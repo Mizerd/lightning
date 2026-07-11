@@ -506,6 +506,10 @@ Item {
             id: card
             readonly property var p: root.preview
             readonly property string st: p.state || "none"
+            readonly property string previewAnimation:
+                p.isGif === true && app.settings.animateGifPreviews
+                ? app.mediaBridge.previewAnimatedSource(p.imageSource || "",
+                                                        p.imageMime || "") : ""
             implicitWidth: Math.min(360, root.width * 0.6)
             implicitHeight: cardCol.implicitHeight + AppTheme.spacingS * 2
             color: model.isOwn ? AppTheme.bubbleOverlay : AppTheme.bubbleOverlaySubtle
@@ -622,6 +626,7 @@ Item {
                         Image {
                             id: thumb
                             anchors.fill: parent
+                            visible: card.previewAnimation.length === 0
                             fillMode: Image.PreserveAspectFit
                             asynchronous: true
                             cache: true
@@ -639,6 +644,15 @@ Item {
                                         card.p.imageMxc, 480)
                                 }
                             }
+                        }
+                        AnimatedImage {
+                            anchors.fill: parent
+                            visible: card.previewAnimation.length > 0
+                            source: visible ? card.previewAnimation : ""
+                            fillMode: Image.PreserveAspectFit
+                            playing: visible
+                            asynchronous: true
+                            cache: false
                         }
                         // GIF badge.
                         Rectangle {
@@ -736,17 +750,14 @@ Item {
 
             readonly property bool isGif:
                 (model.mediaMimetype || "").toLowerCase() === "image/gif"
-            readonly property string directGifUrl:
-                (model.mediaUrl
-                 && /^https?:\/\//i.test(model.mediaUrl.toString()))
-                ? model.mediaUrl.toString() : ""
-            // Animate only when we hold a direct http(s) URL: the media bridge
-            // serves single frames through an image provider (QMovie can't
-            // animate those), so bridge/encrypted GIFs show a static frame and
-            // open full-size on click.
+            readonly property bool pendingMedia:
+                (model.eventId || "").startsWith("local:")
+                || (model.mediaUrl && model.mediaUrl.toString()
+                    .indexOf("send-queue.localhost") >= 0)
+            property string animatedSource: ""
             readonly property bool animateGif:
                 isGif && app.settings.animateGifPreviews
-                && directGifUrl.length > 0
+                && !pendingMedia && animatedSource.length > 0
 
             // v0.5.9: prefer the media bridge (works for encrypted rooms —
             // the SDK decrypts inside Rust); HTTP-backend URLs remain the
@@ -760,6 +771,10 @@ Item {
 
             function refreshBridgeSource() {
                 if (!usesBridge || !model.mediaKey) return
+                if (isGif && app.settings.animateGifPreviews && !pendingMedia) {
+                    animatedSource = app.mediaBridge.animatedSource(model.mediaKey)
+                    return
+                }
                 if (bridgeFailed)
                     app.mediaBridge.retry(bridgeCacheKey)
                 bridgeFailed = false
@@ -774,6 +789,10 @@ Item {
                 function onMediaCached(cacheKey) {
                     if (cacheKey === imageBox.bridgeCacheKey)
                         imageBox.bridgeSource = app.mediaBridge.cachedSource(cacheKey)
+                }
+                function onAnimatedMediaReady(cacheKey) {
+                    if (cacheKey === "full:" + (model.mediaKey || ""))
+                        imageBox.animatedSource = app.mediaBridge.animatedSource(model.mediaKey)
                 }
                 function onMediaFetchFailed(cacheKey, category) {
                     if (cacheKey === imageBox.bridgeCacheKey)
@@ -817,7 +836,7 @@ Item {
                 anchors.fill: parent
                 visible: imageBox.animateGif
                 fillMode: Image.PreserveAspectFit
-                source: imageBox.animateGif ? imageBox.directGifUrl : ""
+                source: imageBox.animateGif ? imageBox.animatedSource : ""
                 asynchronous: true
                 cache: true
                 playing: imageBox.animateGif

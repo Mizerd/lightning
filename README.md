@@ -39,9 +39,9 @@ the target website and may reveal your IP address and timing. Preview state is
 local UI data and is never sent as a Matrix event.
 Link-preview GIF thumbnails are classified by the Rust-validated MIME type
 (never the URL suffix) with byte/dimension safety limits and remain static.
-Timeline GIF attachments animate only when a direct HTTP(S) source is
-available and the "Animate GIF previews" setting is on; bridge-backed and
-encrypted GIFs use a static-frame fallback. The login form was rebuilt with
+Timeline GIF attachments animate from validated, Rust-downloaded local files
+when the "Animate GIF previews" setting is on; encrypted media is decrypted by
+the SDK and pending uploads remain static. The login form was rebuilt with
 Qt Layouts to fit at
 narrow and wide widths, and the message action toolbar and read receipts were
 finished. New settings: theme, auto-load previews in unencrypted rooms, load

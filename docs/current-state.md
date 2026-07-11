@@ -27,6 +27,15 @@ state remains bounded, memory-only, request-deduplicated, account-scoped, and
 cleared on logout. Encrypted rooms remain click-to-load by default and warn
 that direct website contact can reveal the user's IP address and timing.
 
+Confirmed Matrix GIFs now download and decrypt through the Rust SDK media
+path. `MediaBridge` validates the original GIF bytes, writes them atomically
+under a short-lived hashed session directory, and exposes only a local
+`file://` source to `AnimatedImage`; the timeline and viewer share it. The
+in-memory/file cache is bounded by the existing media cache and a 20 MiB GIF
+entry cap, and logout removes the temporary directory. Pending send-queue
+echoes never start `AnimatedImage`, while disabling animation uses the static
+image-provider frame and off-screen timeline animations pause.
+
 ## v0.5.11 — pagination, media, avatars, themes, link previews
 
 This release completes the QML/C++ integration on top of the 0.5.11 backend

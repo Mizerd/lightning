@@ -41,6 +41,7 @@ Popup {
     readonly property string bridgeCacheKey:
         current !== null ? ("full:" + current.mediaKey) : ""
     property string bridgeSource: ""
+    property string animatedSource: ""
     property bool bridgeFailed: false
     readonly property bool isGif:
         current !== null && current.mime === "image/gif"
@@ -70,6 +71,7 @@ Popup {
         baseWidth = 0
         baseHeight = 0
         bridgeSource = ""
+        animatedSource = ""
         bridgeFailed = false
     }
 
@@ -77,7 +79,10 @@ Popup {
         if (!usesBridge || current === null)
             return
         bridgeFailed = false
-        bridgeSource = app.mediaBridge.mediaSource(current.mediaKey, "full")
+        if (isGif && app.settings.animateGifPreviews)
+            animatedSource = app.mediaBridge.animatedSource(current.mediaKey)
+        else
+            bridgeSource = app.mediaBridge.mediaSource(current.mediaKey, "full")
     }
 
     function showAt(index) {
@@ -103,6 +108,10 @@ Popup {
         function onMediaCached(cacheKey) {
             if (cacheKey === viewer.bridgeCacheKey)
                 viewer.bridgeSource = app.mediaBridge.cachedSource(cacheKey)
+        }
+        function onAnimatedMediaReady(cacheKey) {
+            if (cacheKey === viewer.bridgeCacheKey)
+                viewer.animatedSource = app.mediaBridge.animatedSource(viewer.current.mediaKey)
         }
         function onMediaFetchFailed(cacheKey, category) {
             if (cacheKey === viewer.bridgeCacheKey)
@@ -249,14 +258,14 @@ Popup {
                         // Static image path.
                         Image {
                             id: staticImage
-                            visible: !viewer.isGif
+                            visible: !viewer.isGif || !app.settings.animateGifPreviews
                             anchors.centerIn: parent
                             width: viewer.baseWidth * viewer.zoom
                             height: viewer.baseHeight * viewer.zoom
                             fillMode: Image.PreserveAspectFit
                             asynchronous: true
                             cache: false
-                            source: !viewer.isGif
+                            source: visible
                                     ? (viewer.usesBridge ? viewer.bridgeSource
                                                          : (viewer.current !== null
                                                             ? viewer.current.httpUrl : ""))
@@ -269,18 +278,15 @@ Popup {
                         // Animated GIF path.
                         AnimatedImage {
                             id: animatedImage
-                            visible: viewer.isGif
+                            visible: viewer.isGif && app.settings.animateGifPreviews
+                                     && viewer.animatedSource.length > 0
                             anchors.centerIn: parent
                             width: viewer.baseWidth * viewer.zoom
                             height: viewer.baseHeight * viewer.zoom
                             fillMode: Image.PreserveAspectFit
                             cache: false
                             playing: visible && viewer.opened
-                            source: viewer.isGif
-                                    ? (viewer.usesBridge ? viewer.bridgeSource
-                                                         : (viewer.current !== null
-                                                            ? viewer.current.httpUrl : ""))
-                                    : ""
+                            source: visible ? viewer.animatedSource : ""
                             onStatusChanged: {
                                 if (status === Image.Ready && viewer.baseWidth === 0)
                                     viewer.fitImage(implicitWidth, implicitHeight)

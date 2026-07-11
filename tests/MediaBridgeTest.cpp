@@ -47,10 +47,11 @@ public:
         return op;
     }
 
-    void succeed(quint64 opId, const QByteArray &bytes)
+    void succeed(quint64 opId, const QByteArray &bytes,
+                 const QString &mime = QStringLiteral("image/png"))
     {
         Q_EMIT mediaReady(opId, QString(), 0, bytes,
-                          QStringLiteral("image/png"), QString());
+                          mime, QString());
     }
     void fail(quint64 opId, const QString &category)
     {
@@ -259,6 +260,60 @@ private Q_SLOTS:
         bridge.avatarSource(kMxc, 64);
         QCOMPARE(failed.count(), 1);
         QCOMPARE(failed.first().at(1).toString(), QStringLiteral("rejected"));
+    }
+
+    void animatedGifUsesValidatedLocalFileAndCleansOnLogout()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        QSignalSpy ready(&bridge, &MediaBridge::animatedMediaReady);
+        QCOMPARE(bridge.animatedSource(QStringLiteral("$gif")), QString());
+        QByteArray gif("GIF89a");
+        gif.append(QByteArray(64, '\0'));
+        client.succeed(client.fetches.first().opId, gif, QStringLiteral("image/gif"));
+        QCOMPARE(ready.count(), 1);
+        const QString source = bridge.animatedSource(QStringLiteral("$gif"));
+        QVERIFY(source.startsWith(QStringLiteral("file://")));
+        const QString path = QUrl(source).toLocalFile();
+        QVERIFY(QFileInfo::exists(path));
+        client.logout();
+        QVERIFY(!QFileInfo::exists(path));
+        QVERIFY(bridge.animatedSource(QStringLiteral("send-queue.localhost/$txn")).isEmpty());
+    }
+
+    void fakeAndOversizedGifsNeverReachAnimatedImage()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        QSignalSpy ready(&bridge, &MediaBridge::animatedMediaReady);
+        QSignalSpy failed(&bridge, &MediaBridge::mediaFetchFailed);
+        bridge.animatedSource(QStringLiteral("$fake"));
+        client.succeed(client.fetches.last().opId, QByteArray("<html>not gif</html>"),
+                       QStringLiteral("image/gif"));
+        QCOMPARE(ready.count(), 0);
+        QCOMPARE(failed.count(), 1);
+
+        bridge.animatedSource(QStringLiteral("$large"));
+        QByteArray large("GIF89a");
+        large.resize(20 * 1024 * 1024 + 1, '\0');
+        client.succeed(client.fetches.last().opId, large, QStringLiteral("image/gif"));
+        QCOMPARE(ready.count(), 0);
+        QCOMPARE(failed.count(), 2);
+    }
+
+    void clientPreviewGifUsesTheSameControlledFilePath()
+    {
+        MediaBridge bridge;
+        QByteArray gif("GIF89a"); gif.append(QByteArray(32, '\0'));
+        const QString data = QStringLiteral("data:image/gif;base64,")
+            + QString::fromLatin1(gif.toBase64());
+        const QString source = bridge.previewAnimatedSource(data, QStringLiteral("image/gif"));
+        QVERIFY(source.startsWith(QStringLiteral("file://")));
+        QVERIFY(QFileInfo::exists(QUrl(source).toLocalFile()));
+        QVERIFY(bridge.previewAnimatedSource(QStringLiteral("data:text/html;base64,QQ=="),
+                                             QStringLiteral("image/gif")).isEmpty());
     }
 };
 
