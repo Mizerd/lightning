@@ -95,6 +95,7 @@ AppController::AppController(Backend backend, QObject *parent)
     m_mediaBridge  = std::make_unique<MediaBridge>(this);
     m_pagination   = std::make_unique<PaginationController>(this);
     m_readReceipts = std::make_unique<ReadReceiptCoordinator>(this);
+    m_linkPreviews = std::make_unique<LinkPreviewController>(this);
 
     m_crypto->setBackendName(backendName());
 
@@ -111,6 +112,21 @@ AppController::AppController(Backend backend, QObject *parent)
     m_pagination->setClient(m_client.get());
     m_readReceipts->setClient(m_client.get());
     m_readReceipts->setTimelineModel(m_timeline.get());
+    m_linkPreviews->setClient(m_client.get());
+
+    // Link-preview policy follows the persisted settings live. The
+    // encrypted-room setting defaults to OFF (privacy) in SettingsManager.
+    m_linkPreviews->setAutoLoadUnencrypted(m_settings->autoLoadLinkPreviews());
+    m_linkPreviews->setAllowEncrypted(m_settings->loadPreviewsInEncryptedRooms());
+    connect(m_settings.get(), &SettingsManager::autoLoadLinkPreviewsChanged,
+            this, [this]() {
+        m_linkPreviews->setAutoLoadUnencrypted(m_settings->autoLoadLinkPreviews());
+    });
+    connect(m_settings.get(), &SettingsManager::loadPreviewsInEncryptedRoomsChanged,
+            this, [this]() {
+        m_linkPreviews->setAllowEncrypted(
+            m_settings->loadPreviewsInEncryptedRooms());
+    });
 
     // The read-receipt coordinator needs the real application activation
     // state; QML reports only timeline visibility and scroll position.

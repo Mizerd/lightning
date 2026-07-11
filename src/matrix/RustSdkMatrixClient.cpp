@@ -2228,6 +2228,27 @@ quint64 RustSdkMatrixClient::fetchUserProfile(const QString &userId)
     return opId;
 }
 
+quint64 RustSdkMatrixClient::fetchUrlPreview(const QString &url)
+{
+    // Scheme allow-list is enforced again in Rust; this early check keeps
+    // obviously unsafe schemes from ever crossing the FFI.
+    const QString lowered = url.trimmed().toLower();
+    if (!m_rustHandle
+        || !(lowered.startsWith(QLatin1String("https://"))
+             || lowered.startsWith(QLatin1String("http://"))))
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray target = url.toUtf8();
+    const QString result = takeRustString(mx_rust_get_url_preview(
+        m_rustHandle, target.constData(), opId));
+    if (!result.isEmpty()) {
+        // No URL in the log — operation state only.
+        qCWarning(lcRust) << "url preview rejected";
+        return 0;
+    }
+    return opId;
+}
+
 QVariantList RustSdkMatrixClient::existingDirectRooms(const QString &userId) const
 {
     if (!m_rustHandle || userId.isEmpty())
@@ -2554,6 +2575,32 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             event.value(QStringLiteral("user_id")).toString(),
             event.value(QStringLiteral("display_name")).toString(),
             event.value(QStringLiteral("avatar_url")).toString(),
+            event.value(QStringLiteral("category")).toString());
+        return true;
+    }
+
+    if (type == QLatin1String("url_preview_result")) {
+        QVariantMap fields;
+        const QJsonObject raw = event.value(QStringLiteral("fields")).toObject();
+        fields.insert(QStringLiteral("title"),
+                      raw.value(QStringLiteral("title")).toString());
+        fields.insert(QStringLiteral("description"),
+                      raw.value(QStringLiteral("description")).toString());
+        fields.insert(QStringLiteral("siteName"),
+                      raw.value(QStringLiteral("site_name")).toString());
+        fields.insert(QStringLiteral("imageMxc"),
+                      raw.value(QStringLiteral("image_mxc")).toString());
+        fields.insert(QStringLiteral("imageMime"),
+                      raw.value(QStringLiteral("image_mime")).toString());
+        fields.insert(QStringLiteral("imageWidth"),
+                      raw.value(QStringLiteral("image_width")).toInt());
+        fields.insert(QStringLiteral("imageHeight"),
+                      raw.value(QStringLiteral("image_height")).toInt());
+        fields.insert(QStringLiteral("imageSize"),
+                      static_cast<qint64>(
+                          raw.value(QStringLiteral("image_size")).toDouble()));
+        Q_EMIT urlPreviewFinished(
+            opId(), event.value(QStringLiteral("ok")).toBool(), fields,
             event.value(QStringLiteral("category")).toString());
         return true;
     }

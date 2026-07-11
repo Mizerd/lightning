@@ -153,6 +153,11 @@ public:
     // (or refutes) a bare-localpart candidate the directory may not list.
     virtual quint64 fetchUserProfile(const QString &userId)
     { Q_UNUSED(userId); return 0; }
+    // v0.5.11: homeserver URL preview (the homeserver fetches the target;
+    // the client never does). Backends without support return 0.
+    virtual bool supportsUrlPreview() const { return false; }
+    virtual quint64 fetchUrlPreview(const QString &url)
+    { Q_UNUSED(url); return 0; }
     // Existing joined DM rooms for a user, from authoritative m.direct.
     // Each entry: {roomId, name}. Synchronous store lookup.
     virtual QVariantList existingDirectRooms(const QString &userId) const
@@ -271,6 +276,11 @@ Q_SIGNALS:
                              const QString &displayName,
                              const QString &avatarUrl,
                              const QString &category);
+    // v0.5.11: URL-preview result. `fields` carries only whitelisted
+    // OpenGraph values (title, description, siteName, imageMxc, imageMime,
+    // imageWidth, imageHeight, imageSize) — never the requested URL.
+    void urlPreviewFinished(quint64 opId, bool ok, const QVariantMap &fields,
+                            const QString &category);
     void dmCreateFinished(quint64 opId, bool ok, const QString &roomId,
                           const QString &category);
     void roomCreateFinished(quint64 opId, bool ok, const QString &roomId,

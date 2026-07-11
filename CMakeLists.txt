@@ -118,6 +118,10 @@ set(APP_SOURCES
     src/models/PaginationController.cpp
     src/models/ReadReceiptCoordinator.h
     src/models/ReadReceiptCoordinator.cpp
+    src/models/LinkPreview.h
+    src/models/LinkPreview.cpp
+    src/models/LinkPreviewController.h
+    src/models/LinkPreviewController.cpp
 
     src/notifications/NotificationManager.h
     src/notifications/NotificationManager.cpp
@@ -423,6 +427,26 @@ if(BUILD_TESTING)
     target_include_directories(conversation-flow-test PRIVATE src)
     target_link_libraries(conversation-flow-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME conversation-flow COMMAND conversation-flow-test)
+
+    # v0.5.11: safe link previews — URL extraction with scheme allow-list,
+    # GIF MIME classification, encrypted-room privacy gating, bounded cache,
+    # stale rejection, settings defaults.
+    qt_add_executable(link-preview-test
+        tests/LinkPreviewTest.cpp
+        src/models/LinkPreview.h
+        src/models/LinkPreview.cpp
+        src/models/LinkPreviewController.h
+        src/models/LinkPreviewController.cpp
+        src/app/SettingsManager.h
+        src/app/SettingsManager.cpp
+        src/storage/SecretStore.h
+        src/storage/AppDataPaths.cpp
+        src/matrix/MatrixClient.h
+        src/matrix/MatrixClient.cpp
+    )
+    target_include_directories(link-preview-test PRIVATE src)
+    target_link_libraries(link-preview-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME link-preview COMMAND link-preview-test)
 
     # v0.5.11: avatar/media request layer — dedup, per-size keys, bounded
     # LRU, sign-out stale rejection, failure marking with explicit retry.

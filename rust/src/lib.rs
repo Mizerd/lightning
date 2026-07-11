@@ -2297,6 +2297,19 @@ pub unsafe extern "C" fn mx_rust_get_user_profile(
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn mx_rust_get_url_preview(
+    ptr: *mut c_void,
+    url: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let url = unsafe { cstr_arg(url) }?;
+        rooms::fetch_url_preview(bridge, url, op_id).map(|_| String::new())
+    })
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn mx_rust_get_dm_rooms(
     ptr: *mut c_void,
     user_id: *const c_char,

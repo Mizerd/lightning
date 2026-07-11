@@ -15,6 +15,12 @@ constexpr auto kStartMinimized      = "ui/startMinimized";
 constexpr auto kNotifications       = "notifications/enabled";
 constexpr auto kRecentEmoji         = "emoji/recent";
 constexpr auto kPreferredEmojiTone  = "emoji/preferredTone";
+// v0.5.11: link previews. The encrypted-room key MUST default to false —
+// requesting a preview reveals the URL to the homeserver, which encrypted
+// rooms never do without an explicit user decision.
+constexpr auto kPreviewsUnencrypted = "previews/autoLoadUnencrypted";
+constexpr auto kPreviewsEncrypted   = "previews/loadInEncryptedRooms";
+constexpr auto kPreviewsAnimateGifs = "previews/animateGifs";
 constexpr int kRecentEmojiLimit     = 32;
 // v0.2/v0.3 stored the access token here in plaintext. v0.4 migrates it out
 // on first read; the key stays defined only so the migration code can find
@@ -127,6 +133,47 @@ void SettingsManager::setStartMinimized(bool v)
 bool SettingsManager::notificationsEnabled() const
 {
     return m_store->value(kNotifications, true).toBool();
+}
+
+bool SettingsManager::autoLoadLinkPreviews() const
+{
+    return m_store->value(kPreviewsUnencrypted, true).toBool();
+}
+
+void SettingsManager::setAutoLoadLinkPreviews(bool v)
+{
+    if (autoLoadLinkPreviews() == v)
+        return;
+    m_store->setValue(kPreviewsUnencrypted, v);
+    Q_EMIT autoLoadLinkPreviewsChanged();
+}
+
+bool SettingsManager::loadPreviewsInEncryptedRooms() const
+{
+    // Privacy default: never reveal encrypted-room URLs to the homeserver
+    // automatically.
+    return m_store->value(kPreviewsEncrypted, false).toBool();
+}
+
+void SettingsManager::setLoadPreviewsInEncryptedRooms(bool v)
+{
+    if (loadPreviewsInEncryptedRooms() == v)
+        return;
+    m_store->setValue(kPreviewsEncrypted, v);
+    Q_EMIT loadPreviewsInEncryptedRoomsChanged();
+}
+
+bool SettingsManager::animateGifPreviews() const
+{
+    return m_store->value(kPreviewsAnimateGifs, true).toBool();
+}
+
+void SettingsManager::setAnimateGifPreviews(bool v)
+{
+    if (animateGifPreviews() == v)
+        return;
+    m_store->setValue(kPreviewsAnimateGifs, v);
+    Q_EMIT animateGifPreviewsChanged();
 }
 
 QStringList SettingsManager::recentEmoji() const

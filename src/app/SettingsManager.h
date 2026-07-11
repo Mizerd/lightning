@@ -16,6 +16,14 @@ class SettingsManager : public QObject
     Q_PROPERTY(QString language READ language WRITE setLanguage NOTIFY languageChanged)
     Q_PROPERTY(bool startMinimized READ startMinimized WRITE setStartMinimized NOTIFY startMinimizedChanged)
     Q_PROPERTY(bool notificationsEnabled READ notificationsEnabled WRITE setNotificationsEnabled NOTIFY notificationsEnabledChanged)
+    // v0.5.11: link previews. Encrypted-room previews default OFF (privacy).
+    Q_PROPERTY(bool autoLoadLinkPreviews READ autoLoadLinkPreviews
+                   WRITE setAutoLoadLinkPreviews NOTIFY autoLoadLinkPreviewsChanged)
+    Q_PROPERTY(bool loadPreviewsInEncryptedRooms READ loadPreviewsInEncryptedRooms
+                   WRITE setLoadPreviewsInEncryptedRooms
+                   NOTIFY loadPreviewsInEncryptedRoomsChanged)
+    Q_PROPERTY(bool animateGifPreviews READ animateGifPreviews
+                   WRITE setAnimateGifPreviews NOTIFY animateGifPreviewsChanged)
     Q_PROPERTY(bool hasSession READ hasSession NOTIFY sessionChanged)
     Q_PROPERTY(QString userId READ userId NOTIFY sessionChanged)
     Q_PROPERTY(QString secretBackendName READ secretBackendName NOTIFY secretBackendChanged)
@@ -52,6 +60,14 @@ public:
 
     bool notificationsEnabled() const;
     void setNotificationsEnabled(bool v);
+
+    // v0.5.11: link-preview policy (see Q_PROPERTY block).
+    bool autoLoadLinkPreviews() const;
+    void setAutoLoadLinkPreviews(bool v);
+    bool loadPreviewsInEncryptedRooms() const;
+    void setLoadPreviewsInEncryptedRooms(bool v);
+    bool animateGifPreviews() const;
+    void setAnimateGifPreviews(bool v);
 
     QStringList recentEmoji() const;
     void recordRecentEmoji(const QString &emoji);
@@ -96,6 +112,9 @@ Q_SIGNALS:
     void languageChanged();
     void startMinimizedChanged();
     void notificationsEnabledChanged();
+    void autoLoadLinkPreviewsChanged();
+    void loadPreviewsInEncryptedRoomsChanged();
+    void animateGifPreviewsChanged();
     void sessionChanged();
     void secretBackendChanged();
 

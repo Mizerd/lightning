@@ -10,6 +10,7 @@
 #include "media/MediaManager.h"
 #include "models/MessageComposer.h"
 #include "models/EmojiCatalog.h"
+#include "models/LinkPreviewController.h"
 #include "models/PaginationController.h"
 #include "models/ReadReceiptCoordinator.h"
 #include "models/RoomListModel.h"
@@ -95,6 +96,8 @@ class AppController : public QObject
     // v0.5.11: backward-pagination policy and automatic read receipts.
     Q_PROPERTY(PaginationController* pagination READ pagination CONSTANT)
     Q_PROPERTY(ReadReceiptCoordinator* readReceipts READ readReceipts CONSTANT)
+    // v0.5.11: safe link-preview backend (homeserver preview_url).
+    Q_PROPERTY(LinkPreviewController* linkPreviews READ linkPreviews CONSTANT)
 
 public:
     enum Screen {
@@ -146,6 +149,7 @@ public:
     MediaBridge *mediaBridge() const { return m_mediaBridge.get(); }
     PaginationController *pagination() const { return m_pagination.get(); }
     ReadReceiptCoordinator *readReceipts() const { return m_readReceipts.get(); }
+    LinkPreviewController *linkPreviews() const { return m_linkPreviews.get(); }
     SecretStore *secretStore() const { return m_secretStore.get(); }
 
 public Q_SLOTS:
@@ -308,6 +312,7 @@ private:
     std::unique_ptr<MediaBridge> m_mediaBridge;
     std::unique_ptr<PaginationController> m_pagination;
     std::unique_ptr<ReadReceiptCoordinator> m_readReceipts;
+    std::unique_ptr<LinkPreviewController> m_linkPreviews;
 
     // v0.5.0 SAS verification state cache.
     QString m_verificationFlowId;

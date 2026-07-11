@@ -233,6 +233,103 @@ pub(crate) fn fetch_user_profile(
 }
 
 // ---------------------------------------------------------------------------
+// URL previews (v0.5.11)
+// ---------------------------------------------------------------------------
+
+/// Fields extracted from a homeserver OpenGraph preview response. Only these
+/// whitelisted values ever cross the FFI — the raw response may echo the
+/// URL, which must not be logged or forwarded wholesale.
+///
+/// og:image is an MXC URI (per the Matrix preview_url contract) suitable for
+/// the existing media bridge; og:image:type is the server-validated MIME
+/// type that GIF classification trusts INSTEAD of the URL suffix.
+fn preview_fields(data: &serde_json::Value) -> serde_json::Value {
+    let text = |key: &str| {
+        data.get(key)
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_owned()
+    };
+    // OpenGraph numeric fields arrive as numbers or numeric strings
+    // depending on the homeserver; accept both.
+    let number = |key: &str| -> u64 {
+        match data.get(key) {
+            Some(serde_json::Value::Number(n)) => n.as_u64().unwrap_or(0),
+            Some(serde_json::Value::String(s)) => s.parse().unwrap_or(0),
+            _ => 0,
+        }
+    };
+    let image = text("og:image");
+    json!({
+        "title": text("og:title"),
+        "description": text("og:description"),
+        "site_name": text("og:site_name"),
+        // Only MXC references are forwarded; the media bridge cannot (and
+        // must not) fetch arbitrary HTTP image URLs from the client.
+        "image_mxc": if image.starts_with("mxc://") { image } else { String::new() },
+        "image_mime": text("og:image:type"),
+        "image_width": number("og:image:width"),
+        "image_height": number("og:image:height"),
+        "image_size": number("matrix:image:size"),
+    })
+}
+
+/// Ask the homeserver for a URL preview (GET /_matrix/client/v1/media/
+/// preview_url). The homeserver performs the outbound fetch, so no
+/// local-network or arbitrary-URL access ever happens from Lightning
+/// itself. The URL is never logged and never echoed on the result event —
+/// C++ correlates by op_id.
+pub(crate) fn fetch_url_preview(
+    bridge: &RustClient,
+    url: String,
+    op_id: u64,
+) -> Result<(), String> {
+    let client = require_client(bridge)?;
+    let lowered = url.trim().to_lowercase();
+    if !(lowered.starts_with("https://") || lowered.starts_with("http://")) {
+        return Err("unsupported URL scheme".to_owned());
+    }
+    let events = Arc::clone(&bridge.events);
+    let timelines = Arc::clone(&bridge.timelines);
+    let lifecycle = timelines.lifecycle();
+    bridge.spawn_room_action(async move {
+        use matrix_sdk::ruma::api::client::authenticated_media::get_media_preview;
+        let request = get_media_preview::v1::Request::new(url);
+        let result = client.send(request).await;
+        if !timelines.lifecycle_current(lifecycle) {
+            return;
+        }
+        match result {
+            Ok(response) => {
+                let data = response
+                    .data
+                    .as_deref()
+                    .and_then(|raw| serde_json::from_str::<serde_json::Value>(raw.get()).ok())
+                    .unwrap_or_else(|| json!({}));
+                let mut out = json!({
+                    "type": "url_preview_result",
+                    "op_id": op_id,
+                    "lifecycle": lifecycle,
+                    "ok": true,
+                });
+                out["fields"] = preview_fields(&data);
+                enqueue(&events, out);
+            }
+            Err(err) => {
+                enqueue(&events, json!({
+                    "type": "url_preview_result",
+                    "op_id": op_id,
+                    "lifecycle": lifecycle,
+                    "ok": false,
+                    "category": classify_room_error(&err.to_string()),
+                }));
+            }
+        }
+    });
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 // Direct messages
 // ---------------------------------------------------------------------------
 
