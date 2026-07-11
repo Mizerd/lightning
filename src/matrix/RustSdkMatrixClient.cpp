@@ -2234,8 +2234,7 @@ quint64 RustSdkMatrixClient::fetchUrlPreview(const QString &url)
     // obviously unsafe schemes from ever crossing the FFI.
     const QString lowered = url.trimmed().toLower();
     if (!m_rustHandle
-        || !(lowered.startsWith(QLatin1String("https://"))
-             || lowered.startsWith(QLatin1String("http://"))))
+        || !lowered.startsWith(QLatin1String("https://")))
         return 0;
     const quint64 opId = nextOpId();
     const QByteArray target = url.toUtf8();
@@ -2590,6 +2589,8 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
                       raw.value(QStringLiteral("site_name")).toString());
         fields.insert(QStringLiteral("imageMxc"),
                       raw.value(QStringLiteral("image_mxc")).toString());
+        fields.insert(QStringLiteral("imageSource"),
+                      raw.value(QStringLiteral("image_source")).toString());
         fields.insert(QStringLiteral("imageMime"),
                       raw.value(QStringLiteral("image_mime")).toString());
         fields.insert(QStringLiteral("imageWidth"),

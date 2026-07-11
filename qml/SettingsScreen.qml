@@ -322,10 +322,10 @@ Item {
                                     wrapMode: Text.WordWrap
                                     color: AppTheme.warning
                                     font.pixelSize: AppTheme.fontCaption
-                                    text: qsTr("Loading a preview in an encrypted room asks "
-                                               + "your homeserver to fetch the link, which "
-                                               + "reveals the URL to the server. Previews are "
-                                               + "never protected by room encryption. Off by "
+                                    text: qsTr("Loading a preview contacts the linked website "
+                                               + "directly and may reveal your IP address and "
+                                               + "request timing. No JavaScript is executed. "
+                                               + "Encrypted-room previews are off by "
                                                + "default; otherwise use each message's "
                                                + "“Load link preview” action.")
                                 }

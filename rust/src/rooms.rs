@@ -233,95 +233,205 @@ pub(crate) fn fetch_user_profile(
 }
 
 // ---------------------------------------------------------------------------
-// URL previews (v0.5.11)
+// Client-side URL previews (v0.5.12)
 // ---------------------------------------------------------------------------
 
-/// Fields extracted from a homeserver OpenGraph preview response. Only these
-/// whitelisted values ever cross the FFI — the raw response may echo the
-/// URL, which must not be logged or forwarded wholesale.
-///
-/// og:image is an MXC URI (per the Matrix preview_url contract) suitable for
-/// the existing media bridge; og:image:type is the server-validated MIME
-/// type that GIF classification trusts INSTEAD of the URL suffix.
-fn preview_fields(data: &serde_json::Value) -> serde_json::Value {
-    let text = |key: &str| {
-        data.get(key)
-            .and_then(|v| v.as_str())
-            .unwrap_or_default()
-            .to_owned()
-    };
-    // OpenGraph numeric fields arrive as numbers or numeric strings
-    // depending on the homeserver; accept both.
-    let number = |key: &str| -> u64 {
-        match data.get(key) {
-            Some(serde_json::Value::Number(n)) => n.as_u64().unwrap_or(0),
-            Some(serde_json::Value::String(s)) => s.parse().unwrap_or(0),
-            _ => 0,
-        }
-    };
-    let image = text("og:image");
-    json!({
-        "title": text("og:title"),
-        "description": text("og:description"),
-        "site_name": text("og:site_name"),
-        // Only MXC references are forwarded; the media bridge cannot (and
-        // must not) fetch arbitrary HTTP image URLs from the client.
-        "image_mxc": if image.starts_with("mxc://") { image } else { String::new() },
-        "image_mime": text("og:image:type"),
-        "image_width": number("og:image:width"),
-        "image_height": number("og:image:height"),
-        "image_size": number("matrix:image:size"),
-    })
+const MAX_HTML_BYTES: usize = 1_048_576;
+const MAX_IMAGE_BYTES: usize = 5 * 1_048_576;
+const MAX_IMAGE_PIXELS: u64 = 25_000_000;
+const MAX_REDIRECTS: usize = 4;
+const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+const REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(12);
+
+fn public_ip(ip: std::net::IpAddr) -> bool {
+    match ip {
+        std::net::IpAddr::V4(v) => !(v.is_private() || v.is_loopback()
+            || v.is_link_local() || v.is_multicast() || v.is_unspecified()
+            || v.octets()[0] == 0 || v.octets()[0] >= 224
+            || (v.octets()[0] == 100 && (64..=127).contains(&v.octets()[1]))
+            || (v.octets()[0] == 169 && v.octets()[1] == 254)),
+        std::net::IpAddr::V6(v) => !(v.is_loopback() || v.is_unspecified()
+            || v.is_multicast() || (v.segments()[0] & 0xfe00) == 0xfc00
+            || (v.segments()[0] & 0xffc0) == 0xfe80),
+    }
 }
 
-/// Ask the homeserver for a URL preview (GET /_matrix/client/v1/media/
-/// preview_url). The homeserver performs the outbound fetch, so no
-/// local-network or arbitrary-URL access ever happens from Lightning
-/// itself. The URL is never logged and never echoed on the result event —
-/// C++ correlates by op_id.
+struct SafeResponse { status: reqwest::StatusCode, mime: String, location: Option<String>, bytes: Vec<u8> }
+async fn safe_get(url: &url::Url, limit: usize) -> Result<SafeResponse, &'static str> {
+    use futures_util::StreamExt;
+    if url.scheme() != "https" || !url.username().is_empty() || url.password().is_some()
+        || url.host_str().is_none() { return Err("invalid_url"); }
+    let host = url.host_str().unwrap();
+    let lower = host.to_ascii_lowercase();
+    if lower == "localhost" || lower.ends_with(".localhost") || lower.ends_with(".local") {
+        return Err("blocked_destination");
+    }
+    let port = url.port_or_known_default().unwrap_or(443);
+    let addresses: Vec<_> = tokio::net::lookup_host((host, port)).await
+        .map_err(|_| "dns_failure")?.collect();
+    if addresses.is_empty() || addresses.iter().any(|a| !public_ip(a.ip())) {
+        return Err("blocked_destination");
+    }
+    // Pin the validated DNS answer so a second lookup cannot rebind the host.
+    let client = reqwest::Client::builder().redirect(reqwest::redirect::Policy::none())
+        .connect_timeout(CONNECT_TIMEOUT).timeout(REQUEST_TIMEOUT)
+        .user_agent("Lightning/0.5.12").resolve(host, addresses[0]).build()
+        .map_err(|_| "request_failure")?;
+    let response = client.get(url.clone()).header(reqwest::header::ACCEPT,
+        "text/html,image/jpeg,image/png,image/webp,image/gif").send().await.map_err(|e|
+        if e.is_timeout() { "timeout" } else { "request_failure" })?;
+    let status = response.status();
+    let mime = response.headers().get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok()).unwrap_or("").split(';').next().unwrap_or("")
+        .trim().to_ascii_lowercase();
+    let location = response.headers().get(reqwest::header::LOCATION)
+        .and_then(|v| v.to_str().ok()).map(str::to_owned);
+    let mut bytes = Vec::new();
+    let mut stream = response.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|_| "request_failure")?;
+        if bytes.len() + chunk.len() > limit { return Err("response_too_large"); }
+        bytes.extend_from_slice(&chunk);
+    }
+    Ok(SafeResponse { status, mime, location, bytes })
+}
+
+fn clipped(value: String, max: usize) -> String { value.chars().take(max).collect() }
+#[derive(Default)]
+struct PreviewSink { fields: std::collections::HashMap<String,String>, title: String, in_title: bool }
+fn html_fields(input: &str) -> (std::collections::HashMap<String,String>, String) {
+    use html5ever::tokenizer::{BufferQueue, TagKind, Token, TokenSink, TokenSinkResult, Tokenizer, TokenizerOpts};
+    use tendril::StrTendril;
+    struct Sink(std::cell::RefCell<PreviewSink>);
+    impl TokenSink for Sink {
+        type Handle = ();
+        fn process_token(&self, token: Token, _: u64) -> TokenSinkResult<()> {
+            let mut state = self.0.borrow_mut();
+            match token {
+                Token::TagToken(tag) if tag.kind == TagKind::StartTag && tag.name.as_ref() == "meta" => {
+                    let mut key = ""; let mut content = "";
+                    for attr in &tag.attrs { match attr.name.local.as_ref() {
+                        "property"|"name" => key = attr.value.as_ref(), "content" => content = attr.value.as_ref(), _ => {} } }
+                    if !key.is_empty() && !content.is_empty() { state.fields.entry(key.to_ascii_lowercase()).or_insert_with(|| content.trim().to_owned()); }
+                }
+                Token::TagToken(tag) if tag.name.as_ref() == "title" => state.in_title = tag.kind == TagKind::StartTag,
+                Token::CharacterTokens(text) if state.in_title => state.title.push_str(&text),
+                _ => {}
+            }
+            TokenSinkResult::Continue
+        }
+    }
+    let sink = Sink(std::cell::RefCell::new(PreviewSink::default()));
+    let mut input_queue = BufferQueue::default(); input_queue.push_back(StrTendril::from(input));
+    let tok = Tokenizer::new(sink, TokenizerOpts::default()); let _ = tok.feed(&mut input_queue); tok.end();
+    let state = tok.sink.0.into_inner(); (state.fields, state.title.trim().to_owned())
+}
+fn pick(fields: &std::collections::HashMap<String,String>, keys: &[&str]) -> String {
+    keys.iter().find_map(|k| fields.get(*k).cloned()).unwrap_or_default()
+}
+async fn preview(mut page: url::Url) -> Result<serde_json::Value, &'static str> {
+    let mut response;
+    for redirects in 0..=MAX_REDIRECTS {
+        response = safe_get(&page, MAX_IMAGE_BYTES).await?;
+        if response.status.is_redirection() {
+            if redirects == MAX_REDIRECTS { return Err("too_many_redirects"); }
+            page = page.join(response.location.as_deref().ok_or("invalid_redirect")?)
+                .map_err(|_| "invalid_redirect")?;
+            continue;
+        }
+        if !response.status.is_success() { return Err("http_error"); }
+        if matches!(response.mime.as_str(), "image/jpeg"|"image/png"|"image/webp"|"image/gif") {
+            return image_fields(response.mime, response.bytes);
+        }
+        if response.mime != "text/html" { return Err("unsupported_mime"); }
+        if response.bytes.len() > MAX_HTML_BYTES { return Err("response_too_large"); }
+        let html = String::from_utf8_lossy(&response.bytes);
+        let (metadata, html_title) = html_fields(&html);
+        let title = pick(&metadata, &["og:title", "twitter:title"]);
+        let description = pick(&metadata, &["og:description", "twitter:description", "description"]);
+        let image_url = pick(&metadata, &["og:image", "twitter:image"]);
+        let image = if image_url.is_empty() { None } else { page.join(&image_url).ok() };
+        let mut fields = json!({
+            "title": clipped(if title.is_empty() { html_title } else { title }, 300),
+            "description": clipped(description, 1000),
+            "site_name": clipped(pick(&metadata, &["og:site_name"]), 120),
+            "image_source": "", "image_mime": "", "image_width": 0,
+            "image_height": 0, "image_size": 0
+        });
+        if let Some(image) = image {
+            let fetched = safe_get(&image, MAX_IMAGE_BYTES).await?;
+            if fetched.status.is_success() {
+                let image = image_fields(fetched.mime, fetched.bytes)?;
+                for key in ["image_source","image_mime","image_width","image_height","image_size"] {
+                    fields[key] = image[key].clone();
+                }
+            }
+        }
+        return Ok(fields);
+    }
+    Err("too_many_redirects")
+}
+fn image_fields(mime: String, bytes: Vec<u8>) -> Result<serde_json::Value, &'static str> {
+    use base64::Engine;
+    if !matches!(mime.as_str(), "image/jpeg"|"image/png"|"image/webp"|"image/gif") { return Err("unsupported_mime"); }
+    let (width, height) = image_dimensions(&mime, &bytes).ok_or("invalid_image")?;
+    if u64::from(width) * u64::from(height) > MAX_IMAGE_PIXELS { return Err("image_dimensions"); }
+    let source = format!("data:{mime};base64,{}", base64::engine::general_purpose::STANDARD.encode(&bytes));
+    Ok(json!({"image_source":source,"image_mime":mime,"image_width":width,
+        "image_height":height,"image_size":bytes.len()}))
+}
+fn image_dimensions(mime: &str, b: &[u8]) -> Option<(u32,u32)> {
+    let be = |i| u32::from_be_bytes([b[i],b[i+1],b[i+2],b[i+3]]);
+    if mime == "image/png" && b.len() >= 24 && &b[..8] == b"\x89PNG\r\n\x1a\n" { return Some((be(16),be(20))); }
+    if mime == "image/gif" && b.len() >= 10 && (&b[..6] == b"GIF87a" || &b[..6] == b"GIF89a") {
+        return Some((u16::from_le_bytes([b[6],b[7]]) as u32,u16::from_le_bytes([b[8],b[9]]) as u32));
+    }
+    if mime == "image/webp" && b.len() >= 30 && &b[..4] == b"RIFF" && &b[8..12] == b"WEBP" && &b[12..16] == b"VP8X" {
+        let n = |i| 1 + u32::from_le_bytes([b[i],b[i+1],b[i+2],0]); return Some((n(24),n(27)));
+    }
+    if mime == "image/jpeg" && b.starts_with(&[0xff,0xd8]) { let mut i=2; while i+9 < b.len() {
+        if b[i] != 0xff { i+=1; continue; } let marker=b[i+1]; if marker == 0xd9 || marker == 0xda { break; }
+        let len=u16::from_be_bytes([b[i+2],b[i+3]]) as usize; if len<2 || i+2+len>b.len(){break;}
+        if matches!(marker,0xc0..=0xc3|0xc5..=0xc7|0xc9..=0xcb|0xcd..=0xcf) { return Some((u16::from_be_bytes([b[i+7],b[i+8]]) as u32,u16::from_be_bytes([b[i+5],b[i+6]]) as u32)); } i+=2+len;
+    }} None
+}
+
 pub(crate) fn fetch_url_preview(
     bridge: &RustClient,
     url: String,
     op_id: u64,
 ) -> Result<(), String> {
-    let client = require_client(bridge)?;
-    let lowered = url.trim().to_lowercase();
-    if !(lowered.starts_with("https://") || lowered.starts_with("http://")) {
-        return Err("unsupported URL scheme".to_owned());
+    require_client(bridge)?; // previews are account/session scoped
+    let parsed = url::Url::parse(url.trim()).map_err(|_| "invalid URL".to_owned())?;
+    if parsed.scheme() != "https" || !parsed.username().is_empty() || parsed.password().is_some() {
+        return Err("unsupported or credentialed URL".to_owned());
     }
     let events = Arc::clone(&bridge.events);
     let timelines = Arc::clone(&bridge.timelines);
     let lifecycle = timelines.lifecycle();
     bridge.spawn_room_action(async move {
-        use matrix_sdk::ruma::api::client::authenticated_media::get_media_preview;
-        let request = get_media_preview::v1::Request::new(url);
-        let result = client.send(request).await;
+        let result = preview(parsed).await;
         if !timelines.lifecycle_current(lifecycle) {
             return;
         }
         match result {
-            Ok(response) => {
-                let data = response
-                    .data
-                    .as_deref()
-                    .and_then(|raw| serde_json::from_str::<serde_json::Value>(raw.get()).ok())
-                    .unwrap_or_else(|| json!({}));
+            Ok(fields) => {
                 let mut out = json!({
                     "type": "url_preview_result",
                     "op_id": op_id,
                     "lifecycle": lifecycle,
                     "ok": true,
                 });
-                out["fields"] = preview_fields(&data);
+                out["fields"] = fields;
                 enqueue(&events, out);
             }
-            Err(err) => {
+            Err(category) => {
                 enqueue(&events, json!({
                     "type": "url_preview_result",
                     "op_id": op_id,
                     "lifecycle": lifecycle,
                     "ok": false,
-                    "category": classify_room_error(&err.to_string()),
+                    "category": category,
                 }));
             }
         }
@@ -1194,6 +1304,48 @@ pub(crate) fn fetch_upload_limit(bridge: &RustClient) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn preview_destination_policy_blocks_internal_networks() {
+        use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+        assert!(!public_ip(IpAddr::V4(Ipv4Addr::LOCALHOST)));
+        assert!(!public_ip(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))));
+        assert!(!public_ip(IpAddr::V4(Ipv4Addr::new(100, 64, 0, 1))));
+        assert!(!public_ip(IpAddr::V4(Ipv4Addr::new(169, 254, 169, 254))));
+        assert!(!public_ip(IpAddr::V6(Ipv6Addr::LOCALHOST)));
+        assert!(!public_ip("fc00::1".parse().unwrap()));
+        assert!(!public_ip("fe80::1".parse().unwrap()));
+        assert!(public_ip("93.184.216.34".parse().unwrap()));
+        assert!(public_ip("2606:2800:220:1:248:1893:25c8:1946".parse().unwrap()));
+    }
+
+    #[test]
+    fn preview_html_metadata_fallbacks_are_inert() {
+        let (fields, title) = html_fields(r#"<html><head>
+          <meta property="og:title" content="Open Graph">
+          <meta name="twitter:description" content="Twitter fallback">
+          <meta property="og:image" content="/image.png">
+          <title>HTML fallback</title><script>alert(1)</script></head></html>"#);
+        assert_eq!(pick(&fields, &["og:title", "twitter:title"]), "Open Graph");
+        assert_eq!(pick(&fields, &["og:description", "twitter:description"]), "Twitter fallback");
+        assert_eq!(pick(&fields, &["og:image"]), "/image.png");
+        assert_eq!(title, "HTML fallback");
+        let (_, fallback) = html_fields("<title>Only title</title><b>ignored</b>");
+        assert_eq!(fallback, "Only title");
+    }
+
+    #[test]
+    fn preview_image_dimensions_require_matching_magic() {
+        let mut png = vec![0; 24];
+        png[..8].copy_from_slice(b"\x89PNG\r\n\x1a\n");
+        png[16..20].copy_from_slice(&640u32.to_be_bytes());
+        png[20..24].copy_from_slice(&480u32.to_be_bytes());
+        assert_eq!(image_dimensions("image/png", &png), Some((640, 480)));
+        assert_eq!(image_dimensions("image/gif", &png), None);
+        let mut gif = b"GIF89a".to_vec(); gif.extend_from_slice(&320u16.to_le_bytes()); gif.extend_from_slice(&200u16.to_le_bytes());
+        assert_eq!(image_dimensions("image/gif", &gif), Some((320, 200)));
+        assert_eq!(image_dimensions("image/gif", b"<html>not a gif</html>"), None);
+    }
 
     #[test]
     fn classify_room_error_categories() {

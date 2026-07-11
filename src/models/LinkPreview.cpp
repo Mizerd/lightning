@@ -62,7 +62,7 @@ QString firstPreviewableUrl(const QString &body)
     // Positive scheme allow-list. javascript:, data:, file:, blob: and
     // friends can never match — they are not in the pattern at all.
     static const QRegularExpression urlRe(
-        QStringLiteral("\\bhttps?://[^\\s<>]+"),
+        QStringLiteral("\\bhttps://[^\\s<>]+"),
         QRegularExpression::CaseInsensitiveOption);
 
     auto it = urlRe.globalMatch(text);

@@ -275,10 +275,9 @@ char *mx_rust_get_user_profile(void *client,
                                const char *user_id,
                                unsigned long long op_id);
 /*
- * v0.5.11: homeserver URL preview (GET /_matrix/client/v1/media/
- * preview_url). The homeserver performs the outbound fetch — Lightning
- * never contacts the target URL itself. Only https/http URLs are
- * accepted. The URL is never logged and never echoed on the result:
+ * v0.5.12: secure client-side HTTPS preview. Rust validates DNS and every
+ * redirect, blocks local/private destinations, bounds responses and parses
+ * metadata without executing page content. The URL is never logged:
  *   {"type":"url_preview_result","op_id",…,"ok",
  *    "fields":{"title","description","site_name","image_mxc",
  *              "image_mime","image_width","image_height","image_size"}}

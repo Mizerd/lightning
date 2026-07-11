@@ -153,7 +153,7 @@ public:
     // (or refutes) a bare-localpart candidate the directory may not list.
     virtual quint64 fetchUserProfile(const QString &userId)
     { Q_UNUSED(userId); return 0; }
-    // v0.5.11: homeserver URL preview (the homeserver fetches the target;
+    // v0.5.12: client-side URL preview (Rust validates and fetches the target;
     // the client never does). Backends without support return 0.
     virtual bool supportsUrlPreview() const { return false; }
     virtual quint64 fetchUrlPreview(const QString &url)

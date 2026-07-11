@@ -309,7 +309,7 @@ pub extern "C" fn mx_rust_backend_name() -> *mut c_char {
 #[no_mangle]
 pub extern "C" fn mx_rust_status_string() -> *mut c_char {
     ffi_string(|| {
-        Ok("Matrix Rust SDK backend linked. Lightning 0.5.11 uses matrix-sdk 0.18 and matrix-sdk-ui 0.18 with SDK-owned E2EE sync, timeline pagination, user lookup, encrypted media and safe homeserver link previews. No manual crypto in C++.".to_owned())
+        Ok("Matrix Rust SDK backend linked. Lightning uses matrix-sdk 0.18 and matrix-sdk-ui 0.18 with SDK-owned E2EE sync, timeline pagination, user lookup, encrypted media and protected client-side link previews. No manual crypto in C++.".to_owned())
     })
 }
 

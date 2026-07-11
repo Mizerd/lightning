@@ -104,7 +104,7 @@ private Q_SLOTS:
                                     "https://example.org/b")),
                  QStringLiteral("https://example.org/a"));
         QCOMPARE(firstPreviewableUrl(QStringLiteral("http://plain.example/x")),
-                 QStringLiteral("http://plain.example/x"));
+                 QString());
         QCOMPARE(firstPreviewableUrl(QStringLiteral("no links here")),
                  QString());
         QCOMPARE(firstPreviewableUrl(QString()), QString());

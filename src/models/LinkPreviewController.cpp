@@ -93,7 +93,7 @@ void LinkPreviewController::requestPreview(const QString &itemKey)
     if (it == m_items.end() || it->url.isEmpty() || !supported())
         return;
     // Explicit user gesture: this is the encrypted-room consent path. The
-    // URL is revealed to the homeserver only from here on.
+    // linked website is contacted only from here on.
     it->consented = true;
     if (!m_urlItems[it->url].contains(itemKey))
         m_urlItems[it->url].append(itemKey);
@@ -226,7 +226,7 @@ void LinkPreviewController::onPreviewFinished(quint64 opId, bool ok,
     }
     qCInfo(lcPreview) << "url preview completed host="
                       << matrix::link_preview::sanitizedHost(url)
-                      << "ok=" << ok;
+                      << "result=" << (ok ? QStringLiteral("loaded") : category);
 
     const QStringList interested = m_urlItems.value(url);
     for (const QString &itemKey : interested)

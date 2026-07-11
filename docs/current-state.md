@@ -16,6 +16,17 @@ content, and the timeline pagination header separates logical visibility from
 fixed geometry. This removes the Room Information, account-menu, and
 pagination-status binding loops while preserving narrow-window behavior.
 
+Link previews are now generated locally by Lightning's Rust layer instead of
+the homeserver `preview_url` endpoint. HTTPS destinations and every redirect
+are DNS-resolved and pinned only after rejecting credentials, local names,
+loopback/private/link-local/CGNAT/ULA/multicast/unspecified addresses; request,
+redirect, HTML, image-byte, and decoded-dimension limits are centralized.
+Only inert metadata and validated images reach QML: no JavaScript, CSS, fonts,
+cookies, Matrix credentials, Referer, or page body is exposed. Preview cache
+state remains bounded, memory-only, request-deduplicated, account-scoped, and
+cleared on logout. Encrypted rooms remain click-to-load by default and warn
+that direct website contact can reveal the user's IP address and timing.
+
 ## v0.5.11 — pagination, media, avatars, themes, link previews
 
 This release completes the QML/C++ integration on top of the 0.5.11 backend
@@ -87,18 +98,11 @@ out-of-range stored theme back to System.
 ### Link previews and GIFs
 
 `LinkPreviewController` (`app.linkPreviews`) drives a timeline preview card
-via the homeserver's authenticated `preview_url` endpoint — Lightning never
-fetches the target URL itself. Unencrypted rooms auto-load per the
-`autoLoadLinkPreviews` setting. **Encrypted rooms default to explicit
-click-to-load**: the card shows a "Load link preview" action and the note
-"Loading this preview may reveal the URL to your homeserver." Requesting a
-preview reveals the URL to the homeserver; **URL previews are not protected by
-room encryption.** Encrypted-room preview URLs are never written to
-`CacheStore` or any disk cache. Link-preview GIF thumbnails are classified
-from the server-validated `og:image:type` MIME (never the URL suffix) with
-byte/dimension limits and are shown as static frames; oversized GIFs omit the
-thumbnail. Timeline GIF attachments animate only on the direct HTTP(S) path
-described above. A failed preview never alters the underlying message row.
+using the protected Rust client-side fetcher described in the 0.5.12 section.
+Unencrypted rooms auto-load per the `autoLoadLinkPreviews` setting.
+**Encrypted rooms default to explicit click-to-load** and direct website/IP
+disclosure is stated before loading. Preview metadata stays memory-only and a
+failed preview never alters the underlying message row.
 
 ### Settings, login, toolbar, receipts
 

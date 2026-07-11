@@ -257,8 +257,8 @@ Item {
                     }
 
                     // v0.5.11: rich link-preview card. Backed by
-                    // LinkPreviewController — the homeserver performs the
-                    // outbound fetch; Lightning never contacts the target URL.
+                    // LinkPreviewController — Rust performs the protected
+                    // outbound fetch; QML only renders whitelisted fields.
                     // Encrypted rooms default to click-to-load (privacy).
                     Loader {
                         id: previewLoader
@@ -549,8 +549,8 @@ Item {
                     }
                     Label {
                         visible: root.roomEncrypted
-                        text: qsTr("Loading this preview may reveal the URL to "
-                                   + "your homeserver.")
+                        text: qsTr("Loading this preview contacts the linked "
+                                   + "website directly and may reveal your IP address.")
                         color: AppTheme.warning
                         font.pixelSize: 10
                         wrapMode: Text.WordWrap
@@ -609,11 +609,10 @@ Item {
                     Layout.fillWidth: true
                     spacing: 3
 
-                    // Thumbnail (og:image). Fetched through the media bridge —
-                    // never fetched directly by QML. GIFs show a static frame
-                    // with a badge (the homeserver preview is a single frame).
+                    // Thumbnail bytes were fetched and validated by Rust.
                     Item {
-                        visible: (card.p.imageMxc || "").length > 0
+                        visible: ((card.p.imageMxc || "").length > 0
+                                  || (card.p.imageSource || "").length > 0)
                                  && !(card.p.gifOversized === true)
                         Layout.fillWidth: true
                         Layout.preferredHeight: visible ? Math.min(180,
@@ -626,7 +625,9 @@ Item {
                             fillMode: Image.PreserveAspectFit
                             asynchronous: true
                             cache: true
-                            source: (card.p.imageMxc || "").length > 0
+                            source: (card.p.imageSource || "").length > 0
+                                    ? card.p.imageSource
+                                    : (card.p.imageMxc || "").length > 0
                                     && app.mediaBridge.supported
                                     ? app.mediaBridge.avatarSource(card.p.imageMxc, 480)
                                     : ""

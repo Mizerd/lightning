@@ -9,18 +9,17 @@
 
 class MatrixClient;
 
-// v0.5.11: nonvisual backend for rich URL previews.
+// v0.5.12: nonvisual backend for rich client-side URL previews.
 //
-// The homeserver's preview endpoint (GET /_matrix/client/v1/media/
-// preview_url) performs the outbound fetch — Lightning never contacts the
+// Rust performs a bounded, DNS-validated client-side fetch — QML never contacts the
 // target URL itself, from C++ or from QML. This controller owns the policy
-// and state around that endpoint:
+// and state around that fetcher:
 //
 //   * one previewable URL per message (the first eligible one, extracted by
 //     matrix::link_preview::firstPreviewableUrl with its scheme allow-list
 //     and code-span/userinfo exclusions);
 //   * privacy gating — encrypted rooms NEVER auto-request a preview unless
-//     the user opted in; requesting reveals the URL to the homeserver, so
+//     the user opted in; requesting contacts the linked website directly, so
 //     the default answer for an encrypted room is "requires_action" and the
 //     fetch happens only through the explicit requestPreview() gesture.
 //     Unencrypted rooms follow the auto-load setting;
@@ -29,7 +28,7 @@ class MatrixClient;
 //   * op-id stale-result rejection and full account partitioning (all state
 //     clears on sign-out; nothing is ever persisted — encrypted-room URLs
 //     never touch CacheStore or any other disk store);
-//   * GIF classification from the server-validated og:image:type MIME —
+//   * GIF classification from the Rust-validated response MIME —
 //     never from the URL suffix.
 //
 // A failed preview only changes this controller's state; the message row it
@@ -64,7 +63,7 @@ public:
     //   state: "none" | "requires_action" | "loading" | "loaded" | "failed"
     //   url, host                     — original URL + sanitized hostname
     //   title, description, siteName  — when loaded
-    //   imageMxc, imageMime, imageWidth, imageHeight, imageSize
+    //   imageMxc/imageSource, imageMime, imageWidth, imageHeight, imageSize
     //   isGif, gifOversized, animationExpected
     //   retryable                     — when failed
     Q_INVOKABLE QVariantMap previewFor(const QString &itemKey,

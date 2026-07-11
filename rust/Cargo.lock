@@ -1783,16 +1783,21 @@ dependencies = [
 name = "matrix-client-rust"
 version = "0.5.11"
 dependencies = [
+ "base64",
  "emojis",
  "futures-util",
+ "html5ever",
  "matrix-sdk",
  "matrix-sdk-base",
  "matrix-sdk-ui",
  "mime",
  "once_cell",
+ "reqwest",
  "serde",
  "serde_json",
+ "tendril",
  "tokio",
+ "url",
 ]
 
 [[package]]

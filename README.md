@@ -29,12 +29,15 @@ result. Six appearance presets (System, Light, Graphite, Midnight Blue,
 Nord, Purple Dusk) apply live and persist; System follows the platform
 colour scheme.
 
-Rich link-preview cards render through the homeserver's authenticated
-`preview_url` endpoint — Lightning never fetches the target URL itself.
+Rich link-preview cards are generated locally in Lightning's Rust layer. The
+linked website is contacted directly;
+private/local destinations and unsafe redirects are blocked, responses are
+bounded, and page code is never executed.
 Unencrypted rooms auto-load previews per setting; **encrypted rooms default
 to explicit click-to-load**, because requesting a preview reveals the URL to
-your homeserver. URL previews are **not** protected by room encryption.
-Link-preview GIF thumbnails are classified by the server-validated MIME type
+the target website and may reveal your IP address and timing. Preview state is
+local UI data and is never sent as a Matrix event.
+Link-preview GIF thumbnails are classified by the Rust-validated MIME type
 (never the URL suffix) with byte/dimension safety limits and remain static.
 Timeline GIF attachments animate only when a direct HTTP(S) source is
 available and the "Animate GIF previews" setting is on; bridge-backed and

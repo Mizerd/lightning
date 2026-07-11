@@ -99,7 +99,7 @@ class AppController : public QObject
     // v0.5.11: backward-pagination policy and automatic read receipts.
     Q_PROPERTY(PaginationController* pagination READ pagination CONSTANT)
     Q_PROPERTY(ReadReceiptCoordinator* readReceipts READ readReceipts CONSTANT)
-    // v0.5.11: safe link-preview backend (homeserver preview_url).
+    // v0.5.12: safe client-side link-preview backend (Rust HTTPS fetcher).
     Q_PROPERTY(LinkPreviewController* linkPreviews READ linkPreviews CONSTANT)
 
 public:
