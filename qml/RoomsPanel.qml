@@ -143,14 +143,33 @@ Rectangle {
             }
         }
 
-        // ── User footer ───────────────────────────────────────────────────
-        // Shows avatar + userId + Settings gear + Sign-out button.
-        // Hidden when not logged in.
+        // ── Account footer ───────────────────────────────────────────────
+        // v0.5.9: one compact account button (avatar, clean name,
+        // abbreviated MXID, connection dot). Clicking opens the account
+        // menu — Settings, Security & Recovery, About, and the only Sign
+        // out in the app (danger-styled, confirmed). Hidden when signed out.
         Rectangle {
+            id: accountFooter
             Layout.fillWidth: true
             implicitHeight: footerRow.implicitHeight + AppTheme.spacing8 * 2
-            color: AppTheme.sidebar
+            color: footerHover.hovered ? AppTheme.hover : AppTheme.sidebar
             visible: app.loggedIn
+            Accessible.role: Accessible.Button
+            Accessible.name: qsTr("Account menu for %1")
+                             .arg(app.accounts ? app.accounts.activeUserId : "")
+
+            readonly property string userId:
+                app.accounts ? (app.accounts.activeUserId || "") : ""
+            readonly property string localpart: {
+                var uid = userId
+                if (uid.startsWith("@")) uid = uid.slice(1)
+                var colon = uid.indexOf(":")
+                return colon > 0 ? uid.slice(0, colon) : uid
+            }
+            readonly property string server: {
+                var colon = userId.indexOf(":")
+                return colon > 0 ? userId.slice(colon + 1) : ""
+            }
 
             // Top separator line
             Rectangle {
@@ -161,6 +180,9 @@ Rectangle {
                 color: AppTheme.separator
             }
 
+            HoverHandler { id: footerHover }
+            TapHandler { onTapped: accountMenu.open() }
+
             RowLayout {
                 id: footerRow
                 anchors {
@@ -168,76 +190,69 @@ Rectangle {
                     topMargin: AppTheme.spacing8 + 1   // +1 for separator
                     bottomMargin: AppTheme.spacing8
                     leftMargin: AppTheme.spacing8
-                    rightMargin: AppTheme.spacing4
+                    rightMargin: AppTheme.spacing8
                 }
                 spacing: AppTheme.spacing8
 
-                // Avatar circle — first letter of local part of the MXID
-                Rectangle {
+                // Avatar circle with connection indicator.
+                Item {
                     width: 32; height: 32
-                    radius: AppTheme.radiusPill
-                    color: AppTheme.accent
-
-                    Label {
-                        anchors.centerIn: parent
-                        text: {
-                            var uid = app.accounts ? app.accounts.activeUserId : ""
-                            if (!uid || uid.length === 0) return "?"
-                            var local = uid.startsWith("@") ? uid.slice(1) : uid
-                            return local.length > 0 ? local[0].toUpperCase() : "?"
+                    Rectangle {
+                        anchors.fill: parent
+                        radius: AppTheme.radiusPill
+                        color: AppTheme.accent
+                        Label {
+                            anchors.centerIn: parent
+                            text: accountFooter.localpart.length > 0
+                                  ? accountFooter.localpart[0].toUpperCase() : "?"
+                            font.pixelSize: AppTheme.fontBody
+                            font.weight: Font.DemiBold
+                            color: AppTheme.accentText
                         }
-                        font.pixelSize: 14
-                        font.weight: Font.DemiBold
-                        color: AppTheme.accentText
+                    }
+                    Rectangle {
+                        anchors.right: parent.right
+                        anchors.bottom: parent.bottom
+                        width: 10; height: 10; radius: 5
+                        border.color: AppTheme.sidebar
+                        border.width: 2
+                        color: app.connectionStatus === qsTr("Connected")
+                               ? AppTheme.success : AppTheme.warning
                     }
                 }
 
-                // Truncated user ID
-                Label {
+                ColumnLayout {
                     Layout.fillWidth: true
-                    text: app.accounts ? app.accounts.activeUserId : ""
-                    color: AppTheme.textSecondary
-                    font.pixelSize: AppTheme.fontSizeS
-                    elide: Label.ElideRight
+                    spacing: 0
+                    Label {
+                        Layout.fillWidth: true
+                        text: accountFooter.localpart
+                        color: AppTheme.textPrimary
+                        font.pixelSize: AppTheme.fontSecondary
+                        font.weight: Font.DemiBold
+                        elide: Label.ElideRight
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        text: accountFooter.server
+                        color: AppTheme.textMuted
+                        font.pixelSize: AppTheme.fontCaption
+                        elide: Label.ElideRight
+                    }
                 }
 
-                // Settings gear ⚙
-                ToolButton {
-                    id: settingsBtn
-                    implicitWidth: 30; implicitHeight: 30
-                    contentItem: Label {
-                        text: "⚙"
-                        font.pixelSize: 16
-                        color: AppTheme.textSecondary
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                    }
-                    background: Rectangle {
-                        radius: AppTheme.radiusSm
-                        color: settingsBtn.hovered ? AppTheme.hover : "transparent"
-                    }
-                    onClicked: app.showSettings()
-                    ToolTip { text: qsTr("Settings"); visible: parent.hovered; delay: 500 }
+                Label {
+                    text: "⋯"
+                    color: AppTheme.textMuted
+                    font.pixelSize: AppTheme.fontRoomTitle
                 }
+            }
 
-                // Sign-out ↪
-                ToolButton {
-                    id: signOutBtn
-                    implicitWidth: 30; implicitHeight: 30
-                    contentItem: Label {
-                        text: "↪"
-                        font.pixelSize: 16
-                        color: AppTheme.textSecondary
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                    }
-                    background: Rectangle {
-                        radius: AppTheme.radiusSm
-                        color: signOutBtn.hovered ? AppTheme.hover : "transparent"
-                    }
-                    onClicked: app.auth.logout()
-                    ToolTip { text: qsTr("Sign out"); visible: parent.hovered; delay: 500 }
-                }
+            AccountMenu {
+                id: accountMenu
+                // Anchor above the footer, inside the window.
+                x: 0
+                y: -implicitHeight - AppTheme.spacing4
             }
         }
     }

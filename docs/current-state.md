@@ -3,11 +3,68 @@
 ## v0.5.9 — user search, DMs, room creation, invites, room info; media FFI foundation
 
 Scope note: this release delivers the conversation-creation and membership
-milestone (the original plan's Phases 7–10) plus the full media pipeline
-(Phases 12–15: composer attachments, received media, image viewer). The
-UI/theme redesign, Settings restructure, account menu and emoji picker were
-deliberately deferred — `docs/matrix-feature-status.md` reflects exactly
-what is wired.
+milestone (the original plan's Phases 7–10), the full media pipeline
+(Phases 12–15: composer attachments, received media, image viewer), the
+semantic theme system (Phase 2), the account menu with the relocated Sign
+out (Phase 3) and the two-pane Settings redesign (Phase 4). The emoji
+picker was dropped from the release entirely.
+`docs/matrix-feature-status.md` reflects exactly what is wired.
+
+### Theme system (Phase 2)
+
+- `AppTheme.qml` now defines the full semantic token set — surfaces
+  (window/nav/panel/surface/elevated/hover/selected/selected-hover/input),
+  borders (subtle/strong), text (primary/secondary/muted/disabled), accent
+  (base/hover/pressed/on-accent), status (success/warning/danger/info),
+  messaging (incoming/outgoing bubble, on-accent muted ink, bubble
+  overlays, code block, reaction backgrounds, unread/mention badges),
+  focus ring and overlay scrim — plus semantic typography roles
+  (fontPageTitle/SectionTitle/RoomTitle/MessageSender/Body/Secondary/
+  Caption/Mono) on the existing spacing/radius scale. Legacy aliases keep
+  older QML compiling.
+- Contrast: the light theme got its own muted/secondary inks (the old
+  palette reused the dark theme's grey at 2.2:1); outgoing bubbles use a
+  deeper blue than the control accent so white body text is ≈ 6.2:1 and
+  muted meta ink ≈ 4.9:1; selected room rows (and their hover states) stay
+  ≥ 4.5:1 in both themes. `tests/ThemeTokensTest.cpp` asserts required
+  tokens exist, computes WCAG contrast for every critical pair, verifies
+  the light palette is not inverted-dark, and fails if core view QML
+  contains any hex colour or `Qt.rgba` literal — RoomDelegate and
+  MessageDelegate were swept onto tokens (the image viewer's dark overlay
+  chrome is a deliberate committed-dark exception).
+
+### Account menu and Sign out (Phase 3)
+
+- The sidebar footer is now one compact account button: avatar initial
+  with a connection dot, clean localpart, homeserver as secondary text.
+  It opens `AccountMenu.qml` — Settings, Security & Recovery, About
+  (each landing on the matching Settings category via
+  `AppController::showSettingsSection`), and at the bottom the only Sign
+  out in the application: danger-styled, behind a confirmation dialog
+  whose focused default is Cancel and whose copy explains the local
+  account-store removal without exposing paths. Escape/click-outside
+  close; no second Sign out exists anywhere (the old footer button and
+  the Settings-page button are gone).
+
+### Settings redesign (Phase 4)
+
+- `SettingsScreen.qml` is now a two-pane layout: left category navigation
+  (General, Appearance, Notifications, Account, Security & Recovery,
+  Advanced, About), right an independently scrolling pane of grouped
+  cards with a page heading. Categories switch by visibility — never a
+  Loader — so an in-flight verification or key import survives navigating
+  away and back.
+- Only implemented controls appear: General (start minimized), Appearance
+  (theme with a live palette preview, language), Notifications (the
+  existing enable toggle plus an honest "push registration not
+  implemented" note), Account (identity, device, trust state, homeserver
+  URL, a pointer to the account menu for Sign out — no duplicate button),
+  Security & Recovery (everything from 0.5.6–0.5.8: secret/crypto backend
+  status, session verification with the full SAS card, recovery key,
+  encrypted room-key import, and the destructive local reset moved into a
+  collapsed, danger-bordered Danger Zone), Advanced (backend, sync mode,
+  connection, refresh current room), About (version, description, pinned
+  SDK versions, licence).
 
 ### User search (Phase 7)
 

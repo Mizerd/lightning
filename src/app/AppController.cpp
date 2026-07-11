@@ -563,6 +563,19 @@ void AppController::showSettings()
     setCurrentScreen(SettingsScreen);
 }
 
+void AppController::showSettingsSection(const QString &section)
+{
+    m_requestedSettingsSection = section;
+    showSettings();
+}
+
+QString AppController::takeRequestedSettingsSection()
+{
+    const QString section = m_requestedSettingsSection;
+    m_requestedSettingsSection.clear();
+    return section;
+}
+
 void AppController::openRoom(const QString &roomId)
 {
     // v0.5.8: skip reopening the room that is already open. Clicking the

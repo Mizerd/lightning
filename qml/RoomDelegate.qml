@@ -22,8 +22,10 @@ Item {
 
     Rectangle {
         anchors.fill: parent
-        color: selected ? AppTheme.accent
-             : hover.hovered ? AppTheme.surfaceAlt
+        // v0.5.9: softer selected state from the semantic tokens — the
+        // selected row keeps readable primary/secondary ink in both themes.
+        color: selected ? (hover.hovered ? AppTheme.selectedHover : AppTheme.selected)
+             : hover.hovered ? AppTheme.hover
              : "transparent"
         HoverHandler { id: hover }
         TapHandler { onTapped: root.clicked() }
@@ -38,12 +40,12 @@ Item {
         Rectangle {
             width: 40; height: 40
             radius: 20
-            color: selected ? AppTheme.accentText : AppTheme.surfaceAlt
+            color: AppTheme.cardElevated
             Label {
                 anchors.centerIn: parent
                 text: (model.name && model.name.length > 0) ? model.name.charAt(0).toUpperCase() : "?"
-                color: selected ? AppTheme.accent : AppTheme.text
-                font.pixelSize: 16
+                color: AppTheme.textSecondary
+                font.pixelSize: AppTheme.fontRoomTitle
                 font.weight: Font.DemiBold
             }
         }
@@ -56,8 +58,8 @@ Item {
                 Layout.fillWidth: true
                 Label {
                     text: model.name
-                    color: selected ? AppTheme.accentText : AppTheme.text
-                    font.pixelSize: 14
+                    color: selected ? AppTheme.selectedText : AppTheme.textPrimary
+                    font.pixelSize: AppTheme.fontBody
                     font.weight: model.hasUnread || model.markedUnread
                                  ? Font.Bold : Font.Medium
                     elide: Label.ElideRight
@@ -66,32 +68,33 @@ Item {
                 Label {
                     visible: model.encrypted === true
                     text: "\u{1F512}"
-                    font.pixelSize: 12
-                    color: selected ? AppTheme.accentText : AppTheme.textMuted
+                    font.pixelSize: AppTheme.fontMessageSender
+                    color: selected ? AppTheme.selectedText : AppTheme.textMuted
                 }
                 Label {
                     visible: model.lastActivity && model.lastActivity.toString() !== ""
                     text: visible ? Qt.formatDateTime(model.lastActivity, "hh:mm") : ""
-                    font.pixelSize: AppTheme.fontSizeXS
-                    color: selected ? AppTheme.accentText : AppTheme.textMuted
+                    font.pixelSize: AppTheme.fontCaption
+                    color: selected ? AppTheme.selectedText : AppTheme.textMuted
                 }
                 Label {
                     visible: model.unreadCount > 0 || model.highlightCount > 0
                     text: model.highlightCount > 0 ? model.highlightCount : model.unreadCount
-                    color: selected ? AppTheme.accent : AppTheme.accentText
+                    color: AppTheme.accentText
                     background: Rectangle {
-                        color: selected ? AppTheme.accentText
-                              : (model.highlightCount > 0 ? AppTheme.error : AppTheme.accent)
+                        color: model.highlightCount > 0 ? AppTheme.mentionBadge
+                                                        : AppTheme.unreadBadge
                         radius: 8
                     }
                     leftPadding: 6; rightPadding: 6; topPadding: 1; bottomPadding: 1
-                    font.pixelSize: 11
+                    font.pixelSize: AppTheme.fontCaption
                 }
             }
             Label {
                 text: model.lastMessagePreview
-                color: selected ? Qt.rgba(1, 1, 1, 0.85) : AppTheme.textMuted
-                font.pixelSize: 12
+                color: selected ? AppTheme.selectedText : AppTheme.textMuted
+                opacity: selected ? 0.9 : 1.0
+                font.pixelSize: AppTheme.fontMessageSender
                 elide: Label.ElideRight
                 Layout.fillWidth: true
             }

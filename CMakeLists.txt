@@ -152,6 +152,7 @@ set(APP_QML_FILES
     qml/InvitePeopleDialog.qml
     qml/RoomInfoPanel.qml
     qml/ImageViewerOverlay.qml
+    qml/AccountMenu.qml
     qml/AppTheme.qml
 )
 
@@ -344,6 +345,18 @@ if(BUILD_TESTING)
     target_include_directories(cache-store-security-test PRIVATE src)
     target_link_libraries(cache-store-security-test PRIVATE Qt6::Core Qt6::Sql Qt6::Test)
     add_test(NAME cache-store-security COMMAND cache-store-security-test)
+
+    # v0.5.9: semantic theme tokens + WCAG contrast for critical pairs +
+    # no stray hex colours in core view QML.
+    qt_add_executable(theme-tokens-test
+        tests/ThemeTokensTest.cpp
+    )
+    target_compile_definitions(theme-tokens-test PRIVATE
+        APPTHEME_QML_PATH="${CMAKE_CURRENT_SOURCE_DIR}/qml/AppTheme.qml"
+        QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml"
+    )
+    target_link_libraries(theme-tokens-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME theme-tokens COMMAND theme-tokens-test)
 
     # v0.5.9: attachment pipeline — validation, MIME-from-content, queue
     # state machine, retry, stale-completion rejection, lifecycle clears.

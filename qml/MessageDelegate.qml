@@ -144,7 +144,7 @@ Item {
                                  && !model.redacted
                         Layout.fillWidth: true
                         implicitHeight: replyLayout.implicitHeight + 6
-                        color: Qt.rgba(0, 0, 0, model.isOwn ? 0.18 : 0.06)
+                        color: model.isOwn ? AppTheme.bubbleOverlay : AppTheme.bubbleOverlaySubtle
                         radius: 4
                         border.color: AppTheme.accent
                         border.width: 0
@@ -158,13 +158,13 @@ Item {
                                 text: model.replyToSender
                                       ? qsTr("↰ %1").arg(model.replyToSender)
                                       : qsTr("↰ Reply")
-                                color: model.isOwn ? Qt.rgba(1,1,1,0.85) : AppTheme.textMuted
+                                color: model.isOwn ? AppTheme.onAccentMuted : AppTheme.textMuted
                                 font.pixelSize: 11
                                 font.italic: true
                             }
                             Label {
                                 text: model.replyToPreview || qsTr("(original message not loaded)")
-                                color: model.isOwn ? Qt.rgba(1,1,1,0.85) : AppTheme.textMuted
+                                color: model.isOwn ? AppTheme.onAccentMuted : AppTheme.textMuted
                                 font.pixelSize: 11
                                 elide: Label.ElideRight
                                 Layout.fillWidth: true
@@ -239,7 +239,7 @@ Item {
                                 if (model.edited) return ts + " • " + qsTr("edited")
                                 return ts
                             }
-                            color: model.isOwn ? Qt.rgba(1, 1, 1, 0.75) : AppTheme.textMuted
+                            color: model.isOwn ? AppTheme.onAccentMuted : AppTheme.textMuted
                             font.pixelSize: 10
                         }
                         // v0.5.7: retry action for failed local echoes. The
@@ -248,7 +248,7 @@ Item {
                         Label {
                             visible: model.isOwn && model.status === 2
                             text: qsTr("Retry")
-                            color: model.isOwn ? Qt.rgba(1, 1, 1, 0.9) : AppTheme.accent
+                            color: model.isOwn ? AppTheme.ownBubbleText : AppTheme.accent
                             font.pixelSize: 10
                             font.underline: true
                             MouseArea {
@@ -262,7 +262,7 @@ Item {
                             visible: model.isThreadRoot === true
                             text: qsTr("· %n reply(s) in thread", "",
                                        model.threadReplyCount || 0)
-                            color: model.isOwn ? Qt.rgba(1, 1, 1, 0.75) : AppTheme.accent
+                            color: model.isOwn ? AppTheme.onAccentMuted : AppTheme.accent
                             font.pixelSize: 10
                             font.underline: true
                             MouseArea {
@@ -281,7 +281,7 @@ Item {
                             visible: (model.threadRootId || "").length > 0
                                      && !(model.isThreadRoot === true)
                             text: qsTr("· in thread")
-                            color: model.isOwn ? Qt.rgba(1, 1, 1, 0.75) : AppTheme.textMuted
+                            color: model.isOwn ? AppTheme.onAccentMuted : AppTheme.textMuted
                             font.pixelSize: 10
                             font.italic: true
                         }
@@ -414,7 +414,7 @@ Item {
             Repeater {
                 model: root.reactionsList()
                 Rectangle {
-                    color: modelData.byMe ? AppTheme.accent : AppTheme.surfaceAlt
+                    color: modelData.byMe ? AppTheme.reactionSelectedBackground : AppTheme.reactionBackground
                     radius: 10
                     border.color: AppTheme.border
                     border.width: 1
@@ -430,7 +430,7 @@ Item {
                         }
                         Label {
                             text: modelData.count
-                            color: modelData.byMe ? AppTheme.accentText : AppTheme.textMuted
+                            color: modelData.byMe ? AppTheme.selectedText : AppTheme.textMuted
                             font.pixelSize: 11
                         }
                     }
@@ -554,7 +554,7 @@ Item {
         Rectangle {
             width: parent.width
             implicitHeight: fileRow.implicitHeight + 10
-            color: Qt.rgba(0, 0, 0, model.isOwn ? 0.15 : 0.05)
+            color: model.isOwn ? AppTheme.bubbleOverlay : AppTheme.bubbleOverlaySubtle
             radius: 4
             RowLayout {
                 id: fileRow
@@ -586,7 +586,7 @@ Item {
                                 ? size + " • " + model.mediaMimetype
                                 : size
                         }
-                        color: model.isOwn ? Qt.rgba(1,1,1,0.75) : AppTheme.textMuted
+                        color: model.isOwn ? AppTheme.onAccentMuted : AppTheme.textMuted
                         font.pixelSize: 10
                     }
                 }

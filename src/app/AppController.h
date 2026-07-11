@@ -145,6 +145,12 @@ public Q_SLOTS:
     void showSettings();
     void openRoom(const QString &roomId);
 
+    // v0.5.9: open Settings on a specific category (account menu entries
+    // "Settings" vs "Security & Recovery"). The section name is consumed
+    // once by SettingsScreen on load.
+    Q_INVOKABLE void showSettingsSection(const QString &section);
+    Q_INVOKABLE QString takeRequestedSettingsSection();
+
     // v0.5.0-prep+10: GUI recovery-key restore. The QML Settings panel
     // calls this from a password-style TextField and never keeps the
     // key in a QML property beyond the invocation. The recovery key is
@@ -266,6 +272,7 @@ private:
     Backend m_backend;
     Screen m_currentScreen = LoginScreen;
     QString m_currentRoomId;
+    QString m_requestedSettingsSection;
     QString m_connectionStatus;
     bool m_localRustResetRequired = false;
     bool m_resetResultPending = false;

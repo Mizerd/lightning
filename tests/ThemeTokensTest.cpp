@@ -1,0 +1,220 @@
+// v0.5.9: theme-token and contrast tests. Parses qml/AppTheme.qml as text
+// (no QML runtime needed): asserts the required semantic tokens exist,
+// computes WCAG 2.1 contrast for the critical colour pairs in both themes,
+// and verifies core view QML files contain no stray hex colours outside
+// the AppTheme singleton.
+
+#include <QFile>
+#include <QRegularExpression>
+#include <QtTest/QtTest>
+
+#include <cmath>
+
+namespace {
+
+QString readAll(const QString &path)
+{
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text))
+        return {};
+    return QString::fromUtf8(file.readAll());
+}
+
+double channelLinear(double c)
+{
+    return c <= 0.04045 ? c / 12.92 : std::pow((c + 0.055) / 1.055, 2.4);
+}
+
+double luminance(const QString &hex)
+{
+    const QString h = hex.mid(1); // strip '#'
+    const double r = h.mid(0, 2).toInt(nullptr, 16) / 255.0;
+    const double g = h.mid(2, 2).toInt(nullptr, 16) / 255.0;
+    const double b = h.mid(4, 2).toInt(nullptr, 16) / 255.0;
+    return 0.2126 * channelLinear(r) + 0.7152 * channelLinear(g)
+        + 0.0722 * channelLinear(b);
+}
+
+double contrast(const QString &fg, const QString &bg)
+{
+    const double lf = luminance(fg);
+    const double lb = luminance(bg);
+    const double hi = std::max(lf, lb);
+    const double lo = std::min(lf, lb);
+    return (hi + 0.05) / (lo + 0.05);
+}
+
+} // namespace
+
+class ThemeTokensTest : public QObject
+{
+    Q_OBJECT
+
+    QString m_theme;
+    QHash<QString, QString> m_colors; // property name -> #RRGGBB
+
+private Q_SLOTS:
+    void initTestCase()
+    {
+        m_theme = readAll(QStringLiteral(APPTHEME_QML_PATH));
+        QVERIFY2(!m_theme.isEmpty(), "AppTheme.qml not readable");
+
+        // Collect every direct colour literal: `property color name: "#..."`.
+        const QRegularExpression re(QStringLiteral(
+            "property\\s+color\\s+(\\w+)\\s*:\\s*\"(#[0-9A-Fa-f]{6,8})\""));
+        auto it = re.globalMatch(m_theme);
+        while (it.hasNext()) {
+            const auto match = it.next();
+            m_colors.insert(match.captured(1), match.captured(2));
+        }
+        QVERIFY(m_colors.size() > 20);
+    }
+
+    void requiredSemanticTokensExist()
+    {
+        const QStringList required = {
+            // Surfaces
+            QStringLiteral("windowBackground"), QStringLiteral("navBackground"),
+            QStringLiteral("panelBackground"), QStringLiteral("surface"),
+            QStringLiteral("surfaceElevated"), QStringLiteral("hover"),
+            QStringLiteral("selected"), QStringLiteral("selectedHover"),
+            QStringLiteral("inputBackground"),
+            // Borders
+            QStringLiteral("borderSubtle"), QStringLiteral("borderStrong"),
+            // Text
+            QStringLiteral("textPrimary"), QStringLiteral("textSecondary"),
+            QStringLiteral("textMuted"), QStringLiteral("textDisabled"),
+            // Accent + status
+            QStringLiteral("accent"), QStringLiteral("accentHover"),
+            QStringLiteral("accentPressed"), QStringLiteral("accentText"),
+            QStringLiteral("success"), QStringLiteral("warning"),
+            QStringLiteral("danger"), QStringLiteral("info"),
+            // Messaging
+            QStringLiteral("incomingBubble"), QStringLiteral("outgoingBubble"),
+            QStringLiteral("codeBlock"), QStringLiteral("reactionBackground"),
+            QStringLiteral("reactionSelectedBackground"),
+            QStringLiteral("unreadBadge"), QStringLiteral("mentionBadge"),
+            // Focus / overlay
+            QStringLiteral("focusRing"), QStringLiteral("overlayScrim"),
+        };
+        for (const QString &token : required) {
+            const QRegularExpression decl(
+                QStringLiteral("property\\s+color\\s+%1\\b").arg(token));
+            QVERIFY2(m_theme.contains(decl),
+                     qPrintable(QStringLiteral("missing token: %1").arg(token)));
+        }
+        // Semantic typography roles.
+        const QStringList type = {
+            QStringLiteral("fontPageTitle"), QStringLiteral("fontSectionTitle"),
+            QStringLiteral("fontRoomTitle"), QStringLiteral("fontMessageSender"),
+            QStringLiteral("fontBody"), QStringLiteral("fontSecondary"),
+            QStringLiteral("fontCaption"), QStringLiteral("fontMono"),
+        };
+        for (const QString &token : type) {
+            const QRegularExpression decl(
+                QStringLiteral("property\\s+int\\s+%1\\b").arg(token));
+            QVERIFY2(m_theme.contains(decl),
+                     qPrintable(QStringLiteral("missing type token: %1").arg(token)));
+        }
+    }
+
+    void criticalPairsMeetContrast()
+    {
+        const auto c = [this](const char *name) -> QString {
+            return m_colors.value(QLatin1String(name));
+        };
+
+        struct Pair {
+            const char *fg;
+            const char *bg;
+            double minimum;
+        };
+        const Pair pairs[] = {
+            // Normal text on the main surfaces — WCAG AA 4.5:1.
+            { "_textPrimaryLight", "_bgLight", 4.5 },
+            { "_textSecondaryLight", "_bgLight", 4.5 },
+            { "_textMutedLight", "_bgLight", 4.5 },
+            { "_textMutedLight", "_sidebarLight", 4.5 },
+            { "_textPrimaryDark", "_bgDark", 4.5 },
+            { "_textSecondaryDark", "_bgDark", 4.5 },
+            { "_textMutedDark", "_bgDark", 4.5 },
+            { "_textMutedDark", "_cardDark", 4.5 },
+            // Selected room rows stay readable, including on hover.
+            { "_selectedTextLight", "_selectedLight", 4.5 },
+            { "_selectedTextLight", "_selectedHoverLight", 4.5 },
+            { "_selectedTextDark", "_selectedDark", 4.5 },
+            { "_selectedTextDark", "_selectedHoverDark", 4.5 },
+            // Outgoing bubble body + muted meta ink.
+            { "ownBubbleText", "_outgoingBubbleBlue", 4.5 },
+            { "onAccentMuted", "_outgoingBubbleBlue", 4.5 },
+            // Incoming bubble body, both themes.
+            { "_textPrimaryLight", "_hoverLight", 4.5 },
+            { "_textPrimaryDark", "_cardElevatedDark", 4.5 },
+            // Danger buttons: white label on danger red.
+            { "dangerText", "_accentDanger", 4.5 },
+            // Controls/badges (large or bold UI text): ≥ 3:1.
+            { "accentText", "_accentBlue", 3.0 },
+        };
+        for (const Pair &pair : pairs) {
+            const QString fg = c(pair.fg);
+            const QString bg = c(pair.bg);
+            QVERIFY2(!fg.isEmpty() && !bg.isEmpty(),
+                     qPrintable(QStringLiteral("missing palette value: %1 / %2")
+                                    .arg(QLatin1String(pair.fg),
+                                         QLatin1String(pair.bg))));
+            const double ratio = contrast(fg, bg);
+            QVERIFY2(ratio >= pair.minimum,
+                     qPrintable(QStringLiteral("%1 on %2 = %3 (< %4)")
+                                    .arg(QLatin1String(pair.fg),
+                                         QLatin1String(pair.bg))
+                                    .arg(ratio, 0, 'f', 2)
+                                    .arg(pair.minimum)));
+        }
+    }
+
+    void lightThemeIsNotInvertedDark()
+    {
+        // The old light theme reused the dark theme's muted grey, which fell
+        // to 2.2:1. The palettes must stay distinct.
+        QVERIFY(m_colors.value(QStringLiteral("_textMutedLight"))
+                != m_colors.value(QStringLiteral("_textMutedDark")));
+        QVERIFY(m_colors.value(QStringLiteral("_bgLight"))
+                != m_colors.value(QStringLiteral("_bgDark")));
+    }
+
+    void coreViewsUseTokensNotHex()
+    {
+        // View QML must not scatter its own hex values; deliberate
+        // exceptions: AppTheme.qml (the palette itself) and the image
+        // viewer's committed-dark overlay chrome.
+        const QStringList files = {
+            QStringLiteral(QML_DIR "/RoomDelegate.qml"),
+            QStringLiteral(QML_DIR "/MessageDelegate.qml"),
+            QStringLiteral(QML_DIR "/RoomsPanel.qml"),
+            QStringLiteral(QML_DIR "/TimelinePane.qml"),
+            QStringLiteral(QML_DIR "/MessageComposerBar.qml"),
+            QStringLiteral(QML_DIR "/SettingsScreen.qml"),
+            QStringLiteral(QML_DIR "/AccountMenu.qml"),
+            QStringLiteral(QML_DIR "/RoomInfoPanel.qml"),
+            QStringLiteral(QML_DIR "/UserPicker.qml"),
+            QStringLiteral(QML_DIR "/NewConversationDialog.qml"),
+            QStringLiteral(QML_DIR "/InvitePeopleDialog.qml"),
+        };
+        const QRegularExpression hexColor(
+            QStringLiteral("color\\s*:\\s*\"#[0-9A-Fa-f]{3,8}\""));
+        const QRegularExpression rgba(QStringLiteral("Qt\\.rgba\\("));
+        for (const QString &path : files) {
+            const QString content = readAll(path);
+            QVERIFY2(!content.isEmpty(), qPrintable(path));
+            QVERIFY2(!content.contains(hexColor),
+                     qPrintable(QStringLiteral("hardcoded hex colour in %1")
+                                    .arg(path)));
+            QVERIFY2(!content.contains(rgba),
+                     qPrintable(QStringLiteral("Qt.rgba literal in %1")
+                                    .arg(path)));
+        }
+    }
+};
+
+QTEST_GUILESS_MAIN(ThemeTokensTest)
+#include "ThemeTokensTest.moc"
