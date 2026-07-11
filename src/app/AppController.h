@@ -40,6 +40,9 @@ class AppController : public QObject
     Q_PROPERTY(QString backendName READ backendName CONSTANT)
     Q_PROPERTY(QString connectionStatus READ connectionStatus NOTIFY connectionStatusChanged)
     Q_PROPERTY(QString syncModeLabel READ syncModeLabel NOTIFY syncModeChanged)
+    // v0.5.11: platform colour-scheme hint for the "System" theme. Reflects
+    // QStyleHints::colorScheme(); QML binds AppTheme.systemDark to it.
+    Q_PROPERTY(bool systemDarkMode READ systemDarkMode NOTIFY systemDarkModeChanged)
     Q_PROPERTY(bool initialSyncDone READ initialSyncDone NOTIFY initialSyncDoneChanged)
     Q_PROPERTY(bool localRustResetRequired READ localRustResetRequired
                NOTIFY localRustResetRequiredChanged)
@@ -129,6 +132,7 @@ public:
     QString backendName() const;
     QString connectionStatus() const { return m_connectionStatus; }
     QString syncModeLabel() const;
+    bool systemDarkMode() const;
     bool initialSyncDone() const;
     QString rustDeviceIdRedacted() const;
     bool localRustResetRequired() const { return m_localRustResetRequired; }
@@ -239,6 +243,7 @@ Q_SIGNALS:
     void loggedInChanged();
     void connectionStatusChanged();
     void syncModeChanged();
+    void systemDarkModeChanged();
     void errorReported(const QString &message);
     void rustDeviceIdChanged();
     void localRustResetRequiredChanged();

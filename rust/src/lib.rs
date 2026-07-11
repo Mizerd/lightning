@@ -309,7 +309,7 @@ pub extern "C" fn mx_rust_backend_name() -> *mut c_char {
 #[no_mangle]
 pub extern "C" fn mx_rust_status_string() -> *mut c_char {
     ffi_string(|| {
-        Ok("Matrix Rust SDK backend linked. Lightning 0.5.10 uses matrix-sdk 0.18 and matrix-sdk-ui 0.18 with a complete local Unicode emoji picker, capability-probed room list, SDK-owned E2EE sync, room creation, DMs, user search and encrypted media. Matrix reactions remain Unicode keys through the existing SDK Timeline toggle path. No manual crypto in C++.".to_owned())
+        Ok("Matrix Rust SDK backend linked. Lightning 0.5.11 uses matrix-sdk 0.18 and matrix-sdk-ui 0.18 with SDK-owned E2EE sync, timeline pagination, user lookup, encrypted media and safe homeserver link previews. No manual crypto in C++.".to_owned())
     })
 }
 
@@ -2639,7 +2639,7 @@ async fn build_client(homeserver: &str, store_path: &Path) -> Result<Client, Str
     Client::builder()
         .homeserver_url(homeserver)
         .sqlite_store(store_path, None)
-        .user_agent("Lightning/0.5.10")
+        .user_agent("Lightning/0.5.11")
         .build()
         .await
         .map_err(|err| format_matrix_error("failed to build Matrix Rust SDK client", err))

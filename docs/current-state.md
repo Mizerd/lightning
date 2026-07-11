@@ -1,4 +1,102 @@
-# Current state (v0.5.10 — complete local Unicode emoji picker)
+# Current state (v0.5.11 — timeline UX, themes and safe link previews)
+
+## v0.5.11 — pagination, media, avatars, themes, link previews
+
+This release completes the QML/C++ integration on top of the 0.5.11 backend
+foundations (pagination policy, read-receipt coordinator, bare-localpart user
+lookup, shared media pipeline, link-preview backend, GIF classification and
+preview settings).
+
+### Automatic backward history + scroll preservation
+
+`PaginationController` (`app.pagination`) owns the request policy over the
+Rust single-flight `paginate_backwards`. The timeline asks for a viewport
+fill whenever `contentHeight < height`, so a short initial snapshot that can
+never scroll still fetches older batches until the viewport fills, the SDK
+reports the start of history, a bounded automatic-fill budget is spent, or
+no-progress is detected. Approaching the top (within half a viewport) triggers
+a near-top request before the exact zero position. The header shows only
+transient loading / failure (with Retry) states — there is no permanent
+"scroll up" placeholder; the start of history is the virtual
+"Beginning of conversation" row.
+
+Backward prepends preserve position: when a request starts and the user is
+not following the bottom, the timeline records the first visible event's
+stable id (`TimelineModel::stableIdAt`) and its pixel offset, then on
+`paginationCompleted` re-aligns to that event (`rowForStableId` +
+`positionViewAtIndex`), falling back to a content-height delta if the anchor
+scrolled out of the created range.
+
+### Responsive timeline media
+
+Timeline images derive their display box from the intrinsic media dimensions
+and a responsive bound (max ≈ 400×360 logical px, capped to the column
+width), never upscaling tiny images and never collapsing to the timestamp
+width. The media box contributes a real implicit width so the bubble grows to
+the picture. Loading/failure/retry states and click-to-open are retained, and
+media is fetched once through the shared `MediaBridge` even as delegates are
+recycled. Confirmed GIFs animate only when a direct http(s) URL is available
+and the "Animate GIF previews" setting is on (the bridge serves single frames
+through an image provider, so bridge/encrypted GIFs show a static frame and
+open full-size on click).
+
+### Avatars
+
+A shared `Avatar.qml` resolves an mxc URI through `MediaBridge` and shows a
+stable initial placeholder until a bitmap is fully decoded (masked to the
+avatar shape with `MultiEffect`), so no broken-image glyph or stale-avatar
+flash occurs on delegate reuse, account switch or logout. It is wired into the
+room list, Space rail (a Space is a room), room header, Room Information and
+invite results. Per-message sender avatars remain a known gap: `TimelineModel`
+does not yet expose a sender-avatar role.
+
+### Bare-localpart invite search
+
+`UserPicker` shows avatars and per-row provenance ("From your server" for a
+homeserver-confirmed exact local lookup, "Exact Matrix ID" for a typed full
+id) using the backend `source` role. Typing `admin`, `@admin`,
+`admin:server` or `@admin:server` resolves through the confirmed exact
+profile lookup; a bare localpart appears only once the homeserver confirms it.
+
+### Appearance themes
+
+`AppTheme.qml` resolves one of six presets (System, Light, Graphite, Midnight
+Blue, Nord, Purple Dusk) to a full semantic palette; components never branch
+on the theme. System follows the platform colour scheme
+(`AppController.systemDarkMode` from `QStyleHints::colorScheme`). The Light and
+Midnight palettes are byte-for-byte the previous Light/Dark values, so
+existing views are unchanged under them. `SettingsManager` validates an
+out-of-range stored theme back to System.
+
+### Link previews and GIFs
+
+`LinkPreviewController` (`app.linkPreviews`) drives a timeline preview card
+via the homeserver's authenticated `preview_url` endpoint — Lightning never
+fetches the target URL itself. Unencrypted rooms auto-load per the
+`autoLoadLinkPreviews` setting. **Encrypted rooms default to explicit
+click-to-load**: the card shows a "Load link preview" action and the note
+"Loading this preview may reveal the URL to your homeserver." Requesting a
+preview reveals the URL to the homeserver; **URL previews are not protected by
+room encryption.** Encrypted-room preview URLs are never written to
+`CacheStore` or any disk cache. Link-preview GIF thumbnails are classified
+from the server-validated `og:image:type` MIME (never the URL suffix) with
+byte/dimension limits and are shown as static frames; oversized GIFs omit the
+thumbnail. Timeline GIF attachments animate only on the direct HTTP(S) path
+described above. A failed preview never alters the underlying message row.
+
+### Settings, login, toolbar, receipts
+
+Settings gains Theme (six presets), "Automatically load previews in
+unencrypted rooms", "Load previews in encrypted rooms" (off by default, under
+a privacy note) and "Animate GIF previews". The login form was rebuilt with
+`ColumnLayout`/`RowLayout` inside a `Flickable` so it fits from narrow to wide
+windows and high-DPI scaling without clipping, with a password reveal toggle,
+Enter-to-submit and tab order. The message action toolbar shares one hover
+region across the bubble and buttons (no gap dropout) and stays visible while
+its reaction picker or menu is open. Read receipts are sent by
+`ReadReceiptCoordinator` only when the room is open, the window is active, the
+timeline is visible, the user is near the bottom, and the newest eligible
+event has a real remote id — after an 800 ms debounce with full re-validation.
 
 ## v0.5.10 — reactions and composer emoji picker
 

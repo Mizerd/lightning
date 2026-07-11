@@ -12,6 +12,39 @@ across the rename. The product name is **Lightning**.
 
 ## Status
 
+**v0.5.11** — Timeline UX, appearance and safe link previews. Backward
+history now fills automatically: a short initial snapshot that cannot scroll
+still fetches older batches until the viewport is filled, the start of
+history is reached, or a bounded budget/no-progress stop trips — and a
+backward prepend preserves the visible message and pixel offset instead of
+jumping. Timeline images are responsively sized (aspect-preserving, bounded
+to a useful desktop range, never avatar-sized, never overflowing the column,
+never upscaling tiny images) with loading/failure/retry states and
+click-to-open. Real avatars appear throughout (room list, Space rail, room
+header, Room Information, invite results) through the shared, account-scoped,
+bounded media pipeline, falling back to stable initials — never a broken
+glyph. Inviting a local user by bare localpart (`admin`) resolves through a
+homeserver-confirmed exact profile lookup, with provenance shown on each
+result. Six appearance presets (System, Light, Graphite, Midnight Blue,
+Nord, Purple Dusk) apply live and persist; System follows the platform
+colour scheme.
+
+Rich link-preview cards render through the homeserver's authenticated
+`preview_url` endpoint — Lightning never fetches the target URL itself.
+Unencrypted rooms auto-load previews per setting; **encrypted rooms default
+to explicit click-to-load**, because requesting a preview reveals the URL to
+your homeserver. URL previews are **not** protected by room encryption.
+Link-preview GIF thumbnails are classified by the server-validated MIME type
+(never the URL suffix) with byte/dimension safety limits and remain static.
+Timeline GIF attachments animate only when a direct HTTP(S) source is
+available and the "Animate GIF previews" setting is on; bridge-backed and
+encrypted GIFs use a static-frame fallback. The login form was rebuilt with
+Qt Layouts to fit at
+narrow and wide widths, and the message action toolbar and read receipts were
+finished. New settings: theme, auto-load previews in unencrypted rooms, load
+previews in encrypted rooms (off by default, with a privacy note), and
+animate GIF previews.
+
 **v0.5.10** — Complete local Unicode emoji picker for reactions and the
 composer. Lightning embeds a generated Unicode Emoji 17.0 catalogue (3,943
 sequences including validated skin-tone variants) sourced reproducibly from

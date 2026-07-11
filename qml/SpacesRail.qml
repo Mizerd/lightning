@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Effects
 import MatrixClient
 
 // v0.5.4: narrow far-left Spaces rail (~56 px wide).
@@ -55,6 +56,7 @@ Rectangle {
                 // Symbol or first letter
                 Label {
                     anchors.centerIn: parent
+                    visible: spaceImage.status !== Image.Ready
                     text: model.spaceId === ""
                           ? "⊞"
                           : model.spaceId === "@orphans"
@@ -64,6 +66,49 @@ Rectangle {
                     font.pixelSize: spaceItem.isPseudo ? 20 : 16
                     font.weight: Font.DemiBold
                     color: spaceItem.isActive ? AppTheme.accentText : AppTheme.textSecondary
+                }
+
+                // Real Space avatar (a Space is a room). Fetched through the
+                // shared media bridge; only shown once fully loaded so the
+                // letter placeholder never flickers to a broken glyph. Masked
+                // to the (animated) circle/rounded-square shape.
+                Image {
+                    id: spaceImage
+                    anchors.fill: parent
+                    visible: false
+                    fillMode: Image.PreserveAspectCrop
+                    asynchronous: true
+                    cache: true
+                    property string mxc: spaceItem.isPseudo
+                                         ? "" : (model.avatarUrl || "")
+                    source: mxc.length > 0 && app.mediaBridge.supported
+                            ? app.mediaBridge.avatarSource(mxc, 80) : ""
+                    Connections {
+                        target: app.mediaBridge
+                        enabled: spaceImage.mxc.length > 0
+                        function onMediaCached(cacheKey) {
+                            spaceImage.source = app.mediaBridge.avatarSource(
+                                spaceImage.mxc, 80)
+                        }
+                    }
+                }
+                Item {
+                    id: spaceMask
+                    anchors.fill: parent
+                    visible: false
+                    layer.enabled: true
+                    Rectangle {
+                        anchors.fill: parent
+                        radius: spaceCircle.radius
+                        color: "black"
+                    }
+                }
+                MultiEffect {
+                    anchors.fill: parent
+                    source: spaceImage
+                    maskEnabled: true
+                    maskSource: spaceMask
+                    visible: spaceImage.status === Image.Ready
                 }
 
                 // Unread count badge

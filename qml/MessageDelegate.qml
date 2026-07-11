@@ -27,6 +27,32 @@ Item {
             actionsPinned ? "" : actionKey
     }
 
+    // v0.5.11: link-preview state for this row, resolved by
+    // LinkPreviewController. Calling previewFor() may dispatch an automatic
+    // request (unencrypted rooms with auto-load on); encrypted rooms stay in
+    // "requires_action" until the explicit Load action.
+    property var preview: ({ state: "none" })
+    readonly property bool roomEncrypted:
+        ListView.view ? ListView.view.roomEncrypted === true : false
+    function refreshPreview() {
+        if (isVirtualRow || model.redacted || model.isImage || model.isFile
+            || actionKey === "" || !app.linkPreviews.supported) {
+            preview = ({ state: "none" })
+            return
+        }
+        preview = app.linkPreviews.previewFor(actionKey, model.body || "",
+                                              roomEncrypted)
+    }
+    Component.onCompleted: refreshPreview()
+    onActionKeyChanged: refreshPreview()
+    Connections {
+        target: app.linkPreviews
+        function onPreviewChanged(itemKey) {
+            if (itemKey === root.actionKey) root.refreshPreview()
+        }
+        function onPolicyChanged() { root.refreshPreview() }
+    }
+
     Item {
         id: virtualRow
         visible: root.isVirtualRow
@@ -175,10 +201,18 @@ Item {
                         id: mediaBox
                         visible: model.isImage || model.isFile
                         Layout.fillWidth: true
-                        implicitHeight: mediaLoader.item ? mediaLoader.item.implicitHeight : 0
+                        // v0.5.11: contribute a real implicit width so an
+                        // image-only bubble grows to the media size instead of
+                        // collapsing to the timestamp width (which made images
+                        // render avatar-sized). Files stay compact.
+                        implicitWidth: mediaLoader.item
+                                       ? mediaLoader.item.implicitWidth : 0
+                        implicitHeight: mediaLoader.item
+                                        ? mediaLoader.item.implicitHeight : 0
                         Loader {
                             id: mediaLoader
-                            width: parent.width
+                            anchors.left: parent.left
+                            anchors.right: parent.right
                             sourceComponent: model.isImage ? imageComponent
                                             : model.isFile  ? fileComponent
                                             : null
@@ -220,6 +254,21 @@ Item {
                                 "in Settings, or wait for another verified " +
                                 "device to share the key.")
                         }
+                    }
+
+                    // v0.5.11: rich link-preview card. Backed by
+                    // LinkPreviewController — the homeserver performs the
+                    // outbound fetch; Lightning never contacts the target URL.
+                    // Encrypted rooms default to click-to-load (privacy).
+                    Loader {
+                        id: previewLoader
+                        Layout.fillWidth: true
+                        active: root.preview.state !== undefined
+                                && root.preview.state !== "none"
+                                && !model.redacted
+                                && !model.isImage && !model.isFile
+                        visible: active
+                        sourceComponent: linkPreviewComponent
                     }
 
                     RowLayout {
@@ -449,15 +498,254 @@ Item {
     // status bar error signal.
     function eventIdForActions() { return model.eventId }
 
+    // ---- link preview card ----
+
+    Component {
+        id: linkPreviewComponent
+        Rectangle {
+            id: card
+            readonly property var p: root.preview
+            readonly property string st: p.state || "none"
+            implicitWidth: Math.min(360, root.width * 0.6)
+            implicitHeight: cardCol.implicitHeight + AppTheme.spacingS * 2
+            color: model.isOwn ? AppTheme.bubbleOverlay : AppTheme.bubbleOverlaySubtle
+            radius: AppTheme.radiusSm
+            border.color: AppTheme.border
+            border.width: 1
+
+            // Whole card opens the URL (loaded state only).
+            MouseArea {
+                anchors.fill: parent
+                enabled: card.st === "loaded" && (card.p.url || "").length > 0
+                cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+                onClicked: app.media.openExternal(card.p.url)
+            }
+
+            ColumnLayout {
+                id: cardCol
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.top: parent.top
+                anchors.margins: AppTheme.spacingS
+                spacing: 4
+
+                // Consent / privacy gate (encrypted rooms, or auto-load off).
+                ColumnLayout {
+                    visible: card.st === "requires_action"
+                    Layout.fillWidth: true
+                    spacing: 4
+                    Label {
+                        text: qsTr("Link preview")
+                        color: AppTheme.textMuted
+                        font.pixelSize: 10
+                        font.weight: Font.DemiBold
+                    }
+                    Label {
+                        text: card.p.host || ""
+                        color: AppTheme.link
+                        font.pixelSize: 12
+                        elide: Label.ElideRight
+                        Layout.fillWidth: true
+                    }
+                    Label {
+                        visible: root.roomEncrypted
+                        text: qsTr("Loading this preview may reveal the URL to "
+                                   + "your homeserver.")
+                        color: AppTheme.warning
+                        font.pixelSize: 10
+                        wrapMode: Text.WordWrap
+                        Layout.fillWidth: true
+                    }
+                    Button {
+                        text: qsTr("Load link preview")
+                        font.pixelSize: 11
+                        Layout.topMargin: 2
+                        onClicked: app.linkPreviews.requestPreview(root.actionKey)
+                    }
+                }
+
+                // Loading.
+                RowLayout {
+                    visible: card.st === "loading"
+                    spacing: AppTheme.spacingS
+                    BusyIndicator {
+                        width: 16; height: 16
+                        running: card.st === "loading"
+                    }
+                    Label {
+                        text: qsTr("Loading preview…")
+                        color: AppTheme.textMuted
+                        font.pixelSize: 11
+                    }
+                }
+
+                // Failed.
+                ColumnLayout {
+                    visible: card.st === "failed"
+                    Layout.fillWidth: true
+                    spacing: 2
+                    Label {
+                        text: qsTr("Preview unavailable")
+                        color: AppTheme.textMuted
+                        font.pixelSize: 11
+                    }
+                    Label {
+                        visible: card.p.retryable === true
+                        text: qsTr("Retry")
+                        color: AppTheme.link
+                        font.pixelSize: 11
+                        font.underline: true
+                        MouseArea {
+                            anchors.fill: parent
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: app.linkPreviews.retry(root.actionKey)
+                        }
+                    }
+                }
+
+                // Loaded.
+                ColumnLayout {
+                    visible: card.st === "loaded"
+                    Layout.fillWidth: true
+                    spacing: 3
+
+                    // Thumbnail (og:image). Fetched through the media bridge —
+                    // never fetched directly by QML. GIFs show a static frame
+                    // with a badge (the homeserver preview is a single frame).
+                    Item {
+                        visible: (card.p.imageMxc || "").length > 0
+                                 && !(card.p.gifOversized === true)
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: visible ? Math.min(180,
+                            (card.p.imageHeight > 0 && card.p.imageWidth > 0)
+                            ? width * (card.p.imageHeight / card.p.imageWidth)
+                            : 140) : 0
+                        Image {
+                            id: thumb
+                            anchors.fill: parent
+                            fillMode: Image.PreserveAspectFit
+                            asynchronous: true
+                            cache: true
+                            source: (card.p.imageMxc || "").length > 0
+                                    && app.mediaBridge.supported
+                                    ? app.mediaBridge.avatarSource(card.p.imageMxc, 480)
+                                    : ""
+                            Connections {
+                                target: app.mediaBridge
+                                enabled: (card.p.imageMxc || "").length > 0
+                                function onMediaCached(cacheKey) {
+                                    thumb.source = app.mediaBridge.avatarSource(
+                                        card.p.imageMxc, 480)
+                                }
+                            }
+                        }
+                        // GIF badge.
+                        Rectangle {
+                            visible: card.p.isGif === true
+                            anchors.left: parent.left
+                            anchors.bottom: parent.bottom
+                            anchors.margins: 4
+                            radius: 3
+                            color: AppTheme.overlayScrim
+                            width: gifLabel.implicitWidth + 8
+                            height: gifLabel.implicitHeight + 4
+                            Label {
+                                id: gifLabel
+                                anchors.centerIn: parent
+                                text: "GIF"
+                                color: AppTheme.accentText
+                                font.pixelSize: 9
+                                font.weight: Font.Bold
+                            }
+                        }
+                    }
+
+                    Label {
+                        visible: (card.p.siteName || "").length > 0
+                        text: card.p.siteName || ""
+                        color: AppTheme.textMuted
+                        font.pixelSize: 10
+                        elide: Label.ElideRight
+                        Layout.fillWidth: true
+                    }
+                    Label {
+                        visible: (card.p.title || "").length > 0
+                        text: card.p.title || ""
+                        color: model.isOwn ? AppTheme.ownBubbleText : AppTheme.text
+                        font.pixelSize: 12
+                        font.weight: Font.DemiBold
+                        wrapMode: Text.WordWrap
+                        maximumLineCount: 2
+                        elide: Label.ElideRight
+                        Layout.fillWidth: true
+                    }
+                    Label {
+                        visible: (card.p.description || "").length > 0
+                        text: card.p.description || ""
+                        color: model.isOwn ? AppTheme.onAccentMuted : AppTheme.textMuted
+                        font.pixelSize: 11
+                        wrapMode: Text.WordWrap
+                        maximumLineCount: 3
+                        elide: Label.ElideRight
+                        Layout.fillWidth: true
+                    }
+                    Label {
+                        text: card.p.host || ""
+                        color: AppTheme.link
+                        font.pixelSize: 10
+                        elide: Label.ElideRight
+                        Layout.fillWidth: true
+                    }
+                }
+            }
+        }
+    }
+
     // ---- media sub-components ----
 
     Component {
         id: imageComponent
         Item {
             id: imageBox
-            width: parent.width
-            property real ratio: (model.mediaWidth > 0 && model.mediaHeight > 0)
-                                 ? (model.mediaHeight / model.mediaWidth) : 0.6
+
+            // v0.5.11: responsive timeline-image sizing. The display box is
+            // derived from the intrinsic media dimensions and a responsive
+            // bound (never avatar-sized, never overflowing the column, never
+            // upscaling a tiny image beyond its natural size). This box's
+            // implicitWidth/Height flow up into the bubble so the bubble grows
+            // to the picture instead of collapsing to the timestamp width.
+            readonly property real maxW: Math.min(400, root.width * 0.62)
+            readonly property real maxH: 360
+            readonly property real natW: model.mediaWidth > 0 ? model.mediaWidth : 0
+            readonly property real natH: model.mediaHeight > 0 ? model.mediaHeight : 0
+            readonly property real ratio: (natW > 0 && natH > 0)
+                                          ? (natH / natW) : 0.66
+            // Never upscale media with known intrinsic dimensions. Unknown
+            // dimensions use the responsive bound until the image metadata is
+            // available from a later timeline update.
+            readonly property real dispW: {
+                var w = natW > 0 ? Math.min(natW, maxW) : maxW
+                if (w * ratio > maxH) w = maxH / ratio
+                return Math.max(1, Math.min(w, maxW))
+            }
+            readonly property real dispH: Math.max(1, dispW * ratio)
+
+            implicitWidth: dispW
+            implicitHeight: dispH
+
+            readonly property bool isGif:
+                (model.mediaMimetype || "").toLowerCase() === "image/gif"
+            readonly property string directGifUrl:
+                (model.mediaUrl
+                 && /^https?:\/\//i.test(model.mediaUrl.toString()))
+                ? model.mediaUrl.toString() : ""
+            // Animate only when we hold a direct http(s) URL: the media bridge
+            // serves single frames through an image provider (QMovie can't
+            // animate those), so bridge/encrypted GIFs show a static frame and
+            // open full-size on click.
+            readonly property bool animateGif:
+                isGif && app.settings.animateGifPreviews
+                && directGifUrl.length > 0
 
             // v0.5.9: prefer the media bridge (works for encrypted rooms —
             // the SDK decrypts inside Rust); HTTP-backend URLs remain the
@@ -471,6 +759,8 @@ Item {
 
             function refreshBridgeSource() {
                 if (!usesBridge || !model.mediaKey) return
+                if (bridgeFailed)
+                    app.mediaBridge.retry(bridgeCacheKey)
                 bridgeFailed = false
                 bridgeSource = app.mediaBridge.mediaSource(
                     model.mediaKey,
@@ -490,57 +780,87 @@ Item {
                 }
             }
 
-            implicitHeight: img.status === Image.Ready
-                            ? Math.min(root.width * 0.5, img.paintedHeight + 4)
-                            : Math.min(320 * ratio, 240)
+            readonly property string resolvedSource:
+                usesBridge ? bridgeSource
+                           : (model.mediaThumbUrl
+                              && model.mediaThumbUrl.toString().length > 0
+                              ? model.mediaThumbUrl : model.mediaUrl)
+
+            // Placeholder frame keeps a stable size while loading/failed so
+            // the timeline does not jump when the bitmap arrives.
+            Rectangle {
+                anchors.fill: parent
+                radius: AppTheme.radiusSm
+                color: AppTheme.cardElevated
+                visible: img.status !== Image.Ready
+                         && animatedImg.status !== AnimatedImage.Ready
+            }
+
+            // Static path (default; also the frame for non-animated GIFs).
             Image {
                 id: img
-                anchors.centerIn: parent
-                width: Math.min(parent.width, 320)
-                height: Math.min(width * (imageBox.ratio > 0 ? imageBox.ratio : 0.6), 240)
+                anchors.fill: parent
+                visible: !imageBox.animateGif
                 fillMode: Image.PreserveAspectFit
-                source: imageBox.usesBridge
-                        ? imageBox.bridgeSource
-                        : (model.mediaThumbUrl && model.mediaThumbUrl.toString().length > 0
-                           ? model.mediaThumbUrl
-                           : model.mediaUrl)
+                source: imageBox.animateGif ? "" : imageBox.resolvedSource
                 sourceSize.width: 640
                 asynchronous: true
                 cache: true
+            }
 
-                MouseArea {
-                    anchors.fill: parent
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: {
-                        if (imageBox.bridgeFailed) {
-                            imageBox.refreshBridgeSource()
-                            return
-                        }
-                        if (root.ListView.view && root.ListView.view.openImage)
-                            root.ListView.view.openImage(model.mediaKey || "",
-                                                         model.mediaUrl)
-                        else if (model.mediaUrl && model.mediaUrl.toString().length > 0)
-                            app.media.openExternal(model.mediaUrl)
+            // Animated path — only when the message is a confirmed GIF and the
+            // "Animate GIF previews" setting is on. Paused while off-screen to
+            // avoid burning CPU on scrolled-away rows.
+            AnimatedImage {
+                id: animatedImg
+                anchors.fill: parent
+                visible: imageBox.animateGif
+                fillMode: Image.PreserveAspectFit
+                source: imageBox.animateGif ? imageBox.directGifUrl : ""
+                asynchronous: true
+                cache: true
+                playing: imageBox.animateGif
+                         && root.ListView.view
+                         && (root.y + root.height) > root.ListView.view.contentY
+                         && root.y < (root.ListView.view.contentY
+                                      + root.ListView.view.height)
+            }
+
+            MouseArea {
+                anchors.fill: parent
+                cursorShape: Qt.PointingHandCursor
+                onClicked: {
+                    if (imageBox.bridgeFailed) {
+                        imageBox.refreshBridgeSource()
+                        return
                     }
+                    if (root.ListView.view && root.ListView.view.openImage)
+                        root.ListView.view.openImage(model.mediaKey || "",
+                                                     model.mediaUrl)
+                    else if (model.mediaUrl && model.mediaUrl.toString().length > 0)
+                        app.media.openExternal(model.mediaUrl)
                 }
+            }
 
-                BusyIndicator {
-                    anchors.centerIn: parent
-                    running: img.status === Image.Loading
-                             || (imageBox.usesBridge
-                                 && imageBox.bridgeSource === ""
-                                 && !imageBox.bridgeFailed)
-                    visible: running
-                }
-                Label {
-                    anchors.centerIn: parent
-                    text: imageBox.bridgeFailed
-                          ? qsTr("Image failed to load — click to retry")
-                          : qsTr("(image unavailable)")
-                    color: AppTheme.textMuted
-                    font.pixelSize: 11
-                    visible: img.status === Image.Error || imageBox.bridgeFailed
-                }
+            BusyIndicator {
+                anchors.centerIn: parent
+                running: img.status === Image.Loading
+                         || (imageBox.usesBridge
+                             && imageBox.bridgeSource === ""
+                             && !imageBox.bridgeFailed)
+                visible: running
+            }
+            Label {
+                anchors.centerIn: parent
+                width: parent.width - 12
+                horizontalAlignment: Text.AlignHCenter
+                wrapMode: Text.WordWrap
+                text: imageBox.bridgeFailed
+                      ? qsTr("Image failed to load — click to retry")
+                      : qsTr("(image unavailable)")
+                color: AppTheme.textMuted
+                font.pixelSize: 11
+                visible: img.status === Image.Error || imageBox.bridgeFailed
             }
         }
     }
@@ -549,6 +869,7 @@ Item {
         id: fileComponent
         Rectangle {
             width: parent.width
+            implicitWidth: 260
             implicitHeight: fileRow.implicitHeight + 10
             color: model.isOwn ? AppTheme.bubbleOverlay : AppTheme.bubbleOverlaySubtle
             radius: 4

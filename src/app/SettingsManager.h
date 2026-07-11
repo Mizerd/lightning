@@ -30,12 +30,24 @@ class SettingsManager : public QObject
     Q_PROPERTY(bool secretsAreSecure READ secretsAreSecure NOTIFY secretBackendChanged)
 
 public:
+    // v0.5.11: semantic appearance presets. Values 0–2 are retained for
+    // backward compatibility with sessions saved before 0.5.11 (DarkTheme
+    // renders as the Midnight Blue palette). AppTheme.qml resolves each id
+    // to a full palette.
     enum Theme {
         SystemTheme = 0,
         LightTheme = 1,
-        DarkTheme = 2,
+        DarkTheme = 2,          // legacy alias → Midnight Blue
+        GraphiteTheme = 3,
+        MidnightBlueTheme = 4,
+        NordTheme = 5,
+        PurpleDuskTheme = 6,
     };
     Q_ENUM(Theme)
+
+    // Highest valid Theme id; an out-of-range stored value falls back to
+    // SystemTheme (see theme()).
+    static constexpr int kMaxThemeId = PurpleDuskTheme;
 
     explicit SettingsManager(QObject *parent = nullptr);
 

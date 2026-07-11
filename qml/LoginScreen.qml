@@ -11,9 +11,26 @@ Item {
         color: AppTheme.background
     }
 
+    // v0.5.11: the login panel is a Flickable so an overflowing form (long
+    // errors, high-DPI scaling, short windows) scrolls instead of clipping,
+    // and the panel width tracks the window between a sensible min and max.
+    Flickable {
+        id: loginFlick
+        anchors.fill: parent
+        contentWidth: width
+        contentHeight: panel.implicitHeight + AppTheme.spacingXL * 2
+        boundsBehavior: Flickable.StopAtBounds
+        clip: true
+        ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+
     Pane {
-        anchors.centerIn: parent
+        id: panel
+        anchors.horizontalCenter: parent.horizontalCenter
+        y: Math.max(AppTheme.spacingXL,
+                    (loginFlick.height - implicitHeight) / 2)
         padding: AppTheme.spacingXL
+        // Track the window width but stay readable at both extremes.
+        width: Math.max(300, Math.min(loginFlick.width - AppTheme.spacingXL * 2, 420))
         background: Rectangle {
             color: AppTheme.surface
             border.color: AppTheme.border
@@ -22,14 +39,17 @@ Item {
         }
 
         ColumnLayout {
+            id: loginForm
+            width: parent.availableWidth
             spacing: AppTheme.spacingM
-            width: 360
 
             Label {
                 text: qsTr("Sign in to Lightning")
                 color: AppTheme.text
                 font.pixelSize: 22
                 font.weight: Font.DemiBold
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
             }
             Label {
                 text: {
@@ -54,6 +74,7 @@ Item {
                 text: app.settings.homeserverUrl
                 placeholderText: "https://matrix.org"
                 onEditingFinished: app.settings.homeserverUrl = text
+                KeyNavigation.tab: userField
             }
 
             Label { text: qsTr("User"); color: AppTheme.textMuted; font.pixelSize: 12 }
@@ -61,15 +82,34 @@ Item {
                 id: userField
                 Layout.fillWidth: true
                 placeholderText: "@alice:matrix.org"
-                text: "alice"
+                KeyNavigation.tab: passField
             }
 
             Label { text: qsTr("Password"); color: AppTheme.textMuted; font.pixelSize: 12 }
-            TextField {
-                id: passField
+            // Password field + reveal toggle share one row.
+            RowLayout {
                 Layout.fillWidth: true
-                echoMode: TextInput.Password
-                text: "hunter2"
+                spacing: AppTheme.spacingXS
+                TextField {
+                    id: passField
+                    Layout.fillWidth: true
+                    echoMode: passReveal.checked ? TextInput.Normal
+                                                 : TextInput.Password
+                    // Enter submits from the password field.
+                    onAccepted: if (!app.auth.isLoggingIn)
+                        app.auth.login(homeserverField.text, userField.text,
+                                       passField.text)
+                }
+                ToolButton {
+                    id: passReveal
+                    checkable: true
+                    text: checked ? "🙈" : "👁"
+                    Accessible.name: checked ? qsTr("Hide password")
+                                             : qsTr("Show password")
+                    ToolTip.text: Accessible.name
+                    ToolTip.visible: hovered
+                    ToolTip.delay: 500
+                }
             }
 
             Label {
@@ -146,4 +186,5 @@ Item {
             }
         }
     }
+    } // Flickable
 }

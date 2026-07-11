@@ -73,6 +73,11 @@ private Q_SLOTS:
     void clearsMetadataWhenTokenIsAlreadyMissing();
     void normalizedIdentityClearsLegacyKey();
     void reportsSecretCleanupFailureButClearsMetadata();
+    // v0.5.11.
+    void validThemeIdsRoundTripAndPersist();
+    void unknownStoredThemeFallsBackToSystem();
+    void themeChangeEmitsSignal();
+    void previewDefaultsAndEncryptedOff();
 
 private:
     QTemporaryDir m_configHome;
@@ -166,6 +171,74 @@ void SettingsSessionTest::reportsSecretCleanupFailureButClearsMetadata()
     QVERIFY(!settings.clearSession());
     QVERIFY(settings.userId().isEmpty());
     QVERIFY(settings.deviceId().isEmpty());
+}
+
+void SettingsSessionTest::validThemeIdsRoundTripAndPersist()
+{
+    {
+        SettingsManager settings;
+        // Every preset id offered by the UI must round-trip.
+        const SettingsManager::Theme ids[] = {
+            SettingsManager::SystemTheme, SettingsManager::LightTheme,
+            SettingsManager::DarkTheme,
+            SettingsManager::GraphiteTheme, SettingsManager::MidnightBlueTheme,
+            SettingsManager::NordTheme, SettingsManager::PurpleDuskTheme,
+        };
+        for (const auto id : ids) {
+            settings.setTheme(id);
+            QCOMPARE(settings.theme(), id);
+        }
+        settings.setTheme(SettingsManager::NordTheme);
+    }
+    // Persistence across a fresh instance (same QSettings backing).
+    SettingsManager reopened;
+    QCOMPARE(reopened.theme(), SettingsManager::NordTheme);
+}
+
+void SettingsSessionTest::unknownStoredThemeFallsBackToSystem()
+{
+    {
+        QSettings raw;
+        raw.setValue(QStringLiteral("ui/theme"), 999); // out of range
+        raw.sync();
+    }
+    SettingsManager settings;
+    QCOMPARE(settings.theme(), SettingsManager::SystemTheme);
+
+    {
+        QSettings raw;
+        raw.setValue(QStringLiteral("ui/theme"), -3); // negative
+        raw.sync();
+    }
+    SettingsManager negative;
+    QCOMPARE(negative.theme(), SettingsManager::SystemTheme);
+}
+
+void SettingsSessionTest::themeChangeEmitsSignal()
+{
+    SettingsManager settings;
+    settings.setTheme(SettingsManager::LightTheme);
+    QSignalSpy spy(&settings, &SettingsManager::themeChanged);
+    settings.setTheme(SettingsManager::PurpleDuskTheme);
+    QCOMPARE(spy.count(), 1);
+    // Setting the same value again must not re-emit.
+    settings.setTheme(SettingsManager::PurpleDuskTheme);
+    QCOMPARE(spy.count(), 1);
+}
+
+void SettingsSessionTest::previewDefaultsAndEncryptedOff()
+{
+    SettingsManager settings;
+    // Privacy default: encrypted-room previews OFF; the other two ON.
+    QCOMPARE(settings.loadPreviewsInEncryptedRooms(), false);
+    QCOMPARE(settings.autoLoadLinkPreviews(), true);
+    QCOMPARE(settings.animateGifPreviews(), true);
+
+    QSignalSpy spy(&settings,
+                   &SettingsManager::loadPreviewsInEncryptedRoomsChanged);
+    settings.setLoadPreviewsInEncryptedRooms(true);
+    QCOMPARE(spy.count(), 1);
+    QCOMPARE(settings.loadPreviewsInEncryptedRooms(), true);
 }
 
 QTEST_MAIN(SettingsSessionTest)

@@ -107,22 +107,12 @@ ColumnLayout {
 
             contentItem: RowLayout {
                 spacing: AppTheme.spacing8
-                Rectangle {
-                    width: 32; height: 32
-                    radius: AppTheme.radiusPill
-                    color: AppTheme.cardElevated
-                    Label {
-                        anchors.centerIn: parent
-                        text: {
-                            var n = model.displayName && model.displayName.length > 0
-                                    ? model.displayName
-                                    : (model.userId.length > 1 ? model.userId.slice(1) : "?")
-                            return n.length > 0 ? n[0].toUpperCase() : "?"
-                        }
-                        color: AppTheme.textSecondary
-                        font.pixelSize: AppTheme.fontSizeM
-                        font.weight: Font.DemiBold
-                    }
+                Avatar {
+                    size: 32
+                    name: (model.displayName && model.displayName.length > 0)
+                          ? model.displayName
+                          : (model.userId.length > 1 ? model.userId.slice(1) : "?")
+                    mxc: model.avatarUrl || ""
                 }
                 ColumnLayout {
                     Layout.fillWidth: true
@@ -145,9 +135,14 @@ ColumnLayout {
                         elide: Label.ElideMiddle
                     }
                 }
+                // v0.5.11: provenance chip so the user understands where a
+                // result came from (directory vs a confirmed exact lookup).
                 Label {
-                    visible: model.isExactMxid === true
-                    text: qsTr("Matrix ID")
+                    readonly property string src: model.source || "directory"
+                    visible: src !== "directory"
+                    text: src === "exact_local" ? qsTr("From your server")
+                        : src === "exact_mxid"  ? qsTr("Exact Matrix ID")
+                        : ""
                     color: AppTheme.textMuted
                     font.pixelSize: AppTheme.fontSizeXS
                 }

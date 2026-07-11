@@ -37,17 +37,12 @@ Item {
         anchors.margins: AppTheme.spacingM
         spacing: AppTheme.spacingM
 
-        Rectangle {
-            width: 40; height: 40
-            radius: 20
-            color: AppTheme.cardElevated
-            Label {
-                anchors.centerIn: parent
-                text: (model.name && model.name.length > 0) ? model.name.charAt(0).toUpperCase() : "?"
-                color: AppTheme.textSecondary
-                font.pixelSize: AppTheme.fontRoomTitle
-                font.weight: Font.DemiBold
-            }
+        Avatar {
+            size: 40
+            name: model.name || ""
+            mxc: model.avatarUrl || ""
+            // Spaces render as rounded squares, rooms as circles.
+            circle: !(model.isSpace === true)
         }
 
         ColumnLayout {

@@ -24,6 +24,7 @@
 #include "storage/AppDataPaths.h"
 
 #include <QGuiApplication>
+#include <QStyleHints>
 #include <QLoggingCategory>
 
 Q_LOGGING_CATEGORY(lcApp, "matrix.app")
@@ -138,6 +139,12 @@ AppController::AppController(Backend backend, QObject *parent)
                 [this](Qt::ApplicationState state) {
             m_readReceipts->setWindowActive(state == Qt::ApplicationActive);
         });
+        // v0.5.11: re-emit when the platform light/dark preference changes so
+        // the "System" theme repaints live.
+        if (auto *hints = guiApp->styleHints()) {
+            connect(hints, &QStyleHints::colorSchemeChanged, this,
+                    [this](Qt::ColorScheme) { Q_EMIT systemDarkModeChanged(); });
+        }
     }
 
     // v0.5.9: a created (or reused) conversation opens once the room is
@@ -514,6 +521,13 @@ ThreadManager *AppController::threads() const { return m_threads.get(); }
 bool AppController::initialSyncDone() const
 {
     return m_client && m_client->initialSyncDone();
+}
+
+bool AppController::systemDarkMode() const
+{
+    if (auto *hints = QGuiApplication::styleHints())
+        return hints->colorScheme() == Qt::ColorScheme::Dark;
+    return false;
 }
 
 QString AppController::syncModeLabel() const

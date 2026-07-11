@@ -27,6 +27,12 @@ ApplicationWindow {
         property: "mode"
         value: app.settings ? app.settings.theme : 0
     }
+    // v0.5.11: the platform light/dark preference drives the "System" theme.
+    Binding {
+        target: AppTheme
+        property: "systemDark"
+        value: app.systemDarkMode
+    }
 
     header: ToolBar {
         background: Rectangle { color: AppTheme.surface; border.width: 0 }

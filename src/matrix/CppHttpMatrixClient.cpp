@@ -92,7 +92,7 @@ void CppHttpMatrixClient::applyBearer(QNetworkRequest &request) const
     }
     request.setRawHeader("Accept", "application/json");
     request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
-    request.setRawHeader("User-Agent", "Lightning/0.5.10");
+    request.setRawHeader("User-Agent", "Lightning/0.5.11");
 }
 
 void CppHttpMatrixClient::setState(ConnectionState s)
@@ -1444,7 +1444,7 @@ void CppHttpMatrixClient::sendImage(const QString &roomId, const QString &localP
                          QByteArray("Bearer ") + m_accessToken.toUtf8());
     }
     req.setHeader(QNetworkRequest::ContentTypeHeader, mime.toUtf8());
-    req.setRawHeader("User-Agent", "Lightning/0.5.10");
+    req.setRawHeader("User-Agent", "Lightning/0.5.11");
 
     const QString echoEventId = echo.eventId;
     QNetworkReply *reply = m_nam->post(req, file);
@@ -1540,7 +1540,7 @@ void CppHttpMatrixClient::sendFile(const QString &roomId, const QString &localPa
                          QByteArray("Bearer ") + m_accessToken.toUtf8());
     }
     req.setHeader(QNetworkRequest::ContentTypeHeader, mime.toUtf8());
-    req.setRawHeader("User-Agent", "Lightning/0.5.10");
+    req.setRawHeader("User-Agent", "Lightning/0.5.11");
 
     const QString echoEventId = echo.eventId;
     QNetworkReply *reply = m_nam->post(req, file);

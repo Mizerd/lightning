@@ -109,6 +109,14 @@ Rectangle {
                 id: header
                 anchors.fill: parent
                 anchors.margins: AppTheme.spacingM
+                spacing: AppTheme.spacingS
+                Avatar {
+                    visible: app.currentRoomId !== ""
+                    size: 36
+                    name: root.currentRoom.name || app.currentRoomId
+                    mxc: root.currentRoom.avatarUrl || ""
+                    circle: !(root.currentRoom.isSpace === true)
+                }
                 ColumnLayout {
                     spacing: 2
                     Layout.fillWidth: true
@@ -191,6 +199,9 @@ Rectangle {
                 // pinned at a time; keyed by the SDK item id (or event id).
                 property string pinnedActionsKey: ""
                 property bool emojiPickerOpen: false
+                // v0.5.11: whether the open room is encrypted — drives the
+                // link-preview privacy gate in each MessageDelegate.
+                property bool roomEncrypted: root.currentRoom.encrypted === true
 
                 // v0.5.9: delegate entry points into the media UI. Kept on
                 // the view so MessageDelegate needs no external ids.
@@ -246,9 +257,64 @@ Rectangle {
                 onContentHeightChanged: maybeFillViewport()
                 onHeightChanged: maybeFillViewport()
 
+                // v0.5.11: scroll-anchor preservation across a backward
+                // prepend. When older events are inserted at the top, a fixed
+                // contentY would make the whole conversation jump. We record
+                // the first visible event's stable id and its pixel offset
+                // when a request starts, then re-align to it once the prepend
+                // lands (falling back to a content-height delta if the anchor
+                // scrolled out of the created range).
+                property string anchorStableId: ""
+                property real anchorOffset: 0
+                property real anchorContentHeight: 0
+
+                function captureAnchor() {
+                    var row = indexAt(width / 2, contentY + topMargin + 1)
+                    if (row < 0) { anchorStableId = ""; return }
+                    var it = itemAtIndex(row)
+                    anchorStableId = app.timeline.stableIdAt(row)
+                    anchorOffset = it ? (contentY - it.y) : 0
+                    anchorContentHeight = contentHeight
+                }
+                function restoreAnchor(inserted) {
+                    if (inserted <= 0 || anchorStableId === "" || stickToBottom) {
+                        anchorStableId = ""
+                        return
+                    }
+                    var newRow = app.timeline.rowForStableId(anchorStableId)
+                    if (newRow < 0) {
+                        var delta = contentHeight - anchorContentHeight
+                        if (delta > 0) contentY += delta
+                        anchorStableId = ""
+                        return
+                    }
+                    positionViewAtIndex(newRow, ListView.Beginning)
+                    var it = itemAtIndex(newRow)
+                    if (it) contentY = it.y + anchorOffset
+                    anchorStableId = ""
+                }
+
+                Connections {
+                    target: app.pagination
+                    property bool wasBusy: false
+                    function onStateChanged() {
+                        if (app.pagination.busy && !wasBusy
+                            && !timeline.stickToBottom)
+                            timeline.captureAnchor()
+                        wasBusy = app.pagination.busy
+                    }
+                    function onPaginationCompleted(inserted, reachedStart) {
+                        Qt.callLater(function() { timeline.restoreAnchor(inserted) })
+                    }
+                }
+
                 onContentYChanged: {
                     if (!moving) return
                     stickToBottom = (contentY + height >= contentHeight - 40)
+                    // Trigger backfill before hitting the exact top so history
+                    // is ready as the user approaches it.
+                    if (contentY < height * 0.5 && !stickToBottom)
+                        app.pagination.requestNearTop()
                 }
                 onCountChanged: {
                     // A new event arrived (or the timeline reset). Follow the
@@ -275,6 +341,9 @@ Rectangle {
                         timeline.stickToBottom = true
                         timeline.pinnedActionsKey = ""
                         timeline.emojiPickerOpen = false
+                        timeline.anchorStableId = ""
+                        timeline.anchorOffset = 0
+                        timeline.anchorContentHeight = 0
                         Qt.callLater(timeline.scrollToEndDeferred)
                         Qt.callLater(timeline.maybeFillViewport)
                     }
@@ -288,6 +357,11 @@ Rectangle {
                         app.pagination.requestNearTop()
                 }
 
+                // v0.5.11: the header shows only transient loading / failure
+                // states. The beginning of history is rendered by the virtual
+                // "Beginning of conversation" row (eventType 9), so there is no
+                // permanent "scroll up" placeholder that lingers when the
+                // viewport cannot scroll.
                 header: Item {
                     width: timeline.width
                     height: paginationHeader.visible ? paginationHeader.implicitHeight + 8
@@ -296,33 +370,27 @@ Rectangle {
                         id: paginationHeader
                         anchors.centerIn: parent
                         spacing: 6
-                        // v0.5.7: hidden entirely once the start of history
-                        // is reached (no permanent placeholder).
                         visible: app.currentRoomId !== ""
-                                 && (app.timeline.canPaginate
-                                     || app.timeline.paginating
-                                     || app.timeline.paginationFailed)
+                                 && (app.pagination.busy
+                                     || app.pagination.failed)
                         BusyIndicator {
                             width: 16; height: 16
                             anchors.verticalCenter: parent.verticalCenter
-                            running: app.timeline.paginating
-                            visible: app.timeline.paginating
+                            running: app.pagination.busy
+                            visible: app.pagination.busy
                         }
                         Label {
                             anchors.verticalCenter: parent.verticalCenter
-                            text: app.timeline.paginating
+                            text: app.pagination.busy
                                   ? qsTr("Loading older messages…")
-                                  : (app.timeline.paginationFailed
-                                     ? qsTr("Could not load older messages —")
-                                     : qsTr("Scroll up to load more history"))
-                            color: app.timeline.paginationFailed
+                                  : qsTr("Could not load older messages —")
+                            color: app.pagination.failed
                                    ? AppTheme.error : AppTheme.textMuted
                             font.pixelSize: 11
                         }
                         Label {
                             anchors.verticalCenter: parent.verticalCenter
-                            visible: app.timeline.paginationFailed
-                                     && !app.timeline.paginating
+                            visible: app.pagination.failed && !app.pagination.busy
                             text: qsTr("Retry")
                             color: AppTheme.accent
                             font.pixelSize: 11

@@ -129,18 +129,11 @@ Rectangle {
 
                     RowLayout {
                         spacing: AppTheme.spacing12
-                        Rectangle {
-                            width: 56; height: 56
-                            radius: AppTheme.radiusPill
-                            color: AppTheme.cardElevated
-                            Label {
-                                anchors.centerIn: parent
-                                text: root.roomData.name && root.roomData.name.length > 0
-                                      ? root.roomData.name[0].toUpperCase() : "?"
-                                color: AppTheme.textSecondary
-                                font.pixelSize: 22
-                                font.weight: Font.DemiBold
-                            }
+                        Avatar {
+                            size: 56
+                            name: root.roomData.name || ""
+                            mxc: root.roomData.avatarUrl || ""
+                            circle: !(root.roomData.isSpace === true)
                         }
                         ColumnLayout {
                             Layout.fillWidth: true

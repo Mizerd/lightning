@@ -218,10 +218,26 @@ Item {
                                     font.pixelSize: AppTheme.fontSecondary
                                 }
                                 ComboBox {
+                                    id: themeCombo
                                     Layout.fillWidth: true
-                                    model: [qsTr("System"), qsTr("Light"), qsTr("Dark")]
-                                    currentIndex: app.settings.theme
-                                    onActivated: app.settings.theme = currentIndex
+                                    textRole: "label"
+                                    valueRole: "value"
+                                    // Preset id values map to SettingsManager::Theme.
+                                    model: [
+                                        { label: qsTr("System"),        value: 0 },
+                                        { label: qsTr("Light"),         value: 1 },
+                                        { label: qsTr("Graphite"),      value: 3 },
+                                        { label: qsTr("Midnight Blue"), value: 4 },
+                                        { label: qsTr("Nord"),          value: 5 },
+                                        { label: qsTr("Purple Dusk"),   value: 6 }
+                                    ]
+                                    // A stored legacy Dark (2) renders as the
+                                    // Midnight Blue preset and is migrated to
+                                    // its current id on the next selection.
+                                    currentIndex: Math.max(0, indexOfValue(
+                                        app.settings.theme === 2
+                                        ? 4 : app.settings.theme))
+                                    onActivated: app.settings.theme = currentValue
                                 }
                                 // Small live preview of the core palette.
                                 RowLayout {
@@ -272,6 +288,67 @@ Item {
                                     text: qsTr("Language switching requires an app restart.")
                                     color: AppTheme.textMuted
                                     font.pixelSize: AppTheme.fontCaption
+                                }
+                            }
+                        }
+
+                        // v0.5.11: link-preview and GIF policy.
+                        Label {
+                            text: qsTr("Link previews & media")
+                            color: AppTheme.textPrimary
+                            font.pixelSize: AppTheme.fontSectionTitle
+                            font.weight: Font.DemiBold
+                            Layout.topMargin: AppTheme.spacing8
+                        }
+                        SettingsCard {
+                            ColumnLayout {
+                                width: parent.width
+                                spacing: AppTheme.spacing8
+
+                                CheckBox {
+                                    id: autoPreviewCheck
+                                    text: qsTr("Automatically load previews in unencrypted rooms")
+                                    checked: app.settings.autoLoadLinkPreviews
+                                    onToggled: app.settings.autoLoadLinkPreviews = checked
+                                }
+                                CheckBox {
+                                    text: qsTr("Load previews in encrypted rooms")
+                                    checked: app.settings.loadPreviewsInEncryptedRooms
+                                    onToggled: app.settings.loadPreviewsInEncryptedRooms = checked
+                                }
+                                Label {
+                                    Layout.fillWidth: true
+                                    Layout.leftMargin: AppTheme.spacing4
+                                    wrapMode: Text.WordWrap
+                                    color: AppTheme.warning
+                                    font.pixelSize: AppTheme.fontCaption
+                                    text: qsTr("Loading a preview in an encrypted room asks "
+                                               + "your homeserver to fetch the link, which "
+                                               + "reveals the URL to the server. Previews are "
+                                               + "never protected by room encryption. Off by "
+                                               + "default; otherwise use each message's "
+                                               + "“Load link preview” action.")
+                                }
+
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    implicitHeight: 1
+                                    color: AppTheme.border
+                                }
+
+                                CheckBox {
+                                    text: qsTr("Animate GIF previews")
+                                    checked: app.settings.animateGifPreviews
+                                    onToggled: app.settings.animateGifPreviews = checked
+                                }
+                                Label {
+                                    Layout.fillWidth: true
+                                    Layout.leftMargin: AppTheme.spacing4
+                                    wrapMode: Text.WordWrap
+                                    color: AppTheme.textMuted
+                                    font.pixelSize: AppTheme.fontCaption
+                                    text: qsTr("When off, GIFs show a static first frame "
+                                               + "until opened.")
                                 }
                             }
                         }

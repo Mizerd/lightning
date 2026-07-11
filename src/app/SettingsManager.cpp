@@ -93,11 +93,20 @@ void SettingsManager::setHomeserverUrl(const QString &url)
 
 SettingsManager::Theme SettingsManager::theme() const
 {
-    return static_cast<Theme>(m_store->value(kTheme, SystemTheme).toInt());
+    const int stored = m_store->value(kTheme, SystemTheme).toInt();
+    // An unknown / out-of-range stored theme (e.g. written by a newer build,
+    // or corrupted) falls back to the safe default rather than rendering an
+    // undefined palette.
+    if (stored < 0 || stored > kMaxThemeId)
+        return SystemTheme;
+    return static_cast<Theme>(stored);
 }
 
 void SettingsManager::setTheme(Theme t)
 {
+    const int value = static_cast<int>(t);
+    if (value < 0 || value > kMaxThemeId)
+        t = SystemTheme;
     if (theme() == t)
         return;
     m_store->setValue(kTheme, static_cast<int>(t));
