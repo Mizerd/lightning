@@ -55,6 +55,7 @@ private Q_SLOTS:
     void encryptedEditNotPersisted();
     void encryptedReplacementPurgesPlaceholder();
     void encryptedReplyPreviewNotPersisted();
+    void encryptedMediaMetadataNotPersisted();
     void markerNeverAppearsInDatabaseFile();
 
 private:
@@ -161,6 +162,36 @@ void CacheStoreSecurityTest::encryptedReplyPreviewNotPersisted()
     reply.replyToPreview = kMarker; // preview of an encrypted message
     m_store->appendEvent(reply);
     QVERIFY(m_store->loadTimeline(kRoom).isEmpty());
+}
+
+void CacheStoreSecurityTest::encryptedMediaMetadataNotPersisted()
+{
+    // v0.5.9: media rows from encrypted rooms — filename, media key, MIME —
+    // must be refused exactly like text plaintext. Decrypted media bytes
+    // themselves never reach CacheStore at all (the media bridge is
+    // memory-only), so metadata is the only thing that could leak here.
+    const QString marker = QStringLiteral("LIGHTNING_MEDIA_CACHE_TEST_059");
+    TimelineEvent media = encryptedEvent(QStringLiteral("$encmedia"), marker);
+    media.type = TimelineEvent::Image;
+    media.mediaFilename = marker + QStringLiteral(".png");
+    media.mediaKey = QStringLiteral("$encmedia");
+    media.mediaMimetype = QStringLiteral("image/png");
+    media.mediaSourceAvailable = true;
+    m_store->appendEvent(media);
+    QVERIFY(m_store->loadTimeline(kRoom).isEmpty());
+
+    m_store->updateEvent(media);
+    QVERIFY(m_store->loadTimeline(kRoom).isEmpty());
+
+    // Raw-byte scan: the marker must not exist anywhere in cache.sqlite.
+    m_store->close();
+    const QString path = databaseFilePath();
+    QVERIFY(!path.isEmpty());
+    QFile file(path);
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    const QByteArray raw = file.readAll();
+    QVERIFY(!raw.contains(marker.toUtf8()));
+    QVERIFY(m_store->openFor(QStringLiteral("@cache-test:example.org")));
 }
 
 void CacheStoreSecurityTest::markerNeverAppearsInDatabaseFile()

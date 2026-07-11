@@ -240,6 +240,33 @@ QHash<int, QByteArray> TimelineModel::roleNames() const
     };
 }
 
+QVariantList TimelineModel::imageEntries() const
+{
+    QVariantList out;
+    for (int row = 0; row < m_events.size(); ++row) {
+        const TimelineEvent &e = m_events.at(row);
+        if (e.type != TimelineEvent::Image || e.redacted)
+            continue;
+        // Viewable when the media bridge can fetch it (Rust) or an HTTP
+        // download URL exists (HTTP backend).
+        const QUrl httpUrl = mediaHttp(e.mediaMxcUrl);
+        if (!e.mediaSourceAvailable && httpUrl.isEmpty())
+            continue;
+        QVariantMap entry;
+        entry.insert(QStringLiteral("row"), row);
+        entry.insert(QStringLiteral("mediaKey"), e.mediaKey);
+        entry.insert(QStringLiteral("filename"), e.mediaFilename);
+        entry.insert(QStringLiteral("sender"),
+                     e.senderDisplayName.isEmpty() ? e.sender
+                                                   : e.senderDisplayName);
+        entry.insert(QStringLiteral("timestamp"), e.timestamp);
+        entry.insert(QStringLiteral("mime"), e.mediaMimetype);
+        entry.insert(QStringLiteral("httpUrl"), httpUrl);
+        out.append(entry);
+    }
+    return out;
+}
+
 int TimelineModel::rowForEventId(const QString &eventId) const
 {
     for (int i = 0; i < m_events.size(); ++i) {

@@ -107,13 +107,34 @@ Item {
                     anchors.margins: AppTheme.spacingS + 2
                     spacing: 2
 
-                    Label {
-                        id: nameLabel
-                        visible: !model.isOwn
-                        text: model.senderDisplayName || model.sender
-                        color: AppTheme.text
-                        font.pixelSize: 12
-                        font.weight: Font.DemiBold
+                    RowLayout {
+                        visible: !model.isOwn && !model.sameSenderAsPrevious
+                        spacing: AppTheme.spacingXS
+                        Label {
+                            id: nameLabel
+                            text: model.senderDisplayName || model.sender
+                            color: AppTheme.text
+                            font.pixelSize: 12
+                            font.weight: Font.DemiBold
+                            // Full MXID on hover; always available even when
+                            // the display name is shown.
+                            ToolTip.text: model.sender
+                            ToolTip.visible: nameHover.hovered
+                            ToolTip.delay: 400
+                            HoverHandler { id: nameHover }
+                        }
+                        // v0.5.9: compact disambiguator when the SDK reports
+                        // two active members share this display name.
+                        Label {
+                            visible: model.senderNameAmbiguous === true
+                                     && (model.senderDisplayName || "").length > 0
+                            text: model.sender
+                            color: model.isOwn ? AppTheme.ownBubbleText
+                                               : AppTheme.textMuted
+                            font.pixelSize: 10
+                            elide: Label.ElideMiddle
+                            Layout.maximumWidth: 180
+                        }
                     }
 
                     // Reply preview
@@ -437,9 +458,42 @@ Item {
     Component {
         id: imageComponent
         Item {
+            id: imageBox
             width: parent.width
             property real ratio: (model.mediaWidth > 0 && model.mediaHeight > 0)
                                  ? (model.mediaHeight / model.mediaWidth) : 0.6
+
+            // v0.5.9: prefer the media bridge (works for encrypted rooms —
+            // the SDK decrypts inside Rust); HTTP-backend URLs remain the
+            // fallback. An empty bridgeSource means "fetch in flight".
+            readonly property bool usesBridge:
+                model.mediaSourceAvailable === true && app.mediaBridge.supported
+            readonly property string bridgeCacheKey:
+                (model.mediaThumbAvailable ? "thumb:" : "full:") + (model.mediaKey || "")
+            property string bridgeSource: ""
+            property bool bridgeFailed: false
+
+            function refreshBridgeSource() {
+                if (!usesBridge || !model.mediaKey) return
+                bridgeFailed = false
+                bridgeSource = app.mediaBridge.mediaSource(
+                    model.mediaKey,
+                    model.mediaThumbAvailable ? "thumb" : "full")
+            }
+            Component.onCompleted: refreshBridgeSource()
+            Connections {
+                target: app.mediaBridge
+                enabled: imageBox.usesBridge
+                function onMediaCached(cacheKey) {
+                    if (cacheKey === imageBox.bridgeCacheKey)
+                        imageBox.bridgeSource = app.mediaBridge.cachedSource(cacheKey)
+                }
+                function onMediaFetchFailed(cacheKey, category) {
+                    if (cacheKey === imageBox.bridgeCacheKey)
+                        imageBox.bridgeFailed = true
+                }
+            }
+
             implicitHeight: img.status === Image.Ready
                             ? Math.min(root.width * 0.5, img.paintedHeight + 4)
                             : Math.min(320 * ratio, 240)
@@ -447,11 +501,14 @@ Item {
                 id: img
                 anchors.centerIn: parent
                 width: Math.min(parent.width, 320)
-                height: Math.min(width * (ratio > 0 ? ratio : 0.6), 240)
+                height: Math.min(width * (imageBox.ratio > 0 ? imageBox.ratio : 0.6), 240)
                 fillMode: Image.PreserveAspectFit
-                source: model.mediaThumbUrl && model.mediaThumbUrl.toString().length > 0
-                        ? model.mediaThumbUrl
-                        : model.mediaUrl
+                source: imageBox.usesBridge
+                        ? imageBox.bridgeSource
+                        : (model.mediaThumbUrl && model.mediaThumbUrl.toString().length > 0
+                           ? model.mediaThumbUrl
+                           : model.mediaUrl)
+                sourceSize.width: 640
                 asynchronous: true
                 cache: true
 
@@ -459,7 +516,14 @@ Item {
                     anchors.fill: parent
                     cursorShape: Qt.PointingHandCursor
                     onClicked: {
-                        if (model.mediaUrl && model.mediaUrl.toString().length > 0)
+                        if (imageBox.bridgeFailed) {
+                            imageBox.refreshBridgeSource()
+                            return
+                        }
+                        if (root.ListView.view && root.ListView.view.openImage)
+                            root.ListView.view.openImage(model.mediaKey || "",
+                                                         model.mediaUrl)
+                        else if (model.mediaUrl && model.mediaUrl.toString().length > 0)
                             app.media.openExternal(model.mediaUrl)
                     }
                 }
@@ -467,14 +531,19 @@ Item {
                 BusyIndicator {
                     anchors.centerIn: parent
                     running: img.status === Image.Loading
-                    visible: img.status === Image.Loading
+                             || (imageBox.usesBridge
+                                 && imageBox.bridgeSource === ""
+                                 && !imageBox.bridgeFailed)
+                    visible: running
                 }
                 Label {
                     anchors.centerIn: parent
-                    text: qsTr("(image unavailable)")
+                    text: imageBox.bridgeFailed
+                          ? qsTr("Image failed to load — click to retry")
+                          : qsTr("(image unavailable)")
                     color: AppTheme.textMuted
                     font.pixelSize: 11
-                    visible: img.status === Image.Error
+                    visible: img.status === Image.Error || imageBox.bridgeFailed
                 }
             }
         }
@@ -521,12 +590,27 @@ Item {
                         font.pixelSize: 10
                     }
                 }
+                // v0.5.9: explicit Save As through the media bridge (SDK
+                // decrypts encrypted attachments; the file is written only
+                // to the user-chosen destination and never opened).
                 ToolButton {
-                    text: qsTr("Open")
+                    visible: model.mediaSourceAvailable === true
+                             && app.mediaBridge.supported
+                    text: qsTr("Save")
+                    Accessible.name: qsTr("Save %1 as…").arg(model.mediaFilename || qsTr("file"))
                     onClicked: {
-                        if (model.mediaUrl && model.mediaUrl.toString().length > 0)
-                            app.media.openExternal(model.mediaUrl)
+                        if (root.ListView.view && root.ListView.view.saveMedia)
+                            root.ListView.view.saveMedia(model.mediaKey || "",
+                                                         model.mediaFilename || "download")
                     }
+                }
+                // HTTP backend keeps its external-open path (plain media).
+                ToolButton {
+                    visible: !(model.mediaSourceAvailable === true)
+                             && model.mediaUrl
+                             && model.mediaUrl.toString().length > 0
+                    text: qsTr("Open")
+                    onClicked: app.media.openExternal(model.mediaUrl)
                 }
             }
         }

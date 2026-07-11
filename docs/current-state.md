@@ -3,10 +3,11 @@
 ## v0.5.9 — user search, DMs, room creation, invites, room info; media FFI foundation
 
 Scope note: this release delivers the conversation-creation and membership
-milestone (the original plan's Phases 7–10) plus the Rust-side media
-foundation. The UI/theme redesign, Settings restructure, account menu,
-emoji picker, composer redesign and media *UI* were deliberately deferred —
-`docs/matrix-feature-status.md` reflects exactly what is wired.
+milestone (the original plan's Phases 7–10) plus the full media pipeline
+(Phases 12–15: composer attachments, received media, image viewer). The
+UI/theme redesign, Settings restructure, account menu and emoji picker were
+deliberately deferred — `docs/matrix-feature-status.md` reflects exactly
+what is wired.
 
 ### User search (Phase 7)
 
@@ -92,13 +93,34 @@ emoji picker, composer redesign and media *UI* were deliberately deferred —
   `Room::upload_avatar`; `mx_rust_remove_room_avatar`); the Overview UI
   for it lands with the media UI pass.
 
-### Media bridge foundation (FFI landed; UI deferred)
+### Media sending (Phases 12–13)
 
 - Send: `mx_rust_timeline_send_attachment` /
   `_bytes` → `Timeline::send_attachment(...).use_send_queue()` — SDK-owned
   local echo through the existing diff stream, transparent E2EE for
   encrypted rooms, retry via the existing unwedge path. The bytes variant
   exists so clipboard images never touch a temporary file.
+- Composer: unified bar (attach `＋`, expanding multiline editor capped at
+  ~6 lines, Send; Enter sends, Shift+Enter newline). The attachment tray
+  (`AttachmentQueueModel`) holds prepared files with name/size/thumbnail,
+  per-entry queued → dispatching → failed(+retry) state, and remove
+  buttons; nothing uploads until the user sends. Validation on add:
+  directories, unreadable and empty files rejected; MIME detected from
+  *content* (`QMimeDatabase::MatchContent` — a mislabelled extension cannot
+  pick the send path); size gated against the server's `m.upload.size`
+  (fetched once per session; conservative 100 MB fallback). Image
+  dimensions come from a header-only `QImageReader` probe.
+- Drag-and-drop (`text/uri-list` only) highlights the composer; clipboard
+  paste intercepts Ctrl+V — images become bounded in-memory PNG attachments
+  (scaled ≤ 4096 px, sent via the bytes FFI, no temp file), file-manager
+  URL lists become attachments, and plain text always pastes as text (a
+  pasted path string is never treated as a file). Queued attachments are
+  dropped on room switch and sign-out; already-dispatched uploads belong to
+  the SDK send queue. Attachment sends go first, then the composed text as
+  its own message. Covered by `tests/AttachmentQueueTest.cpp`.
+
+### Received media and the image viewer (Phases 14–15)
+
 - Receive: the timeline serializer now records each media item's
   `MediaSource` (including encrypted sources, which never cross the FFI)
   in a per-room Rust-side registry keyed by `media_key` (event id, or SDK
@@ -113,8 +135,25 @@ emoji picker, composer redesign and media *UI* were deliberately deferred —
   atomically (QSaveFile) to the user-chosen destination with a
   re-sanitized file name and never opens the file. The cache and parked
   payloads are cleared on sign-out. `mx_rust_media_fetch_mxc` serves
-  plain-mxc avatar thumbnails; `mx_rust_fetch_upload_limit` exposes the
-  server's `m.upload.size` for the future composer gate.
+  plain-mxc avatar thumbnails; `mx_rust_fetch_upload_limit` supplies the
+  composer's upload-size gate.
+- Timeline UI: image messages render bounded aspect-ratio thumbnails
+  through the bridge (encrypted rooms included — the SDK decrypts inside
+  Rust); loading and failed-with-retry placeholders; the HTTP backend keeps
+  its URL path. File messages show icon/name/size/MIME with an explicit
+  **Save** (bridge Save As dialog) on the Rust backend and the old external
+  Open on HTTP. Files are never executed or auto-opened.
+- `ImageViewerOverlay` (in-app, hosted by TimelinePane — the SDK timeline
+  is untouched): full-window scrim, fit-to-window, wheel/keyboard zoom
+  (20 %–800 %) with pan, previous/next across the images currently loaded
+  in the timeline (`TimelineModel::imageEntries()`; no history fetched),
+  filename + sender/timestamp captions, Save As, loading/error states with
+  retry, Escape/scrim-click close, animated GIF playback via
+  `AnimatedImage`.
+- Cache security: `LIGHTNING_MEDIA_CACHE_TEST_059` in
+  `tests/CacheStoreSecurityTest.cpp` proves encrypted-room media metadata
+  (filename/media key/MIME) never reaches raw `cache.sqlite` bytes; media
+  payloads themselves exist only in the in-memory bridge cache.
 
 ### Identity groundwork
 

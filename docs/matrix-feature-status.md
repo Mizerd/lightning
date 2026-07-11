@@ -26,8 +26,8 @@ Legend:
 | Edits (`m.replace`) | ✅ | ✅ | ✅ SDK Timeline |
 | Redactions | ✅ | ✅ | ✅ SDK Timeline |
 | Reactions (`m.reaction` / `m.annotation`) | ✅ | ✅ | ✅ SDK Timeline |
-| Media send (image/file, legacy `/media/v3/upload`) | 🟡 no-op | ✅ | 🟡 FFI + send-queue path landed (v0.5.9, `Timeline::send_attachment().use_send_queue()`); composer UI not yet wired |
-| Media receive (image/file, legacy `/media/v3/download`) | ✅ | ✅ | 🟡 media bridge landed (v0.5.9): Rust-side `MediaSource` registry + `Media::get_media_content` (decrypts) + binary take/free FFI + C++ LRU cache/image provider; timeline UI not yet wired |
+| Media send (image/file, legacy `/media/v3/upload`) | 🟡 no-op | ✅ | ✅ (v0.5.9) `Timeline::send_attachment().use_send_queue()` — composer tray (picker/drag-drop/clipboard paste), SDK local echo + retry, MIME from content, server upload-limit gate |
+| Media receive (image/file, legacy `/media/v3/download`) | ✅ | ✅ | ✅ (v0.5.9) media bridge: Rust-side `MediaSource` registry + `Media::get_media_content` (decrypts) + binary take/free FFI + C++ LRU cache/image provider; timeline thumbnails, in-app image viewer (zoom/pan/prev/next, GIF), explicit Save As (atomic, sanitized, never auto-opened) |
 | User directory search (`/user_directory/search`) | ❌ | ❌ | ✅ (v0.5.9) debounced, stale-result-safe `UserSearchModel` |
 | Create DM (`create_dm` + locked `m.direct` merge) | ❌ | ❌ | ✅ (v0.5.9) with existing-DM reuse offer |
 | Create room (`create_room`, encryption initial state) | ❌ | ❌ | ✅ (v0.5.9) private/public, optional alias, initial invites, optional Space placement |
@@ -50,7 +50,7 @@ Legend:
 | Encrypted room read | ❌ placeholder | ❌ placeholder | ✅ initial E2EE support (v0.5.0-prep+9): verified live against Element Classic on a persistent SDK store — `expect_text=seen`, `decrypted_events_since_expect=1`, `undecryptable_since_expect=0`. Undecryptable events still render as `[unable to decrypt yet]` |
 | Encrypted send | ❌ blocked | ❌ blocked | ✅ initial E2EE support (v0.5.0-prep+9): matrix-sdk auto-encrypts on the interactive UI path; the encrypted-send probe was displayed as readable text in Element Classic |
 | Device verification / cross-signing | ❌ | ❌ | ✅ SAS + trust snapshot |
-| Encrypted media | ❌ placeholder | ❌ placeholder | 🟡 decrypt-on-fetch path landed in the v0.5.9 media bridge (sources stay inside Rust); UI wiring pending |
+| Encrypted media | ❌ placeholder | ❌ placeholder | ✅ (v0.5.9) sent via SDK-encrypted attachments; received via decrypt-on-fetch in the media bridge (sources/keys stay inside Rust; plaintext memory-only, `LIGHTNING_MEDIA_CACHE_TEST_059` proves nothing reaches cache.sqlite) |
 | SSO login | ❌ capability flag `false` | ❌ capability flag `false` | ❌ |
 | OIDC / MAS login | ❌ capability flag `false` | ❌ capability flag `false` | ❌ |
 | Multi-account switching | ❌ single-active | ❌ single-active | ❌ |

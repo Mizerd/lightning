@@ -1,8 +1,11 @@
 #pragma once
 
+#include "models/AttachmentQueueModel.h"
+
 #include <QObject>
 #include <QString>
 #include <QTimer>
+#include <QUrl>
 
 class MatrixClient;
 
@@ -22,6 +25,10 @@ class MessageComposer : public QObject
     Q_PROPERTY(QString threadRootId READ threadRootId NOTIFY threadStateChanged)
     Q_PROPERTY(QString threadPreview READ threadPreview NOTIFY threadStateChanged)
     Q_PROPERTY(bool inThread READ inThread NOTIFY threadStateChanged)
+    // v0.5.9: attachment tray (Rust backend; SDK send queue).
+    Q_PROPERTY(AttachmentQueueModel* attachments READ attachments CONSTANT)
+    Q_PROPERTY(bool hasAttachments READ hasAttachments NOTIFY attachmentsChanged)
+    Q_PROPERTY(bool attachmentsSupported READ attachmentsSupported NOTIFY roomIdChanged)
 
 public:
     explicit MessageComposer(QObject *parent = nullptr);
@@ -64,6 +71,19 @@ public:
     Q_INVOKABLE void sendImageFromPath(const QString &localPath);
     Q_INVOKABLE void sendFileFromPath(const QString &localPath);
 
+    // v0.5.9 attachment tray.
+    AttachmentQueueModel *attachments() const { return m_attachments; }
+    bool hasAttachments() const { return m_attachments && !m_attachments->isEmpty(); }
+    bool attachmentsSupported() const;
+    // Add a picked/dropped file; emits attachmentRejected(reason) when the
+    // file fails validation (directory, unreadable, empty, over limit).
+    Q_INVOKABLE void addAttachment(const QUrl &fileUrl);
+    // Intercept Ctrl+V: returns true when the clipboard held an image or
+    // local file URLs and they were queued as attachments; false lets the
+    // text editor perform a normal text paste. Plain text that merely looks
+    // like a path is never treated as a file.
+    Q_INVOKABLE bool pasteFromClipboard();
+
 Q_SIGNALS:
     void textChanged();
     void roomIdChanged();
@@ -71,13 +91,21 @@ Q_SIGNALS:
     void replyStateChanged();
     void editStateChanged();
     void threadStateChanged();
+    void attachmentsChanged();
+    void attachmentRejected(const QString &reason);
+
+private Q_SLOTS:
+    void onAttachmentQueueFinished(quint64 opId, const QString &roomId,
+                                   bool ok, const QString &category);
 
 private:
     void updateCanSend();
     void refreshTypingState();
     void stopTyping();
+    void dispatchAttachments();
 
     MatrixClient *m_client = nullptr;
+    AttachmentQueueModel *m_attachments = nullptr;
     QString m_text;
     QString m_roomId;
     QString m_replyingToEventId;

@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Dialogs
 import QtQuick.Layouts
 import MatrixClient
 
@@ -64,6 +65,29 @@ Rectangle {
     // Read-state on focus change is handled by the ListView's own
     // maybeMarkRead() gate (see the timeline below).
     Component.onCompleted: refreshCurrentRoom()
+
+    // v0.5.9: in-app image viewer + explicit Save As for file attachments.
+    ImageViewerOverlay { id: imageViewer }
+    FileDialog {
+        id: saveMediaDialog
+        property string pendingMediaKey: ""
+        title: qsTr("Save file as…")
+        fileMode: FileDialog.SaveFile
+        onAccepted: {
+            if (pendingMediaKey.length > 0)
+                app.mediaBridge.saveAs(pendingMediaKey, selectedFile)
+            pendingMediaKey = ""
+        }
+        onRejected: pendingMediaKey = ""
+    }
+    Connections {
+        target: app.mediaBridge
+        function onSaveFinished(ok, message) {
+            saveResult.ok = ok
+            saveResult.text = message
+            saveResultTimer.restart()
+        }
+    }
 
     RowLayout {
         anchors.fill: parent
@@ -165,6 +189,18 @@ Rectangle {
                 // (by a click). Shared across delegates so only one can be
                 // pinned at a time; keyed by the SDK item id (or event id).
                 property string pinnedActionsKey: ""
+
+                // v0.5.9: delegate entry points into the media UI. Kept on
+                // the view so MessageDelegate needs no external ids.
+                property var openImage: function(mediaKey, httpUrl) {
+                    imageViewer.openFor(mediaKey || "", httpUrl)
+                }
+                property var saveMedia: function(mediaKey, filename) {
+                    if (!mediaKey || mediaKey.length === 0) return
+                    saveMediaDialog.pendingMediaKey = mediaKey
+                    saveMediaDialog.currentFile = "file:///" + (filename || "download")
+                    saveMediaDialog.open()
+                }
 
                 // Scroll to the newest row *after* the model/view have finished
                 // reconciling. Calling positionViewAtEnd() synchronously inside
@@ -314,6 +350,28 @@ Rectangle {
                 color: AppTheme.textMuted
                 font.italic: true
                 font.pixelSize: 11
+            }
+        }
+
+        // v0.5.9: Save As result feedback (auto-clears).
+        Rectangle {
+            Layout.fillWidth: true
+            visible: saveResult.text.length > 0
+            implicitHeight: saveResult.implicitHeight + 6
+            color: AppTheme.surface
+            Label {
+                id: saveResult
+                property bool ok: true
+                anchors.left: parent.left
+                anchors.leftMargin: AppTheme.spacingM
+                anchors.verticalCenter: parent.verticalCenter
+                color: ok ? AppTheme.success : AppTheme.danger
+                font.pixelSize: 11
+                Timer {
+                    id: saveResultTimer
+                    interval: 5000
+                    onTriggered: saveResult.text = ""
+                }
             }
         }
 

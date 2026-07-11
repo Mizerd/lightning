@@ -106,6 +106,8 @@ set(APP_SOURCES
     src/models/TimelineModel.cpp
     src/models/MessageComposer.h
     src/models/MessageComposer.cpp
+    src/models/AttachmentQueueModel.h
+    src/models/AttachmentQueueModel.cpp
     src/models/UserSearchModel.h
     src/models/UserSearchModel.cpp
 
@@ -149,6 +151,7 @@ set(APP_QML_FILES
     qml/NewConversationDialog.qml
     qml/InvitePeopleDialog.qml
     qml/RoomInfoPanel.qml
+    qml/ImageViewerOverlay.qml
     qml/AppTheme.qml
 )
 
@@ -341,6 +344,21 @@ if(BUILD_TESTING)
     target_include_directories(cache-store-security-test PRIVATE src)
     target_link_libraries(cache-store-security-test PRIVATE Qt6::Core Qt6::Sql Qt6::Test)
     add_test(NAME cache-store-security COMMAND cache-store-security-test)
+
+    # v0.5.9: attachment pipeline — validation, MIME-from-content, queue
+    # state machine, retry, stale-completion rejection, lifecycle clears.
+    qt_add_executable(attachment-queue-test
+        tests/AttachmentQueueTest.cpp
+        src/models/MessageComposer.h
+        src/models/MessageComposer.cpp
+        src/models/AttachmentQueueModel.h
+        src/models/AttachmentQueueModel.cpp
+        src/matrix/MatrixClient.h
+        src/matrix/MatrixClient.cpp
+    )
+    target_include_directories(attachment-queue-test PRIVATE src)
+    target_link_libraries(attachment-queue-test PRIVATE Qt6::Core Qt6::Gui Qt6::Test)
+    add_test(NAME attachment-queue COMMAND attachment-queue-test)
 
     # v0.5.9: user search + DM/room-creation/invite flows (debounce,
     # stale-result rejection, existing-DM reuse, duplicate-submission

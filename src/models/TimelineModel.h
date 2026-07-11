@@ -97,6 +97,12 @@ public:
     // SDK re-attempts the same queued item, so no duplicate can appear.
     Q_INVOKABLE void retrySend(int row);
 
+    // v0.5.9: image events currently loaded in this timeline, oldest
+    // first, for the image viewer's previous/next navigation. Each entry:
+    // {row, mediaKey, filename, sender, timestamp, mime, httpUrl}. Only
+    // loaded rows — no history is fetched.
+    Q_INVOKABLE QVariantList imageEntries() const;
+
 Q_SIGNALS:
     void roomIdChanged();
     void countChanged();
