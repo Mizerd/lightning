@@ -39,6 +39,13 @@ public:
     // Provider URL for an already-cached key ("" when evicted meanwhile).
     Q_INVOKABLE QString cachedSource(const QString &cacheKey) const;
 
+    // v0.5.11: failure state. A failed fetch marks its cache key so QML
+    // repolling cannot hammer the backend; retry() clears the mark so the
+    // next mediaSource/avatarSource call dispatches again. failureCategory
+    // returns the coarse category ("network", "rejected", ...) or "".
+    Q_INVOKABLE QString failureCategory(const QString &cacheKey) const;
+    Q_INVOKABLE void retry(const QString &cacheKey);
+
     // Explicit Save As: fetches the full payload (cache or network) and
     // writes it atomically to the user-chosen destination. Never executes
     // or opens the file. Result arrives via saveFinished().
@@ -80,6 +87,7 @@ private:
 
     void insertCache(const QString &cacheKey, const QByteArray &bytes);
     void touch(const QString &cacheKey) const;
+    void markFailed(const Pending &request, const QString &category);
     void dispatch(const Pending &request);
     void pump();
     bool alreadyPending(const QString &cacheKey) const;
@@ -95,5 +103,9 @@ private:
 
     QHash<quint64, Pending> m_inflight;
     QQueue<Pending> m_queue;
+    // v0.5.11: cache keys whose last fetch failed, with the coarse
+    // category. Bounded; cleared on sign-out and per key via retry().
+    QHash<QString, QString> m_failed;
     static constexpr int kMaxConcurrent = 4;
+    static constexpr int kMaxFailureMarks = 512;
 };

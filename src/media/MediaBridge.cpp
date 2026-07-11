@@ -115,6 +115,16 @@ bool MediaBridge::alreadyPending(const QString &cacheKey) const
     return false;
 }
 
+QString MediaBridge::failureCategory(const QString &cacheKey) const
+{
+    return m_failed.value(cacheKey);
+}
+
+void MediaBridge::retry(const QString &cacheKey)
+{
+    m_failed.remove(cacheKey);
+}
+
 QString MediaBridge::mediaSource(const QString &mediaKey, const QString &kind)
 {
     if (mediaKey.isEmpty() || !supported())
@@ -124,6 +134,10 @@ QString MediaBridge::mediaSource(const QString &mediaKey, const QString &kind)
     const QString cached = cachedSource(cacheKey);
     if (!cached.isEmpty())
         return cached;
+    // A marked failure needs an explicit retry() first — QML repolling a
+    // broken source must not turn into a request loop.
+    if (m_failed.contains(cacheKey))
+        return {};
     if (!alreadyPending(cacheKey)) {
         Pending request;
         request.cacheKey = cacheKey;
@@ -143,6 +157,8 @@ QString MediaBridge::avatarSource(const QString &mxcUri, int size)
     const QString cached = cachedSource(cacheKey);
     if (!cached.isEmpty())
         return cached;
+    if (m_failed.contains(cacheKey))
+        return {};
     if (!alreadyPending(cacheKey)) {
         Pending request;
         request.cacheKey = cacheKey;
@@ -168,6 +184,7 @@ void MediaBridge::dispatch(const Pending &request)
     else
         opId = m_client->fetchMedia(request.mediaKey, request.kind);
     if (opId == 0) {
+        markFailed(request, QStringLiteral("rejected"));
         Q_EMIT mediaFetchFailed(request.cacheKey, QStringLiteral("rejected"));
         if (request.saveRequest)
             Q_EMIT saveFinished(false, tr("The file could not be downloaded."));
@@ -201,8 +218,18 @@ void MediaBridge::onMediaReady(quint64 opId, const QString &mediaKey, int kind,
         writeSaveFile(request.saveDestination, bytes);
         return;
     }
+    m_failed.remove(request.cacheKey);
     insertCache(request.cacheKey, bytes);
     Q_EMIT mediaCached(request.cacheKey);
+}
+
+void MediaBridge::markFailed(const Pending &request, const QString &category)
+{
+    if (request.saveRequest)
+        return; // Save As reports through saveFinished, not source state.
+    if (m_failed.size() >= kMaxFailureMarks)
+        m_failed.clear(); // defensive bound; never realistically reached
+    m_failed.insert(request.cacheKey, category);
 }
 
 void MediaBridge::onMediaFailed(quint64 opId, const QString &mediaKey, int kind,
@@ -220,6 +247,7 @@ void MediaBridge::onMediaFailed(quint64 opId, const QString &mediaKey, int kind,
         Q_EMIT saveFinished(false, tr("The file could not be downloaded."));
         return;
     }
+    markFailed(request, category);
     Q_EMIT mediaFetchFailed(request.cacheKey, category);
 }
 
@@ -281,6 +309,7 @@ void MediaBridge::clear()
     }
     m_inflight.clear();
     m_queue.clear();
+    m_failed.clear();
 }
 
 void MediaBridge::onLoggedOut()

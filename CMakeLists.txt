@@ -424,6 +424,19 @@ if(BUILD_TESTING)
     target_link_libraries(conversation-flow-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME conversation-flow COMMAND conversation-flow-test)
 
+    # v0.5.11: avatar/media request layer — dedup, per-size keys, bounded
+    # LRU, sign-out stale rejection, failure marking with explicit retry.
+    qt_add_executable(media-bridge-test
+        tests/MediaBridgeTest.cpp
+        src/media/MediaBridge.h
+        src/media/MediaBridge.cpp
+        src/matrix/MatrixClient.h
+        src/matrix/MatrixClient.cpp
+    )
+    target_include_directories(media-bridge-test PRIVATE src)
+    target_link_libraries(media-bridge-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME media-bridge COMMAND media-bridge-test)
+
     # v0.5.11: bare-localpart user lookup — candidate derivation from the
     # authenticated account's server, profile confirmation before exposure,
     # merge deduplication with provenance, stale-result rejection.
