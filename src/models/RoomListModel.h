@@ -81,6 +81,7 @@ private Q_SLOTS:
     void refreshRoom(const QString &roomId);
 
 private:
+    QString effectiveAvatarUrl(const RoomInfo &room) const;
     bool passesFilter(const RoomInfo &r) const;
     QList<RoomInfo> desiredRooms() const;
     void reconcileRooms();

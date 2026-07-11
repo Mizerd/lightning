@@ -1,5 +1,16 @@
 # Current state (v0.5.11 — timeline UX, themes and safe link previews)
 
+## v0.5.12 — bug-fix release (in progress)
+
+Direct-message room avatars now use the other joined/invited member's profile
+avatar when the room has no explicit avatar, but only for authoritative
+one-to-one `m.direct` rooms. Explicit room avatars take precedence, group DMs
+do not select an arbitrary member, and the value refreshes with membership,
+classification, and account lifecycle changes. Room-list, open-room, Room
+Information, and member-list avatars share the account-scoped media bridge.
+The account footer still lacks an exposed own-profile avatar, and message
+sender avatars remain pending a dedicated timeline role.
+
 ## v0.5.11 — pagination, media, avatars, themes, link previews
 
 This release completes the QML/C++ integration on top of the 0.5.11 backend

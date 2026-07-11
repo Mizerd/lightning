@@ -383,22 +383,12 @@ Rectangle {
                     onClicked: memberProfile.openFor(modelData)
                     contentItem: RowLayout {
                         spacing: AppTheme.spacing8
-                        Rectangle {
+                        Avatar {
                             width: 32; height: 32
-                            radius: AppTheme.radiusPill
-                            color: AppTheme.cardElevated
-                            Label {
-                                anchors.centerIn: parent
-                                text: {
-                                    var n = modelData.displayName.length > 0
-                                            ? modelData.displayName
-                                            : modelData.userId.slice(1)
-                                    return n.length > 0 ? n[0].toUpperCase() : "?"
-                                }
-                                color: AppTheme.textSecondary
-                                font.pixelSize: AppTheme.fontSizeM
-                                font.weight: Font.DemiBold
-                            }
+                            size: 32
+                            name: modelData.displayName.length > 0
+                                  ? modelData.displayName : modelData.userId
+                            mxc: modelData.avatarUrl || ""
                         }
                         ColumnLayout {
                             Layout.fillWidth: true

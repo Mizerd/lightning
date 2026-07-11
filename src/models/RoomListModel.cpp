@@ -33,6 +33,10 @@ void RoomListModel::setClient(MatrixClient *client)
                 this, &RoomListModel::refresh);
         connect(m_client, &MatrixClient::roomUpdated,
                 this, &RoomListModel::refreshRoom);
+        connect(m_client, &MatrixClient::membersChanged,
+                this, &RoomListModel::refreshRoom);
+        connect(m_client, &MatrixClient::loginSucceeded,
+                this, [this](const QString &) { refresh(); });
         connect(m_client, &MatrixClient::loggedOut,
                 this, &RoomListModel::refresh);
     }
@@ -74,7 +78,7 @@ QVariant RoomListModel::data(const QModelIndex &index, int role) const
     case RoomIdRole:             return r.id;
     case NameRole:               return r.name;
     case TopicRole:              return r.topic;
-    case AvatarUrlRole:          return r.avatarUrl;
+    case AvatarUrlRole:          return effectiveAvatarUrl(r);
     case LastMessagePreviewRole: return r.lastMessagePreview;
     case LastActivityRole:       return r.lastActivity;
     case UnreadCountRole:        return r.unreadCount;
@@ -144,7 +148,7 @@ QVariantMap RoomListModel::findRoom(const QString &roomId) const
                 { QStringLiteral("id"),        r.id },
                 { QStringLiteral("name"),      r.name },
                 { QStringLiteral("topic"),     r.topic },
-                { QStringLiteral("avatarUrl"), r.avatarUrl },
+                { QStringLiteral("avatarUrl"), effectiveAvatarUrl(r) },
                 { QStringLiteral("encrypted"), r.encrypted },
                 { QStringLiteral("unreadCount"), r.unreadCount },
                 { QStringLiteral("isSpace"),   r.isSpace },
@@ -152,6 +156,33 @@ QVariantMap RoomListModel::findRoom(const QString &roomId) const
         }
     }
     return {};
+}
+
+QString RoomListModel::effectiveAvatarUrl(const RoomInfo &room) const
+{
+    // Matrix room state always wins. Only derive a member avatar for a room
+    // authoritatively classified by m.direct, and only when the membership
+    // snapshot identifies exactly one other person. This deliberately avoids
+    // choosing an arbitrary face for group DMs or using our own profile.
+    if (!room.avatarUrl.isEmpty())
+        return room.avatarUrl;
+    if (!m_client || !room.isDirect || room.directUserId.isEmpty())
+        return {};
+
+    const QString self = m_client->currentUserId();
+    QString other;
+    for (auto it = room.members.cbegin(); it != room.members.cend(); ++it) {
+        const QString userId = it.key().isEmpty() ? it->userId : it.key();
+        if (userId.isEmpty() || userId == self)
+            continue;
+        if (!other.isEmpty() && other != userId)
+            return {};
+        other = userId;
+    }
+    if (other.isEmpty() || other != room.directUserId)
+        return {};
+    const auto member = room.members.constFind(other);
+    return member == room.members.cend() ? QString{} : member->avatarMxcUrl;
 }
 
 bool RoomListModel::passesFilter(const RoomInfo &r) const

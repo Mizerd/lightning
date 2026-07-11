@@ -26,6 +26,7 @@ class FakeClient final : public MatrixClient
     Q_OBJECT
 public:
     QList<RoomInfo> mirror;
+    QString selfUserId = QStringLiteral("@me:example.org");
     QString accepted;
     QString rejected;
     QString marked;
@@ -35,7 +36,7 @@ public:
     void logout() override { Q_EMIT loggedOut(); }
     bool restoreSession() override { return false; }
     bool isLoggedIn() const override { return true; }
-    QString currentUserId() const override { return QStringLiteral("@me:example.org"); }
+    QString currentUserId() const override { return selfUserId; }
     QString homeserverUrl() const override { return {}; }
     void startSync() override {}
     void stopSync() override {}
@@ -76,6 +77,8 @@ private Q_SLOTS:
     void directClassificationUsesMDirectOnly();
     void liveDirectUpdateChangesCategory();
     void directMappingRemovalReturnsToRoom();
+    void effectiveDirectAvatarPolicy();
+    void effectiveDirectAvatarRefreshAndAccountIsolation();
     void inviteActionsRouteAndStaySeparate();
     void explicitDiffOperationsValidateIndexesAndIdentity();
     void replaceValidatesIdentityAndReset();
@@ -166,6 +169,84 @@ void RoomStateModelTest::directMappingRemovalReturnsToRoom()
     Q_EMIT client.roomsChanged();
     QCOMPARE(model.data(model.index(0), RoomListModel::CategoryRole).toString(),
              QStringLiteral("room"));
+}
+
+void RoomStateModelTest::effectiveDirectAvatarPolicy()
+{
+    FakeClient client;
+    RoomListModel model;
+    auto dm = room(QStringLiteral("!dm:example.org"), true);
+    dm.directUserId = QStringLiteral("@bob:example.org");
+    MemberInfo self{client.selfUserId, QStringLiteral("Me"),
+                    QStringLiteral("mxc://example.org/self")};
+    MemberInfo bob{dm.directUserId, QStringLiteral("Bob"),
+                   QStringLiteral("mxc://example.org/bob")};
+    dm.members.insert(self.userId, self);
+    dm.members.insert(bob.userId, bob);
+    client.mirror = {dm};
+    model.setClient(&client);
+    QCOMPARE(model.data(model.index(0), RoomListModel::AvatarUrlRole).toString(),
+             bob.avatarMxcUrl);
+    QCOMPARE(model.findRoom(dm.id).value(QStringLiteral("avatarUrl")).toString(),
+             bob.avatarMxcUrl);
+
+    client.mirror[0].avatarUrl = QStringLiteral("mxc://example.org/room");
+    Q_EMIT client.roomsChanged();
+    QCOMPARE(model.data(model.index(0), RoomListModel::AvatarUrlRole).toString(),
+             client.mirror[0].avatarUrl);
+
+    client.mirror[0].avatarUrl.clear();
+    client.mirror[0].members[bob.userId].avatarMxcUrl.clear();
+    Q_EMIT client.membersChanged(dm.id);
+    QVERIFY(model.data(model.index(0), RoomListModel::AvatarUrlRole).toString().isEmpty());
+
+    MemberInfo carol{QStringLiteral("@carol:example.org"), QStringLiteral("Carol"),
+                     QStringLiteral("mxc://example.org/carol")};
+    client.mirror[0].members.insert(carol.userId, carol);
+    Q_EMIT client.membersChanged(dm.id);
+    QVERIFY(model.data(model.index(0), RoomListModel::AvatarUrlRole).toString().isEmpty());
+
+    client.mirror[0].members.remove(carol.userId);
+    client.mirror[0].isDirect = false;
+    client.mirror[0].members[bob.userId].avatarMxcUrl = bob.avatarMxcUrl;
+    Q_EMIT client.roomsChanged();
+    QVERIFY(model.data(model.index(0), RoomListModel::AvatarUrlRole).toString().isEmpty());
+}
+
+void RoomStateModelTest::effectiveDirectAvatarRefreshAndAccountIsolation()
+{
+    FakeClient client;
+    RoomListModel model;
+    auto dm = room(QStringLiteral("!dm:example.org"), true);
+    dm.directUserId = QStringLiteral("@bob:example.org");
+    dm.members.insert(client.selfUserId,
+                      MemberInfo{client.selfUserId, {}, QStringLiteral("mxc://old/self")});
+    dm.members.insert(dm.directUserId,
+                      MemberInfo{dm.directUserId, {}, QStringLiteral("mxc://old/bob")});
+    client.mirror = {dm};
+    model.setClient(&client);
+    QCOMPARE(model.data(model.index(0), RoomListModel::AvatarUrlRole).toString(),
+             QStringLiteral("mxc://old/bob"));
+
+    client.mirror[0].members[dm.directUserId].avatarMxcUrl =
+        QStringLiteral("mxc://old/bob-new");
+    Q_EMIT client.membersChanged(dm.id);
+    QCOMPARE(model.data(model.index(0), RoomListModel::AvatarUrlRole).toString(),
+             QStringLiteral("mxc://old/bob-new"));
+
+    client.selfUserId = QStringLiteral("@new:example.org");
+    client.mirror.clear();
+    Q_EMIT client.loggedOut();
+    QCOMPARE(model.rowCount(), 0);
+    auto next = room(QStringLiteral("!new:example.org"), true);
+    next.directUserId = QStringLiteral("@dana:example.org");
+    next.members.insert(client.selfUserId, MemberInfo{client.selfUserId, {}, {}});
+    next.members.insert(next.directUserId,
+                        MemberInfo{next.directUserId, {}, QStringLiteral("mxc://new/dana")});
+    client.mirror = {next};
+    Q_EMIT client.loginSucceeded(client.selfUserId);
+    QCOMPARE(model.data(model.index(0), RoomListModel::AvatarUrlRole).toString(),
+             QStringLiteral("mxc://new/dana"));
 }
 
 void RoomStateModelTest::replaceValidatesIdentityAndReset()
