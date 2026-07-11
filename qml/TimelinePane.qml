@@ -394,6 +394,13 @@ Rectangle {
         // Collapse cleanly at narrow widths instead of crushing the chat.
         visible: root.infoOpen && root.width >= 700
         onCloseRequested: root.infoOpen = false
+        onOpenImageRequested: (mediaKey, httpUrl) =>
+            imageViewer.openFor(mediaKey, httpUrl)
+        onSaveMediaRequested: (mediaKey, filename) => {
+            saveMediaDialog.pendingMediaKey = mediaKey
+            saveMediaDialog.currentFile = "file:///" + filename
+            saveMediaDialog.open()
+        }
     }
 
     } // RowLayout

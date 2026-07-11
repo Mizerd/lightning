@@ -139,7 +139,17 @@ picker was dropped from the release entirely.
   - **People** — member search, joined/invited state, Admin/Mod role
     labels from `suggested_role_for_power_level`, full MXID as secondary
     text (primary when the SDK flags the display name ambiguous), and the
-    Invite button.
+    Invite button. Clicking a member opens `MemberProfilePopover` (avatar
+    initial, display name, full MXID, membership state, role, and
+    **Message** — which reuses an existing DM via m.direct or creates a
+    new encrypted one; no moderation actions in this release).
+  - **Media & Files** — media shared in the *loaded* timeline
+    (`TimelineModel::mediaEntries()`, newest first; no automatic history
+    fetch). Images open in the in-app viewer; every entry offers Save As
+    through the media bridge.
+  - Room avatar editing (permission-gated): Change avatar… (image picker →
+    `mx_rust_set_room_avatar`, magic-byte sniffed in Rust) and Remove
+    avatar, alongside the name/topic editors.
 - `mx_rust_room_members` returns a bounded snapshot (500 rows, truncation
   flagged, joined before invited, then power, then name) plus the caller's
   own permission flags (`can_invite`, `can_send_state` for

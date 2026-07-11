@@ -153,6 +153,7 @@ set(APP_QML_FILES
     qml/RoomInfoPanel.qml
     qml/ImageViewerOverlay.qml
     qml/AccountMenu.qml
+    qml/MemberProfilePopover.qml
     qml/AppTheme.qml
 )
 

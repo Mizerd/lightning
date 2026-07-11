@@ -243,11 +243,23 @@ QHash<int, QByteArray> TimelineModel::roleNames() const
 QVariantList TimelineModel::imageEntries() const
 {
     QVariantList out;
+    const QVariantList all = mediaEntries();
+    for (const QVariant &value : all) {
+        if (value.toMap().value(QStringLiteral("isImage")).toBool())
+            out.append(value);
+    }
+    return out;
+}
+
+QVariantList TimelineModel::mediaEntries() const
+{
+    QVariantList out;
     for (int row = 0; row < m_events.size(); ++row) {
         const TimelineEvent &e = m_events.at(row);
-        if (e.type != TimelineEvent::Image || e.redacted)
+        if ((e.type != TimelineEvent::Image && e.type != TimelineEvent::File)
+            || e.redacted)
             continue;
-        // Viewable when the media bridge can fetch it (Rust) or an HTTP
+        // Usable when the media bridge can fetch it (Rust) or an HTTP
         // download URL exists (HTTP backend).
         const QUrl httpUrl = mediaHttp(e.mediaMxcUrl);
         if (!e.mediaSourceAvailable && httpUrl.isEmpty())
@@ -262,6 +274,8 @@ QVariantList TimelineModel::imageEntries() const
         entry.insert(QStringLiteral("timestamp"), e.timestamp);
         entry.insert(QStringLiteral("mime"), e.mediaMimetype);
         entry.insert(QStringLiteral("httpUrl"), httpUrl);
+        entry.insert(QStringLiteral("isImage"), e.type == TimelineEvent::Image);
+        entry.insert(QStringLiteral("size"), static_cast<qint64>(e.mediaSize));
         out.append(entry);
     }
     return out;

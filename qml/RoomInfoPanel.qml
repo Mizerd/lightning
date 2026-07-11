@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Dialogs
 import QtQuick.Layouts
 import MatrixClient
 
@@ -16,8 +17,12 @@ Rectangle {
 
     property var roomData: ({})
     signal closeRequested()
+    // v0.5.9: Media & Files entries delegate viewing/saving to the pane
+    // that owns the viewer and the save dialog (TimelinePane).
+    signal openImageRequested(string mediaKey, var httpUrl)
+    signal saveMediaRequested(string mediaKey, string filename)
 
-    // "overview" | "people"
+    // "overview" | "people" | "media"
     property string section: "overview"
     property string memberFilter: ""
 
@@ -32,6 +37,20 @@ Rectangle {
     InvitePeopleDialog {
         id: inviteDialog
         parent: Overlay.overlay
+    }
+
+    MemberProfilePopover {
+        id: memberProfile
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+    }
+
+    FileDialog {
+        id: avatarDialog
+        title: qsTr("Choose room avatar")
+        fileMode: FileDialog.OpenFile
+        nameFilters: [ qsTr("Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp)") ]
+        onAccepted: app.roomInfo.setRoomAvatar(selectedFile)
     }
 
     ColumnLayout {
@@ -80,6 +99,12 @@ Rectangle {
                 checkable: true
                 checked: root.section === "people"
                 onClicked: root.section = "people"
+            }
+            Button {
+                text: qsTr("Media")
+                checkable: true
+                checked: root.section === "media"
+                onClicked: root.section = "media"
             }
             Item { Layout.fillWidth: true }
         }
@@ -187,12 +212,29 @@ Rectangle {
                     Layout.margins: AppTheme.spacing12
                     spacing: AppTheme.spacing8
                     visible: app.roomInfo.canEditName || app.roomInfo.canEditTopic
+                             || app.roomInfo.canEditAvatar
 
                     Label {
                         text: qsTr("Edit room")
                         color: AppTheme.textSecondary
                         font.pixelSize: AppTheme.fontSizeS
                         font.weight: Font.DemiBold
+                    }
+                    RowLayout {
+                        visible: app.roomInfo.canEditAvatar
+                        Layout.fillWidth: true
+                        spacing: AppTheme.spacing8
+                        Button {
+                            text: qsTr("Change avatar…")
+                            enabled: !app.roomInfo.editPending
+                            onClicked: avatarDialog.open()
+                        }
+                        Button {
+                            text: qsTr("Remove avatar")
+                            enabled: !app.roomInfo.editPending
+                            onClicked: app.roomInfo.removeRoomAvatar()
+                        }
+                        Item { Layout.fillWidth: true }
                     }
                     RowLayout {
                         visible: app.roomInfo.canEditName
@@ -345,6 +387,7 @@ Rectangle {
                                      ? qsTr("%1 (%2)").arg(modelData.displayName)
                                                       .arg(modelData.userId)
                                      : modelData.userId
+                    onClicked: memberProfile.openFor(modelData)
                     contentItem: RowLayout {
                         spacing: AppTheme.spacing8
                         Rectangle {
@@ -421,6 +464,93 @@ Rectangle {
                     ToolTip.text: modelData.userId
                     ToolTip.visible: hovered
                     ToolTip.delay: 600
+                }
+            }
+        }
+
+        // ── Media & Files ────────────────────────────────────────────────
+        ColumnLayout {
+            visible: root.section === "media"
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            spacing: AppTheme.spacing8
+
+            Label {
+                Layout.margins: AppTheme.spacing12
+                Layout.fillWidth: true
+                text: qsTr("Media and files shared in the loaded part of "
+                           + "this conversation. Scroll the timeline up to "
+                           + "load more history.")
+                color: AppTheme.textMuted
+                wrapMode: Text.WordWrap
+                font.pixelSize: AppTheme.fontCaption
+            }
+
+            ListView {
+                id: mediaList
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                clip: true
+                // Newest first; bound to the loaded timeline (count keeps
+                // the binding fresh as history paginates in).
+                model: {
+                    var deps = app.timeline.count
+                    return app.timeline.mediaEntries().slice().reverse()
+                }
+                ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+
+                Label {
+                    anchors.centerIn: parent
+                    visible: mediaList.count === 0
+                    text: qsTr("No media in the loaded history.")
+                    color: AppTheme.textMuted
+                    font.pixelSize: AppTheme.fontSecondary
+                }
+
+                delegate: ItemDelegate {
+                    width: ListView.view.width
+                    Accessible.name: modelData.filename
+                    onClicked: {
+                        if (modelData.isImage)
+                            root.openImageRequested(modelData.mediaKey || "",
+                                                    modelData.httpUrl)
+                    }
+                    contentItem: RowLayout {
+                        spacing: AppTheme.spacing8
+                        Label {
+                            text: modelData.isImage ? "🖼" : "📎"
+                            font.pixelSize: AppTheme.fontRoomTitle
+                        }
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 0
+                            Label {
+                                Layout.fillWidth: true
+                                text: modelData.filename || qsTr("(unnamed)")
+                                color: AppTheme.textPrimary
+                                font.pixelSize: AppTheme.fontSecondary
+                                elide: Label.ElideMiddle
+                            }
+                            Label {
+                                Layout.fillWidth: true
+                                text: qsTr("%1 · %2")
+                                      .arg(modelData.sender)
+                                      .arg(Qt.formatDateTime(modelData.timestamp,
+                                                             "d MMM hh:mm"))
+                                color: AppTheme.textMuted
+                                font.pixelSize: AppTheme.fontCaption
+                                elide: Label.ElideRight
+                            }
+                        }
+                        ToolButton {
+                            visible: (modelData.mediaKey || "").length > 0
+                                     && app.mediaBridge.supported
+                            text: qsTr("Save")
+                            Accessible.name: qsTr("Save %1 as…").arg(modelData.filename)
+                            onClicked: root.saveMediaRequested(modelData.mediaKey,
+                                                               modelData.filename || "download")
+                        }
+                    }
                 }
             }
         }

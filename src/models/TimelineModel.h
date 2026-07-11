@@ -102,6 +102,10 @@ public:
     // {row, mediaKey, filename, sender, timestamp, mime, httpUrl}. Only
     // loaded rows — no history is fetched.
     Q_INVOKABLE QVariantList imageEntries() const;
+    // All media events (images + files) currently loaded, oldest first,
+    // for the Room Information "Media & Files" list. Adds isImage and
+    // size to the imageEntries() shape.
+    Q_INVOKABLE QVariantList mediaEntries() const;
 
 Q_SIGNALS:
     void roomIdChanged();
