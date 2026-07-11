@@ -15,29 +15,64 @@ Rectangle {
         anchors.fill: parent
         spacing: 0
 
-        // ── Search bar ────────────────────────────────────────────────────
+        // ── Search bar + new-conversation button ─────────────────────────
         Rectangle {
             Layout.fillWidth: true
             color: AppTheme.sidebar
-            implicitHeight: roomSearch.implicitHeight + AppTheme.spacing8 * 2
+            implicitHeight: searchRow.implicitHeight + AppTheme.spacing8 * 2
 
-            TextField {
-                id: roomSearch
+            RowLayout {
+                id: searchRow
                 anchors {
                     left: parent.left; right: parent.right
                     verticalCenter: parent.verticalCenter
                     leftMargin: AppTheme.spacing8; rightMargin: AppTheme.spacing8
                 }
-                placeholderText: qsTr("Search rooms…")
-                onTextChanged: app.roomList.searchQuery = text
-                font.pixelSize: AppTheme.fontSizeS
-                background: Rectangle {
-                    color: AppTheme.inputBackground
-                    border.color: roomSearch.activeFocus ? AppTheme.focusRing : AppTheme.inputBorder
-                    border.width: roomSearch.activeFocus ? 2 : 1
-                    radius: AppTheme.radiusSm
+                spacing: AppTheme.spacing8
+
+                TextField {
+                    id: roomSearch
+                    Layout.fillWidth: true
+                    placeholderText: qsTr("Search rooms…")
+                    onTextChanged: app.roomList.searchQuery = text
+                    font.pixelSize: AppTheme.fontSizeS
+                    background: Rectangle {
+                        color: AppTheme.inputBackground
+                        border.color: roomSearch.activeFocus ? AppTheme.focusRing : AppTheme.inputBorder
+                        border.width: roomSearch.activeFocus ? 2 : 1
+                        radius: AppTheme.radiusSm
+                    }
+                }
+
+                // v0.5.9: start a DM or create a room (Rust backend only —
+                // the controller reports unsupported backends itself).
+                ToolButton {
+                    id: newConversationBtn
+                    visible: app.loggedIn && app.conversations.supported
+                    implicitWidth: 30; implicitHeight: 30
+                    contentItem: Label {
+                        text: "＋"
+                        font.pixelSize: 18
+                        color: AppTheme.textSecondary
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                    background: Rectangle {
+                        radius: AppTheme.radiusSm
+                        color: newConversationBtn.hovered ? AppTheme.hover : "transparent"
+                    }
+                    Accessible.name: qsTr("Start a new conversation")
+                    ToolTip.text: qsTr("New conversation")
+                    ToolTip.visible: hovered
+                    ToolTip.delay: 500
+                    onClicked: newConversationDialog.openDialog()
                 }
             }
+        }
+
+        NewConversationDialog {
+            id: newConversationDialog
+            parent: Overlay.overlay
         }
 
         // ── Room list with DM / ROOMS section headers ─────────────────────

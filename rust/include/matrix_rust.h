@@ -11,6 +11,8 @@
  */
 #pragma once
 
+#include <stddef.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -250,6 +252,114 @@ char *mx_rust_timeline_redact(void *client,
 char *mx_rust_timeline_retry_send(void *client,
                                   const char *room_id,
                                   const char *transaction_id);
+
+/*
+ * v0.5.9 — room management, user search, attachments and the media bridge.
+ *
+ * Every command takes a C++-generated op_id that is echoed on the async
+ * result event together with the Rust lifecycle generation. C++ must ignore
+ * results whose op_id it does not recognise or whose lifecycle is stale.
+ */
+char *mx_rust_search_users(void *client,
+                           const char *query,
+                           unsigned long long limit,
+                           unsigned long long op_id);
+/* Synchronous m.direct projection: {"rooms":[{"room_id","name"}]}. */
+char *mx_rust_get_dm_rooms(void *client, const char *user_id);
+char *mx_rust_create_dm(void *client,
+                        const char *user_id,
+                        unsigned long long op_id);
+/* options_json: {"name","topic","public","encrypted","alias","invites":[],"space_id"} */
+char *mx_rust_create_room(void *client,
+                          const char *options_json,
+                          unsigned long long op_id);
+char *mx_rust_invite_users(void *client,
+                           const char *room_id,
+                           const char *users_json,
+                           unsigned long long op_id);
+char *mx_rust_room_members(void *client,
+                           const char *room_id,
+                           unsigned long long op_id);
+char *mx_rust_set_room_name(void *client,
+                            const char *room_id,
+                            const char *name,
+                            unsigned long long op_id);
+char *mx_rust_set_room_topic(void *client,
+                             const char *room_id,
+                             const char *topic,
+                             unsigned long long op_id);
+char *mx_rust_set_room_avatar(void *client,
+                              const char *room_id,
+                              const char *local_path,
+                              unsigned long long op_id);
+char *mx_rust_remove_room_avatar(void *client,
+                                 const char *room_id,
+                                 unsigned long long op_id);
+char *mx_rust_leave_room(void *client,
+                         const char *room_id,
+                         unsigned long long op_id);
+char *mx_rust_add_room_to_space(void *client,
+                                const char *space_id,
+                                const char *room_id,
+                                unsigned long long op_id);
+
+/*
+ * Attachment sending through the SDK timeline send queue. The SDK creates
+ * a local echo, drives sending → sent/failed through the normal timeline
+ * diff stream, encrypts transparently in encrypted rooms, and supports
+ * retry via the existing unwedge path. width/height carry image metadata
+ * (0 when unknown); `animated` marks animated GIF images.
+ */
+char *mx_rust_timeline_send_attachment(void *client,
+                                       const char *room_id,
+                                       const char *local_path,
+                                       const char *mime,
+                                       const char *caption,
+                                       unsigned long long width,
+                                       unsigned long long height,
+                                       int animated,
+                                       unsigned long long op_id);
+/* Clipboard image path: one bounded byte copy, no temporary file on disk. */
+char *mx_rust_timeline_send_attachment_bytes(void *client,
+                                             const char *room_id,
+                                             const unsigned char *data,
+                                             size_t len,
+                                             const char *filename,
+                                             const char *mime,
+                                             unsigned long long width,
+                                             unsigned long long height,
+                                             unsigned long long op_id);
+
+/*
+ * Media retrieval. `key` is the item's media_key from timeline payloads
+ * (event id, or SDK unique id for local echoes). kind: 0 = full file,
+ * 1 = thumbnail (falls back to full when none exists). Encrypted media is
+ * decrypted inside the SDK; bytes are parked in Rust and handed over via
+ * mx_rust_media_take after the matching media_ready event — never through
+ * the JSON queue.
+ */
+char *mx_rust_media_fetch(void *client,
+                          const char *key,
+                          unsigned int kind,
+                          unsigned long long op_id);
+/* Server-side thumbnail of a PLAIN mxc URI (avatars). kind is 2 on events. */
+char *mx_rust_media_fetch_mxc(void *client,
+                              const char *mxc,
+                              unsigned long long width,
+                              unsigned long long height,
+                              unsigned long long op_id);
+/*
+ * Move a parked media payload out of the bridge. Returns NULL for unknown
+ * (stale / already-taken) op ids; otherwise a buffer of *out_len bytes that
+ * MUST be released with mx_rust_media_free (never free()).
+ */
+unsigned char *mx_rust_media_take(void *client,
+                                  unsigned long long op_id,
+                                  size_t *out_len);
+void mx_rust_media_free(unsigned char *data, size_t len);
+
+/* Emits one upload_limit event with the server's m.upload.size. */
+char *mx_rust_fetch_upload_limit(void *client);
 
 /*
  * Deterministic shutdown of all managed async work: timeline subscriptions

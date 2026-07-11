@@ -1,9 +1,12 @@
 #pragma once
 
+#include "app/ConversationController.h"
+#include "app/RoomInfoController.h"
 #include "app/SettingsManager.h"
 #include "auth/AccountManager.h"
 #include "auth/AuthManager.h"
 #include "crypto/CryptoManager.h"
+#include "media/MediaBridge.h"
 #include "media/MediaManager.h"
 #include "models/MessageComposer.h"
 #include "models/RoomListModel.h"
@@ -80,6 +83,11 @@ class AppController : public QObject
     Q_PROPERTY(CryptoManager* crypto READ crypto CONSTANT)
     Q_PROPERTY(SpaceManager* spaces READ spaces CONSTANT)
     Q_PROPERTY(ThreadManager* threads READ threads CONSTANT)
+    // v0.5.9: conversation creation (DMs, rooms, invites), Room Information
+    // (members, permissions, editing, leave) and the media bridge.
+    Q_PROPERTY(ConversationController* conversations READ conversations CONSTANT)
+    Q_PROPERTY(RoomInfoController* roomInfo READ roomInfo CONSTANT)
+    Q_PROPERTY(MediaBridge* mediaBridge READ mediaBridge CONSTANT)
 
 public:
     enum Screen {
@@ -125,6 +133,9 @@ public:
     CryptoManager *crypto() const;
     SpaceManager *spaces() const;
     ThreadManager *threads() const;
+    ConversationController *conversations() const { return m_conversations.get(); }
+    RoomInfoController *roomInfo() const { return m_roomInfo.get(); }
+    MediaBridge *mediaBridge() const { return m_mediaBridge.get(); }
     SecretStore *secretStore() const { return m_secretStore.get(); }
 
 public Q_SLOTS:
@@ -274,6 +285,9 @@ private:
     std::unique_ptr<CryptoManager> m_crypto;
     std::unique_ptr<SpaceManager> m_spaces;
     std::unique_ptr<ThreadManager> m_threads;
+    std::unique_ptr<ConversationController> m_conversations;
+    std::unique_ptr<RoomInfoController> m_roomInfo;
+    std::unique_ptr<MediaBridge> m_mediaBridge;
 
     // v0.5.0 SAS verification state cache.
     QString m_verificationFlowId;

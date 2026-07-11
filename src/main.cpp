@@ -1,4 +1,5 @@
 #include "app/AppController.h"
+#include "media/MediaImageProvider.h"
 #include "storage/AppDataPaths.h"
 
 #ifdef ENABLE_RUST_SDK_BACKEND
@@ -365,6 +366,10 @@ int main(int argc, char *argv[])
 
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty("app", &controller);
+    // v0.5.9: serve decrypted media images from the in-memory bridge cache.
+    // The engine takes ownership of the provider; the bridge outlives it.
+    engine.addImageProvider(QStringLiteral("lightning-media"),
+                            new MediaImageProvider(controller.mediaBridge()));
 
     QObject::connect(
         &engine, &QQmlApplicationEngine::objectCreationFailed,

@@ -63,6 +63,12 @@ public:
         IsLocalEchoRole,     // True until the remote echo reconciles.
         SendErrorRole,       // Coarse category when status == Failed.
         IsVirtualRole,       // Date divider / read marker / timeline start.
+        // v0.5.9: media bridge + identity presentation.
+        MediaKeyRole,             // Retrieval key for MatrixClient::fetchMedia.
+        MediaSourceAvailableRole, // Bytes fetchable (incl. encrypted media).
+        MediaThumbAvailableRole,  // Server-side thumbnail exists.
+        SenderNameAmbiguousRole,  // Display name shared by 2+ members.
+        SameSenderAsPreviousRole, // Consecutive-message grouping hint.
     };
 
     explicit TimelineModel(QObject *parent = nullptr);

@@ -87,6 +87,9 @@ AppController::AppController(Backend backend, QObject *parent)
     m_crypto       = std::make_unique<CryptoManager>(this);
     m_spaces       = std::make_unique<SpaceManager>(this);
     m_threads      = std::make_unique<ThreadManager>(this);
+    m_conversations= std::make_unique<ConversationController>(this);
+    m_roomInfo     = std::make_unique<RoomInfoController>(this);
+    m_mediaBridge  = std::make_unique<MediaBridge>(this);
 
     m_crypto->setBackendName(backendName());
 
@@ -97,6 +100,33 @@ AppController::AppController(Backend backend, QObject *parent)
     m_timeline->setClient(m_client.get());
     m_composer->setClient(m_client.get());
     m_media->setClient(m_client.get());
+    m_conversations->setClient(m_client.get());
+    m_roomInfo->setClient(m_client.get());
+    m_mediaBridge->setClient(m_client.get());
+
+    // v0.5.9: a created (or reused) conversation opens once the room is
+    // present in the authoritative room list. Leaving the open room closes
+    // its timeline and returns to the no-room state; the list entry is
+    // removed by the authoritative room-list update, not locally.
+    connect(m_conversations.get(), &ConversationController::conversationReady,
+            this, &AppController::openRoom);
+    connect(m_conversations.get(), &ConversationController::spacePlacementFailed,
+            this, [this](const QString &) {
+        Q_EMIT errorReported(
+            tr("The room was created, but adding it to the Space failed."));
+    });
+    connect(m_roomInfo.get(), &RoomInfoController::roomLeft,
+            this, [this](const QString &roomId) {
+        if (m_currentRoomId == roomId) {
+#ifdef ENABLE_RUST_SDK_BACKEND
+            if (auto *rust = qobject_cast<RustSdkMatrixClient *>(m_client.get()))
+                rust->closeRoomTimeline();
+#endif
+            setCurrentRoomId(QString());
+        }
+        if (m_roomInfo->roomId() == roomId)
+            m_roomInfo->setRoomId(QString());
+    });
 
     connect(m_auth.get(), &AuthManager::loginSucceeded,
             this, &AppController::onLoginSucceeded);

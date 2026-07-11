@@ -167,6 +167,29 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
     case IsLocalEchoRole:        return e.isLocalEcho;
     case SendErrorRole:          return e.sendErrorCategory;
     case IsVirtualRole:          return e.isVirtual();
+    case MediaKeyRole:           return e.mediaKey;
+    case MediaSourceAvailableRole: return e.mediaSourceAvailable;
+    case MediaThumbAvailableRole:  return e.mediaThumbAvailable;
+    case SenderNameAmbiguousRole:  return e.senderNameAmbiguous;
+    case SameSenderAsPreviousRole: {
+        // Consecutive-message grouping: same sender within 5 minutes, both
+        // real message rows. The delegate then hides the repeated sender
+        // header. Virtual rows (date dividers) break the run by design.
+        if (e.isVirtual() || e.redacted)
+            return false;
+        const int row = index.row();
+        if (row <= 0)
+            return false;
+        const auto &prev = m_events.at(row - 1);
+        if (prev.isVirtual() || prev.redacted || prev.sender != e.sender)
+            return false;
+        if (prev.type == TimelineEvent::StateChange
+            || e.type == TimelineEvent::StateChange)
+            return false;
+        if (!prev.timestamp.isValid() || !e.timestamp.isValid())
+            return false;
+        return prev.timestamp.secsTo(e.timestamp) < 300;
+    }
     default:                     return {};
     }
 }
@@ -209,6 +232,11 @@ QHash<int, QByteArray> TimelineModel::roleNames() const
         { IsLocalEchoRole,         "isLocalEcho" },
         { SendErrorRole,           "sendErrorCategory" },
         { IsVirtualRole,           "isVirtual" },
+        { MediaKeyRole,            "mediaKey" },
+        { MediaSourceAvailableRole, "mediaSourceAvailable" },
+        { MediaThumbAvailableRole, "mediaThumbAvailable" },
+        { SenderNameAmbiguousRole, "senderNameAmbiguous" },
+        { SameSenderAsPreviousRole, "sameSenderAsPrevious" },
     };
 }
 

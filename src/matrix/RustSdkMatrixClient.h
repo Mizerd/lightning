@@ -195,6 +195,32 @@ public:
     void retryFailedSend(const QString &roomId,
                          const QString &transactionId) override;
 
+    // v0.5.9 — conversation creation, membership, room editing, media.
+    bool supportsRoomManagement() const override { return true; }
+    bool supportsAttachmentSend() const override { return true; }
+    bool supportsMediaBridge() const override { return true; }
+    quint64 searchUsers(const QString &query, int limit) override;
+    QVariantList existingDirectRooms(const QString &userId) const override;
+    quint64 createDirectChat(const QString &userId) override;
+    quint64 createRoom(const QVariantMap &options) override;
+    quint64 inviteUsers(const QString &roomId, const QStringList &userIds) override;
+    quint64 requestRoomMembers(const QString &roomId) override;
+    quint64 setRoomName(const QString &roomId, const QString &name) override;
+    quint64 setRoomTopic(const QString &roomId, const QString &topic) override;
+    quint64 setRoomAvatar(const QString &roomId, const QString &localPath) override;
+    quint64 removeRoomAvatar(const QString &roomId) override;
+    quint64 leaveRoom(const QString &roomId) override;
+    quint64 addRoomToSpace(const QString &spaceId, const QString &roomId) override;
+    quint64 sendAttachment(const QString &roomId, const QString &localPath,
+                           const QString &mime, const QString &caption,
+                           int width, int height, bool animated) override;
+    quint64 sendAttachmentBytes(const QString &roomId, const QByteArray &bytes,
+                                const QString &filename, const QString &mime,
+                                int width, int height) override;
+    quint64 fetchMedia(const QString &mediaKey, int kind) override;
+    quint64 fetchMxcThumbnail(const QString &mxc, int width, int height) override;
+    qint64 maxUploadSize() const override { return m_maxUploadSize; }
+
 Q_SIGNALS:
     // v0.5.0-prep+6. Fires exactly once per probeEncryptedSend call.
     // `ok`: true when matrix-sdk returned a real server event id.
@@ -309,6 +335,13 @@ private:
     void updateRoomPreviewFrom(const QString &roomId,
                                const QList<TimelineEvent> &newestFirstCandidates);
     bool timelineActiveFor(const QString &roomId) const;
+    // v0.5.9: new-command plumbing. nextOpId() never returns 0 (0 means
+    // "unsupported" at the interface level).
+    quint64 nextOpId() { return ++m_opCounter; }
+    // Dispatch one Rust "command result" event to the matching signal.
+    // Returns true when the event type was consumed.
+    bool handleRoomCommandEvent(const QString &type, const QJsonObject &event);
+    void handleMediaReady(const QJsonObject &event);
     void handleSendOk(const QJsonObject &event);
     void handleSendFailed(const QJsonObject &event);
     void handleEncryptedSendOk(const QJsonObject &event);
@@ -357,4 +390,10 @@ private:
     };
     matrix::rust_timeline::TimelineGenerationTracker m_timelineTracker;
     QHash<QString, PaginationState> m_pagination;
+
+    // v0.5.9: operation-id counter for room-management/media commands and
+    // the cached server upload limit (0 until the first upload_limit event).
+    quint64 m_opCounter = 0;
+    qint64 m_maxUploadSize = 0;
+    bool m_uploadLimitRequested = false;
 };

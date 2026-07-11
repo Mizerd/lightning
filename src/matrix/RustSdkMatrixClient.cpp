@@ -174,6 +174,8 @@ void RustSdkMatrixClient::clearLocalState()
     m_pendingProbes.clear();
     m_timelineTracker.reset();
     m_pagination.clear();
+    m_maxUploadSize = 0;
+    m_uploadLimitRequested = false;
     setInitialSyncDone(false);
     Q_EMIT roomsChanged();
     setState(Disconnected);
@@ -1289,6 +1291,12 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
 
     if (type == QLatin1String("initial_sync_done")) {
         setInitialSyncDone(true);
+        // v0.5.9: fetch the server upload limit once per session so the
+        // composer can enforce the real m.upload.size before dispatching.
+        if (!m_uploadLimitRequested && m_rustHandle) {
+            m_uploadLimitRequested = true;
+            takeRustString(mx_rust_fetch_upload_limit(m_rustHandle));
+        }
         return;
     }
 
@@ -1487,6 +1495,10 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
             tr("Rust SDK sync failed.")));
         return;
     }
+
+    // v0.5.9 room-management / user-search / media command results.
+    if (handleRoomCommandEvent(type, event))
+        return;
 
     if (type == QLatin1String("error")) {
         Q_EMIT errorOccurred(event.value(QStringLiteral("message")).toString(
@@ -2173,4 +2185,489 @@ void RustSdkMatrixClient::failPendingSend(const QString &transactionId, const QS
 
     if (!message.isEmpty())
         Q_EMIT errorOccurred(tr("Send failed: %1").arg(message));
+}
+
+// ---------------------------------------------------------------------------
+// v0.5.9 — conversation creation, membership, room editing, media bridge.
+//
+// Pattern shared by all commands: generate an op id, dispatch to Rust, and
+// return the id on acceptance (0 on synchronous rejection). Results arrive
+// on the poll queue; handleRustEvent has already rejected stale handle
+// generations, and Rust stamps its lifecycle so a signed-out session can
+// never complete into a new one.
+// ---------------------------------------------------------------------------
+
+quint64 RustSdkMatrixClient::searchUsers(const QString &query, int limit)
+{
+    if (!m_rustHandle || query.trimmed().isEmpty())
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray q = query.toUtf8();
+    const QString result = takeRustString(mx_rust_search_users(
+        m_rustHandle, q.constData(),
+        static_cast<unsigned long long>(qBound(1, limit, 50)), opId));
+    if (!result.isEmpty()) {
+        qCWarning(lcRust) << "user search rejected";
+        return 0;
+    }
+    return opId;
+}
+
+QVariantList RustSdkMatrixClient::existingDirectRooms(const QString &userId) const
+{
+    if (!m_rustHandle || userId.isEmpty())
+        return {};
+    const QByteArray user = userId.toUtf8();
+    const QString payload =
+        takeRustString(mx_rust_get_dm_rooms(m_rustHandle, user.constData()));
+    if (payload.isEmpty() || payload.startsWith(QLatin1String("error:")))
+        return {};
+    const QJsonObject obj = QJsonDocument::fromJson(payload.toUtf8()).object();
+    QVariantList out;
+    const QJsonArray rooms = obj.value(QStringLiteral("rooms")).toArray();
+    for (const QJsonValue &value : rooms) {
+        const QJsonObject room = value.toObject();
+        QVariantMap entry;
+        entry.insert(QStringLiteral("roomId"),
+                     room.value(QStringLiteral("room_id")).toString());
+        entry.insert(QStringLiteral("name"),
+                     room.value(QStringLiteral("name")).toString());
+        out.append(entry);
+    }
+    return out;
+}
+
+quint64 RustSdkMatrixClient::createDirectChat(const QString &userId)
+{
+    if (!m_rustHandle || userId.isEmpty())
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray user = userId.toUtf8();
+    const QString result =
+        takeRustString(mx_rust_create_dm(m_rustHandle, user.constData(), opId));
+    if (!result.isEmpty()) {
+        qCWarning(lcRust) << "create DM rejected";
+        return 0;
+    }
+    return opId;
+}
+
+quint64 RustSdkMatrixClient::createRoom(const QVariantMap &options)
+{
+    if (!m_rustHandle)
+        return 0;
+    QJsonObject payload;
+    payload.insert(QStringLiteral("name"),
+                   options.value(QStringLiteral("name")).toString());
+    payload.insert(QStringLiteral("topic"),
+                   options.value(QStringLiteral("topic")).toString());
+    payload.insert(QStringLiteral("public"),
+                   options.value(QStringLiteral("public")).toBool());
+    payload.insert(QStringLiteral("encrypted"),
+                   options.value(QStringLiteral("encrypted")).toBool());
+    payload.insert(QStringLiteral("alias"),
+                   options.value(QStringLiteral("alias")).toString());
+    payload.insert(QStringLiteral("space_id"),
+                   options.value(QStringLiteral("spaceId")).toString());
+    payload.insert(QStringLiteral("invites"),
+                   QJsonArray::fromStringList(
+                       options.value(QStringLiteral("invites")).toStringList()));
+    const quint64 opId = nextOpId();
+    const QByteArray json =
+        QJsonDocument(payload).toJson(QJsonDocument::Compact);
+    const QString result = takeRustString(
+        mx_rust_create_room(m_rustHandle, json.constData(), opId));
+    if (!result.isEmpty()) {
+        qCWarning(lcRust) << "create room rejected";
+        return 0;
+    }
+    return opId;
+}
+
+quint64 RustSdkMatrixClient::inviteUsers(const QString &roomId,
+                                         const QStringList &userIds)
+{
+    if (!m_rustHandle || roomId.isEmpty() || userIds.isEmpty())
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray room = roomId.toUtf8();
+    const QByteArray users =
+        QJsonDocument(QJsonArray::fromStringList(userIds))
+            .toJson(QJsonDocument::Compact);
+    const QString result = takeRustString(mx_rust_invite_users(
+        m_rustHandle, room.constData(), users.constData(), opId));
+    if (!result.isEmpty()) {
+        qCWarning(lcRust) << "invite command rejected";
+        return 0;
+    }
+    return opId;
+}
+
+quint64 RustSdkMatrixClient::requestRoomMembers(const QString &roomId)
+{
+    if (!m_rustHandle || roomId.isEmpty())
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray room = roomId.toUtf8();
+    const QString result = takeRustString(
+        mx_rust_room_members(m_rustHandle, room.constData(), opId));
+    if (!result.isEmpty()) {
+        qCWarning(lcRust) << "member snapshot rejected";
+        return 0;
+    }
+    return opId;
+}
+
+quint64 RustSdkMatrixClient::setRoomName(const QString &roomId, const QString &name)
+{
+    if (!m_rustHandle || roomId.isEmpty() || name.trimmed().isEmpty())
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray room = roomId.toUtf8();
+    const QByteArray value = name.toUtf8();
+    const QString result = takeRustString(mx_rust_set_room_name(
+        m_rustHandle, room.constData(), value.constData(), opId));
+    return result.isEmpty() ? opId : 0;
+}
+
+quint64 RustSdkMatrixClient::setRoomTopic(const QString &roomId, const QString &topic)
+{
+    if (!m_rustHandle || roomId.isEmpty())
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray room = roomId.toUtf8();
+    const QByteArray value = topic.toUtf8();
+    const QString result = takeRustString(mx_rust_set_room_topic(
+        m_rustHandle, room.constData(), value.constData(), opId));
+    return result.isEmpty() ? opId : 0;
+}
+
+quint64 RustSdkMatrixClient::setRoomAvatar(const QString &roomId,
+                                           const QString &localPath)
+{
+    if (!m_rustHandle || roomId.isEmpty() || localPath.isEmpty())
+        return 0;
+    const QFileInfo info(localPath);
+    if (!info.isFile() || !info.isReadable() || info.size() <= 0)
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray room = roomId.toUtf8();
+    const QByteArray path = localPath.toUtf8();
+    const QString result = takeRustString(mx_rust_set_room_avatar(
+        m_rustHandle, room.constData(), path.constData(), opId));
+    return result.isEmpty() ? opId : 0;
+}
+
+quint64 RustSdkMatrixClient::removeRoomAvatar(const QString &roomId)
+{
+    if (!m_rustHandle || roomId.isEmpty())
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray room = roomId.toUtf8();
+    const QString result = takeRustString(
+        mx_rust_remove_room_avatar(m_rustHandle, room.constData(), opId));
+    return result.isEmpty() ? opId : 0;
+}
+
+quint64 RustSdkMatrixClient::leaveRoom(const QString &roomId)
+{
+    if (!m_rustHandle || roomId.isEmpty())
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray room = roomId.toUtf8();
+    const QString result = takeRustString(
+        mx_rust_leave_room(m_rustHandle, room.constData(), opId));
+    return result.isEmpty() ? opId : 0;
+}
+
+quint64 RustSdkMatrixClient::addRoomToSpace(const QString &spaceId,
+                                            const QString &roomId)
+{
+    if (!m_rustHandle || spaceId.isEmpty() || roomId.isEmpty())
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray space = spaceId.toUtf8();
+    const QByteArray room = roomId.toUtf8();
+    const QString result = takeRustString(mx_rust_add_room_to_space(
+        m_rustHandle, space.constData(), room.constData(), opId));
+    return result.isEmpty() ? opId : 0;
+}
+
+quint64 RustSdkMatrixClient::sendAttachment(const QString &roomId,
+                                            const QString &localPath,
+                                            const QString &mime,
+                                            const QString &caption,
+                                            int width, int height, bool animated)
+{
+    if (!m_rustHandle || roomId.isEmpty() || localPath.isEmpty() || mime.isEmpty())
+        return 0;
+    if (!timelineActiveFor(roomId)) {
+        qCWarning(lcRust) << "attachment send requires the open room timeline";
+        return 0;
+    }
+    const quint64 opId = nextOpId();
+    const QByteArray room = roomId.toUtf8();
+    const QByteArray path = localPath.toUtf8();
+    const QByteArray mimeBytes = mime.toUtf8();
+    const QByteArray captionBytes = caption.toUtf8();
+    const QString result = takeRustString(mx_rust_timeline_send_attachment(
+        m_rustHandle, room.constData(), path.constData(), mimeBytes.constData(),
+        captionBytes.constData(),
+        static_cast<unsigned long long>(qMax(0, width)),
+        static_cast<unsigned long long>(qMax(0, height)),
+        animated ? 1 : 0, opId));
+    if (!result.isEmpty()) {
+        qCWarning(lcRust) << "attachment send rejected";
+        return 0;
+    }
+    return opId;
+}
+
+quint64 RustSdkMatrixClient::sendAttachmentBytes(const QString &roomId,
+                                                 const QByteArray &bytes,
+                                                 const QString &filename,
+                                                 const QString &mime,
+                                                 int width, int height)
+{
+    if (!m_rustHandle || roomId.isEmpty() || bytes.isEmpty() || mime.isEmpty())
+        return 0;
+    if (!timelineActiveFor(roomId)) {
+        qCWarning(lcRust) << "attachment send requires the open room timeline";
+        return 0;
+    }
+    const quint64 opId = nextOpId();
+    const QByteArray room = roomId.toUtf8();
+    const QByteArray name = filename.toUtf8();
+    const QByteArray mimeBytes = mime.toUtf8();
+    const QString result = takeRustString(mx_rust_timeline_send_attachment_bytes(
+        m_rustHandle, room.constData(),
+        reinterpret_cast<const unsigned char *>(bytes.constData()),
+        static_cast<size_t>(bytes.size()), name.constData(),
+        mimeBytes.constData(),
+        static_cast<unsigned long long>(qMax(0, width)),
+        static_cast<unsigned long long>(qMax(0, height)), opId));
+    if (!result.isEmpty()) {
+        qCWarning(lcRust) << "clipboard attachment send rejected";
+        return 0;
+    }
+    return opId;
+}
+
+quint64 RustSdkMatrixClient::fetchMedia(const QString &mediaKey, int kind)
+{
+    if (!m_rustHandle || mediaKey.isEmpty())
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray key = mediaKey.toUtf8();
+    const QString result = takeRustString(mx_rust_media_fetch(
+        m_rustHandle, key.constData(),
+        static_cast<unsigned int>(qBound(0, kind, 1)), opId));
+    return result.isEmpty() ? opId : 0;
+}
+
+quint64 RustSdkMatrixClient::fetchMxcThumbnail(const QString &mxc,
+                                               int width, int height)
+{
+    if (!m_rustHandle || !mxc.startsWith(QLatin1String("mxc://")))
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray uri = mxc.toUtf8();
+    const QString result = takeRustString(mx_rust_media_fetch_mxc(
+        m_rustHandle, uri.constData(),
+        static_cast<unsigned long long>(qMax(0, width)),
+        static_cast<unsigned long long>(qMax(0, height)), opId));
+    return result.isEmpty() ? opId : 0;
+}
+
+void RustSdkMatrixClient::handleMediaReady(const QJsonObject &event)
+{
+    const quint64 opId =
+        static_cast<quint64>(event.value(QStringLiteral("op_id")).toDouble());
+    size_t len = 0;
+    unsigned char *raw = mx_rust_media_take(m_rustHandle, opId, &len);
+    if (!raw || len == 0) {
+        // Stale or already-taken payload; treat as a failed fetch.
+        Q_EMIT mediaFailed(opId, event.value(QStringLiteral("key")).toString(),
+                           event.value(QStringLiteral("kind")).toInt(),
+                           QStringLiteral("gone"));
+        return;
+    }
+    // One bounded copy into Qt-owned memory, then release the Rust buffer.
+    QByteArray bytes(reinterpret_cast<const char *>(raw),
+                     static_cast<qsizetype>(len));
+    mx_rust_media_free(raw, len);
+    Q_EMIT mediaReady(opId, event.value(QStringLiteral("key")).toString(),
+                      event.value(QStringLiteral("kind")).toInt(), bytes,
+                      event.value(QStringLiteral("mimetype")).toString(),
+                      event.value(QStringLiteral("filename")).toString());
+}
+
+bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
+                                                 const QJsonObject &event)
+{
+    const auto opId = [&event]() {
+        return static_cast<quint64>(
+            event.value(QStringLiteral("op_id")).toDouble());
+    };
+
+    if (type == QLatin1String("user_search_result")) {
+        QVariantList results;
+        const QJsonArray rows = event.value(QStringLiteral("results")).toArray();
+        for (const QJsonValue &value : rows) {
+            const QJsonObject row = value.toObject();
+            QVariantMap entry;
+            entry.insert(QStringLiteral("userId"),
+                         row.value(QStringLiteral("user_id")).toString());
+            entry.insert(QStringLiteral("displayName"),
+                         row.value(QStringLiteral("display_name")).toString());
+            entry.insert(QStringLiteral("avatarUrl"),
+                         row.value(QStringLiteral("avatar_url")).toString());
+            results.append(entry);
+        }
+        Q_EMIT userSearchFinished(opId(),
+                                  event.value(QStringLiteral("ok")).toBool(),
+                                  results,
+                                  event.value(QStringLiteral("limited")).toBool(),
+                                  event.value(QStringLiteral("category")).toString());
+        return true;
+    }
+
+    if (type == QLatin1String("dm_create_result")) {
+        Q_EMIT dmCreateFinished(opId(),
+                                event.value(QStringLiteral("ok")).toBool(),
+                                event.value(QStringLiteral("room_id")).toString(),
+                                event.value(QStringLiteral("category")).toString());
+        return true;
+    }
+
+    if (type == QLatin1String("room_create_result")) {
+        Q_EMIT roomCreateFinished(opId(),
+                                  event.value(QStringLiteral("ok")).toBool(),
+                                  event.value(QStringLiteral("room_id")).toString(),
+                                  event.value(QStringLiteral("category")).toString(),
+                                  event.value(QStringLiteral("warning")).toString());
+        return true;
+    }
+
+    if (type == QLatin1String("room_invite_result")) {
+        Q_EMIT inviteUserFinished(opId(),
+                                  event.value(QStringLiteral("room_id")).toString(),
+                                  event.value(QStringLiteral("user_id")).toString(),
+                                  event.value(QStringLiteral("ok")).toBool(),
+                                  event.value(QStringLiteral("category")).toString());
+        return true;
+    }
+
+    if (type == QLatin1String("room_invite_done")) {
+        Q_EMIT inviteBatchFinished(opId(),
+                                   event.value(QStringLiteral("room_id")).toString(),
+                                   event.value(QStringLiteral("ok_count")).toInt(),
+                                   event.value(QStringLiteral("fail_count")).toInt());
+        return true;
+    }
+
+    if (type == QLatin1String("room_members")) {
+        QVariantMap snapshot;
+        snapshot.insert(QStringLiteral("ok"),
+                        event.value(QStringLiteral("ok")).toBool());
+        snapshot.insert(QStringLiteral("truncated"),
+                        event.value(QStringLiteral("truncated")).toBool());
+        snapshot.insert(QStringLiteral("joinedCount"),
+                        event.value(QStringLiteral("joined_count")).toInt());
+        snapshot.insert(QStringLiteral("invitedCount"),
+                        event.value(QStringLiteral("invited_count")).toInt());
+        snapshot.insert(QStringLiteral("canInvite"),
+                        event.value(QStringLiteral("own_can_invite")).toBool());
+        snapshot.insert(QStringLiteral("canEditName"),
+                        event.value(QStringLiteral("own_can_edit_name")).toBool());
+        snapshot.insert(QStringLiteral("canEditTopic"),
+                        event.value(QStringLiteral("own_can_edit_topic")).toBool());
+        snapshot.insert(QStringLiteral("canEditAvatar"),
+                        event.value(QStringLiteral("own_can_edit_avatar")).toBool());
+        snapshot.insert(QStringLiteral("category"),
+                        event.value(QStringLiteral("category")).toString());
+        QVariantList members;
+        const QJsonArray rows = event.value(QStringLiteral("members")).toArray();
+        for (const QJsonValue &value : rows) {
+            const QJsonObject row = value.toObject();
+            QVariantMap entry;
+            entry.insert(QStringLiteral("userId"),
+                         row.value(QStringLiteral("user_id")).toString());
+            entry.insert(QStringLiteral("displayName"),
+                         row.value(QStringLiteral("display_name")).toString());
+            entry.insert(QStringLiteral("avatarUrl"),
+                         row.value(QStringLiteral("avatar_url")).toString());
+            entry.insert(QStringLiteral("membership"),
+                         row.value(QStringLiteral("membership")).toString());
+            entry.insert(QStringLiteral("role"),
+                         row.value(QStringLiteral("role")).toString());
+            entry.insert(QStringLiteral("ambiguous"),
+                         row.value(QStringLiteral("ambiguous")).toBool());
+            entry.insert(QStringLiteral("isOwn"),
+                         row.value(QStringLiteral("is_own")).toBool());
+            members.append(entry);
+        }
+        snapshot.insert(QStringLiteral("members"), members);
+        Q_EMIT roomMembersReceived(
+            opId(), event.value(QStringLiteral("room_id")).toString(), snapshot);
+        return true;
+    }
+
+    if (type == QLatin1String("room_edit_result")) {
+        Q_EMIT roomEditFinished(opId(),
+                                event.value(QStringLiteral("room_id")).toString(),
+                                event.value(QStringLiteral("field")).toString(),
+                                event.value(QStringLiteral("ok")).toBool(),
+                                event.value(QStringLiteral("category")).toString());
+        return true;
+    }
+
+    if (type == QLatin1String("room_leave_result")) {
+        Q_EMIT roomLeaveFinished(opId(),
+                                 event.value(QStringLiteral("room_id")).toString(),
+                                 event.value(QStringLiteral("ok")).toBool(),
+                                 event.value(QStringLiteral("category")).toString());
+        return true;
+    }
+
+    if (type == QLatin1String("space_child_result")) {
+        Q_EMIT spaceChildFinished(opId(),
+                                  event.value(QStringLiteral("space_id")).toString(),
+                                  event.value(QStringLiteral("room_id")).toString(),
+                                  event.value(QStringLiteral("ok")).toBool());
+        return true;
+    }
+
+    if (type == QLatin1String("attachment_send_result")) {
+        Q_EMIT attachmentQueueFinished(
+            opId(), event.value(QStringLiteral("room_id")).toString(),
+            event.value(QStringLiteral("ok")).toBool(),
+            event.value(QStringLiteral("category")).toString());
+        return true;
+    }
+
+    if (type == QLatin1String("media_ready")) {
+        handleMediaReady(event);
+        return true;
+    }
+
+    if (type == QLatin1String("media_failed")) {
+        Q_EMIT mediaFailed(opId(),
+                           event.value(QStringLiteral("key")).toString(),
+                           event.value(QStringLiteral("kind")).toInt(),
+                           event.value(QStringLiteral("category")).toString());
+        return true;
+    }
+
+    if (type == QLatin1String("upload_limit")) {
+        const qint64 bytes =
+            static_cast<qint64>(event.value(QStringLiteral("bytes")).toDouble());
+        if (bytes > 0 && bytes != m_maxUploadSize) {
+            m_maxUploadSize = bytes;
+            Q_EMIT maxUploadSizeChanged();
+        }
+        return true;
+    }
+
+    return false;
 }

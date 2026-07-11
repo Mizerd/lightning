@@ -11,7 +11,7 @@
 //! decrypted event JSON — item payloads carry only UI-safe metadata.
 
 use std::{
-    collections::VecDeque,
+    collections::{HashMap, VecDeque},
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, Mutex,
@@ -20,13 +20,14 @@ use std::{
 
 use futures_util::StreamExt;
 use matrix_sdk::{
+    attachment::AttachmentInfo,
     room::edit::EditedContent,
     ruma::{
         events::{
             room::{
                 message::{
                     MessageType, RoomMessageEventContent,
-                    RoomMessageEventContentWithoutRelation,
+                    RoomMessageEventContentWithoutRelation, TextMessageEventContent,
                 },
                 MediaSource,
             },
@@ -39,9 +40,10 @@ use matrix_sdk::{
 use matrix_sdk_ui::{
     eyeball_im::VectorDiff,
     timeline::{
-        EncryptedMessage, EventSendState, EventTimelineItem, MsgLikeKind, Timeline,
-        TimelineBuilder, TimelineDetails, TimelineEventItemId, TimelineItem,
-        TimelineItemContent, TimelineItemKind, VirtualTimelineItem,
+        AttachmentConfig, AttachmentSource, EncryptedMessage, EventSendState,
+        EventTimelineItem, MsgLikeKind, Timeline, TimelineBuilder, TimelineDetails,
+        TimelineEventItemId, TimelineItem, TimelineItemContent, TimelineItemKind,
+        VirtualTimelineItem,
     },
 };
 use serde_json::json;
@@ -59,6 +61,23 @@ pub const PAGINATION_BATCH: u16 = 20;
 pub const SHUTDOWN_JOIN_TIMEOUT_SECS: u64 = 15;
 
 type EventQueue = Arc<Mutex<VecDeque<String>>>;
+
+/// v0.5.9: media sources captured while serializing timeline items so the
+/// media bridge can later retrieve (and, via the SDK, decrypt) attachment
+/// bytes. `MediaSource::Encrypted` values embed the content keys — they are
+/// stored ONLY inside this Rust-side map and never serialized across the
+/// FFI. The map is keyed by the item's event id (or SDK unique id for local
+/// echoes) and lives only as long as the room's timeline.
+pub struct StoredMedia {
+    pub source: MediaSource,
+    pub thumbnail: Option<MediaSource>,
+    pub filename: String,
+    pub mimetype: Option<String>,
+}
+
+/// Bound for the per-room media source map. A timeline view never holds
+/// anywhere near this many media items; the cap only guards runaway growth.
+const MEDIA_SOURCE_CAP: usize = 4096;
 
 struct ActiveTimeline {
     room_id: String,
@@ -84,6 +103,9 @@ pub struct TimelineRegistry {
     /// Bumped on shutdown (sign-out / handle release). Everything stamped
     /// with an older lifecycle is stale.
     lifecycle_gen: AtomicU64,
+    /// v0.5.9: media sources for the currently open room's items. Cleared
+    /// on every room open and on shutdown. Never crosses the FFI.
+    media_sources: Mutex<HashMap<String, StoredMedia>>,
 }
 
 impl TimelineRegistry {
@@ -93,12 +115,60 @@ impl TimelineRegistry {
             active: Mutex::new(None),
             room_gen: AtomicU64::new(0),
             lifecycle_gen: AtomicU64::new(1),
+            media_sources: Mutex::new(HashMap::new()),
         }
     }
 
     fn is_current(&self, room_gen: u64, lifecycle: u64) -> bool {
         self.room_gen.load(Ordering::SeqCst) == room_gen
             && self.lifecycle_gen.load(Ordering::SeqCst) == lifecycle
+    }
+
+    /// Current lifecycle generation, stamped on v0.5.9 command results so
+    /// C++ can reject completions from a signed-out session.
+    pub fn lifecycle(&self) -> u64 {
+        self.lifecycle_gen.load(Ordering::SeqCst)
+    }
+
+    /// True while `lifecycle` is still the active session generation.
+    pub fn lifecycle_current(&self, lifecycle: u64) -> bool {
+        self.lifecycle_gen.load(Ordering::SeqCst) == lifecycle
+    }
+
+    /// Record a media source captured during item serialization.
+    fn remember_media(&self, key: String, media: StoredMedia) {
+        if key.is_empty() {
+            return;
+        }
+        if let Ok(mut guard) = self.media_sources.lock() {
+            if guard.len() >= MEDIA_SOURCE_CAP && !guard.contains_key(&key) {
+                return; // defensive cap; never realistically reached
+            }
+            guard.insert(key, media);
+        }
+    }
+
+    /// Look up a media source for the media bridge. Clones the source so the
+    /// lock is never held across an await point.
+    pub fn media_source(
+        &self,
+        key: &str,
+        thumbnail: bool,
+    ) -> Option<(MediaSource, String, Option<String>)> {
+        let guard = self.media_sources.lock().ok()?;
+        let media = guard.get(key)?;
+        let source = if thumbnail {
+            media.thumbnail.clone().unwrap_or_else(|| media.source.clone())
+        } else {
+            media.source.clone()
+        };
+        Some((source, media.filename.clone(), media.mimetype.clone()))
+    }
+
+    fn clear_media(&self) {
+        if let Ok(mut guard) = self.media_sources.lock() {
+            guard.clear();
+        }
     }
 
     /// Abort and forget the active timeline, if any. Returns the aborted
@@ -126,6 +196,7 @@ impl TimelineRegistry {
     ) {
         let room_gen = self.room_gen.fetch_add(1, Ordering::SeqCst) + 1;
         let lifecycle = self.lifecycle_gen.load(Ordering::SeqCst);
+        self.clear_media();
 
         if let Some((_task, old_room)) = self.take_active() {
             enqueue(
@@ -192,6 +263,7 @@ impl TimelineRegistry {
     pub fn shutdown(&self, runtime: &tokio::runtime::Runtime) {
         self.lifecycle_gen.fetch_add(1, Ordering::SeqCst);
         self.room_gen.fetch_add(1, Ordering::SeqCst);
+        self.clear_media();
         if let Some((task, _room)) = self.take_active() {
             if let Some(task) = task {
                 let _ = runtime.block_on(async {
@@ -334,6 +406,69 @@ impl TimelineRegistry {
                     }),
                 );
             }
+        });
+        Ok(())
+    }
+
+    /// v0.5.9: send an attachment through the SDK timeline. The send queue
+    /// path (`use_send_queue`) provides an SDK-owned local echo that flows
+    /// through the existing diff stream — sending, sent and failed states
+    /// arrive exactly like text-message echoes, and failed uploads are
+    /// retryable via the same `unwedge` route. Encryption of the attachment
+    /// (and thumbnail) is handled entirely by the SDK for encrypted rooms.
+    ///
+    /// `op_id` identifies the queue attempt for C++; only queueing success/
+    /// failure is reported here. Delivery state is item state, not op state.
+    pub fn send_attachment(
+        self: &Arc<Self>,
+        runtime: &tokio::runtime::Runtime,
+        room_id: String,
+        source: AttachmentSource,
+        mime_str: String,
+        caption: Option<String>,
+        info: Option<AttachmentInfo>,
+        op_id: u64,
+    ) -> Result<(), String> {
+        let Some((timeline, room_gen, lifecycle)) = self.timeline_for(&room_id) else {
+            return Err("No live timeline is open for that room.".to_owned());
+        };
+        let mime: mime::Mime = mime_str
+            .parse()
+            .map_err(|_| "Unsupported attachment MIME type.".to_owned())?;
+        let registry = Arc::clone(self);
+        let events = Arc::clone(&self.events);
+        runtime.spawn(async move {
+            let config = AttachmentConfig {
+                txn_id: None,
+                info,
+                thumbnail: None,
+                caption: caption
+                    .filter(|c| !c.is_empty())
+                    .map(TextMessageEventContent::plain),
+                mentions: None,
+                in_reply_to: None,
+            };
+            let result = timeline
+                .send_attachment(source, mime, config)
+                .use_send_queue()
+                .await;
+            if !registry.lifecycle_current(lifecycle) {
+                return;
+            }
+            enqueue(
+                &events,
+                json!({
+                    "type": "attachment_send_result",
+                    "op_id": op_id,
+                    "room_id": room_id,
+                    "room_generation": room_gen,
+                    "lifecycle": lifecycle,
+                    "ok": result.is_ok(),
+                    // Coarse category only; SDK errors may embed local paths
+                    // or server detail that must not cross the FFI.
+                    "category": if result.is_ok() { "" } else { "rejected" },
+                }),
+            );
         });
         Ok(())
     }
@@ -625,7 +760,7 @@ async fn open_room_task(
     }
 
     let snapshot: Vec<serde_json::Value> =
-        items.iter().map(|item| item_to_json(item, &own_user)).collect();
+        items.iter().map(|item| item_to_json(item, &own_user, &registry)).collect();
     enqueue(
         &events,
         json!({
@@ -642,7 +777,8 @@ async fn open_room_task(
             break;
         }
         for diff in diffs {
-            let value = diff_to_json(&room_id, room_gen, lifecycle, &diff, &own_user);
+            let value =
+                diff_to_json(&room_id, room_gen, lifecycle, &diff, &own_user, &registry);
             enqueue(&events, value);
         }
     }
@@ -675,6 +811,7 @@ fn diff_to_json(
     lifecycle: u64,
     diff: &VectorDiff<Arc<TimelineItem>>,
     own_user: &str,
+    registry: &TimelineRegistry,
 ) -> serde_json::Value {
     let base = |op: &str| {
         json!({
@@ -688,29 +825,29 @@ fn diff_to_json(
     match diff {
         VectorDiff::Append { values } => {
             let mut v = base("append");
-            v["items"] = values.iter().map(|i| item_to_json(i, own_user)).collect();
+            v["items"] = values.iter().map(|i| item_to_json(i, own_user, registry)).collect();
             v
         }
         VectorDiff::PushBack { value } => {
             let mut v = base("push_back");
-            v["item"] = item_to_json(value, own_user);
+            v["item"] = item_to_json(value, own_user, registry);
             v
         }
         VectorDiff::PushFront { value } => {
             let mut v = base("push_front");
-            v["item"] = item_to_json(value, own_user);
+            v["item"] = item_to_json(value, own_user, registry);
             v
         }
         VectorDiff::Insert { index, value } => {
             let mut v = base("insert");
             v["index"] = (*index).into();
-            v["item"] = item_to_json(value, own_user);
+            v["item"] = item_to_json(value, own_user, registry);
             v
         }
         VectorDiff::Set { index, value } => {
             let mut v = base("set");
             v["index"] = (*index).into();
-            v["item"] = item_to_json(value, own_user);
+            v["item"] = item_to_json(value, own_user, registry);
             v
         }
         VectorDiff::Remove { index } => {
@@ -728,14 +865,18 @@ fn diff_to_json(
         }
         VectorDiff::Reset { values } => {
             let mut v = base("reset");
-            v["items"] = values.iter().map(|i| item_to_json(i, own_user)).collect();
+            v["items"] = values.iter().map(|i| item_to_json(i, own_user, registry)).collect();
             v
         }
     }
 }
 
 /// Convert one SDK timeline item into the UI-safe FFI payload.
-fn item_to_json(item: &TimelineItem, own_user: &str) -> serde_json::Value {
+fn item_to_json(
+    item: &TimelineItem,
+    own_user: &str,
+    registry: &TimelineRegistry,
+) -> serde_json::Value {
     match item.kind() {
         TimelineItemKind::Virtual(virt) => {
             let (kind, ts) = match virt {
@@ -750,7 +891,7 @@ fn item_to_json(item: &TimelineItem, own_user: &str) -> serde_json::Value {
             })
         }
         TimelineItemKind::Event(event) => {
-            event_item_to_json(&item.unique_id().0, event, own_user)
+            event_item_to_json(&item.unique_id().0, event, own_user, registry)
         }
     }
 }
@@ -759,6 +900,7 @@ fn event_item_to_json(
     unique_id: &str,
     event: &EventTimelineItem,
     own_user: &str,
+    registry: &TimelineRegistry,
 ) -> serde_json::Value {
     let mut out = json!({
         "item_id": unique_id,
@@ -782,6 +924,12 @@ fn event_item_to_json(
     if let TimelineDetails::Ready(profile) = event.sender_profile() {
         if let Some(name) = &profile.display_name {
             out["sender_display_name"] = name.clone().into();
+        }
+        // v0.5.9: SDK-computed ambiguity — two active members share this
+        // display name. QML appends a compact MXID disambiguator; members
+        // are never merged by display name.
+        if profile.display_name_ambiguous {
+            out["sender_name_ambiguous"] = true.into();
         }
         if let Some(avatar) = &profile.avatar_url {
             out["sender_avatar_url"] = avatar.to_string().into();
@@ -838,7 +986,19 @@ fn event_item_to_json(
             match &msg_like.kind {
                 MsgLikeKind::Message(message) => {
                     out["edited"] = message.is_edited().into();
-                    fill_message_content(&mut out, message.msgtype());
+                    if let Some(media) = fill_message_content(&mut out, message.msgtype()) {
+                        // Stable retrieval key: the event id once the item is
+                        // remote, the SDK unique id while it is a local echo.
+                        let key: String = match out["event_id"].as_str() {
+                            Some(event_id) if !event_id.is_empty() => event_id.to_owned(),
+                            _ => unique_id.to_owned(),
+                        };
+                        out["media_key"] = key.clone().into();
+                        out["media_source_available"] = true.into();
+                        out["media_thumb_available"] =
+                            media.thumbnail.is_some().into();
+                        registry.remember_media(key, media);
+                    }
                 }
                 MsgLikeKind::Redacted => {
                     out["msgtype"] = "redacted".into();
@@ -897,22 +1057,32 @@ fn event_item_to_json(
     out
 }
 
-/// Text / notice / emote / media conversion. Media metadata is forwarded
-/// only when Lightning already supports it (plain mxc source); encrypted
-/// media sources are not exposed as downloadable URLs.
-fn fill_message_content(out: &mut serde_json::Value, msgtype: &MessageType) {
+/// Text / notice / emote / media conversion.
+///
+/// v0.5.9: media messages return a `StoredMedia` describing how to fetch
+/// the bytes through the SDK (including encrypted sources, which stay in
+/// Rust). The serialized payload still carries only safe metadata — a plain
+/// mxc string for unencrypted media (HTTP-backend parity), sizes, and
+/// dimensions. Encrypted source material never crosses the FFI.
+fn fill_message_content(
+    out: &mut serde_json::Value,
+    msgtype: &MessageType,
+) -> Option<StoredMedia> {
     match msgtype {
         MessageType::Text(content) => {
             out["msgtype"] = "text".into();
             out["body"] = content.body.clone().into();
+            None
         }
         MessageType::Notice(content) => {
             out["msgtype"] = "notice".into();
             out["body"] = content.body.clone().into();
+            None
         }
         MessageType::Emote(content) => {
             out["msgtype"] = "emote".into();
             out["body"] = content.body.clone().into();
+            None
         }
         MessageType::Image(content) => {
             out["msgtype"] = "image".into();
@@ -921,9 +1091,12 @@ fn fill_message_content(out: &mut serde_json::Value, msgtype: &MessageType) {
             if let MediaSource::Plain(mxc) = &content.source {
                 out["media_mxc"] = mxc.to_string().into();
             }
+            let mut mimetype = None;
+            let mut thumbnail = None;
             if let Some(info) = &content.info {
                 if let Some(mime) = &info.mimetype {
                     out["media_mimetype"] = mime.clone().into();
+                    mimetype = Some(mime.clone());
                 }
                 if let Some(size) = info.size {
                     out["media_size"] = u64::from(size).into();
@@ -934,27 +1107,42 @@ fn fill_message_content(out: &mut serde_json::Value, msgtype: &MessageType) {
                 if let Some(height) = info.height {
                     out["media_height"] = u64::from(height).into();
                 }
+                thumbnail = info.thumbnail_source.clone();
             }
+            Some(StoredMedia {
+                source: content.source.clone(),
+                thumbnail,
+                filename: content.body.clone(),
+                mimetype,
+            })
         }
         MessageType::File(content) => {
             out["msgtype"] = "file".into();
             out["body"] = content.body.clone().into();
-            out["media_filename"] = content
+            let filename = content
                 .filename
                 .clone()
-                .unwrap_or_else(|| content.body.clone())
-                .into();
+                .unwrap_or_else(|| content.body.clone());
+            out["media_filename"] = filename.clone().into();
             if let MediaSource::Plain(mxc) = &content.source {
                 out["media_mxc"] = mxc.to_string().into();
             }
+            let mut mimetype = None;
             if let Some(info) = &content.info {
                 if let Some(mime) = &info.mimetype {
                     out["media_mimetype"] = mime.clone().into();
+                    mimetype = Some(mime.clone());
                 }
                 if let Some(size) = info.size {
                     out["media_size"] = u64::from(size).into();
                 }
             }
+            Some(StoredMedia {
+                source: content.source.clone(),
+                thumbnail: None,
+                filename,
+                mimetype,
+            })
         }
         MessageType::Audio(content) => {
             out["msgtype"] = "file".into();
@@ -963,6 +1151,17 @@ fn fill_message_content(out: &mut serde_json::Value, msgtype: &MessageType) {
             if let MediaSource::Plain(mxc) = &content.source {
                 out["media_mxc"] = mxc.to_string().into();
             }
+            let mimetype =
+                content.info.as_ref().and_then(|info| info.mimetype.clone());
+            if let Some(mime) = &mimetype {
+                out["media_mimetype"] = mime.clone().into();
+            }
+            Some(StoredMedia {
+                source: content.source.clone(),
+                thumbnail: None,
+                filename: content.body.clone(),
+                mimetype,
+            })
         }
         MessageType::Video(content) => {
             out["msgtype"] = "file".into();
@@ -971,10 +1170,29 @@ fn fill_message_content(out: &mut serde_json::Value, msgtype: &MessageType) {
             if let MediaSource::Plain(mxc) = &content.source {
                 out["media_mxc"] = mxc.to_string().into();
             }
+            let mut mimetype = None;
+            let mut thumbnail = None;
+            if let Some(info) = &content.info {
+                if let Some(mime) = &info.mimetype {
+                    out["media_mimetype"] = mime.clone().into();
+                    mimetype = Some(mime.clone());
+                }
+                if let Some(size) = info.size {
+                    out["media_size"] = u64::from(size).into();
+                }
+                thumbnail = info.thumbnail_source.clone();
+            }
+            Some(StoredMedia {
+                source: content.source.clone(),
+                thumbnail,
+                filename: content.body.clone(),
+                mimetype,
+            })
         }
         other => {
             out["msgtype"] = "unsupported".into();
             out["body"] = other.body().to_owned().into();
+            None
         }
     }
 }

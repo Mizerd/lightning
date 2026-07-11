@@ -63,6 +63,20 @@ struct TimelineEvent {
     int     mediaHeight = 0;
     QString mediaThumbnailMxcUrl;
 
+    // Media bridge (v0.5.9, Rust backend only). `mediaKey` identifies the
+    // item's media for MatrixClient::fetchMedia; the actual source (which
+    // for encrypted rooms embeds content keys) never leaves Rust. The flags
+    // tell the UI whether bytes can be fetched and whether a server-side
+    // thumbnail exists.
+    QString mediaKey;
+    bool    mediaSourceAvailable = false;
+    bool    mediaThumbAvailable = false;
+
+    // v0.5.9: SDK-reported display-name ambiguity for the sender (two
+    // active members share the name). UI appends a compact MXID
+    // disambiguator; identity always remains the user id.
+    bool    senderNameAmbiguous = false;
+
     // Reactions attached to this event (v0.3).
     QList<Reaction> reactions;
 

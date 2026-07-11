@@ -1781,12 +1781,13 @@ dependencies = [
 
 [[package]]
 name = "matrix-client-rust"
-version = "0.5.8"
+version = "0.5.9"
 dependencies = [
  "futures-util",
  "matrix-sdk",
  "matrix-sdk-base",
  "matrix-sdk-ui",
+ "mime",
  "once_cell",
  "serde",
  "serde_json",

@@ -8,11 +8,24 @@ Rectangle {
     color: AppTheme.background
 
     property var currentRoom: ({})
+    // v0.5.9: Room Information side panel (Phases 6/10 surface).
+    property bool infoOpen: false
 
     function refreshCurrentRoom() {
         currentRoom = app.currentRoomId === ""
                       ? ({})
                       : app.roomList.findRoom(app.currentRoomId)
+    }
+
+    function toggleRoomInfo() {
+        if (app.currentRoomId === "" || !app.roomInfo.supported)
+            return
+        if (infoOpen) {
+            infoOpen = false
+            return
+        }
+        infoPanel.openForRoom(app.currentRoomId, currentRoom)
+        infoOpen = true
     }
 
     Connections {
@@ -22,14 +35,26 @@ Rectangle {
             // A pinned message-action toolbar belongs to the room it was
             // pinned in; drop it when the room changes.
             timeline.pinnedActionsKey = ""
+            // The info panel follows the open room; no room closes it.
+            if (root.infoOpen) {
+                if (app.currentRoomId === "")
+                    root.infoOpen = false
+                else
+                    infoPanel.openForRoom(app.currentRoomId, root.currentRoom)
+            }
         }
     }
 
-    // Escape closes any pinned message-action toolbar.
+    // Escape closes the room info panel first, then any pinned toolbar.
     Shortcut {
         sequence: "Escape"
-        enabled: timeline.pinnedActionsKey !== ""
-        onActivated: timeline.pinnedActionsKey = ""
+        enabled: root.infoOpen || timeline.pinnedActionsKey !== ""
+        onActivated: {
+            if (root.infoOpen)
+                root.infoOpen = false
+            else
+                timeline.pinnedActionsKey = ""
+        }
     }
     Connections {
         target: app.roomList
@@ -40,8 +65,14 @@ Rectangle {
     // maybeMarkRead() gate (see the timeline below).
     Component.onCompleted: refreshCurrentRoom()
 
-    ColumnLayout {
+    RowLayout {
         anchors.fill: parent
+        spacing: 0
+
+    ColumnLayout {
+        Layout.fillWidth: true
+        Layout.fillHeight: true
+        Layout.minimumWidth: 320
         spacing: 0
 
         // Room header
@@ -83,8 +114,24 @@ Rectangle {
                         Layout.fillWidth: true
                         elide: Label.ElideRight
                     }
+                    // Clicking the header identity opens Room Information.
+                    TapHandler {
+                        enabled: app.currentRoomId !== "" && app.roomInfo.supported
+                        onTapped: root.toggleRoomInfo()
+                    }
                 }
                 Item { Layout.fillWidth: true }
+                ToolButton {
+                    visible: app.currentRoomId !== "" && app.roomInfo.supported
+                    text: "ⓘ"
+                    font.pixelSize: 16
+                    checked: root.infoOpen
+                    Accessible.name: qsTr("Room information")
+                    ToolTip.text: qsTr("Room information")
+                    ToolTip.visible: hovered
+                    ToolTip.delay: 500
+                    onClicked: root.toggleRoomInfo()
+                }
             }
         }
 
@@ -274,4 +321,22 @@ Rectangle {
 
         MessageComposerBar { Layout.fillWidth: true }
     }
+
+    // ── Room Information side panel ──────────────────────────────────────
+    Rectangle {
+        visible: root.infoOpen
+        Layout.fillHeight: true
+        implicitWidth: 1
+        color: AppTheme.border
+    }
+    RoomInfoPanel {
+        id: infoPanel
+        Layout.fillHeight: true
+        Layout.preferredWidth: root.infoOpen ? 320 : 0
+        // Collapse cleanly at narrow widths instead of crushing the chat.
+        visible: root.infoOpen && root.width >= 700
+        onCloseRequested: root.infoOpen = false
+    }
+
+    } // RowLayout
 }

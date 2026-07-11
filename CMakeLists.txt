@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.21)
 project(matrix-client
-    VERSION 0.5.8
+    VERSION 0.5.9
     DESCRIPTION "Lightning — native C++/Qt Matrix desktop client"
     LANGUAGES CXX
 )
@@ -8,7 +8,7 @@ project(matrix-client
 include(CTest)
 
 # Human-facing release label. Keep in sync with project() and rust/Cargo.toml.
-set(APP_VERSION_LABEL "0.5.8")
+set(APP_VERSION_LABEL "0.5.9")
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -61,6 +61,10 @@ set(APP_SOURCES
 
     src/app/AppController.h
     src/app/AppController.cpp
+    src/app/ConversationController.h
+    src/app/ConversationController.cpp
+    src/app/RoomInfoController.h
+    src/app/RoomInfoController.cpp
     src/app/SettingsManager.h
     src/app/SettingsManager.cpp
 
@@ -102,11 +106,17 @@ set(APP_SOURCES
     src/models/TimelineModel.cpp
     src/models/MessageComposer.h
     src/models/MessageComposer.cpp
+    src/models/UserSearchModel.h
+    src/models/UserSearchModel.cpp
 
     src/notifications/NotificationManager.h
     src/notifications/NotificationManager.cpp
     src/media/MediaManager.h
     src/media/MediaManager.cpp
+    src/media/MediaBridge.h
+    src/media/MediaBridge.cpp
+    src/media/MediaImageProvider.h
+    src/media/MediaImageProvider.cpp
     src/crypto/CryptoManager.h
     src/crypto/CryptoManager.cpp
     src/spaces/SpaceManager.h
@@ -135,6 +145,10 @@ set(APP_QML_FILES
     qml/RoomDelegate.qml
     qml/MessageDelegate.qml
     qml/MessageComposerBar.qml
+    qml/UserPicker.qml
+    qml/NewConversationDialog.qml
+    qml/InvitePeopleDialog.qml
+    qml/RoomInfoPanel.qml
     qml/AppTheme.qml
 )
 
@@ -327,6 +341,22 @@ if(BUILD_TESTING)
     target_include_directories(cache-store-security-test PRIVATE src)
     target_link_libraries(cache-store-security-test PRIVATE Qt6::Core Qt6::Sql Qt6::Test)
     add_test(NAME cache-store-security COMMAND cache-store-security-test)
+
+    # v0.5.9: user search + DM/room-creation/invite flows (debounce,
+    # stale-result rejection, existing-DM reuse, duplicate-submission
+    # blocking, partial invite success, sign-out invalidation).
+    qt_add_executable(conversation-flow-test
+        tests/ConversationFlowTest.cpp
+        src/app/ConversationController.h
+        src/app/ConversationController.cpp
+        src/models/UserSearchModel.h
+        src/models/UserSearchModel.cpp
+        src/matrix/MatrixClient.h
+        src/matrix/MatrixClient.cpp
+    )
+    target_include_directories(conversation-flow-test PRIVATE src)
+    target_link_libraries(conversation-flow-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME conversation-flow COMMAND conversation-flow-test)
 
     qt_add_executable(room-state-model-test
         tests/RoomStateModelTest.cpp

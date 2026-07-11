@@ -103,6 +103,16 @@ TimelineEvent eventFromItemJson(const QJsonObject &item, const QString &roomId)
     e.mediaWidth = item.value(QStringLiteral("media_width")).toInt(0);
     e.mediaHeight = item.value(QStringLiteral("media_height")).toInt(0);
 
+    // v0.5.9: media-bridge retrieval key + availability flags (set for both
+    // plain and encrypted sources; the source itself stays inside Rust).
+    e.mediaKey = item.value(QStringLiteral("media_key")).toString();
+    e.mediaSourceAvailable =
+        item.value(QStringLiteral("media_source_available")).toBool(false);
+    e.mediaThumbAvailable =
+        item.value(QStringLiteral("media_thumb_available")).toBool(false);
+    e.senderNameAmbiguous =
+        item.value(QStringLiteral("sender_name_ambiguous")).toBool(false);
+
     const QJsonArray reactions = item.value(QStringLiteral("reactions")).toArray();
     for (const auto &value : reactions) {
         const QJsonObject obj = value.toObject();

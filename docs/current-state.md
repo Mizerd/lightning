@@ -1,4 +1,140 @@
-# Current state (v0.5.8 — Matrix-native room list and room state)
+# Current state (v0.5.9 — conversation creation, membership and the media bridge foundation)
+
+## v0.5.9 — user search, DMs, room creation, invites, room info; media FFI foundation
+
+Scope note: this release delivers the conversation-creation and membership
+milestone (the original plan's Phases 7–10) plus the Rust-side media
+foundation. The UI/theme redesign, Settings restructure, account menu,
+emoji picker, composer redesign and media *UI* were deliberately deferred —
+`docs/matrix-feature-status.md` reflects exactly what is wired.
+
+### User search (Phase 7)
+
+- `mx_rust_search_users` wraps the pinned `Client::search_users` (user
+  directory). `UserSearchModel` (C++) debounces at 300 ms, requires 2+
+  characters, caps at 20 results, and accepts complete `@user:server`
+  Matrix IDs directly — the typed MXID is always offered as the first row
+  even when the directory does not return it. Stale completions are
+  rejected by operation id (only the most recent dispatch may populate the
+  model), duplicates are removed by user id, and the current user is
+  excluded. Query text and result payloads are never logged or persisted.
+- One reusable `UserPicker.qml` (input + results + keyboard navigation:
+  arrows, Enter selects, loading/no-results/error states) is used by the
+  New Conversation and Invite People dialogs.
+
+### Start a Direct Message (Phase 8)
+
+- The sidebar `＋` button opens `NewConversationDialog` (Direct Message /
+  New Room). Selecting a user first runs the existing-DM check through
+  `Client::get_dm_rooms` — the SDK's authoritative `m.direct` projection —
+  and offers **Open existing conversation** before any creation; creating
+  a duplicate requires an explicit "start a new conversation anyway".
+- Creation uses the pinned `Client::create_dm`: `TrustedPrivateChat`
+  preset, `is_direct`, encryption initial state
+  (`RoomEncryptionEventContent::with_recommended_defaults()`), server-
+  chosen room version, and the SDK's `Account::mark_as_dm` — a mutex-held
+  fetch-merge-store of `m.direct` that preserves every other mapping.
+  Lightning never composes account data itself.
+- Self-DMs are rejected; `busy` single-flighting blocks double-clicks; the
+  room opens only after it appears in the authoritative room list (with a
+  bounded 10 s fallback); sign-out clears the pending operation so a stale
+  completion can never open a room in a new session.
+
+### Create room (Phase 9)
+
+- `mx_rust_create_room` builds the pinned ruma `create_room::v3::Request`
+  from validated options: name (required), topic, private/public preset +
+  visibility, optional local alias (public only), optional encryption
+  initial state, deduplicated initial invites, `is_direct: false`, no
+  locally generated room id or pinned room version. Unit-tested in Rust
+  (`rooms::tests`).
+- Dialog defaults: encryption ON for private rooms with an explicit
+  warning when disabled; public rooms are created unencrypted with a note.
+- Optional placement into the currently active Space sends `m.space.child`
+  via `send_state_event_for_key`. Placement failure is reported as a
+  warning (`spacePlacementFailed` → status-bar message) and never reads as
+  a failed room creation.
+
+### Invite people (Phase 10)
+
+- Room Information → People → **Invite** (visible only when the SDK's
+  `RoomMember::can_invite()` allows it — never guessed from role labels).
+  Invites go through `Room::invite_user_by_id`, sequentially, with
+  per-user pending/ok/failed rows (coarse categories: forbidden,
+  rate_limited, network), deduplication, an already-joined/invited
+  pre-check against the loaded member snapshot, and a batch summary.
+  One user's failure never discards the others' results. Membership
+  refreshes through authoritative sync (`membersChanged`).
+
+### Room Information panel + membership
+
+- `RoomInfoPanel.qml` (right side of the chat column, toggled from the
+  room header or the ⓘ button; Escape closes; collapses below 700 px):
+  - **Overview** — avatar initial, name, topic, encryption state, member
+    counts, Copy room ID, permission-gated name/topic editing
+    (`Room::set_name` / `set_room_topic`, gated on
+    `RoomMember::can_send_state`; no optimistic writes — sync is the
+    authority), and **Leave room** behind a confirmation dialog whose safe
+    default is Cancel. Leaving closes the open timeline and returns to the
+    no-room state; the list entry disappears via the authoritative room
+    list, and nothing is forgotten server-side.
+  - **People** — member search, joined/invited state, Admin/Mod role
+    labels from `suggested_role_for_power_level`, full MXID as secondary
+    text (primary when the SDK flags the display name ambiguous), and the
+    Invite button.
+- `mx_rust_room_members` returns a bounded snapshot (500 rows, truncation
+  flagged, joined before invited, then power, then name) plus the caller's
+  own permission flags (`can_invite`, `can_send_state` for
+  RoomName/RoomTopic/RoomAvatar). Member data stays in memory only — it is
+  never written to CacheStore.
+- Avatar editing FFI exists (`mx_rust_set_room_avatar` reads the file in
+  Rust, sniffs PNG/JPEG/GIF/WebP/BMP magic bytes, ≤ 8 MB, uploads via
+  `Room::upload_avatar`; `mx_rust_remove_room_avatar`); the Overview UI
+  for it lands with the media UI pass.
+
+### Media bridge foundation (FFI landed; UI deferred)
+
+- Send: `mx_rust_timeline_send_attachment` /
+  `_bytes` → `Timeline::send_attachment(...).use_send_queue()` — SDK-owned
+  local echo through the existing diff stream, transparent E2EE for
+  encrypted rooms, retry via the existing unwedge path. The bytes variant
+  exists so clipboard images never touch a temporary file.
+- Receive: the timeline serializer now records each media item's
+  `MediaSource` (including encrypted sources, which never cross the FFI)
+  in a per-room Rust-side registry keyed by `media_key` (event id, or SDK
+  unique id for local echoes) and adds `media_key` /
+  `media_source_available` / `media_thumb_available` to item payloads.
+  `mx_rust_media_fetch` retrieves (and for encrypted rooms decrypts)
+  through `Media::get_media_content`; bytes are parked in Rust and handed
+  over through a dedicated `mx_rust_media_take` / `mx_rust_media_free`
+  binary bridge — never the JSON queue — into `MediaBridge`'s 64 MB LRU
+  in-memory cache serving QML via `image://lightning-media/`
+  (`MediaImageProvider`, decode bounded at 4096 px). `saveAs` writes
+  atomically (QSaveFile) to the user-chosen destination with a
+  re-sanitized file name and never opens the file. The cache and parked
+  payloads are cleared on sign-out. `mx_rust_media_fetch_mxc` serves
+  plain-mxc avatar thumbnails; `mx_rust_fetch_upload_limit` exposes the
+  server's `m.upload.size` for the future composer gate.
+
+### Identity groundwork
+
+- Timeline items now carry `sender_name_ambiguous` (SDK profile
+  ambiguity) and `TimelineModel` adds `sameSenderAsPrevious` (same sender
+  within 5 minutes, virtual rows break runs) — consumed by the deferred
+  message-grouping UI pass.
+
+### Lifecycle and safety
+
+- Every new Rust command is a managed `spawn_room_action` task (joined on
+  shutdown), stamps the lifecycle generation, and is dropped when stale.
+  C++ controllers match completions by operation id and reset on
+  `loggedOut`, so no late callback can mutate a new session; tested in
+  `tests/ConversationFlowTest.cpp` (stale search results, stale DM
+  completions after sign-out, duplicate submissions, partial invite
+  success).
+- HTTP/Mock builds keep working: the new `MatrixClient` virtuals default
+  to inert no-ops, `supportsRoomManagement()` gates every new UI entry
+  point, and both build trees pass all 8 CTest suites.
 
 ## v0.5.8 — Modern room list, Spaces, DMs, invites, unread, receipts and typing
 
