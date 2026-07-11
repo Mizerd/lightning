@@ -264,6 +264,16 @@ char *mx_rust_search_users(void *client,
                            const char *query,
                            unsigned long long limit,
                            unsigned long long op_id);
+/*
+ * v0.5.11: exact profile lookup (GET /profile/{userId}) confirming a
+ * user id the directory may not list (bare-localpart invite search).
+ * Result event: {"type":"user_profile_result","op_id",…,"ok",
+ * "user_id","display_name","avatar_url"} or ok=false with a coarse
+ * "category" ("not_found" when the homeserver does not know the user).
+ */
+char *mx_rust_get_user_profile(void *client,
+                               const char *user_id,
+                               unsigned long long op_id);
 /* Synchronous m.direct projection: {"rooms":[{"room_id","name"}]}. */
 char *mx_rust_get_dm_rooms(void *client, const char *user_id);
 char *mx_rust_create_dm(void *client,

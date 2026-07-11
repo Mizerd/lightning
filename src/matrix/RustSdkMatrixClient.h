@@ -200,6 +200,7 @@ public:
     bool supportsAttachmentSend() const override { return true; }
     bool supportsMediaBridge() const override { return true; }
     quint64 searchUsers(const QString &query, int limit) override;
+    quint64 fetchUserProfile(const QString &userId) override;
     QVariantList existingDirectRooms(const QString &userId) const override;
     quint64 createDirectChat(const QString &userId) override;
     quint64 createRoom(const QVariantMap &options) override;

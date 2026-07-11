@@ -173,6 +173,65 @@ pub(crate) fn search_users(
     Ok(())
 }
 
+/// v0.5.11: exact profile lookup for one user id (GET /profile/{userId}).
+/// Backs the bare-localpart invite search: the directory may not list local
+/// users, so a plausible `@localpart:own-server` candidate is confirmed (or
+/// refuted) against the homeserver before it is offered as a result. Only
+/// display name and avatar mxc cross the FFI; a missing user surfaces as
+/// ok=false with category "not_found".
+pub(crate) fn fetch_user_profile(
+    bridge: &RustClient,
+    user_id: String,
+    op_id: u64,
+) -> Result<(), String> {
+    let client = require_client(bridge)?;
+    let uid: OwnedUserId =
+        UserId::parse(&user_id).map_err(|_| "invalid Matrix user id".to_owned())?;
+    let events = Arc::clone(&bridge.events);
+    let timelines = Arc::clone(&bridge.timelines);
+    let lifecycle = timelines.lifecycle();
+    bridge.spawn_room_action(async move {
+        let result = client.account().fetch_user_profile_of(&uid).await;
+        if !timelines.lifecycle_current(lifecycle) {
+            return;
+        }
+        match result {
+            Ok(profile) => {
+                let display_name = profile
+                    .get("displayname")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default()
+                    .to_owned();
+                let avatar_url = profile
+                    .get("avatar_url")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default()
+                    .to_owned();
+                enqueue(&events, json!({
+                    "type": "user_profile_result",
+                    "op_id": op_id,
+                    "lifecycle": lifecycle,
+                    "ok": true,
+                    "user_id": uid.to_string(),
+                    "display_name": display_name,
+                    "avatar_url": avatar_url,
+                }));
+            }
+            Err(err) => {
+                enqueue(&events, json!({
+                    "type": "user_profile_result",
+                    "op_id": op_id,
+                    "lifecycle": lifecycle,
+                    "ok": false,
+                    "user_id": uid.to_string(),
+                    "category": classify_room_error(&err.to_string()),
+                }));
+            }
+        }
+    });
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // Direct messages
 // ---------------------------------------------------------------------------

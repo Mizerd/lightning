@@ -2284,6 +2284,19 @@ pub unsafe extern "C" fn mx_rust_search_users(
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn mx_rust_get_user_profile(
+    ptr: *mut c_void,
+    user_id: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let user_id = unsafe { cstr_arg(user_id) }?;
+        rooms::fetch_user_profile(bridge, user_id, op_id).map(|_| String::new())
+    })
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn mx_rust_get_dm_rooms(
     ptr: *mut c_void,
     user_id: *const c_char,

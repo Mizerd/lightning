@@ -2213,6 +2213,21 @@ quint64 RustSdkMatrixClient::searchUsers(const QString &query, int limit)
     return opId;
 }
 
+quint64 RustSdkMatrixClient::fetchUserProfile(const QString &userId)
+{
+    if (!m_rustHandle || userId.isEmpty())
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray user = userId.toUtf8();
+    const QString result = takeRustString(mx_rust_get_user_profile(
+        m_rustHandle, user.constData(), opId));
+    if (!result.isEmpty()) {
+        qCWarning(lcRust) << "profile lookup rejected";
+        return 0;
+    }
+    return opId;
+}
+
 QVariantList RustSdkMatrixClient::existingDirectRooms(const QString &userId) const
 {
     if (!m_rustHandle || userId.isEmpty())
@@ -2529,6 +2544,17 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
                                   results,
                                   event.value(QStringLiteral("limited")).toBool(),
                                   event.value(QStringLiteral("category")).toString());
+        return true;
+    }
+
+    if (type == QLatin1String("user_profile_result")) {
+        Q_EMIT userProfileFinished(
+            opId(),
+            event.value(QStringLiteral("ok")).toBool(),
+            event.value(QStringLiteral("user_id")).toString(),
+            event.value(QStringLiteral("display_name")).toString(),
+            event.value(QStringLiteral("avatar_url")).toString(),
+            event.value(QStringLiteral("category")).toString());
         return true;
     }
 

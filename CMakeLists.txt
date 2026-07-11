@@ -112,6 +112,8 @@ set(APP_SOURCES
     src/models/AttachmentQueueModel.cpp
     src/models/UserSearchModel.h
     src/models/UserSearchModel.cpp
+    src/models/UserLookup.h
+    src/models/UserLookup.cpp
     src/models/PaginationController.h
     src/models/PaginationController.cpp
     src/models/ReadReceiptCoordinator.h
@@ -413,12 +415,30 @@ if(BUILD_TESTING)
         src/app/ConversationController.cpp
         src/models/UserSearchModel.h
         src/models/UserSearchModel.cpp
+        src/models/UserLookup.h
+        src/models/UserLookup.cpp
         src/matrix/MatrixClient.h
         src/matrix/MatrixClient.cpp
     )
     target_include_directories(conversation-flow-test PRIVATE src)
     target_link_libraries(conversation-flow-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME conversation-flow COMMAND conversation-flow-test)
+
+    # v0.5.11: bare-localpart user lookup — candidate derivation from the
+    # authenticated account's server, profile confirmation before exposure,
+    # merge deduplication with provenance, stale-result rejection.
+    qt_add_executable(user-lookup-test
+        tests/UserLookupTest.cpp
+        src/models/UserSearchModel.h
+        src/models/UserSearchModel.cpp
+        src/models/UserLookup.h
+        src/models/UserLookup.cpp
+        src/matrix/MatrixClient.h
+        src/matrix/MatrixClient.cpp
+    )
+    target_include_directories(user-lookup-test PRIVATE src)
+    target_link_libraries(user-lookup-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME user-lookup COMMAND user-lookup-test)
 
     # v0.5.11: backward-pagination policy — single-flight, viewport-fill
     # budget, no-progress stop, retry, stale room/reset/sign-out isolation.

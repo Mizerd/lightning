@@ -149,6 +149,10 @@ public:
 
     virtual quint64 searchUsers(const QString &query, int limit)
     { Q_UNUSED(query); Q_UNUSED(limit); return 0; }
+    // v0.5.11: exact profile lookup for one full Matrix user id. Confirms
+    // (or refutes) a bare-localpart candidate the directory may not list.
+    virtual quint64 fetchUserProfile(const QString &userId)
+    { Q_UNUSED(userId); return 0; }
     // Existing joined DM rooms for a user, from authoritative m.direct.
     // Each entry: {roomId, name}. Synchronous store lookup.
     virtual QVariantList existingDirectRooms(const QString &userId) const
@@ -260,6 +264,13 @@ Q_SIGNALS:
     void userSearchFinished(quint64 opId, bool ok,
                             const QVariantList &results, bool limited,
                             const QString &category);
+    // v0.5.11: exact profile lookup result. ok=false with category
+    // "not_found" means the homeserver does not know the user; other
+    // categories are transient ("network", "rate_limited", ...).
+    void userProfileFinished(quint64 opId, bool ok, const QString &userId,
+                             const QString &displayName,
+                             const QString &avatarUrl,
+                             const QString &category);
     void dmCreateFinished(quint64 opId, bool ok, const QString &roomId,
                           const QString &category);
     void roomCreateFinished(quint64 opId, bool ok, const QString &roomId,
