@@ -451,6 +451,35 @@ private Q_SLOTS:
         QVERIFY(!controller.busy());
     }
 
+    void finishBatchNotifiesPresentationStateSoQmlBindingsDoNotFreeze()
+    {
+        // Regression test: a QML binding (e.g. TimelinePane.qml's
+        // pagination header) only re-reads presentationState() when
+        // stateChanged() fires — it never polls. finishBatch() used to
+        // drop m_requestActive to false (the input to busy()/
+        // presentationState()) without emitting stateChanged() itself,
+        // so the last value any such binding observed stayed "Loading"
+        // forever even though a fresh presentationState() call already
+        // returned "Hidden". Verified against the real QML in
+        // TimelinePaneQmlTest.cpp; this pins the underlying signal.
+        FakeClient client;
+        PaginationController controller;
+        controller.setClient(&client);
+        controller.setRoomId(kRoomA);
+
+        QList<PaginationController::PresentationState> observed;
+        connect(&controller, &PaginationController::stateChanged, &controller,
+                [&] { observed.append(controller.presentationState()); });
+
+        controller.requestNearTop();
+        client.beginLoading(kRoomA);
+        client.completeBatch(kRoomA, 3, false); // flushes the deferred finishBatch()
+
+        QVERIFY(!observed.isEmpty());
+        QCOMPARE(observed.last(), PaginationController::Hidden);
+        QCOMPARE(controller.presentationState(), PaginationController::Hidden);
+    }
+
     void adoptsExternallyStartedBatch()
     {
         FakeClient client;

@@ -1,4 +1,24 @@
-# Current state (v0.5.13 — runtime bug-fix release)
+# Current state (v0.5.14 — runtime regression release)
+
+## v0.5.14 — pagination presentation, room activity, avatars and previews
+
+### Pagination QML exposure and stale-state fix (checkpoint 1)
+
+`PaginationController` is now registered as an uncreatable QML type
+(`QML_ELEMENT` / `QML_UNCREATABLE`) so `TimelinePane.qml` can actually resolve
+`PaginationController.Hidden/Loading/Failed` — in 0.5.13 the type was never
+registered, so every load of the pane threw
+`ReferenceError: PaginationController is not defined`.
+
+Separately, `PaginationController::finishBatch()` now emits `stateChanged()`
+once a batch completes. It previously dropped `m_requestActive` to `false`
+(the input to `busy()`/`presentationState()`) without notifying, so any QML
+binding on those properties — the pagination header included — froze on
+whatever state it last observed (typically "Loading") even though a fresh
+C++ read already reported "Hidden". A new runtime test
+(`tests/TimelinePaneQmlTest.cpp`) loads the real compiled QML module through
+a real `AppController` on the mock backend specifically to catch this class
+of defect, which a text-scan or isolated-controller unit test cannot see.
 
 ## v0.5.13 — runtime reliability and state activity
 

@@ -148,6 +148,12 @@ if(ENABLE_RUST_SDK_BACKEND)
     )
 endif()
 
+# Everything except main.cpp — reused by timeline-pane-qml-test so it can
+# construct a real AppController and load the real QML module instead of
+# re-declaring a parallel object graph.
+set(APP_LIB_SOURCES ${APP_SOURCES})
+list(REMOVE_ITEM APP_LIB_SOURCES src/main.cpp)
+
 set(APP_QML_FILES
     qml/Main.qml
     qml/LoginScreen.qml
@@ -184,38 +190,83 @@ endforeach()
 set_source_files_properties(qml/AppTheme.qml
     PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 
-qt_add_executable(matrix-client ${APP_SOURCES})
+# Everything (app sources + compiled QML module) that a Qt executable needs
+# to run the real UI, factored into a function so timeline-pane-qml-test can
+# build a second binary wired up identically to matrix-client — a plain
+# static "backing" library here proved unable to get Qt's static QML plugin
+# auto-import to run reliably across target boundaries, so each Qt-executable
+# target instead calls qt_add_qml_module on itself directly (the arrangement
+# Qt documents and the one that's actually verified to work).
+function(lightning_configure_qml_app target)
+    qt_add_qml_module(${target}
+        URI MatrixClient
+        VERSION 1.0
+        QML_FILES ${APP_QML_FILES}
+        RESOURCES data/emoji-catalog.tsv
+        RESOURCE_PREFIX /qt/qml
+        # Every Qt-executable target that calls qt_add_qml_module registers
+        # its own independent compiled copy of the same "MatrixClient" URI;
+        # each one needs a distinct scratch directory so two targets in the
+        # same build tree don't collide on it.
+        OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/qml-modules/${target}"
+    )
 
-qt_add_qml_module(matrix-client
-    URI MatrixClient
-    VERSION 1.0
-    QML_FILES ${APP_QML_FILES}
-    RESOURCES data/emoji-catalog.tsv
-    RESOURCE_PREFIX /qt/qml
-)
+    target_include_directories(${target} PRIVATE src)
+    # qmltyperegistrar's generated qml_register_types_MatrixClient() probes
+    # for each QML_ELEMENT header with #if __has_include(<HeaderName.h>) — a
+    # bare filename, not the "models/HeaderName.h" path used by quoted
+    # includes elsewhere. Add each subdirectory holding a QML-registered type
+    # so that angle-bracket lookup resolves.
+    target_include_directories(${target} PRIVATE src/models)
 
-target_include_directories(matrix-client PRIVATE src)
+    target_link_libraries(${target} PRIVATE
+        Qt6::Core
+        Qt6::Gui
+        Qt6::Qml
+        Qt6::Quick
+        Qt6::QuickControls2
+        Qt6::Network
+        Qt6::Sql
+        Qt6::Widgets
+    )
 
-target_link_libraries(matrix-client PRIVATE
-    Qt6::Core
-    Qt6::Gui
-    Qt6::Qml
-    Qt6::Quick
-    Qt6::QuickControls2
-    Qt6::Network
-    Qt6::Sql
-    Qt6::Widgets
-)
+    target_compile_definitions(${target} PRIVATE
+        APP_VERSION="${APP_VERSION_LABEL}"
+        $<$<CONFIG:Release>:QT_NO_DEBUG_OUTPUT>
+    )
 
-target_compile_definitions(matrix-client PRIVATE
-    APP_VERSION="${APP_VERSION_LABEL}"
-    $<$<CONFIG:Release>:QT_NO_DEBUG_OUTPUT>
-)
+    if(HAVE_LIBSECRET)
+        target_link_libraries(${target} PRIVATE PkgConfig::LIBSECRET)
+        target_compile_definitions(${target} PRIVATE HAVE_LIBSECRET=1)
+    endif()
 
-if(HAVE_LIBSECRET)
-    target_link_libraries(matrix-client PRIVATE PkgConfig::LIBSECRET)
-    target_compile_definitions(matrix-client PRIVATE HAVE_LIBSECRET=1)
-endif()
+    if(ENABLE_RUST_SDK_BACKEND)
+        add_dependencies(${target} matrix-client-rust-build)
+        target_link_libraries(${target} PRIVATE matrix-client-rust SQLite::SQLite3)
+        if(UNIX AND NOT APPLE)
+            # Rust static libs typically pull in libdl / libpthread / libm at
+            # some scale — link them defensively so growing the Rust surface
+            # later does not surprise us with link-time failures.
+            target_link_libraries(${target} PRIVATE dl pthread m)
+        endif()
+
+        target_compile_definitions(${target} PRIVATE ENABLE_RUST_SDK_BACKEND=1)
+
+        # v0.5.0-prep+9: initial E2EE gate. Both directions verified live
+        # against matrix.smetonis.net (Element Classic ↔ Lightning marker
+        # round-trip: expect_text=seen + encrypted_send=ok). Flip so
+        # CryptoManager::supportsE2ee() returns true for the Rust backend.
+        # HTTP and Mock still return false regardless.
+        target_compile_definitions(${target} PRIVATE RUST_SDK_E2EE_WIRED=1)
+    endif()
+
+    if(MSVC)
+        target_compile_options(${target} PRIVATE /W4 /permissive-)
+    else()
+        target_compile_options(${target} PRIVATE
+            -Wall -Wextra -Wpedantic -Wno-unused-parameter)
+    endif()
+endfunction()
 
 # ---------------------------------------------------------------------------
 # Optional Rust SDK backend. Uses `cargo build` to produce a static library
@@ -261,7 +312,6 @@ if(ENABLE_RUST_SDK_BACKEND)
     )
 
     add_custom_target(matrix-client-rust-build DEPENDS ${_rust_staticlib})
-    add_dependencies(matrix-client matrix-client-rust-build)
 
     add_library(matrix-client-rust STATIC IMPORTED GLOBAL)
     set_target_properties(matrix-client-rust PROPERTIES
@@ -269,33 +319,13 @@ if(ENABLE_RUST_SDK_BACKEND)
         INTERFACE_INCLUDE_DIRECTORIES "${_rust_dir}/include"
     )
 
-    target_link_libraries(matrix-client PRIVATE matrix-client-rust SQLite::SQLite3)
-    if(UNIX AND NOT APPLE)
-        # Rust static libs typically pull in libdl / libpthread / libm at
-        # some scale — link them defensively so growing the Rust surface
-        # later does not surprise us with link-time failures.
-        target_link_libraries(matrix-client PRIVATE dl pthread m)
-    endif()
-
-    target_compile_definitions(matrix-client PRIVATE ENABLE_RUST_SDK_BACKEND=1)
-
-    # v0.5.0-prep+9: initial E2EE gate. Both directions verified live
-    # against matrix.smetonis.net (Element Classic ↔ Lightning marker
-    # round-trip: expect_text=seen + encrypted_send=ok). Flip so
-    # CryptoManager::supportsE2ee() returns true for the Rust backend.
-    # HTTP and Mock still return false regardless.
-    target_compile_definitions(matrix-client PRIVATE RUST_SDK_E2EE_WIRED=1)
     message(STATUS "Rust SDK backend enabled (cargo profile: ${_cargo_profile}); initial E2EE gate open")
 else()
     message(STATUS "Rust SDK backend disabled (use -DENABLE_RUST_SDK_BACKEND=ON to build it)")
 endif()
 
-if(MSVC)
-    target_compile_options(matrix-client PRIVATE /W4 /permissive-)
-else()
-    target_compile_options(matrix-client PRIVATE
-        -Wall -Wextra -Wpedantic -Wno-unused-parameter)
-endif()
+qt_add_executable(matrix-client ${APP_SOURCES})
+lightning_configure_qml_app(matrix-client)
 
 if(BUILD_TESTING)
     find_package(Qt6 6.5 REQUIRED COMPONENTS Test)
@@ -357,6 +387,20 @@ if(BUILD_TESTING)
         QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
     target_link_libraries(qml-binding-contract-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME qml-binding-contract COMMAND qml-binding-contract-test)
+
+    # 0.5.14 checkpoint 1: a text scan cannot catch a QML type that was never
+    # registered (the PaginationController ReferenceError regression). This
+    # boots a real AppController on the mock backend and loads the real
+    # TimelinePane.qml through the real "MatrixClient" QML module.
+    qt_add_executable(timeline-pane-qml-test
+        tests/TimelinePaneQmlTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_app(timeline-pane-qml-test)
+    target_link_libraries(timeline-pane-qml-test PRIVATE Qt6::Test)
+    add_test(NAME timeline-pane-qml COMMAND timeline-pane-qml-test)
+    set_tests_properties(timeline-pane-qml PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     # v0.5.7: live-timeline diff translation + generation tracking. Pure
     # Qt (no cargo), so it runs in both build trees.
@@ -496,7 +540,7 @@ if(BUILD_TESTING)
         src/matrix/MatrixClient.cpp
     )
     target_include_directories(pagination-controller-test PRIVATE src)
-    target_link_libraries(pagination-controller-test PRIVATE Qt6::Core Qt6::Test)
+    target_link_libraries(pagination-controller-test PRIVATE Qt6::Core Qt6::Qml Qt6::Test)
     add_test(NAME pagination-controller COMMAND pagination-controller-test)
 
     # v0.5.11: automatic read receipts — visibility conjunction, debounce

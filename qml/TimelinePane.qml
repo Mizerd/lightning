@@ -382,6 +382,10 @@ Rectangle {
                 // permanent "scroll up" placeholder that lingers when the
                 // viewport cannot scroll.
                 header: Item {
+                    // Exposed for TimelinePaneQmlTest.cpp so the pagination
+                    // presentation surface can be located and asserted on
+                    // without a fragile visual/coordinate probe.
+                    objectName: "paginationHeader"
                     width: timeline.width
                     readonly property int paginationState:
                         app.pagination.presentationState

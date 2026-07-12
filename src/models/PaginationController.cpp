@@ -293,6 +293,13 @@ void PaginationController::finishBatch(bool hitStart)
         }
     }
 
+    // m_requestActive just dropped to false above, which is what busy() and
+    // therefore presentationState() key off — QML bindings on those
+    // properties (e.g. TimelinePane.qml's pagination header) only
+    // re-evaluate on this NOTIFY signal, so without it they stay frozen on
+    // whatever state was current the instant the batch finished (typically
+    // "Loading", forever) even though direct C++ reads already see Hidden.
+    Q_EMIT stateChanged();
     Q_EMIT paginationCompleted(inserted, hitStart);
 }
 

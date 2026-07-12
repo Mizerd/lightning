@@ -4,6 +4,7 @@
 #include <QObject>
 #include <QString>
 #include <QSet>
+#include <QtQmlIntegration/qqmlintegration.h>
 
 class MatrixClient;
 struct TimelineEvent;
@@ -35,6 +36,11 @@ struct TimelineEvent;
 class PaginationController : public QObject
 {
     Q_OBJECT
+    QML_ELEMENT
+    // Instantiated in C++ and exposed to QML only as the "app.pagination"
+    // context-property instance; this registration exists so TimelinePane.qml
+    // can name the PresentationState enum as PaginationController.Loading etc.
+    QML_UNCREATABLE("PaginationController is exposed via app.pagination")
     Q_PROPERTY(QString roomId READ roomId WRITE setRoomId NOTIFY roomIdChanged)
     Q_PROPERTY(bool busy READ busy NOTIFY stateChanged)
     Q_PROPERTY(bool reachedStart READ reachedStart NOTIFY stateChanged)
