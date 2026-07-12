@@ -12,7 +12,7 @@ across the rename. The product name is **Lightning**.
 
 ## Status
 
-**v0.5.11** — Timeline UX, appearance and safe link previews. Backward
+**v0.5.12** — Focused avatar, preview, media and pagination fixes. Backward
 history now fills automatically: a short initial snapshot that cannot scroll
 still fetches older batches until the viewport is filled, the start of
 history is reached, or a bounded budget/no-progress stop trips — and a

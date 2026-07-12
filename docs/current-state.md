@@ -1,6 +1,6 @@
-# Current state (v0.5.11 — timeline UX, themes and safe link previews)
+# Current state (v0.5.12 — focused bug-fix release)
 
-## v0.5.12 — bug-fix release (in progress)
+## v0.5.12 — avatars, previews, animated media and pagination
 
 Direct-message room avatars now use the other joined/invited member's profile
 avatar when the room has no explicit avatar, but only for authoritative
