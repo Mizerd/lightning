@@ -87,6 +87,8 @@ private Q_SLOTS:
     void effectiveDirectAvatarPolicy();
     void effectiveDirectAvatarRefreshAndAccountIsolation();
     void missingDirectAvatarResolvesWithoutSearch();
+    void missingDirectAvatarResolvesWithoutMemberSnapshot();
+    void groupDirectMappingDoesNotResolveMemberAvatar();
     void inviteActionsRouteAndStaySeparate();
     void explicitDiffOperationsValidateIndexesAndIdentity();
     void replaceValidatesIdentityAndReset();
@@ -276,6 +278,62 @@ void RoomStateModelTest::missingDirectAvatarResolvesWithoutSearch()
     QCOMPARE(model.data(model.index(0), RoomListModel::AvatarUrlRole).toString(),
              QStringLiteral("mxc://example.org/bob"));
     QVERIFY(changed.count() > 0);
+}
+
+// 0.5.14 checkpoint 3: the real (Rust) backend never populates
+// RoomInfo::members at all — it is fetched separately, on demand, only for
+// the Room Information "People" tab, and that result never flows back into
+// RoomListModel. The 0.5.13 test above (missingDirectAvatarResolvesWithoutSearch)
+// artificially inserts member entries, which is exactly why it passed while
+// the feature was still broken live: effectiveAvatarUrl() required a
+// populated member snapshot to identify "the other participant" before it
+// would ever consult the profile-fetch cache. This test reproduces the real
+// backend's shape — isDirect + directUserId(s) set, members left entirely
+// empty — end to end.
+void RoomStateModelTest::missingDirectAvatarResolvesWithoutMemberSnapshot()
+{
+    FakeClient client;
+    RoomListModel model;
+    auto dm = room(QStringLiteral("!dm:example.org"), true);
+    // An explicit room name must not disable member-avatar derivation.
+    dm.name = QStringLiteral("Mizerd");
+    dm.directUserId = QStringLiteral("@bob:example.org");
+    dm.directUserIds = { dm.directUserId };
+    QVERIFY(dm.members.isEmpty());
+    client.mirror = {dm};
+    model.setClient(&client);
+    QCOMPARE(client.profileUser, dm.directUserId);
+    QVERIFY(model.data(model.index(0), RoomListModel::AvatarUrlRole).toString().isEmpty());
+
+    QSignalSpy changed(&model, &RoomListModel::dataChanged);
+    Q_EMIT client.userProfileFinished(client.profileOp, true, dm.directUserId,
+                                      QStringLiteral("Bob"),
+                                      QStringLiteral("mxc://example.org/bob"), {});
+    QCOMPARE(model.data(model.index(0), RoomListModel::AvatarUrlRole).toString(),
+             QStringLiteral("mxc://example.org/bob"));
+    QCOMPARE(model.findRoom(dm.id).value(QStringLiteral("avatarUrl")).toString(),
+             QStringLiteral("mxc://example.org/bob"));
+    QVERIFY(changed.count() > 0);
+    QVERIFY(dm.members.isEmpty()); // never required
+}
+
+// A room m.direct maps against more than one target user is a group DM (or
+// an ambiguous mapping) and must never get an arbitrary member's avatar —
+// verified via the authoritative directUserIds list (the Rust backend's
+// signal), independent of any member snapshot.
+void RoomStateModelTest::groupDirectMappingDoesNotResolveMemberAvatar()
+{
+    FakeClient client;
+    RoomListModel model;
+    auto dm = room(QStringLiteral("!group-dm:example.org"), true);
+    dm.directUserId = QStringLiteral("@bob:example.org");
+    dm.directUserIds = { QStringLiteral("@bob:example.org"),
+                        QStringLiteral("@carol:example.org") };
+    client.mirror = {dm};
+    model.setClient(&client);
+
+    QVERIFY(client.profileUser.isEmpty()); // never even attempted
+    QVERIFY(model.data(model.index(0), RoomListModel::AvatarUrlRole).toString().isEmpty());
 }
 
 void RoomStateModelTest::replaceValidatesIdentityAndReset()

@@ -45,6 +45,32 @@ Rectangle — the whole row is the Expand/Collapse control, keyboard-activates
 via Space/Enter, and grants focus on click. Expanded rows are plain compact
 text lines with no message-bubble styling, actions, or previews.
 
+### Effective direct-message avatar resolution (checkpoint 3)
+
+One-to-one direct rooms kept showing initials everywhere (room list, timeline
+header, Room Information) even after 0.5.13's `resolveMissingDirectAvatars()`
+correctly fetched and cached the other member's profile avatar. Root cause:
+`RoomListModel::effectiveAvatarUrl()` required the per-room member snapshot
+(`RoomInfo::members`) to identify "the other participant" before it would
+ever consult that cache — but the Rust backend never populates `members` on
+the main room list at all (it is fetched separately, on demand, only for the
+Room Information "People" tab, and that result never flowed back into
+`RoomInfo`). The member-scan therefore always fell through empty, and the
+fetched avatar was silently unreachable. Automated tests didn't catch this
+because they artificially populated `members` to make the assertions pass —
+a shape the live Rust backend never actually produces.
+
+Fixed by deriving "is this an unambiguous 1:1 DM" from the room's
+authoritative `m.direct` target list (`RoomInfo::directUserIds`, newly
+parsed from the Rust bridge's `direct_user_ids`) when available, instead of
+requiring a member-list fetch; `effectiveAvatarUrl()` now falls back to the
+profile cache directly. An explicit room name no longer has any bearing on
+this (it never did, but is now explicitly tested). Also fixed
+`RoomInfoPanel.qml`, which captured its room's avatar as a one-time snapshot
+at open time and never refreshed — it now looks up the room live from
+`RoomListModel`, the same as the timeline header, and re-reads on every
+`dataChanged`.
+
 ## v0.5.13 — runtime reliability and state activity
 
 ### Pagination status lifecycle (0.5.13)

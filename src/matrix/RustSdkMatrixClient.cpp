@@ -1566,6 +1566,9 @@ RoomInfo RustSdkMatrixClient::roomInfoFromJson(const QJsonObject &obj) const
     room.isSpace = obj.value(QStringLiteral("is_space")).toBool(room.isSpace);
     room.isDirect = obj.value(QStringLiteral("is_direct")).toBool(false);
     room.directUserId = obj.value(QStringLiteral("direct_user_id")).toString();
+    room.directUserIds.clear();
+    for (const auto &value : obj.value(QStringLiteral("direct_user_ids")).toArray())
+        room.directUserIds.append(value.toString());
     room.roomType = obj.value(QStringLiteral("room_type")).toString();
     room.prevBatchToken = obj.value(QStringLiteral("prev_batch")).toString(room.prevBatchToken);
     room.inviterUserId = obj.value(QStringLiteral("inviter_user_id")).toString();

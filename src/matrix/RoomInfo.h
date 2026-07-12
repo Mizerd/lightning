@@ -33,6 +33,12 @@ struct RoomInfo {
     bool isSpace = false;
     bool isDirect = false;
     QString directUserId;
+    // Every target user this room's m.direct account-data mapping lists —
+    // authoritative for "is this an unambiguous 1:1 DM". A group DM (or a
+    // stale/ambiguous m.direct mapping) lists more than one and must not
+    // get an arbitrary member's avatar. Populated alongside directUserId;
+    // empty on backends that only ever provide the singular field.
+    QStringList directUserIds;
     QString canonicalAlias;
     QString inviterUserId;
     QString inviterDisplayName;

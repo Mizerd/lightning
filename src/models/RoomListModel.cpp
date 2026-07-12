@@ -170,31 +170,44 @@ QVariantMap RoomListModel::findRoom(const QString &roomId) const
 
 QString RoomListModel::effectiveAvatarUrl(const RoomInfo &room) const
 {
-    // Matrix room state always wins. Only derive a member avatar for a room
-    // authoritatively classified by m.direct, and only when the membership
-    // snapshot identifies exactly one other person. This deliberately avoids
-    // choosing an arbitrary face for group DMs or using our own profile.
+    // Matrix room state always wins. An explicit room NAME must never
+    // disable this — only an explicit room AVATAR does. Otherwise derive a
+    // member avatar for a room authoritatively classified by m.direct, and
+    // only when it is unambiguously a strict 1:1 (never an arbitrary face
+    // for a group DM or our own profile).
     if (!room.avatarUrl.isEmpty())
         return room.avatarUrl;
-    if (!m_client || !room.isDirect || room.directUserId.isEmpty())
+    if (!room.isDirect || room.directUserId.isEmpty())
         return {};
 
-    const QString self = m_client->currentUserId();
-    QString other;
-    for (auto it = room.members.cbegin(); it != room.members.cend(); ++it) {
-        const QString userId = it.key().isEmpty() ? it->userId : it.key();
-        if (userId.isEmpty() || userId == self)
-            continue;
-        if (!other.isEmpty() && other != userId)
+    // The Rust backend never populates the per-room member snapshot below
+    // (it is fetched separately, on demand, only for the Room Information
+    // "People" tab) — it instead reports the authoritative m.direct target
+    // list directly, which is exactly the "unambiguous 1:1" signal this
+    // needs and requires no member fetch at all. Backends that only ever
+    // populate `members` (Mock/HTTP) derive the same signal from there.
+    if (!room.directUserIds.isEmpty()) {
+        if (room.directUserIds.size() > 1)
             return {};
-        other = userId;
+    } else if (m_client && !room.members.isEmpty()) {
+        const QString self = m_client->currentUserId();
+        QString other;
+        for (auto it = room.members.cbegin(); it != room.members.cend(); ++it) {
+            const QString userId = it.key().isEmpty() ? it->userId : it.key();
+            if (userId.isEmpty() || userId == self)
+                continue;
+            if (!other.isEmpty() && other != userId)
+                return {};
+            other = userId;
+        }
+        if (other != room.directUserId)
+            return {};
     }
-    if (other.isEmpty() || other != room.directUserId)
-        return {};
-    const auto member = room.members.constFind(other);
+
+    const auto member = room.members.constFind(room.directUserId);
     if (member != room.members.cend() && !member->avatarMxcUrl.isEmpty())
         return member->avatarMxcUrl;
-    return m_profileAvatars.value(other);
+    return m_profileAvatars.value(room.directUserId);
 }
 
 bool RoomListModel::passesFilter(const RoomInfo &r) const
@@ -277,6 +290,7 @@ void RoomListModel::resolveMissingDirectAvatars()
     for (const RoomInfo &room : std::as_const(m_rooms)) {
         const QString userId = room.directUserId;
         if (!room.isDirect || !room.avatarUrl.isEmpty() || userId.isEmpty()
+            || room.directUserIds.size() > 1 // ambiguous group-DM mapping
             || !effectiveAvatarUrl(room).isEmpty()
             || m_profileAvatars.contains(userId)
             || m_profilePending.contains(userId))

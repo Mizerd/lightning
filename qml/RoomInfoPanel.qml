@@ -26,12 +26,27 @@ Rectangle {
     property string section: "overview"
     property string memberFilter: ""
 
-    function openForRoom(roomId, data) {
-        roomData = data || {}
+    // Looks up avatar/name/topic itself (rather than taking a caller-passed
+    // snapshot) so it stays live: an avatar that arrives asynchronously
+    // after resolveMissingDirectAvatars() completes — or any other room
+    // change — refreshes here exactly like the timeline header does,
+    // instead of freezing on whatever was known at the moment the panel
+    // opened.
+    function openForRoom(roomId) {
+        app.roomInfo.roomId = roomId
         section = "overview"
         memberFilter = ""
         memberSearch.text = ""
-        app.roomInfo.roomId = roomId
+        refreshRoomData()
+    }
+    function refreshRoomData() {
+        roomData = app.roomInfo.roomId !== ""
+                   ? app.roomList.findRoom(app.roomInfo.roomId) : ({})
+    }
+    Connections {
+        target: app.roomList
+        function onDataChanged() { root.refreshRoomData() }
+        function onModelReset() { root.refreshRoomData() }
     }
 
     InvitePeopleDialog {

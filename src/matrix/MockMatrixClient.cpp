@@ -465,10 +465,16 @@ void MockMatrixClient::seedMockData()
 
     RoomInfo dm;
     dm.id                 = QStringLiteral("!dm-bob:mock.local");
+    // Named explicitly (rather than left to compute from the other
+    // member) so the mock backend also exercises "explicit room name must
+    // not disable member-avatar derivation".
     dm.name               = QStringLiteral("Bob");
     dm.topic              = QStringLiteral("Direct message");
     dm.lastMessagePreview = QStringLiteral("See you tomorrow.");
     dm.lastActivity       = now.addSecs(-3600);
+    dm.isDirect           = true;
+    dm.directUserId       = QStringLiteral("@bob:mock.local");
+    dm.directUserIds      = { dm.directUserId };
     dm.members.insert(QStringLiteral("@bob:mock.local"),
                       member(QStringLiteral("@bob:mock.local"),
                              QStringLiteral("Bob")));

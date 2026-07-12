@@ -25,7 +25,7 @@ Rectangle {
             infoOpen = false
             return
         }
-        infoPanel.openForRoom(app.currentRoomId, currentRoom)
+        infoPanel.openForRoom(app.currentRoomId)
         infoOpen = true
     }
 
@@ -44,7 +44,7 @@ Rectangle {
                 if (app.currentRoomId === "")
                     root.infoOpen = false
                 else
-                    infoPanel.openForRoom(app.currentRoomId, root.currentRoom)
+                    infoPanel.openForRoom(app.currentRoomId)
             }
         }
     }
