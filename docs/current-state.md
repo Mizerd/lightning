@@ -74,14 +74,17 @@ at open time and never refreshed — it now looks up the room live from
 ### Link-preview compatibility restored (checkpoint 4)
 
 Generic website previews (NYT and most non-YouTube sites) regressed in
-0.5.12. Root cause was in `rust/src/rooms.rs`: the redirect-following fetch of
-the page itself was capped at `MAX_IMAGE_BYTES` instead of a page-sized
-budget, so any HTML response larger than that (routine for a modern news
-homepage's initial document) was truncated mid-download and failed before
-OpenGraph metadata could even be parsed. The fetch now uses its own
-`MAX_INITIAL_FETCH_BYTES` budget, sized to also accommodate direct image
-responses, restoring both HTML pages and direct-image previews without
-raising the hard cap used for the (separate) secondary og:image fetch.
+0.5.13 relative to 0.5.12. Root cause was in `rust/src/rooms.rs`: 0.5.12's
+redirect-following fetch of the page itself used the generous
+`MAX_IMAGE_BYTES` (5 MiB) budget, but 0.5.13 narrowed it to the much smaller
+`MAX_HTML_BYTES` (2 MiB), so any HTML response larger than that (routine for
+a modern news homepage's initial document) was truncated mid-download and
+failed before OpenGraph metadata could even be parsed. The fetch now uses its
+own `MAX_INITIAL_FETCH_BYTES` budget (equal to `MAX_IMAGE_BYTES`), restoring
+both HTML pages and direct-image previews without raising the hard cap used
+for the (separate) secondary og:image fetch. Confirmed live against
+nytimes.com, bbc.com, wikipedia.org, and example.org, each returning a
+successful title/image preview against this build.
 
 Other concrete gaps found and fixed in the same pass:
 

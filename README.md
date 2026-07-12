@@ -12,6 +12,22 @@ across the rename. The product name is **Lightning**.
 
 ## Status
 
+**v0.5.14** — Runtime regression release. Fixes a `PaginationController is not
+defined` QML error that broke the timeline pagination header on every load;
+fixes the room-activity Expand/Collapse control (a missing `root.` qualifier
+left it silently inert) and merges adjacent activity groups across pagination
+boundaries and SDK bookkeeping rows for compact, Element-style presentation;
+fixes one-to-one direct-message avatars so they resolve everywhere (room
+list, header, Room Information) from the room's own `m.direct` target list,
+without requiring a manual profile search; and restores generic
+website link-preview compatibility (regressed in 0.5.13 by a page-fetch byte
+cap shrunk well below a typical news homepage, truncating ordinary HTML
+pages before metadata could be parsed), adding Accept-Language, gzip/deflate
+decoding, Content-Type sniffing for mislabeled images, full WebP
+chunk-format support, and sanitized HTTP-status/redirect-count diagnostics —
+while keeping YouTube previews, SVG non-previewability, and all
+SSRF/redirect/DNS protections unchanged.
+
 **v0.5.13** — Runtime reliability release: stable pagination presentation,
 event-owned previews with real transient Retry behavior, bounded common-site
 metadata parsing, GIF loading lifecycle, automatic DM avatar refresh, safe
