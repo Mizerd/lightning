@@ -15,6 +15,10 @@ terminal policy, content-type, size, and metadata failures. Retry starts a
 fresh single-flight request only for transient failures; unsupported direct
 media and metadata-free pages do not leave a misleading Retry card.
 
+Animated GIF loading now follows the active `AnimatedImage` lifecycle instead
+of the intentionally unused static bridge source. Ready, failed, and reused
+delegates therefore stop or reset the loading indicator consistently.
+
 ## v0.5.12 — avatars, previews, animated media and pagination
 
 Direct-message room avatars now use the other joined/invited member's profile

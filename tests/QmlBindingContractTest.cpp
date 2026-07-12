@@ -38,6 +38,16 @@ private Q_SLOTS:
         QVERIFY(!pane.contains(QStringLiteral(
             "height: paginationHeader.visible ? paginationHeader.implicitHeight")));
     }
+
+    void animatedGifSpinnerUsesActiveRendererState()
+    {
+        const QString delegate = read(QStringLiteral("MessageDelegate.qml"));
+        QVERIFY(delegate.contains(QStringLiteral(
+            "running: imageBox.animateGif")));
+        QVERIFY(delegate.contains(QStringLiteral(
+            "animatedImg.status === AnimatedImage.Loading")));
+        QVERIFY(delegate.contains(QStringLiteral("onMediaIdentityChanged")));
+    }
 };
 
 QTEST_MAIN(QmlBindingContractTest)

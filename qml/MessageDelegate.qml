@@ -775,6 +775,8 @@ Item {
             // fallback. An empty bridgeSource means "fetch in flight".
             readonly property bool usesBridge:
                 model.mediaSourceAvailable === true && app.mediaBridge.supported
+            readonly property string mediaIdentity: root.actionKey + "\u001f"
+                                                    + (model.mediaKey || "")
             readonly property string bridgeCacheKey:
                 (model.mediaThumbAvailable ? "thumb:" : "full:") + (model.mediaKey || "")
             property string bridgeSource: ""
@@ -794,6 +796,12 @@ Item {
                     model.mediaThumbAvailable ? "thumb" : "full")
             }
             Component.onCompleted: refreshBridgeSource()
+            onMediaIdentityChanged: {
+                animatedSource = ""
+                bridgeSource = ""
+                bridgeFailed = false
+                refreshBridgeSource()
+            }
             Connections {
                 target: app.mediaBridge
                 enabled: imageBox.usesBridge
@@ -875,10 +883,12 @@ Item {
 
             BusyIndicator {
                 anchors.centerIn: parent
-                running: img.status === Image.Loading
-                         || (imageBox.usesBridge
-                             && imageBox.bridgeSource === ""
-                             && !imageBox.bridgeFailed)
+                running: imageBox.animateGif
+                         ? animatedImg.status === AnimatedImage.Loading
+                         : (img.status === Image.Loading
+                            || (imageBox.usesBridge
+                                && imageBox.bridgeSource === ""
+                                && !imageBox.bridgeFailed))
                 visible: running
             }
             Label {
