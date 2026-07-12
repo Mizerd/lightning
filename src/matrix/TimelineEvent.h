@@ -41,6 +41,7 @@ struct TimelineEvent {
     QString senderDisplayName;
     QString senderAvatarUrl;
     QString body;
+    QString stateKind;
     QString formattedBody;
     QDateTime timestamp;
     Type type = TextMessage;

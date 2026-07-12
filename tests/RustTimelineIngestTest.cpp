@@ -68,6 +68,7 @@ private Q_SLOTS:
     void parsesLocalEchoStates();
     void parsesVirtualItems();
     void parsesReactionsAndReply();
+    void parsesTypedStateActivity();
 
     // ── Diff application: every VectorDiff variant ──────────────────
     void appendAppends();
@@ -211,6 +212,19 @@ void RustTimelineIngestTest::parsesReactionsAndReply()
     QCOMPARE(e.replyToEventId, QStringLiteral("$orig"));
     QCOMPARE(e.replyToSender, QStringLiteral("@bob:example.org"));
     QCOMPARE(e.replyToPreview, QStringLiteral("original"));
+}
+
+void RustTimelineIngestTest::parsesTypedStateActivity()
+{
+    QJsonObject item = itemJson(QStringLiteral("state-1"),
+                                QStringLiteral("$state"),
+                                QStringLiteral("Alice changed the room topic."));
+    item.insert(QStringLiteral("msgtype"), QStringLiteral("state"));
+    item.insert(QStringLiteral("state_kind"), QStringLiteral("m.room.topic"));
+    const TimelineEvent event = eventFromItemJson(item, kRoom);
+    QCOMPARE(event.type, TimelineEvent::StateChange);
+    QCOMPARE(event.stateKind, QStringLiteral("m.room.topic"));
+    QCOMPARE(event.body, QStringLiteral("Alice changed the room topic."));
 }
 
 void RustTimelineIngestTest::appendAppends()

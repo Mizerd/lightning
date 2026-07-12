@@ -69,6 +69,11 @@ public:
         MediaThumbAvailableRole,  // Server-side thumbnail exists.
         SenderNameAmbiguousRole,  // Display name shared by 2+ members.
         SameSenderAsPreviousRole, // Consecutive-message grouping hint.
+        IsStateActivityRole,
+        StateKindRole,
+        StateGroupIdRole,
+        StateGroupLeaderRole,
+        StateGroupEntriesRole,
     };
 
     explicit TimelineModel(QObject *parent = nullptr);
@@ -160,6 +165,7 @@ private:
     int rowForEventId(const QString &eventId) const;
     void refreshTypingText();
     QVariantList reactionsVariant(const TimelineEvent &e) const;
+    QPair<int, int> stateGroupBounds(int row) const;
     QUrl mediaHttp(const QString &mxc) const;
     QUrl mediaThumbHttp(const QString &mxc, int w, int h) const;
 

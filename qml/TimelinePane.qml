@@ -205,6 +205,15 @@ Rectangle {
                 // v0.5.11: whether the open room is encrypted — drives the
                 // link-preview privacy gate in each MessageDelegate.
                 property bool roomEncrypted: root.currentRoom.encrypted === true
+                property var expandedStateGroups: ({})
+                function stateGroupExpanded(key) {
+                    return expandedStateGroups[key] === true
+                }
+                function toggleStateGroup(key) {
+                    var next = Object.assign({}, expandedStateGroups)
+                    next[key] = !stateGroupExpanded(key)
+                    expandedStateGroups = next
+                }
 
                 // v0.5.9: delegate entry points into the media UI. Kept on
                 // the view so MessageDelegate needs no external ids.
@@ -353,6 +362,7 @@ Rectangle {
                         timeline.anchorStableId = ""
                         timeline.anchorOffset = 0
                         timeline.anchorContentHeight = 0
+                        timeline.expandedStateGroups = ({})
                         Qt.callLater(timeline.scrollToEndDeferred)
                         Qt.callLater(timeline.maybeFillViewport)
                     }

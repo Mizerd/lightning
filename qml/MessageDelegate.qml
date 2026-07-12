@@ -9,8 +9,10 @@ Item {
     // timeline start) render as thin separators instead of bubbles.
     // eventType: 7 = DateDivider, 8 = ReadMarker, 9 = TimelineStart.
     readonly property bool isVirtualRow: model.isVirtual === true
+    readonly property bool isStateActivity: model.isStateActivity === true
     implicitHeight: isVirtualRow ? virtualRow.implicitHeight
-                                 : layout.implicitHeight + AppTheme.spacingXS
+                    : isStateActivity ? stateActivity.implicitHeight
+                    : layout.implicitHeight + AppTheme.spacingXS
 
     // Stable key for the pin-one-toolbar-at-a-time state on the ListView.
     // Prefer the SDK item id; fall back to the event id for backends that
@@ -39,7 +41,7 @@ Item {
     readonly property bool roomEncrypted:
         ListView.view ? ListView.view.roomEncrypted === true : false
     function refreshPreview() {
-        if (isVirtualRow || model.redacted || model.isImage || model.isFile
+        if (isVirtualRow || isStateActivity || model.redacted || model.isImage || model.isFile
             || actionKey === "" || !app.linkPreviews.supported) {
             preview = ({ state: "none" })
             return
@@ -81,9 +83,55 @@ Item {
         }
     }
 
+    Rectangle {
+        id: stateActivity
+        visible: root.isStateActivity && model.stateGroupLeader === true
+        width: parent.width
+        implicitHeight: visible ? stateColumn.implicitHeight + AppTheme.spacingS * 2 : 0
+        color: AppTheme.cardElevated
+        radius: AppTheme.radiusSm
+        border.color: AppTheme.border
+        ColumnLayout {
+            id: stateColumn
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            anchors.margins: AppTheme.spacingS
+            spacing: 3
+            Label {
+                Layout.fillWidth: true
+                text: qsTr("%n room activity update(s)", "",
+                           (model.stateGroupEntries || []).length)
+                color: AppTheme.textMuted
+                font.pixelSize: 11
+            }
+            Repeater {
+                model: ListView.view
+                       && ListView.view.stateGroupExpanded(model.stateGroupId || "")
+                       ? (model.stateGroupEntries || []) : []
+                Label {
+                    required property string modelData
+                    Layout.fillWidth: true
+                    text: modelData
+                    color: AppTheme.text
+                    font.pixelSize: 11
+                    wrapMode: Text.WordWrap
+                }
+            }
+            Button {
+                text: ListView.view
+                      && ListView.view.stateGroupExpanded(model.stateGroupId || "")
+                      ? qsTr("Collapse") : qsTr("Expand")
+                Accessible.name: text
+                onClicked: if (ListView.view)
+                    ListView.view.toggleStateGroup(model.stateGroupId || "")
+            }
+        }
+    }
+
     ColumnLayout {
         id: layout
-        visible: !root.isVirtualRow
+        visible: !root.isVirtualRow && !root.isStateActivity
         width: parent.width
         spacing: 2
 

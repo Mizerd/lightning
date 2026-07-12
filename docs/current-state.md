@@ -27,6 +27,11 @@ Plain message bodies render independently clickable HTTP/HTTPS anchors while
 remaining escaped, selectable text. Browser activation and loaded preview
 cards share a credential-free HTTP/HTTPS-only validation boundary.
 
+Rust SDK membership, profile, and common room-state variants now cross the
+timeline bridge as typed activity with readable descriptions. Consecutive
+activity is rendered as a neutral stable group, collapsed by default with
+accessible Expand/Collapse controls and without message actions or previews.
+
 ## v0.5.12 — avatars, previews, animated media and pagination
 
 Direct-message room avatars now use the other joined/invited member's profile

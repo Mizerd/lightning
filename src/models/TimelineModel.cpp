@@ -103,6 +103,21 @@ QVariantList TimelineModel::reactionsVariant(const TimelineEvent &e) const
     return out;
 }
 
+QPair<int, int> TimelineModel::stateGroupBounds(int row) const
+{
+    if (row < 0 || row >= m_events.size()
+        || m_events.at(row).type != TimelineEvent::StateChange)
+        return {-1, -1};
+    int first = row;
+    int last = row;
+    while (first > 0 && m_events.at(first - 1).type == TimelineEvent::StateChange)
+        --first;
+    while (last + 1 < m_events.size()
+           && m_events.at(last + 1).type == TimelineEvent::StateChange)
+        ++last;
+    return {first, last};
+}
+
 QVariant TimelineModel::data(const QModelIndex &index, int role) const
 {
     if (!index.isValid() || index.row() < 0 || index.row() >= m_events.size())
@@ -190,6 +205,26 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
             return false;
         return prev.timestamp.secsTo(e.timestamp) < 300;
     }
+    case IsStateActivityRole: return e.type == TimelineEvent::StateChange;
+    case StateKindRole: return e.stateKind;
+    case StateGroupIdRole: {
+        const auto bounds = stateGroupBounds(index.row());
+        if (bounds.first < 0) return QString{};
+        const auto &first = m_events.at(bounds.first);
+        return first.itemId.isEmpty() ? first.eventId : first.itemId;
+    }
+    case StateGroupLeaderRole: {
+        const auto bounds = stateGroupBounds(index.row());
+        return bounds.first == index.row();
+    }
+    case StateGroupEntriesRole: {
+        QVariantList entries;
+        const auto bounds = stateGroupBounds(index.row());
+        if (bounds.first != index.row()) return entries;
+        for (int i = bounds.first; i <= bounds.second; ++i)
+            entries.append(m_events.at(i).body);
+        return entries;
+    }
     default:                     return {};
     }
 }
@@ -237,6 +272,11 @@ QHash<int, QByteArray> TimelineModel::roleNames() const
         { MediaThumbAvailableRole, "mediaThumbAvailable" },
         { SenderNameAmbiguousRole, "senderNameAmbiguous" },
         { SameSenderAsPreviousRole, "sameSenderAsPrevious" },
+        { IsStateActivityRole,      "isStateActivity" },
+        { StateKindRole,            "stateKind" },
+        { StateGroupIdRole,         "stateGroupId" },
+        { StateGroupLeaderRole,     "stateGroupLeader" },
+        { StateGroupEntriesRole,    "stateGroupEntries" },
     };
 }
 

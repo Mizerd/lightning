@@ -1032,16 +1032,51 @@ fn event_item_to_json(
             }
         }
         TimelineItemContent::MembershipChange(_) => {
-            out["msgtype"] = "state".into();
-            out["body"] = "membership change".into();
+            if let TimelineItemContent::MembershipChange(change) = event.content() {
+                use matrix_sdk_ui::timeline::MembershipChange as M;
+                let target = change.display_name().unwrap_or_else(|| change.user_id().to_string());
+                let actor = event.sender().to_string();
+                let text = match change.change() {
+                    Some(M::Joined) => format!("{target} joined the room."),
+                    Some(M::Left) => format!("{target} left the room."),
+                    Some(M::Invited) => format!("{actor} invited {target}."),
+                    Some(M::InvitationAccepted) => format!("{target} accepted the invitation."),
+                    Some(M::Kicked) => format!("{actor} removed {target} from the room."),
+                    Some(M::Banned) | Some(M::KickedAndBanned) => format!("{actor} banned {target}."),
+                    Some(M::Unbanned) => format!("{actor} unbanned {target}."),
+                    Some(M::InvitationRejected) => format!("{target} rejected the invitation."),
+                    Some(M::InvitationRevoked) => format!("{actor} revoked {target}'s invitation."),
+                    _ => format!("Membership for {target} changed."),
+                };
+                out["msgtype"] = "state".into();
+                out["state_kind"] = "membership".into();
+                out["body"] = text.into();
+            }
         }
-        TimelineItemContent::ProfileChange(_) => {
+        TimelineItemContent::ProfileChange(change) => {
             out["msgtype"] = "state".into();
-            out["body"] = "profile change".into();
+            out["state_kind"] = "member_profile".into();
+            let target = change.user_id().to_string();
+            out["body"] = if change.displayname_change().is_some() {
+                format!("{target} changed their display name.")
+            } else {
+                format!("{target} changed their avatar.")
+            }.into();
         }
-        TimelineItemContent::OtherState(_) => {
+        TimelineItemContent::OtherState(state) => {
             out["msgtype"] = "state".into();
-            out["body"] = "room settings change".into();
+            let kind = state.content().event_type().to_string();
+            let actor = event.sender().to_string();
+            let text = match kind.as_str() {
+                "m.room.create" => format!("{actor} created the room."),
+                "m.room.name" => format!("{actor} changed the room name."),
+                "m.room.topic" => format!("{actor} changed the room topic."),
+                "m.room.avatar" => format!("{actor} changed the room avatar."),
+                "m.room.encryption" => "Encryption was enabled.".to_owned(),
+                _ => format!("{actor} updated room settings."),
+            };
+            out["state_kind"] = kind.into();
+            out["body"] = text.into();
         }
         TimelineItemContent::FailedToParseMessageLike { .. }
         | TimelineItemContent::FailedToParseState { .. } => {

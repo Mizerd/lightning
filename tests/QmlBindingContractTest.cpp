@@ -48,6 +48,16 @@ private Q_SLOTS:
             "animatedImg.status === AnimatedImage.Loading")));
         QVERIFY(delegate.contains(QStringLiteral("onMediaIdentityChanged")));
     }
+
+    void stateActivityUsesNeutralGroupedPresentation()
+    {
+        const QString delegate = read(QStringLiteral("MessageDelegate.qml"));
+        QVERIFY(delegate.contains(QStringLiteral("stateGroupEntries")));
+        QVERIFY(delegate.contains(QStringLiteral("qsTr(\"Expand\")")));
+        QVERIFY(delegate.contains(QStringLiteral("qsTr(\"Collapse\")")));
+        QVERIFY(delegate.contains(QStringLiteral(
+            "visible: !root.isVirtualRow && !root.isStateActivity")));
+    }
 };
 
 QTEST_MAIN(QmlBindingContractTest)
