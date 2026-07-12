@@ -19,6 +19,10 @@ Animated GIF loading now follows the active `AnimatedImage` lifecycle instead
 of the intentionally unused static bridge source. Ready, failed, and reused
 delegates therefore stop or reset the loading indicator consistently.
 
+One-to-one direct rooms with a missing member avatar now trigger a deduplicated
+SDK profile lookup during room-model refresh. The resulting account-scoped MXC
+updates the room-list role and open-room header without requiring user search.
+
 ## v0.5.12 — avatars, previews, animated media and pagination
 
 Direct-message room avatars now use the other joined/invited member's profile

@@ -5,6 +5,7 @@
 #include <QAbstractListModel>
 #include <QHash>
 #include <QList>
+#include <QSet>
 #include <QVariantMap>
 #include <QTimer>
 
@@ -79,12 +80,17 @@ public:
 private Q_SLOTS:
     void refresh();
     void refreshRoom(const QString &roomId);
+    void onUserProfileFinished(quint64 opId, bool ok, const QString &userId,
+                               const QString &displayName,
+                               const QString &avatarUrl,
+                               const QString &category);
 
 private:
     QString effectiveAvatarUrl(const RoomInfo &room) const;
     bool passesFilter(const RoomInfo &r) const;
     QList<RoomInfo> desiredRooms() const;
     void reconcileRooms();
+    void resolveMissingDirectAvatars();
 
     MatrixClient *m_client = nullptr;
     SpaceManager *m_spaces = nullptr;
@@ -93,6 +99,9 @@ private:
     QString m_pendingSearchQuery;
     quint64 m_filterGeneration = 1;
     QTimer m_searchDebounce;
+    QHash<QString, QString> m_profileAvatars;
+    QHash<quint64, QString> m_profileOps;
+    QSet<QString> m_profilePending;
 
 Q_SIGNALS:
     void searchQueryChanged();

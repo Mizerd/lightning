@@ -30,6 +30,8 @@ public:
     QString accepted;
     QString rejected;
     QString marked;
+    quint64 profileOp = 0;
+    QString profileUser;
 
     using MatrixClient::MatrixClient;
     void login(const QString &, const QString &, const QString &) override {}
@@ -60,6 +62,11 @@ public:
     void loadOlderMessages(const QString &) override {}
     bool canPaginate(const QString &) const override { return false; }
     bool paginating(const QString &) const override { return false; }
+    quint64 fetchUserProfile(const QString &userId) override
+    {
+        profileUser = userId;
+        return profileOp = profileOp + 1;
+    }
     void acceptInvite(const QString &id) override { accepted = id; }
     void rejectInvite(const QString &id) override { rejected = id; }
     void setRoomMarkedUnread(const QString &id, bool unread) override
@@ -79,6 +86,7 @@ private Q_SLOTS:
     void directMappingRemovalReturnsToRoom();
     void effectiveDirectAvatarPolicy();
     void effectiveDirectAvatarRefreshAndAccountIsolation();
+    void missingDirectAvatarResolvesWithoutSearch();
     void inviteActionsRouteAndStaySeparate();
     void explicitDiffOperationsValidateIndexesAndIdentity();
     void replaceValidatesIdentityAndReset();
@@ -247,6 +255,27 @@ void RoomStateModelTest::effectiveDirectAvatarRefreshAndAccountIsolation()
     Q_EMIT client.loginSucceeded(client.selfUserId);
     QCOMPARE(model.data(model.index(0), RoomListModel::AvatarUrlRole).toString(),
              QStringLiteral("mxc://new/dana"));
+}
+
+void RoomStateModelTest::missingDirectAvatarResolvesWithoutSearch()
+{
+    FakeClient client;
+    RoomListModel model;
+    auto dm = room(QStringLiteral("!dm:example.org"), true);
+    dm.directUserId = QStringLiteral("@bob:example.org");
+    dm.members.insert(client.selfUserId, MemberInfo{client.selfUserId, {}, {}});
+    dm.members.insert(dm.directUserId, MemberInfo{dm.directUserId, {}, {}});
+    client.mirror = {dm};
+    model.setClient(&client);
+    QCOMPARE(client.profileUser, dm.directUserId);
+
+    QSignalSpy changed(&model, &RoomListModel::dataChanged);
+    Q_EMIT client.userProfileFinished(client.profileOp, true, dm.directUserId,
+                                      QStringLiteral("Bob"),
+                                      QStringLiteral("mxc://example.org/bob"), {});
+    QCOMPARE(model.data(model.index(0), RoomListModel::AvatarUrlRole).toString(),
+             QStringLiteral("mxc://example.org/bob"));
+    QVERIFY(changed.count() > 0);
 }
 
 void RoomStateModelTest::replaceValidatesIdentityAndReset()

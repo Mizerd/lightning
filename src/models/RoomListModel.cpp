@@ -27,6 +27,9 @@ void RoomListModel::setClient(MatrixClient *client)
         return;
     if (m_client)
         m_client->disconnect(this);
+    m_profileAvatars.clear();
+    m_profileOps.clear();
+    m_profilePending.clear();
     m_client = client;
     if (m_client) {
         connect(m_client, &MatrixClient::roomsChanged,
@@ -37,8 +40,15 @@ void RoomListModel::setClient(MatrixClient *client)
                 this, &RoomListModel::refreshRoom);
         connect(m_client, &MatrixClient::loginSucceeded,
                 this, [this](const QString &) { refresh(); });
+        connect(m_client, &MatrixClient::userProfileFinished,
+                this, &RoomListModel::onUserProfileFinished);
         connect(m_client, &MatrixClient::loggedOut,
-                this, &RoomListModel::refresh);
+                this, [this] {
+                    m_profileAvatars.clear();
+                    m_profileOps.clear();
+                    m_profilePending.clear();
+                    refresh();
+                });
     }
     refresh();
 }
@@ -182,7 +192,9 @@ QString RoomListModel::effectiveAvatarUrl(const RoomInfo &room) const
     if (other.isEmpty() || other != room.directUserId)
         return {};
     const auto member = room.members.constFind(other);
-    return member == room.members.cend() ? QString{} : member->avatarMxcUrl;
+    if (member != room.members.cend() && !member->avatarMxcUrl.isEmpty())
+        return member->avatarMxcUrl;
+    return m_profileAvatars.value(other);
 }
 
 bool RoomListModel::passesFilter(const RoomInfo &r) const
@@ -238,6 +250,45 @@ void RoomListModel::refreshRoom(const QString &roomId)
     reconcileRooms();
 }
 
+void RoomListModel::onUserProfileFinished(quint64 opId, bool ok,
+                                          const QString &userId,
+                                          const QString &displayName,
+                                          const QString &avatarUrl,
+                                          const QString &category)
+{
+    Q_UNUSED(displayName);
+    Q_UNUSED(category);
+    const QString requestedUser = m_profileOps.take(opId);
+    if (requestedUser.isEmpty() || requestedUser != userId)
+        return;
+    m_profilePending.remove(userId);
+    if (ok && !avatarUrl.isEmpty())
+        m_profileAvatars.insert(userId, avatarUrl);
+    for (int row = 0; row < m_rooms.size(); ++row) {
+        if (m_rooms.at(row).isDirect && m_rooms.at(row).directUserId == userId)
+            Q_EMIT dataChanged(index(row), index(row), {AvatarUrlRole});
+    }
+}
+
+void RoomListModel::resolveMissingDirectAvatars()
+{
+    if (!m_client)
+        return;
+    for (const RoomInfo &room : std::as_const(m_rooms)) {
+        const QString userId = room.directUserId;
+        if (!room.isDirect || !room.avatarUrl.isEmpty() || userId.isEmpty()
+            || !effectiveAvatarUrl(room).isEmpty()
+            || m_profileAvatars.contains(userId)
+            || m_profilePending.contains(userId))
+            continue;
+        const quint64 opId = m_client->fetchUserProfile(userId);
+        if (opId != 0) {
+            m_profilePending.insert(userId);
+            m_profileOps.insert(opId, userId);
+        }
+    }
+}
+
 void RoomListModel::reconcileRooms()
 {
     const auto desired = desiredRooms();
@@ -263,6 +314,7 @@ void RoomListModel::reconcileRooms()
         replaceRoom(target, desired.at(target));
     }
     truncate(desired.size());
+    resolveMissingDirectAvatars();
 }
 
 void RoomListModel::resetRooms(const QList<RoomInfo> &rooms)
