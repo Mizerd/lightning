@@ -12,6 +12,11 @@ across the rename. The product name is **Lightning**.
 
 ## Status
 
+**v0.5.13** — Runtime reliability release: stable pagination presentation,
+event-owned previews with real transient Retry behavior, bounded common-site
+metadata parsing, GIF loading lifecycle, automatic DM avatar refresh, safe
+HTTP/HTTPS activation, and compact grouped room activity.
+
 **v0.5.12** — Focused avatar, preview, media and pagination fixes. Backward
 history now fills automatically: a short initial snapshot that cannot scroll
 still fetches older batches until the viewport is filled, the start of

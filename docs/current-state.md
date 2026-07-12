@@ -1,4 +1,6 @@
-# Current state (v0.5.12 — focused bug-fix release)
+# Current state (v0.5.13 — runtime bug-fix release)
+
+## v0.5.13 — runtime reliability and state activity
 
 ### Pagination status lifecycle (0.5.13)
 
