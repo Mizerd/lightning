@@ -32,9 +32,9 @@ private Q_SLOTS:
     {
         const QString pane = read(QStringLiteral("TimelinePane.qml"));
         QVERIFY(!pane.isEmpty());
-        QVERIFY(pane.contains(QStringLiteral("readonly property bool showPaginationStatus")));
-        QVERIFY(pane.contains(QStringLiteral("height: root.showPaginationStatus ? 32 : 0")));
-        QVERIFY(pane.contains(QStringLiteral("visible: root.showPaginationStatus")));
+        QVERIFY(pane.contains(QStringLiteral("app.pagination.presentationState")));
+        QVERIFY(pane.contains(QStringLiteral("PaginationController.Hidden ? 0 : 32")));
+        QVERIFY(!pane.contains(QStringLiteral("showPaginationStatus")));
         QVERIFY(!pane.contains(QStringLiteral(
             "height: paginationHeader.visible ? paginationHeader.implicitHeight")));
     }

@@ -938,6 +938,12 @@ void RustSdkMatrixClient::loadOlderMessages(const QString &roomId)
         qCWarning(lcRust) << "timeline pagination dispatch failed";
         state.failed = true;
         Q_EMIT paginationStateChanged(roomId);
+    } else if (state.failed) {
+        // An accepted explicit retry has left the previous terminal state.
+        // The Rust loading event follows asynchronously, but presentation
+        // must enter loading immediately instead of flashing the old error.
+        state.failed = false;
+        Q_EMIT paginationStateChanged(roomId);
     }
 }
 

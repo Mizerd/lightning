@@ -77,6 +77,7 @@ public:
     {
         ++loadOlderCalls;
         lastLoadRoom = roomId;
+        states[roomId].failed = false;
     }
     bool canPaginate(const QString &roomId) const override
     {
@@ -137,6 +138,42 @@ class PaginationControllerTest : public QObject
     Q_OBJECT
 
 private Q_SLOTS:
+    void logicalPresentationState()
+    {
+        FakeClient client;
+        PaginationController controller;
+        controller.setClient(&client);
+        QCOMPARE(controller.presentationState(), PaginationController::Hidden);
+
+        controller.setRoomId(kRoomA);
+        QCOMPARE(controller.presentationState(), PaginationController::Hidden);
+        controller.requestNearTop();
+        QCOMPARE(controller.presentationState(), PaginationController::Loading);
+        client.beginLoading(kRoomA);
+        QCOMPARE(controller.presentationState(), PaginationController::Loading);
+        client.failBatch(kRoomA);
+        QCOMPARE(controller.presentationState(), PaginationController::Failed);
+        controller.retry();
+        QCOMPARE(controller.presentationState(), PaginationController::Loading);
+        controller.setRoomId(kRoomB);
+        QCOMPARE(controller.presentationState(), PaginationController::Hidden);
+    }
+
+    void logicalPresentationStateCoversReadinessAndHistoryEnd()
+    {
+        FakeClient client;
+        PaginationController controller;
+        controller.setClient(&client);
+        controller.setRoomId(kRoomA);
+
+        client.timelineActive = false;
+        Q_EMIT client.paginationStateChanged(kRoomA);
+        QCOMPARE(controller.presentationState(), PaginationController::Hidden);
+        client.timelineActive = true;
+        client.states[kRoomA].reachedStart = true;
+        Q_EMIT client.paginationStateChanged(kRoomA);
+        QCOMPARE(controller.presentationState(), PaginationController::Hidden);
+    }
     void viewportFillDefersUntilTimelineReady()
     {
         FakeClient client;

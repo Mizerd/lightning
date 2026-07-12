@@ -39,11 +39,15 @@ class PaginationController : public QObject
     Q_PROPERTY(bool busy READ busy NOTIFY stateChanged)
     Q_PROPERTY(bool reachedStart READ reachedStart NOTIFY stateChanged)
     Q_PROPERTY(bool failed READ failed NOTIFY stateChanged)
+    Q_PROPERTY(PresentationState presentationState READ presentationState NOTIFY stateChanged)
     // True once automatic viewport filling stopped itself (budget spent or
     // no progress). User-driven NearTop requests remain available.
     Q_PROPERTY(bool fillStopped READ fillStopped NOTIFY stateChanged)
 
 public:
+    enum PresentationState { Hidden, Loading, Failed };
+    Q_ENUM(PresentationState)
+
     explicit PaginationController(QObject *parent = nullptr);
 
     void setClient(MatrixClient *client);
@@ -54,6 +58,7 @@ public:
     bool busy() const;
     bool reachedStart() const;
     bool failed() const;
+    PresentationState presentationState() const;
     bool fillStopped() const { return m_fillStopped; }
 
     // Ask for one more batch because the viewport is not filled yet.

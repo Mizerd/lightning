@@ -82,6 +82,17 @@ bool PaginationController::failed() const
     return m_client && !m_roomId.isEmpty() && m_client->paginationFailed(m_roomId);
 }
 
+PaginationController::PresentationState PaginationController::presentationState() const
+{
+    if (m_roomId.isEmpty())
+        return Hidden;
+    if (busy())
+        return Loading;
+    if (failed())
+        return Failed;
+    return Hidden;
+}
+
 const char *PaginationController::reasonName(Reason reason)
 {
     switch (reason) {

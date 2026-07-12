@@ -9,11 +9,6 @@ Rectangle {
     color: AppTheme.background
 
     property var currentRoom: ({})
-    // Logical pagination state is deliberately independent of header
-    // geometry, ListView content height, and viewport-fill calculations.
-    readonly property bool showPaginationStatus:
-        app.currentRoomId !== ""
-        && (app.pagination.busy || app.pagination.failed)
     // v0.5.9: Room Information side panel (Phases 6/10 surface).
     property bool infoOpen: false
 
@@ -378,30 +373,32 @@ Rectangle {
                 // viewport cannot scroll.
                 header: Item {
                     width: timeline.width
-                    height: root.showPaginationStatus ? 32 : 0
+                    readonly property int paginationState:
+                        app.pagination.presentationState
+                    height: paginationState === PaginationController.Hidden ? 0 : 32
                     Row {
                         id: paginationHeader
                         anchors.centerIn: parent
                         spacing: 6
-                        visible: root.showPaginationStatus
+                        visible: parent.paginationState !== PaginationController.Hidden
                         BusyIndicator {
                             width: 16; height: 16
                             anchors.verticalCenter: parent.verticalCenter
-                            running: app.pagination.busy
-                            visible: app.pagination.busy
+                            running: parent.parent.paginationState === PaginationController.Loading
+                            visible: running
                         }
                         Label {
                             anchors.verticalCenter: parent.verticalCenter
-                            text: app.pagination.busy
+                            text: parent.parent.paginationState === PaginationController.Loading
                                   ? qsTr("Loading older messages…")
                                   : qsTr("Could not load older messages —")
-                            color: app.pagination.failed
+                            color: parent.parent.paginationState === PaginationController.Failed
                                    ? AppTheme.error : AppTheme.textMuted
                             font.pixelSize: 11
                         }
                         Label {
                             anchors.verticalCenter: parent.verticalCenter
-                            visible: app.pagination.failed && !app.pagination.busy
+                            visible: parent.parent.paginationState === PaginationController.Failed
                             text: qsTr("Retry")
                             color: AppTheme.accent
                             font.pixelSize: 11
