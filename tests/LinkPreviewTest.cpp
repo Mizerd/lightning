@@ -333,6 +333,38 @@ private Q_SLOTS:
         QCOMPARE(client.requestedUrls.size(), 2);
     }
 
+    void terminalFailureIsSuppressedAndCannotRetry()
+    {
+        FakeClient client;
+        LinkPreviewController controller;
+        controller.setClient(&client);
+        controller.previewFor(QStringLiteral("$1"),
+                              QStringLiteral("https://example.org/direct.svg"), false);
+        client.fail(client.lastOp, QStringLiteral("unsupported_mime"));
+        const QVariantMap state = controller.previewFor(
+            QStringLiteral("$1"), QStringLiteral("https://example.org/direct.svg"), false);
+        QCOMPARE(state.value(QStringLiteral("state")).toString(), QStringLiteral("none"));
+        controller.retry(QStringLiteral("$1"));
+        QCOMPARE(client.requestedUrls.size(), 1);
+    }
+
+    void retryImmediatelyReentersLoadingAndRemainsSingleFlight()
+    {
+        FakeClient client;
+        LinkPreviewController controller;
+        controller.setClient(&client);
+        controller.previewFor(QStringLiteral("$1"),
+                              QStringLiteral("https://example.org/a"), false);
+        client.fail(client.lastOp, QStringLiteral("timeout"));
+        controller.retry(QStringLiteral("$1"));
+        QCOMPARE(controller.previewFor(QStringLiteral("$1"),
+                                       QStringLiteral("https://example.org/a"), false)
+                     .value(QStringLiteral("state")).toString(),
+                 QStringLiteral("loading"));
+        controller.retry(QStringLiteral("$1"));
+        QCOMPARE(client.requestedUrls.size(), 2);
+    }
+
     void staleResultAfterSignOutIsRejected()
     {
         FakeClient client;

@@ -142,7 +142,8 @@ void LinkPreviewController::retry(const QString &itemKey)
         return;
     const auto urlIt = m_urls.constFind(it->url);
     if (urlIt == m_urls.constEnd()
-        || urlIt->state != QLatin1String("failed"))
+        || urlIt->state != QLatin1String("failed")
+        || !stateFor(it.value()).value(QStringLiteral("retryable")).toBool())
         return;
     m_urls.remove(it->url);
     m_urlOrder.removeOne(it->url);
@@ -222,7 +223,17 @@ QVariantMap LinkPreviewController::stateFor(const ItemEntry &item) const
     const UrlEntry &entry = urlIt.value();
     out.insert(QStringLiteral("state"), entry.state);
     if (entry.state == QLatin1String("failed")) {
+        const bool retryable = entry.category == QLatin1String("network")
+            || entry.category == QLatin1String("dns_failure")
+            || entry.category == QLatin1String("request_failure")
+            || entry.category == QLatin1String("timeout")
+            || entry.category == QLatin1String("http_transient");
+        if (!retryable) {
+            out.insert(QStringLiteral("state"), QStringLiteral("none"));
+            return out;
+        }
         out.insert(QStringLiteral("retryable"), true);
+        out.insert(QStringLiteral("category"), entry.category);
         return out;
     }
     if (entry.state != QLatin1String("loaded"))

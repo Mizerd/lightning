@@ -236,7 +236,7 @@ pub(crate) fn fetch_user_profile(
 // Client-side URL previews (v0.5.12)
 // ---------------------------------------------------------------------------
 
-const MAX_HTML_BYTES: usize = 1_048_576;
+const MAX_HTML_BYTES: usize = 2 * 1_048_576;
 const MAX_IMAGE_BYTES: usize = 5 * 1_048_576;
 const MAX_IMAGE_PIXELS: u64 = 25_000_000;
 const MAX_REDIRECTS: usize = 4;
@@ -332,14 +332,18 @@ fn pick(fields: &std::collections::HashMap<String,String>, keys: &[&str]) -> Str
 async fn preview(mut page: url::Url) -> Result<serde_json::Value, &'static str> {
     let mut response;
     for redirects in 0..=MAX_REDIRECTS {
-        response = safe_get(&page, MAX_IMAGE_BYTES).await?;
+        response = safe_get(&page, MAX_HTML_BYTES).await?;
         if response.status.is_redirection() {
             if redirects == MAX_REDIRECTS { return Err("too_many_redirects"); }
             page = page.join(response.location.as_deref().ok_or("invalid_redirect")?)
                 .map_err(|_| "invalid_redirect")?;
             continue;
         }
-        if !response.status.is_success() { return Err("http_error"); }
+        if !response.status.is_success() {
+            return Err(if response.status.is_server_error()
+                || response.status.as_u16() == 429 { "http_transient" }
+                else { "http_terminal" });
+        }
         if matches!(response.mime.as_str(), "image/jpeg"|"image/png"|"image/webp"|"image/gif") {
             return image_fields(response.mime, response.bytes);
         }
@@ -351,6 +355,10 @@ async fn preview(mut page: url::Url) -> Result<serde_json::Value, &'static str> 
         let description = pick(&metadata, &["og:description", "twitter:description", "description"]);
         let image_url = pick(&metadata, &["og:image", "twitter:image"]);
         let image = if image_url.is_empty() { None } else { page.join(&image_url).ok() };
+        if title.is_empty() && html_title.is_empty() && description.is_empty()
+            && image.is_none() {
+            return Err("no_metadata");
+        }
         let mut fields = json!({
             "title": clipped(if title.is_empty() { html_title } else { title }, 300),
             "description": clipped(description, 1000),

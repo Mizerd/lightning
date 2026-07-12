@@ -10,6 +10,11 @@ Link-preview ownership is scoped to the room and immutable SDK timeline-item
 identity. Delegate reuse, room switches, prepends, and edited URLs revalidate
 that ownership before any asynchronous result is displayed.
 
+Preview failures now distinguish transient network/server failures from
+terminal policy, content-type, size, and metadata failures. Retry starts a
+fresh single-flight request only for transient failures; unsupported direct
+media and metadata-free pages do not leave a misleading Retry card.
+
 ## v0.5.12 — avatars, previews, animated media and pagination
 
 Direct-message room avatars now use the other joined/invited member's profile
