@@ -1,6 +1,7 @@
 #include "media/MediaManager.h"
 
 #include "matrix/MatrixClient.h"
+#include "models/LinkPreview.h"
 
 #include <QDesktopServices>
 
@@ -40,5 +41,11 @@ void MediaManager::sendPickedFile(const QString &roomId, const QUrl &fileUrl)
 void MediaManager::openExternal(const QUrl &url)
 {
     if (url.isValid())
+        QDesktopServices::openUrl(url);
+}
+
+void MediaManager::openWebUrl(const QUrl &url)
+{
+    if (matrix::link_preview::isSafeExternalUrl(url))
         QDesktopServices::openUrl(url);
 }

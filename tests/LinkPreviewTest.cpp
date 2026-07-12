@@ -178,6 +178,25 @@ private Q_SLOTS:
                  QStringLiteral("example.org"));
     }
 
+    void linkifiesOnlySafeHttpAndHttpsWithPunctuation()
+    {
+        using namespace matrix::link_preview;
+        const QString html = linkifiedMessageHtml(QStringLiteral(
+            "One http://example.org/a, two https://example.org/b?q=1#x. "));
+        QVERIFY(html.contains(QStringLiteral("href=\"http://example.org/a\"")));
+        QVERIFY(html.contains(QStringLiteral("href=\"https://example.org/b?q=1#x\"")));
+        QVERIFY(!html.contains(QStringLiteral("#x.\"")));
+        QVERIFY(!linkifiedMessageHtml(QStringLiteral("javascript:alert(1)"))
+                     .contains(QStringLiteral("href=")));
+        QVERIFY(!linkifiedMessageHtml(QStringLiteral("file:///tmp/x"))
+                     .contains(QStringLiteral("href=")));
+        QVERIFY(!linkifiedMessageHtml(QStringLiteral("https://u:p@example.org/x"))
+                     .contains(QStringLiteral("href=")));
+        QVERIFY(isSafeExternalUrl(QUrl(QStringLiteral("https://example.org/x"))));
+        QVERIFY(!isSafeExternalUrl(QUrl(QStringLiteral("data:text/plain,x"))));
+        QVERIFY(!isSafeExternalUrl(QUrl(QStringLiteral("file:///tmp/x"))));
+    }
+
     // ---- GIF classification ----------------------------------------------
 
     void gifClassificationTrustsMimeNotSuffix()

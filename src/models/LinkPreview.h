@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QString>
+#include <QUrl>
 
 // v0.5.11: pure link-preview helpers — URL extraction from message text and
 // MIME-validated GIF classification. No Qt models, no FFI, no I/O; fully
@@ -22,6 +23,8 @@ QString firstPreviewableUrl(const QString &body);
 // Hostname of `url` for safe diagnostics; never includes path, query,
 // fragment, or userinfo. Empty for unparsable input.
 QString sanitizedHost(const QString &url);
+QString linkifiedMessageHtml(const QString &body);
+bool isSafeExternalUrl(const QUrl &url);
 
 // v0.5.11 (Phase 7): direct-GIF classification. A preview is a GIF only
 // when the VALIDATED MIME type (from the homeserver's og:image:type —

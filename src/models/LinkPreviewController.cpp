@@ -14,6 +14,11 @@ LinkPreviewController::LinkPreviewController(QObject *parent)
 {
 }
 
+QString LinkPreviewController::linkifiedBody(const QString &body) const
+{
+    return matrix::link_preview::linkifiedMessageHtml(body);
+}
+
 void LinkPreviewController::setClient(MatrixClient *client)
 {
     if (m_client == client)

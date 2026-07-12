@@ -23,6 +23,10 @@ One-to-one direct rooms with a missing member avatar now trigger a deduplicated
 SDK profile lookup during room-model refresh. The resulting account-scoped MXC
 updates the room-list role and open-room header without requiring user search.
 
+Plain message bodies render independently clickable HTTP/HTTPS anchors while
+remaining escaped, selectable text. Browser activation and loaded preview
+cards share a credential-free HTTP/HTTPS-only validation boundary.
+
 ## v0.5.12 — avatars, previews, animated media and pagination
 
 Direct-message room avatars now use the other joined/invited member's profile

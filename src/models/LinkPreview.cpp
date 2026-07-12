@@ -90,6 +90,42 @@ QString sanitizedHost(const QString &url)
     return QUrl(url).host();
 }
 
+bool isSafeExternalUrl(const QUrl &url)
+{
+    const QString scheme = url.scheme().toLower();
+    return url.isValid() && !url.host().isEmpty()
+        && (scheme == QLatin1String("http") || scheme == QLatin1String("https"))
+        && url.userInfo().isEmpty();
+}
+
+QString linkifiedMessageHtml(const QString &body)
+{
+    static const QRegularExpression webUrl(
+        QStringLiteral("\\bhttps?://[^\\s<>]+"),
+        QRegularExpression::CaseInsensitiveOption);
+    QString out;
+    qsizetype cursor = 0;
+    auto matches = webUrl.globalMatch(body);
+    while (matches.hasNext()) {
+        const auto match = matches.next();
+        out += body.mid(cursor, match.capturedStart() - cursor).toHtmlEscaped();
+        const QString raw = match.captured();
+        const QString candidate = trimTrailingPunctuation(raw);
+        const QUrl url(candidate, QUrl::StrictMode);
+        if (isSafeExternalUrl(url)) {
+            const QString escaped = candidate.toHtmlEscaped();
+            out += QStringLiteral("<a href=\"") + escaped
+                + QStringLiteral("\">") + escaped + QStringLiteral("</a>");
+            out += raw.mid(candidate.size()).toHtmlEscaped();
+        } else {
+            out += raw.toHtmlEscaped();
+        }
+        cursor = match.capturedEnd();
+    }
+    out += body.mid(cursor).toHtmlEscaped();
+    return out.replace(QLatin1Char('\n'), QStringLiteral("<br>"));
+}
+
 GifClass classifyGif(const QString &validatedMime, qint64 sizeBytes,
                      int width, int height, const GifLimits &limits)
 {

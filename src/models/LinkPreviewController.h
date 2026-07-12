@@ -83,6 +83,7 @@ public:
     Q_INVOKABLE void retryForEvent(const QString &roomId,
                                    const QString &stableEventId);
     Q_INVOKABLE void clear();
+    Q_INVOKABLE QString linkifiedBody(const QString &body) const;
 
     // Test hooks.
     void setUrlCacheLimit(int limit) { m_urlCacheLimit = limit; }

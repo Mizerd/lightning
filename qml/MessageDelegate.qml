@@ -232,12 +232,12 @@ Item {
                     Label {
                         id: bodyLabel
                         visible: text.length > 0
-                        text: {
+                        text: app.linkPreviews.linkifiedBody((function() {
                             if (model.redacted) return qsTr("[message deleted]")
                             // For images, skip re-showing the filename we already show in mediaBox.
                             if (model.isImage && model.body === model.mediaFilename) return ""
                             return model.body || ""
-                        }
+                        })())
                         color: (model.undecryptable === true)
                                ? AppTheme.muted
                                : (model.isOwn ? AppTheme.ownBubbleText
@@ -246,7 +246,9 @@ Item {
                         font.italic: model.redacted || model.undecryptable === true
                         wrapMode: Text.Wrap
                         Layout.maximumWidth: root.width * 0.72
-                        textFormat: Text.PlainText
+                        textFormat: Text.RichText
+                        linkColor: AppTheme.link
+                        onLinkActivated: function(link) { app.media.openWebUrl(link) }
 
                         // v0.5.0-prep+12: hover tooltip for undecryptable rows
                         // so the user knows why the body is a placeholder.
@@ -531,7 +533,7 @@ Item {
                 anchors.fill: parent
                 enabled: card.st === "loaded" && (card.p.url || "").length > 0
                 cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
-                onClicked: app.media.openExternal(card.p.url)
+                onClicked: app.media.openWebUrl(card.p.url)
             }
 
             ColumnLayout {

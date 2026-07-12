@@ -22,6 +22,7 @@ public:
     Q_INVOKABLE void sendPickedImage(const QString &roomId, const QUrl &fileUrl);
     Q_INVOKABLE void sendPickedFile(const QString &roomId, const QUrl &fileUrl);
     Q_INVOKABLE void openExternal(const QUrl &url);
+    Q_INVOKABLE void openWebUrl(const QUrl &url);
 
 Q_SIGNALS:
     void uploadProgress(const QString &localPath, qint64 sent, qint64 total);
