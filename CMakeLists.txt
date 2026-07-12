@@ -425,6 +425,20 @@ if(BUILD_TESTING)
     target_link_libraries(timeline-model-diff-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME timeline-model-diff COMMAND timeline-model-diff-test)
 
+    # 0.5.14 checkpoint 2: state-activity grouping must be transparent
+    # through virtual SDK rows (date dividers, read markers, timeline
+    # start) and must still break on any visible message/media event.
+    qt_add_executable(state-activity-grouping-test
+        tests/StateActivityGroupingTest.cpp
+        src/models/TimelineModel.h
+        src/models/TimelineModel.cpp
+        src/matrix/MatrixClient.h
+        src/matrix/MatrixClient.cpp
+    )
+    target_include_directories(state-activity-grouping-test PRIVATE src)
+    target_link_libraries(state-activity-grouping-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME state-activity-grouping COMMAND state-activity-grouping-test)
+
     # v0.5.7: CacheStore must refuse encrypted-room rows on every write
     # path — decrypted plaintext stays memory-only.
     qt_add_executable(cache-store-security-test

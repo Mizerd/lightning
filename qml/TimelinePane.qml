@@ -180,6 +180,7 @@ Rectangle {
 
             ListView {
                 id: timeline
+                objectName: "timelineListView"
                 anchors.fill: parent
                 clip: true
                 spacing: AppTheme.spacingS

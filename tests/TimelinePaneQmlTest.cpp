@@ -21,6 +21,7 @@
 #include "auth/AuthManager.h"
 #include "models/PaginationController.h"
 #include "models/RoomListModel.h"
+#include "models/TimelineModel.h"
 
 namespace {
 constexpr int kSignalTimeoutMs = 2000;
@@ -52,6 +53,18 @@ private:
         return controller.roomList()
             ->data(idx, RoomListModel::RoomIdRole)
             .toString();
+    }
+
+    // The first stateGroupId belonging to a group leader in the currently
+    // loaded timeline, or empty if none.
+    static QString firstStateGroupId(TimelineModel *timeline)
+    {
+        for (int i = 0; i < timeline->rowCount(); ++i) {
+            const QModelIndex idx = timeline->index(i);
+            if (timeline->data(idx, TimelineModel::StateGroupLeaderRole).toBool())
+                return timeline->data(idx, TimelineModel::StateGroupIdRole).toString();
+        }
+        return {};
     }
 
 private Q_SLOTS:
@@ -183,6 +196,90 @@ private Q_SLOTS:
         QCOMPARE(controller.pagination()->roomId(), dmId);
         QCOMPARE(controller.pagination()->presentationState(),
                  PaginationController::Hidden);
+    }
+
+    // Defect B (0.5.14 checkpoint 2): clicking Expand on a room-activity
+    // group did nothing. Root cause: the summary row referenced the bare
+    // `ListView.view` attached property, which is only populated on the
+    // delegate's own root item — not on a nested child — so it silently
+    // resolved to null (fixed to `root.ListView.view`; pinned by
+    // QmlBindingContractTest::stateActivityQualifiesListViewViewOnNestedControls).
+    //
+    // This test drives the real expand/collapse STATE MACHINE — the exact
+    // `stateGroupExpanded`/`toggleStateGroup` functions the summary row's
+    // TapHandler and Keys.onPressed call — through the real compiled
+    // TimelinePane.qml and the real seeded "!devs:mock.local" state-change
+    // group, via QMetaObject::invokeMethod rather than a synthesized mouse
+    // click. A genuine end-to-end click/keyboard simulation was attempted
+    // but had to be abandoned: this sandbox's offscreen QPA platform never
+    // drives ListView's polish-based delegate incubation (confirmed with a
+    // trivial `model: 5` / `Text` delegate ListView, which also never
+    // populated), so no MessageDelegate — state-activity or otherwise —
+    // ever becomes a real, clickable item here. Given that hard
+    // environment limit, this is the strongest check available: it proves
+    // the actual QML function wiring (not a re-implementation of it)
+    // toggles correctly and resets across a room switch.
+    void stateGroupExpansionTogglesAndResetsOnRoomSwitch()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        // "!devs:mock.local" is seeded with two consecutive state-change
+        // events (a membership join + a profile change) forming one group.
+        const QString devsId = QStringLiteral("!devs:mock.local");
+        const QString generalId = QStringLiteral("!general:mock.local");
+        controller.setCurrentRoomId(devsId);
+
+        QQmlApplicationEngine engine;
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this,
+                [&warnings](const QList<QQmlError> &errors) {
+                    for (const auto &e : errors)
+                        warnings << e.toString();
+                });
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("TimelinePane"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        QVERIFY(!createdSpy.isEmpty());
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(root != nullptr);
+        auto *listView = root->findChild<QQuickItem *>(
+            QStringLiteral("timelineListView"));
+        QVERIFY(listView != nullptr);
+
+        const QString groupId = firstStateGroupId(controller.timeline());
+        QVERIFY(!groupId.isEmpty());
+
+        auto isExpanded = [&] {
+            QVariant result;
+            QMetaObject::invokeMethod(listView, "stateGroupExpanded",
+                                      Q_RETURN_ARG(QVariant, result),
+                                      Q_ARG(QVariant, groupId));
+            return result.toBool();
+        };
+        auto toggle = [&] {
+            QMetaObject::invokeMethod(listView, "toggleStateGroup",
+                                      Q_ARG(QVariant, groupId));
+        };
+
+        QVERIFY(!isExpanded());
+        toggle();
+        QVERIFY(isExpanded());
+        toggle();
+        QVERIFY(!isExpanded());
+        toggle();
+        QVERIFY(isExpanded());
+
+        // Room switch must not leak expansion into (or out of) another
+        // room's identically-keyed lookup — TimelinePane.qml's
+        // onModelReset handler resets expandedStateGroups to {}.
+        controller.setCurrentRoomId(generalId);
+        QVERIFY(!isExpanded());
+
+        QCOMPARE(warnings, QStringList{});
     }
 };
 

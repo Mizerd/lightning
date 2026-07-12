@@ -562,6 +562,22 @@ void MockMatrixClient::seedMockData()
     m_timelines[general.id] = { ev1, ev2, ev3, ev4, ev5, ev6, ev7, ev8,
                                 evThreadRoot, evThreadReply1, evThreadReply2, ev9 };
 
+    // Two consecutive room-activity (state-change) events after the last
+    // message — matches what the Rust bridge produces for membership/
+    // profile/room-settings changes, and lets the compact Expand/Collapse
+    // UI be exercised (clicked, keyboard-activated) without a live server.
+    auto stateEvent = [this, &now](const QString &roomId, const QString &stateKind,
+                                    const QString &body, int secondsAgo) {
+        TimelineEvent e;
+        e.eventId    = nextEventId();
+        e.roomId     = roomId;
+        e.type       = TimelineEvent::StateChange;
+        e.stateKind  = stateKind;
+        e.body       = body;
+        e.timestamp  = now.addSecs(-secondsAgo);
+        return e;
+    };
+
     m_timelines[devs.id] = {
         makeEvent(devs.id, QStringLiteral("@dave:mock.local"), "Dave",
                   QStringLiteral("This room pretends to be encrypted."), 900),
@@ -569,6 +585,10 @@ void MockMatrixClient::seedMockData()
                   QStringLiteral("The lock icon is UI-only in v0.3."), 600),
         makeEvent(devs.id, QStringLiteral("@frank:mock.local"), "Frank",
                   QStringLiteral("E2EE lives in v0.4 via the Rust SDK."), 300),
+        stateEvent(devs.id, QStringLiteral("membership"),
+                   QStringLiteral("Grace joined the room."), 200),
+        stateEvent(devs.id, QStringLiteral("member_profile"),
+                   QStringLiteral("Grace changed their display name."), 190),
     };
 
     m_timelines[dm.id] = {

@@ -83,48 +83,102 @@ Item {
         }
     }
 
-    Rectangle {
+    // Compact, discreet room-activity summary (Element-style) — never a
+    // message-bubble-like card. Collapsed by default; the whole row (not
+    // just the chevron) is the Expand/Collapse control.
+    Item {
         id: stateActivity
+        objectName: "stateActivityGroup"
         visible: root.isStateActivity && model.stateGroupLeader === true
         width: parent.width
-        implicitHeight: visible ? stateColumn.implicitHeight + AppTheme.spacingS * 2 : 0
-        color: AppTheme.cardElevated
-        radius: AppTheme.radiusSm
-        border.color: AppTheme.border
+        implicitHeight: visible ? stateColumn.implicitHeight : 0
+
+        readonly property bool expanded:
+            root.ListView.view
+            ? root.ListView.view.stateGroupExpanded(model.stateGroupId || "")
+            : false
+        readonly property int entryCount: (model.stateGroupEntries || []).length
+
+        function toggle() {
+            if (root.ListView.view)
+                root.ListView.view.toggleStateGroup(model.stateGroupId || "")
+        }
+
         ColumnLayout {
             id: stateColumn
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.verticalCenter: parent.verticalCenter
-            anchors.margins: AppTheme.spacingS
-            spacing: 3
-            Label {
+            width: parent.width
+            spacing: 1
+
+            Control {
+                id: summaryRow
+                objectName: "stateActivitySummary"
                 Layout.fillWidth: true
-                text: qsTr("%n room activity update(s)", "",
-                           (model.stateGroupEntries || []).length)
-                color: AppTheme.textMuted
-                font.pixelSize: 11
-            }
-            Repeater {
-                model: ListView.view
-                       && ListView.view.stateGroupExpanded(model.stateGroupId || "")
-                       ? (model.stateGroupEntries || []) : []
-                Label {
-                    required property string modelData
-                    Layout.fillWidth: true
-                    text: modelData
-                    color: AppTheme.text
-                    font.pixelSize: 11
-                    wrapMode: Text.WordWrap
+                implicitHeight: summaryContent.implicitHeight + AppTheme.spacingXS * 2
+                hoverEnabled: true
+                focusPolicy: Qt.StrongFocus
+                Accessible.role: Accessible.Button
+                Accessible.name: summaryLabel.text
+
+                background: Rectangle {
+                    radius: AppTheme.radiusSm
+                    color: summaryRow.hovered || summaryRow.activeFocus
+                           ? AppTheme.hover : "transparent"
+                }
+                contentItem: RowLayout {
+                    id: summaryContent
+                    spacing: AppTheme.spacingXS
+                    Label {
+                        objectName: "stateActivityChevron"
+                        text: stateActivity.expanded ? "▾" : "▸"
+                        color: AppTheme.textMuted
+                        font.pixelSize: 10
+                    }
+                    Label {
+                        id: summaryLabel
+                        Layout.fillWidth: true
+                        text: stateActivity.entryCount === 1
+                              ? qsTr("1 room update")
+                              : qsTr("%1 room updates").arg(stateActivity.entryCount)
+                        color: AppTheme.textMuted
+                        font.pixelSize: 11
+                        elide: Label.ElideRight
+                    }
+                }
+
+                TapHandler {
+                    onTapped: {
+                        summaryRow.forceActiveFocus(Qt.MouseFocusReason)
+                        stateActivity.toggle()
+                    }
+                }
+                Keys.onPressed: (event) => {
+                    if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter
+                        || event.key === Qt.Key_Space) {
+                        stateActivity.toggle()
+                        event.accepted = true
+                    }
                 }
             }
-            Button {
-                text: ListView.view
-                      && ListView.view.stateGroupExpanded(model.stateGroupId || "")
-                      ? qsTr("Collapse") : qsTr("Expand")
-                Accessible.name: text
-                onClicked: if (ListView.view)
-                    ListView.view.toggleStateGroup(model.stateGroupId || "")
+
+            ColumnLayout {
+                id: expandedColumn
+                objectName: "stateActivityExpandedContent"
+                Layout.fillWidth: true
+                Layout.leftMargin: AppTheme.spacingM
+                spacing: 1
+                visible: stateActivity.expanded
+
+                Repeater {
+                    model: stateActivity.expanded ? (model.stateGroupEntries || []) : []
+                    Label {
+                        required property string modelData
+                        Layout.fillWidth: true
+                        text: modelData
+                        color: AppTheme.textMuted
+                        font.pixelSize: 11
+                        wrapMode: Text.WordWrap
+                    }
+                }
             }
         }
     }

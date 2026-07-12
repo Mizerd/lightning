@@ -165,7 +165,11 @@ private:
     int rowForEventId(const QString &eventId) const;
     void refreshTypingText();
     QVariantList reactionsVariant(const TimelineEvent &e) const;
-    QPair<int, int> stateGroupBounds(int row) const;
+    // Grouping is transparent through virtual rows (date dividers, read
+    // markers, timeline-start) — only a visible message/media event ends a
+    // group. See TimelineModel.cpp for the rationale.
+    int stateGroupLeaderRow(int row) const;
+    QVariantList stateGroupEntriesFrom(int leaderRow) const;
     QUrl mediaHttp(const QString &mxc) const;
     QUrl mediaThumbHttp(const QString &mxc, int w, int h) const;
 

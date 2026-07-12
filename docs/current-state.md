@@ -20,6 +20,31 @@ C++ read already reported "Hidden". A new runtime test
 a real `AppController` on the mock backend specifically to catch this class
 of defect, which a text-scan or isolated-controller unit test cannot see.
 
+### Room-activity Expand/Collapse and compact presentation (checkpoint 2)
+
+Clicking Expand on a collapsed room-activity group did nothing: the summary
+row's `TapHandler`/`Keys.onPressed` referenced the bare `ListView.view`
+attached property, which Qt Quick only populates on the delegate's own root
+item — not on a nested child — so it silently resolved to `null`. Every
+other action in `MessageDelegate.qml` already qualified this correctly as
+`root.ListView.view`; the state-activity block (added in 0.5.13) was the one
+place that didn't. Fixed, and pinned by a text-scan regression test
+(`QmlBindingContractTest::stateActivityQualifiesListViewViewOnNestedControls`).
+
+Adjacent state-change groups were also splitting apart around invisible SDK
+bookkeeping rows (date dividers, read markers, the timeline-start marker) —
+`matrix-sdk-ui` freely interleaves those between real events, and
+`TimelineModel`'s old grouping only looked at strictly consecutive
+`StateChange` rows. Grouping is now transparent through virtual rows: only a
+visible message/media event ends a group. Covered by
+`tests/StateActivityGroupingTest.cpp`.
+
+The collapsed presentation is now a single compact, discreet row (a chevron
++ "N room updates", Element-style) instead of a bordered, card-like
+Rectangle — the whole row is the Expand/Collapse control, keyboard-activates
+via Space/Enter, and grants focus on click. Expanded rows are plain compact
+text lines with no message-bubble styling, actions, or previews.
+
 ## v0.5.13 — runtime reliability and state activity
 
 ### Pagination status lifecycle (0.5.13)

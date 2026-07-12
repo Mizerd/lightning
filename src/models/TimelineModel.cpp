@@ -103,19 +103,54 @@ QVariantList TimelineModel::reactionsVariant(const TimelineEvent &e) const
     return out;
 }
 
-QPair<int, int> TimelineModel::stateGroupBounds(int row) const
+// Virtual rows (date dividers, read markers, the timeline-start marker) are
+// synthetic SDK bookkeeping items, not visible messages — matrix-sdk-ui
+// freely interleaves them between real events (a date divider at every day
+// boundary, a read marker wherever the user last read up to). They must not
+// split a run of state-change events into separate activity groups; only an
+// actual visible message/media event (or the start/end of the timeline)
+// ends a group.
+int TimelineModel::stateGroupLeaderRow(int row) const
 {
     if (row < 0 || row >= m_events.size()
         || m_events.at(row).type != TimelineEvent::StateChange)
-        return {-1, -1};
-    int first = row;
-    int last = row;
-    while (first > 0 && m_events.at(first - 1).type == TimelineEvent::StateChange)
-        --first;
-    while (last + 1 < m_events.size()
-           && m_events.at(last + 1).type == TimelineEvent::StateChange)
-        ++last;
-    return {first, last};
+        return -1;
+
+    int leader = row;
+    int probe = row - 1;
+    while (probe >= 0) {
+        const auto &e = m_events.at(probe);
+        if (e.type == TimelineEvent::StateChange) {
+            leader = probe;
+            --probe;
+            continue;
+        }
+        if (e.isVirtual()) {
+            --probe;
+            continue;
+        }
+        break; // a visible message/media event ends the group here.
+    }
+    return leader;
+}
+
+QVariantList TimelineModel::stateGroupEntriesFrom(int leaderRow) const
+{
+    QVariantList entries;
+    for (int i = leaderRow; i < m_events.size();) {
+        const auto &e = m_events.at(i);
+        if (e.type == TimelineEvent::StateChange) {
+            entries.append(e.body);
+            ++i;
+            continue;
+        }
+        if (e.isVirtual()) {
+            ++i;
+            continue;
+        }
+        break;
+    }
+    return entries;
 }
 
 QVariant TimelineModel::data(const QModelIndex &index, int role) const
@@ -208,22 +243,19 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
     case IsStateActivityRole: return e.type == TimelineEvent::StateChange;
     case StateKindRole: return e.stateKind;
     case StateGroupIdRole: {
-        const auto bounds = stateGroupBounds(index.row());
-        if (bounds.first < 0) return QString{};
-        const auto &first = m_events.at(bounds.first);
+        const int leader = stateGroupLeaderRow(index.row());
+        if (leader < 0) return QString{};
+        const auto &first = m_events.at(leader);
         return first.itemId.isEmpty() ? first.eventId : first.itemId;
     }
     case StateGroupLeaderRole: {
-        const auto bounds = stateGroupBounds(index.row());
-        return bounds.first == index.row();
+        const int leader = stateGroupLeaderRow(index.row());
+        return leader == index.row();
     }
     case StateGroupEntriesRole: {
-        QVariantList entries;
-        const auto bounds = stateGroupBounds(index.row());
-        if (bounds.first != index.row()) return entries;
-        for (int i = bounds.first; i <= bounds.second; ++i)
-            entries.append(m_events.at(i).body);
-        return entries;
+        const int leader = stateGroupLeaderRow(index.row());
+        if (leader != index.row()) return QVariantList{};
+        return stateGroupEntriesFrom(leader);
     }
     default:                     return {};
     }
