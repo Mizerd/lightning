@@ -41,6 +41,9 @@ Rectangle {
             // A pinned message-action toolbar belongs to the room it was
             // pinned in; drop it when the room changes.
             timeline.pinnedActionsKey = ""
+            timeline.anchorStableId = ""
+            timeline.anchorOffset = 0
+            timeline.anchorContentHeight = 0
             // The info panel follows the open room; no room closes it.
             if (root.infoOpen) {
                 if (app.currentRoomId === "")
@@ -306,6 +309,12 @@ Rectangle {
                         if (app.pagination.busy && !wasBusy
                             && !timeline.stickToBottom)
                             timeline.captureAnchor()
+                        if (wasBusy && !app.pagination.busy
+                            && app.pagination.failed) {
+                            timeline.anchorStableId = ""
+                            timeline.anchorOffset = 0
+                            timeline.anchorContentHeight = 0
+                        }
                         wasBusy = app.pagination.busy
                     }
                     function onPaginationCompleted(inserted, reachedStart) {

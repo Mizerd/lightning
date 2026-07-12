@@ -3,6 +3,7 @@
 #include "matrix/MatrixClient.h"
 
 #include <QLoggingCategory>
+#include <QTimer>
 
 Q_LOGGING_CATEGORY(lcPagination, "lightning.timeline.pagination")
 
@@ -24,6 +25,8 @@ void PaginationController::setClient(MatrixClient *client)
                 this, &PaginationController::onPaginationStateChanged);
         connect(m_client, &MatrixClient::eventsPrepended,
                 this, &PaginationController::onEventsPrepended);
+        connect(m_client, &MatrixClient::eventInsertedAt,
+                this, &PaginationController::onEventInsertedAt);
         connect(m_client, &MatrixClient::timelineReset,
                 this, &PaginationController::onTimelineReset);
         connect(m_client, &MatrixClient::loggedOut,
@@ -48,6 +51,9 @@ void PaginationController::resetPerRoomState()
     m_requestActive = false;
     m_activeReason = Reason::None;
     m_batchInserted = 0;
+    m_batchStableIds.clear();
+    m_deferredFill = false;
+    m_completionPending = false;
     m_fillRequests = 0;
     m_noProgressStrikes = 0;
     m_fillStopped = false;
@@ -66,7 +72,8 @@ bool PaginationController::reachedStart() const
     // it without conflating "loading right now" with "no more history".
     if (!m_client || m_roomId.isEmpty())
         return false;
-    return !m_client->canPaginate(m_roomId) && !m_client->paginating(m_roomId)
+    return m_client->paginationReady(m_roomId)
+        && !m_client->canPaginate(m_roomId) && !m_client->paginating(m_roomId)
         && !m_client->paginationFailed(m_roomId);
 }
 
@@ -80,6 +87,7 @@ const char *PaginationController::reasonName(Reason reason)
     switch (reason) {
     case Reason::ViewportFill: return "viewport_fill";
     case Reason::NearTop:      return "near_top";
+    case Reason::Retry:        return "retry";
     case Reason::None:         break;
     }
     return "none";
@@ -117,13 +125,18 @@ void PaginationController::retry()
         return;
     // NearTop semantics: an explicit user gesture. loadOlderMessages clears
     // the backend failure flag on the next dispatch.
-    request(Reason::NearTop);
+    request(Reason::Retry);
 }
 
 void PaginationController::request(Reason reason)
 {
     if (!m_client || m_roomId.isEmpty())
         return;
+    if (!m_client->paginationReady(m_roomId)) {
+        if (reason == Reason::ViewportFill)
+            m_deferredFill = true;
+        return; // initialization is not a dispatch failure
+    }
     if (m_requestActive || m_client->paginating(m_roomId)) {
         qCDebug(lcPagination) << "timeline pagination duplicate suppressed reason="
                               << reasonName(reason);
@@ -139,6 +152,8 @@ void PaginationController::request(Reason reason)
     m_requestActive = true;
     m_activeReason = reason;
     m_batchInserted = 0;
+    m_batchStableIds.clear();
+    m_completionPending = false;
     if (reason == Reason::ViewportFill)
         ++m_fillRequests;
 
@@ -153,7 +168,7 @@ void PaginationController::request(Reason reason)
     if (m_generation == generationAtDispatch && m_requestActive
         && m_client->paginationFailed(m_roomId)) {
         m_requestActive = false;
-        m_activeReason = Reason::None;
+        // Preserve the reason until the failure callback/log has observed it.
     }
     Q_EMIT stateChanged();
 }
@@ -161,15 +176,38 @@ void PaginationController::request(Reason reason)
 void PaginationController::onEventsPrepended(const QString &roomId,
                                              const QList<TimelineEvent> &events)
 {
-    if (roomId != m_roomId)
+    if (roomId != m_roomId || !m_requestActive)
         return;
-    m_batchInserted += static_cast<int>(events.size());
+    for (const auto &event : events) {
+        const QString stable = event.eventId;
+        if (!stable.isEmpty() && !m_batchStableIds.contains(stable)) {
+            m_batchStableIds.insert(stable);
+            ++m_batchInserted;
+        }
+    }
+}
+
+void PaginationController::onEventInsertedAt(const QString &roomId, int index,
+                                             const TimelineEvent &event)
+{
+    if (roomId != m_roomId || index != 0 || !m_requestActive
+        || event.eventId.isEmpty() || m_batchStableIds.contains(event.eventId))
+        return;
+    m_batchStableIds.insert(event.eventId);
+    ++m_batchInserted;
 }
 
 void PaginationController::onPaginationStateChanged(const QString &roomId)
 {
     if (roomId != m_roomId || !m_client)
         return;
+
+    if (m_deferredFill && m_client->paginationReady(m_roomId)
+        && !m_requestActive && !m_client->paginating(m_roomId)) {
+        m_deferredFill = false;
+        requestViewportFill();
+        return;
+    }
 
     if (m_client->paginating(m_roomId)) {
         // Adopt an externally started batch (e.g. legacy requestOlder())
@@ -197,8 +235,19 @@ void PaginationController::onPaginationStateChanged(const QString &roomId)
 
     // Neither loading nor failed: the batch completed (or the state was
     // reset underneath us). Only a batch this controller tracked counts.
-    if (m_requestActive)
-        finishBatch(reachedStart());
+    if (m_requestActive && !m_completionPending) {
+        m_completionPending = true;
+        const quint64 generation = m_generation;
+        const bool hitStart = reachedStart();
+        // SDK pagination completion and prepend diffs are independently
+        // queued. Settle at the next event-loop turn so actual model inserts
+        // are counted before callbacks and anchor restoration.
+        QTimer::singleShot(0, this, [this, generation, hitStart] {
+            if (generation == m_generation && m_requestActive
+                && m_completionPending)
+                finishBatch(hitStart);
+        });
+    }
     Q_EMIT stateChanged();
 }
 
@@ -209,6 +258,8 @@ void PaginationController::finishBatch(bool hitStart)
     m_requestActive = false;
     m_activeReason = Reason::None;
     m_batchInserted = 0;
+    m_batchStableIds.clear();
+    m_completionPending = false;
 
     qCInfo(lcPagination) << "timeline pagination completed added=" << inserted
                          << "reached_start=" << hitStart

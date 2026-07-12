@@ -63,6 +63,7 @@ public:
         states[roomId].failed = false;
         states[roomId].reachedStart = reachedStart;
         Q_EMIT paginationStateChanged(roomId);
+        QCoreApplication::processEvents(); // settle async diff accounting
     }
     void failBatch(const QString &roomId)
     {
@@ -86,6 +87,7 @@ public:
             return true;
         return !it->loading && !it->reachedStart;
     }
+    bool paginationReady(const QString &) const override { return timelineActive; }
     bool paginating(const QString &roomId) const override
     {
         const auto it = states.constFind(roomId);
@@ -135,6 +137,52 @@ class PaginationControllerTest : public QObject
     Q_OBJECT
 
 private Q_SLOTS:
+    void viewportFillDefersUntilTimelineReady()
+    {
+        FakeClient client;
+        client.timelineActive = false;
+        PaginationController controller;
+        controller.setClient(&client);
+        controller.setRoomId(kRoomA);
+        controller.requestViewportFill();
+        QCOMPARE(client.loadOlderCalls, 0);
+        QVERIFY(!controller.failed());
+        client.timelineActive = true;
+        Q_EMIT client.paginationStateChanged(kRoomA);
+        QCOMPARE(client.loadOlderCalls, 1);
+    }
+
+    void roomSwitchClearsDeferredFill()
+    {
+        FakeClient client;
+        client.timelineActive = false;
+        PaginationController controller;
+        controller.setClient(&client);
+        controller.setRoomId(kRoomA);
+        controller.requestViewportFill();
+        controller.setRoomId(kRoomB);
+        client.timelineActive = true;
+        Q_EMIT client.paginationStateChanged(kRoomA);
+        QCOMPARE(client.loadOlderCalls, 0);
+    }
+
+    void duplicateStableIdsAreNotCountedTwice()
+    {
+        FakeClient client;
+        PaginationController controller;
+        controller.setClient(&client);
+        controller.setRoomId(kRoomA);
+        QSignalSpy completed(&controller, &PaginationController::paginationCompleted);
+        controller.requestNearTop();
+        client.beginLoading(kRoomA);
+        const auto events = makeEvents(2);
+        Q_EMIT client.eventsPrepended(kRoomA, events);
+        Q_EMIT client.eventsPrepended(kRoomA, events);
+        client.completeBatch(kRoomA, 0, false);
+        QCOMPARE(completed.count(), 1);
+        QCOMPARE(completed.first().at(0).toInt(), 2);
+    }
+
     void viewportFillDispatchesOneRequest()
     {
         FakeClient client;

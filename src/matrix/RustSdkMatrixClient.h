@@ -190,6 +190,8 @@ public:
 
     void loadOlderMessages(const QString &roomId) override;
     bool canPaginate(const QString &roomId) const override;
+    bool paginationReady(const QString &roomId) const override
+    { return timelineActiveFor(roomId); }
     bool paginating(const QString &roomId) const override;
     bool paginationFailed(const QString &roomId) const override;
     void retryFailedSend(const QString &roomId,

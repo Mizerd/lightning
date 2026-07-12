@@ -116,6 +116,8 @@ public:
     // Pagination
     virtual void loadOlderMessages(const QString &roomId) = 0;
     virtual bool canPaginate(const QString &roomId) const = 0;
+    virtual bool paginationReady(const QString &roomId) const
+    { return canPaginate(roomId) || paginating(roomId) || paginationFailed(roomId); }
     virtual bool paginating(const QString &roomId) const = 0;
 
     // v0.5.7: true when the last backward pagination for this room failed

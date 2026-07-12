@@ -36,6 +36,14 @@ entry cap, and logout removes the temporary directory. Pending send-queue
 echoes never start `AnimatedImage`, while disabling animation uses the static
 image-provider frame and off-screen timeline animations pause.
 
+Timeline pagination now defers viewport-fill requests until the active Rust
+timeline is initialized instead of treating startup as a dispatch failure.
+Completion settles after queued SDK diffs, counts unique stable prepended
+events (including index-zero inserts), retains the request reason through
+logging/callbacks, and preserves the existing budget, duplicate, stale-result,
+and no-progress protections. Scroll anchors are cleared on room/reset/logout,
+failure/cancellation, generation changes, and reached-start without insertion.
+
 ## v0.5.11 — pagination, media, avatars, themes, link previews
 
 This release completes the QML/C++ integration on top of the 0.5.11 backend

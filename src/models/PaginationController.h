@@ -3,6 +3,7 @@
 #include <QList>
 #include <QObject>
 #include <QString>
+#include <QSet>
 
 class MatrixClient;
 struct TimelineEvent;
@@ -83,11 +84,13 @@ private Q_SLOTS:
     void onPaginationStateChanged(const QString &roomId);
     void onEventsPrepended(const QString &roomId,
                            const QList<TimelineEvent> &events);
+    void onEventInsertedAt(const QString &roomId, int index,
+                           const TimelineEvent &event);
     void onTimelineReset(const QString &roomId);
     void onLoggedOut();
 
 private:
-    enum class Reason { None, ViewportFill, NearTop };
+    enum class Reason { None, ViewportFill, NearTop, Retry };
     static const char *reasonName(Reason reason);
 
     void request(Reason reason);
@@ -103,6 +106,9 @@ private:
     bool m_requestActive = false;
     Reason m_activeReason = Reason::None;
     int m_batchInserted = 0;
+    QSet<QString> m_batchStableIds;
+    bool m_deferredFill = false;
+    bool m_completionPending = false;
 
     // Automatic-fill safety. Both reset on every room (re)open.
     int m_fillRequests = 0;
