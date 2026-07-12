@@ -261,7 +261,8 @@ QVariantMap LinkPreviewController::stateFor(const ItemEntry &item) const
 
 void LinkPreviewController::onPreviewFinished(quint64 opId, bool ok,
                                               const QVariantMap &fields,
-                                              const QString &category)
+                                              const QString &category,
+                                              int httpStatus, int redirectCount)
 {
     const auto it = m_inflight.find(opId);
     if (it == m_inflight.end())
@@ -279,9 +280,16 @@ void LinkPreviewController::onPreviewFinished(quint64 opId, bool ok,
         urlIt->state = QStringLiteral("failed");
         urlIt->category = category;
     }
+    // Sanitized diagnostics only: hostname, coarse HTTP status, redirect
+    // count, and failure category — never the URL path/query, response
+    // body, or headers. httpStatus/redirectCount are 0 on success or when
+    // the failure never reached an HTTP response (DNS, timeout, blocked
+    // destination).
     qCInfo(lcPreview) << "url preview completed host="
                       << matrix::link_preview::sanitizedHost(url)
-                      << "result=" << (ok ? QStringLiteral("loaded") : category);
+                      << "result=" << (ok ? QStringLiteral("loaded") : category)
+                      << "httpStatus=" << httpStatus
+                      << "redirects=" << redirectCount;
 
     const QStringList interested = m_urlItems.value(url);
     for (const QString &itemKey : interested)

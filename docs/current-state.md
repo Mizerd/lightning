@@ -71,6 +71,62 @@ at open time and never refreshed — it now looks up the room live from
 `RoomListModel`, the same as the timeline header, and re-reads on every
 `dataChanged`.
 
+### Link-preview compatibility restored (checkpoint 4)
+
+Generic website previews (NYT and most non-YouTube sites) regressed in
+0.5.12. Root cause was in `rust/src/rooms.rs`: the redirect-following fetch of
+the page itself was capped at `MAX_IMAGE_BYTES` instead of a page-sized
+budget, so any HTML response larger than that (routine for a modern news
+homepage's initial document) was truncated mid-download and failed before
+OpenGraph metadata could even be parsed. The fetch now uses its own
+`MAX_INITIAL_FETCH_BYTES` budget, sized to also accommodate direct image
+responses, restoring both HTML pages and direct-image previews without
+raising the hard cap used for the (separate) secondary og:image fetch.
+
+Other concrete gaps found and fixed in the same pass:
+
+* No `Accept-Language` header was sent, which increases the odds of unusual
+  interstitial/challenge responses from sites that vary behavior by locale
+  guesswork. A conservative default (`en-US,en;q=0.9`) is now sent.
+* `reqwest`'s feature set only enabled `gzip`; a `deflate`-compressed response
+  decoded as garbage before metadata parsing. `deflate` is now enabled
+  alongside `gzip` (`brotli` remains unavailable in this offline build
+  environment — documented in `rust/Cargo.toml`).
+* WebP dimension parsing only handled the extended `VP8X` chunk; the simple
+  lossy `VP8` and lossless `VP8L` chunk layouts were unhandled, silently
+  dropping width/height (and therefore GIF-class oversized checks and
+  preview-card sizing) for a large share of real-world WebP images. All three
+  chunk layouts are now parsed, covered by
+  `preview_webp_dimensions_cover_all_three_chunk_types`.
+* A wrong or generic Content-Type header (some CDNs serve images as
+  `application/octet-stream`) is now corrected via a magic-byte sniff
+  (`sniff_image_mime`) before MIME-based rejection, instead of trusting the
+  header outright.
+* The secondary og:image fetch's failure previously propagated via `?` and
+  failed the entire preview even though the page metadata (title/description)
+  had already been successfully extracted; it is now non-fatal.
+* SVG remains explicitly rejected as a non-previewable, non-retryable direct
+  image (`preview_image_fields_rejects_unsupported_mime_like_svg`); YouTube's
+  existing oEmbed-based path is untouched.
+
+`fetch_url_preview()`'s failure JSON, `MatrixClient::urlPreviewFinished`, and
+`LinkPreviewController::onPreviewFinished` now carry two additional sanitized
+diagnostic fields — coarse HTTP status and redirect count (0/0 when the
+failure never reached an HTTP response, e.g. DNS or timeout) — logged
+alongside the existing sanitized hostname and failure category. These are
+diagnostic-only: `LinkPreviewController::stateFor()` does not add them to the
+QVariantMap QML reads, which
+`LinkPreviewTest::diagnosticFieldsAreNotExposedToQmlState` pins directly (and
+which was confirmed, via a temporary deliberate leak, to actually fail
+without that guarantee).
+
+All SSRF/redirect/DNS-pinning/public-IP protections, the credential-URL
+rejection, and the terminal-vs-retryable failure-category split are
+unchanged. No NYT-specific bypass or scraping logic was added; any residual
+NYT-specific failure that traces to that site's own bot-detection or
+geo-blocking policy is a live-server behavior, not something fixable in this
+codebase, and is reported as such rather than claimed fixed.
+
 ## v0.5.13 — runtime reliability and state activity
 
 ### Pagination status lifecycle (0.5.13)

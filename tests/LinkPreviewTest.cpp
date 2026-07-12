@@ -41,6 +41,14 @@ public:
     {
         Q_EMIT urlPreviewFinished(opId, false, {}, category);
     }
+    // v0.5.14: failure with the sanitized HTTP-status/redirect-count
+    // diagnostics a real backend now supplies.
+    void failWithDiagnostics(quint64 opId, const QString &category,
+                             int httpStatus, int redirectCount)
+    {
+        Q_EMIT urlPreviewFinished(opId, false, {}, category, httpStatus,
+                                  redirectCount);
+    }
 
     // Pure virtuals (inert).
     void login(const QString &, const QString &, const QString &) override {}
@@ -516,6 +524,35 @@ private Q_SLOTS:
         QCOMPARE(state.value(QStringLiteral("gifOversized")).toBool(), false);
         QCOMPARE(state.value(QStringLiteral("imageMxc")).toString(),
                  QStringLiteral("mxc://example.org/abc"));
+    }
+
+    // v0.5.14: the sanitized HTTP-status/redirect-count diagnostics exist
+    // for logs only — they must never leak into the QML-facing state map,
+    // and the existing retry/category behavior must be unaffected by them.
+    void diagnosticFieldsAreNotExposedToQmlState()
+    {
+        FakeClient client;
+        LinkPreviewController controller;
+        controller.setClient(&client);
+
+        controller.previewFor(QStringLiteral("$1"),
+                              QStringLiteral("https://example.org/a"), false);
+        client.failWithDiagnostics(client.lastOp,
+                                   QStringLiteral("http_transient"),
+                                   /*httpStatus=*/503, /*redirectCount=*/2);
+
+        const QVariantMap state = controller.previewFor(
+            QStringLiteral("$1"), QStringLiteral("https://example.org/a"), false);
+        QCOMPARE(state.value(QStringLiteral("state")).toString(),
+                 QStringLiteral("failed"));
+        QCOMPARE(state.value(QStringLiteral("retryable")).toBool(), true);
+        QCOMPARE(state.value(QStringLiteral("category")).toString(),
+                 QStringLiteral("http_transient"));
+        QVERIFY(!state.contains(QStringLiteral("httpStatus")));
+        QVERIFY(!state.contains(QStringLiteral("redirects")));
+
+        controller.retry(QStringLiteral("$1"));
+        QCOMPARE(client.requestedUrls.size(), 2);
     }
 
     // ---- Settings defaults -------------------------------------------------

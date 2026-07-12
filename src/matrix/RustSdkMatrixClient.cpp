@@ -2611,7 +2611,9 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
                           raw.value(QStringLiteral("image_size")).toDouble()));
         Q_EMIT urlPreviewFinished(
             opId(), event.value(QStringLiteral("ok")).toBool(), fields,
-            event.value(QStringLiteral("category")).toString());
+            event.value(QStringLiteral("category")).toString(),
+            event.value(QStringLiteral("status")).toInt(),
+            event.value(QStringLiteral("redirects")).toInt());
         return true;
     }
 

@@ -97,7 +97,8 @@ Q_SIGNALS:
 
 private Q_SLOTS:
     void onPreviewFinished(quint64 opId, bool ok, const QVariantMap &fields,
-                           const QString &category);
+                           const QString &category, int httpStatus = 0,
+                           int redirectCount = 0);
     void onLoggedOut();
 
 private:

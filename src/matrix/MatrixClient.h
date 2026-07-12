@@ -281,8 +281,13 @@ Q_SIGNALS:
     // v0.5.11: URL-preview result. `fields` carries only whitelisted
     // OpenGraph values (title, description, siteName, imageMxc, imageMime,
     // imageWidth, imageHeight, imageSize) — never the requested URL.
+    // v0.5.14: httpStatus/redirectCount are sanitized failure diagnostics
+    // (0 when not applicable, e.g. a DNS/timeout failure with no response
+    // at all) — enough to tell a code regression from live remote policy
+    // without ever logging the URL, query string, or response body.
     void urlPreviewFinished(quint64 opId, bool ok, const QVariantMap &fields,
-                            const QString &category);
+                            const QString &category, int httpStatus = 0,
+                            int redirectCount = 0);
     void dmCreateFinished(quint64 opId, bool ok, const QString &roomId,
                           const QString &category);
     void roomCreateFinished(quint64 opId, bool ok, const QString &roomId,

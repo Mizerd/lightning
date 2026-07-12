@@ -277,8 +277,16 @@ async fn safe_get(url: &url::Url, limit: usize) -> Result<SafeResponse, &'static
         .connect_timeout(CONNECT_TIMEOUT).timeout(REQUEST_TIMEOUT)
         .user_agent("Lightning/0.5.13").resolve(host, addresses[0]).build()
         .map_err(|_| "request_failure")?;
-    let response = client.get(url.clone()).header(reqwest::header::ACCEPT,
-        "text/html,image/jpeg,image/png,image/webp,image/gif").send().await.map_err(|e|
+    let response = client.get(url.clone())
+        .header(reqwest::header::ACCEPT,
+            "text/html,image/jpeg,image/png,image/webp,image/gif")
+        // A handful of ordinary sites' CDN/WAF layers treat a request
+        // missing standard browser headers (Accept-Language in particular)
+        // as suspicious and serve an interstitial or a terminal status
+        // instead of the article. Accept-Encoding is handled by reqwest's
+        // gzip/deflate features, not set manually here.
+        .header(reqwest::header::ACCEPT_LANGUAGE, "en-US,en;q=0.9")
+        .send().await.map_err(|e|
         if e.is_timeout() { "timeout" } else { "request_failure" })?;
     let status = response.status();
     let mime = response.headers().get(reqwest::header::CONTENT_TYPE)
@@ -329,26 +337,91 @@ fn html_fields(input: &str) -> (std::collections::HashMap<String,String>, String
 fn pick(fields: &std::collections::HashMap<String,String>, keys: &[&str]) -> String {
     keys.iter().find_map(|k| fields.get(*k).cloned()).unwrap_or_default()
 }
-async fn preview(mut page: url::Url) -> Result<serde_json::Value, &'static str> {
+// Sanitized failure detail for one preview attempt — carries only what is
+// needed to distinguish a real code regression from live remote policy
+// (a site's own bot/WAF layer) without ever including the URL, query
+// string, or response body. `status` is None for failures that never got
+// an HTTP response at all (DNS, timeout, blocked destination, ...).
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct PreviewFailure {
+    pub category: &'static str,
+    pub status: Option<u16>,
+    pub redirects: u32,
+}
+impl From<&'static str> for PreviewFailure {
+    fn from(category: &'static str) -> Self {
+        Self { category, status: None, redirects: 0 }
+    }
+}
+
+// The redirect loop's own fetch doesn't know ahead of time whether the
+// destination is an HTML page or a direct image — Content-Type is only
+// known after the fetch completes — so it must accommodate the larger of
+// the two byte limits. Using the smaller MAX_HTML_BYTES here (as 0.5.13
+// did) silently capped every direct-image preview at that smaller ceiling.
+const MAX_INITIAL_FETCH_BYTES: usize = MAX_IMAGE_BYTES;
+
+async fn preview(mut page: url::Url) -> Result<serde_json::Value, PreviewFailure> {
     let mut response;
     for redirects in 0..=MAX_REDIRECTS {
-        response = safe_get(&page, MAX_HTML_BYTES).await?;
+        let redirects = redirects as u32;
+        response = safe_get(&page, MAX_INITIAL_FETCH_BYTES).await
+            .map_err(|category| PreviewFailure { category, status: None, redirects })?;
         if response.status.is_redirection() {
-            if redirects == MAX_REDIRECTS { return Err("too_many_redirects"); }
-            page = page.join(response.location.as_deref().ok_or("invalid_redirect")?)
-                .map_err(|_| "invalid_redirect")?;
+            if redirects as usize == MAX_REDIRECTS {
+                return Err(PreviewFailure {
+                    category: "too_many_redirects",
+                    status: Some(response.status.as_u16()),
+                    redirects,
+                });
+            }
+            let next = response.location.as_deref().ok_or(PreviewFailure {
+                category: "invalid_redirect",
+                status: Some(response.status.as_u16()),
+                redirects,
+            })?;
+            page = page.join(next).map_err(|_| PreviewFailure {
+                category: "invalid_redirect",
+                status: Some(response.status.as_u16()),
+                redirects,
+            })?;
             continue;
         }
         if !response.status.is_success() {
-            return Err(if response.status.is_server_error()
+            let category = if response.status.is_server_error()
                 || response.status.as_u16() == 429 { "http_transient" }
-                else { "http_terminal" });
+                else { "http_terminal" };
+            return Err(PreviewFailure { category, status: Some(response.status.as_u16()), redirects });
         }
         if matches!(response.mime.as_str(), "image/jpeg"|"image/png"|"image/webp"|"image/gif") {
-            return image_fields(response.mime, response.bytes);
+            return image_fields(response.mime, response.bytes).map_err(|category|
+                PreviewFailure { category, status: Some(response.status.as_u16()), redirects });
         }
-        if response.mime != "text/html" { return Err("unsupported_mime"); }
-        if response.bytes.len() > MAX_HTML_BYTES { return Err("response_too_large"); }
+        if response.mime != "text/html" {
+            // Some CDNs serve a direct image with a generic/wrong
+            // Content-Type (e.g. application/octet-stream); sniff the
+            // actual bytes before giving up so a real, supported image is
+            // not rejected purely because of a sloppy header. SVG stays
+            // intentionally excluded — it is active content and must not
+            // be rendered from an untrusted remote source.
+            if let Some(sniffed) = sniff_image_mime(&response.bytes) {
+                if let Ok(fields) = image_fields(sniffed.to_owned(), response.bytes) {
+                    return Ok(fields);
+                }
+            }
+            return Err(PreviewFailure {
+                category: "unsupported_mime",
+                status: Some(response.status.as_u16()),
+                redirects,
+            });
+        }
+        if response.bytes.len() > MAX_HTML_BYTES {
+            return Err(PreviewFailure {
+                category: "response_too_large",
+                status: Some(response.status.as_u16()),
+                redirects,
+            });
+        }
         let html = String::from_utf8_lossy(&response.bytes);
         let (metadata, html_title) = html_fields(&html);
         let title = pick(&metadata, &["og:title", "twitter:title"]);
@@ -357,7 +430,11 @@ async fn preview(mut page: url::Url) -> Result<serde_json::Value, &'static str> 
         let image = if image_url.is_empty() { None } else { page.join(&image_url).ok() };
         if title.is_empty() && html_title.is_empty() && description.is_empty()
             && image.is_none() {
-            return Err("no_metadata");
+            return Err(PreviewFailure {
+                category: "no_metadata",
+                status: Some(response.status.as_u16()),
+                redirects,
+            });
         }
         let mut fields = json!({
             "title": clipped(if title.is_empty() { html_title } else { title }, 300),
@@ -367,17 +444,23 @@ async fn preview(mut page: url::Url) -> Result<serde_json::Value, &'static str> 
             "image_height": 0, "image_size": 0
         });
         if let Some(image) = image {
-            let fetched = safe_get(&image, MAX_IMAGE_BYTES).await?;
-            if fetched.status.is_success() {
-                let image = image_fields(fetched.mime, fetched.bytes)?;
-                for key in ["image_source","image_mime","image_width","image_height","image_size"] {
-                    fields[key] = image[key].clone();
+            // A broken/protected/slow thumbnail CDN must not sink an
+            // otherwise-valid preview that already has title/description —
+            // fetch failures and unsupported/invalid image bytes here are
+            // swallowed, leaving the image fields empty.
+            if let Ok(fetched) = safe_get(&image, MAX_IMAGE_BYTES).await {
+                if fetched.status.is_success() {
+                    if let Ok(image_json) = image_fields(fetched.mime, fetched.bytes) {
+                        for key in ["image_source","image_mime","image_width","image_height","image_size"] {
+                            fields[key] = image_json[key].clone();
+                        }
+                    }
                 }
             }
         }
         return Ok(fields);
     }
-    Err("too_many_redirects")
+    Err(PreviewFailure { category: "too_many_redirects", status: None, redirects: MAX_REDIRECTS as u32 })
 }
 fn image_fields(mime: String, bytes: Vec<u8>) -> Result<serde_json::Value, &'static str> {
     use base64::Engine;
@@ -394,8 +477,25 @@ fn image_dimensions(mime: &str, b: &[u8]) -> Option<(u32,u32)> {
     if mime == "image/gif" && b.len() >= 10 && (&b[..6] == b"GIF87a" || &b[..6] == b"GIF89a") {
         return Some((u16::from_le_bytes([b[6],b[7]]) as u32,u16::from_le_bytes([b[8],b[9]]) as u32));
     }
-    if mime == "image/webp" && b.len() >= 30 && &b[..4] == b"RIFF" && &b[8..12] == b"WEBP" && &b[12..16] == b"VP8X" {
-        let n = |i| 1 + u32::from_le_bytes([b[i],b[i+1],b[i+2],0]); return Some((n(24),n(27)));
+    if mime == "image/webp" && b.len() >= 16 && &b[..4] == b"RIFF" && &b[8..12] == b"WEBP" {
+        let chunk = &b[12..16];
+        // "VP8X" (extended: animation/alpha/exif) is the only variant the
+        // original check handled — but most real-world direct WebP links
+        // use the much more common simple lossy ("VP8 ") or lossless
+        // ("VP8L") chunk, which would otherwise fail as "invalid_image".
+        if chunk == b"VP8X" && b.len() >= 30 {
+            let n = |i| 1 + u32::from_le_bytes([b[i],b[i+1],b[i+2],0]);
+            return Some((n(24),n(27)));
+        }
+        if chunk == b"VP8L" && b.len() >= 25 && b[20] == 0x2f {
+            let bits = u32::from_le_bytes([b[21],b[22],b[23],b[24]]);
+            return Some(((bits & 0x3FFF) + 1, ((bits >> 14) & 0x3FFF) + 1));
+        }
+        if chunk == b"VP8 " && b.len() >= 30 && b[23] == 0x9d && b[24] == 0x01 && b[25] == 0x2a {
+            let width = u16::from_le_bytes([b[26],b[27]]) & 0x3FFF;
+            let height = u16::from_le_bytes([b[28],b[29]]) & 0x3FFF;
+            return Some((width as u32, height as u32));
+        }
     }
     if mime == "image/jpeg" && b.starts_with(&[0xff,0xd8]) { let mut i=2; while i+9 < b.len() {
         if b[i] != 0xff { i+=1; continue; } let marker=b[i+1]; if marker == 0xd9 || marker == 0xda { break; }
@@ -433,13 +533,15 @@ pub(crate) fn fetch_url_preview(
                 out["fields"] = fields;
                 enqueue(&events, out);
             }
-            Err(category) => {
+            Err(failure) => {
                 enqueue(&events, json!({
                     "type": "url_preview_result",
                     "op_id": op_id,
                     "lifecycle": lifecycle,
                     "ok": false,
-                    "category": category,
+                    "category": failure.category,
+                    "status": failure.status,
+                    "redirects": failure.redirects,
                 }));
             }
         }
@@ -1353,6 +1455,72 @@ mod tests {
         let mut gif = b"GIF89a".to_vec(); gif.extend_from_slice(&320u16.to_le_bytes()); gif.extend_from_slice(&200u16.to_le_bytes());
         assert_eq!(image_dimensions("image/gif", &gif), Some((320, 200)));
         assert_eq!(image_dimensions("image/gif", b"<html>not a gif</html>"), None);
+    }
+
+    // 0.5.14 checkpoint 4: the original check only handled the "VP8X"
+    // (extended: animation/alpha/exif) chunk — real-world direct WebP
+    // links overwhelmingly use the simple lossy ("VP8 ") or lossless
+    // ("VP8L") chunk instead, which returned None (→ "invalid_image")
+    // before this fix even though the bytes are a perfectly valid image.
+    #[test]
+    fn preview_webp_dimensions_cover_all_three_chunk_types() {
+        // VP8X (extended): chunk size(4) + flags(4) + width-1 24-bit LE(3)
+        // + height-1 24-bit LE(3).
+        let mut vp8x = b"RIFF\x00\x00\x00\x00WEBPVP8X".to_vec();
+        vp8x.extend_from_slice(&0u32.to_le_bytes()); // chunk size (unused)
+        vp8x.extend_from_slice(&[0u8; 4]); // flags
+        vp8x.extend_from_slice(&[99, 0, 0]); // width-1 = 99 -> 100
+        vp8x.extend_from_slice(&[49, 0, 0]); // height-1 = 49 -> 50
+        assert_eq!(image_dimensions("image/webp", &vp8x), Some((100, 50)));
+
+        // VP8L (lossless): signature 0x2f + 14-bit width-1 | 14-bit height-1 (LE u32).
+        let bits: u32 = (99) | ((49) << 14); // width-1=99, height-1=49
+        let mut vp8l = b"RIFF\x00\x00\x00\x00WEBPVP8L".to_vec();
+        vp8l.extend_from_slice(&0u32.to_le_bytes()); // chunk size (unused)
+        vp8l.push(0x2f);
+        vp8l.extend_from_slice(&bits.to_le_bytes());
+        assert_eq!(image_dimensions("image/webp", &vp8l), Some((100, 50)));
+
+        // VP8 (simple lossy): 3-byte frame tag + 3-byte sync (9d 01 2a) +
+        // 14-bit width LE + 14-bit height LE.
+        let mut vp8 = b"RIFF\x00\x00\x00\x00WEBPVP8 ".to_vec();
+        vp8.extend_from_slice(&0u32.to_le_bytes()); // chunk size (unused)
+        vp8.extend_from_slice(&[0, 0, 0]); // frame tag (unused by parser)
+        vp8.extend_from_slice(&[0x9d, 0x01, 0x2a]);
+        vp8.extend_from_slice(&100u16.to_le_bytes());
+        vp8.extend_from_slice(&50u16.to_le_bytes());
+        assert_eq!(image_dimensions("image/webp", &vp8), Some((100, 50)));
+
+        // A VP8 chunk missing the sync code is not a valid keyframe.
+        let mut bad_vp8 = b"RIFF\x00\x00\x00\x00WEBPVP8 ".to_vec();
+        bad_vp8.extend_from_slice(&[0u8; 10]);
+        assert_eq!(image_dimensions("image/webp", &bad_vp8), None);
+    }
+
+    #[test]
+    fn preview_failure_from_str_has_no_status_or_redirects() {
+        let failure: PreviewFailure = "dns_failure".into();
+        assert_eq!(failure.category, "dns_failure");
+        assert_eq!(failure.status, None);
+        assert_eq!(failure.redirects, 0);
+    }
+
+    #[test]
+    fn preview_initial_fetch_limit_accommodates_direct_images() {
+        // The redirect loop's shared fetch must use the larger of the two
+        // byte limits — using the smaller MAX_HTML_BYTES here (as 0.5.13
+        // did) silently capped every direct-image preview below its real
+        // ceiling before Content-Type was ever inspected.
+        assert_eq!(MAX_INITIAL_FETCH_BYTES, MAX_IMAGE_BYTES);
+        assert!(MAX_INITIAL_FETCH_BYTES >= MAX_HTML_BYTES);
+    }
+
+    #[test]
+    fn preview_image_fields_rejects_unsupported_mime_like_svg() {
+        // SVG is active content and must stay non-previewable regardless of
+        // how it's classified — image_fields() is the final gate even if a
+        // caller ever passed it a non-raster mime by mistake.
+        assert!(image_fields("image/svg+xml".to_owned(), b"<svg></svg>".to_vec()).is_err());
     }
 
     #[test]
