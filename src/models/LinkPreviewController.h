@@ -69,11 +69,19 @@ public:
     Q_INVOKABLE QVariantMap previewFor(const QString &itemKey,
                                        const QString &body,
                                        bool roomEncrypted);
+    Q_INVOKABLE QVariantMap previewForEvent(const QString &roomId,
+                                            const QString &stableEventId,
+                                            const QString &body,
+                                            bool roomEncrypted);
     // Explicit user consent: load the preview even where automatic loading
     // is disabled (this is the encrypted-room opt-in gesture).
     Q_INVOKABLE void requestPreview(const QString &itemKey);
+    Q_INVOKABLE void requestPreviewForEvent(const QString &roomId,
+                                            const QString &stableEventId);
     // Re-request after a failure.
     Q_INVOKABLE void retry(const QString &itemKey);
+    Q_INVOKABLE void retryForEvent(const QString &roomId,
+                                   const QString &stableEventId);
     Q_INVOKABLE void clear();
 
     // Test hooks.
@@ -104,6 +112,8 @@ private:
     };
 
     void dispatch(const QString &url);
+    static QString ownershipKey(const QString &roomId,
+                                const QString &stableEventId);
     void evictIfNeeded();
     QVariantMap stateFor(const ItemEntry &item) const;
 

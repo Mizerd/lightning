@@ -87,6 +87,33 @@ QVariantMap LinkPreviewController::previewFor(const QString &itemKey,
     return stateFor(item);
 }
 
+QString LinkPreviewController::ownershipKey(const QString &roomId,
+                                            const QString &stableEventId)
+{
+    if (roomId.isEmpty() || stableEventId.isEmpty())
+        return {};
+    return roomId + QChar(0x1f) + stableEventId;
+}
+
+QVariantMap LinkPreviewController::previewForEvent(const QString &roomId,
+                                                   const QString &stableEventId,
+                                                   const QString &body,
+                                                   bool roomEncrypted)
+{
+    const QString key = ownershipKey(roomId, stableEventId);
+    if (key.isEmpty())
+        return { { QStringLiteral("state"), QStringLiteral("none") } };
+
+    const QString canonicalUrl = matrix::link_preview::firstPreviewableUrl(body);
+    auto existing = m_items.find(key);
+    if (existing != m_items.end()
+        && (existing->url != canonicalUrl || existing->encrypted != roomEncrypted)) {
+        m_urlItems[existing->url].removeAll(key);
+        m_items.erase(existing);
+    }
+    return previewFor(key, body, roomEncrypted);
+}
+
 void LinkPreviewController::requestPreview(const QString &itemKey)
 {
     auto it = m_items.find(itemKey);
@@ -100,6 +127,12 @@ void LinkPreviewController::requestPreview(const QString &itemKey)
     if (!m_urls.contains(it->url))
         dispatch(it->url);
     Q_EMIT previewChanged(itemKey);
+}
+
+void LinkPreviewController::requestPreviewForEvent(const QString &roomId,
+                                                   const QString &stableEventId)
+{
+    requestPreview(ownershipKey(roomId, stableEventId));
 }
 
 void LinkPreviewController::retry(const QString &itemKey)
@@ -116,6 +149,12 @@ void LinkPreviewController::retry(const QString &itemKey)
     it->consented = true; // retry is always an explicit gesture
     dispatch(it->url);
     Q_EMIT previewChanged(itemKey);
+}
+
+void LinkPreviewController::retryForEvent(const QString &roomId,
+                                          const QString &stableEventId)
+{
+    retry(ownershipKey(roomId, stableEventId));
 }
 
 void LinkPreviewController::dispatch(const QString &url)

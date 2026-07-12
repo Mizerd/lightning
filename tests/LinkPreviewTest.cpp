@@ -351,6 +351,67 @@ private Q_SLOTS:
         QCOMPARE(controller.cachedUrlCount(), 0);
     }
 
+    void stableOwnershipSurvivesRowMovementAndRejectsDelegateReuse()
+    {
+        FakeClient client;
+        LinkPreviewController controller;
+        controller.setClient(&client);
+
+        const QString roomA = QStringLiteral("!a:example.org");
+        controller.previewForEvent(roomA, QStringLiteral("stable-a"),
+                                   QStringLiteral("https://example.org/a"), false);
+        const quint64 opA = client.lastOp;
+
+        // Prepending rows does not alter stable identity. Reusing a delegate
+        // for B starts from B's own state, not A's row-era state.
+        const QVariantMap b = controller.previewForEvent(
+            roomA, QStringLiteral("stable-b"),
+            QStringLiteral("membership change"), false);
+        QCOMPARE(b.value(QStringLiteral("state")).toString(), QStringLiteral("none"));
+
+        client.succeed(opA,
+                       { { QStringLiteral("title"), QStringLiteral("For A") } });
+        QCOMPARE(controller.previewForEvent(
+                     roomA, QStringLiteral("stable-a"),
+                     QStringLiteral("https://example.org/a"), false)
+                     .value(QStringLiteral("title")).toString(),
+                 QStringLiteral("For A"));
+        QCOMPARE(controller.previewForEvent(
+                     roomA, QStringLiteral("stable-b"),
+                     QStringLiteral("membership change"), false)
+                     .value(QStringLiteral("state")).toString(),
+                 QStringLiteral("none"));
+    }
+
+    void identicalSdkItemIdsAreIsolatedByRoomAndUrlChangesResetOwner()
+    {
+        FakeClient client;
+        LinkPreviewController controller;
+        controller.setClient(&client);
+        controller.previewForEvent(QStringLiteral("!a:example.org"),
+                                   QStringLiteral("sdk-1"),
+                                   QStringLiteral("https://example.org/a"), false);
+        const quint64 opA = client.lastOp;
+        const QVariantMap otherRoom = controller.previewForEvent(
+            QStringLiteral("!b:example.org"), QStringLiteral("sdk-1"),
+            QStringLiteral("no link"), false);
+        QCOMPARE(otherRoom.value(QStringLiteral("state")).toString(),
+                 QStringLiteral("none"));
+        client.succeed(opA, { { QStringLiteral("title"), QStringLiteral("A") } });
+        QCOMPARE(controller.previewForEvent(
+                     QStringLiteral("!b:example.org"), QStringLiteral("sdk-1"),
+                     QStringLiteral("no link"), false)
+                     .value(QStringLiteral("state")).toString(),
+                 QStringLiteral("none"));
+
+        const QVariantMap edited = controller.previewForEvent(
+            QStringLiteral("!a:example.org"), QStringLiteral("sdk-1"),
+            QStringLiteral("https://example.org/new"), false);
+        QCOMPARE(edited.value(QStringLiteral("state")).toString(),
+                 QStringLiteral("loading"));
+        QCOMPARE(client.requestedUrls.size(), 2);
+    }
+
     void urlCacheIsBounded()
     {
         FakeClient client;

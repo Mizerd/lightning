@@ -6,6 +6,10 @@ Pagination loading and failure presentation now consumes an explicit logical
 state from `PaginationController`. Header geometry and viewport-fill geometry
 no longer participate in the binding that decides whether that header exists.
 
+Link-preview ownership is scoped to the room and immutable SDK timeline-item
+identity. Delegate reuse, room switches, prepends, and edited URLs revalidate
+that ownership before any asynchronous result is displayed.
+
 ## v0.5.12 — avatars, previews, animated media and pagination
 
 Direct-message room avatars now use the other joined/invited member's profile

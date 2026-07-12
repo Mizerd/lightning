@@ -18,6 +18,10 @@ Item {
     readonly property string actionKey: (model.itemId && model.itemId.length > 0)
                                         ? model.itemId
                                         : (model.eventId || "")
+    readonly property string previewRoomId: app.currentRoomId || ""
+    readonly property string previewOwnerKey:
+        previewRoomId.length > 0 && actionKey.length > 0
+        ? previewRoomId + "\u001f" + actionKey : ""
     readonly property bool actionsPinned: ListView.view
             && ListView.view.pinnedActionsKey !== ""
             && ListView.view.pinnedActionsKey === actionKey
@@ -40,15 +44,20 @@ Item {
             preview = ({ state: "none" })
             return
         }
-        preview = app.linkPreviews.previewFor(actionKey, model.body || "",
-                                              roomEncrypted)
+        preview = app.linkPreviews.previewForEvent(previewRoomId, actionKey,
+                                                   model.body || "",
+                                                   roomEncrypted)
     }
     Component.onCompleted: refreshPreview()
     onActionKeyChanged: refreshPreview()
+    onPreviewRoomIdChanged: {
+        preview = ({ state: "none" })
+        refreshPreview()
+    }
     Connections {
         target: app.linkPreviews
         function onPreviewChanged(itemKey) {
-            if (itemKey === root.actionKey) root.refreshPreview()
+            if (itemKey === root.previewOwnerKey) root.refreshPreview()
         }
         function onPolicyChanged() { root.refreshPreview() }
     }
@@ -564,7 +573,8 @@ Item {
                         text: qsTr("Load link preview")
                         font.pixelSize: 11
                         Layout.topMargin: 2
-                        onClicked: app.linkPreviews.requestPreview(root.actionKey)
+                        onClicked: app.linkPreviews.requestPreviewForEvent(
+                                       root.previewRoomId, root.actionKey)
                     }
                 }
 
@@ -602,7 +612,8 @@ Item {
                         MouseArea {
                             anchors.fill: parent
                             cursorShape: Qt.PointingHandCursor
-                            onClicked: app.linkPreviews.retry(root.actionKey)
+                            onClicked: app.linkPreviews.retryForEvent(
+                                           root.previewRoomId, root.actionKey)
                         }
                     }
                 }
