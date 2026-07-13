@@ -51,6 +51,21 @@ presentation boundaries. Hidden SDK read markers do not fragment a group.
 Incremental diffs, pagination prepends, local-echo replacement, and late member
 profile updates all refresh the affected grouping and identity roles.
 
+### Left-aligned message presentation
+
+Normal text and media events now share one Element/Discord-inspired,
+left-aligned timeline flow for both the current user and remote participants.
+The first event in a visual sender group shows the SDK-derived avatar, sender
+name, and timestamp; continuation rows keep the same content indent without
+repeating identity. Ordinary incoming/outgoing colored bubbles have been
+removed in favor of transparent content and a subtle full-row hover surface.
+
+Reply context, selectable rich text, independently activated links, inline
+Matrix media, secure link previews, reactions, thread metadata, send status,
+retry, and message actions remain attached to the same stable event. Room
+activity stays a separate compact annotation and never receives sender-message
+styling.
+
 ## v0.5.14 — pagination presentation, room activity, avatars and previews
 
 ### Pagination QML exposure and stale-state fix (checkpoint 1)

@@ -110,6 +110,54 @@ private Q_SLOTS:
         QVERIFY(!delegate.contains(QStringLiteral("openWebUrl(card.previewStatic")));
         QVERIFY(!delegate.contains(QStringLiteral("openWebUrl(card.previewAnimation")));
     }
+
+    void messagesUseOneLeftAlignedSenderPresentation()
+    {
+        const QString delegate = read(QStringLiteral("MessageDelegate.qml"));
+        QVERIFY(!delegate.isEmpty());
+        QVERIFY(delegate.contains(QStringLiteral(
+            "objectName: \"messagePresentationRow\"")));
+        QVERIFY(delegate.contains(QStringLiteral(
+            "Layout.alignment: Qt.AlignLeft")));
+        QVERIFY(delegate.contains(QStringLiteral(
+            "layoutDirection: Qt.LeftToRight")));
+        QVERIFY(delegate.contains(QStringLiteral(
+            "visible: model.showSenderIdentity === true")));
+        QVERIFY(delegate.contains(QStringLiteral(
+            "mxc: model.senderAvatarMxc || \"\"")));
+        QVERIFY(delegate.contains(QStringLiteral(
+            "name: model.senderDisplayName || model.senderInitials")));
+        QVERIFY(delegate.contains(QStringLiteral(
+            "objectName: \"senderName\"")));
+        QVERIFY(delegate.contains(QStringLiteral(
+            "objectName: \"senderTimestamp\"")));
+
+        // Current-user status may affect metadata and permissions, never
+        // horizontal flow or a colored speech bubble.
+        QVERIFY(!delegate.contains(QStringLiteral("Qt.AlignRight")));
+        QVERIFY(!delegate.contains(QStringLiteral("AppTheme.ownBubble")));
+        QVERIFY(!delegate.contains(QStringLiteral("AppTheme.otherBubble")));
+        QVERIFY(delegate.contains(QStringLiteral("color: \"transparent\"")));
+        QVERIFY(delegate.contains(QStringLiteral("radius: 0")));
+    }
+
+    void messageContentAndActionsRemainInteractive()
+    {
+        const QString delegate = read(QStringLiteral("MessageDelegate.qml"));
+        QVERIFY(delegate.contains(QStringLiteral("TextEdit {\n                        id: bodyLabel")));
+        QVERIFY(delegate.contains(QStringLiteral("readOnly: true")));
+        QVERIFY(delegate.contains(QStringLiteral("selectByMouse: true")));
+        QVERIFY(delegate.contains(QStringLiteral(
+            "onLinkActivated: function(link) { app.media.openWebUrl(link) }")));
+        QVERIFY(delegate.contains(QStringLiteral("id: replyBox")));
+        QVERIFY(delegate.contains(QStringLiteral("id: actionBar")));
+        QVERIFY(delegate.contains(QStringLiteral("id: previewLoader")));
+        QVERIFY(delegate.contains(QStringLiteral("id: imageComponent")));
+        QVERIFY(delegate.contains(QStringLiteral("id: reactionPicker")));
+        QVERIFY(delegate.contains(QStringLiteral("app.composer.beginReply")));
+        QVERIFY(delegate.contains(QStringLiteral("app.composer.beginEdit")));
+        QVERIFY(delegate.contains(QStringLiteral("app.composer.reactTo")));
+    }
 };
 
 QTEST_MAIN(QmlBindingContractTest)

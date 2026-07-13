@@ -6,7 +6,7 @@ import MatrixClient
 Item {
     id: root
     // v0.5.7: virtual SDK timeline rows (date divider / read marker /
-    // timeline start) render as thin separators instead of bubbles.
+    // timeline start) render as thin separators instead of messages.
     // eventType: 7 = DateDivider, 8 = ReadMarker, 9 = TimelineStart.
     readonly property bool isVirtualRow: model.isVirtual === true
     readonly property bool isStateActivity: model.isStateActivity === true
@@ -103,51 +103,73 @@ Item {
         }
     }
 
+    Rectangle {
+        visible: !root.isVirtualRow && !root.isStateActivity
+                 && (rowHover.hovered || root.actionsPinned)
+        x: -AppTheme.spacingXS
+        y: layout.y
+        width: root.width + AppTheme.spacingXS * 2
+        height: layout.height
+        color: AppTheme.bubbleOverlaySubtle
+        radius: AppTheme.radiusSm
+        z: 0
+    }
+
     ColumnLayout {
         id: layout
         visible: !root.isVirtualRow && !root.isStateActivity
         width: parent.width
         spacing: 2
+        z: 1
 
-        // Message bubble line + action toolbar in a horizontal row.
-        //
-        // v0.5.8: one shared HoverHandler over the whole row (bubble +
-        // spacing + toolbar) keeps the toolbar visible while the pointer
-        // crosses the gap from the bubble toward the buttons. The old design
-        // used a MouseArea on the bubble and a separate HoverHandler on the
-        // toolbar; the gap between them registered as "not hovered" on either,
-        // so the toolbar vanished before it could be clicked. layoutDirection
-        // places the toolbar on the INNER side of the bubble (left of your own
-        // right-aligned messages, right of others') so it never runs off the
-        // right edge of the viewport.
-        Row {
+        // One left-aligned sender timeline for every participant. Identity is
+        // shown once at the start of a model-defined sender group; continuation
+        // rows retain the same content indent without repeating the avatar.
+        RowLayout {
             id: bubbleRow
-            Layout.alignment: model.isOwn ? Qt.AlignRight : Qt.AlignLeft
-            layoutDirection: model.isOwn ? Qt.RightToLeft : Qt.LeftToRight
+            objectName: "messagePresentationRow"
+            Layout.fillWidth: true
+            Layout.alignment: Qt.AlignLeft
+            layoutDirection: Qt.LeftToRight
             spacing: AppTheme.spacingXS
 
             HoverHandler { id: rowHover }
 
-            // Bubble
+            Item {
+                id: avatarSlot
+                objectName: "senderAvatarSlot"
+                Layout.preferredWidth: 36
+                Layout.minimumWidth: 36
+                Layout.maximumWidth: 36
+                Layout.alignment: Qt.AlignTop
+                implicitHeight: 36
+
+                Avatar {
+                    objectName: "senderAvatar"
+                    anchors.top: parent.top
+                    visible: model.showSenderIdentity === true
+                    size: 32
+                    mxc: model.senderAvatarMxc || ""
+                    name: model.senderDisplayName || model.senderInitials
+                    Accessible.name: qsTr("Avatar for %1").arg(
+                                         model.senderDisplayName || model.sender)
+                }
+            }
+
+            // Transparent content column: ordinary messages are rows, not
+            // incoming/outgoing speech bubbles.
             Rectangle {
                 id: bubble
-                width: {
-                    var natural = Math.max(nameLabel.implicitWidth,
-                                           replyBox.implicitWidth,
-                                           bodyLabel.implicitWidth,
-                                           mediaBox.implicitWidth,
-                                           metaLabel.implicitWidth)
-                                  + AppTheme.spacingL
-                    // Cap leaves room for the action toolbar so it stays inside
-                    // the viewport instead of clipping at the right edge.
-                    return Math.min(natural, root.width * 0.72)
-                }
-                implicitHeight: bubbleContent.implicitHeight + AppTheme.spacingM
-                color: model.isOwn ? AppTheme.ownBubble : AppTheme.otherBubble
-                radius: AppTheme.radius
+                objectName: "messageContentColumn"
+                Layout.fillWidth: true
+                Layout.maximumWidth: Math.max(1, root.width - avatarSlot.width
+                                               - AppTheme.spacingXL)
+                implicitHeight: bubbleContent.implicitHeight
+                color: "transparent"
+                radius: 0
                 opacity: model.redacted ? 0.65 : 1.0
 
-                // Click the bubble to pin the action toolbar open (click again
+                // Click the message content to pin the action toolbar (click again
                 // or press Escape to close). Does not consume media/link taps,
                 // which have their own handlers on top.
                 TapHandler {
@@ -158,18 +180,22 @@ Item {
                 ColumnLayout {
                     id: bubbleContent
                     anchors.fill: parent
-                    anchors.margins: AppTheme.spacingS + 2
+                    anchors.margins: 0
                     spacing: 2
 
                     RowLayout {
-                        visible: !model.isOwn && !model.sameSenderAsPrevious
+                        id: identityHeader
+                        objectName: "senderIdentityHeader"
+                        visible: model.showSenderIdentity === true
                         spacing: AppTheme.spacingXS
                         Label {
                             id: nameLabel
+                            objectName: "senderName"
                             text: model.senderDisplayName || model.sender
                             color: AppTheme.text
-                            font.pixelSize: 12
+                            font.pixelSize: AppTheme.fontSizeM
                             font.weight: Font.DemiBold
+                            Accessible.name: qsTr("Sender: %1").arg(text)
                             // Full MXID on hover; always available even when
                             // the display name is shown.
                             ToolTip.text: model.sender
@@ -183,11 +209,17 @@ Item {
                             visible: model.senderNameAmbiguous === true
                                      && (model.senderDisplayName || "").length > 0
                             text: model.sender
-                            color: model.isOwn ? AppTheme.ownBubbleText
-                                               : AppTheme.textMuted
+                            color: AppTheme.textMuted
                             font.pixelSize: 10
                             elide: Label.ElideMiddle
                             Layout.maximumWidth: 180
+                        }
+                        Label {
+                            objectName: "senderTimestamp"
+                            text: Qt.formatDateTime(model.timestamp, "hh:mm")
+                            color: AppTheme.textMuted
+                            font.pixelSize: 10
+                            Accessible.name: qsTr("Sent at %1").arg(text)
                         }
                     }
 
@@ -198,7 +230,7 @@ Item {
                                  && !model.redacted
                         Layout.fillWidth: true
                         implicitHeight: replyLayout.implicitHeight + 6
-                        color: model.isOwn ? AppTheme.bubbleOverlay : AppTheme.bubbleOverlaySubtle
+                        color: AppTheme.bubbleOverlaySubtle
                         radius: 4
                         border.color: AppTheme.accent
                         border.width: 0
@@ -212,13 +244,13 @@ Item {
                                 text: model.replyToSender
                                       ? qsTr("↰ %1").arg(model.replyToSender)
                                       : qsTr("↰ Reply")
-                                color: model.isOwn ? AppTheme.onAccentMuted : AppTheme.textMuted
+                                color: AppTheme.textMuted
                                 font.pixelSize: 11
                                 font.italic: true
                             }
                             Label {
                                 text: model.replyToPreview || qsTr("(original message not loaded)")
-                                color: model.isOwn ? AppTheme.onAccentMuted : AppTheme.textMuted
+                                color: AppTheme.textMuted
                                 font.pixelSize: 11
                                 elide: Label.ElideRight
                                 Layout.fillWidth: true
@@ -233,7 +265,7 @@ Item {
                         visible: model.isImage || model.isFile
                         Layout.fillWidth: true
                         // v0.5.11: contribute a real implicit width so an
-                        // image-only bubble grows to the media size instead of
+                        // image-only row grows to the media size instead of
                         // collapsing to the timestamp width (which made images
                         // render avatar-sized). Files stay compact.
                         implicitWidth: mediaLoader.item
@@ -251,7 +283,7 @@ Item {
                     }
 
                     // Body text (hidden for image-only messages when body == filename)
-                    Label {
+                    TextEdit {
                         id: bodyLabel
                         visible: text.length > 0
                         text: app.linkPreviews.linkifiedBody((function() {
@@ -260,16 +292,16 @@ Item {
                             if (model.isImage && model.body === model.mediaFilename) return ""
                             return model.body || ""
                         })())
-                        color: (model.undecryptable === true)
-                               ? AppTheme.muted
-                               : (model.isOwn ? AppTheme.ownBubbleText
-                                              : AppTheme.otherBubbleText)
+                        color: model.undecryptable === true
+                               ? AppTheme.muted : AppTheme.text
                         font.pixelSize: AppTheme.fontSizeM
                         font.italic: model.redacted || model.undecryptable === true
                         wrapMode: Text.Wrap
+                        readOnly: true
                         Layout.maximumWidth: root.width * 0.72
                         textFormat: Text.RichText
-                        linkColor: AppTheme.link
+                        selectByMouse: true
+                        Accessible.name: model.body || ""
                         onLinkActivated: function(link) { app.media.openWebUrl(link) }
 
                         // v0.5.0-prep+12: hover tooltip for undecryptable rows
@@ -310,16 +342,18 @@ Item {
                         spacing: AppTheme.spacingXS
                         Label {
                             id: metaLabel
+                            visible: text.length > 0
                             text: {
                                 var ts = Qt.formatDateTime(model.timestamp, "hh:mm")
                                 // Status: 0=Sent, 1=Sending, 2=Failed
                                 if (model.isOwn && model.status === 1) return ts + " • " + qsTr("sending…")
                                 if (model.isOwn && model.status === 2) return ts + " • " + qsTr("failed")
                                 if (model.edited) return ts + " • " + qsTr("edited")
-                                return ts
+                                return model.showSenderIdentity === true ? "" : ts
                             }
-                            color: model.isOwn ? AppTheme.onAccentMuted : AppTheme.textMuted
+                            color: AppTheme.textMuted
                             font.pixelSize: 10
+                            Accessible.name: text
                         }
                         // v0.5.7: retry action for failed local echoes. The
                         // SDK send queue re-attempts the same queued item,
@@ -327,7 +361,7 @@ Item {
                         Label {
                             visible: model.isOwn && model.status === 2
                             text: qsTr("Retry")
-                            color: model.isOwn ? AppTheme.ownBubbleText : AppTheme.accent
+                            color: AppTheme.accent
                             font.pixelSize: 10
                             font.underline: true
                             MouseArea {
@@ -341,7 +375,7 @@ Item {
                             visible: model.isThreadRoot === true
                             text: qsTr("· %n reply(s) in thread", "",
                                        model.threadReplyCount || 0)
-                            color: model.isOwn ? AppTheme.onAccentMuted : AppTheme.accent
+                            color: AppTheme.accent
                             font.pixelSize: 10
                             font.underline: true
                             MouseArea {
@@ -360,7 +394,7 @@ Item {
                             visible: (model.threadRootId || "").length > 0
                                      && !(model.isThreadRoot === true)
                             text: qsTr("· in thread")
-                            color: model.isOwn ? AppTheme.onAccentMuted : AppTheme.textMuted
+                            color: AppTheme.textMuted
                             font.pixelSize: 10
                             font.italic: true
                         }
@@ -371,9 +405,10 @@ Item {
             // Action toolbar. Visible while the shared row hover is active,
             // while it is pinned open by a click, or while one of its menus
             // is open — so it never vanishes as the pointer travels from the
-            // bubble to the buttons. Subtle AppTheme surface/border framing.
+            // message to the buttons. Subtle AppTheme surface/border framing.
             Rectangle {
                 id: actionBar
+                Layout.alignment: Qt.AlignTop
                 visible: rowHover.hovered || root.actionsPinned
                          || reactionPicker.opened || moreMenu.opened
                 radius: AppTheme.radiusSm
@@ -478,7 +513,8 @@ Item {
         // Reactions row
         Flow {
             visible: !model.redacted && model.reactions && model.reactions.length > 0
-            Layout.alignment: model.isOwn ? Qt.AlignRight : Qt.AlignLeft
+            Layout.alignment: Qt.AlignLeft
+            Layout.leftMargin: 36 + AppTheme.spacingXS
             spacing: 4
             Repeater {
                 model: root.reactionsList()
@@ -549,7 +585,7 @@ Item {
                                                      p.imageMime || "") : ""
             implicitWidth: Math.min(360, root.width * 0.6)
             implicitHeight: cardCol.implicitHeight + AppTheme.spacingS * 2
-            color: model.isOwn ? AppTheme.bubbleOverlay : AppTheme.bubbleOverlaySubtle
+            color: AppTheme.bubbleOverlaySubtle
             radius: AppTheme.radiusSm
             border.color: AppTheme.border
             border.width: 1
@@ -727,7 +763,7 @@ Item {
                         visible: card.p.isDirectMedia !== true
                                  && (card.p.title || "").length > 0
                         text: card.p.title || ""
-                        color: model.isOwn ? AppTheme.ownBubbleText : AppTheme.text
+                        color: AppTheme.text
                         font.pixelSize: 12
                         font.weight: Font.DemiBold
                         wrapMode: Text.WordWrap
@@ -739,7 +775,7 @@ Item {
                         visible: card.p.isDirectMedia !== true
                                  && (card.p.description || "").length > 0
                         text: card.p.description || ""
-                        color: model.isOwn ? AppTheme.onAccentMuted : AppTheme.textMuted
+                        color: AppTheme.textMuted
                         font.pixelSize: 11
                         wrapMode: Text.WordWrap
                         maximumLineCount: 3
@@ -769,7 +805,7 @@ Item {
             // derived from the intrinsic media dimensions and a responsive
             // bound (never avatar-sized, never overflowing the column, never
             // upscaling a tiny image beyond its natural size). This box's
-            // implicitWidth/Height flow up into the bubble so the bubble grows
+            // implicitWidth/Height flow up into the row so the row grows
             // to the picture instead of collapsing to the timestamp width.
             readonly property real maxW: Math.min(400, root.width * 0.62)
             readonly property real maxH: 360
@@ -943,7 +979,7 @@ Item {
             width: parent.width
             implicitWidth: 260
             implicitHeight: fileRow.implicitHeight + 10
-            color: model.isOwn ? AppTheme.bubbleOverlay : AppTheme.bubbleOverlaySubtle
+            color: AppTheme.bubbleOverlaySubtle
             radius: 4
             RowLayout {
                 id: fileRow
@@ -953,14 +989,14 @@ Item {
                 Label {
                     text: "📎"
                     font.pixelSize: 20
-                    color: model.isOwn ? AppTheme.ownBubbleText : AppTheme.text
+                    color: AppTheme.text
                 }
                 ColumnLayout {
                     Layout.fillWidth: true
                     spacing: 1
                     Label {
                         text: model.mediaFilename || model.body || qsTr("File")
-                        color: model.isOwn ? AppTheme.ownBubbleText : AppTheme.text
+                        color: AppTheme.text
                         font.pixelSize: 12
                         font.weight: Font.Medium
                         elide: Label.ElideMiddle
