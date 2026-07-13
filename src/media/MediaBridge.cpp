@@ -20,6 +20,23 @@ QString mxcCacheKey(const QString &mxc, int size)
 {
     return QStringLiteral("mxc:%1:%2").arg(size).arg(mxc);
 }
+
+bool previewBytesMatchMime(const QByteArray &bytes, const QString &mimetype)
+{
+    if (mimetype == QLatin1String("image/gif"))
+        return bytes.startsWith("GIF87a") || bytes.startsWith("GIF89a");
+    if (mimetype == QLatin1String("image/png"))
+        return bytes.startsWith("\x89PNG\r\n\x1a\n");
+    if (mimetype == QLatin1String("image/jpeg"))
+        return bytes.size() >= 3
+            && static_cast<unsigned char>(bytes.at(0)) == 0xff
+            && static_cast<unsigned char>(bytes.at(1)) == 0xd8
+            && static_cast<unsigned char>(bytes.at(2)) == 0xff;
+    if (mimetype == QLatin1String("image/webp"))
+        return bytes.size() >= 12 && bytes.startsWith("RIFF")
+            && bytes.mid(8, 4) == QByteArrayLiteral("WEBP");
+    return false;
+}
 } // namespace
 
 MediaBridge::MediaBridge(QObject *parent)
@@ -204,6 +221,29 @@ QString MediaBridge::previewAnimatedSource(const QString &dataSource,
     }
     const QString path = writeAnimatedFile(cacheKey, bytes, mimetype);
     return path.isEmpty() ? QString{} : QUrl::fromLocalFile(path).toString();
+}
+
+QString MediaBridge::previewImageSource(const QString &dataSource,
+                                        const QString &mimetype)
+{
+    static constexpr qsizetype kMaxPreviewBytes = 5 * 1024 * 1024;
+    const QString prefix = QStringLiteral("data:") + mimetype
+        + QStringLiteral(";base64,");
+    if (!dataSource.startsWith(prefix)
+        || !mimetype.startsWith(QLatin1String("image/")))
+        return {};
+    const QByteArray bytes = QByteArray::fromBase64(
+        dataSource.mid(prefix.size()).toLatin1(),
+        QByteArray::AbortOnBase64DecodingErrors);
+    if (bytes.isEmpty() || bytes.size() > kMaxPreviewBytes
+        || !previewBytesMatchMime(bytes, mimetype))
+        return {};
+    const QString cacheKey = QStringLiteral("preview-image:")
+        + QString::fromLatin1(
+            QCryptographicHash::hash(bytes, QCryptographicHash::Sha256).toHex());
+    if (cachedSource(cacheKey).isEmpty())
+        insertCache(cacheKey, bytes);
+    return cachedSource(cacheKey);
 }
 
 QString MediaBridge::avatarSource(const QString &mxcUri, int size)

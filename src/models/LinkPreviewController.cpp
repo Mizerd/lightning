@@ -256,6 +256,9 @@ QVariantMap LinkPreviewController::stateFor(const ItemEntry &item) const
     out.insert(QStringLiteral("isGif"), gif != GifClass::NotGif);
     out.insert(QStringLiteral("gifOversized"), gif == GifClass::Oversized);
     out.insert(QStringLiteral("animationExpected"), gif == GifClass::Gif);
+    out.insert(QStringLiteral("isDirectMedia"),
+               entry.fields.value(QStringLiteral("previewKind")).toString()
+                   == QLatin1String("direct_media"));
     return out;
 }
 

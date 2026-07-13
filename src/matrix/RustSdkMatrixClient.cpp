@@ -2596,6 +2596,8 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
                       raw.value(QStringLiteral("description")).toString());
         fields.insert(QStringLiteral("siteName"),
                       raw.value(QStringLiteral("site_name")).toString());
+        fields.insert(QStringLiteral("previewKind"),
+                      raw.value(QStringLiteral("preview_kind")).toString());
         fields.insert(QStringLiteral("imageMxc"),
                       raw.value(QStringLiteral("image_mxc")).toString());
         fields.insert(QStringLiteral("imageSource"),

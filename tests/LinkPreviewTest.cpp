@@ -526,6 +526,53 @@ private Q_SLOTS:
                  QStringLiteral("mxc://example.org/abc"));
     }
 
+    void directGifBecomesDirectMediaWithoutMetadataSubstitution()
+    {
+        FakeClient client;
+        LinkPreviewController controller;
+        controller.setClient(&client);
+
+        controller.previewForEvent(QStringLiteral("!room:example.org"),
+                                   QStringLiteral("stable-gif"),
+                                   QStringLiteral("https://cdn.example/giphy.gif"), false);
+        client.succeed(client.lastOp,
+                       { { QStringLiteral("previewKind"), QStringLiteral("direct_media") },
+                         { QStringLiteral("imageMime"), QStringLiteral("image/gif") },
+                         { QStringLiteral("imageSource"),
+                           QStringLiteral("data:image/gif;base64,R0lGODlhAQABAAAAACw=") },
+                         { QStringLiteral("imageSize"), 17 },
+                         { QStringLiteral("imageWidth"), 1 },
+                         { QStringLiteral("imageHeight"), 1 } });
+        const QVariantMap state = controller.previewForEvent(
+            QStringLiteral("!room:example.org"), QStringLiteral("stable-gif"),
+            QStringLiteral("https://cdn.example/giphy.gif"), false);
+        QCOMPARE(state.value(QStringLiteral("state")).toString(), QStringLiteral("loaded"));
+        QVERIFY(state.value(QStringLiteral("isDirectMedia")).toBool());
+        QVERIFY(state.value(QStringLiteral("isGif")).toBool());
+        QVERIFY(state.value(QStringLiteral("animationExpected")).toBool());
+        QVERIFY(state.value(QStringLiteral("title")).toString().isEmpty());
+        QCOMPARE(state.value(QStringLiteral("url")).toString(),
+                 QStringLiteral("https://cdn.example/giphy.gif"));
+    }
+
+    void normalHtmlMetadataPreviewRemainsMetadata()
+    {
+        FakeClient client;
+        LinkPreviewController controller;
+        controller.setClient(&client);
+        controller.previewFor(QStringLiteral("$html"),
+                              QStringLiteral("https://news.example/article"), false);
+        client.succeed(client.lastOp,
+                       { { QStringLiteral("previewKind"), QStringLiteral("metadata") },
+                         { QStringLiteral("title"), QStringLiteral("Article") },
+                         { QStringLiteral("description"), QStringLiteral("Summary") } });
+        const QVariantMap state = controller.previewFor(
+            QStringLiteral("$html"), QStringLiteral("https://news.example/article"), false);
+        QVERIFY(!state.value(QStringLiteral("isDirectMedia")).toBool());
+        QCOMPARE(state.value(QStringLiteral("title")).toString(), QStringLiteral("Article"));
+        QCOMPARE(state.value(QStringLiteral("description")).toString(), QStringLiteral("Summary"));
+    }
+
     // v0.5.14: the sanitized HTTP-status/redirect-count diagnostics exist
     // for logs only — they must never leak into the QML-facing state map,
     // and the existing retry/category behavior must be unaffected by them.

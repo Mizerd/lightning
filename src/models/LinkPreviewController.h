@@ -64,7 +64,7 @@ public:
     //   url, host                     — original URL + sanitized hostname
     //   title, description, siteName  — when loaded
     //   imageMxc/imageSource, imageMime, imageWidth, imageHeight, imageSize
-    //   isGif, gifOversized, animationExpected
+    //   isDirectMedia, isGif, gifOversized, animationExpected
     //   retryable                     — when failed
     Q_INVOKABLE QVariantMap previewFor(const QString &itemKey,
                                        const QString &body,

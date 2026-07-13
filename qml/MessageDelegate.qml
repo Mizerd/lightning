@@ -543,6 +543,10 @@ Item {
                 p.isGif === true && app.settings.animateGifPreviews
                 ? app.mediaBridge.previewAnimatedSource(p.imageSource || "",
                                                         p.imageMime || "") : ""
+            readonly property string previewStatic:
+                (p.imageSource || "").length > 0
+                ? app.mediaBridge.previewImageSource(p.imageSource || "",
+                                                     p.imageMime || "") : ""
             implicitWidth: Math.min(360, root.width * 0.6)
             implicitHeight: cardCol.implicitHeight + AppTheme.spacingS * 2
             color: model.isOwn ? AppTheme.bubbleOverlay : AppTheme.bubbleOverlaySubtle
@@ -665,8 +669,8 @@ Item {
                             fillMode: Image.PreserveAspectFit
                             asynchronous: true
                             cache: true
-                            source: (card.p.imageSource || "").length > 0
-                                    ? card.p.imageSource
+                            source: card.previewStatic.length > 0
+                                    ? card.previewStatic
                                     : (card.p.imageMxc || "").length > 0
                                     && app.mediaBridge.supported
                                     ? app.mediaBridge.avatarSource(card.p.imageMxc, 480)
@@ -711,7 +715,8 @@ Item {
                     }
 
                     Label {
-                        visible: (card.p.siteName || "").length > 0
+                        visible: card.p.isDirectMedia !== true
+                                 && (card.p.siteName || "").length > 0
                         text: card.p.siteName || ""
                         color: AppTheme.textMuted
                         font.pixelSize: 10
@@ -719,7 +724,8 @@ Item {
                         Layout.fillWidth: true
                     }
                     Label {
-                        visible: (card.p.title || "").length > 0
+                        visible: card.p.isDirectMedia !== true
+                                 && (card.p.title || "").length > 0
                         text: card.p.title || ""
                         color: model.isOwn ? AppTheme.ownBubbleText : AppTheme.text
                         font.pixelSize: 12
@@ -730,7 +736,8 @@ Item {
                         Layout.fillWidth: true
                     }
                     Label {
-                        visible: (card.p.description || "").length > 0
+                        visible: card.p.isDirectMedia !== true
+                                 && (card.p.description || "").length > 0
                         text: card.p.description || ""
                         color: model.isOwn ? AppTheme.onAccentMuted : AppTheme.textMuted
                         font.pixelSize: 11

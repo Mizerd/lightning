@@ -315,6 +315,31 @@ private Q_SLOTS:
         QVERIFY(bridge.previewAnimatedSource(QStringLiteral("data:text/html;base64,QQ=="),
                                              QStringLiteral("image/gif")).isEmpty());
     }
+
+    void clientPreviewStaticImageUsesControlledProviderSource()
+    {
+        MediaBridge bridge;
+        QByteArray png(24, '\0');
+        png.replace(0, 8, QByteArray("\x89PNG\r\n\x1a\n", 8));
+        const QString data = QStringLiteral("data:image/png;base64,")
+            + QString::fromLatin1(png.toBase64());
+        const QString source = bridge.previewImageSource(data, QStringLiteral("image/png"));
+        QVERIFY(source.startsWith(QStringLiteral("image://lightning-media/")));
+        QVERIFY(!source.startsWith(QStringLiteral("http")));
+        QVERIFY(!source.startsWith(QStringLiteral("file:")));
+        QVERIFY(bridge.previewImageSource(
+                    QStringLiteral("data:image/png;base64,PGh0bWw+"),
+                    QStringLiteral("image/png")).isEmpty());
+        QVERIFY(bridge.previewImageSource(
+                    QStringLiteral("data:image/svg+xml;base64,PHN2Zz4="),
+                    QStringLiteral("image/svg+xml")).isEmpty());
+        QByteArray oversized("GIF89a");
+        oversized.resize(5 * 1024 * 1024 + 1, '\0');
+        QVERIFY(bridge.previewImageSource(
+                    QStringLiteral("data:image/gif;base64,")
+                        + QString::fromLatin1(oversized.toBase64()),
+                    QStringLiteral("image/gif")).isEmpty());
+    }
 };
 
 QTEST_GUILESS_MAIN(MediaBridgeTest)

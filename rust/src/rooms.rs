@@ -354,6 +354,81 @@ impl From<&'static str> for PreviewFailure {
     }
 }
 
+// Follow redirects manually so every hop receives the same DNS/IP policy,
+// DNS pinning, scheme check, timeout, and response bound. Used for both the
+// primary URL and HTML metadata images; reqwest redirect following remains
+// disabled inside safe_get().
+async fn safe_get_following_redirects(
+    mut url: url::Url,
+    limit: usize,
+) -> Result<(SafeResponse, url::Url, u32), PreviewFailure> {
+    for redirects in 0..=MAX_REDIRECTS {
+        let redirects = redirects as u32;
+        let response = safe_get(&url, limit)
+            .await
+            .map_err(|category| PreviewFailure {
+                category,
+                status: None,
+                redirects,
+            })?;
+        if !response.status.is_redirection() {
+            return Ok((response, url, redirects));
+        }
+        if redirects as usize == MAX_REDIRECTS {
+            return Err(PreviewFailure {
+                category: "too_many_redirects",
+                status: Some(response.status.as_u16()),
+                redirects,
+            });
+        }
+        let next = response.location.as_deref().ok_or(PreviewFailure {
+            category: "invalid_redirect",
+            status: Some(response.status.as_u16()),
+            redirects,
+        })?;
+        url = url.join(next).map_err(|_| PreviewFailure {
+            category: "invalid_redirect",
+            status: Some(response.status.as_u16()),
+            redirects,
+        })?;
+    }
+    Err(PreviewFailure {
+        category: "too_many_redirects",
+        status: None,
+        redirects: MAX_REDIRECTS as u32,
+    })
+}
+
+// Some CDNs label passive image bytes as application/octet-stream or even
+// text/html. Classification therefore checks both the final declared MIME
+// and the bytes. A declared supported image must agree with its magic bytes;
+// generic/mislabeled responses may be promoted only when recognized bytes
+// prove a supported passive raster. Actual HTML remains HTML. SVG never
+// matches the passive-image sniffer.
+fn classify_preview_payload(
+    declared_mime: &str,
+    bytes: &[u8],
+) -> Result<Option<&'static str>, &'static str> {
+    let sniffed = sniff_image_mime(bytes);
+    if matches!(
+        declared_mime,
+        "image/jpeg" | "image/png" | "image/webp" | "image/gif"
+    ) {
+        return if sniffed == Some(declared_mime) {
+            Ok(sniffed)
+        } else {
+            Err("invalid_image")
+        };
+    }
+    if let Some(mime) = sniffed {
+        return Ok(Some(mime));
+    }
+    if declared_mime == "text/html" {
+        return Ok(None);
+    }
+    Err("unsupported_mime")
+}
+
 // The redirect loop's own fetch doesn't know ahead of time whether the
 // destination is an HTML page or a direct image — Content-Type is only
 // known after the fetch completes — so it must accommodate the larger of
@@ -361,106 +436,109 @@ impl From<&'static str> for PreviewFailure {
 // did) silently capped every direct-image preview at that smaller ceiling.
 const MAX_INITIAL_FETCH_BYTES: usize = MAX_IMAGE_BYTES;
 
-async fn preview(mut page: url::Url) -> Result<serde_json::Value, PreviewFailure> {
-    let mut response;
-    for redirects in 0..=MAX_REDIRECTS {
-        let redirects = redirects as u32;
-        response = safe_get(&page, MAX_INITIAL_FETCH_BYTES).await
-            .map_err(|category| PreviewFailure { category, status: None, redirects })?;
-        if response.status.is_redirection() {
-            if redirects as usize == MAX_REDIRECTS {
+async fn preview(page: url::Url) -> Result<serde_json::Value, PreviewFailure> {
+    let (response, final_page, redirects) =
+        safe_get_following_redirects(page, MAX_INITIAL_FETCH_BYTES).await?;
+    if !response.status.is_success() {
+        let category = if response.status.is_server_error() || response.status.as_u16() == 429 {
+            "http_transient"
+        } else {
+            "http_terminal"
+        };
+        return Err(PreviewFailure {
+            category,
+            status: Some(response.status.as_u16()),
+            redirects,
+        });
+    }
+    match classify_preview_payload(&response.mime, &response.bytes).map_err(|category| {
+        PreviewFailure {
+            category,
+            status: Some(response.status.as_u16()),
+            redirects,
+        }
+    })? {
+        Some(mime) => {
+            let mut fields = image_fields(mime.to_owned(), response.bytes).map_err(|category| {
+                PreviewFailure {
+                    category,
+                    status: Some(response.status.as_u16()),
+                    redirects,
+                }
+            })?;
+            fields["preview_kind"] = "direct_media".into();
+            Ok(fields)
+        }
+        None => {
+            if response.bytes.len() > MAX_HTML_BYTES {
                 return Err(PreviewFailure {
-                    category: "too_many_redirects",
+                    category: "response_too_large",
                     status: Some(response.status.as_u16()),
                     redirects,
                 });
             }
-            let next = response.location.as_deref().ok_or(PreviewFailure {
-                category: "invalid_redirect",
-                status: Some(response.status.as_u16()),
-                redirects,
-            })?;
-            page = page.join(next).map_err(|_| PreviewFailure {
-                category: "invalid_redirect",
-                status: Some(response.status.as_u16()),
-                redirects,
-            })?;
-            continue;
-        }
-        if !response.status.is_success() {
-            let category = if response.status.is_server_error()
-                || response.status.as_u16() == 429 { "http_transient" }
-                else { "http_terminal" };
-            return Err(PreviewFailure { category, status: Some(response.status.as_u16()), redirects });
-        }
-        if matches!(response.mime.as_str(), "image/jpeg"|"image/png"|"image/webp"|"image/gif") {
-            return image_fields(response.mime, response.bytes).map_err(|category|
-                PreviewFailure { category, status: Some(response.status.as_u16()), redirects });
-        }
-        if response.mime != "text/html" {
-            // Some CDNs serve a direct image with a generic/wrong
-            // Content-Type (e.g. application/octet-stream); sniff the
-            // actual bytes before giving up so a real, supported image is
-            // not rejected purely because of a sloppy header. SVG stays
-            // intentionally excluded — it is active content and must not
-            // be rendered from an untrusted remote source.
-            if let Some(sniffed) = sniff_image_mime(&response.bytes) {
-                if let Ok(fields) = image_fields(sniffed.to_owned(), response.bytes) {
-                    return Ok(fields);
-                }
+            let html = String::from_utf8_lossy(&response.bytes);
+            let (metadata, html_title) = html_fields(&html);
+            let title = pick(&metadata, &["og:title", "twitter:title"]);
+            let description = pick(
+                &metadata,
+                &["og:description", "twitter:description", "description"],
+            );
+            let image_url = pick(&metadata, &["og:image", "twitter:image"]);
+            let image = if image_url.is_empty() {
+                None
+            } else {
+                final_page.join(&image_url).ok()
+            };
+            if title.is_empty()
+                && html_title.is_empty()
+                && description.is_empty()
+                && image.is_none()
+            {
+                return Err(PreviewFailure {
+                    category: "no_metadata",
+                    status: Some(response.status.as_u16()),
+                    redirects,
+                });
             }
-            return Err(PreviewFailure {
-                category: "unsupported_mime",
-                status: Some(response.status.as_u16()),
-                redirects,
+            let mut fields = json!({
+                "preview_kind": "metadata",
+                "title": clipped(if title.is_empty() { html_title } else { title }, 300),
+                "description": clipped(description, 1000),
+                "site_name": clipped(pick(&metadata, &["og:site_name"]), 120),
+                "image_source": "", "image_mime": "", "image_width": 0,
+                "image_height": 0, "image_size": 0
             });
-        }
-        if response.bytes.len() > MAX_HTML_BYTES {
-            return Err(PreviewFailure {
-                category: "response_too_large",
-                status: Some(response.status.as_u16()),
-                redirects,
-            });
-        }
-        let html = String::from_utf8_lossy(&response.bytes);
-        let (metadata, html_title) = html_fields(&html);
-        let title = pick(&metadata, &["og:title", "twitter:title"]);
-        let description = pick(&metadata, &["og:description", "twitter:description", "description"]);
-        let image_url = pick(&metadata, &["og:image", "twitter:image"]);
-        let image = if image_url.is_empty() { None } else { page.join(&image_url).ok() };
-        if title.is_empty() && html_title.is_empty() && description.is_empty()
-            && image.is_none() {
-            return Err(PreviewFailure {
-                category: "no_metadata",
-                status: Some(response.status.as_u16()),
-                redirects,
-            });
-        }
-        let mut fields = json!({
-            "title": clipped(if title.is_empty() { html_title } else { title }, 300),
-            "description": clipped(description, 1000),
-            "site_name": clipped(pick(&metadata, &["og:site_name"]), 120),
-            "image_source": "", "image_mime": "", "image_width": 0,
-            "image_height": 0, "image_size": 0
-        });
-        if let Some(image) = image {
-            // A broken/protected/slow thumbnail CDN must not sink an
-            // otherwise-valid preview that already has title/description —
-            // fetch failures and unsupported/invalid image bytes here are
-            // swallowed, leaving the image fields empty.
-            if let Ok(fetched) = safe_get(&image, MAX_IMAGE_BYTES).await {
-                if fetched.status.is_success() {
-                    if let Ok(image_json) = image_fields(fetched.mime, fetched.bytes) {
-                        for key in ["image_source","image_mime","image_width","image_height","image_size"] {
-                            fields[key] = image_json[key].clone();
+            if let Some(image) = image {
+                // A broken/protected/slow thumbnail CDN must not sink an
+                // otherwise-valid preview that already has title/description —
+                // fetch failures and unsupported/invalid image bytes here are
+                // swallowed, leaving the image fields empty.
+                if let Ok((fetched, _, _)) =
+                    safe_get_following_redirects(image, MAX_IMAGE_BYTES).await
+                {
+                    if fetched.status.is_success() {
+                        if let Ok(Some(mime)) =
+                            classify_preview_payload(&fetched.mime, &fetched.bytes)
+                        {
+                            if let Ok(image_json) = image_fields(mime.to_owned(), fetched.bytes) {
+                                for key in [
+                                    "image_source",
+                                    "image_mime",
+                                    "image_width",
+                                    "image_height",
+                                    "image_size",
+                                ] {
+                                    fields[key] = image_json[key].clone();
+                                }
+                            }
                         }
                     }
                 }
             }
+            Ok(fields)
         }
-        return Ok(fields);
     }
-    Err(PreviewFailure { category: "too_many_redirects", status: None, redirects: MAX_REDIRECTS as u32 })
 }
 fn image_fields(mime: String, bytes: Vec<u8>) -> Result<serde_json::Value, &'static str> {
     use base64::Engine;
@@ -1455,6 +1533,34 @@ mod tests {
         let mut gif = b"GIF89a".to_vec(); gif.extend_from_slice(&320u16.to_le_bytes()); gif.extend_from_slice(&200u16.to_le_bytes());
         assert_eq!(image_dimensions("image/gif", &gif), Some((320, 200)));
         assert_eq!(image_dimensions("image/gif", b"<html>not a gif</html>"), None);
+    }
+
+    #[test]
+    fn preview_payload_classification_uses_mime_and_magic() {
+        let mut png = vec![0; 24];
+        png[..8].copy_from_slice(b"\x89PNG\r\n\x1a\n");
+        let mut gif = b"GIF89a".to_vec();
+        gif.extend_from_slice(&1u16.to_le_bytes());
+        gif.extend_from_slice(&1u16.to_le_bytes());
+        gif.extend_from_slice(&[0; 2]);
+        let jpeg = [0xff, 0xd8, 0xff, 0xe0, 0, 0, 0, 0, 0, 0, 0, 0];
+        let webp = b"RIFF\0\0\0\0WEBPVP8X";
+
+        assert_eq!(classify_preview_payload("image/png", &png), Ok(Some("image/png")));
+        assert_eq!(classify_preview_payload("image/gif", &gif), Ok(Some("image/gif")));
+        assert_eq!(classify_preview_payload("image/jpeg", &jpeg), Ok(Some("image/jpeg")));
+        assert_eq!(classify_preview_payload("image/webp", webp), Ok(Some("image/webp")));
+        // Safely recognized bytes may recover a generic or mislabeled CDN response.
+        assert_eq!(classify_preview_payload("application/octet-stream", &gif),
+                   Ok(Some("image/gif")));
+        assert_eq!(classify_preview_payload("text/html", &gif), Ok(Some("image/gif")));
+        // A .gif-looking request that actually returned HTML remains metadata.
+        assert_eq!(classify_preview_payload("text/html", b"<html><title>Giphy</title></html>"),
+                   Ok(None));
+        assert_eq!(classify_preview_payload("image/gif", b"<html>not gif</html>"),
+                   Err("invalid_image"));
+        assert_eq!(classify_preview_payload("image/svg+xml", b"<svg></svg>"),
+                   Err("unsupported_mime"));
     }
 
     // 0.5.14 checkpoint 4: the original check only handled the "VP8X"

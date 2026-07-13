@@ -279,8 +279,9 @@ char *mx_rust_get_user_profile(void *client,
  * redirect, blocks local/private destinations, bounds responses and parses
  * metadata without executing page content. The URL is never logged:
  *   {"type":"url_preview_result","op_id",…,"ok",
- *    "fields":{"title","description","site_name","image_mxc",
- *              "image_mime","image_width","image_height","image_size"}}
+ *    "fields":{"preview_kind","title","description","site_name",
+ *              "image_source","image_mime","image_width","image_height",
+ *              "image_size"}}
  * or ok=false with a coarse "category".
  */
 char *mx_rust_get_url_preview(void *client,

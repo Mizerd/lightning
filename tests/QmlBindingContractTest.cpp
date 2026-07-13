@@ -99,6 +99,17 @@ private Q_SLOTS:
         // block must be root-qualified.
         QCOMPARE(totalCount, qualifiedCount);
     }
+
+    void directPreviewUsesControlledSourceAndOriginalUrlActivation()
+    {
+        const QString delegate = read(QStringLiteral("MessageDelegate.qml"));
+        QVERIFY(delegate.contains(QStringLiteral("previewImageSource")));
+        QVERIFY(delegate.contains(QStringLiteral("previewAnimatedSource")));
+        QVERIFY(delegate.contains(QStringLiteral("app.media.openWebUrl(card.p.url)")));
+        QVERIFY(!delegate.contains(QStringLiteral("source: card.p.imageSource")));
+        QVERIFY(!delegate.contains(QStringLiteral("openWebUrl(card.previewStatic")));
+        QVERIFY(!delegate.contains(QStringLiteral("openWebUrl(card.previewAnimation")));
+    }
 };
 
 QTEST_MAIN(QmlBindingContractTest)

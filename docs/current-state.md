@@ -19,6 +19,23 @@ count or inaccessible children. A runtime-facing QML test instantiates the
 actual activity component and verifies that expansion creates visible,
 non-zero-height child rows.
 
+### Secure direct image and GIF previews
+
+Direct passive raster responses are now classified from the final bounded
+response and recognized magic bytes, not a URL suffix. A declared image MIME
+must agree with the bytes; safely recognized image bytes may recover a generic
+or mislabeled CDN response, while real HTML stays on the metadata path and SVG
+remains inactive. Direct results carry an explicit `direct_media` kind, so a
+GIF cannot be substituted by an unrelated title/description card.
+
+Redirects for both the original preview URL and HTML metadata images are
+manually followed through the same DNS resolution, public-IP policy, pinned
+connection, timeout, and byte limits on every hop. Validated static bytes are
+served to QML through the bounded in-memory image provider; validated GIFs use
+the existing short-lived controlled animation file. Neither controlled source
+is used for browser activation: clicking always opens the original visible
+HTTP/HTTPS link through `MediaManager` validation.
+
 ## v0.5.14 — pagination presentation, room activity, avatars and previews
 
 ### Pagination QML exposure and stale-state fix (checkpoint 1)

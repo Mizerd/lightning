@@ -46,6 +46,10 @@ public:
     Q_INVOKABLE QString animatedSource(const QString &mediaKey);
     Q_INVOKABLE QString previewAnimatedSource(const QString &dataSource,
                                               const QString &mimetype);
+    // Validated client-preview bytes exposed only through the bounded
+    // in-memory image provider. The remote URL is never an image source.
+    Q_INVOKABLE QString previewImageSource(const QString &dataSource,
+                                           const QString &mimetype);
 
     // v0.5.11: failure state. A failed fetch marks its cache key so QML
     // repolling cannot hammer the backend; retry() clears the mark so the
