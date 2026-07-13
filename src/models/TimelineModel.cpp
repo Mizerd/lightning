@@ -140,7 +140,22 @@ QVariantList TimelineModel::stateGroupEntriesFrom(int leaderRow) const
     for (int i = leaderRow; i < m_events.size();) {
         const auto &e = m_events.at(i);
         if (e.type == TimelineEvent::StateChange) {
-            entries.append(e.body);
+            QVariantMap entry;
+            entry.insert(QStringLiteral("stableEventId"),
+                         e.itemId.isEmpty() ? e.eventId : e.itemId);
+            entry.insert(QStringLiteral("eventId"), e.eventId);
+            entry.insert(QStringLiteral("eventKind"), e.stateKind);
+            entry.insert(QStringLiteral("actorUserId"), e.sender);
+            QString actor = e.senderDisplayName;
+            if (actor.isEmpty() && m_client)
+                actor = m_client->displayNameFor(e.roomId, e.sender);
+            if (actor.isEmpty())
+                actor = e.sender;
+            entry.insert(QStringLiteral("actorDisplayName"), actor);
+            entry.insert(QStringLiteral("affectedMemberDisplayName"), e.stateTarget);
+            entry.insert(QStringLiteral("description"), e.body);
+            entry.insert(QStringLiteral("timestamp"), e.timestamp);
+            entries.append(entry);
             ++i;
             continue;
         }
@@ -151,6 +166,15 @@ QVariantList TimelineModel::stateGroupEntriesFrom(int leaderRow) const
         break;
     }
     return entries;
+}
+
+void TimelineModel::emitStateGroupingChanged()
+{
+    if (m_events.isEmpty())
+        return;
+    Q_EMIT dataChanged(index(0), index(m_events.size() - 1),
+                       { StateGroupIdRole, StateGroupLeaderRole,
+                         StateGroupEntriesRole });
 }
 
 QVariant TimelineModel::data(const QModelIndex &index, int role) const
@@ -371,6 +395,7 @@ void TimelineModel::onEventAppended(const QString &roomId, const TimelineEvent &
     m_events.append(event);
     endInsertRows();
     Q_EMIT countChanged();
+    emitStateGroupingChanged();
 }
 
 void TimelineModel::onEventReplaced(const QString &roomId,
@@ -383,8 +408,7 @@ void TimelineModel::onEventReplaced(const QString &roomId,
     if (row < 0)
         return;
     m_events[row] = newEvent;
-    const auto idx = index(row);
-    Q_EMIT dataChanged(idx, idx);
+    Q_EMIT dataChanged(index(0), index(m_events.size() - 1));
 }
 
 void TimelineModel::onEventStatusChanged(const QString &roomId,
@@ -457,6 +481,7 @@ void TimelineModel::onEventsPrepended(const QString &roomId,
         m_events.prepend(events.at(i));
     endInsertRows();
     Q_EMIT countChanged();
+    emitStateGroupingChanged();
     // v0.5.11: scroll-anchor hook. A backward-pagination prepend shifts
     // every existing row down by `count`; QML re-anchors on the stable id
     // it captured before requesting the batch.
@@ -484,6 +509,7 @@ void TimelineModel::onEventInsertedAt(const QString &roomId, int index,
     m_events.insert(index, event);
     endInsertRows();
     Q_EMIT countChanged();
+    emitStateGroupingChanged();
 }
 
 void TimelineModel::onEventChangedAt(const QString &roomId, int index,
@@ -496,8 +522,7 @@ void TimelineModel::onEventChangedAt(const QString &roomId, int index,
         return;
     }
     m_events[index] = event;
-    const auto idx = this->index(index);
-    Q_EMIT dataChanged(idx, idx);
+    Q_EMIT dataChanged(this->index(0), this->index(m_events.size() - 1));
 }
 
 void TimelineModel::onEventRemovedAt(const QString &roomId, int index)
@@ -512,6 +537,7 @@ void TimelineModel::onEventRemovedAt(const QString &roomId, int index)
     m_events.removeAt(index);
     endRemoveRows();
     Q_EMIT countChanged();
+    emitStateGroupingChanged();
 }
 
 void TimelineModel::onEventsTruncatedTo(const QString &roomId, int length)
@@ -529,6 +555,7 @@ void TimelineModel::onEventsTruncatedTo(const QString &roomId, int length)
         m_events.removeLast();
     endRemoveRows();
     Q_EMIT countChanged();
+    emitStateGroupingChanged();
 }
 
 void TimelineModel::onLoggedOut()

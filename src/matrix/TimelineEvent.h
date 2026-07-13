@@ -42,6 +42,9 @@ struct TimelineEvent {
     QString senderAvatarUrl;
     QString body;
     QString stateKind;
+    // Typed room-activity target (for example the affected member's display
+    // name or MXID). State presentation never needs raw event JSON.
+    QString stateTarget;
     QString formattedBody;
     QDateTime timestamp;
     Type type = TextMessage;

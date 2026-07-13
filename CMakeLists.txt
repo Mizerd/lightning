@@ -164,6 +164,7 @@ set(APP_QML_FILES
     qml/TimelinePane.qml
     qml/RoomDelegate.qml
     qml/MessageDelegate.qml
+    qml/RoomActivityDelegate.qml
     qml/MessageComposerBar.qml
     qml/EmojiPicker.qml
     qml/UserPicker.qml

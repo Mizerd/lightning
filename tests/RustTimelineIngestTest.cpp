@@ -221,9 +221,11 @@ void RustTimelineIngestTest::parsesTypedStateActivity()
                                 QStringLiteral("Alice changed the room topic."));
     item.insert(QStringLiteral("msgtype"), QStringLiteral("state"));
     item.insert(QStringLiteral("state_kind"), QStringLiteral("m.room.topic"));
+    item.insert(QStringLiteral("state_target"), QStringLiteral("Project"));
     const TimelineEvent event = eventFromItemJson(item, kRoom);
     QCOMPARE(event.type, TimelineEvent::StateChange);
     QCOMPARE(event.stateKind, QStringLiteral("m.room.topic"));
+    QCOMPARE(event.stateTarget, QStringLiteral("Project"));
     QCOMPARE(event.body, QStringLiteral("Alice changed the room topic."));
 }
 

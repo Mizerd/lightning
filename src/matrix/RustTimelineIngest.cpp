@@ -68,6 +68,7 @@ TimelineEvent eventFromItemJson(const QJsonObject &item, const QString &roomId)
         item.value(QStringLiteral("sender_avatar_url")).toString();
     e.body = item.value(QStringLiteral("body")).toString();
     e.stateKind = item.value(QStringLiteral("state_kind")).toString();
+    e.stateTarget = item.value(QStringLiteral("state_target")).toString();
     e.timestamp = timestampFromMs(static_cast<qint64>(
         item.value(QStringLiteral("timestamp_ms")).toDouble(0)));
     if (!e.timestamp.isValid())

@@ -207,12 +207,18 @@ Rectangle {
                 // link-preview privacy gate in each MessageDelegate.
                 property bool roomEncrypted: root.currentRoom.encrypted === true
                 property var expandedStateGroups: ({})
-                function stateGroupExpanded(key) {
-                    return expandedStateGroups[key] === true
+                function stateGroupExpansionKey(groupId) {
+                    return (app.currentRoomId || "") + "\u001f" + groupId
                 }
-                function toggleStateGroup(key) {
+                function stateGroupExpanded(groupId) {
+                    return expandedStateGroups[stateGroupExpansionKey(groupId)] === true
+                }
+                function toggleStateGroup(groupId) {
+                    if (!groupId || groupId.length === 0)
+                        return
+                    var key = stateGroupExpansionKey(groupId)
                     var next = Object.assign({}, expandedStateGroups)
-                    next[key] = !stateGroupExpanded(key)
+                    next[key] = !stateGroupExpanded(groupId)
                     expandedStateGroups = next
                 }
 

@@ -170,6 +170,7 @@ private:
     // group. See TimelineModel.cpp for the rationale.
     int stateGroupLeaderRow(int row) const;
     QVariantList stateGroupEntriesFrom(int leaderRow) const;
+    void emitStateGroupingChanged();
     QUrl mediaHttp(const QString &mxc) const;
     QUrl mediaThumbHttp(const QString &mxc, int w, int h) const;
 

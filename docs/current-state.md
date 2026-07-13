@@ -1,4 +1,23 @@
-# Current state (v0.5.14 — runtime regression release)
+# Current state (v0.5.15 development)
+
+## v0.5.15 — expanded room activity
+
+Room-activity expansion now renders the actual SDK-derived child events.
+The previous nested `Repeater` accidentally resolved `model` to its own
+model property instead of the outer timeline delegate, so the C++ group had
+entries while QML always repeated an empty value. The shared
+`RoomActivityDelegate.qml` receives typed child maps directly from
+`TimelineModel`, including stable event identity, event kind, actor, affected
+member where applicable, safe description, and timestamp. It remains a
+compact annotation with keyboard-accessible Expand/Collapse behavior and no
+message actions or preview requests.
+
+Expansion keys now include both room ID and stable group identity. Group-role
+notifications refresh existing leaders after incremental appends, prepends,
+changes, and removals, so pagination and live updates cannot leave a stale
+count or inaccessible children. A runtime-facing QML test instantiates the
+actual activity component and verifies that expansion creates visible,
+non-zero-height child rows.
 
 ## v0.5.14 — pagination presentation, room activity, avatars and previews
 

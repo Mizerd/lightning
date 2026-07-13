@@ -15,6 +15,7 @@
 #include <QQmlContext>
 #include <QQmlEngine>
 #include <QQuickItem>
+#include <QQuickWindow>
 #include <QSignalSpy>
 
 #include "app/AppController.h"
@@ -68,6 +69,68 @@ private:
     }
 
 private Q_SLOTS:
+    // The actual room-activity component must materialize typed child rows,
+    // not merely toggle an expansion bit in the containing ListView.
+    void roomActivityComponentExpandsVisibleTypedEntries()
+    {
+        QQmlApplicationEngine engine;
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this,
+                [&warnings](const QList<QQmlError> &errors) {
+                    for (const auto &e : errors)
+                        warnings << e.toString();
+                });
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("RoomActivityDelegate"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        QVERIFY(!createdSpy.isEmpty());
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(root != nullptr);
+        QQuickWindow window;
+        window.resize(420, 240);
+        root->setParentItem(window.contentItem());
+        root->setWidth(window.width());
+        window.show();
+
+        QVariantList entries;
+        entries.append(QVariantMap{
+            { QStringLiteral("stableEventId"), QStringLiteral("item-join") },
+            { QStringLiteral("eventKind"), QStringLiteral("membership") },
+            { QStringLiteral("actorDisplayName"), QStringLiteral("Alice") },
+            { QStringLiteral("affectedMemberDisplayName"), QStringLiteral("Bob") },
+            { QStringLiteral("description"), QStringLiteral("Bob joined the room.") },
+        });
+        entries.append(QVariantMap{
+            { QStringLiteral("stableEventId"), QStringLiteral("item-topic") },
+            { QStringLiteral("eventKind"), QStringLiteral("m.room.topic") },
+            { QStringLiteral("actorDisplayName"), QStringLiteral("Alice") },
+            { QStringLiteral("description"), QStringLiteral("Alice changed the room topic.") },
+        });
+        QVERIFY(root->setProperty("entries", entries));
+
+        auto *expanded = root->findChild<QQuickItem *>(
+            QStringLiteral("stateActivityExpandedContent"));
+        QVERIFY(expanded != nullptr);
+        QCOMPARE(root->property("entryCount").toInt(), 2);
+        QCOMPARE(expanded->isVisible(), false);
+        QCOMPARE(expanded->height(), 0.0);
+
+        QVERIFY(root->setProperty("expanded", true));
+        QTRY_VERIFY_WITH_TIMEOUT(expanded->isVisible(), kSignalTimeoutMs);
+        QTRY_COMPARE_WITH_TIMEOUT(root->property("renderedEntryCount").toInt(),
+                                  2, kSignalTimeoutMs);
+        QTRY_VERIFY_WITH_TIMEOUT(root->property("expandedContentHeight").toReal() > 0.0,
+                                 kSignalTimeoutMs);
+
+        QVERIFY(root->setProperty("expanded", false));
+        QTRY_VERIFY_WITH_TIMEOUT(!expanded->isVisible(), kSignalTimeoutMs);
+        QTRY_COMPARE_WITH_TIMEOUT(expanded->height(), 0.0, kSignalTimeoutMs);
+        QCOMPARE(warnings, QStringList{});
+    }
+
     // Defect A (0.5.14 checkpoint 1): instantiating the real TimelinePane.qml
     // must not throw "PaginationController is not defined", with no room
     // open at all (the header binding evaluates unconditionally on load).

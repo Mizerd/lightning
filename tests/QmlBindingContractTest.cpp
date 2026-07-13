@@ -70,10 +70,13 @@ private Q_SLOTS:
         // No message-bubble-like card: the old Rectangle+cardElevated+border
         // treatment for the collapsed row must be gone, replaced with a
         // compact, clickable summary row.
-        const QString block = stateActivityBlock(delegate);
-        QVERIFY(!block.isEmpty());
-        QVERIFY(!block.contains(QStringLiteral("AppTheme.cardElevated")));
-        QVERIFY(block.contains(QStringLiteral("summaryRow")));
+        const QString activity = read(QStringLiteral("RoomActivityDelegate.qml"));
+        QVERIFY(!activity.contains(QStringLiteral("AppTheme.cardElevated")));
+        QVERIFY(activity.contains(QStringLiteral("summaryRow")));
+        QVERIFY(activity.contains(QStringLiteral("modelData.description")));
+        QVERIFY(activity.contains(QStringLiteral("model: expandedColumn.visible ? root.entries")));
+        QVERIFY(!activity.contains(QStringLiteral("linkPreviews")));
+        QVERIFY(!activity.contains(QStringLiteral("messageActions")));
     }
 
     // 0.5.14 checkpoint 2: clicking Expand did nothing because the summary

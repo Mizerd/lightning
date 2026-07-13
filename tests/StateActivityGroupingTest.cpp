@@ -13,7 +13,9 @@ namespace {
 
 const QString kRoom = QStringLiteral("!room:example.org");
 
-TimelineEvent makeStateChange(const QString &eventId, const QString &body)
+TimelineEvent makeStateChange(const QString &eventId, const QString &body,
+                              const QString &kind = QStringLiteral("m.room.topic"),
+                              const QString &target = {})
 {
     TimelineEvent e;
     e.eventId = eventId;
@@ -21,7 +23,9 @@ TimelineEvent makeStateChange(const QString &eventId, const QString &body)
     e.roomId = kRoom;
     e.sender = QStringLiteral("@alice:example.org");
     e.body = body;
-    e.stateKind = QStringLiteral("m.room.topic");
+    e.senderDisplayName = QStringLiteral("Alice");
+    e.stateKind = kind;
+    e.stateTarget = target;
     e.type = TimelineEvent::StateChange;
     e.timestamp = QDateTime::fromMSecsSinceEpoch(1700000000000);
     return e;
@@ -104,6 +108,7 @@ private Q_SLOTS:
     void cleanup();
 
     void consecutiveStateChangesFormOneGroup();
+    void exposesTypedMembershipAndRoomStateEntries();
     void dateDividerDoesNotSplitGroup();
     void readMarkerDoesNotSplitGroup();
     void timelineStartDoesNotSplitGroup();
@@ -114,6 +119,7 @@ private Q_SLOTS:
     void groupIdPrefersItemIdOverEventId();
     void appendingContiguousStateChangeExtendsGroupForward();
     void prependingOlderStateChangesExtendsGroupBackward();
+    void groupCountAlwaysMatchesAccessibleChildren();
 
 private:
     FakeClient *m_client = nullptr;
@@ -154,8 +160,39 @@ void StateActivityGroupingTest::consecutiveStateChangesFormOneGroup()
     const QVariantList entries =
         m_model->data(m_model->index(0), TimelineModel::StateGroupEntriesRole).toList();
     QCOMPARE(entries.size(), 2);
-    QCOMPARE(entries.at(0).toString(), QStringLiteral("Alice changed the topic."));
-    QCOMPARE(entries.at(1).toString(), QStringLiteral("Bob changed the room name."));
+    QCOMPARE(entries.at(0).toMap().value(QStringLiteral("description")).toString(),
+             QStringLiteral("Alice changed the topic."));
+    QCOMPARE(entries.at(1).toMap().value(QStringLiteral("description")).toString(),
+             QStringLiteral("Bob changed the room name."));
+}
+
+void StateActivityGroupingTest::exposesTypedMembershipAndRoomStateEntries()
+{
+    m_client->mirror = {
+        makeStateChange(QStringLiteral("$join"), QStringLiteral("Bob joined the room."),
+                        QStringLiteral("membership"), QStringLiteral("Bob")),
+        makeStateChange(QStringLiteral("$topic"), QStringLiteral("Alice changed the room topic."),
+                        QStringLiteral("m.room.topic")),
+    };
+    m_model->setRoomId(kRoom);
+
+    const QVariantList entries =
+        m_model->data(m_model->index(0), TimelineModel::StateGroupEntriesRole).toList();
+    QCOMPARE(entries.size(), 2);
+    const QVariantMap membership = entries.at(0).toMap();
+    QCOMPARE(membership.value(QStringLiteral("stableEventId")).toString(),
+             QStringLiteral("uid-$join"));
+    QCOMPARE(membership.value(QStringLiteral("eventId")).toString(),
+             QStringLiteral("$join"));
+    QCOMPARE(membership.value(QStringLiteral("eventKind")).toString(),
+             QStringLiteral("membership"));
+    QCOMPARE(membership.value(QStringLiteral("actorDisplayName")).toString(),
+             QStringLiteral("Alice"));
+    QCOMPARE(membership.value(QStringLiteral("affectedMemberDisplayName")).toString(),
+             QStringLiteral("Bob"));
+    QVERIFY(membership.value(QStringLiteral("timestamp")).toDateTime().isValid());
+    QCOMPARE(entries.at(1).toMap().value(QStringLiteral("eventKind")).toString(),
+             QStringLiteral("m.room.topic"));
 }
 
 void StateActivityGroupingTest::dateDividerDoesNotSplitGroup()
@@ -179,8 +216,10 @@ void StateActivityGroupingTest::dateDividerDoesNotSplitGroup()
     const QVariantList entries =
         m_model->data(m_model->index(0), TimelineModel::StateGroupEntriesRole).toList();
     QCOMPARE(entries.size(), 2);
-    QCOMPARE(entries.at(0).toString(), QStringLiteral("first"));
-    QCOMPARE(entries.at(1).toString(), QStringLiteral("second"));
+    QCOMPARE(entries.at(0).toMap().value(QStringLiteral("description")).toString(),
+             QStringLiteral("first"));
+    QCOMPARE(entries.at(1).toMap().value(QStringLiteral("description")).toString(),
+             QStringLiteral("second"));
 }
 
 void StateActivityGroupingTest::readMarkerDoesNotSplitGroup()
@@ -228,7 +267,8 @@ void StateActivityGroupingTest::visibleTextMessageBreaksGroup()
     const QVariantList firstEntries =
         m_model->data(m_model->index(0), TimelineModel::StateGroupEntriesRole).toList();
     QCOMPARE(firstEntries.size(), 1);
-    QCOMPARE(firstEntries.at(0).toString(), QStringLiteral("first"));
+    QCOMPARE(firstEntries.at(0).toMap().value(QStringLiteral("description")).toString(),
+             QStringLiteral("first"));
 }
 
 void StateActivityGroupingTest::imageMessageBreaksGroup()
@@ -321,8 +361,32 @@ void StateActivityGroupingTest::prependingOlderStateChangesExtendsGroupBackward(
     const QVariantList entries =
         m_model->data(m_model->index(0), TimelineModel::StateGroupEntriesRole).toList();
     QCOMPARE(entries.size(), 2);
-    QCOMPARE(entries.at(0).toString(), QStringLiteral("first"));
-    QCOMPARE(entries.at(1).toString(), QStringLiteral("second"));
+    QCOMPARE(entries.at(0).toMap().value(QStringLiteral("description")).toString(),
+             QStringLiteral("first"));
+    QCOMPARE(entries.at(1).toMap().value(QStringLiteral("description")).toString(),
+             QStringLiteral("second"));
+}
+
+void StateActivityGroupingTest::groupCountAlwaysMatchesAccessibleChildren()
+{
+    m_client->mirror = {
+        makeStateChange(QStringLiteral("$s0"), QStringLiteral("first")),
+        makeVirtual(TimelineEvent::ReadMarker, QStringLiteral("$read")),
+        makeStateChange(QStringLiteral("$s1"), QStringLiteral("second")),
+    };
+    m_model->setRoomId(kRoom);
+
+    int groupedStateRows = 0;
+    for (int row = 0; row < m_model->rowCount(); ++row) {
+        if (m_model->data(m_model->index(row), TimelineModel::IsStateActivityRole).toBool())
+            ++groupedStateRows;
+    }
+    const QVariantList children =
+        m_model->data(m_model->index(0), TimelineModel::StateGroupEntriesRole).toList();
+    QCOMPARE(children.size(), groupedStateRows);
+    QVERIFY(!children.isEmpty());
+    for (const QVariant &child : children)
+        QVERIFY(!child.toMap().value(QStringLiteral("description")).toString().isEmpty());
 }
 
 QTEST_GUILESS_MAIN(StateActivityGroupingTest)

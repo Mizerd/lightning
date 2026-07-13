@@ -1050,6 +1050,7 @@ fn event_item_to_json(
                 };
                 out["msgtype"] = "state".into();
                 out["state_kind"] = "membership".into();
+                out["state_target"] = target.into();
                 out["body"] = text.into();
             }
         }
@@ -1057,6 +1058,7 @@ fn event_item_to_json(
             out["msgtype"] = "state".into();
             out["state_kind"] = "member_profile".into();
             let target = change.user_id().to_string();
+            out["state_target"] = target.clone().into();
             out["body"] = if change.displayname_change().is_some() {
                 format!("{target} changed their display name.")
             } else {
