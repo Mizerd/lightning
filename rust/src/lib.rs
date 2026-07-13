@@ -2639,7 +2639,7 @@ async fn build_client(homeserver: &str, store_path: &Path) -> Result<Client, Str
     Client::builder()
         .homeserver_url(homeserver)
         .sqlite_store(store_path, None)
-        .user_agent("Lightning/0.5.14")
+        .user_agent("Lightning/0.5.15")
         .build()
         .await
         .map_err(|err| format_matrix_error("failed to build Matrix Rust SDK client", err))

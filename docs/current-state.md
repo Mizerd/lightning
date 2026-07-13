@@ -1,4 +1,4 @@
-# Current state (v0.5.15 development)
+# Current state (v0.5.15)
 
 ## v0.5.15 — expanded room activity
 

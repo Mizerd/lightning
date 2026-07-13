@@ -12,6 +12,21 @@ across the rename. The product name is **Lightning**.
 
 ## Status
 
+**v0.5.15** — Timeline presentation release. Expanded room-activity summaries
+now expose their actual typed SDK-derived membership and room-state entries,
+with stable room-scoped expansion and compact Expand/Collapse presentation.
+Direct passive GIF and static-image links are classified from bounded final
+response bytes and rendered through controlled local providers while browser
+activation remains tied to the original validated HTTP/HTTPS URL; SVG stays
+inactive and the existing DNS/IP, redirect, SSRF, and response-size checks are
+retained. Normal messages now use one left-aligned sender timeline for current
+and remote users: the first event in each five-minute sender group shows the
+SDK-derived avatar, name, and timestamp, while continuation rows suppress
+repeated identity. Ordinary incoming/outgoing chat bubbles are removed without
+removing replies, edits, reactions, threads, media, link previews, send status,
+or message actions. Matrix dependencies remain pinned to `matrix-sdk 0.18.0`
+and `matrix-sdk-ui 0.18.0`.
+
 **v0.5.14** — Runtime regression release. Fixes a `PaginationController is not
 defined` QML error that broke the timeline pagination header on every load;
 fixes the room-activity Expand/Collapse control (a missing `root.` qualifier

@@ -1781,7 +1781,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-client-rust"
-version = "0.5.14"
+version = "0.5.15"
 dependencies = [
  "base64",
  "emojis",
