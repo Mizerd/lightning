@@ -2,12 +2,97 @@
 
 #include "matrix/MatrixClient.h"
 
+#include <QRegularExpression>
 #include <QUrl>
 #include <QVariantMap>
+
+namespace {
+// Element/Discord-style visual grouping window. Five minutes is short enough
+// to keep conversations scannable while suppressing repetitive identity.
+constexpr qint64 kSenderGroupThresholdSeconds = 5 * 60;
+}
 
 TimelineModel::TimelineModel(QObject *parent)
     : QAbstractListModel(parent)
 {
+}
+
+QString TimelineModel::senderDisplayName(const TimelineEvent &event) const
+{
+    if (!event.senderDisplayName.isEmpty())
+        return event.senderDisplayName;
+    if (m_client) {
+        const QString display = m_client->displayNameFor(event.roomId, event.sender);
+        if (!display.isEmpty())
+            return display;
+    }
+    return event.sender;
+}
+
+QString TimelineModel::senderInitials(const TimelineEvent &event) const
+{
+    QString name = senderDisplayName(event).trimmed();
+    if (name.startsWith(QLatin1Char('@')))
+        name = name.mid(1).section(QLatin1Char(':'), 0, 0);
+    const QStringList words = name.split(
+        QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts);
+    if (words.isEmpty())
+        return QStringLiteral("?");
+    QString initials = words.first().left(1);
+    if (words.size() > 1)
+        initials += words.last().left(1);
+    return initials.toUpper();
+}
+
+bool TimelineModel::isVisualMessage(const TimelineEvent &event) const
+{
+    return !event.isVirtual() && event.type != TimelineEvent::StateChange;
+}
+
+int TimelineModel::previousMessageRowForGrouping(int row) const
+{
+    for (int probe = row - 1; probe >= 0; --probe) {
+        const auto &candidate = m_events.at(probe);
+        if (candidate.type == TimelineEvent::ReadMarker)
+            continue;
+        if (!isVisualMessage(candidate))
+            return -1;
+        return probe;
+    }
+    return -1;
+}
+
+int TimelineModel::nextMessageRowForGrouping(int row) const
+{
+    for (int probe = row + 1; probe < m_events.size(); ++probe) {
+        const auto &candidate = m_events.at(probe);
+        if (candidate.type == TimelineEvent::ReadMarker)
+            continue;
+        if (!isVisualMessage(candidate))
+            return -1;
+        return probe;
+    }
+    return -1;
+}
+
+bool TimelineModel::continuesSenderGroup(int row) const
+{
+    if (row < 0 || row >= m_events.size())
+        return false;
+    const auto &event = m_events.at(row);
+    if (!isVisualMessage(event) || event.redacted)
+        return false;
+    const int previousRow = previousMessageRowForGrouping(row);
+    if (previousRow < 0)
+        return false;
+    const auto &previous = m_events.at(previousRow);
+    if (previous.redacted || previous.sender != event.sender
+        || previous.roomId != event.roomId
+        || !previous.timestamp.isValid() || !event.timestamp.isValid()
+        || previous.timestamp.date() != event.timestamp.date())
+        return false;
+    const qint64 gap = previous.timestamp.secsTo(event.timestamp);
+    return gap >= 0 && gap < kSenderGroupThresholdSeconds;
 }
 
 void TimelineModel::setClient(MatrixClient *client)
@@ -17,6 +102,7 @@ void TimelineModel::setClient(MatrixClient *client)
     if (m_client)
         m_client->disconnect(this);
     m_client = client;
+    m_selfUserId = m_client ? m_client->currentUserId() : QString{};
     if (m_client) {
         connect(m_client, &MatrixClient::eventAppended,
                 this, &TimelineModel::onEventAppended);
@@ -50,7 +136,6 @@ void TimelineModel::setClient(MatrixClient *client)
                 this, &TimelineModel::onMembersChanged);
         connect(m_client, &MatrixClient::paginationStateChanged,
                 this, &TimelineModel::onPaginationStateChanged);
-        m_selfUserId = m_client->currentUserId();
         connect(m_client, &MatrixClient::loginSucceeded, this,
                 [this](const QString &userId) { m_selfUserId = userId; });
     }
@@ -168,13 +253,15 @@ QVariantList TimelineModel::stateGroupEntriesFrom(int leaderRow) const
     return entries;
 }
 
-void TimelineModel::emitStateGroupingChanged()
+void TimelineModel::emitPresentationGroupingChanged()
 {
     if (m_events.isEmpty())
         return;
     Q_EMIT dataChanged(index(0), index(m_events.size() - 1),
                        { StateGroupIdRole, StateGroupLeaderRole,
-                         StateGroupEntriesRole });
+                         StateGroupEntriesRole, SameSenderAsPreviousRole,
+                         BeginsSenderGroupRole, ContinuesSenderGroupRole,
+                         EndsSenderGroupRole, ShowSenderIdentityRole });
 }
 
 QVariant TimelineModel::data(const QModelIndex &index, int role) const
@@ -185,11 +272,7 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
     switch (role) {
     case EventIdRole:            return e.eventId;
     case SenderRole:             return e.sender;
-    case SenderDisplayNameRole: {
-        if (!e.senderDisplayName.isEmpty()) return e.senderDisplayName;
-        if (m_client) return m_client->displayNameFor(e.roomId, e.sender);
-        return e.sender;
-    }
+    case SenderDisplayNameRole: return senderDisplayName(e);
     case BodyRole: {
         if (e.redacted) return QStringLiteral("[message deleted]");
         return e.body;
@@ -245,25 +328,24 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
     case MediaSourceAvailableRole: return e.mediaSourceAvailable;
     case MediaThumbAvailableRole:  return e.mediaThumbAvailable;
     case SenderNameAmbiguousRole:  return e.senderNameAmbiguous;
-    case SameSenderAsPreviousRole: {
-        // Consecutive-message grouping: same sender within 5 minutes, both
-        // real message rows. The delegate then hides the repeated sender
-        // header. Virtual rows (date dividers) break the run by design.
-        if (e.isVirtual() || e.redacted)
+    case SameSenderAsPreviousRole:
+    case ContinuesSenderGroupRole: return continuesSenderGroup(index.row());
+    case BeginsSenderGroupRole:
+    case ShowSenderIdentityRole:
+        return isVisualMessage(e) && !continuesSenderGroup(index.row());
+    case EndsSenderGroupRole: {
+        if (!isVisualMessage(e))
             return false;
-        const int row = index.row();
-        if (row <= 0)
-            return false;
-        const auto &prev = m_events.at(row - 1);
-        if (prev.isVirtual() || prev.redacted || prev.sender != e.sender)
-            return false;
-        if (prev.type == TimelineEvent::StateChange
-            || e.type == TimelineEvent::StateChange)
-            return false;
-        if (!prev.timestamp.isValid() || !e.timestamp.isValid())
-            return false;
-        return prev.timestamp.secsTo(e.timestamp) < 300;
+        const int next = nextMessageRowForGrouping(index.row());
+        return next < 0 || !continuesSenderGroup(next);
     }
+    case SenderAvatarMxcRole: {
+        if (!e.senderAvatarUrl.isEmpty())
+            return e.senderAvatarUrl;
+        return m_client ? m_client->avatarMxcFor(e.roomId, e.sender) : QString{};
+    }
+    case SenderInitialsRole: return senderInitials(e);
+    case StableEventIdRole: return e.itemId.isEmpty() ? e.eventId : e.itemId;
     case IsStateActivityRole: return e.type == TimelineEvent::StateChange;
     case StateKindRole: return e.stateKind;
     case StateGroupIdRole: {
@@ -333,6 +415,13 @@ QHash<int, QByteArray> TimelineModel::roleNames() const
         { StateGroupIdRole,         "stateGroupId" },
         { StateGroupLeaderRole,     "stateGroupLeader" },
         { StateGroupEntriesRole,    "stateGroupEntries" },
+        { SenderAvatarMxcRole,      "senderAvatarMxc" },
+        { SenderInitialsRole,       "senderInitials" },
+        { BeginsSenderGroupRole,    "beginsSenderGroup" },
+        { ContinuesSenderGroupRole, "continuesSenderGroup" },
+        { EndsSenderGroupRole,      "endsSenderGroup" },
+        { ShowSenderIdentityRole,   "showSenderIdentity" },
+        { StableEventIdRole,        "stableEventId" },
     };
 }
 
@@ -395,7 +484,7 @@ void TimelineModel::onEventAppended(const QString &roomId, const TimelineEvent &
     m_events.append(event);
     endInsertRows();
     Q_EMIT countChanged();
-    emitStateGroupingChanged();
+    emitPresentationGroupingChanged();
 }
 
 void TimelineModel::onEventReplaced(const QString &roomId,
@@ -452,6 +541,7 @@ void TimelineModel::onEventRedacted(const QString &roomId, const QString &eventI
     m_events[row].body.clear();
     const auto idx = index(row);
     Q_EMIT dataChanged(idx, idx, { BodyRole, RedactedRole, ReactionsRole });
+    emitPresentationGroupingChanged();
 }
 
 void TimelineModel::onReactionsChanged(const QString &roomId, const QString &eventId)
@@ -481,7 +571,7 @@ void TimelineModel::onEventsPrepended(const QString &roomId,
         m_events.prepend(events.at(i));
     endInsertRows();
     Q_EMIT countChanged();
-    emitStateGroupingChanged();
+    emitPresentationGroupingChanged();
     // v0.5.11: scroll-anchor hook. A backward-pagination prepend shifts
     // every existing row down by `count`; QML re-anchors on the stable id
     // it captured before requesting the batch.
@@ -509,7 +599,7 @@ void TimelineModel::onEventInsertedAt(const QString &roomId, int index,
     m_events.insert(index, event);
     endInsertRows();
     Q_EMIT countChanged();
-    emitStateGroupingChanged();
+    emitPresentationGroupingChanged();
 }
 
 void TimelineModel::onEventChangedAt(const QString &roomId, int index,
@@ -537,7 +627,7 @@ void TimelineModel::onEventRemovedAt(const QString &roomId, int index)
     m_events.removeAt(index);
     endRemoveRows();
     Q_EMIT countChanged();
-    emitStateGroupingChanged();
+    emitPresentationGroupingChanged();
 }
 
 void TimelineModel::onEventsTruncatedTo(const QString &roomId, int length)
@@ -555,7 +645,7 @@ void TimelineModel::onEventsTruncatedTo(const QString &roomId, int length)
         m_events.removeLast();
     endRemoveRows();
     Q_EMIT countChanged();
-    emitStateGroupingChanged();
+    emitPresentationGroupingChanged();
 }
 
 void TimelineModel::onLoggedOut()
@@ -580,10 +670,11 @@ void TimelineModel::onTypingChanged(const QString &roomId)
 void TimelineModel::onMembersChanged(const QString &roomId)
 {
     if (roomId != m_roomId) return;
-    // Refresh display-name column for every row (cheap: emit dataChanged once).
+    // Refresh SDK/member-derived identity for every row (cheap: one signal).
     if (m_events.isEmpty()) return;
     Q_EMIT dataChanged(index(0), index(m_events.size() - 1),
-                       { SenderDisplayNameRole });
+                       { SenderDisplayNameRole, SenderInitialsRole,
+                         SenderAvatarMxcRole });
     refreshTypingText();
 }
 

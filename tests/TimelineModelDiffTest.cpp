@@ -41,6 +41,7 @@ public:
     QStringList retriedTransactions;
     QStringList typingUsers;
     QHash<QString, QString> displayNames;
+    QHash<QString, QString> avatarMxc;
 
     void login(const QString &, const QString &, const QString &) override {}
     void logout() override { Q_EMIT loggedOut(); }
@@ -63,9 +64,9 @@ public:
     {
         return displayNames.value(userId, userId);
     }
-    QString avatarMxcFor(const QString &, const QString &) const override
+    QString avatarMxcFor(const QString &, const QString &userId) const override
     {
-        return {};
+        return avatarMxc.value(userId);
     }
     QStringList typingUsersFor(const QString &) const override { return typingUsers; }
     QUrl mediaDownloadUrl(const QString &) const override { return {}; }
@@ -117,6 +118,12 @@ private Q_SLOTS:
     void loggedOutClearsModel();
     void stableRoleData();
     void typingTextFormatsByCount();
+    void senderIdentityRolesUseSdkProfileAndSafeAvatarMxc();
+    void senderGroupingBoundariesAreDeterministic();
+    void readMarkerDoesNotBreakSenderGroupButVisibleRowsDo();
+    void mediaAndPaginationPreserveSenderGrouping();
+    void memberProfileUpdateEmitsIdentityRoles();
+    void clientSwitchDoesNotLeakSenderProfile();
 
 private:
     FakeClient *m_client = nullptr;
@@ -385,6 +392,12 @@ void TimelineModelDiffTest::stableRoleData()
              QByteArrayLiteral("sendErrorCategory"));
     QCOMPARE(names.value(TimelineModel::IsVirtualRole),
              QByteArrayLiteral("isVirtual"));
+    QCOMPARE(names.value(TimelineModel::SenderAvatarMxcRole),
+             QByteArrayLiteral("senderAvatarMxc"));
+    QCOMPARE(names.value(TimelineModel::ShowSenderIdentityRole),
+             QByteArrayLiteral("showSenderIdentity"));
+    QCOMPARE(names.value(TimelineModel::StableEventIdRole),
+             QByteArrayLiteral("stableEventId"));
     // Existing role names are preserved for QML compatibility.
     QCOMPARE(names.value(TimelineModel::EventIdRole),
              QByteArrayLiteral("eventId"));
@@ -430,6 +443,166 @@ void TimelineModelDiffTest::typingTextFormatsByCount()
     Q_EMIT m_client->typingChanged(kRoom);
     QCOMPARE(m_model->typingText(),
              QStringLiteral("3 people are typing…"));
+}
+
+void TimelineModelDiffTest::senderIdentityRolesUseSdkProfileAndSafeAvatarMxc()
+{
+    auto profiled = makeEvent(QStringLiteral("$profiled"), QStringLiteral("hello"));
+    profiled.senderDisplayName = QStringLiteral("Alice Smith");
+    profiled.senderAvatarUrl = QStringLiteral("mxc://example.org/alice-avatar");
+    m_client->mirror = { profiled };
+    Q_EMIT m_client->timelineReset(kRoom);
+
+    const QModelIndex row = m_model->index(0);
+    QCOMPARE(m_model->data(row, TimelineModel::SenderRole).toString(),
+             QStringLiteral("@alice:example.org"));
+    QCOMPARE(m_model->data(row, TimelineModel::SenderDisplayNameRole).toString(),
+             QStringLiteral("Alice Smith"));
+    QCOMPARE(m_model->data(row, TimelineModel::SenderInitialsRole).toString(),
+             QStringLiteral("AS"));
+    QCOMPARE(m_model->data(row, TimelineModel::SenderAvatarMxcRole).toString(),
+             QStringLiteral("mxc://example.org/alice-avatar"));
+    QCOMPARE(m_model->data(row, TimelineModel::StableEventIdRole).toString(),
+             QStringLiteral("uid-$profiled"));
+    QVERIFY(m_model->data(row, TimelineModel::BeginsSenderGroupRole).toBool());
+    QVERIFY(m_model->data(row, TimelineModel::ShowSenderIdentityRole).toBool());
+    QVERIFY(m_model->data(row, TimelineModel::EndsSenderGroupRole).toBool());
+}
+
+void TimelineModelDiffTest::senderGroupingBoundariesAreDeterministic()
+{
+    const QDateTime base(QDate(2026, 7, 13), QTime(12, 0), QTimeZone::UTC);
+    auto first = makeEvent(QStringLiteral("$first"), QStringLiteral("one"));
+    first.timestamp = base;
+    auto continuation = makeEvent(QStringLiteral("$second"), QStringLiteral("two"));
+    continuation.timestamp = base.addSecs(60);
+    auto senderChange = makeEvent(QStringLiteral("$third"), QStringLiteral("three"));
+    senderChange.sender = QStringLiteral("@bob:example.org");
+    senderChange.timestamp = base.addSecs(120);
+    auto timeGap = makeEvent(QStringLiteral("$fourth"), QStringLiteral("four"));
+    timeGap.sender = senderChange.sender;
+    timeGap.timestamp = senderChange.timestamp.addSecs(5 * 60);
+    auto beforeMidnight = makeEvent(QStringLiteral("$fifth"), QStringLiteral("five"));
+    beforeMidnight.sender = QStringLiteral("@carol:example.org");
+    beforeMidnight.timestamp = QDateTime(QDate(2026, 7, 13), QTime(23, 59), QTimeZone::UTC);
+    auto afterMidnight = makeEvent(QStringLiteral("$sixth"), QStringLiteral("six"));
+    afterMidnight.sender = beforeMidnight.sender;
+    afterMidnight.timestamp = beforeMidnight.timestamp.addSecs(120);
+    m_client->mirror = { first, continuation, senderChange, timeGap,
+                         beforeMidnight, afterMidnight };
+    Q_EMIT m_client->timelineReset(kRoom);
+
+    QVERIFY(m_model->data(m_model->index(0), TimelineModel::BeginsSenderGroupRole).toBool());
+    QVERIFY(m_model->data(m_model->index(1), TimelineModel::ContinuesSenderGroupRole).toBool());
+    QVERIFY(m_model->data(m_model->index(1), TimelineModel::EndsSenderGroupRole).toBool());
+    QVERIFY(m_model->data(m_model->index(2), TimelineModel::BeginsSenderGroupRole).toBool());
+    QVERIFY(m_model->data(m_model->index(3), TimelineModel::BeginsSenderGroupRole).toBool());
+    QVERIFY(m_model->data(m_model->index(5), TimelineModel::BeginsSenderGroupRole).toBool());
+
+    first.sender = QStringLiteral("@me:example.org");
+    continuation.sender = first.sender;
+    m_client->mirror = { first, continuation };
+    Q_EMIT m_client->timelineReset(kRoom);
+    QVERIFY(m_model->data(m_model->index(0), TimelineModel::IsOwnRole).toBool());
+    QVERIFY(m_model->data(m_model->index(0), TimelineModel::BeginsSenderGroupRole).toBool());
+    QVERIFY(m_model->data(m_model->index(1), TimelineModel::ContinuesSenderGroupRole).toBool());
+}
+
+void TimelineModelDiffTest::readMarkerDoesNotBreakSenderGroupButVisibleRowsDo()
+{
+    const QDateTime base = QDateTime::fromMSecsSinceEpoch(1700000000000);
+    auto first = makeEvent(QStringLiteral("$first"), QStringLiteral("one"));
+    first.timestamp = base;
+    TimelineEvent marker;
+    marker.roomId = kRoom;
+    marker.type = TimelineEvent::ReadMarker;
+    auto second = makeEvent(QStringLiteral("$second"), QStringLiteral("two"));
+    second.timestamp = base.addSecs(30);
+    TimelineEvent activity;
+    activity.roomId = kRoom;
+    activity.sender = first.sender;
+    activity.type = TimelineEvent::StateChange;
+    activity.timestamp = base.addSecs(40);
+    auto third = makeEvent(QStringLiteral("$third"), QStringLiteral("three"));
+    third.timestamp = base.addSecs(50);
+    TimelineEvent divider;
+    divider.roomId = kRoom;
+    divider.type = TimelineEvent::DateDivider;
+    auto fourth = makeEvent(QStringLiteral("$fourth"), QStringLiteral("four"));
+    fourth.timestamp = base.addSecs(60);
+    m_client->mirror = { first, marker, second, activity, third, divider, fourth };
+    Q_EMIT m_client->timelineReset(kRoom);
+
+    QVERIFY(m_model->data(m_model->index(2), TimelineModel::ContinuesSenderGroupRole).toBool());
+    QVERIFY(m_model->data(m_model->index(4), TimelineModel::BeginsSenderGroupRole).toBool());
+    QVERIFY(m_model->data(m_model->index(6), TimelineModel::BeginsSenderGroupRole).toBool());
+    QVERIFY(!m_model->data(m_model->index(3), TimelineModel::ShowSenderIdentityRole).toBool());
+}
+
+void TimelineModelDiffTest::mediaAndPaginationPreserveSenderGrouping()
+{
+    const QDateTime base = QDateTime::fromMSecsSinceEpoch(1700000000000);
+    auto image = makeEvent(QStringLiteral("$image"), QStringLiteral("cat.gif"));
+    image.type = TimelineEvent::Image;
+    image.timestamp = base.addSecs(30);
+    m_client->mirror = { image };
+    Q_EMIT m_client->timelineReset(kRoom);
+
+    auto older = makeEvent(QStringLiteral("$older"), QStringLiteral("older"));
+    older.timestamp = base;
+    m_client->mirror.prepend(older);
+    Q_EMIT m_client->eventsPrepended(kRoom, QList<TimelineEvent>{ older });
+    QVERIFY(m_model->data(m_model->index(1), TimelineModel::ContinuesSenderGroupRole).toBool());
+    QVERIFY(m_model->data(m_model->index(1), TimelineModel::EndsSenderGroupRole).toBool());
+
+    auto remoteEcho = image;
+    remoteEcho.eventId = QStringLiteral("$remote-image");
+    remoteEcho.isLocalEcho = false;
+    m_client->mirror[1] = remoteEcho;
+    Q_EMIT m_client->eventReplaced(kRoom, QStringLiteral("$image"), remoteEcho);
+    QVERIFY(m_model->data(m_model->index(1), TimelineModel::ContinuesSenderGroupRole).toBool());
+}
+
+void TimelineModelDiffTest::memberProfileUpdateEmitsIdentityRoles()
+{
+    m_client->mirror[0].senderDisplayName.clear();
+    m_client->mirror[0].senderAvatarUrl.clear();
+    Q_EMIT m_client->timelineReset(kRoom);
+    m_client->displayNames.insert(QStringLiteral("@alice:example.org"),
+                                  QStringLiteral("Alice Updated"));
+    m_client->avatarMxc.insert(QStringLiteral("@alice:example.org"),
+                               QStringLiteral("mxc://example.org/new-avatar"));
+    QSignalSpy changed(m_model, &QAbstractItemModel::dataChanged);
+    Q_EMIT m_client->membersChanged(kRoom);
+    QCOMPARE(changed.count(), 1);
+    const QList<int> roles = changed.first().at(2).value<QList<int>>();
+    QVERIFY(roles.contains(TimelineModel::SenderDisplayNameRole));
+    QVERIFY(roles.contains(TimelineModel::SenderInitialsRole));
+    QVERIFY(roles.contains(TimelineModel::SenderAvatarMxcRole));
+    QCOMPARE(m_model->data(m_model->index(0), TimelineModel::SenderInitialsRole).toString(),
+             QStringLiteral("AU"));
+    QCOMPARE(m_model->data(m_model->index(0), TimelineModel::SenderAvatarMxcRole).toString(),
+             QStringLiteral("mxc://example.org/new-avatar"));
+}
+
+void TimelineModelDiffTest::clientSwitchDoesNotLeakSenderProfile()
+{
+    m_client->mirror[0].senderDisplayName = QStringLiteral("Alice Account A");
+    m_client->mirror[0].senderAvatarUrl = QStringLiteral("mxc://a/avatar");
+    Q_EMIT m_client->timelineReset(kRoom);
+
+    FakeClient other;
+    auto otherEvent = makeEvent(QStringLiteral("$other"), QStringLiteral("other"));
+    otherEvent.sender = QStringLiteral("@mallory:other.org");
+    otherEvent.senderDisplayName = QStringLiteral("Mallory Account B");
+    otherEvent.senderAvatarUrl = QStringLiteral("mxc://b/avatar");
+    other.mirror = { otherEvent };
+    m_model->setClient(&other);
+    QCOMPARE(m_model->data(m_model->index(0), TimelineModel::SenderDisplayNameRole).toString(),
+             QStringLiteral("Mallory Account B"));
+    QCOMPARE(m_model->data(m_model->index(0), TimelineModel::SenderAvatarMxcRole).toString(),
+             QStringLiteral("mxc://b/avatar"));
+    m_model->setClient(nullptr);
 }
 
 QTEST_GUILESS_MAIN(TimelineModelDiffTest)

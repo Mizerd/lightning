@@ -74,6 +74,13 @@ public:
         StateGroupIdRole,
         StateGroupLeaderRole,
         StateGroupEntriesRole,
+        SenderAvatarMxcRole,
+        SenderInitialsRole,
+        BeginsSenderGroupRole,
+        ContinuesSenderGroupRole,
+        EndsSenderGroupRole,
+        ShowSenderIdentityRole,
+        StableEventIdRole,
     };
 
     explicit TimelineModel(QObject *parent = nullptr);
@@ -170,7 +177,13 @@ private:
     // group. See TimelineModel.cpp for the rationale.
     int stateGroupLeaderRow(int row) const;
     QVariantList stateGroupEntriesFrom(int leaderRow) const;
-    void emitStateGroupingChanged();
+    void emitPresentationGroupingChanged();
+    QString senderDisplayName(const TimelineEvent &event) const;
+    QString senderInitials(const TimelineEvent &event) const;
+    bool isVisualMessage(const TimelineEvent &event) const;
+    int previousMessageRowForGrouping(int row) const;
+    int nextMessageRowForGrouping(int row) const;
+    bool continuesSenderGroup(int row) const;
     QUrl mediaHttp(const QString &mxc) const;
     QUrl mediaThumbHttp(const QString &mxc, int w, int h) const;
 

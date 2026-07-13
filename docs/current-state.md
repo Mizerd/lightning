@@ -36,6 +36,21 @@ the existing short-lived controlled animation file. Neither controlled source
 is used for browser activation: clicking always opens the original visible
 HTTP/HTTPS link through `MediaManager` validation.
 
+### Timeline sender identity and grouping roles
+
+`TimelineModel` now exposes normalized sender avatar MXC, initials fallback,
+stable event identity, and explicit begin/continue/end/show-identity roles for
+normal message and media rows. The avatar identifier comes from the Rust SDK's
+timeline sender profile (or the account-scoped member cache) and is resolved by
+the existing Rust media bridge; no authenticated download URL or local path is
+exposed as a model role.
+
+Visual groups use a documented five-minute threshold and break on sender,
+date, visible room activity, timeline-start/date rows, room reset, and event
+presentation boundaries. Hidden SDK read markers do not fragment a group.
+Incremental diffs, pagination prepends, local-echo replacement, and late member
+profile updates all refresh the affected grouping and identity roles.
+
 ## v0.5.14 — pagination presentation, room activity, avatars and previews
 
 ### Pagination QML exposure and stale-state fix (checkpoint 1)

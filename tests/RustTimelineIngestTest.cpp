@@ -109,14 +109,18 @@ private Q_SLOTS:
 
 void RustTimelineIngestTest::parsesEventItem()
 {
-    const TimelineEvent e = eventFromItemJson(
-        itemJson(QStringLiteral("uid1"), QStringLiteral("$ev1"),
-                 QStringLiteral("hello")),
-        kRoom);
+    QJsonObject item = itemJson(QStringLiteral("uid1"), QStringLiteral("$ev1"),
+                                QStringLiteral("hello"));
+    item.insert(QStringLiteral("sender_display_name"), QStringLiteral("Alice"));
+    item.insert(QStringLiteral("sender_avatar_url"),
+                QStringLiteral("mxc://example.org/alice"));
+    const TimelineEvent e = eventFromItemJson(item, kRoom);
     QCOMPARE(e.itemId, QStringLiteral("uid1"));
     QCOMPARE(e.eventId, QStringLiteral("$ev1"));
     QCOMPARE(e.roomId, kRoom);
     QCOMPARE(e.body, QStringLiteral("hello"));
+    QCOMPARE(e.senderDisplayName, QStringLiteral("Alice"));
+    QCOMPARE(e.senderAvatarUrl, QStringLiteral("mxc://example.org/alice"));
     QCOMPARE(e.type, TimelineEvent::TextMessage);
     QCOMPARE(e.status, TimelineEvent::Sent);
     QVERIFY(!e.isVirtual());
