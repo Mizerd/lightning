@@ -1,6 +1,8 @@
-# Current state (v0.5.17)
+# Current state (v0.5.18)
 
-## v0.5.18 development — automatic initial history
+## v0.5.18 — timeline reliability and usability
+
+### Automatic initial history
 
 Room entry now distinguishes a requested Rust timeline from a pagination-ready
 timeline whose initial SDK snapshot and generation have been adopted. Initial
@@ -12,7 +14,7 @@ exhausted failures still expose manual Retry. Completion is accepted only
 after the backend has reported the batch loading, preventing an accepted Rust
 dispatch from being mistaken for an immediate empty completion.
 
-## v0.5.18 development — room activity visibility
+### Room activity visibility
 
 General settings now include **Show room activity**, enabled by default and
 persisted globally. Disabling it collapses routine membership, profile, and
@@ -21,7 +23,7 @@ model retain the events, and re-enabling the setting restores them without a
 resync. Ordinary messages, media, send failures, and undecryptable-event
 warnings are not classified as room activity and remain visible.
 
-## v0.5.18 development — unread navigation
+### Unread navigation
 
 The matrix-sdk-ui read-marker virtual item now renders as a stable **New
 messages** divider between the fully-read event and the first unread event; it
@@ -31,7 +33,7 @@ from the bottom. New events preserve that historical reading position, while
 the explicit control resumes bottom-following and the existing read-receipt
 policy.
 
-## v0.5.18 development — stable timeline navigation
+### Stable timeline navigation
 
 Reply previews now navigate by the Matrix target event ID. Targets already in
 the live SDK timeline are centered immediately; older targets use the existing
@@ -45,7 +47,7 @@ of its room ID, visible event ID, pixel offset, and whether it followed the
 latest event. Returning to a room restores that stable anchor (or latest), and
 logout clears all anchors. No message body or decrypted content is persisted.
 
-## v0.5.18 development — message context and details
+### Message context and details
 
 Ordinary message rows now expose the same stable-event context menu from
 right-click, the overflow button, and the keyboard context-menu action. Reply,

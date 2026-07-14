@@ -12,6 +12,18 @@ across the rename. The product name is **Lightning**.
 
 ## Status
 
+**v0.5.18** — Timeline reliability and usability release. Room history now
+waits for live SDK timeline readiness and automatically retries transient
+initial dispatch failures, so normal room entry no longer requires manual
+Retry. A persistent **Show room activity** preference, SDK-backed first-unread
+divider, floating **Jump to latest**, stable reply navigation with bounded
+pagination, per-room event anchors, and a stable-ID message context/details
+surface improve everyday timeline navigation. Message permalinks contain only
+room/event identity, details expose safe metadata only, and the existing
+Matrix SDK, crypto, media, and preview security boundaries remain unchanged.
+Matrix dependencies remain pinned to `matrix-sdk 0.18.0` and
+`matrix-sdk-ui 0.18.0`.
+
 **v0.5.17** — Focused timeline runtime hotfix. Pagination viewport-fill
 checks are queued and coalesced so the loading header cannot feed ListView
 geometry back into its own controller-state binding. Long wrapped messages now
