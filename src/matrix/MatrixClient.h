@@ -127,6 +127,15 @@ public:
         Q_UNUSED(roomId);
         return false;
     }
+    // True only when the current pagination failure is safe to retry without
+    // user intervention (for example a temporary network failure or a live
+    // timeline readiness race). Permission and invalid-room failures must
+    // remain false so the controller exposes manual Retry immediately.
+    virtual bool paginationFailureTransient(const QString &roomId) const
+    {
+        Q_UNUSED(roomId);
+        return false;
+    }
 
     // v0.5.7: retry a failed outgoing message identified by its send-queue
     // transaction id. Only the Rust backend (SDK local echoes) implements

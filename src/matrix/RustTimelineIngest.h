@@ -103,6 +103,11 @@ public:
     QString requestedRoom() const { return m_requestedRoom; }
     quint64 generation() const { return m_generation; }
     bool hasActiveTimeline() const { return !m_activeRoom.isEmpty(); }
+    bool readyForPagination(const QString &roomId) const
+    {
+        return !roomId.isEmpty() && roomId == m_activeRoom
+            && m_generation != 0;
+    }
 
 private:
     QString m_requestedRoom;

@@ -45,6 +45,7 @@ public:
     };
     QHash<QString, State> states;
     bool timelineActive = true;
+    bool failureTransient = false;
     int loadOlderCalls = 0;
     QString lastLoadRoom;
 
@@ -65,10 +66,11 @@ public:
         Q_EMIT paginationStateChanged(roomId);
         QCoreApplication::processEvents(); // settle async diff accounting
     }
-    void failBatch(const QString &roomId)
+    void failBatch(const QString &roomId, bool transient = false)
     {
         states[roomId].loading = false;
         states[roomId].failed = true;
+        failureTransient = transient;
         Q_EMIT paginationStateChanged(roomId);
     }
 
@@ -78,6 +80,7 @@ public:
         ++loadOlderCalls;
         lastLoadRoom = roomId;
         states[roomId].failed = false;
+        failureTransient = false;
     }
     bool canPaginate(const QString &roomId) const override
     {
@@ -98,6 +101,10 @@ public:
     {
         const auto it = states.constFind(roomId);
         return it != states.constEnd() && it->failed;
+    }
+    bool paginationFailureTransient(const QString &roomId) const override
+    {
+        return paginationFailed(roomId) && failureTransient;
     }
 
     // Remaining pure virtuals (inert).
@@ -138,6 +145,140 @@ class PaginationControllerTest : public QObject
     Q_OBJECT
 
 private Q_SLOTS:
+    void roomOpenIntentWaitsForTimelineReadiness()
+    {
+        FakeClient client;
+        client.timelineActive = false;
+        PaginationController controller;
+        controller.setClient(&client);
+        controller.setRoomId(kRoomA);
+
+        QCOMPARE(controller.initialHistoryState(),
+                 PaginationController::WaitingForTimeline);
+        QCOMPARE(client.loadOlderCalls, 0);
+
+        client.timelineActive = true;
+        Q_EMIT client.paginationStateChanged(kRoomA);
+        QCOMPARE(client.loadOlderCalls, 1);
+        QCOMPARE(controller.initialHistoryState(),
+                 PaginationController::LoadingInitialHistory);
+    }
+
+    void timelineResetPreservesInitialFillIntent()
+    {
+        FakeClient client;
+        client.timelineActive = false;
+        PaginationController controller;
+        controller.setClient(&client);
+        controller.setRoomId(kRoomA);
+
+        client.timelineActive = true;
+        Q_EMIT client.timelineReset(kRoomA);
+        QCOMPARE(client.loadOlderCalls, 0);
+        Q_EMIT client.paginationStateChanged(kRoomA);
+        QCOMPARE(client.loadOlderCalls, 1);
+    }
+
+    void transientInitialFailureRetriesAutomatically()
+    {
+        FakeClient client;
+        PaginationController controller;
+        controller.setClient(&client);
+        controller.setAutomaticRetryPolicyForTest(3, 1);
+        controller.setRoomId(kRoomA);
+
+        controller.requestViewportFill();
+        client.beginLoading(kRoomA);
+        client.failBatch(kRoomA, true);
+        QCOMPARE(controller.initialHistoryState(),
+                 PaginationController::WaitingForAutomaticRetry);
+        QVERIFY(!controller.failed());
+        QTRY_COMPARE_WITH_TIMEOUT(client.loadOlderCalls, 2, 1000);
+
+        client.beginLoading(kRoomA);
+        client.completeBatch(kRoomA, 3, false);
+        QVERIFY(!controller.failed());
+        QCOMPARE(controller.initialHistoryState(),
+                 PaginationController::InitialHistorySettled);
+    }
+
+    void automaticRetriesAreBoundedThenManualRetryWorks()
+    {
+        FakeClient client;
+        PaginationController controller;
+        controller.setClient(&client);
+        controller.setAutomaticRetryPolicyForTest(2, 1);
+        controller.setRoomId(kRoomA);
+
+        controller.requestViewportFill();
+        client.beginLoading(kRoomA);
+        client.failBatch(kRoomA, true);
+        QTRY_COMPARE_WITH_TIMEOUT(client.loadOlderCalls, 2, 1000);
+        client.beginLoading(kRoomA);
+        client.failBatch(kRoomA, true);
+        QTRY_COMPARE_WITH_TIMEOUT(client.loadOlderCalls, 3, 1000);
+        client.beginLoading(kRoomA);
+        client.failBatch(kRoomA, true);
+
+        QVERIFY(controller.failed());
+        QCOMPARE(controller.initialHistoryState(),
+                 PaginationController::ManualRetryRequired);
+        QTest::qWait(20);
+        QCOMPARE(client.loadOlderCalls, 3);
+
+        controller.retry();
+        QCOMPARE(client.loadOlderCalls, 4);
+    }
+
+    void terminalInitialFailureDoesNotAutoRetry()
+    {
+        FakeClient client;
+        PaginationController controller;
+        controller.setClient(&client);
+        controller.setAutomaticRetryPolicyForTest(3, 1);
+        controller.setRoomId(kRoomA);
+
+        controller.requestViewportFill();
+        client.beginLoading(kRoomA);
+        client.failBatch(kRoomA, false);
+        QTest::qWait(20);
+        QCOMPARE(client.loadOlderCalls, 1);
+        QVERIFY(controller.failed());
+    }
+
+    void roomSwitchCancelsAutomaticRetry()
+    {
+        FakeClient client;
+        PaginationController controller;
+        controller.setClient(&client);
+        controller.setAutomaticRetryPolicyForTest(3, 20);
+        controller.setRoomId(kRoomA);
+
+        controller.requestViewportFill();
+        client.beginLoading(kRoomA);
+        client.failBatch(kRoomA, true);
+        controller.setRoomId(kRoomB);
+        QTest::qWait(80);
+        QCOMPARE(client.loadOlderCalls, 1);
+        QCOMPARE(controller.roomId(), kRoomB);
+    }
+
+    void signOutCancelsAutomaticRetry()
+    {
+        FakeClient client;
+        PaginationController controller;
+        controller.setClient(&client);
+        controller.setAutomaticRetryPolicyForTest(3, 20);
+        controller.setRoomId(kRoomA);
+
+        controller.requestViewportFill();
+        client.beginLoading(kRoomA);
+        client.failBatch(kRoomA, true);
+        client.logout();
+        QTest::qWait(80);
+        QCOMPARE(client.loadOlderCalls, 1);
+    }
+
     void logicalPresentationState()
     {
         FakeClient client;

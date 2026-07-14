@@ -48,6 +48,7 @@ private Q_SLOTS:
         QVERIFY(pane.contains(QStringLiteral("PaginationController.Hidden ? 0 : 32")));
         QVERIFY(pane.contains(QStringLiteral("viewportFillCheckScheduled")));
         QVERIFY(pane.contains(QStringLiteral("Qt.callLater(function()")));
+        QVERIFY(pane.contains(QStringLiteral("app.pagination.requestViewportFill()")));
         QVERIFY(!pane.contains(QStringLiteral(
             "readonly property int paginationState")));
         QVERIFY(!pane.contains(QStringLiteral("showPaginationStatus")));

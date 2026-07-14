@@ -191,9 +191,10 @@ public:
     void loadOlderMessages(const QString &roomId) override;
     bool canPaginate(const QString &roomId) const override;
     bool paginationReady(const QString &roomId) const override
-    { return timelineActiveFor(roomId); }
+    { return timelineReadyForPagination(roomId); }
     bool paginating(const QString &roomId) const override;
     bool paginationFailed(const QString &roomId) const override;
+    bool paginationFailureTransient(const QString &roomId) const override;
     void retryFailedSend(const QString &roomId,
                          const QString &transactionId) override;
 
@@ -340,6 +341,7 @@ private:
     void updateRoomPreviewFrom(const QString &roomId,
                                const QList<TimelineEvent> &newestFirstCandidates);
     bool timelineActiveFor(const QString &roomId) const;
+    bool timelineReadyForPagination(const QString &roomId) const;
     // v0.5.9: new-command plumbing. nextOpId() never returns 0 (0 means
     // "unsupported" at the interface level).
     quint64 nextOpId() { return ++m_opCounter; }
@@ -392,6 +394,7 @@ private:
         bool loading = false;
         bool reachedStart = false;
         bool failed = false;
+        bool failureTransient = false;
     };
     matrix::rust_timeline::TimelineGenerationTracker m_timelineTracker;
     QHash<QString, PaginationState> m_pagination;

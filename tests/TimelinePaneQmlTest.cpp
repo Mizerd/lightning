@@ -311,6 +311,43 @@ private Q_SLOTS:
         QCOMPARE(warnings, QStringList{});
     }
 
+    // A transient first viewport-fill failure must stay internal and retry
+    // through the real pane/controller interaction. Existing messages then
+    // appear without invoking PaginationController::retry() from the test.
+    void transientInitialHistoryFailureRetriesWithoutUserAction()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        controller.setCurrentRoomId(QStringLiteral("!general:mock.local"));
+        auto *mock = controller.findChild<MockMatrixClient *>();
+        QVERIFY(mock != nullptr);
+        mock->failNextPaginationForTest(/*transient=*/true);
+        controller.pagination()->setAutomaticRetryPolicyForTest(3, 1);
+
+        QQmlApplicationEngine engine;
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this,
+                [&warnings](const QList<QQmlError> &errors) {
+                    for (const auto &e : errors)
+                        warnings << e.toString();
+                });
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        QSignalSpy completedSpy(controller.pagination(),
+                               &PaginationController::paginationCompleted);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("TimelinePane"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        QVERIFY(createdSpy.at(0).at(0).value<QObject *>() != nullptr);
+
+        QTRY_VERIFY_WITH_TIMEOUT(!completedSpy.isEmpty(), 5000);
+        QVERIFY(!controller.pagination()->failed());
+        QVERIFY(controller.timeline()->rowCount() > 0);
+        QVERIFY2(completedSpy.count() < 10, "initial history request storm");
+        QCOMPARE(warnings, QStringList{});
+    }
+
     // 0.5.17: a populated encrypted timeline containing a long decrypted
     // body used to create that delegate at a transient 1px text width. Its
     // enormous temporary height made ListView discard/recreate the visible

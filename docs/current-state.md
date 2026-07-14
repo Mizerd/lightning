@@ -1,5 +1,17 @@
 # Current state (v0.5.17)
 
+## v0.5.18 development — automatic initial history
+
+Room entry now distinguishes a requested Rust timeline from a pagination-ready
+timeline whose initial SDK snapshot and generation have been adopted. Initial
+viewport fill remains pending across that snapshot reset and starts
+automatically once readiness is signalled, so the normal opening race no
+longer becomes a user-facing Retry failure. Transient initial failures use a
+generation-scoped, cancellable three-attempt exponential backoff; terminal or
+exhausted failures still expose manual Retry. Completion is accepted only
+after the backend has reported the batch loading, preventing an accepted Rust
+dispatch from being mistaken for an immediate empty completion.
+
 ## v0.5.17 — timeline runtime hotfix
 
 Live investigation of the affected encrypted room classified the reported

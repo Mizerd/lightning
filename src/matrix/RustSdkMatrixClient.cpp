@@ -937,12 +937,14 @@ void RustSdkMatrixClient::loadOlderMessages(const QString &roomId)
     if (!result.isEmpty()) {
         qCWarning(lcRust) << "timeline pagination dispatch failed";
         state.failed = true;
+        state.failureTransient = true;
         Q_EMIT paginationStateChanged(roomId);
     } else if (state.failed) {
         // An accepted explicit retry has left the previous terminal state.
         // The Rust loading event follows asynchronously, but presentation
         // must enter loading immediately instead of flashing the old error.
         state.failed = false;
+        state.failureTransient = false;
         Q_EMIT paginationStateChanged(roomId);
     }
 }
@@ -969,6 +971,13 @@ bool RustSdkMatrixClient::paginationFailed(const QString &roomId) const
     return it != m_pagination.constEnd() && it->failed;
 }
 
+bool RustSdkMatrixClient::paginationFailureTransient(const QString &roomId) const
+{
+    const auto it = m_pagination.constFind(roomId);
+    return it != m_pagination.constEnd() && it->failed
+        && it->failureTransient;
+}
+
 void RustSdkMatrixClient::retryFailedSend(const QString &roomId,
                                           const QString &transactionId)
 {
@@ -990,6 +999,15 @@ bool RustSdkMatrixClient::timelineActiveFor(const QString &roomId) const
     return m_rustHandle && !roomId.isEmpty()
         && (m_timelineTracker.activeRoom() == roomId
             || m_timelineTracker.requestedRoom() == roomId);
+}
+
+bool RustSdkMatrixClient::timelineReadyForPagination(const QString &roomId) const
+{
+    // A requested room is not yet pagination-ready: the Rust registry's
+    // timeline_for() accepts requests only after the initial timeline_reset
+    // snapshot has supplied and adopted a live room generation.
+    return m_rustHandle && !roomId.isEmpty()
+        && m_timelineTracker.readyForPagination(roomId);
 }
 
 void RustSdkMatrixClient::openRoomTimeline(const QString &roomId)
@@ -1886,10 +1904,12 @@ void RustSdkMatrixClient::handleTimelinePagination(const QJsonObject &event)
     if (paginationState == QLatin1String("loading")) {
         state.loading = true;
         state.failed = false;
+        state.failureTransient = false;
         qCInfo(lcRust) << "timeline pagination started";
     } else if (paginationState == QLatin1String("idle")) {
         state.loading = false;
         state.failed = false;
+        state.failureTransient = false;
         state.reachedStart =
             event.value(QStringLiteral("reached_start")).toBool(false);
         qCInfo(lcRust) << "timeline pagination complete reached_start="
@@ -1897,8 +1917,12 @@ void RustSdkMatrixClient::handleTimelinePagination(const QJsonObject &event)
     } else if (paginationState == QLatin1String("failed")) {
         state.loading = false;
         state.failed = true;
+        const QString category =
+            event.value(QStringLiteral("category")).toString();
+        state.failureTransient = category == QLatin1String("network")
+            || category == QLatin1String("not_ready");
         qCWarning(lcRust) << "timeline pagination failed category="
-                          << event.value(QStringLiteral("category")).toString();
+                          << category;
     }
     Q_EMIT paginationStateChanged(roomId);
 }

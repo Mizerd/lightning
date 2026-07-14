@@ -4,6 +4,7 @@
 #include <QObject>
 #include <QString>
 #include <QSet>
+#include <QTimer>
 #include <QtQmlIntegration/qqmlintegration.h>
 
 class MatrixClient;
@@ -46,6 +47,7 @@ class PaginationController : public QObject
     Q_PROPERTY(bool reachedStart READ reachedStart NOTIFY stateChanged)
     Q_PROPERTY(bool failed READ failed NOTIFY stateChanged)
     Q_PROPERTY(PresentationState presentationState READ presentationState NOTIFY stateChanged)
+    Q_PROPERTY(InitialHistoryState initialHistoryState READ initialHistoryState NOTIFY stateChanged)
     // True once automatic viewport filling stopped itself (budget spent or
     // no progress). User-driven NearTop requests remain available.
     Q_PROPERTY(bool fillStopped READ fillStopped NOTIFY stateChanged)
@@ -53,6 +55,15 @@ class PaginationController : public QObject
 public:
     enum PresentationState { Hidden, Loading, Failed };
     Q_ENUM(PresentationState)
+    enum InitialHistoryState {
+        InitialInactive,
+        WaitingForTimeline,
+        LoadingInitialHistory,
+        WaitingForAutomaticRetry,
+        ManualRetryRequired,
+        InitialHistorySettled
+    };
+    Q_ENUM(InitialHistoryState)
 
     explicit PaginationController(QObject *parent = nullptr);
 
@@ -65,6 +76,7 @@ public:
     bool reachedStart() const;
     bool failed() const;
     PresentationState presentationState() const;
+    InitialHistoryState initialHistoryState() const;
     bool fillStopped() const { return m_fillStopped; }
 
     // Ask for one more batch because the viewport is not filled yet.
@@ -83,6 +95,8 @@ public:
 
     // Test hooks.
     void setMaxViewportFillRequests(int count) { m_maxFillRequests = count; }
+    void setAutomaticRetryPolicyForTest(int attempts, int baseDelayMs)
+    { m_maxAutomaticRetries = attempts; m_autoRetryBaseDelayMs = baseDelayMs; }
 
 Q_SIGNALS:
     void roomIdChanged();
@@ -101,12 +115,13 @@ private Q_SLOTS:
     void onLoggedOut();
 
 private:
-    enum class Reason { None, ViewportFill, NearTop, Retry };
+    enum class Reason { None, ViewportFill, AutomaticRetry, NearTop, Retry };
     static const char *reasonName(Reason reason);
 
     void request(Reason reason);
     void resetPerRoomState();
     void finishBatch(bool reachedStart);
+    void scheduleAutomaticRetry();
 
     MatrixClient *m_client = nullptr;
     QString m_roomId;
@@ -120,6 +135,14 @@ private:
     QSet<QString> m_batchStableIds;
     bool m_deferredFill = false;
     bool m_completionPending = false;
+    bool m_seenLoading = false;
+    bool m_initialHistoryRequested = false;
+    bool m_initialHistoryHasSucceeded = false;
+    QTimer m_autoRetryTimer;
+    quint64 m_autoRetryGeneration = 0;
+    int m_autoRetryAttempts = 0;
+    int m_maxAutomaticRetries = 3;
+    int m_autoRetryBaseDelayMs = 150;
 
     // Automatic-fill safety. Both reset on every room (re)open.
     int m_fillRequests = 0;

@@ -557,6 +557,7 @@ void RustTimelineIngestTest::trackerAdoptsRequestedRoomOnly()
 {
     TimelineGenerationTracker tracker;
     tracker.request(kRoom);
+    QVERIFY(!tracker.readyForPagination(kRoom));
     // A reset for a different room (stale from the previous selection)
     // must not be adopted.
     QVERIFY(!tracker.adoptReset(QStringLiteral("!other:example.org"), 4));
@@ -564,6 +565,7 @@ void RustTimelineIngestTest::trackerAdoptsRequestedRoomOnly()
     // The matching reset is adopted.
     QVERIFY(tracker.adoptReset(kRoom, 5));
     QVERIFY(tracker.hasActiveTimeline());
+    QVERIFY(tracker.readyForPagination(kRoom));
     QCOMPARE(tracker.generation(), quint64(5));
     QVERIFY(tracker.accepts(kRoom, 5));
 }
@@ -594,9 +596,12 @@ void RustTimelineIngestTest::trackerRejectsAfterNewRequest()
     // Switching rooms invalidates the previous adoption immediately: no
     // diff for the old room may land in the new one.
     tracker.request(QStringLiteral("!other:example.org"));
+    QVERIFY(!tracker.readyForPagination(kRoom));
+    QVERIFY(!tracker.readyForPagination(QStringLiteral("!other:example.org")));
     QVERIFY(!tracker.accepts(kRoom, 3));
     QVERIFY(!tracker.adoptReset(kRoom, 4));
     QVERIFY(tracker.adoptReset(QStringLiteral("!other:example.org"), 4));
+    QVERIFY(tracker.readyForPagination(QStringLiteral("!other:example.org")));
     QVERIFY(tracker.accepts(QStringLiteral("!other:example.org"), 4));
 }
 

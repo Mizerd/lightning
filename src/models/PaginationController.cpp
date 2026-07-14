@@ -10,6 +10,18 @@ Q_LOGGING_CATEGORY(lcPagination, "lightning.timeline.pagination")
 PaginationController::PaginationController(QObject *parent)
     : QObject(parent)
 {
+    m_autoRetryTimer.setSingleShot(true);
+    connect(&m_autoRetryTimer, &QTimer::timeout, this, [this] {
+        if (m_autoRetryGeneration != m_generation || !m_client
+            || m_roomId.isEmpty())
+            return;
+        if (!m_client->paginationFailed(m_roomId)
+            || !m_client->paginationFailureTransient(m_roomId)) {
+            Q_EMIT stateChanged();
+            return;
+        }
+        request(Reason::AutomaticRetry);
+    });
 }
 
 void PaginationController::setClient(MatrixClient *client)
@@ -41,12 +53,18 @@ void PaginationController::setRoomId(const QString &roomId)
         return;
     m_roomId = roomId;
     resetPerRoomState();
+    // Room opening and the Rust timeline snapshot are asynchronous. Record
+    // initial-history intent immediately; the backend readiness notification
+    // will dispatch it only after the live timeline generation is adopted.
+    m_initialHistoryRequested = !roomId.isEmpty();
+    m_deferredFill = m_initialHistoryRequested;
     Q_EMIT roomIdChanged();
     Q_EMIT stateChanged();
 }
 
 void PaginationController::resetPerRoomState()
 {
+    m_autoRetryTimer.stop();
     ++m_generation;
     m_requestActive = false;
     m_activeReason = Reason::None;
@@ -54,6 +72,11 @@ void PaginationController::resetPerRoomState()
     m_batchStableIds.clear();
     m_deferredFill = false;
     m_completionPending = false;
+    m_seenLoading = false;
+    m_initialHistoryRequested = false;
+    m_initialHistoryHasSucceeded = false;
+    m_autoRetryGeneration = 0;
+    m_autoRetryAttempts = 0;
     m_fillRequests = 0;
     m_noProgressStrikes = 0;
     m_fillStopped = false;
@@ -61,7 +84,7 @@ void PaginationController::resetPerRoomState()
 
 bool PaginationController::busy() const
 {
-    if (m_requestActive)
+    if (m_requestActive || m_autoRetryTimer.isActive())
         return true;
     return m_client && !m_roomId.isEmpty() && m_client->paginating(m_roomId);
 }
@@ -79,7 +102,9 @@ bool PaginationController::reachedStart() const
 
 bool PaginationController::failed() const
 {
-    return m_client && !m_roomId.isEmpty() && m_client->paginationFailed(m_roomId);
+    return m_client && !m_roomId.isEmpty()
+        && !m_autoRetryTimer.isActive()
+        && m_client->paginationFailed(m_roomId);
 }
 
 PaginationController::PresentationState PaginationController::presentationState() const
@@ -93,10 +118,28 @@ PaginationController::PresentationState PaginationController::presentationState(
     return Hidden;
 }
 
+PaginationController::InitialHistoryState PaginationController::initialHistoryState() const
+{
+    if (m_roomId.isEmpty() || !m_initialHistoryRequested)
+        return InitialInactive;
+    if (m_deferredFill && m_client
+        && !m_client->paginationReady(m_roomId))
+        return WaitingForTimeline;
+    if (m_autoRetryTimer.isActive())
+        return WaitingForAutomaticRetry;
+    if (failed())
+        return ManualRetryRequired;
+    if (m_requestActive && (m_activeReason == Reason::ViewportFill
+                            || m_activeReason == Reason::AutomaticRetry))
+        return LoadingInitialHistory;
+    return InitialHistorySettled;
+}
+
 const char *PaginationController::reasonName(Reason reason)
 {
     switch (reason) {
     case Reason::ViewportFill: return "viewport_fill";
+    case Reason::AutomaticRetry: return "automatic_retry";
     case Reason::NearTop:      return "near_top";
     case Reason::Retry:        return "retry";
     case Reason::None:         break;
@@ -116,17 +159,25 @@ void PaginationController::requestViewportFill()
         Q_EMIT stateChanged();
         return;
     }
-    // A viewport fill never auto-retries a failed batch; that would loop on
-    // a persistent error. Retry stays a user gesture.
-    if (failed())
+    // A persistent/exhausted failure stays a user gesture. A backend-marked
+    // transient initial failure is handled only by the bounded timer policy.
+    m_initialHistoryRequested = true;
+    if (failed() || m_autoRetryTimer.isActive())
         return;
     request(Reason::ViewportFill);
 }
 
 void PaginationController::requestNearTop()
 {
-    if (failed())
+    if (failed() || m_autoRetryTimer.isActive())
         return;
+    // ListView reports atYBeginning during its first empty/incubating frame.
+    // Treat that first signal as initial-history fill so a transient failure
+    // receives the bounded automatic policy instead of requiring a click.
+    if (m_initialHistoryRequested && !m_initialHistoryHasSucceeded) {
+        requestViewportFill();
+        return;
+    }
     request(Reason::NearTop);
 }
 
@@ -134,6 +185,7 @@ void PaginationController::retry()
 {
     if (!failed())
         return;
+    m_autoRetryAttempts = 0;
     // NearTop semantics: an explicit user gesture. loadOlderMessages clears
     // the backend failure flag on the next dispatch.
     request(Reason::Retry);
@@ -144,11 +196,14 @@ void PaginationController::request(Reason reason)
     if (!m_client || m_roomId.isEmpty())
         return;
     if (!m_client->paginationReady(m_roomId)) {
-        if (reason == Reason::ViewportFill)
+        if (reason == Reason::ViewportFill
+            || reason == Reason::AutomaticRetry)
             m_deferredFill = true;
         return; // initialization is not a dispatch failure
     }
-    if (m_requestActive || m_client->paginating(m_roomId)) {
+    if (m_requestActive || m_client->paginating(m_roomId)
+        || (m_autoRetryTimer.isActive()
+            && reason != Reason::AutomaticRetry)) {
         qCDebug(lcPagination) << "timeline pagination duplicate suppressed reason="
                               << reasonName(reason);
         return;
@@ -165,6 +220,7 @@ void PaginationController::request(Reason reason)
     m_batchInserted = 0;
     m_batchStableIds.clear();
     m_completionPending = false;
+    m_seenLoading = false;
     if (reason == Reason::ViewportFill)
         ++m_fillRequests;
 
@@ -228,11 +284,13 @@ void PaginationController::onPaginationStateChanged(const QString &roomId)
             m_activeReason = Reason::None;
             m_batchInserted = 0;
         }
+        m_seenLoading = true;
         Q_EMIT stateChanged();
         return;
     }
 
     if (m_client->paginationFailed(m_roomId)) {
+        const Reason failedReason = m_activeReason;
         if (m_requestActive) {
             qCWarning(lcPagination)
                 << "timeline pagination failed retryable=true reason="
@@ -240,13 +298,22 @@ void PaginationController::onPaginationStateChanged(const QString &roomId)
         }
         m_requestActive = false;
         m_activeReason = Reason::None;
+        m_seenLoading = false;
+        if ((failedReason == Reason::ViewportFill
+             || failedReason == Reason::AutomaticRetry)
+            && m_initialHistoryRequested
+            && m_client->paginationFailureTransient(m_roomId)
+            && m_autoRetryAttempts < m_maxAutomaticRetries) {
+            scheduleAutomaticRetry();
+            return;
+        }
         Q_EMIT stateChanged();
         return;
     }
 
     // Neither loading nor failed: the batch completed (or the state was
     // reset underneath us). Only a batch this controller tracked counts.
-    if (m_requestActive && !m_completionPending) {
+    if (m_requestActive && m_seenLoading && !m_completionPending) {
         m_completionPending = true;
         const quint64 generation = m_generation;
         const bool hitStart = reachedStart();
@@ -271,6 +338,10 @@ void PaginationController::finishBatch(bool hitStart)
     m_batchInserted = 0;
     m_batchStableIds.clear();
     m_completionPending = false;
+    m_seenLoading = false;
+    m_autoRetryAttempts = 0;
+    if (reason == Reason::ViewportFill || reason == Reason::AutomaticRetry)
+        m_initialHistoryHasSucceeded = true;
 
     qCInfo(lcPagination) << "timeline pagination completed added=" << inserted
                          << "reached_start=" << hitStart
@@ -310,6 +381,11 @@ void PaginationController::onTimelineReset(const QString &roomId)
     // A fresh snapshot restarts anchor bookkeeping and the fill budget;
     // any batch that was in flight belongs to the previous generation.
     resetPerRoomState();
+    // The reset is the readiness boundary for a newly built Rust timeline.
+    // Keep one initial fill pending; the following backend state notification
+    // dispatches it against the adopted generation.
+    m_initialHistoryRequested = !m_roomId.isEmpty();
+    m_deferredFill = m_initialHistoryRequested;
     Q_EMIT stateChanged();
 }
 
@@ -318,5 +394,19 @@ void PaginationController::onLoggedOut()
     qCInfo(lcPagination) << "timeline pagination stopped on sign-out generation="
                          << m_generation;
     resetPerRoomState();
+    Q_EMIT stateChanged();
+}
+
+void PaginationController::scheduleAutomaticRetry()
+{
+    const int shift = qMin(m_autoRetryAttempts, 4);
+    const int delay = m_autoRetryBaseDelayMs * (1 << shift);
+    ++m_autoRetryAttempts;
+    m_autoRetryGeneration = m_generation;
+    qCInfo(lcPagination)
+        << "timeline pagination automatic retry scheduled attempt="
+        << m_autoRetryAttempts << "delay_ms=" << delay
+        << "generation=" << m_generation;
+    m_autoRetryTimer.start(delay);
     Q_EMIT stateChanged();
 }

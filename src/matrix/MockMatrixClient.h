@@ -67,10 +67,13 @@ public:
     bool paginating(const QString &roomId) const override;
     bool paginationFailed(const QString &roomId) const override
     { return m_paginationFailed.contains(roomId); }
+    bool paginationFailureTransient(const QString &roomId) const override
+    { return m_transientPaginationFailures.contains(roomId); }
 
     // Deterministic runtime-QML coverage for the Retry presentation. This
     // backend is test/demo-only and never performs network I/O.
-    void failNextPaginationForTest() { m_failNextPagination = true; }
+    void failNextPaginationForTest(bool transient = false)
+    { m_failNextPagination = true; m_nextPaginationFailureTransient = transient; }
 
 private:
     void seedMockData();
@@ -90,7 +93,9 @@ private:
     QHash<QString, int> m_paginationRemaining; // roomId → mock pages left
     QSet<QString> m_paginating;                 // roomId currently paginating
     QSet<QString> m_paginationFailed;
+    QSet<QString> m_transientPaginationFailures;
     bool m_failNextPagination = false;
+    bool m_nextPaginationFailureTransient = false;
 
     quint64 m_eventCounter = 0;
     quint64 m_txnCounter = 0;
