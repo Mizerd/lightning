@@ -322,17 +322,72 @@ Rectangle {
                 }
 
                 function beginWheelTo(targetY) {
-                    // Any upward wheel intent leaves follow-latest at once so
-                    // incoming messages never yank a reader back to the bottom.
-                    if (targetY < contentY - 0.5)
-                        stickToBottom = false
+                    // Clamp defensively so keyboard callers (which pass an
+                    // unclamped target) and any rounding can never drive an
+                    // out-of-range or jittering contentY.
+                    var lo = wheelMinY()
+                    var hi = wheelMaxY()
+                    targetY = targetY < lo ? lo : (targetY > hi ? hi : targetY)
                     wheelScrollAnimation.stop()
                     wheelScrollAnimation.from = contentY
                     wheelScrollAnimation.to = targetY
                     wheelAnimating = true
                     wheelScrollAnimation.start()
                     updateStickAndPaginate()
+                    // Any upward intent leaves follow-latest — applied last so
+                    // the geometry recompute above (still on the pre-animation
+                    // position) cannot re-enable it while scrolling up.
+                    if (targetY < contentY - 0.5)
+                        stickToBottom = false
                     scrollSettleTimer.restart()
+                }
+
+                // ── v0.5.19: keyboard timeline navigation ────────────────
+                // Distances are viewport-relative and independent of the
+                // mouse-wheel speed setting; motion reuses the single
+                // coalescing animation so repeated key presses never queue.
+                // These fire only from the ListView's own Keys handler, i.e.
+                // only while the timeline holds active focus — so a focused
+                // composer, search field, dialog, or menu keeps its keys.
+                function keyboardPage(direction) {   // -1 up, +1 down
+                    beginWheelTo(contentY + direction * height * 0.9)
+                }
+                function goToEarliestLoaded() { beginWheelTo(wheelMinY()) }
+                function goToLatest() {
+                    cancelWheelMotion()
+                    stickToBottom = true
+                    app.pagination.saveFollowingLatest(app.currentRoomId)
+                    positionViewAtEnd()
+                    Qt.callLater(function() {
+                        positionViewAtEnd()
+                        app.readReceipts.reevaluate()
+                    })
+                }
+                activeFocusOnTab: true
+                Keys.onPressed: (event) => {
+                    switch (event.key) {
+                    case Qt.Key_PageUp:
+                        keyboardPage(-1); event.accepted = true; break
+                    case Qt.Key_PageDown:
+                        keyboardPage(1); event.accepted = true; break
+                    case Qt.Key_Home:
+                        goToEarliestLoaded(); event.accepted = true; break
+                    case Qt.Key_End:
+                        goToLatest(); event.accepted = true; break
+                    case Qt.Key_Space:
+                        // Shift+Space pages up, Space pages down. Only reachable
+                        // when the timeline (not a text input) owns the key.
+                        keyboardPage((event.modifiers & Qt.ShiftModifier) ? -1 : 1)
+                        event.accepted = true; break
+                    default:
+                        event.accepted = false
+                    }
+                }
+                // Clicking the timeline surface gives it keyboard focus for the
+                // navigation keys above, without stealing focus while typing.
+                TapHandler {
+                    acceptedButtons: Qt.LeftButton
+                    onTapped: timeline.forceActiveFocus()
                 }
 
                 // One reusable animation for ALL discrete-wheel motion — never
@@ -347,7 +402,7 @@ Rectangle {
                         timeline.wheelAnimating = false
                         app.timelineScroll.endMotion()
                         timeline.updateStickAndPaginate()
-                        timeline.scrollSettleTimer.restart()
+                        scrollSettleTimer.restart()
                     }
                 }
 
@@ -379,7 +434,7 @@ Rectangle {
                             timeline.contentY = app.timelineScroll.pixelTargetY(
                                 event.pixelDelta.y, timeline.contentY, minY, maxY)
                             timeline.updateStickAndPaginate()
-                            timeline.scrollSettleTimer.restart()
+                            scrollSettleTimer.restart()
                         } else if (event.angleDelta.y !== 0) {
                             // Discrete mouse wheel: coalesced smooth animation.
                             timeline.beginWheelTo(app.timelineScroll.wheelTargetY(
@@ -694,17 +749,9 @@ Rectangle {
                 ToolTip.text: qsTr("Return to the newest message")
                 ToolTip.visible: hovered
                 ToolTip.delay: 500
-                onClicked: {
-                    // Jump to latest overrides any wheel animation instantly.
-                    timeline.cancelWheelMotion()
-                    timeline.stickToBottom = true
-                    app.pagination.saveFollowingLatest(app.currentRoomId)
-                    timeline.positionViewAtEnd()
-                    Qt.callLater(function() {
-                        timeline.positionViewAtEnd()
-                        app.readReceipts.reevaluate()
-                    })
-                }
+                // Shares goToLatest() with the End key — both cancel any wheel
+                // animation, resume follow-latest, and re-evaluate read state.
+                onClicked: timeline.goToLatest()
             }
 
             Label {

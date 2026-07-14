@@ -1078,6 +1078,160 @@ private Q_SLOTS:
         QCOMPARE(warnings, QStringList{});
     }
 
+    // ── v0.5.19 checkpoint 3: keyboard timeline navigation ───────────────
+    // Loads the pane into a shown window and focuses the timeline. Delegate
+    // incubation never runs offscreen, so these assert the key ROUTING and
+    // follow-latest/motion side effects rather than pixel distances.
+    void keyboardEndKeyReturnsToLatest()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        controller.setCurrentRoomId(QStringLiteral("!general:mock.local"));
+
+        QQmlApplicationEngine engine;
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this,
+                [&warnings](const QList<QQmlError> &errors) {
+                    for (const auto &e : errors) warnings << e.toString();
+                });
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("TimelinePane"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(root != nullptr);
+        auto *timeline = root->findChild<QQuickItem *>(
+            QStringLiteral("timelineListView"));
+        QVERIFY(timeline != nullptr);
+
+        QQuickWindow window;
+        window.resize(640, 480);
+        root->setParentItem(window.contentItem());
+        root->setWidth(window.width());
+        root->setHeight(window.height());
+        window.show();
+        QCoreApplication::processEvents();
+
+        timeline->forceActiveFocus();
+        QTRY_VERIFY_WITH_TIMEOUT(timeline->hasActiveFocus(), kSignalTimeoutMs);
+        QVERIFY(timeline->setProperty("stickToBottom", false));
+
+        QTest::keyClick(&window, Qt::Key_End);
+        QTRY_COMPARE_WITH_TIMEOUT(timeline->property("stickToBottom").toBool(),
+                                  true, kSignalTimeoutMs);
+        QCOMPARE(warnings, QStringList{});
+    }
+
+    // Page Up, Home, Space and Shift+Space route to the timeline and start
+    // scroll motion (wheelAnimating) when the timeline holds focus.
+    void keyboardNavigationKeysStartTimelineMotion()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        controller.setCurrentRoomId(QStringLiteral("!general:mock.local"));
+
+        QQmlApplicationEngine engine;
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this,
+                [&warnings](const QList<QQmlError> &errors) {
+                    for (const auto &e : errors) warnings << e.toString();
+                });
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("TimelinePane"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(root != nullptr);
+        auto *timeline = root->findChild<QQuickItem *>(
+            QStringLiteral("timelineListView"));
+        QVERIFY(timeline != nullptr);
+
+        QQuickWindow window;
+        window.resize(640, 480);
+        root->setParentItem(window.contentItem());
+        root->setWidth(window.width());
+        root->setHeight(window.height());
+        window.show();
+        QCoreApplication::processEvents();
+
+        const QList<QPair<Qt::Key, Qt::KeyboardModifiers>> keys = {
+            {Qt::Key_PageUp, Qt::NoModifier},
+            {Qt::Key_PageDown, Qt::NoModifier},
+            {Qt::Key_Home, Qt::NoModifier},
+            {Qt::Key_Space, Qt::ShiftModifier},
+            {Qt::Key_Space, Qt::NoModifier},
+        };
+        for (const auto &k : keys) {
+            QVERIFY(QMetaObject::invokeMethod(timeline, "cancelWheelMotion"));
+            timeline->forceActiveFocus();
+            QTRY_VERIFY_WITH_TIMEOUT(timeline->hasActiveFocus(),
+                                     kSignalTimeoutMs);
+            QVERIFY(!timeline->property("wheelAnimating").toBool());
+            QTest::keyClick(&window, k.first, k.second);
+            QVERIFY2(timeline->property("wheelAnimating").toBool(),
+                     "navigation key did not start timeline motion");
+        }
+        QCOMPARE(warnings, QStringList{});
+        QVERIFY(QMetaObject::invokeMethod(timeline, "cancelWheelMotion"));
+    }
+
+    // A focused composer keeps its keys: the timeline must not act on them.
+    void composerFocusPreventsTimelineKeyHandling()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        controller.setCurrentRoomId(QStringLiteral("!general:mock.local"));
+
+        QQmlApplicationEngine engine;
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this,
+                [&warnings](const QList<QQmlError> &errors) {
+                    for (const auto &e : errors) warnings << e.toString();
+                });
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("TimelinePane"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(root != nullptr);
+        auto *timeline = root->findChild<QQuickItem *>(
+            QStringLiteral("timelineListView"));
+        auto *composer = root->findChild<QQuickItem *>(
+            QStringLiteral("composerInput"));
+        QVERIFY(timeline != nullptr);
+        QVERIFY(composer != nullptr);
+
+        QQuickWindow window;
+        window.resize(640, 480);
+        root->setParentItem(window.contentItem());
+        root->setWidth(window.width());
+        root->setHeight(window.height());
+        window.show();
+        QCoreApplication::processEvents();
+
+        QVERIFY(timeline->setProperty("stickToBottom", false));
+        composer->forceActiveFocus();
+        QTRY_VERIFY_WITH_TIMEOUT(composer->hasActiveFocus(), kSignalTimeoutMs);
+
+        // End would resume follow-latest if the timeline handled it; with the
+        // composer focused it must not, and no scroll motion may start.
+        QTest::keyClick(&window, Qt::Key_End);
+        QTest::keyClick(&window, Qt::Key_PageUp);
+        QCoreApplication::processEvents();
+        QCOMPARE(timeline->property("stickToBottom").toBool(), false);
+        QCOMPARE(timeline->property("wheelAnimating").toBool(), false);
+        QCOMPARE(warnings, QStringList{});
+    }
+
     // Defect A: switching rooms must not leak the previous room's
     // presentation state into the newly opened room (generation isolation).
     void roomSwitchResetsPresentationState()

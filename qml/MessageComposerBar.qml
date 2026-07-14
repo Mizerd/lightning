@@ -289,6 +289,7 @@ Rectangle {
 
             TextArea {
                 id: input
+                objectName: "composerInput"
                 Layout.fillWidth: true
                 // Grows with content up to ~6 lines, then scrolls.
                 Layout.maximumHeight: 140
