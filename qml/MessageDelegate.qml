@@ -356,14 +356,20 @@ Item {
                     Loader {
                         id: previewLoader
                         Layout.alignment: Qt.AlignLeft
-                        Layout.preferredWidth: Math.min(400, bubble.width - 8)
+                        Layout.preferredWidth: Math.min(
+                            bubble.width - 8,
+                            item ? item.implicitWidth : 400)
                         Layout.maximumWidth: bubble.width
                         active: root.preview.state !== undefined
                                 && root.preview.state !== "none"
                                 && !model.redacted
                                 && !model.isImage && !model.isFile
                         visible: active
-                        sourceComponent: linkPreviewComponent
+                        sourceComponent: root.preview.state === "loaded"
+                                         && root.preview.isDirectMedia === true
+                                         && root.preview.gifOversized !== true
+                                         ? directMediaPreviewComponent
+                                         : linkPreviewComponent
                     }
 
                     RowLayout {
@@ -602,6 +608,91 @@ Item {
     function eventIdForActions() { return model.eventId }
 
     // ---- link preview card ----
+
+    // A validated direct raster response is media, not article metadata.
+    // It receives its own compact renderer so GIFs and images never inherit
+    // the generic embed card's accent edge, host footer, or fixed card width.
+    Component {
+        id: directMediaPreviewComponent
+        Rectangle {
+            id: directMedia
+            objectName: "directMediaPreview"
+            readonly property var p: root.preview
+            readonly property real naturalWidth: p.imageWidth > 0
+                                                  ? p.imageWidth : 0
+            readonly property real naturalHeight: p.imageHeight > 0
+                                                   ? p.imageHeight : 0
+            readonly property real aspectRatio:
+                naturalWidth > 0 && naturalHeight > 0
+                ? naturalHeight / naturalWidth : 0.75
+            readonly property real maxWidth: Math.min(360, bubble.width - 8)
+            readonly property real maxHeight: 300
+            readonly property real displayWidth: {
+                var widthHint = naturalWidth > 0
+                                ? Math.min(Math.max(160, naturalWidth), maxWidth)
+                                : maxWidth
+                if (widthHint * aspectRatio > maxHeight)
+                    widthHint = maxHeight / aspectRatio
+                return Math.max(1, Math.min(widthHint, maxWidth))
+            }
+            readonly property string animatedSource:
+                p.isGif === true && app.settings.animateGifPreviews
+                ? app.mediaBridge.previewAnimatedSource(p.imageSource || "",
+                                                        p.imageMime || "") : ""
+            readonly property string staticSource:
+                (p.imageSource || "").length > 0
+                ? app.mediaBridge.previewImageSource(p.imageSource || "",
+                                                     p.imageMime || "") : ""
+
+            implicitWidth: displayWidth
+            implicitHeight: Math.max(1, displayWidth * aspectRatio)
+            color: AppTheme.cardElevated
+            radius: AppTheme.radiusSm
+            clip: true
+
+            Image {
+                anchors.fill: parent
+                visible: directMedia.animatedSource.length === 0
+                source: directMedia.staticSource
+                fillMode: Image.PreserveAspectFit
+                asynchronous: true
+                cache: true
+            }
+            AnimatedImage {
+                anchors.fill: parent
+                visible: directMedia.animatedSource.length > 0
+                source: visible ? directMedia.animatedSource : ""
+                fillMode: Image.PreserveAspectFit
+                playing: visible
+                asynchronous: true
+                cache: false
+            }
+            Rectangle {
+                visible: directMedia.p.isGif === true
+                anchors.left: parent.left
+                anchors.bottom: parent.bottom
+                anchors.margins: 5
+                radius: 3
+                color: AppTheme.overlayScrim
+                width: directGifLabel.implicitWidth + 8
+                height: directGifLabel.implicitHeight + 4
+                Label {
+                    id: directGifLabel
+                    anchors.centerIn: parent
+                    text: "GIF"
+                    color: AppTheme.accentText
+                    font.pixelSize: 9
+                    font.weight: Font.Bold
+                }
+            }
+            MouseArea {
+                anchors.fill: parent
+                enabled: (directMedia.p.url || "").length > 0
+                cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+                onClicked: app.media.openWebUrl(directMedia.p.url)
+            }
+        }
+    }
 
     Component {
         id: linkPreviewComponent

@@ -24,6 +24,18 @@ preserving intrinsic aspect ratio and avoiding upscaling; file attachments use
 a compact bordered 320-pixel maximum. Original link/media activation and all
 controlled-source security boundaries are unchanged.
 
+### Direct GIFs as inline media (checkpoint 3)
+
+The controller already distinguished validated direct raster responses from
+HTML metadata, but QML still routed both through the same generic embed card.
+Loaded direct images and GIFs now select a dedicated inline-media component:
+it uses intrinsic aspect ratio within a 360×300 bound, clips to the message
+column, shows the existing GIF badge, and uses the controlled static or
+animated source according to settings. It has no article accent edge, title,
+description, or host footer. Activation still passes only the original
+validated HTTP/HTTPS URL to `MediaManager`; the controlled local source is
+render-only and never becomes an external target.
+
 ## v0.5.15 — expanded room activity
 
 Room-activity expansion now renders the actual SDK-derived child events.

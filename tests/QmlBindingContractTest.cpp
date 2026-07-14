@@ -192,13 +192,43 @@ private Q_SLOTS:
         QVERIFY(previewBlock.contains(QStringLiteral(
             "Layout.alignment: Qt.AlignLeft")));
         QVERIFY(previewBlock.contains(QStringLiteral(
-            "Layout.preferredWidth: Math.min(400, bubble.width - 8)")));
+            "item ? item.implicitWidth : 400")));
         QVERIFY(!previewBlock.contains(QStringLiteral("Layout.fillWidth: true")));
 
         QVERIFY(delegate.contains(QStringLiteral(
             "readonly property real maxW: Math.min(360, bubble.width)")));
         QVERIFY(delegate.contains(QStringLiteral(
             "implicitWidth: Math.min(320, bubble.width)")));
+    }
+
+    void directGifUsesInlineMediaRenderer()
+    {
+        const QString delegate = read(QStringLiteral("MessageDelegate.qml"));
+        QVERIFY(!delegate.isEmpty());
+
+        QVERIFY(delegate.contains(QStringLiteral(
+            "root.preview.isDirectMedia === true")));
+        QVERIFY(delegate.contains(QStringLiteral(
+            "? directMediaPreviewComponent")));
+        const int start = delegate.indexOf(QStringLiteral(
+            "id: directMediaPreviewComponent"));
+        const int genericStart = delegate.indexOf(QStringLiteral(
+            "id: linkPreviewComponent"), start);
+        QVERIFY(start >= 0 && genericStart > start);
+        const QString directBlock = delegate.mid(start, genericStart - start);
+
+        QVERIFY(directBlock.contains(QStringLiteral(
+            "objectName: \"directMediaPreview\"")));
+        QVERIFY(directBlock.contains(QStringLiteral(
+            "readonly property real maxWidth: Math.min(360, bubble.width - 8)")));
+        QVERIFY(directBlock.contains(QStringLiteral("AnimatedImage {")));
+        QVERIFY(directBlock.contains(QStringLiteral(
+            "onClicked: app.media.openWebUrl(directMedia.p.url)")));
+        QVERIFY(!directBlock.contains(QStringLiteral("card.p.siteName")));
+        QVERIFY(!directBlock.contains(QStringLiteral("card.p.description")));
+        QVERIFY(!directBlock.contains(QStringLiteral("card.p.host")));
+        QVERIFY(!directBlock.contains(QStringLiteral(
+            "color: AppTheme.accent\n")));
     }
 
     void messageContentAndActionsRemainInteractive()
