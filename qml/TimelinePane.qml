@@ -222,6 +222,23 @@ Rectangle {
                 // link-preview privacy gate in each MessageDelegate.
                 property bool roomEncrypted: root.currentRoom.encrypted === true
                 property var expandedStateGroups: ({})
+                function saveRoomPosition() {
+                    if (app.currentRoomId === "") return
+                    if (stickToBottom) {
+                        app.pagination.saveFollowingLatest(app.currentRoomId)
+                        return
+                    }
+                    var row = indexAt(width / 2, contentY + topMargin + 1)
+                    if (row < 0) return
+                    var eventId = app.timeline.eventIdAt(row)
+                    for (var probe = row; eventId === "" && probe < count; ++probe)
+                        eventId = app.timeline.eventIdAt(probe)
+                    if (eventId === "") return
+                    var item = itemAtIndex(app.timeline.rowForStableId(eventId))
+                    app.pagination.saveScrollAnchor(
+                                app.currentRoomId, eventId,
+                                item ? contentY - item.y : 0, false)
+                }
                 function stateGroupExpansionKey(groupId) {
                     return (app.currentRoomId || "") + "\u001f" + groupId
                 }
@@ -381,6 +398,23 @@ Rectangle {
                     function onPaginationCompleted(inserted, reachedStart) {
                         Qt.callLater(function() { timeline.restoreAnchor(inserted) })
                     }
+                    function onTargetLocated(row, pixelOffset, highlight) {
+                        Qt.callLater(function() {
+                            timeline.stickToBottom = false
+                            timeline.positionViewAtIndex(
+                                        row, highlight ? ListView.Center
+                                                       : ListView.Beginning)
+                            if (!highlight) {
+                                var item = timeline.itemAtIndex(row)
+                                if (item) timeline.contentY = item.y + pixelOffset
+                            }
+                            timeline.saveRoomPosition()
+                        })
+                    }
+                    function onRestoreLatestRequested() {
+                        timeline.stickToBottom = true
+                        Qt.callLater(timeline.scrollToEndDeferred)
+                    }
                 }
                 Connections {
                     target: app.settings
@@ -416,6 +450,7 @@ Rectangle {
                     // coordinator reacts to the nearBottom binding).
                     stickToBottom = atYEnd
                                     || (contentY + height >= contentHeight - 40)
+                    saveRoomPosition()
                 }
                 Component.onCompleted: {
                     Qt.callLater(scrollToEndDeferred)
@@ -434,7 +469,9 @@ Rectangle {
                         timeline.anchorOffset = 0
                         timeline.anchorContentHeight = 0
                         timeline.expandedStateGroups = ({})
-                        Qt.callLater(timeline.scrollToEndDeferred)
+                        Qt.callLater(function() {
+                            app.pagination.restoreScrollAnchor(app.currentRoomId)
+                        })
                         Qt.callLater(timeline.maybeFillViewport)
                     }
                 }
@@ -533,11 +570,29 @@ Rectangle {
                 ToolTip.delay: 500
                 onClicked: {
                     timeline.stickToBottom = true
+                    app.pagination.saveFollowingLatest(app.currentRoomId)
                     timeline.positionViewAtEnd()
                     Qt.callLater(function() {
                         timeline.positionViewAtEnd()
                         app.readReceipts.reevaluate()
                     })
+                }
+            }
+
+            Label {
+                anchors.horizontalCenter: parent.horizontalCenter
+                anchors.bottom: jumpToLatestButton.visible
+                                ? jumpToLatestButton.top : parent.bottom
+                anchors.bottomMargin: AppTheme.spacingS
+                visible: app.pagination.navigationMessage.length > 0
+                text: app.pagination.navigationMessage
+                color: AppTheme.text
+                padding: AppTheme.spacingS
+                z: 21
+                background: Rectangle {
+                    color: AppTheme.surface
+                    border.color: AppTheme.border
+                    radius: AppTheme.radiusSm
                 }
             }
         }

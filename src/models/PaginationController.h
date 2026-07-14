@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QList>
+#include <QHash>
 #include <QObject>
 #include <QString>
 #include <QSet>
@@ -8,6 +9,7 @@
 #include <QtQmlIntegration/qqmlintegration.h>
 
 class MatrixClient;
+class TimelineModel;
 struct TimelineEvent;
 
 // v0.5.11: backward-pagination policy for the live SDK timeline.
@@ -51,6 +53,8 @@ class PaginationController : public QObject
     // True once automatic viewport filling stopped itself (budget spent or
     // no progress). User-driven NearTop requests remain available.
     Q_PROPERTY(bool fillStopped READ fillStopped NOTIFY stateChanged)
+    Q_PROPERTY(QString highlightedEventId READ highlightedEventId NOTIFY navigationChanged)
+    Q_PROPERTY(QString navigationMessage READ navigationMessage NOTIFY navigationChanged)
 
 public:
     enum PresentationState { Hidden, Loading, Failed };
@@ -68,6 +72,7 @@ public:
     explicit PaginationController(QObject *parent = nullptr);
 
     void setClient(MatrixClient *client);
+    void setTimelineModel(TimelineModel *model) { m_timelineModel = model; }
 
     QString roomId() const { return m_roomId; }
     void setRoomId(const QString &roomId);
@@ -78,6 +83,8 @@ public:
     PresentationState presentationState() const;
     InitialHistoryState initialHistoryState() const;
     bool fillStopped() const { return m_fillStopped; }
+    QString highlightedEventId() const { return m_highlightedEventId; }
+    QString navigationMessage() const { return m_navigationMessage; }
 
     // Ask for one more batch because the viewport is not filled yet.
     // Budget-limited and no-progress-guarded; safe to call repeatedly from
@@ -87,6 +94,13 @@ public:
     Q_INVOKABLE void requestNearTop();
     // Clear a failure and request again (user pressed Retry).
     Q_INVOKABLE void retry();
+    Q_INVOKABLE void jumpToEvent(const QString &eventId);
+    Q_INVOKABLE void saveScrollAnchor(const QString &roomId,
+                                      const QString &eventId,
+                                      qreal pixelOffset,
+                                      bool followingLatest);
+    Q_INVOKABLE void restoreScrollAnchor(const QString &roomId);
+    Q_INVOKABLE void saveFollowingLatest(const QString &roomId);
 
     // Monotonic controller generation. Bumped on room change, timeline
     // reset, and sign-out; exposed so anchor bookkeeping can reject stale
@@ -97,6 +111,8 @@ public:
     void setMaxViewportFillRequests(int count) { m_maxFillRequests = count; }
     void setAutomaticRetryPolicyForTest(int attempts, int baseDelayMs)
     { m_maxAutomaticRetries = attempts; m_autoRetryBaseDelayMs = baseDelayMs; }
+    void setHighlightDurationForTest(int durationMs)
+    { m_highlightDurationMs = durationMs; }
 
 Q_SIGNALS:
     void roomIdChanged();
@@ -104,6 +120,9 @@ Q_SIGNALS:
     // One completed backward batch for the CURRENT room and generation.
     // insertedCount is the number of events prepended by this batch.
     void paginationCompleted(int insertedCount, bool reachedStart);
+    void targetLocated(int row, qreal pixelOffset, bool highlight);
+    void restoreLatestRequested();
+    void navigationChanged();
 
 private Q_SLOTS:
     void onPaginationStateChanged(const QString &roomId);
@@ -115,15 +134,27 @@ private Q_SLOTS:
     void onLoggedOut();
 
 private:
-    enum class Reason { None, ViewportFill, AutomaticRetry, NearTop, Retry };
+    enum class Reason { None, ViewportFill, AutomaticRetry, NearTop, Retry,
+                        Navigation };
+    enum class NavigationPurpose { None, Reply, Restore };
+    struct ScrollAnchor {
+        QString eventId;
+        qreal pixelOffset = 0;
+        bool followingLatest = true;
+    };
     static const char *reasonName(Reason reason);
 
     void request(Reason reason);
     void resetPerRoomState();
     void finishBatch(bool reachedStart);
     void scheduleAutomaticRetry();
+    void continueNavigation(bool reachedStart);
+    void failNavigation();
+    void locateNavigationTarget(int row);
+    void clearNavigation(bool clearMessage = true);
 
     MatrixClient *m_client = nullptr;
+    TimelineModel *m_timelineModel = nullptr;
     QString m_roomId;
     quint64 m_generation = 0;
 
@@ -150,5 +181,17 @@ private:
     int m_noProgressStrikes = 0;
     bool m_fillStopped = false;
 
+    NavigationPurpose m_navigationPurpose = NavigationPurpose::None;
+    QString m_navigationEventId;
+    int m_navigationBatches = 0;
+    QString m_highlightedEventId;
+    QString m_navigationMessage;
+    QTimer m_highlightTimer;
+    QTimer m_navigationMessageTimer;
+    QHash<QString, ScrollAnchor> m_scrollAnchors;
+    int m_highlightDurationMs = 1800;
+
     static constexpr int kMaxNoProgressStrikes = 2;
+    static constexpr int kMaxNavigationBatches = 8;
+    static constexpr int kMaxScrollAnchors = 64;
 };

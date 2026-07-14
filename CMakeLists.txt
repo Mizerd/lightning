@@ -551,6 +551,8 @@ if(BUILD_TESTING)
         tests/PaginationControllerTest.cpp
         src/models/PaginationController.h
         src/models/PaginationController.cpp
+        src/models/TimelineModel.h
+        src/models/TimelineModel.cpp
         src/matrix/MatrixClient.h
         src/matrix/MatrixClient.cpp
     )

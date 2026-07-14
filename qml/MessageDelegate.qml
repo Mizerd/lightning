@@ -145,12 +145,14 @@ Item {
 
     Rectangle {
         visible: !root.isVirtualRow && !root.isStateActivity
-                 && (rowHover.hovered || root.actionsPinned)
+                 && (rowHover.hovered || root.actionsPinned
+                     || app.pagination.highlightedEventId === (model.eventId || ""))
         x: -AppTheme.spacingXS
         y: layout.y
         width: root.width + AppTheme.spacingXS * 2
         height: layout.height
-        color: AppTheme.bubbleOverlaySubtle
+        color: app.pagination.highlightedEventId === (model.eventId || "")
+               ? AppTheme.selected : AppTheme.bubbleOverlaySubtle
         radius: AppTheme.radiusSm
         z: 0
     }
@@ -286,6 +288,7 @@ Item {
                     // Reply preview
                     Rectangle {
                         id: replyBox
+                        objectName: "replyNavigationTarget"
                         visible: model.replyToEventId && model.replyToEventId.length > 0
                                  && !model.redacted
                         Layout.fillWidth: true
@@ -294,6 +297,12 @@ Item {
                         radius: 4
                         border.color: AppTheme.accent
                         border.width: 0
+                        Accessible.role: Accessible.Button
+                        Accessible.name: qsTr("Jump to replied message")
+                        TapHandler {
+                            cursorShape: Qt.PointingHandCursor
+                            onTapped: app.pagination.jumpToEvent(model.replyToEventId || "")
+                        }
                         ColumnLayout {
                             id: replyLayout
                             anchors.left: parent.left

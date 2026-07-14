@@ -766,6 +766,13 @@ QString TimelineModel::stableIdAt(int row) const
     return e.itemId.isEmpty() ? e.eventId : e.itemId;
 }
 
+QString TimelineModel::eventIdAt(int row) const
+{
+    if (row < 0 || row >= m_events.size())
+        return {};
+    return m_events.at(row).eventId;
+}
+
 int TimelineModel::rowForStableId(const QString &stableId) const
 {
     if (stableId.isEmpty())

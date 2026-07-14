@@ -111,6 +111,7 @@ AppController::AppController(Backend backend, QObject *parent)
     m_roomInfo->setClient(m_client.get());
     m_mediaBridge->setClient(m_client.get());
     m_pagination->setClient(m_client.get());
+    m_pagination->setTimelineModel(m_timeline.get());
     m_readReceipts->setClient(m_client.get());
     m_readReceipts->setTimelineModel(m_timeline.get());
     m_linkPreviews->setClient(m_client.get());

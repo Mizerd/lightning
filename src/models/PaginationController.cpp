@@ -1,6 +1,7 @@
 #include "models/PaginationController.h"
 
 #include "matrix/MatrixClient.h"
+#include "models/TimelineModel.h"
 
 #include <QLoggingCategory>
 #include <QTimer>
@@ -11,6 +12,16 @@ PaginationController::PaginationController(QObject *parent)
     : QObject(parent)
 {
     m_autoRetryTimer.setSingleShot(true);
+    m_highlightTimer.setSingleShot(true);
+    m_navigationMessageTimer.setSingleShot(true);
+    connect(&m_highlightTimer, &QTimer::timeout, this, [this] {
+        m_highlightedEventId.clear();
+        Q_EMIT navigationChanged();
+    });
+    connect(&m_navigationMessageTimer, &QTimer::timeout, this, [this] {
+        m_navigationMessage.clear();
+        Q_EMIT navigationChanged();
+    });
     connect(&m_autoRetryTimer, &QTimer::timeout, this, [this] {
         if (m_autoRetryGeneration != m_generation || !m_client
             || m_roomId.isEmpty())
@@ -52,6 +63,7 @@ void PaginationController::setRoomId(const QString &roomId)
     if (m_roomId == roomId)
         return;
     m_roomId = roomId;
+    clearNavigation();
     resetPerRoomState();
     // Room opening and the Rust timeline snapshot are asynchronous. Record
     // initial-history intent immediately; the backend readiness notification
@@ -142,6 +154,7 @@ const char *PaginationController::reasonName(Reason reason)
     case Reason::AutomaticRetry: return "automatic_retry";
     case Reason::NearTop:      return "near_top";
     case Reason::Retry:        return "retry";
+    case Reason::Navigation:   return "navigation";
     case Reason::None:         break;
     }
     return "none";
@@ -189,6 +202,78 @@ void PaginationController::retry()
     // NearTop semantics: an explicit user gesture. loadOlderMessages clears
     // the backend failure flag on the next dispatch.
     request(Reason::Retry);
+}
+
+void PaginationController::jumpToEvent(const QString &eventId)
+{
+    if (eventId.isEmpty() || !m_timelineModel || m_roomId.isEmpty()) {
+        failNavigation();
+        return;
+    }
+    const int loadedRow = m_timelineModel->rowForStableId(eventId);
+    if (loadedRow >= 0) {
+        m_navigationPurpose = NavigationPurpose::Reply;
+        m_navigationEventId = eventId;
+        locateNavigationTarget(loadedRow);
+        return;
+    }
+    if (m_navigationPurpose == NavigationPurpose::Reply
+        && m_navigationEventId == eventId)
+        return; // coalesce repeated activation of the same reply
+    clearNavigation();
+    m_navigationPurpose = NavigationPurpose::Reply;
+    m_navigationEventId = eventId;
+    m_navigationBatches = 0;
+    request(Reason::Navigation);
+    // A room-open fill may already own the single flight, or the timeline
+    // may not have adopted its SDK generation yet. Keep the target pending;
+    // finishBatch()/the readiness-driven initial fill will continue it.
+    if (!m_requestActive && m_client->paginationReady(m_roomId))
+        failNavigation();
+}
+
+void PaginationController::saveScrollAnchor(const QString &roomId,
+                                            const QString &eventId,
+                                            qreal pixelOffset,
+                                            bool followingLatest)
+{
+    if (roomId.isEmpty())
+        return;
+    if (m_scrollAnchors.size() >= kMaxScrollAnchors
+        && !m_scrollAnchors.contains(roomId))
+        m_scrollAnchors.erase(m_scrollAnchors.begin());
+    m_scrollAnchors.insert(roomId, { eventId, pixelOffset, followingLatest });
+}
+
+void PaginationController::saveFollowingLatest(const QString &roomId)
+{
+    saveScrollAnchor(roomId, {}, 0, true);
+}
+
+void PaginationController::restoreScrollAnchor(const QString &roomId)
+{
+    if (roomId.isEmpty() || roomId != m_roomId)
+        return;
+    const auto it = m_scrollAnchors.constFind(roomId);
+    if (it == m_scrollAnchors.cend() || it->followingLatest
+        || it->eventId.isEmpty()) {
+        Q_EMIT restoreLatestRequested();
+        return;
+    }
+    const int row = m_timelineModel
+        ? m_timelineModel->rowForStableId(it->eventId) : -1;
+    if (row >= 0) {
+        Q_EMIT targetLocated(row, it->pixelOffset, false);
+        return;
+    }
+    clearNavigation();
+    m_navigationPurpose = NavigationPurpose::Restore;
+    m_navigationEventId = it->eventId;
+    m_navigationBatches = 0;
+    request(Reason::Navigation);
+    if (!m_requestActive && m_client
+        && m_client->paginationReady(m_roomId))
+        failNavigation();
 }
 
 void PaginationController::request(Reason reason)
@@ -299,6 +384,10 @@ void PaginationController::onPaginationStateChanged(const QString &roomId)
         m_requestActive = false;
         m_activeReason = Reason::None;
         m_seenLoading = false;
+        if (failedReason == Reason::Navigation) {
+            failNavigation();
+            return;
+        }
         if ((failedReason == Reason::ViewportFill
              || failedReason == Reason::AutomaticRetry)
             && m_initialHistoryRequested
@@ -372,12 +461,15 @@ void PaginationController::finishBatch(bool hitStart)
     // "Loading", forever) even though direct C++ reads already see Hidden.
     Q_EMIT stateChanged();
     Q_EMIT paginationCompleted(inserted, hitStart);
+    if (m_navigationPurpose != NavigationPurpose::None)
+        continueNavigation(hitStart);
 }
 
 void PaginationController::onTimelineReset(const QString &roomId)
 {
     if (roomId != m_roomId)
         return;
+    clearNavigation();
     // A fresh snapshot restarts anchor bookkeeping and the fill budget;
     // any batch that was in flight belongs to the previous generation.
     resetPerRoomState();
@@ -394,7 +486,81 @@ void PaginationController::onLoggedOut()
     qCInfo(lcPagination) << "timeline pagination stopped on sign-out generation="
                          << m_generation;
     resetPerRoomState();
+    clearNavigation();
+    m_scrollAnchors.clear();
     Q_EMIT stateChanged();
+}
+
+void PaginationController::continueNavigation(bool hitStart)
+{
+    if (m_navigationPurpose == NavigationPurpose::None || !m_timelineModel)
+        return;
+    const int row = m_timelineModel->rowForStableId(m_navigationEventId);
+    if (row >= 0) {
+        locateNavigationTarget(row);
+        return;
+    }
+    if (hitStart || ++m_navigationBatches >= kMaxNavigationBatches) {
+        failNavigation();
+        return;
+    }
+    request(Reason::Navigation);
+    if (!m_requestActive)
+        failNavigation();
+}
+
+void PaginationController::locateNavigationTarget(int row)
+{
+    const bool highlight = m_navigationPurpose == NavigationPurpose::Reply;
+    qreal offset = 0;
+    if (!highlight) {
+        const auto it = m_scrollAnchors.constFind(m_roomId);
+        if (it != m_scrollAnchors.cend())
+            offset = it->pixelOffset;
+    }
+    const QString eventId = m_navigationEventId;
+    m_navigationPurpose = NavigationPurpose::None;
+    m_navigationEventId.clear();
+    m_navigationBatches = 0;
+    if (highlight) {
+        m_highlightedEventId = eventId;
+        m_highlightTimer.start(m_highlightDurationMs);
+        Q_EMIT navigationChanged();
+    }
+    Q_EMIT targetLocated(row, offset, highlight);
+}
+
+void PaginationController::failNavigation()
+{
+    const bool wasRestore = m_navigationPurpose == NavigationPurpose::Restore;
+    clearNavigation(false);
+    if (wasRestore) {
+        Q_EMIT restoreLatestRequested();
+        return;
+    }
+    m_navigationMessage = tr("Original message is unavailable.");
+    m_navigationMessageTimer.start(3000);
+    Q_EMIT navigationChanged();
+}
+
+void PaginationController::clearNavigation(bool clearMessage)
+{
+    m_navigationPurpose = NavigationPurpose::None;
+    m_navigationEventId.clear();
+    m_navigationBatches = 0;
+    bool changed = false;
+    if (!m_highlightedEventId.isEmpty()) {
+        m_highlightTimer.stop();
+        m_highlightedEventId.clear();
+        changed = true;
+    }
+    if (clearMessage && !m_navigationMessage.isEmpty()) {
+        m_navigationMessageTimer.stop();
+        m_navigationMessage.clear();
+        changed = true;
+    }
+    if (changed)
+        Q_EMIT navigationChanged();
 }
 
 void PaginationController::scheduleAutomaticRetry()

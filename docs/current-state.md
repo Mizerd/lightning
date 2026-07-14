@@ -31,6 +31,20 @@ from the bottom. New events preserve that historical reading position, while
 the explicit control resumes bottom-following and the existing read-receipt
 policy.
 
+## v0.5.18 development — stable timeline navigation
+
+Reply previews now navigate by the Matrix target event ID. Targets already in
+the live SDK timeline are centered immediately; older targets use the existing
+single-flight pagination controller for at most eight backward batches, and a
+room change cancels the search. Located replies receive a short highlight and
+unavailable targets report a compact safe fallback without fetching arbitrary
+event data through QML.
+
+Each room also keeps a bounded, in-memory presentation anchor consisting only
+of its room ID, visible event ID, pixel offset, and whether it followed the
+latest event. Returning to a room restores that stable anchor (or latest), and
+logout clears all anchors. No message body or decrypted content is persisted.
+
 ## v0.5.17 — timeline runtime hotfix
 
 Live investigation of the affected encrypted room classified the reported

@@ -46,6 +46,13 @@ private Q_SLOTS:
         QVERIFY(!pane.isEmpty());
         QVERIFY(pane.contains(QStringLiteral("app.pagination.presentationState")));
         QVERIFY(pane.contains(QStringLiteral("PaginationController.Hidden ? 0 : 32")));
+        QVERIFY(pane.contains(QStringLiteral("restoreScrollAnchor(app.currentRoomId)")));
+        QVERIFY(pane.contains(QStringLiteral("saveScrollAnchor(")));
+        QVERIFY(pane.contains(QStringLiteral("eventIdAt(row)")));
+
+        const QString delegate = read(QStringLiteral("MessageDelegate.qml"));
+        QVERIFY(delegate.contains(QStringLiteral("jumpToEvent(model.replyToEventId")));
+        QVERIFY(delegate.contains(QStringLiteral("highlightedEventId")));
         QVERIFY(pane.contains(QStringLiteral("viewportFillCheckScheduled")));
         QVERIFY(pane.contains(QStringLiteral("Qt.callLater(function()")));
         QVERIFY(pane.contains(QStringLiteral("app.pagination.requestViewportFill()")));

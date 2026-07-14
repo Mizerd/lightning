@@ -115,6 +115,9 @@ public:
     // preservation. stableIdAt prefers the SDK item id (survives in-place
     // updates) over the event id; rowForStableId matches either.
     Q_INVOKABLE QString stableIdAt(int row) const;
+    // Matrix event id only. Unlike the SDK item id this is suitable for
+    // restoring a room after its live timeline has been reconstructed.
+    Q_INVOKABLE QString eventIdAt(int row) const;
     Q_INVOKABLE int rowForStableId(const QString &stableId) const;
 
     // v0.5.7: retry a failed outgoing message (row must be a failed local

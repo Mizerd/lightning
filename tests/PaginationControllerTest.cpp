@@ -6,6 +6,7 @@
 
 #include "matrix/MatrixClient.h"
 #include "models/PaginationController.h"
+#include "models/TimelineModel.h"
 
 #include <QSignalSpy>
 #include <QtTest/QtTest>
@@ -48,6 +49,7 @@ public:
     bool failureTransient = false;
     int loadOlderCalls = 0;
     QString lastLoadRoom;
+    QHash<QString, QList<TimelineEvent>> timelines;
 
     // Simulation helpers: the async Rust events, condensed.
     void beginLoading(const QString &roomId)
@@ -65,6 +67,18 @@ public:
         states[roomId].reachedStart = reachedStart;
         Q_EMIT paginationStateChanged(roomId);
         QCoreApplication::processEvents(); // settle async diff accounting
+    }
+    void completeEvents(const QString &roomId,
+                        const QList<TimelineEvent> &events,
+                        bool reachedStart)
+    {
+        if (!events.isEmpty())
+            Q_EMIT eventsPrepended(roomId, events);
+        states[roomId].loading = false;
+        states[roomId].failed = false;
+        states[roomId].reachedStart = reachedStart;
+        Q_EMIT paginationStateChanged(roomId);
+        QCoreApplication::processEvents();
     }
     void failBatch(const QString &roomId, bool transient = false)
     {
@@ -118,7 +132,8 @@ public:
     void stopSync() override {}
     ConnectionState connectionState() const override { return Syncing; }
     QList<RoomInfo> rooms() const override { return {}; }
-    QList<TimelineEvent> timeline(const QString &) const override { return {}; }
+    QList<TimelineEvent> timeline(const QString &roomId) const override
+    { return timelines.value(roomId); }
     QString displayNameFor(const QString &, const QString &id) const override { return id; }
     QString avatarMxcFor(const QString &, const QString &) const override { return {}; }
     QStringList typingUsersFor(const QString &) const override { return {}; }
@@ -639,6 +654,189 @@ private Q_SLOTS:
         client.completeBatch(kRoomA, 2, false);
         QCOMPARE(completed.count(), 1);
         QCOMPARE(completed.first().at(0).toInt(), 2);
+    }
+
+    void loadedReplyTargetUsesStableEventIdAndHighlights()
+    {
+        FakeClient client;
+        auto target = makeEvent(QStringLiteral("$target:example.org"));
+        target.itemId = QStringLiteral("sdk-item-which-is-not-the-event-id");
+        client.timelines[kRoomA] = { target };
+        TimelineModel model;
+        model.setClient(&client);
+        model.setRoomId(kRoomA);
+        PaginationController controller;
+        controller.setClient(&client);
+        controller.setTimelineModel(&model);
+        controller.setHighlightDurationForTest(5);
+        controller.setRoomId(kRoomA);
+        QSignalSpy located(&controller, &PaginationController::targetLocated);
+
+        controller.jumpToEvent(QStringLiteral("$target:example.org"));
+        QCOMPARE(located.count(), 1);
+        QCOMPARE(located.first().at(0).toInt(), 0);
+        QVERIFY(located.first().at(2).toBool());
+        QCOMPARE(controller.highlightedEventId(),
+                 QStringLiteral("$target:example.org"));
+        QTRY_VERIFY(controller.highlightedEventId().isEmpty());
+    }
+
+    void replyTargetSearchPaginatesBoundedlyAndCoalescesClicks()
+    {
+        FakeClient client;
+        TimelineModel model;
+        model.setClient(&client);
+        model.setRoomId(kRoomA);
+        PaginationController controller;
+        controller.setClient(&client);
+        controller.setTimelineModel(&model);
+        controller.setRoomId(kRoomA);
+        QSignalSpy located(&controller, &PaginationController::targetLocated);
+
+        const QString targetId = QStringLiteral("$old:example.org");
+        controller.jumpToEvent(targetId);
+        controller.jumpToEvent(targetId);
+        QCOMPARE(client.loadOlderCalls, 1);
+        client.beginLoading(kRoomA);
+        client.completeEvents(kRoomA, { makeEvent(targetId) }, false);
+
+        QCOMPARE(located.count(), 1);
+        QCOMPARE(model.rowForStableId(targetId), 0);
+        QCOMPARE(located.first().at(0).toInt(), 0);
+    }
+
+    void replySearchWaitsForExistingInitialHistoryFlight()
+    {
+        FakeClient client;
+        TimelineModel model;
+        model.setClient(&client);
+        model.setRoomId(kRoomA);
+        PaginationController controller;
+        controller.setClient(&client);
+        controller.setTimelineModel(&model);
+        controller.setRoomId(kRoomA);
+        QSignalSpy located(&controller, &PaginationController::targetLocated);
+
+        controller.requestViewportFill();
+        QCOMPARE(client.loadOlderCalls, 1);
+        controller.jumpToEvent(QStringLiteral("$during-open:example.org"));
+        QCOMPARE(client.loadOlderCalls, 1);
+        client.beginLoading(kRoomA);
+        client.completeEvents(
+            kRoomA,
+            { makeEvent(QStringLiteral("$during-open:example.org")) }, false);
+        QCOMPARE(located.count(), 1);
+    }
+
+    void unavailableReplyFailsSafelyAtStart()
+    {
+        FakeClient client;
+        TimelineModel model;
+        model.setClient(&client);
+        model.setRoomId(kRoomA);
+        PaginationController controller;
+        controller.setClient(&client);
+        controller.setTimelineModel(&model);
+        controller.setRoomId(kRoomA);
+
+        controller.jumpToEvent(QStringLiteral("$missing:example.org"));
+        client.beginLoading(kRoomA);
+        client.completeBatch(kRoomA, 0, true);
+        QVERIFY(!controller.navigationMessage().isEmpty());
+    }
+
+    void unavailableReplySearchHasFixedBatchBudget()
+    {
+        FakeClient client;
+        TimelineModel model;
+        model.setClient(&client);
+        model.setRoomId(kRoomA);
+        PaginationController controller;
+        controller.setClient(&client);
+        controller.setTimelineModel(&model);
+        controller.setRoomId(kRoomA);
+
+        controller.jumpToEvent(QStringLiteral("$missing:example.org"));
+        for (int batch = 0; batch < 8; ++batch) {
+            client.beginLoading(kRoomA);
+            client.completeBatch(kRoomA, 0, false);
+        }
+        QCOMPARE(client.loadOlderCalls, 8);
+        QVERIFY(!controller.navigationMessage().isEmpty());
+        QVERIFY(!controller.busy());
+    }
+
+    void roomSwitchCancelsReplySearch()
+    {
+        FakeClient client;
+        TimelineModel model;
+        model.setClient(&client);
+        model.setRoomId(kRoomA);
+        PaginationController controller;
+        controller.setClient(&client);
+        controller.setTimelineModel(&model);
+        controller.setRoomId(kRoomA);
+        QSignalSpy located(&controller, &PaginationController::targetLocated);
+
+        controller.jumpToEvent(QStringLiteral("$old:example.org"));
+        client.beginLoading(kRoomA);
+        controller.setRoomId(kRoomB);
+        model.setRoomId(kRoomB);
+        client.completeEvents(kRoomA,
+                              { makeEvent(QStringLiteral("$old:example.org")) },
+                              false);
+        QCOMPARE(located.count(), 0);
+    }
+
+    void roomScrollAnchorRestoresEventAndFollowingLatest()
+    {
+        FakeClient client;
+        auto event = makeEvent(QStringLiteral("$anchor:example.org"));
+        event.itemId = QStringLiteral("new-sdk-item");
+        client.timelines[kRoomA] = { event };
+        TimelineModel model;
+        model.setClient(&client);
+        model.setRoomId(kRoomA);
+        PaginationController controller;
+        controller.setClient(&client);
+        controller.setTimelineModel(&model);
+        controller.setRoomId(kRoomA);
+        QSignalSpy located(&controller, &PaginationController::targetLocated);
+        QSignalSpy latest(&controller,
+                          &PaginationController::restoreLatestRequested);
+
+        QCOMPARE(model.eventIdAt(0), QStringLiteral("$anchor:example.org"));
+        controller.saveScrollAnchor(kRoomA,
+                                    QStringLiteral("$anchor:example.org"),
+                                    17.5, false);
+        controller.restoreScrollAnchor(kRoomA);
+        QCOMPARE(located.count(), 1);
+        QCOMPARE(located.first().at(1).toReal(), 17.5);
+        QVERIFY(!located.first().at(2).toBool());
+
+        controller.saveFollowingLatest(kRoomA);
+        controller.restoreScrollAnchor(kRoomA);
+        QCOMPARE(latest.count(), 1);
+    }
+
+    void logoutClearsRoomScrollAnchors()
+    {
+        FakeClient client;
+        TimelineModel model;
+        model.setClient(&client);
+        model.setRoomId(kRoomA);
+        PaginationController controller;
+        controller.setClient(&client);
+        controller.setTimelineModel(&model);
+        controller.setRoomId(kRoomA);
+        controller.saveScrollAnchor(kRoomA,
+                                    QStringLiteral("$anchor:example.org"),
+                                    1, false);
+        client.logout();
+        QSignalSpy latest(&controller,
+                          &PaginationController::restoreLatestRequested);
+        controller.restoreScrollAnchor(kRoomA);
+        QCOMPARE(latest.count(), 1);
     }
 };
 
