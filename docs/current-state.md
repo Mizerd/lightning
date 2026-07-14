@@ -1,4 +1,17 @@
-# Current state (v0.5.15)
+# Current state (v0.5.16 development)
+
+## v0.5.16 — timeline presentation polish
+
+### Compact sender rows (checkpoint 1)
+
+Sender-group leaders retain the fixed left avatar gutter and compact
+name/timestamp header, while continuation rows no longer reserve an empty
+avatar-height block or a permanent timestamp line. Continuation timestamps
+appear subtly in the gutter on hover, group leaders provide the inter-group
+spacing, and the timeline no longer inserts the same global gap between every
+event. The action toolbar floats at the row's right edge rather than consuming
+message-column layout width. Selectable text, rich links, replies, reactions,
+send state, retry, and message actions remain on the same event delegate.
 
 ## v0.5.15 — expanded room activity
 

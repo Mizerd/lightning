@@ -118,11 +118,9 @@ private Q_SLOTS:
         QVERIFY(delegate.contains(QStringLiteral(
             "objectName: \"messagePresentationRow\"")));
         QVERIFY(delegate.contains(QStringLiteral(
-            "Layout.alignment: Qt.AlignLeft")));
+            "readonly property real avatarGutterWidth: 40")));
         QVERIFY(delegate.contains(QStringLiteral(
-            "layoutDirection: Qt.LeftToRight")));
-        QVERIFY(delegate.contains(QStringLiteral(
-            "visible: model.showSenderIdentity === true")));
+            "readonly property bool showsIdentity: model.showSenderIdentity === true")));
         QVERIFY(delegate.contains(QStringLiteral(
             "mxc: model.senderAvatarMxc || \"\"")));
         QVERIFY(delegate.contains(QStringLiteral(
@@ -139,6 +137,32 @@ private Q_SLOTS:
         QVERIFY(!delegate.contains(QStringLiteral("AppTheme.otherBubble")));
         QVERIFY(delegate.contains(QStringLiteral("color: \"transparent\"")));
         QVERIFY(delegate.contains(QStringLiteral("radius: 0")));
+    }
+
+    void continuationRowsStayCompactAndActionsFloat()
+    {
+        const QString delegate = read(QStringLiteral("MessageDelegate.qml"));
+        const QString pane = read(QStringLiteral("TimelinePane.qml"));
+        QVERIFY(!delegate.isEmpty());
+        QVERIFY(!pane.isEmpty());
+
+        // Continuations must not retain the former unconditional 36px avatar
+        // height or a permanent timestamp line below the body.
+        QVERIFY(delegate.contains(QStringLiteral(
+            "implicitHeight: root.showsIdentity ? 34 : bodyLabel.implicitHeight")));
+        QVERIFY(delegate.contains(QStringLiteral(
+            "objectName: \"continuationTimestamp\"")));
+        QVERIFY(delegate.contains(QStringLiteral(
+            "visible: !root.showsIdentity && rowHover.hovered")));
+        QVERIFY(delegate.contains(QStringLiteral("return \"\"")));
+        QVERIFY(!delegate.contains(QStringLiteral(
+            "return model.showSenderIdentity === true ? \"\" : ts")));
+
+        // The toolbar overlays the unused right edge instead of taking a
+        // RowLayout cell and narrowing the message column on hover.
+        QVERIFY(delegate.contains(QStringLiteral("anchors.right: parent.right")));
+        QVERIFY(delegate.contains(QStringLiteral("anchors.top: parent.top")));
+        QVERIFY(pane.contains(QStringLiteral("spacing: 0")));
     }
 
     void messageContentAndActionsRemainInteractive()

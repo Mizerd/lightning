@@ -11,9 +11,13 @@ Item {
     readonly property bool isVirtualRow: model.isVirtual === true
     readonly property bool isStateActivity: model.isStateActivity === true
     readonly property var stateActivityEntries: model.stateGroupEntries || []
+    readonly property bool showsIdentity: model.showSenderIdentity === true
+    readonly property real messageTopSpacing: showsIdentity
+                                               ? AppTheme.spacingS : 1
+    readonly property real avatarGutterWidth: 40
     implicitHeight: isVirtualRow ? virtualRow.implicitHeight
                     : isStateActivity ? stateActivity.implicitHeight
-                    : layout.implicitHeight + AppTheme.spacingXS
+                    : layout.implicitHeight + messageTopSpacing
 
     // Stable key for the pin-one-toolbar-at-a-time state on the ListView.
     // Prefer the SDK item id; fall back to the event id for backends that
@@ -118,6 +122,7 @@ Item {
     ColumnLayout {
         id: layout
         visible: !root.isVirtualRow && !root.isStateActivity
+        y: root.messageTopSpacing
         width: parent.width
         spacing: 2
         z: 1
@@ -125,34 +130,50 @@ Item {
         // One left-aligned sender timeline for every participant. Identity is
         // shown once at the start of a model-defined sender group; continuation
         // rows retain the same content indent without repeating the avatar.
-        RowLayout {
+        Item {
             id: bubbleRow
             objectName: "messagePresentationRow"
             Layout.fillWidth: true
-            Layout.alignment: Qt.AlignLeft
-            layoutDirection: Qt.LeftToRight
-            spacing: AppTheme.spacingXS
+            implicitHeight: Math.max(avatarSlot.implicitHeight,
+                                     bubble.implicitHeight)
 
             HoverHandler { id: rowHover }
 
             Item {
                 id: avatarSlot
                 objectName: "senderAvatarSlot"
-                Layout.preferredWidth: 36
-                Layout.minimumWidth: 36
-                Layout.maximumWidth: 36
-                Layout.alignment: Qt.AlignTop
-                implicitHeight: 36
+                x: 0
+                width: root.avatarGutterWidth
+                height: parent.height
+                implicitHeight: root.showsIdentity ? 34 : bodyLabel.implicitHeight
 
                 Avatar {
                     objectName: "senderAvatar"
                     anchors.top: parent.top
-                    visible: model.showSenderIdentity === true
+                    visible: root.showsIdentity
                     size: 32
                     mxc: model.senderAvatarMxc || ""
                     name: model.senderDisplayName || model.senderInitials
                     Accessible.name: qsTr("Avatar for %1").arg(
                                          model.senderDisplayName || model.sender)
+                }
+
+                // Continuations keep Discord's stable gutter without paying
+                // for another avatar-height row. The timestamp is available
+                // on hover in that gutter instead of consuming a metadata
+                // line beneath every short message.
+                Label {
+                    objectName: "continuationTimestamp"
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
+                    anchors.rightMargin: 5
+                    visible: !root.showsIdentity && rowHover.hovered
+                    text: Qt.formatDateTime(model.timestamp, "hh:mm")
+                    horizontalAlignment: Text.AlignRight
+                    color: AppTheme.textMuted
+                    font.pixelSize: 9
+                    Accessible.name: qsTr("Sent at %1").arg(text)
                 }
             }
 
@@ -161,9 +182,9 @@ Item {
             Rectangle {
                 id: bubble
                 objectName: "messageContentColumn"
-                Layout.fillWidth: true
-                Layout.maximumWidth: Math.max(1, root.width - avatarSlot.width
-                                               - AppTheme.spacingXL)
+                x: root.avatarGutterWidth
+                width: Math.max(1, parent.width - x)
+                height: implicitHeight
                 implicitHeight: bubbleContent.implicitHeight
                 color: "transparent"
                 radius: 0
@@ -186,8 +207,9 @@ Item {
                     RowLayout {
                         id: identityHeader
                         objectName: "senderIdentityHeader"
-                        visible: model.showSenderIdentity === true
-                        spacing: AppTheme.spacingXS
+                        visible: root.showsIdentity
+                        spacing: 6
+                        Layout.maximumWidth: Math.max(1, bubble.width - 112)
                         Label {
                             id: nameLabel
                             objectName: "senderName"
@@ -195,6 +217,8 @@ Item {
                             color: AppTheme.text
                             font.pixelSize: AppTheme.fontSizeM
                             font.weight: Font.DemiBold
+                            elide: Label.ElideRight
+                            Layout.maximumWidth: 320
                             Accessible.name: qsTr("Sender: %1").arg(text)
                             // Full MXID on hover; always available even when
                             // the display name is shown.
@@ -298,7 +322,7 @@ Item {
                         font.italic: model.redacted || model.undecryptable === true
                         wrapMode: Text.Wrap
                         readOnly: true
-                        Layout.maximumWidth: root.width * 0.72
+                        Layout.maximumWidth: Math.max(1, Math.min(720, bubble.width - 8))
                         textFormat: Text.RichText
                         selectByMouse: true
                         Accessible.name: model.body || ""
@@ -348,8 +372,8 @@ Item {
                                 // Status: 0=Sent, 1=Sending, 2=Failed
                                 if (model.isOwn && model.status === 1) return ts + " • " + qsTr("sending…")
                                 if (model.isOwn && model.status === 2) return ts + " • " + qsTr("failed")
-                                if (model.edited) return ts + " • " + qsTr("edited")
-                                return model.showSenderIdentity === true ? "" : ts
+                                if (model.edited) return qsTr("edited")
+                                return ""
                             }
                             color: AppTheme.textMuted
                             font.pixelSize: 10
@@ -408,9 +432,13 @@ Item {
             // message to the buttons. Subtle AppTheme surface/border framing.
             Rectangle {
                 id: actionBar
-                Layout.alignment: Qt.AlignTop
+                anchors.top: parent.top
+                anchors.right: parent.right
+                anchors.topMargin: -3
+                anchors.rightMargin: 2
                 visible: rowHover.hovered || root.actionsPinned
                          || reactionPicker.opened || moreMenu.opened
+                z: 3
                 radius: AppTheme.radiusSm
                 color: AppTheme.surface
                 border.color: AppTheme.border

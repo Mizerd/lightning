@@ -183,7 +183,11 @@ Rectangle {
                 objectName: "timelineListView"
                 anchors.fill: parent
                 clip: true
-                spacing: AppTheme.spacingS
+                // Delegates own sender-group spacing: group leaders receive
+                // a compact break while continuations stay visually glued
+                // together. A global gap made every continuation look like
+                // an unrelated row.
+                spacing: 0
                 model: app.timeline
                 verticalLayoutDirection: ListView.TopToBottom
                 topMargin: AppTheme.spacingM
