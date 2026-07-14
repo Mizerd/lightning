@@ -12,6 +12,17 @@ across the rename. The product name is **Lightning**.
 
 ## Status
 
+**v0.5.16** — Focused timeline polish release. Sender groups now use a tighter
+fixed avatar gutter, compact header spacing, body-height continuation rows,
+hover-only continuation timestamps, and a non-intrusive floating action
+toolbar. Link-preview cards, Matrix thumbnails, and file attachments use
+bounded widths aligned directly beneath message text instead of stretching
+across the row. Validated direct GIF/image links now select a dedicated inline
+media renderer rather than inheriting generic article-card chrome. Original
+HTTP/HTTPS activation and the existing SVG, DNS/IP, redirect, SSRF, and
+response-size protections remain unchanged. Matrix dependencies remain pinned
+to `matrix-sdk 0.18.0` and `matrix-sdk-ui 0.18.0`.
+
 **v0.5.15** — Timeline presentation release. Expanded room-activity summaries
 now expose their actual typed SDK-derived membership and room-state entries,
 with stable room-scoped expansion and compact Expand/Collapse presentation.

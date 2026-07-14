@@ -1,4 +1,4 @@
-# Current state (v0.5.16 development)
+# Current state (v0.5.16)
 
 ## v0.5.16 — timeline presentation polish
 
