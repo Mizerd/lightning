@@ -12,6 +12,19 @@ across the rename. The product name is **Lightning**.
 
 ## Status
 
+**v0.5.19** — Timeline scrolling and input ergonomics release. Physical
+mouse-wheel scrolling is substantially more responsive: a device-aware policy
+maps one notch to a bounded, viewport-relative distance and coalesces rapid
+notches into one smooth motion, while high-resolution touchpad/pixel scrolling
+stays fine-grained (never multiplied by the notch factor). A persistent
+**Mouse-wheel speed** setting (Standard / Fast / Very fast; default **Fast**)
+tunes the discrete-wheel distance only. Keyboard navigation adds **Page Up /
+Page Down / Home / End** (plus Space / Shift+Space), yielding to a focused
+composer, dialog, or menu. Pagination, the first-unread divider, Jump to
+latest, reply navigation, per-room scroll anchors, and follow-latest all
+continue to work, and the Matrix SDK, E2EE, media, and preview security
+boundaries are unchanged (`matrix-sdk 0.18.0`, `matrix-sdk-ui 0.18.0`).
+
 **v0.5.18** — Timeline reliability and usability release. Room history now
 waits for live SDK timeline readiness and automatically retries transient
 initial dispatch failures, so normal room entry no longer requires manual

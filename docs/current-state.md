@@ -1,4 +1,34 @@
-# Current state (v0.5.18)
+# Current state (v0.5.19)
+
+## v0.5.19 — timeline scrolling and input ergonomics
+
+Physical mouse-wheel scrolling was too slow in 0.5.18 because the timeline
+relied entirely on Flickable's built-in wheel handling, which maps one notch to
+only a few lines. `TimelineScrollController` (exposed as `app.timelineScroll`)
+now owns the scroll math as pure, unit-testable policy: discrete angle-delta
+notches map to a bounded, viewport-relative distance (per the selected speed),
+rapid notches coalesce into one reusable animation, and partial/high-resolution
+angle deltas accumulate rather than dropping. High-resolution pixel-delta
+touchpad input is applied directly with only mild scaling — never the notch
+multiplier — so fine movement and native momentum are preserved. In
+`TimelinePane.qml` a `WheelHandler` drives `contentY` through a single
+`NumberAnimation`; touchpad pixel deltas move `contentY` directly. Programmatic
+navigation (Jump to latest, reply targets, anchor restore, room switch,
+destruction) cancels wheel motion, so restoration is never animated as physical
+input.
+
+A persistent **Mouse-wheel speed** setting (`timeline/wheelSpeed`; Standard /
+Fast / Very fast, default **Fast**, safe fallback to Fast for unknown values)
+tunes discrete-wheel distance only and applies live without a timeline restart.
+
+Keyboard navigation is handled by the timeline's own `Keys` handler, so it acts
+only while the timeline holds focus: **Page Up / Page Down** move ~one viewport,
+**Home** goes to the earliest loaded event, **End** jumps to latest (sharing
+`goToLatest()` with the Jump to latest button), and **Space / Shift+Space**
+page down / up. Keyboard distances are independent of the wheel-speed setting
+and reuse the one coalescing animation. Follow-latest leaves on any upward
+intent and resumes at the bottom; near-top scrolling drives the existing
+pagination; per-room scroll anchors and the unread divider are preserved.
 
 ## v0.5.18 — timeline reliability and usability
 
