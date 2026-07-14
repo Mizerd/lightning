@@ -12,6 +12,17 @@ across the rename. The product name is **Lightning**.
 
 ## Status
 
+**v0.5.17** — Focused timeline runtime hotfix. Pagination viewport-fill
+checks are queued and coalesced so the loading header cannot feed ListView
+geometry back into its own controller-state binding. Long wrapped messages now
+use bounded startup widths while delegates are incubating, preventing enormous
+transient heights and repeated create/drop cycles that could make a populated
+room appear to crash or freeze. Runtime QML coverage includes decrypted and
+undecryptable encrypted events, missing sender/reply data, pending encrypted
+media, long bodies, resizing, Retry, pagination, and room switching. Matrix
+dependencies remain pinned to `matrix-sdk 0.18.0` and
+`matrix-sdk-ui 0.18.0`.
+
 **v0.5.16** — Focused timeline polish release. Sender groups now use a tighter
 fixed avatar gutter, compact header spacing, body-height continuation rows,
 hover-only continuation timestamps, and a non-intrusive floating action

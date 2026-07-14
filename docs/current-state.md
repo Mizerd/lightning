@@ -1,6 +1,6 @@
-# Current state (v0.5.16)
+# Current state (v0.5.17)
 
-## v0.5.17 hotfix development
+## v0.5.17 — timeline runtime hotfix
 
 Live investigation of the affected encrypted room classified the reported
 window disappearance as a live-process UI hang in the Qt Quick timeline,
