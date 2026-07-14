@@ -169,6 +169,16 @@ private Q_SLOTS:
         QVERIFY(pane.contains(QStringLiteral("spacing: 0")));
     }
 
+    void wrappedBodiesHaveStableIncubationWidths()
+    {
+        const QString delegate = read(QStringLiteral("MessageDelegate.qml"));
+        const QString pane = read(QStringLiteral("TimelinePane.qml"));
+        QVERIFY(delegate.contains(QStringLiteral("bubble.width > 8")));
+        QVERIFY(delegate.contains(QStringLiteral(": 560")));
+        QVERIFY(pane.contains(QStringLiteral("available > 0 ? available : 640")));
+        QVERIFY(delegate.contains(QStringLiteral("objectName: \"messageBody\"")));
+    }
+
     void previewsAndMediaUseBoundedLeftAlignedColumns()
     {
         const QString delegate = read(QStringLiteral("MessageDelegate.qml"));

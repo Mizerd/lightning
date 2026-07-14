@@ -11,6 +11,17 @@ Viewport-fill geometry checks are now queued and coalesced, and the header
 reads the controller's semantic presentation state directly. Loading, Retry,
 reached-start, automatic fill, and near-top pagination remain controller-owned.
 
+The remaining affected-room hang was a QML delegate-incubation failure exposed
+by a long decrypted message, not an encryption failure. Before the 0.5.16
+manual content-column layout received its real ListView width, wrapped text was
+measured against a one-pixel clamp. A multi-thousand-character body therefore
+reported a transient height of tens of thousands of pixels; ListView repeatedly
+discarded and recreated the same visible delegates and starved the GUI event
+loop. Delegates and wrapped bodies now use bounded startup widths until the
+real responsive width is available. The regression fixture also covers safe
+undecryptable, missing-profile, missing-reply, and encrypted-media-pending
+states plus resize and room-switch transitions.
+
 ## v0.5.16 — timeline presentation polish
 
 ### Compact sender rows (checkpoint 1)

@@ -17,6 +17,7 @@
 #include <QQuickItem>
 #include <QQuickWindow>
 #include <QSignalSpy>
+#include <QTimer>
 
 #include "app/AppController.h"
 #include "auth/AuthManager.h"
@@ -307,6 +308,139 @@ private Q_SLOTS:
         QVERIFY2(stateSpy.count() < 40,
                  qPrintable(QStringLiteral("pagination state storm: %1")
                                 .arg(stateSpy.count())));
+        QCOMPARE(warnings, QStringList{});
+    }
+
+    // 0.5.17: a populated encrypted timeline containing a long decrypted
+    // body used to create that delegate at a transient 1px text width. Its
+    // enormous temporary height made ListView discard/recreate the visible
+    // range forever and starved the GUI event loop. Load the actual
+    // encrypted mock room (decrypted/undecryptable/missing-profile/reply/media
+    // pending plus a >4K body), resize it, switch away and back, and prove
+    // timers and the window survive without QML warnings.
+    void populatedEncryptedTimelineRemainsResponsive()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        const QString encryptedId = QStringLiteral("!devs:mock.local");
+        controller.setCurrentRoomId(encryptedId);
+
+        QQmlApplicationEngine engine;
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this,
+                [&warnings](const QList<QQmlError> &errors) {
+                    for (const auto &e : errors)
+                        warnings << e.toString();
+                });
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("TimelinePane"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(root != nullptr);
+
+        QQuickWindow window;
+        window.resize(760, 620);
+        root->setParentItem(window.contentItem());
+        root->setSize(QSizeF(window.width(), window.height()));
+        window.show();
+
+        QTimer heartbeat;
+        heartbeat.setSingleShot(true);
+        QSignalSpy heartbeatSpy(&heartbeat, &QTimer::timeout);
+        heartbeat.start(100);
+        QVERIFY2(heartbeatSpy.wait(kSignalTimeoutMs),
+                 "GUI event loop was starved by timeline delegate layout");
+        QVERIFY(window.isVisible());
+
+        for (const QSize size : { QSize(520, 360), QSize(940, 720),
+                                  QSize(760, 620) }) {
+            window.resize(size);
+            root->setSize(QSizeF(size));
+            QCoreApplication::processEvents();
+        }
+        controller.setCurrentRoomId(QStringLiteral("!dm-bob:mock.local"));
+        QCoreApplication::processEvents();
+        controller.setCurrentRoomId(encryptedId);
+
+        heartbeatSpy.clear();
+        heartbeat.start(100);
+        QVERIFY2(heartbeatSpy.wait(kSignalTimeoutMs),
+                 "room switch left timeline layout unresponsive");
+        QVERIFY(window.isVisible());
+        QCOMPARE(warnings, QStringList{});
+    }
+
+    // The offscreen test QPA does not polish ListView delegates, so create
+    // the real MessageDelegate directly with the real TimelineModel role
+    // schema. Component completion happens at width zero, exactly the phase
+    // that formerly measured the long body at one pixel wide.
+    void longEncryptedMessageDelegateUsesBoundedStartupWidth()
+    {
+        AppController controller(AppController::MockBackend);
+        QVariantMap fixture;
+        const auto roles = controller.timeline()->roleNames();
+        for (auto it = roles.cbegin(); it != roles.cend(); ++it)
+            fixture.insert(QString::fromUtf8(it.value()), QVariant{});
+        fixture.insert(QStringLiteral("isVirtual"), false);
+        fixture.insert(QStringLiteral("isStateActivity"), false);
+        fixture.insert(QStringLiteral("stateGroupEntries"), QVariantList{});
+        fixture.insert(QStringLiteral("showSenderIdentity"), true);
+        fixture.insert(QStringLiteral("itemId"), QString{});
+        fixture.insert(QStringLiteral("eventId"), QString{});
+        fixture.insert(QStringLiteral("sender"),
+                       QStringLiteral("@fixture:mock.local"));
+        fixture.insert(QStringLiteral("senderDisplayName"), QString{});
+        fixture.insert(QStringLiteral("senderInitials"),
+                       QStringLiteral("F"));
+        fixture.insert(QStringLiteral("body"),
+                       QStringLiteral("Large encrypted fixture line.\n")
+                           .repeated(160));
+        fixture.insert(QStringLiteral("eventType"), 0);
+        fixture.insert(QStringLiteral("status"), 0);
+        fixture.insert(QStringLiteral("isOwn"), false);
+        fixture.insert(QStringLiteral("replyToEventId"), QString{});
+        fixture.insert(QStringLiteral("timestamp"),
+                       QDateTime::currentDateTimeUtc());
+        fixture.insert(QStringLiteral("isEncrypted"), true);
+        fixture.insert(QStringLiteral("isDecrypted"), true);
+        fixture.insert(QStringLiteral("undecryptable"), false);
+        fixture.insert(QStringLiteral("redacted"), false);
+        fixture.insert(QStringLiteral("isImage"), false);
+        fixture.insert(QStringLiteral("isFile"), false);
+        fixture.insert(QStringLiteral("reactions"), QVariantList{});
+
+        QQmlApplicationEngine engine;
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this,
+                [&warnings](const QList<QQmlError> &errors) {
+                    for (const auto &e : errors)
+                        warnings << e.toString();
+                });
+        engine.rootContext()->setContextProperty("app", &controller);
+        engine.rootContext()->setContextProperty("model", fixture);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("MessageDelegate"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(root != nullptr);
+        root->setWidth(640);
+        QCoreApplication::processEvents();
+
+        auto *body = root->findChild<QQuickItem *>(
+            QStringLiteral("messageBody"));
+        QVERIFY(body != nullptr);
+        QVERIFY(body->property("text").toString().size() > 4000);
+        QVERIFY(body->width() > 100.0);
+        QVERIFY(body->height() > 0.0);
+        QVERIFY(body->height() < 20000.0);
+        QVERIFY(root->implicitHeight() < 20000.0);
         QCOMPARE(warnings, QStringList{});
     }
 

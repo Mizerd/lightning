@@ -313,6 +313,7 @@ Item {
                     // Body text (hidden for image-only messages when body == filename)
                     TextEdit {
                         id: bodyLabel
+                        objectName: "messageBody"
                         visible: text.length > 0
                         text: app.linkPreviews.linkifiedBody((function() {
                             if (model.redacted) return qsTr("[message deleted]")
@@ -326,7 +327,16 @@ Item {
                         font.italic: model.redacted || model.undecryptable === true
                         wrapMode: Text.Wrap
                         readOnly: true
-                        Layout.maximumWidth: Math.max(1, Math.min(720, bubble.width - 8))
+                        // ColumnLayout incubates children before bubbleRow has
+                        // received its final layout width. Measuring wrapped
+                        // text against the old 1px clamp can turn a large body
+                        // into a transient tens-of-thousands-pixel delegate,
+                        // causing ListView to discard and recreate it forever.
+                        // Use a normal column width during that brief startup
+                        // phase, then follow the actual responsive width.
+                        Layout.maximumWidth: bubble.width > 8
+                                             ? Math.min(720, bubble.width - 8)
+                                             : 560
                         textFormat: Text.RichText
                         selectByMouse: true
                         Accessible.name: model.body || ""

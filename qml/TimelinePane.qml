@@ -196,7 +196,18 @@ Rectangle {
                 rightMargin: AppTheme.spacingM
 
                 delegate: MessageDelegate {
-                    width: ListView.view.width - AppTheme.spacingM * 2
+                    // Delegate incubation can begin before ListView.view has
+                    // its final width. A non-positive startup width made long
+                    // wrapped bodies measure as one-character-wide, producing
+                    // enormous transient heights and an endless create/drop
+                    // cycle. Use a normal message-column fallback only until
+                    // the real viewport width is positive.
+                    width: {
+                        var available = ListView.view
+                                      ? ListView.view.width
+                                        - AppTheme.spacingM * 2 : 0
+                        return available > 0 ? available : 640
+                    }
                 }
 
                 // Auto-scroll to end on new events when already near the bottom.

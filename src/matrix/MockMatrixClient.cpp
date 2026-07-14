@@ -591,17 +591,54 @@ void MockMatrixClient::seedMockData()
         return e;
     };
 
+    auto decrypted = makeEvent(
+        devs.id, QStringLiteral("@dave:mock.local"), "Dave",
+        QStringLiteral("This fixture represents decrypted encrypted text."), 900);
+    decrypted.isEncrypted = true;
+    decrypted.isDecrypted = true;
+
+    auto undecryptable = makeEvent(
+        devs.id, QStringLiteral("@unknown:mock.local"), QString{},
+        QStringLiteral("Unable to decrypt this message"), 700);
+    undecryptable.isEncrypted = true;
+    undecryptable.undecryptable = true;
+    undecryptable.errorKind = QStringLiteral("session_missing");
+
+    auto missingReply = makeEvent(
+        devs.id, QStringLiteral("@eve:mock.local"), "Eve",
+        QStringLiteral("Reply target is intentionally unavailable."), 600);
+    missingReply.isEncrypted = true;
+    missingReply.isDecrypted = true;
+    missingReply.replyToEventId = QStringLiteral("$missing:mock.local");
+
+    auto pendingMedia = makeEvent(
+        devs.id, QStringLiteral("@frank:mock.local"), "Frank",
+        QStringLiteral("encrypted-image.png"), 500);
+    pendingMedia.type = TimelineEvent::Image;
+    pendingMedia.isEncrypted = true;
+    pendingMedia.isDecrypted = true;
+    pendingMedia.mediaMimetype = QStringLiteral("image/png");
+    pendingMedia.mediaFilename = pendingMedia.body;
+    pendingMedia.mediaKey = QStringLiteral("mock-pending-encrypted-media");
+    pendingMedia.mediaSourceAvailable = false;
+
+    auto longDecrypted = makeEvent(
+        devs.id, QStringLiteral("@dave:mock.local"), "Dave",
+        QStringLiteral("Large encrypted timeline fixture line.\n").repeated(128),
+        100);
+    longDecrypted.isEncrypted = true;
+    longDecrypted.isDecrypted = true;
+
     m_timelines[devs.id] = {
-        makeEvent(devs.id, QStringLiteral("@dave:mock.local"), "Dave",
-                  QStringLiteral("This room pretends to be encrypted."), 900),
-        makeEvent(devs.id, QStringLiteral("@eve:mock.local"), "Eve",
-                  QStringLiteral("The lock icon is UI-only in v0.3."), 600),
-        makeEvent(devs.id, QStringLiteral("@frank:mock.local"), "Frank",
-                  QStringLiteral("E2EE lives in v0.4 via the Rust SDK."), 300),
+        decrypted,
+        undecryptable,
+        missingReply,
+        pendingMedia,
         stateEvent(devs.id, QStringLiteral("membership"),
                    QStringLiteral("Grace joined the room."), 200),
         stateEvent(devs.id, QStringLiteral("member_profile"),
                    QStringLiteral("Grace changed their display name."), 190),
+        longDecrypted,
     };
 
     m_timelines[dm.id] = {
