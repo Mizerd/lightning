@@ -165,6 +165,42 @@ private Q_SLOTS:
         QVERIFY(pane.contains(QStringLiteral("spacing: 0")));
     }
 
+    void previewsAndMediaUseBoundedLeftAlignedColumns()
+    {
+        const QString delegate = read(QStringLiteral("MessageDelegate.qml"));
+        QVERIFY(!delegate.isEmpty());
+
+        const int mediaStart = delegate.indexOf(QStringLiteral("id: mediaBox"));
+        const int bodyStart = delegate.indexOf(QStringLiteral("id: bodyLabel"),
+                                               mediaStart);
+        const int previewStart = delegate.indexOf(QStringLiteral("id: previewLoader"));
+        const int metaStart = delegate.indexOf(QStringLiteral("id: metaRow"),
+                                               previewStart);
+        QVERIFY(mediaStart >= 0 && bodyStart > mediaStart);
+        QVERIFY(previewStart >= 0 && metaStart > previewStart);
+        const QString mediaBlock = delegate.mid(mediaStart,
+                                                bodyStart - mediaStart);
+        const QString previewBlock = delegate.mid(previewStart,
+                                                  metaStart - previewStart);
+
+        QVERIFY(mediaBlock.contains(QStringLiteral(
+            "Layout.alignment: Qt.AlignLeft")));
+        QVERIFY(mediaBlock.contains(QStringLiteral(
+            "Layout.maximumWidth: bubble.width")));
+        QVERIFY(!mediaBlock.contains(QStringLiteral("Layout.fillWidth: true")));
+        QVERIFY(!mediaBlock.contains(QStringLiteral("anchors.right: parent.right")));
+        QVERIFY(previewBlock.contains(QStringLiteral(
+            "Layout.alignment: Qt.AlignLeft")));
+        QVERIFY(previewBlock.contains(QStringLiteral(
+            "Layout.preferredWidth: Math.min(400, bubble.width - 8)")));
+        QVERIFY(!previewBlock.contains(QStringLiteral("Layout.fillWidth: true")));
+
+        QVERIFY(delegate.contains(QStringLiteral(
+            "readonly property real maxW: Math.min(360, bubble.width)")));
+        QVERIFY(delegate.contains(QStringLiteral(
+            "implicitWidth: Math.min(320, bubble.width)")));
+    }
+
     void messageContentAndActionsRemainInteractive()
     {
         const QString delegate = read(QStringLiteral("MessageDelegate.qml"));

@@ -13,6 +13,17 @@ event. The action toolbar floats at the row's right edge rather than consuming
 message-column layout width. Selectable text, rich links, replies, reactions,
 send state, retry, and message actions remain on the same event delegate.
 
+### Message-column previews and media (checkpoint 2)
+
+Link previews, Matrix image thumbnails, and file attachments now take bounded
+left-aligned widths from the message content column instead of stretching
+their loaders across the timeline row. Preview cards use a compact elevated
+surface, a small accent edge, clipped thumbnail framing, and tighter internal
+insets. Matrix image sizing is capped at 360×320 logical pixels while
+preserving intrinsic aspect ratio and avoiding upscaling; file attachments use
+a compact bordered 320-pixel maximum. Original link/media activation and all
+controlled-source security boundaries are unchanged.
+
 ## v0.5.15 — expanded room activity
 
 Room-activity expansion now renders the actual SDK-derived child events.

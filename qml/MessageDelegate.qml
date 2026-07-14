@@ -287,7 +287,10 @@ Item {
                     Item {
                         id: mediaBox
                         visible: model.isImage || model.isFile
-                        Layout.fillWidth: true
+                        Layout.alignment: Qt.AlignLeft
+                        Layout.preferredWidth: Math.min(bubble.width,
+                                                        implicitWidth)
+                        Layout.maximumWidth: bubble.width
                         // v0.5.11: contribute a real implicit width so an
                         // image-only row grows to the media size instead of
                         // collapsing to the timestamp width (which made images
@@ -299,7 +302,8 @@ Item {
                         Loader {
                             id: mediaLoader
                             anchors.left: parent.left
-                            anchors.right: parent.right
+                            width: Math.min(bubble.width,
+                                            item ? item.implicitWidth : 0)
                             sourceComponent: model.isImage ? imageComponent
                                             : model.isFile  ? fileComponent
                                             : null
@@ -351,7 +355,9 @@ Item {
                     // Encrypted rooms default to click-to-load (privacy).
                     Loader {
                         id: previewLoader
-                        Layout.fillWidth: true
+                        Layout.alignment: Qt.AlignLeft
+                        Layout.preferredWidth: Math.min(400, bubble.width - 8)
+                        Layout.maximumWidth: bubble.width
                         active: root.preview.state !== undefined
                                 && root.preview.state !== "none"
                                 && !model.redacted
@@ -611,12 +617,21 @@ Item {
                 (p.imageSource || "").length > 0
                 ? app.mediaBridge.previewImageSource(p.imageSource || "",
                                                      p.imageMime || "") : ""
-            implicitWidth: Math.min(360, root.width * 0.6)
+            implicitWidth: Math.min(400, bubble.width - 8)
             implicitHeight: cardCol.implicitHeight + AppTheme.spacingS * 2
-            color: AppTheme.bubbleOverlaySubtle
+            color: AppTheme.surfaceElevated
             radius: AppTheme.radiusSm
             border.color: AppTheme.border
             border.width: 1
+
+            Rectangle {
+                anchors.left: parent.left
+                anchors.top: parent.top
+                anchors.bottom: parent.bottom
+                width: 3
+                color: AppTheme.accent
+                radius: AppTheme.radiusSm
+            }
 
             // Whole card opens the URL (loaded state only).
             MouseArea {
@@ -631,7 +646,10 @@ Item {
                 anchors.left: parent.left
                 anchors.right: parent.right
                 anchors.top: parent.top
-                anchors.margins: AppTheme.spacingS
+                anchors.topMargin: AppTheme.spacingS
+                anchors.bottomMargin: AppTheme.spacingS
+                anchors.leftMargin: AppTheme.spacingM
+                anchors.rightMargin: AppTheme.spacingS
                 spacing: 4
 
                 // Consent / privacy gate (encrypted rooms, or auto-load off).
@@ -717,7 +735,7 @@ Item {
                     spacing: 3
 
                     // Thumbnail bytes were fetched and validated by Rust.
-                    Item {
+                    Rectangle {
                         visible: ((card.p.imageMxc || "").length > 0
                                   || (card.p.imageSource || "").length > 0)
                                  && !(card.p.gifOversized === true)
@@ -726,6 +744,9 @@ Item {
                             (card.p.imageHeight > 0 && card.p.imageWidth > 0)
                             ? width * (card.p.imageHeight / card.p.imageWidth)
                             : 140) : 0
+                        color: AppTheme.cardElevated
+                        radius: AppTheme.radiusSm
+                        clip: true
                         Image {
                             id: thumb
                             anchors.fill: parent
@@ -835,8 +856,8 @@ Item {
             // upscaling a tiny image beyond its natural size). This box's
             // implicitWidth/Height flow up into the row so the row grows
             // to the picture instead of collapsing to the timestamp width.
-            readonly property real maxW: Math.min(400, root.width * 0.62)
-            readonly property real maxH: 360
+            readonly property real maxW: Math.min(360, bubble.width)
+            readonly property real maxH: 320
             readonly property real natW: model.mediaWidth > 0 ? model.mediaWidth : 0
             readonly property real natH: model.mediaHeight > 0 ? model.mediaHeight : 0
             readonly property real ratio: (natW > 0 && natH > 0)
@@ -1005,10 +1026,12 @@ Item {
         id: fileComponent
         Rectangle {
             width: parent.width
-            implicitWidth: 260
+            implicitWidth: Math.min(320, bubble.width)
             implicitHeight: fileRow.implicitHeight + 10
-            color: AppTheme.bubbleOverlaySubtle
-            radius: 4
+            color: AppTheme.surfaceElevated
+            radius: AppTheme.radiusSm
+            border.color: AppTheme.border
+            border.width: 1
             RowLayout {
                 id: fileRow
                 anchors.fill: parent
