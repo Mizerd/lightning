@@ -347,6 +347,11 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
     case SenderInitialsRole: return senderInitials(e);
     case StableEventIdRole: return e.itemId.isEmpty() ? e.eventId : e.itemId;
     case IsStateActivityRole: return e.type == TimelineEvent::StateChange;
+    // Typed membership/profile/room-state events are routine annotations.
+    // StateChange rows without a kind include call/RTC notifications and
+    // remain visible because they are not proven routine activity.
+    case IsRoutineActivityRole:
+        return e.type == TimelineEvent::StateChange && !e.stateKind.isEmpty();
     case StateKindRole: return e.stateKind;
     case StateGroupIdRole: {
         const int leader = stateGroupLeaderRow(index.row());
@@ -411,6 +416,7 @@ QHash<int, QByteArray> TimelineModel::roleNames() const
         { SenderNameAmbiguousRole, "senderNameAmbiguous" },
         { SameSenderAsPreviousRole, "sameSenderAsPrevious" },
         { IsStateActivityRole,      "isStateActivity" },
+        { IsRoutineActivityRole,    "isRoutineActivity" },
         { StateKindRole,            "stateKind" },
         { StateGroupIdRole,         "stateGroupId" },
         { StateGroupLeaderRole,     "stateGroupLeader" },

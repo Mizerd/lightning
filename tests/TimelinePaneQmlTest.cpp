@@ -481,6 +481,111 @@ private Q_SLOTS:
         QCOMPARE(warnings, QStringList{});
     }
 
+    void roomActivitySettingCollapsesOnlyActivityDelegates()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        controller.setCurrentRoomId(QStringLiteral("!devs:mock.local"));
+        controller.settings()->setShowRoomActivity(true);
+
+        int activityRow = -1;
+        for (int row = 0; row < controller.timeline()->rowCount(); ++row) {
+            if (controller.timeline()->data(
+                    controller.timeline()->index(row),
+                    TimelineModel::StateGroupLeaderRole).toBool()) {
+                activityRow = row;
+                break;
+            }
+        }
+        QVERIFY(activityRow >= 0);
+        const int underlyingCount = controller.timeline()->rowCount();
+
+        QVariantMap fixture;
+        const auto roles = controller.timeline()->roleNames();
+        for (auto it = roles.cbegin(); it != roles.cend(); ++it) {
+            fixture.insert(QString::fromUtf8(it.value()),
+                           controller.timeline()->data(
+                               controller.timeline()->index(activityRow),
+                               it.key()));
+        }
+
+        QQmlApplicationEngine engine;
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this,
+                [&warnings](const QList<QQmlError> &errors) {
+                    for (const auto &e : errors)
+                        warnings << e.toString();
+                });
+        engine.rootContext()->setContextProperty("app", &controller);
+        engine.rootContext()->setContextProperty("model", fixture);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("MessageDelegate"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        auto *activity = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(activity != nullptr);
+        QQuickWindow window;
+        window.resize(640, 320);
+        activity->setParentItem(window.contentItem());
+        activity->setWidth(window.width());
+        window.show();
+        QCoreApplication::processEvents();
+        QVERIFY(activity->isVisible());
+        QVERIFY(activity->implicitHeight() > 0.0);
+
+        controller.settings()->setShowRoomActivity(false);
+        QTRY_VERIFY_WITH_TIMEOUT(!activity->isVisible(), kSignalTimeoutMs);
+        QCOMPARE(activity->implicitHeight(), 0.0);
+        QCOMPARE(controller.timeline()->rowCount(), underlyingCount);
+
+        controller.settings()->setShowRoomActivity(true);
+        QTRY_VERIFY_WITH_TIMEOUT(activity->isVisible(), kSignalTimeoutMs);
+        QVERIFY(activity->implicitHeight() > 0.0);
+        QCOMPARE(controller.timeline()->rowCount(), underlyingCount);
+        QCOMPARE(warnings, QStringList{});
+    }
+
+    void settingsControlTracksRoomActivityPreference()
+    {
+        AppController controller(AppController::MockBackend);
+        controller.settings()->setShowRoomActivity(true);
+        QQmlApplicationEngine engine;
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this,
+                [&warnings](const QList<QQmlError> &errors) {
+                    for (const auto &e : errors)
+                        warnings << e.toString();
+                });
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("SettingsScreen"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        QObject *root = createdSpy.at(0).at(0).value<QObject *>();
+        QVERIFY(root != nullptr);
+        QObject *check = root->findChild<QObject *>(
+            QStringLiteral("showRoomActivityCheck"));
+        QVERIFY(check != nullptr);
+        QCOMPARE(check->property("checked").toBool(), true);
+
+        controller.settings()->setShowRoomActivity(false);
+        QTRY_COMPARE_WITH_TIMEOUT(check->property("checked").toBool(), false,
+                                  kSignalTimeoutMs);
+        controller.settings()->setShowRoomActivity(true);
+        QTRY_COMPARE_WITH_TIMEOUT(check->property("checked").toBool(), true,
+                                  kSignalTimeoutMs);
+        QSignalSpy settingSpy(controller.settings(),
+                              &SettingsManager::showRoomActivityChanged);
+        QVERIFY(QMetaObject::invokeMethod(check, "click"));
+        QTRY_COMPARE_WITH_TIMEOUT(controller.settings()->showRoomActivity(),
+                                  false, kSignalTimeoutMs);
+        QCOMPARE(settingSpy.count(), 1);
+        QCOMPARE(warnings, QStringList{});
+    }
+
     // Defect A: switching rooms must not leak the previous room's
     // presentation state into the newly opened room (generation isolation).
     void roomSwitchResetsPresentationState()

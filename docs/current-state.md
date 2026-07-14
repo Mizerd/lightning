@@ -12,6 +12,15 @@ exhausted failures still expose manual Retry. Completion is accepted only
 after the backend has reported the batch loading, preventing an accepted Rust
 dispatch from being mistaken for an immediate empty completion.
 
+## v0.5.18 development — room activity visibility
+
+General settings now include **Show room activity**, enabled by default and
+persisted globally. Disabling it collapses routine membership, profile, and
+room-state annotations at presentation time only; the SDK timeline and C++
+model retain the events, and re-enabling the setting restores them without a
+resync. Ordinary messages, media, send failures, and undecryptable-event
+warnings are not classified as room activity and remain visible.
+
 ## v0.5.17 — timeline runtime hotfix
 
 Live investigation of the affected encrypted room classified the reported

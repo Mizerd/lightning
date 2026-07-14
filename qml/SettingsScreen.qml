@@ -187,6 +187,36 @@ Item {
                                 }
                             }
                         }
+                        SettingsCard {
+                            ColumnLayout {
+                                width: parent.width
+                                spacing: AppTheme.spacing8
+                                Label {
+                                    text: qsTr("Timeline")
+                                    color: AppTheme.textSecondary
+                                    font.pixelSize: AppTheme.fontSecondary
+                                    font.weight: Font.DemiBold
+                                }
+                                CheckBox {
+                                    objectName: "showRoomActivityCheck"
+                                    text: qsTr("Show room activity")
+                                    checked: app.settings.showRoomActivity
+                                    onToggled: app.settings.showRoomActivity = checked
+                                    Accessible.description: qsTr(
+                                        "Show membership, profile, and room setting updates in timelines")
+                                }
+                                Label {
+                                    Layout.fillWidth: true
+                                    Layout.leftMargin: AppTheme.spacing4
+                                    wrapMode: Text.WordWrap
+                                    color: AppTheme.textMuted
+                                    font.pixelSize: AppTheme.fontCaption
+                                    text: qsTr("Hide routine joins, leaves, profile changes, "
+                                               + "and room setting updates. Messages and "
+                                               + "decryption warnings remain visible.")
+                                }
+                            }
+                        }
                     }
 
                     // ════════════ Appearance ════════════

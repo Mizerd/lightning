@@ -21,6 +21,9 @@ constexpr auto kPreferredEmojiTone  = "emoji/preferredTone";
 constexpr auto kPreviewsUnencrypted = "previews/autoLoadUnencrypted";
 constexpr auto kPreviewsEncrypted   = "previews/loadInEncryptedRooms";
 constexpr auto kPreviewsAnimateGifs = "previews/animateGifs";
+// Presentation-only timeline preference. The underlying SDK/model retains
+// every state event so changing this never requires a resync.
+constexpr auto kShowRoomActivity    = "timeline/showRoomActivity";
 constexpr int kRecentEmojiLimit     = 32;
 // v0.2/v0.3 stored the access token here in plaintext. v0.4 migrates it out
 // on first read; the key stays defined only so the migration code can find
@@ -183,6 +186,19 @@ void SettingsManager::setAnimateGifPreviews(bool v)
         return;
     m_store->setValue(kPreviewsAnimateGifs, v);
     Q_EMIT animateGifPreviewsChanged();
+}
+
+bool SettingsManager::showRoomActivity() const
+{
+    return m_store->value(kShowRoomActivity, true).toBool();
+}
+
+void SettingsManager::setShowRoomActivity(bool v)
+{
+    if (showRoomActivity() == v)
+        return;
+    m_store->setValue(kShowRoomActivity, v);
+    Q_EMIT showRoomActivityChanged();
 }
 
 QStringList SettingsManager::recentEmoji() const

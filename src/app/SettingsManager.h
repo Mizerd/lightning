@@ -24,6 +24,8 @@ class SettingsManager : public QObject
                    NOTIFY loadPreviewsInEncryptedRoomsChanged)
     Q_PROPERTY(bool animateGifPreviews READ animateGifPreviews
                    WRITE setAnimateGifPreviews NOTIFY animateGifPreviewsChanged)
+    Q_PROPERTY(bool showRoomActivity READ showRoomActivity
+                   WRITE setShowRoomActivity NOTIFY showRoomActivityChanged)
     Q_PROPERTY(bool hasSession READ hasSession NOTIFY sessionChanged)
     Q_PROPERTY(QString userId READ userId NOTIFY sessionChanged)
     Q_PROPERTY(QString secretBackendName READ secretBackendName NOTIFY secretBackendChanged)
@@ -80,6 +82,8 @@ public:
     void setLoadPreviewsInEncryptedRooms(bool v);
     bool animateGifPreviews() const;
     void setAnimateGifPreviews(bool v);
+    bool showRoomActivity() const;
+    void setShowRoomActivity(bool v);
 
     QStringList recentEmoji() const;
     void recordRecentEmoji(const QString &emoji);
@@ -127,6 +131,7 @@ Q_SIGNALS:
     void autoLoadLinkPreviewsChanged();
     void loadPreviewsInEncryptedRoomsChanged();
     void animateGifPreviewsChanged();
+    void showRoomActivityChanged();
     void sessionChanged();
     void secretBackendChanged();
 

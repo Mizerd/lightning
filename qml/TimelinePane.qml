@@ -317,9 +317,36 @@ Rectangle {
                     var row = indexAt(width / 2, contentY + topMargin + 1)
                     if (row < 0) { anchorStableId = ""; return }
                     var it = itemAtIndex(row)
+                    // Room-activity rows may collapse during a presentation
+                    // toggle. Prefer the first loaded non-activity row so the
+                    // anchor still has height after either setting value.
+                    for (var probe = row; probe < count; ++probe) {
+                        var candidate = itemAtIndex(probe)
+                        if (!candidate)
+                            break
+                        if (!candidate.isStateActivity) {
+                            row = probe
+                            it = candidate
+                            break
+                        }
+                    }
                     anchorStableId = app.timeline.stableIdAt(row)
                     anchorOffset = it ? (contentY - it.y) : 0
                     anchorContentHeight = contentHeight
+                }
+                function restoreCapturedAnchor() {
+                    if (anchorStableId === "")
+                        return false
+                    var newRow = app.timeline.rowForStableId(anchorStableId)
+                    if (newRow < 0) {
+                        anchorStableId = ""
+                        return false
+                    }
+                    positionViewAtIndex(newRow, ListView.Beginning)
+                    var it = itemAtIndex(newRow)
+                    if (it) contentY = it.y + anchorOffset
+                    anchorStableId = ""
+                    return true
                 }
                 function restoreAnchor(inserted) {
                     if (inserted <= 0 || anchorStableId === "" || stickToBottom) {
@@ -333,10 +360,7 @@ Rectangle {
                         anchorStableId = ""
                         return
                     }
-                    positionViewAtIndex(newRow, ListView.Beginning)
-                    var it = itemAtIndex(newRow)
-                    if (it) contentY = it.y + anchorOffset
-                    anchorStableId = ""
+                    restoreCapturedAnchor()
                 }
 
                 Connections {
@@ -356,6 +380,20 @@ Rectangle {
                     }
                     function onPaginationCompleted(inserted, reachedStart) {
                         Qt.callLater(function() { timeline.restoreAnchor(inserted) })
+                    }
+                }
+                Connections {
+                    target: app.settings
+                    function onShowRoomActivityChanged() {
+                        if (timeline.stickToBottom) {
+                            Qt.callLater(timeline.scrollToEndDeferred)
+                            return
+                        }
+                        timeline.captureAnchor()
+                        Qt.callLater(function() {
+                            timeline.restoreCapturedAnchor()
+                            timeline.maybeFillViewport()
+                        })
                     }
                 }
 

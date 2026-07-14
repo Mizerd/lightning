@@ -70,6 +70,7 @@ public:
         SenderNameAmbiguousRole,  // Display name shared by 2+ members.
         SameSenderAsPreviousRole, // Consecutive-message grouping hint.
         IsStateActivityRole,
+        IsRoutineActivityRole,    // Safe for the presentation-only preference.
         StateKindRole,
         StateGroupIdRole,
         StateGroupLeaderRole,

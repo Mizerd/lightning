@@ -105,6 +105,19 @@ private Q_SLOTS:
         QCOMPARE(totalCount, qualifiedCount);
     }
 
+    void roomActivitySettingIsPresentationOnly()
+    {
+        const QString delegate = read(QStringLiteral("MessageDelegate.qml"));
+        const QString settings = read(QStringLiteral("SettingsScreen.qml"));
+        QVERIFY(delegate.contains(QStringLiteral(
+            "!isRoutineActivity || app.settings.showRoomActivity")));
+        QVERIFY(delegate.contains(QStringLiteral(
+            "implicitHeight: !roomActivityVisible ? 0")));
+        QVERIFY(settings.contains(QStringLiteral("Show room activity")));
+        QVERIFY(settings.contains(QStringLiteral(
+            "onToggled: app.settings.showRoomActivity = checked")));
+    }
+
     void directPreviewUsesControlledSourceAndOriginalUrlActivation()
     {
         const QString delegate = read(QStringLiteral("MessageDelegate.qml"));

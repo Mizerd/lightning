@@ -113,6 +113,8 @@ private Q_SLOTS:
     void readMarkerDoesNotSplitGroup();
     void timelineStartDoesNotSplitGroup();
     void visibleTextMessageBreaksGroup();
+    void undecryptableEventIsNotRoutineActivity();
+    void untypedStateNotificationRemainsVisible();
     void imageMessageBreaksGroup();
     void fileMessageBreaksGroup();
     void nonLeaderRowsAreEmptyAndNotLeader();
@@ -176,6 +178,9 @@ void StateActivityGroupingTest::exposesTypedMembershipAndRoomStateEntries()
     };
     m_model->setRoomId(kRoom);
 
+    QCOMPARE(m_model->data(m_model->index(0),
+                           TimelineModel::IsRoutineActivityRole).toBool(),
+             true);
     const QVariantList entries =
         m_model->data(m_model->index(0), TimelineModel::StateGroupEntriesRole).toList();
     QCOMPARE(entries.size(), 2);
@@ -269,6 +274,38 @@ void StateActivityGroupingTest::visibleTextMessageBreaksGroup()
     QCOMPARE(firstEntries.size(), 1);
     QCOMPARE(firstEntries.at(0).toMap().value(QStringLiteral("description")).toString(),
              QStringLiteral("first"));
+}
+
+void StateActivityGroupingTest::undecryptableEventIsNotRoutineActivity()
+{
+    TimelineEvent warning = makeMessage(QStringLiteral("$utd"), QString{});
+    warning.type = TimelineEvent::Unknown;
+    warning.isEncrypted = true;
+    warning.undecryptable = true;
+    warning.errorKind = QStringLiteral("no_key");
+    m_client->mirror = { warning };
+    m_model->setRoomId(kRoom);
+
+    const QModelIndex idx = m_model->index(0);
+    QCOMPARE(m_model->data(idx, TimelineModel::IsStateActivityRole).toBool(),
+             false);
+    QCOMPARE(m_model->data(idx, TimelineModel::UndecryptableRole).toBool(),
+             true);
+}
+
+void StateActivityGroupingTest::untypedStateNotificationRemainsVisible()
+{
+    TimelineEvent call = makeStateChange(QStringLiteral("$call"),
+                                         QStringLiteral("call event"),
+                                         QString{});
+    m_client->mirror = { call };
+    m_model->setRoomId(kRoom);
+
+    const QModelIndex idx = m_model->index(0);
+    QCOMPARE(m_model->data(idx, TimelineModel::IsStateActivityRole).toBool(),
+             true);
+    QCOMPARE(m_model->data(idx, TimelineModel::IsRoutineActivityRole).toBool(),
+             false);
 }
 
 void StateActivityGroupingTest::imageMessageBreaksGroup()

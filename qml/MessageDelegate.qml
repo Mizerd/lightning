@@ -10,12 +10,20 @@ Item {
     // eventType: 7 = DateDivider, 8 = ReadMarker, 9 = TimelineStart.
     readonly property bool isVirtualRow: model.isVirtual === true
     readonly property bool isStateActivity: model.isStateActivity === true
+    readonly property bool isRoutineActivity: model.isRoutineActivity === true
+    // State events remain in the authoritative timeline model. This is only
+    // a zero-height presentation filter, so toggling the setting restores the
+    // same delegates without a resync or a second timeline.
+    readonly property bool roomActivityVisible:
+        !isRoutineActivity || app.settings.showRoomActivity
     readonly property var stateActivityEntries: model.stateGroupEntries || []
     readonly property bool showsIdentity: model.showSenderIdentity === true
     readonly property real messageTopSpacing: showsIdentity
                                                ? AppTheme.spacingS : 1
     readonly property real avatarGutterWidth: 40
-    implicitHeight: isVirtualRow ? virtualRow.implicitHeight
+    visible: roomActivityVisible
+    implicitHeight: !roomActivityVisible ? 0
+                    : isVirtualRow ? virtualRow.implicitHeight
                     : isStateActivity ? stateActivity.implicitHeight
                     : layout.implicitHeight + messageTopSpacing
 

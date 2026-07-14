@@ -78,6 +78,7 @@ private Q_SLOTS:
     void unknownStoredThemeFallsBackToSystem();
     void themeChangeEmitsSignal();
     void previewDefaultsAndEncryptedOff();
+    void roomActivityDefaultsEnabledAndPersists();
 
 private:
     QTemporaryDir m_configHome;
@@ -239,6 +240,21 @@ void SettingsSessionTest::previewDefaultsAndEncryptedOff()
     settings.setLoadPreviewsInEncryptedRooms(true);
     QCOMPARE(spy.count(), 1);
     QCOMPARE(settings.loadPreviewsInEncryptedRooms(), true);
+}
+
+void SettingsSessionTest::roomActivityDefaultsEnabledAndPersists()
+{
+    SettingsManager settings;
+    QCOMPARE(settings.showRoomActivity(), true);
+    QSignalSpy spy(&settings, &SettingsManager::showRoomActivityChanged);
+    settings.setShowRoomActivity(false);
+    QCOMPARE(spy.count(), 1);
+    settings.setShowRoomActivity(false);
+    QCOMPARE(spy.count(), 1);
+
+    SettingsManager reopened;
+    QCOMPARE(reopened.showRoomActivity(), false);
+    reopened.setShowRoomActivity(true);
 }
 
 QTEST_MAIN(SettingsSessionTest)
