@@ -81,18 +81,46 @@ Item {
         id: virtualRow
         visible: root.isVirtualRow
         width: parent.width
-        implicitHeight: virtualLabel.visible
+        implicitHeight: unreadDivider.visible ? 28
+                        : virtualLabel.visible
                         ? virtualLabel.implicitHeight + AppTheme.spacingS
                         : 0
         Label {
             id: virtualLabel
             anchors.centerIn: parent
-            visible: root.isVirtualRow && model.eventType !== 8 // hide ReadMarker
+            visible: root.isVirtualRow && model.eventType !== 8
             text: model.eventType === 7
                   ? Qt.locale().toString(model.timestamp, "dddd, d MMMM yyyy")
                   : (model.eventType === 9 ? qsTr("Beginning of conversation") : "")
             color: AppTheme.textMuted
             font.pixelSize: 11
+        }
+        RowLayout {
+            id: unreadDivider
+            objectName: "unreadDivider"
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            spacing: AppTheme.spacingS
+            visible: root.isVirtualRow && model.eventType === 8
+            Rectangle {
+                Layout.fillWidth: true
+                implicitHeight: 1
+                color: AppTheme.accent
+            }
+            Label {
+                objectName: "unreadDividerLabel"
+                text: qsTr("New messages")
+                color: AppTheme.accent
+                font.pixelSize: 11
+                font.weight: Font.DemiBold
+                Accessible.name: text
+            }
+            Rectangle {
+                Layout.fillWidth: true
+                implicitHeight: 1
+                color: AppTheme.accent
+            }
         }
     }
 

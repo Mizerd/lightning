@@ -118,6 +118,18 @@ private Q_SLOTS:
             "onToggled: app.settings.showRoomActivity = checked")));
     }
 
+    void unreadNavigationUsesSdkMarkerAndBottomThreshold()
+    {
+        const QString delegate = read(QStringLiteral("MessageDelegate.qml"));
+        const QString pane = read(QStringLiteral("TimelinePane.qml"));
+        QVERIFY(delegate.contains(QStringLiteral("objectName: \"unreadDivider\"")));
+        QVERIFY(delegate.contains(QStringLiteral("qsTr(\"New messages\")")));
+        QVERIFY(pane.contains(QStringLiteral("objectName: \"jumpToLatestButton\"")));
+        QVERIFY(pane.contains(QStringLiteral("!timeline.stickToBottom")));
+        QVERIFY(pane.contains(QStringLiteral("contentHeight - 40")));
+        QVERIFY(!pane.contains(QStringLiteral("contentY + height === contentHeight")));
+    }
+
     void directPreviewUsesControlledSourceAndOriginalUrlActivation()
     {
         const QString delegate = read(QStringLiteral("MessageDelegate.qml"));

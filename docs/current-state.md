@@ -21,6 +21,16 @@ model retain the events, and re-enabling the setting restores them without a
 resync. Ordinary messages, media, send failures, and undecryptable-event
 warnings are not classified as room activity and remain visible.
 
+## v0.5.18 development — unread navigation
+
+The matrix-sdk-ui read-marker virtual item now renders as a stable **New
+messages** divider between the fully-read event and the first unread event; it
+is absent when the SDK places the fully-read marker at the end. A floating
+**Jump to latest** control appears only while the reader is meaningfully away
+from the bottom. New events preserve that historical reading position, while
+the explicit control resumes bottom-following and the existing read-receipt
+policy.
+
 ## v0.5.17 — timeline runtime hotfix
 
 Live investigation of the affected encrypted room classified the reported

@@ -586,6 +586,127 @@ private Q_SLOTS:
         QCOMPARE(warnings, QStringList{});
     }
 
+    void sdkReadMarkerRendersNewMessagesDivider()
+    {
+        AppController controller(AppController::MockBackend);
+        QVariantMap fixture;
+        const auto roles = controller.timeline()->roleNames();
+        for (auto it = roles.cbegin(); it != roles.cend(); ++it)
+            fixture.insert(QString::fromUtf8(it.value()), QVariant{});
+        fixture.insert(QStringLiteral("itemId"),
+                       QStringLiteral("read-marker-stable"));
+        fixture.insert(QStringLiteral("isVirtual"), true);
+        fixture.insert(QStringLiteral("isStateActivity"), false);
+        fixture.insert(QStringLiteral("isRoutineActivity"), false);
+        fixture.insert(QStringLiteral("eventType"), 8);
+        fixture.insert(QStringLiteral("stateGroupEntries"), QVariantList{});
+        fixture.insert(QStringLiteral("eventId"), QString{});
+        fixture.insert(QStringLiteral("sender"), QString{});
+        fixture.insert(QStringLiteral("senderDisplayName"), QString{});
+        fixture.insert(QStringLiteral("senderInitials"), QStringLiteral("?"));
+        fixture.insert(QStringLiteral("showSenderIdentity"), false);
+        fixture.insert(QStringLiteral("body"), QString{});
+        fixture.insert(QStringLiteral("timestamp"),
+                       QDateTime::currentDateTimeUtc());
+        fixture.insert(QStringLiteral("status"), 0);
+        fixture.insert(QStringLiteral("isOwn"), false);
+        fixture.insert(QStringLiteral("replyToEventId"), QString{});
+        fixture.insert(QStringLiteral("redacted"), false);
+        fixture.insert(QStringLiteral("edited"), false);
+        fixture.insert(QStringLiteral("isEncrypted"), false);
+        fixture.insert(QStringLiteral("isDecrypted"), false);
+        fixture.insert(QStringLiteral("undecryptable"), false);
+        fixture.insert(QStringLiteral("isImage"), false);
+        fixture.insert(QStringLiteral("isFile"), false);
+        fixture.insert(QStringLiteral("mediaSourceAvailable"), false);
+        fixture.insert(QStringLiteral("mediaThumbAvailable"), false);
+        fixture.insert(QStringLiteral("reactions"), QVariantList{});
+
+        QQmlApplicationEngine engine;
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this,
+                [&warnings](const QList<QQmlError> &errors) {
+                    for (const auto &e : errors)
+                        warnings << e.toString();
+                });
+        engine.rootContext()->setContextProperty("app", &controller);
+        engine.rootContext()->setContextProperty("model", fixture);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("MessageDelegate"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(root != nullptr);
+        QQuickWindow window;
+        window.resize(640, 160);
+        root->setParentItem(window.contentItem());
+        root->setWidth(window.width());
+        window.show();
+        QCoreApplication::processEvents();
+
+        auto *divider = root->findChild<QQuickItem *>(
+            QStringLiteral("unreadDivider"));
+        auto *label = root->findChild<QObject *>(
+            QStringLiteral("unreadDividerLabel"));
+        QVERIFY(divider != nullptr);
+        QVERIFY(divider->isVisible());
+        QVERIFY(root->implicitHeight() >= 28.0);
+        QVERIFY(label != nullptr);
+        QCOMPARE(label->property("text").toString(),
+                 QStringLiteral("New messages"));
+        QCOMPARE(warnings, QStringList{});
+    }
+
+    void jumpToLatestPreservesReaderUntilExplicitClick()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        const QString roomId = QStringLiteral("!general:mock.local");
+        controller.setCurrentRoomId(roomId);
+
+        QQmlApplicationEngine engine;
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this,
+                [&warnings](const QList<QQmlError> &errors) {
+                    for (const auto &e : errors)
+                        warnings << e.toString();
+                });
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("TimelinePane"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        QObject *root = createdSpy.at(0).at(0).value<QObject *>();
+        QVERIFY(root != nullptr);
+        QObject *timeline = root->findChild<QObject *>(
+            QStringLiteral("timelineListView"));
+        QObject *jump = root->findChild<QObject *>(
+            QStringLiteral("jumpToLatestButton"));
+        QVERIFY(timeline != nullptr);
+        QVERIFY(jump != nullptr);
+
+        QVERIFY(timeline->setProperty("stickToBottom", false));
+        QTRY_COMPARE_WITH_TIMEOUT(jump->property("visible").toBool(), true,
+                                  kSignalTimeoutMs);
+        auto *mock = controller.findChild<MockMatrixClient *>();
+        QVERIFY(mock != nullptr);
+        const int before = controller.timeline()->rowCount();
+        mock->sendTextMessage(roomId, QStringLiteral("new fixture event"));
+        QTRY_COMPARE_WITH_TIMEOUT(controller.timeline()->rowCount(), before + 1,
+                                  kSignalTimeoutMs);
+        QCOMPARE(timeline->property("stickToBottom").toBool(), false);
+
+        QVERIFY(QMetaObject::invokeMethod(jump, "click"));
+        QTRY_COMPARE_WITH_TIMEOUT(timeline->property("stickToBottom").toBool(),
+                                  true, kSignalTimeoutMs);
+        QTRY_COMPARE_WITH_TIMEOUT(jump->property("visible").toBool(), false,
+                                  kSignalTimeoutMs);
+        QCOMPARE(warnings, QStringList{});
+    }
+
     // Defect A: switching rooms must not leak the previous room's
     // presentation state into the newly opened room (generation isolation).
     void roomSwitchResetsPresentationState()

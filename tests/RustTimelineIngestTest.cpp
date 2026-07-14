@@ -184,6 +184,8 @@ void RustTimelineIngestTest::parsesVirtualItems()
     marker.insert(QStringLiteral("kind"), QStringLiteral("read_marker"));
     e = eventFromItemJson(marker, kRoom);
     QCOMPARE(e.type, TimelineEvent::ReadMarker);
+    QCOMPARE(e.itemId, QStringLiteral("v2"));
+    QVERIFY(e.eventId.isEmpty());
 
     QJsonObject start;
     start.insert(QStringLiteral("item_id"), QStringLiteral("v3"));

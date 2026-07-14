@@ -515,6 +515,31 @@ Rectangle {
                     color: AppTheme.textMuted
                 }
             }
+
+            Button {
+                id: jumpToLatestButton
+                objectName: "jumpToLatestButton"
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                anchors.rightMargin: AppTheme.spacingM + 12
+                anchors.bottomMargin: AppTheme.spacingM + 8
+                visible: app.currentRoomId !== "" && !timeline.stickToBottom
+                text: qsTr("Jump to latest")
+                z: 20
+                focusPolicy: Qt.StrongFocus
+                Accessible.name: text
+                ToolTip.text: qsTr("Return to the newest message")
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+                onClicked: {
+                    timeline.stickToBottom = true
+                    timeline.positionViewAtEnd()
+                    Qt.callLater(function() {
+                        timeline.positionViewAtEnd()
+                        app.readReceipts.reevaluate()
+                    })
+                }
+            }
         }
 
         // Typing indicator

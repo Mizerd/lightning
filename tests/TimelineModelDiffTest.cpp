@@ -515,6 +515,7 @@ void TimelineModelDiffTest::readMarkerDoesNotBreakSenderGroupButVisibleRowsDo()
     first.timestamp = base;
     TimelineEvent marker;
     marker.roomId = kRoom;
+    marker.itemId = QStringLiteral("read-marker-stable");
     marker.type = TimelineEvent::ReadMarker;
     auto second = makeEvent(QStringLiteral("$second"), QStringLiteral("two"));
     second.timestamp = base.addSecs(30);
@@ -534,6 +535,7 @@ void TimelineModelDiffTest::readMarkerDoesNotBreakSenderGroupButVisibleRowsDo()
     Q_EMIT m_client->timelineReset(kRoom);
 
     QVERIFY(m_model->data(m_model->index(2), TimelineModel::ContinuesSenderGroupRole).toBool());
+    QCOMPARE(m_model->stableIdAt(1), QStringLiteral("read-marker-stable"));
     QVERIFY(m_model->data(m_model->index(4), TimelineModel::BeginsSenderGroupRole).toBool());
     QVERIFY(m_model->data(m_model->index(6), TimelineModel::BeginsSenderGroupRole).toBool());
     QVERIFY(!m_model->data(m_model->index(3), TimelineModel::ShowSenderIdentityRole).toBool());
