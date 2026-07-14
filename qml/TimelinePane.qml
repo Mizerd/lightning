@@ -271,11 +271,22 @@ Rectangle {
                 // whenever the loaded content cannot fill the viewport (a
                 // short initial snapshot never scrolls, so a scroll-position
                 // trigger alone would deadlock). The controller enforces the
-                // fill budget, no-progress stop and single-flight, so calling
-                // this from every size change is safe.
+                // fill budget, no-progress stop and single-flight. Geometry
+                // changes are coalesced onto the next event-loop turn: the
+                // pagination header itself changes contentHeight when the
+                // controller enters/leaves Loading, so dispatching directly
+                // from onContentHeightChanged re-entered the header's state
+                // binding and produced a paginationState binding loop.
+                property bool viewportFillCheckScheduled: false
                 function maybeFillViewport() {
-                    if (app.currentRoomId !== "" && contentHeight < height)
-                        app.pagination.requestViewportFill()
+                    if (viewportFillCheckScheduled)
+                        return
+                    viewportFillCheckScheduled = true
+                    Qt.callLater(function() {
+                        viewportFillCheckScheduled = false
+                        if (app.currentRoomId !== "" && contentHeight < height)
+                            app.pagination.requestViewportFill()
+                    })
                 }
                 onContentHeightChanged: maybeFillViewport()
                 onHeightChanged: maybeFillViewport()
@@ -398,32 +409,39 @@ Rectangle {
                     // without a fragile visual/coordinate probe.
                     objectName: "paginationHeader"
                     width: timeline.width
-                    readonly property int paginationState:
-                        app.pagination.presentationState
-                    height: paginationState === PaginationController.Hidden ? 0 : 32
+                    // PaginationController is the single semantic state
+                    // source. Do not mirror this in a local property that can
+                    // be re-entered by ListView geometry notifications.
+                    height: app.pagination.presentationState
+                            === PaginationController.Hidden ? 0 : 32
                     Row {
                         id: paginationHeader
                         anchors.centerIn: parent
                         spacing: 6
-                        visible: parent.paginationState !== PaginationController.Hidden
+                        visible: app.pagination.presentationState
+                                 !== PaginationController.Hidden
                         BusyIndicator {
                             width: 16; height: 16
                             anchors.verticalCenter: parent.verticalCenter
-                            running: parent.parent.paginationState === PaginationController.Loading
+                            running: app.pagination.presentationState
+                                     === PaginationController.Loading
                             visible: running
                         }
                         Label {
                             anchors.verticalCenter: parent.verticalCenter
-                            text: parent.parent.paginationState === PaginationController.Loading
+                            text: app.pagination.presentationState
+                                  === PaginationController.Loading
                                   ? qsTr("Loading older messages…")
                                   : qsTr("Could not load older messages —")
-                            color: parent.parent.paginationState === PaginationController.Failed
+                            color: app.pagination.presentationState
+                                   === PaginationController.Failed
                                    ? AppTheme.error : AppTheme.textMuted
                             font.pixelSize: 11
                         }
                         Label {
                             anchors.verticalCenter: parent.verticalCenter
-                            visible: parent.parent.paginationState === PaginationController.Failed
+                            visible: app.pagination.presentationState
+                                     === PaginationController.Failed
                             text: qsTr("Retry")
                             color: AppTheme.accent
                             font.pixelSize: 11

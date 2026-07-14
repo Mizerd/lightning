@@ -23,6 +23,7 @@
 #include "models/PaginationController.h"
 #include "models/RoomListModel.h"
 #include "models/TimelineModel.h"
+#include "matrix/MockMatrixClient.h"
 
 namespace {
 constexpr int kSignalTimeoutMs = 2000;
@@ -236,6 +237,76 @@ private Q_SLOTS:
         QTRY_COMPARE_WITH_TIMEOUT(controller.pagination()->presentationState(),
                                   PaginationController::Hidden, 5000);
         QTRY_COMPARE_WITH_TIMEOUT(header->height(), 0.0, 5000);
+        QCOMPARE(warnings, QStringList{});
+    }
+
+    // 0.5.17: controller state changes alter the pagination header height,
+    // which alters ListView contentHeight. Dispatching viewport fill directly
+    // from that geometry notification re-entered the header state binding.
+    // Exercise the real pane through initial fill, loading, reached-start and
+    // repeated resizes; queued/coalesced geometry checks must settle without a
+    // binding-loop warning or an uncontrolled request storm. Failed/Retry are
+    // driven deterministically by PaginationControllerTest's FakeClient while
+    // this runtime test pins the QML geometry side of the cycle.
+    void paginationGeometryChangesAreQueuedAndBounded()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        controller.setCurrentRoomId(QStringLiteral("!general:mock.local"));
+        auto *mock = controller.findChild<MockMatrixClient *>();
+        QVERIFY(mock != nullptr);
+        mock->failNextPaginationForTest();
+
+        QQmlApplicationEngine engine;
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this,
+                [&warnings](const QList<QQmlError> &errors) {
+                    for (const auto &e : errors)
+                        warnings << e.toString();
+                });
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy stateSpy(controller.pagination(),
+                            &PaginationController::stateChanged);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("TimelinePane"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(root != nullptr);
+
+        auto *timeline = root->findChild<QQuickItem *>(
+            QStringLiteral("timelineListView"));
+        auto *header = root->findChild<QQuickItem *>(
+            QStringLiteral("paginationHeader"));
+        QVERIFY(timeline != nullptr);
+        QVERIFY(header != nullptr);
+
+        for (const QSize size : { QSize(680, 420), QSize(900, 720),
+                                  QSize(560, 360), QSize(720, 640) }) {
+            root->setSize(QSizeF(size));
+            QCoreApplication::processEvents();
+        }
+
+        QTRY_VERIFY_WITH_TIMEOUT(controller.pagination()->failed(), 5000);
+        QTRY_COMPARE_WITH_TIMEOUT(header->height(), 32.0, 5000);
+        controller.pagination()->retry();
+        QTRY_VERIFY_WITH_TIMEOUT(!controller.pagination()->busy(), 5000);
+        QVERIFY(!controller.pagination()->failed());
+        // Drive the second seeded page explicitly. The headless test does
+        // not polish delegates, so contentHeight cannot legitimately ask for
+        // this page on its own; the real header still traverses Loading back
+        // to Hidden/reached-start around the request.
+        controller.pagination()->requestNearTop();
+        QTRY_VERIFY_WITH_TIMEOUT(!controller.pagination()->busy(), 5000);
+        QTRY_VERIFY_WITH_TIMEOUT(controller.pagination()->reachedStart(), 5000);
+        QTRY_COMPARE_WITH_TIMEOUT(header->height(), 0.0, 5000);
+        QTRY_VERIFY_WITH_TIMEOUT(
+            !timeline->property("viewportFillCheckScheduled").toBool(), 5000);
+        QVERIFY2(stateSpy.count() < 40,
+                 qPrintable(QStringLiteral("pagination state storm: %1")
+                                .arg(stateSpy.count())));
         QCOMPARE(warnings, QStringList{});
     }
 

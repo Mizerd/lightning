@@ -62,7 +62,15 @@ public:
 
     void loadOlderMessages(const QString &roomId) override;
     bool canPaginate(const QString &roomId) const override;
+    bool paginationReady(const QString &roomId) const override
+    { return m_paginationRemaining.contains(roomId); }
     bool paginating(const QString &roomId) const override;
+    bool paginationFailed(const QString &roomId) const override
+    { return m_paginationFailed.contains(roomId); }
+
+    // Deterministic runtime-QML coverage for the Retry presentation. This
+    // backend is test/demo-only and never performs network I/O.
+    void failNextPaginationForTest() { m_failNextPagination = true; }
 
 private:
     void seedMockData();
@@ -81,6 +89,8 @@ private:
     QHash<QString, QList<TimelineEvent>> m_timelines;
     QHash<QString, int> m_paginationRemaining; // roomId → mock pages left
     QSet<QString> m_paginating;                 // roomId currently paginating
+    QSet<QString> m_paginationFailed;
+    bool m_failNextPagination = false;
 
     quint64 m_eventCounter = 0;
     quint64 m_txnCounter = 0;

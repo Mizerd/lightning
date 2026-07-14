@@ -1,5 +1,16 @@
 # Current state (v0.5.16)
 
+## v0.5.17 hotfix development
+
+Live investigation of the affected encrypted room classified the reported
+window disappearance as a live-process UI hang in the Qt Quick timeline,
+not a Rust panic or a cryptographic error. The pagination presentation header
+changed `ListView.contentHeight`, whose synchronous geometry handler dispatched
+another viewport-fill request while the header state binding was evaluating.
+Viewport-fill geometry checks are now queued and coalesced, and the header
+reads the controller's semantic presentation state directly. Loading, Retry,
+reached-start, automatic fill, and near-top pagination remain controller-owned.
+
 ## v0.5.16 — timeline presentation polish
 
 ### Compact sender rows (checkpoint 1)

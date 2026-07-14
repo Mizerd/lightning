@@ -368,6 +368,13 @@ void MockMatrixClient::loadOlderMessages(const QString &roomId)
 {
     if (!m_paginationRemaining.contains(roomId)) return;
     if (m_paginating.contains(roomId)) return;
+    m_paginationFailed.remove(roomId);
+    if (m_failNextPagination) {
+        m_failNextPagination = false;
+        m_paginationFailed.insert(roomId);
+        Q_EMIT paginationStateChanged(roomId);
+        return;
+    }
     if (m_paginationRemaining[roomId] <= 0) {
         for (auto &r : m_rooms)
             if (r.id == roomId) r.paginationExhausted = true;
