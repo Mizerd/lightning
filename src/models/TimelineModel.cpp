@@ -785,6 +785,112 @@ int TimelineModel::rowForStableId(const QString &stableId) const
     return -1;
 }
 
+const TimelineEvent *TimelineModel::eventForId(const QString &eventId) const
+{
+    if (eventId.isEmpty())
+        return nullptr;
+    for (const auto &event : m_events) {
+        if (event.eventId == eventId)
+            return &event;
+    }
+    return nullptr;
+}
+
+QString TimelineModel::visibleTextForEvent(const QString &eventId) const
+{
+    const auto *event = eventForId(eventId);
+    if (!event || event->isVirtual() || event->type == TimelineEvent::StateChange
+        || event->redacted)
+        return {};
+    return event->body;
+}
+
+QString TimelineModel::messagePermalink(const QString &eventId) const
+{
+    const auto *event = eventForId(eventId);
+    if (!event || event->roomId.isEmpty() || event->eventId.isEmpty()
+        || event->eventId.startsWith(QLatin1String("local:")))
+        return {};
+    const auto encodeId = [](const QString &id) {
+        return QString::fromLatin1(QUrl::toPercentEncoding(
+            id, QByteArrayLiteral("!$:@")));
+    };
+    return QStringLiteral("https://matrix.to/#/%1/%2")
+        .arg(encodeId(event->roomId), encodeId(event->eventId));
+}
+
+bool TimelineModel::canRedactEvent(const QString &eventId) const
+{
+    const auto *event = eventForId(eventId);
+    return event && event->sender == m_selfUserId && !event->redacted
+        && !event->isVirtual() && event->type != TimelineEvent::StateChange
+        && !event->eventId.startsWith(QLatin1String("local:"));
+}
+
+bool TimelineModel::canEditEvent(const QString &eventId) const
+{
+    const auto *event = eventForId(eventId);
+    return canRedactEvent(eventId) && event
+        && event->type == TimelineEvent::TextMessage
+        && event->status == TimelineEvent::Sent;
+}
+
+QVariantMap TimelineModel::messageDetails(const QString &eventId) const
+{
+    const auto *event = eventForId(eventId);
+    if (!event || event->isVirtual() || event->type == TimelineEvent::StateChange)
+        return {};
+
+    QString type;
+    switch (event->type) {
+    case TimelineEvent::TextMessage: type = QStringLiteral("m.room.message (text)"); break;
+    case TimelineEvent::Emote:       type = QStringLiteral("m.room.message (emote)"); break;
+    case TimelineEvent::Notice:      type = QStringLiteral("m.room.message (notice)"); break;
+    case TimelineEvent::Image:       type = QStringLiteral("m.room.message (image)"); break;
+    case TimelineEvent::File:        type = QStringLiteral("m.room.message (file)"); break;
+    case TimelineEvent::Unknown:     type = QStringLiteral("Unknown message"); break;
+    default:                         return {};
+    }
+
+    QString delivery;
+    if (event->isLocalEcho)
+        delivery = QStringLiteral("Local echo");
+    else if (event->status == TimelineEvent::Sending)
+        delivery = QStringLiteral("Sending");
+    else if (event->status == TimelineEvent::Failed)
+        delivery = QStringLiteral("Failed");
+    else
+        delivery = QStringLiteral("Sent");
+
+    QString encryption = QStringLiteral("Not encrypted");
+    QString decryption = QStringLiteral("Not applicable");
+    if (event->isEncrypted) {
+        encryption = QStringLiteral("Encrypted");
+        if (event->undecryptable)
+            decryption = QStringLiteral("Unable to decrypt");
+        else if (event->isDecrypted)
+            decryption = QStringLiteral("Decrypted");
+        else
+            decryption = QStringLiteral("Pending");
+    }
+
+    QVariantMap details;
+    details.insert(QStringLiteral("senderName"), senderDisplayName(*event));
+    details.insert(QStringLiteral("senderId"), event->sender);
+    details.insert(QStringLiteral("timestamp"), event->timestamp.toString(Qt::ISODate));
+    details.insert(QStringLiteral("roomId"), event->roomId);
+    details.insert(QStringLiteral("eventId"), event->eventId);
+    details.insert(QStringLiteral("eventType"), type);
+    details.insert(QStringLiteral("edited"), event->edited);
+    details.insert(QStringLiteral("delivery"), delivery);
+    details.insert(QStringLiteral("encryption"), encryption);
+    details.insert(QStringLiteral("decryption"), decryption);
+    details.insert(QStringLiteral("redacted"), event->redacted);
+    details.insert(QStringLiteral("replyTargetId"), event->replyToEventId);
+    details.insert(QStringLiteral("threadRootId"), event->threadRootId);
+    return details;
+}
+
 bool TimelineModel::canPaginate() const
 {
     if (!m_client || m_roomId.isEmpty()) return false;

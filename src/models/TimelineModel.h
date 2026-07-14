@@ -6,6 +6,7 @@
 #include <QList>
 #include <QStringList>
 #include <QVariantList>
+#include <QVariantMap>
 
 class MatrixClient;
 
@@ -120,6 +121,14 @@ public:
     Q_INVOKABLE QString eventIdAt(int row) const;
     Q_INVOKABLE int rowForStableId(const QString &stableId) const;
 
+    // Stable-id message action helpers. Each call re-resolves the event in
+    // the current room so a recycled QML delegate cannot act on another row.
+    Q_INVOKABLE QString visibleTextForEvent(const QString &eventId) const;
+    Q_INVOKABLE QString messagePermalink(const QString &eventId) const;
+    Q_INVOKABLE QVariantMap messageDetails(const QString &eventId) const;
+    Q_INVOKABLE bool canEditEvent(const QString &eventId) const;
+    Q_INVOKABLE bool canRedactEvent(const QString &eventId) const;
+
     // v0.5.7: retry a failed outgoing message (row must be a failed local
     // echo with a transaction id). Routed to the backend send queue; the
     // SDK re-attempts the same queued item, so no duplicate can appear.
@@ -172,6 +181,7 @@ private Q_SLOTS:
     void onPaginationStateChanged(const QString &roomId);
 
 private:
+    const TimelineEvent *eventForId(const QString &eventId) const;
     void reload();
     int rowForEventId(const QString &eventId) const;
     void refreshTypingText();

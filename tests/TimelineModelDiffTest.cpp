@@ -124,6 +124,8 @@ private Q_SLOTS:
     void mediaAndPaginationPreserveSenderGrouping();
     void memberProfileUpdateEmitsIdentityRoles();
     void clientSwitchDoesNotLeakSenderProfile();
+    void messageActionsUseStableIdentityAndSafeMetadata();
+    void staleAndInapplicableMessageActionsAreRejected();
 
 private:
     FakeClient *m_client = nullptr;
@@ -605,6 +607,68 @@ void TimelineModelDiffTest::clientSwitchDoesNotLeakSenderProfile()
     QCOMPARE(m_model->data(m_model->index(0), TimelineModel::SenderAvatarMxcRole).toString(),
              QStringLiteral("mxc://b/avatar"));
     m_model->setClient(nullptr);
+}
+
+void TimelineModelDiffTest::messageActionsUseStableIdentityAndSafeMetadata()
+{
+    auto own = makeEvent(QStringLiteral("$own:example.org"),
+                         QStringLiteral("visible text"));
+    own.sender = QStringLiteral("@me:example.org");
+    own.edited = true;
+    own.isEncrypted = true;
+    own.isDecrypted = true;
+    own.replyToEventId = QStringLiteral("$target:example.org");
+    m_client->mirror = { own };
+    Q_EMIT m_client->loginSucceeded(QStringLiteral("@me:example.org"));
+    Q_EMIT m_client->timelineReset(kRoom);
+
+    QCOMPARE(m_model->visibleTextForEvent(own.eventId),
+             QStringLiteral("visible text"));
+    const QString link = m_model->messagePermalink(own.eventId);
+    QCOMPARE(link, QStringLiteral(
+        "https://matrix.to/#/!room:example.org/$own:example.org"));
+    QVERIFY(!link.contains(QStringLiteral("token"), Qt::CaseInsensitive));
+    QVERIFY(m_model->canEditEvent(own.eventId));
+    QVERIFY(m_model->canRedactEvent(own.eventId));
+
+    const QVariantMap details = m_model->messageDetails(own.eventId);
+    QCOMPARE(details.value(QStringLiteral("eventId")).toString(), own.eventId);
+    QCOMPARE(details.value(QStringLiteral("roomId")).toString(), kRoom);
+    QCOMPARE(details.value(QStringLiteral("senderId")).toString(), own.sender);
+    QCOMPARE(details.value(QStringLiteral("encryption")).toString(),
+             QStringLiteral("Encrypted"));
+    QCOMPARE(details.value(QStringLiteral("decryption")).toString(),
+             QStringLiteral("Decrypted"));
+    QCOMPARE(details.value(QStringLiteral("replyTargetId")).toString(),
+             own.replyToEventId);
+    QVERIFY(!details.contains(QStringLiteral("body")));
+    QVERIFY(!details.contains(QStringLiteral("mediaUrl")));
+    QVERIFY(!details.contains(QStringLiteral("rawJson")));
+}
+
+void TimelineModelDiffTest::staleAndInapplicableMessageActionsAreRejected()
+{
+    auto remote = makeEvent(QStringLiteral("$remote:example.org"),
+                            QStringLiteral("remote"));
+    auto activity = makeEvent(QStringLiteral("$state:example.org"),
+                              QStringLiteral("joined"));
+    activity.type = TimelineEvent::StateChange;
+    auto redacted = makeEvent(QStringLiteral("$redacted:example.org"),
+                              QStringLiteral("must not copy"));
+    redacted.sender = QStringLiteral("@me:example.org");
+    redacted.redacted = true;
+    m_client->mirror = { remote, activity, redacted };
+    Q_EMIT m_client->loginSucceeded(QStringLiteral("@me:example.org"));
+    Q_EMIT m_client->timelineReset(kRoom);
+
+    QVERIFY(!m_model->canEditEvent(remote.eventId));
+    QVERIFY(!m_model->canRedactEvent(remote.eventId));
+    QVERIFY(m_model->messageDetails(activity.eventId).isEmpty());
+    QVERIFY(m_model->visibleTextForEvent(activity.eventId).isEmpty());
+    QVERIFY(m_model->visibleTextForEvent(redacted.eventId).isEmpty());
+    QVERIFY(!m_model->canRedactEvent(redacted.eventId));
+    QVERIFY(m_model->messageDetails(QStringLiteral("$stale")).isEmpty());
+    QVERIFY(m_model->messagePermalink(QStringLiteral("$stale")).isEmpty());
 }
 
 QTEST_GUILESS_MAIN(TimelineModelDiffTest)

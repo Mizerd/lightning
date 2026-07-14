@@ -26,7 +26,9 @@ private Q_SLOTS:
         const QString composer = read(QStringLiteral(QML_DIR "/MessageComposerBar.qml"));
         QVERIFY(!delegate.contains("reactionPalette"));
         QVERIFY(!delegate.contains("[\"👍\""));
-        QCOMPARE(delegate.count("app.composer.reactTo(root.eventIdForActions(), emoji)"), 1);
+        QCOMPARE(delegate.count("app.composer.reactTo(root.reactionEventId, emoji)"), 1);
+        QVERIFY(delegate.contains(
+            "root.reactionEventId = root.eventIdForActions()"));
         QVERIFY(delegate.contains("reactionPicker.open()"));
         QVERIFY(composer.contains("input.selectionStart"));
         QVERIFY(composer.contains("input.selectionEnd"));

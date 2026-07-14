@@ -40,6 +40,41 @@ Item {
     readonly property bool actionsPinned: ListView.view
             && ListView.view.pinnedActionsKey !== ""
             && ListView.view.pinnedActionsKey === actionKey
+    property string menuEventId: ""
+    property string reactionEventId: ""
+    function openContextMenu(x, y) {
+        var eventId = root.eventIdForActions()
+        if (eventId === "" || root.isVirtualRow || root.isStateActivity)
+            return
+        menuEventId = eventId
+        var p = root.mapToItem(Overlay.overlay,
+                               x === undefined ? root.width : x,
+                               y === undefined ? 0 : y)
+        moreMenu.popup(Overlay.overlay, p.x, p.y)
+    }
+    function copyToClipboard(value) {
+        if (!value || value.length === 0) return
+        clipboardHelper.text = value
+        clipboardHelper.selectAll()
+        clipboardHelper.copy()
+        clipboardHelper.text = ""
+    }
+    function beginReply(eventId) {
+        var details = app.timeline.messageDetails(eventId)
+        if (!details.eventId) return
+        var previewText = app.timeline.visibleTextForEvent(eventId)
+        app.composer.beginReply(eventId, details.senderName || details.senderId,
+                                (previewText || "").substring(0, 80))
+    }
+    activeFocusOnTab: !isVirtualRow && !isStateActivity
+    Keys.onPressed: (event) => {
+        if (event.key === Qt.Key_Menu
+            || (event.key === Qt.Key_F10
+                && (event.modifiers & Qt.ShiftModifier))) {
+            root.openContextMenu(root.width / 2, root.height / 2)
+            event.accepted = true
+        }
+    }
     function toggleActionsPin() {
         if (!ListView.view || actionKey === "") return
         ListView.view.pinnedActionsKey =
@@ -176,6 +211,14 @@ Item {
                                      bubble.implicitHeight)
 
             HoverHandler { id: rowHover }
+            TapHandler {
+                acceptedButtons: Qt.RightButton
+                onTapped: (eventPoint, button) => {
+                    var p = bubbleRow.mapToItem(root, eventPoint.position.x,
+                                               eventPoint.position.y)
+                    root.openContextMenu(p.x, p.y)
+                }
+            }
 
             Item {
                 id: avatarSlot
@@ -519,6 +562,9 @@ Item {
                     spacing: 2
                     ToolButton {
                         id: reactButton
+                        enabled: !model.redacted
+                                 && app.timeline.messagePermalink(
+                                     root.eventIdForActions()).length > 0
                         text: "\u{1F60A}"
                         Accessible.name: qsTr("React to message")
                         ToolTip.text: qsTr("React")
@@ -527,6 +573,7 @@ Item {
                         onClicked: {
                             if (ListView.view)
                                 ListView.view.pinnedActionsKey = root.actionKey
+                            root.reactionEventId = root.eventIdForActions()
                             var p = reactButton.mapToItem(Overlay.overlay,
                                                           reactButton.width / 2,
                                                           reactButton.height)
@@ -536,17 +583,15 @@ Item {
                     }
                     ToolButton {
                         text: "↰"
+                        enabled: !model.redacted
+                                 && app.timeline.messagePermalink(
+                                     root.eventIdForActions()).length > 0
                         Accessible.name: qsTr("Reply to message")
                         ToolTip.text: qsTr("Reply")
                         ToolTip.visible: hovered
                         ToolTip.delay: 500
                         onClicked: {
-                            var previewText = model.body
-                            if (model.isImage) previewText = qsTr("Image: %1").arg(model.mediaFilename || "")
-                            else if (model.isFile) previewText = qsTr("File: %1").arg(model.mediaFilename || "")
-                            app.composer.beginReply(root.eventIdForActions(),
-                                                    model.senderDisplayName || model.sender,
-                                                    (previewText || "").substring(0, 80))
+                            root.beginReply(root.eventIdForActions())
                         }
                     }
                     ToolButton {
@@ -555,49 +600,85 @@ Item {
                         ToolTip.text: qsTr("More")
                         ToolTip.visible: hovered
                         ToolTip.delay: 500
-                        onClicked: moreMenu.open()
+                        onClicked: root.openContextMenu(root.width - moreMenu.implicitWidth,
+                                                       actionBar.y + actionBar.height)
                         Menu {
                             id: moreMenu
+                            objectName: "messageContextMenu"
+                            onClosed: root.menuEventId = ""
+                            MenuItem {
+                                text: qsTr("Reply")
+                                enabled: app.timeline.messagePermalink(
+                                             root.menuEventId).length > 0
+                                         && !app.timeline.messageDetails(
+                                             root.menuEventId).redacted
+                                onTriggered: root.beginReply(root.menuEventId)
+                            }
+                            MenuItem {
+                                text: qsTr("React")
+                                enabled: app.timeline.messagePermalink(
+                                             root.menuEventId).length > 0
+                                         && !app.timeline.messageDetails(
+                                             root.menuEventId).redacted
+                                onTriggered: {
+                                    root.reactionEventId = root.menuEventId
+                                    reactionPicker.open()
+                                }
+                            }
                             MenuItem {
                                 text: qsTr("Copy text")
-                                enabled: !model.redacted && (model.body || "").length > 0
-                                onTriggered: {
-                                    // Simple: no clipboard access in QML by default; skip.
-                                }
-                                visible: false
+                                enabled: app.timeline.visibleTextForEvent(
+                                             root.menuEventId).length > 0
+                                onTriggered: root.copyToClipboard(
+                                    app.timeline.visibleTextForEvent(root.menuEventId))
+                            }
+                            MenuItem {
+                                text: qsTr("Copy message link")
+                                enabled: app.timeline.messagePermalink(
+                                             root.menuEventId).length > 0
+                                onTriggered: root.copyToClipboard(
+                                    app.timeline.messagePermalink(root.menuEventId))
                             }
                             MenuItem {
                                 text: qsTr("Reply in thread")
-                                enabled: !model.redacted
+                                enabled: app.timeline.messagePermalink(
+                                             root.menuEventId).length > 0
+                                         && !app.timeline.messageDetails(
+                                             root.menuEventId).redacted
                                 onTriggered: {
-                                    var previewText = model.body
-                                    if (model.isImage) previewText = qsTr("Image: %1").arg(model.mediaFilename || "")
-                                    else if (model.isFile) previewText = qsTr("File: %1").arg(model.mediaFilename || "")
-                                    // Threads are rooted at the root event id.
-                                    // If this event is itself a thread reply, use its
-                                    // root; otherwise use this event id as the root.
-                                    var rootId = (model.threadRootId || "").length > 0
-                                                     ? model.threadRootId
-                                                     : root.eventIdForActions()
-                                    app.composer.beginThreadReply(rootId,
-                                                                  (previewText || "").substring(0, 80))
+                                    var details = app.timeline.messageDetails(
+                                                      root.menuEventId)
+                                    var rootId = (details.threadRootId || "").length > 0
+                                                 ? details.threadRootId
+                                                 : root.menuEventId
+                                    app.composer.beginThreadReply(
+                                        rootId, app.timeline.visibleTextForEvent(
+                                            root.menuEventId).substring(0, 80))
                                 }
                             }
                             MenuItem {
                                 text: qsTr("Edit")
-                                enabled: model.isOwn && !model.redacted
-                                         && model.eventType === 0    // TextMessage
-                                onTriggered: app.composer.beginEdit(root.eventIdForActions(), model.body)
+                                enabled: app.timeline.canEditEvent(root.menuEventId)
+                                visible: enabled
+                                onTriggered: app.composer.beginEdit(
+                                    root.menuEventId,
+                                    app.timeline.visibleTextForEvent(root.menuEventId))
+                            }
+                            MenuItem {
+                                text: qsTr("View details")
+                                enabled: root.menuEventId !== ""
+                                onTriggered: {
+                                    messageDetailsDialog.details =
+                                        app.timeline.messageDetails(root.menuEventId)
+                                    if (messageDetailsDialog.details.eventId)
+                                        messageDetailsDialog.open()
+                                }
                             }
                             MenuItem {
                                 text: qsTr("Delete")
-                                enabled: model.isOwn && !model.redacted
-                                onTriggered: app.composer.redact(root.eventIdForActions())
-                            }
-                            MenuItem {
-                                visible: (model.isImage || model.isFile) && model.mediaUrl && model.mediaUrl.toString().length > 0
-                                text: qsTr("Open externally")
-                                onTriggered: app.media.openExternal(model.mediaUrl)
+                                enabled: app.timeline.canRedactEvent(root.menuEventId)
+                                visible: enabled
+                                onTriggered: app.composer.redact(root.menuEventId)
                             }
                         }
                     }
@@ -650,7 +731,72 @@ Item {
         onOpened: if (ListView.view) ListView.view.emojiPickerOpen = true
         onClosed: if (ListView.view) ListView.view.emojiPickerOpen = false
         onEmojiChosen: (emoji) =>
-            app.composer.reactTo(root.eventIdForActions(), emoji)
+            app.composer.reactTo(root.reactionEventId, emoji)
+    }
+
+    TextEdit {
+        id: clipboardHelper
+        visible: false
+        width: 0
+        height: 0
+    }
+
+    Dialog {
+        id: messageDetailsDialog
+        objectName: "messageDetailsDialog"
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        modal: true
+        title: qsTr("Message details")
+        standardButtons: Dialog.Ok
+        property var details: ({})
+        width: Math.min(520, parent ? parent.width - 32 : 520)
+        contentItem: ColumnLayout {
+            spacing: AppTheme.spacingS
+            Repeater {
+                model: [
+                    [qsTr("Sender"), messageDetailsDialog.details.senderName || ""],
+                    [qsTr("Sender ID"), messageDetailsDialog.details.senderId || ""],
+                    [qsTr("Timestamp"), messageDetailsDialog.details.timestamp || ""],
+                    [qsTr("Room ID"), messageDetailsDialog.details.roomId || ""],
+                    [qsTr("Event ID"), messageDetailsDialog.details.eventId || ""],
+                    [qsTr("Type"), messageDetailsDialog.details.eventType || ""],
+                    [qsTr("Delivery"), messageDetailsDialog.details.delivery || ""],
+                    [qsTr("Encryption"), messageDetailsDialog.details.encryption || ""],
+                    [qsTr("Decryption"), messageDetailsDialog.details.decryption || ""],
+                    [qsTr("Edited"), messageDetailsDialog.details.edited ? qsTr("Yes") : qsTr("No")],
+                    [qsTr("Redacted"), messageDetailsDialog.details.redacted ? qsTr("Yes") : qsTr("No")],
+                    [qsTr("Reply target"), messageDetailsDialog.details.replyTargetId || ""]
+                ]
+                RowLayout {
+                    visible: modelData[1] !== ""
+                    Layout.fillWidth: true
+                    Label {
+                        text: modelData[0]
+                        color: AppTheme.textMuted
+                        Layout.preferredWidth: 110
+                    }
+                    Label {
+                        text: modelData[1]
+                        color: AppTheme.text
+                        wrapMode: Text.WrapAnywhere
+                        textFormat: Text.PlainText
+                        Layout.fillWidth: true
+                    }
+                }
+            }
+        }
+    }
+
+    Connections {
+        target: app
+        function onCurrentRoomIdChanged() {
+            moreMenu.close()
+            reactionPicker.close()
+            messageDetailsDialog.close()
+            root.menuEventId = ""
+            root.reactionEventId = ""
+        }
     }
 
     // JS helper: models expose reactions as QVariantList. Return as-is for Repeater.

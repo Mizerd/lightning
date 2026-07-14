@@ -294,6 +294,13 @@ private Q_SLOTS:
         QVERIFY(delegate.contains(QStringLiteral("app.composer.beginReply")));
         QVERIFY(delegate.contains(QStringLiteral("app.composer.beginEdit")));
         QVERIFY(delegate.contains(QStringLiteral("app.composer.reactTo")));
+        QVERIFY(delegate.contains(QStringLiteral("acceptedButtons: Qt.RightButton")));
+        QVERIFY(delegate.contains(QStringLiteral("Qt.Key_Menu")));
+        QVERIFY(delegate.contains(QStringLiteral("id: moreMenu")));
+        QVERIFY(delegate.contains(QStringLiteral("Copy message link")));
+        QVERIFY(delegate.contains(QStringLiteral("View details")));
+        QVERIFY(delegate.contains(QStringLiteral("messageDetailsDialog")));
+        QVERIFY(delegate.contains(QStringLiteral("root.menuEventId")));
     }
 };
 

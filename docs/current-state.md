@@ -45,6 +45,21 @@ of its room ID, visible event ID, pixel offset, and whether it followed the
 latest event. Returning to a room restores that stable anchor (or latest), and
 logout clears all anchors. No message body or decrypted content is persisted.
 
+## v0.5.18 development — message context and details
+
+Ordinary message rows now expose the same stable-event context menu from
+right-click, the overflow button, and the keyboard context-menu action. Reply,
+React, Edit, Delete, Copy text, Copy message link, thread reply, and View
+details appear only where the current loaded event supports them. Opening the
+menu snapshots the Matrix event ID and every action re-resolves it in the
+current timeline, so delegate reuse or a room switch cannot redirect an action
+to another event.
+
+Matrix permalinks contain only the room and event IDs. The details dialog is
+limited to sender identity, timestamp, room/event/type, edit/delivery,
+encryption/decryption/redaction state, and relation IDs; it never returns raw
+event JSON, bodies, tokens, crypto material, or media URLs.
+
 ## v0.5.17 — timeline runtime hotfix
 
 Live investigation of the affected encrypted room classified the reported

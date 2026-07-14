@@ -11,6 +11,7 @@
 #include <QtTest/QtTest>
 
 #include <QGuiApplication>
+#include <QClipboard>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQmlEngine>
@@ -478,6 +479,97 @@ private Q_SLOTS:
         QVERIFY(body->height() > 0.0);
         QVERIFY(body->height() < 20000.0);
         QVERIFY(root->implicitHeight() < 20000.0);
+        QCOMPARE(warnings, QStringList{});
+    }
+
+    void rightClickMenuSnapshotsStableEventAndClosesOnRoomSwitch()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        controller.setCurrentRoomId(QStringLiteral("!devs:mock.local"));
+
+        int messageRow = -1;
+        for (int row = 0; row < controller.timeline()->rowCount(); ++row) {
+            const QModelIndex idx = controller.timeline()->index(row);
+            if (!controller.timeline()->data(
+                    idx, TimelineModel::IsVirtualRole).toBool()
+                && !controller.timeline()->data(
+                    idx, TimelineModel::IsStateActivityRole).toBool()) {
+                messageRow = row;
+                break;
+            }
+        }
+        QVERIFY(messageRow >= 0);
+        QVariantMap fixture;
+        const auto roles = controller.timeline()->roleNames();
+        for (auto it = roles.cbegin(); it != roles.cend(); ++it) {
+            fixture.insert(QString::fromUtf8(it.value()),
+                           controller.timeline()->data(
+                               controller.timeline()->index(messageRow), it.key()));
+        }
+        const QString eventId = fixture.value(QStringLiteral("eventId")).toString();
+        QVERIFY(!eventId.isEmpty());
+
+        QQmlApplicationEngine engine;
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this,
+                [&warnings](const QList<QQmlError> &errors) {
+                    for (const auto &e : errors)
+                        warnings << e.toString();
+                });
+        engine.rootContext()->setContextProperty("app", &controller);
+        engine.rootContext()->setContextProperty("model", fixture);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("MessageDelegate"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(root != nullptr);
+        QQuickWindow window;
+        window.resize(640, 240);
+        root->setParentItem(window.contentItem());
+        root->setWidth(window.width());
+        window.show();
+        QCoreApplication::processEvents();
+
+        QTest::mouseClick(&window, Qt::RightButton, Qt::NoModifier,
+                          QPoint(180, qMax(4, qRound(root->height() / 2))));
+        QTRY_COMPARE_WITH_TIMEOUT(root->property("menuEventId").toString(),
+                                  eventId, kSignalTimeoutMs);
+        auto *menu = root->findChild<QObject *>(
+            QStringLiteral("messageContextMenu"));
+        QVERIFY(menu != nullptr);
+        QTRY_VERIFY_WITH_TIMEOUT(menu->property("opened").toBool(),
+                                 kSignalTimeoutMs);
+
+        const QString visibleText = controller.timeline()->visibleTextForEvent(eventId);
+        QVERIFY(!visibleText.isEmpty());
+        QVERIFY(QMetaObject::invokeMethod(root, "copyToClipboard",
+                                          Q_ARG(QVariant, visibleText)));
+        QCOMPARE(QGuiApplication::clipboard()->text(), visibleText);
+        const QString permalink = controller.timeline()->messagePermalink(eventId);
+        QVERIFY(QMetaObject::invokeMethod(root, "copyToClipboard",
+                                          Q_ARG(QVariant, permalink)));
+        QCOMPARE(QGuiApplication::clipboard()->text(), permalink);
+        QVERIFY(!permalink.contains(QStringLiteral("access_token"),
+                                    Qt::CaseInsensitive));
+
+        QVERIFY(QMetaObject::invokeMethod(menu, "close"));
+        QTRY_VERIFY_WITH_TIMEOUT(!menu->property("opened").toBool(),
+                                 kSignalTimeoutMs);
+        root->forceActiveFocus();
+        QVERIFY(root->hasActiveFocus());
+        QTest::keyClick(&window, Qt::Key_Menu);
+        QTRY_VERIFY_WITH_TIMEOUT(menu->property("opened").toBool(),
+                                 kSignalTimeoutMs);
+        QCOMPARE(root->property("menuEventId").toString(), eventId);
+
+        controller.setCurrentRoomId(QStringLiteral("!dm-bob:mock.local"));
+        QTRY_VERIFY_WITH_TIMEOUT(!menu->property("opened").toBool(),
+                                 kSignalTimeoutMs);
+        QCOMPARE(root->property("menuEventId").toString(), QString{});
         QCOMPARE(warnings, QStringList{});
     }
 
