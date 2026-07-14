@@ -104,6 +104,8 @@ set(APP_SOURCES
     src/models/RoomListModel.cpp
     src/models/TimelineModel.h
     src/models/TimelineModel.cpp
+    src/models/TimelineScrollController.h
+    src/models/TimelineScrollController.cpp
     src/models/MessageComposer.h
     src/models/MessageComposer.cpp
     src/models/EmojiCatalog.h
@@ -559,6 +561,19 @@ if(BUILD_TESTING)
     target_include_directories(pagination-controller-test PRIVATE src)
     target_link_libraries(pagination-controller-test PRIVATE Qt6::Core Qt6::Qml Qt6::Test)
     add_test(NAME pagination-controller COMMAND pagination-controller-test)
+
+    # v0.5.19: device-aware wheel-scroll math — per-notch distance/ordering,
+    # coalescing, partial-delta accumulation, direction reversal, pixel vs
+    # angle distinction, bound clamping, motion cancellation.
+    qt_add_executable(timeline-scroll-controller-test
+        tests/TimelineScrollControllerTest.cpp
+        src/models/TimelineScrollController.h
+        src/models/TimelineScrollController.cpp
+    )
+    target_include_directories(timeline-scroll-controller-test PRIVATE src)
+    target_link_libraries(timeline-scroll-controller-test PRIVATE
+        Qt6::Core Qt6::Qml Qt6::Test)
+    add_test(NAME timeline-scroll-controller COMMAND timeline-scroll-controller-test)
 
     # v0.5.11: automatic read receipts — visibility conjunction, debounce
     # cancellation, eligibility, duplicate suppression, ordering.

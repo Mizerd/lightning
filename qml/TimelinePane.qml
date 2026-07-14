@@ -33,6 +33,8 @@ Rectangle {
         target: app
         function onCurrentRoomIdChanged() {
             refreshCurrentRoom()
+            // Old-room wheel motion must not continue into the new room.
+            timeline.cancelWheelMotion()
             // A pinned message-action toolbar belongs to the room it was
             // pinned in; drop it when the room changes.
             timeline.pinnedActionsKey = ""
@@ -279,6 +281,117 @@ Rectangle {
                         positionViewAtEnd()
                 }
 
+                // ── v0.5.19: device-aware wheel scrolling ────────────────
+                // In 0.5.18 the timeline used Flickable's built-in wheel
+                // handling, which maps one physical notch to only a few lines.
+                // Discrete mouse-wheel notches are now coalesced into one
+                // short, reusable animation driven by TimelineScrollController
+                // (app.timelineScroll), so a notch covers a bounded,
+                // viewport-relative distance. Touchpad / high-resolution pixel
+                // deltas move contentY directly to keep fine movement and
+                // native momentum precise. Programmatic navigation cancels
+                // wheel motion first, so restoration is never animated as if
+                // it were physical input.
+                property bool wheelAnimating: false
+
+                // Valid contentY range for this ListView, accounting for the
+                // scroll margins, the pagination header, and a prepend-shifted
+                // origin. Clamping here keeps fast wheel input from
+                // overshooting or jittering against the ends.
+                function wheelMinY() { return originY - topMargin }
+                function wheelMaxY() {
+                    var maxY = originY + contentHeight + bottomMargin - height
+                    var minY = wheelMinY()
+                    return maxY < minY ? minY : maxY
+                }
+
+                // Recompute follow-latest and near-top pagination the way the
+                // drag/flick path does. Needed because wheel/pixel motion sets
+                // contentY programmatically, so Flickable.moving stays false.
+                function updateStickAndPaginate() {
+                    stickToBottom = atYEnd
+                                    || (contentY + height >= contentHeight - 40)
+                    if (contentY < height * 0.5 && !stickToBottom)
+                        app.pagination.requestNearTop()
+                }
+
+                function cancelWheelMotion() {
+                    wheelScrollAnimation.stop()
+                    wheelAnimating = false
+                    app.timelineScroll.cancel()
+                }
+
+                function beginWheelTo(targetY) {
+                    // Any upward wheel intent leaves follow-latest at once so
+                    // incoming messages never yank a reader back to the bottom.
+                    if (targetY < contentY - 0.5)
+                        stickToBottom = false
+                    wheelScrollAnimation.stop()
+                    wheelScrollAnimation.from = contentY
+                    wheelScrollAnimation.to = targetY
+                    wheelAnimating = true
+                    wheelScrollAnimation.start()
+                    updateStickAndPaginate()
+                    scrollSettleTimer.restart()
+                }
+
+                // One reusable animation for ALL discrete-wheel motion — never
+                // a per-event queue and never a permanently running timer.
+                NumberAnimation {
+                    id: wheelScrollAnimation
+                    target: timeline
+                    property: "contentY"
+                    duration: 140
+                    easing.type: Easing.OutCubic
+                    onStopped: {
+                        timeline.wheelAnimating = false
+                        app.timelineScroll.endMotion()
+                        timeline.updateStickAndPaginate()
+                        timeline.scrollSettleTimer.restart()
+                    }
+                }
+
+                // Save the settled position once input stops, rather than
+                // hundreds of intermediate anchors mid-scroll.
+                Timer {
+                    id: scrollSettleTimer
+                    interval: 250
+                    onTriggered: {
+                        timeline.updateStickAndPaginate()
+                        timeline.saveRoomPosition()
+                    }
+                }
+
+                WheelHandler {
+                    id: timelineWheelHandler
+                    objectName: "timelineWheelHandler"
+                    // We move contentY ourselves; the handler must not also
+                    // manipulate a target of its own.
+                    target: null
+                    acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+                    onWheel: (event) => {
+                        var minY = timeline.wheelMinY()
+                        var maxY = timeline.wheelMaxY()
+                        if (event.pixelDelta.y !== 0) {
+                            // Touchpad / high-resolution: precise and direct,
+                            // no notch multiplier, no competing animation.
+                            timeline.cancelWheelMotion()
+                            timeline.contentY = app.timelineScroll.pixelTargetY(
+                                event.pixelDelta.y, timeline.contentY, minY, maxY)
+                            timeline.updateStickAndPaginate()
+                            timeline.scrollSettleTimer.restart()
+                        } else if (event.angleDelta.y !== 0) {
+                            // Discrete mouse wheel: coalesced smooth animation.
+                            timeline.beginWheelTo(app.timelineScroll.wheelTargetY(
+                                event.angleDelta.y, timeline.contentY,
+                                minY, maxY, timeline.height))
+                        }
+                        event.accepted = true
+                    }
+                }
+
+                Component.onDestruction: cancelWheelMotion()
+
                 // v0.5.11: read state is decided by ReadReceiptCoordinator
                 // in C++ (window focus, debounce, event eligibility,
                 // duplicate suppression). QML only reports what it alone
@@ -354,6 +467,9 @@ Rectangle {
                 function restoreCapturedAnchor() {
                     if (anchorStableId === "")
                         return false
+                    // A programmatic re-anchor must never be finished off by a
+                    // lingering wheel animation.
+                    cancelWheelMotion()
                     var newRow = app.timeline.rowForStableId(anchorStableId)
                     if (newRow < 0) {
                         anchorStableId = ""
@@ -399,7 +515,10 @@ Rectangle {
                         Qt.callLater(function() { timeline.restoreAnchor(inserted) })
                     }
                     function onTargetLocated(row, pixelOffset, highlight) {
+                        // Reply navigation takes control immediately.
+                        timeline.cancelWheelMotion()
                         Qt.callLater(function() {
+                            timeline.cancelWheelMotion()
                             timeline.stickToBottom = false
                             timeline.positionViewAtIndex(
                                         row, highlight ? ListView.Center
@@ -412,6 +531,7 @@ Rectangle {
                         })
                     }
                     function onRestoreLatestRequested() {
+                        timeline.cancelWheelMotion()
                         timeline.stickToBottom = true
                         Qt.callLater(timeline.scrollToEndDeferred)
                     }
@@ -432,7 +552,10 @@ Rectangle {
                 }
 
                 onContentYChanged: {
-                    if (!moving) return
+                    // React to a user drag/flick AND to our own wheel/pixel
+                    // motion; ignore programmatic navigation (jump, reply,
+                    // restore) which manages follow-latest itself.
+                    if (!moving && !wheelAnimating) return
                     stickToBottom = (contentY + height >= contentHeight - 40)
                     // Trigger backfill before hitting the exact top so history
                     // is ready as the user approaches it.
@@ -462,6 +585,9 @@ Rectangle {
                 Connections {
                     target: app.timeline
                     function onModelReset() {
+                        // A room switch / fresh snapshot must cancel any
+                        // in-flight wheel motion from the previous room.
+                        timeline.cancelWheelMotion()
                         timeline.stickToBottom = true
                         timeline.pinnedActionsKey = ""
                         timeline.emojiPickerOpen = false
@@ -569,6 +695,8 @@ Rectangle {
                 ToolTip.visible: hovered
                 ToolTip.delay: 500
                 onClicked: {
+                    // Jump to latest overrides any wheel animation instantly.
+                    timeline.cancelWheelMotion()
                     timeline.stickToBottom = true
                     app.pagination.saveFollowingLatest(app.currentRoomId)
                     timeline.positionViewAtEnd()

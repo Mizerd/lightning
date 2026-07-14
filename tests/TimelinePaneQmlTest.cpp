@@ -12,6 +12,7 @@
 
 #include <QGuiApplication>
 #include <QClipboard>
+#include <QWheelEvent>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQmlEngine>
@@ -25,6 +26,7 @@
 #include "models/PaginationController.h"
 #include "models/RoomListModel.h"
 #include "models/TimelineModel.h"
+#include "models/TimelineScrollController.h"
 #include "matrix/MockMatrixClient.h"
 
 namespace {
@@ -625,7 +627,12 @@ private Q_SLOTS:
         window.show();
         QCoreApplication::processEvents();
         QVERIFY(activity->isVisible());
-        QVERIFY(activity->implicitHeight() > 0.0);
+        // The activity delegate's height is produced by delegate layout, which
+        // the offscreen platform completes asynchronously; wait for it rather
+        // than assuming a single processEvents() sufficed (the later checks in
+        // this test already use QTRY_VERIFY for the same reason).
+        QTRY_VERIFY_WITH_TIMEOUT(activity->implicitHeight() > 0.0,
+                                 kSignalTimeoutMs);
 
         controller.settings()->setShowRoomActivity(false);
         QTRY_VERIFY_WITH_TIMEOUT(!activity->isVisible(), kSignalTimeoutMs);
@@ -796,6 +803,224 @@ private Q_SLOTS:
                                   true, kSignalTimeoutMs);
         QTRY_COMPARE_WITH_TIMEOUT(jump->property("visible").toBool(), false,
                                   kSignalTimeoutMs);
+        QCOMPARE(warnings, QStringList{});
+    }
+
+    // v0.5.19: the timeline wheel handler exists, is scoped to the timeline
+    // ListView (so wheel input elsewhere cannot move the timeline), and the
+    // pane reaches the shared TimelineScrollController through app.timelineScroll
+    // without QML warnings/binding loops.
+    void wheelHandlerIsPresentAndScopedToTimeline()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        controller.setCurrentRoomId(QStringLiteral("!general:mock.local"));
+
+        QQmlApplicationEngine engine;
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this,
+                [&warnings](const QList<QQmlError> &errors) {
+                    for (const auto &e : errors)
+                        warnings << e.toString();
+                });
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("TimelinePane"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        QObject *root = createdSpy.at(0).at(0).value<QObject *>();
+        QVERIFY(root != nullptr);
+        QObject *timeline = root->findChild<QObject *>(
+            QStringLiteral("timelineListView"));
+        QVERIFY(timeline != nullptr);
+        // The handler must live inside the timeline view's own subtree, not on
+        // some ancestor — this is what keeps its wheel input from moving
+        // anything else (settings, dialogs, sidebars).
+        QObject *handler = timeline->findChild<QObject *>(
+            QStringLiteral("timelineWheelHandler"));
+        QVERIFY(handler != nullptr);
+        QCOMPARE(warnings, QStringList{});
+    }
+
+    // v0.5.19: a wheel movement upward through beginWheelTo() must leave
+    // follow-latest mode immediately (a reader scrolling up is not dragged
+    // back down by new messages).
+    void wheelUpwardLeavesFollowLatest()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        controller.setCurrentRoomId(QStringLiteral("!general:mock.local"));
+
+        QQmlApplicationEngine engine;
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this,
+                [&warnings](const QList<QQmlError> &errors) {
+                    for (const auto &e : errors)
+                        warnings << e.toString();
+                });
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("TimelinePane"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        QObject *root = createdSpy.at(0).at(0).value<QObject *>();
+        QVERIFY(root != nullptr);
+        QObject *timeline = root->findChild<QObject *>(
+            QStringLiteral("timelineListView"));
+        QVERIFY(timeline != nullptr);
+
+        QVERIFY(timeline->setProperty("stickToBottom", true));
+        const double startY = timeline->property("contentY").toDouble();
+        // Target above the current position (upward = toward the top).
+        QVERIFY(QMetaObject::invokeMethod(timeline, "beginWheelTo",
+                                          Q_ARG(QVariant, startY - 200.0)));
+        QCOMPARE(timeline->property("stickToBottom").toBool(), false);
+        QCOMPARE(warnings, QStringList{});
+    }
+
+    // v0.5.19: Jump to latest must cancel an in-flight coalesced wheel motion
+    // (no animation fighting the programmatic jump).
+    void jumpToLatestCancelsWheelMotion()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        controller.setCurrentRoomId(QStringLiteral("!general:mock.local"));
+        auto *scroll = controller.timelineScroll();
+        QVERIFY(scroll != nullptr);
+
+        QQmlApplicationEngine engine;
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this,
+                [&warnings](const QList<QQmlError> &errors) {
+                    for (const auto &e : errors)
+                        warnings << e.toString();
+                });
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("TimelinePane"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        QObject *root = createdSpy.at(0).at(0).value<QObject *>();
+        QVERIFY(root != nullptr);
+        QObject *timeline = root->findChild<QObject *>(
+            QStringLiteral("timelineListView"));
+        QObject *jump = root->findChild<QObject *>(
+            QStringLiteral("jumpToLatestButton"));
+        QVERIFY(timeline != nullptr);
+        QVERIFY(jump != nullptr);
+
+        QVERIFY(timeline->setProperty("stickToBottom", false));
+        QTRY_COMPARE_WITH_TIMEOUT(jump->property("visible").toBool(), true,
+                                  kSignalTimeoutMs);
+        // Put the shared controller into an active coalesced-motion state.
+        scroll->wheelTargetY(120.0, 5000.0, 0.0, 10000.0, 900.0);
+        QVERIFY(scroll->motionActive());
+
+        QVERIFY(QMetaObject::invokeMethod(jump, "click"));
+        QTRY_COMPARE_WITH_TIMEOUT(scroll->motionActive(), false,
+                                  kSignalTimeoutMs);
+        QCOMPARE(timeline->property("wheelAnimating").toBool(), false);
+        QCOMPARE(warnings, QStringList{});
+    }
+
+    // v0.5.19: switching rooms cancels the previous room's wheel motion.
+    void roomSwitchCancelsWheelMotion()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        controller.setCurrentRoomId(QStringLiteral("!general:mock.local"));
+        auto *scroll = controller.timelineScroll();
+        QVERIFY(scroll != nullptr);
+
+        QQmlApplicationEngine engine;
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this,
+                [&warnings](const QList<QQmlError> &errors) {
+                    for (const auto &e : errors)
+                        warnings << e.toString();
+                });
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("TimelinePane"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        QObject *root = createdSpy.at(0).at(0).value<QObject *>();
+        QVERIFY(root != nullptr);
+        QObject *timeline = root->findChild<QObject *>(
+            QStringLiteral("timelineListView"));
+        QVERIFY(timeline != nullptr);
+
+        scroll->wheelTargetY(120.0, 5000.0, 0.0, 10000.0, 900.0);
+        QVERIFY(scroll->motionActive());
+
+        controller.setCurrentRoomId(QStringLiteral("!dm-bob:mock.local"));
+        QTRY_COMPARE_WITH_TIMEOUT(scroll->motionActive(), false,
+                                  kSignalTimeoutMs);
+        QCOMPARE(timeline->property("wheelAnimating").toBool(), false);
+        QCOMPARE(warnings, QStringList{});
+    }
+
+    // v0.5.19: a REAL discrete wheel event delivered over the pane must route
+    // through the timeline WheelHandler into TimelineScrollController — i.e.
+    // the handler actually intercepts wheel input (rather than Flickable's
+    // default handling silently owning it). Delegate incubation never runs
+    // under the offscreen platform, so this asserts the wiring/side effects
+    // (motion engaged, follow-latest left) rather than a pixel distance.
+    void realWheelEventEngagesControllerAndLeavesFollowLatest()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        controller.setCurrentRoomId(QStringLiteral("!general:mock.local"));
+        auto *scroll = controller.timelineScroll();
+        QVERIFY(scroll != nullptr);
+
+        QQmlApplicationEngine engine;
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this,
+                [&warnings](const QList<QQmlError> &errors) {
+                    for (const auto &e : errors)
+                        warnings << e.toString();
+                });
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("TimelinePane"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(root != nullptr);
+        QObject *timeline = root->findChild<QObject *>(
+            QStringLiteral("timelineListView"));
+        QVERIFY(timeline != nullptr);
+
+        QQuickWindow window;
+        window.resize(640, 480);
+        root->setParentItem(window.contentItem());
+        root->setWidth(window.width());
+        root->setHeight(window.height());
+        window.show();
+        QCoreApplication::processEvents();
+
+        QVERIFY(timeline->setProperty("stickToBottom", true));
+        QVERIFY(!scroll->motionActive());
+
+        // Discrete mouse wheel: no pixelDelta, one +120 notch upward, over the
+        // centre of the timeline viewport.
+        const QPointF pos(320, 300);
+        QWheelEvent wheel(pos, window.mapToGlobal(pos.toPoint()), QPoint(0, 0),
+                          QPoint(0, 120), Qt::NoButton, Qt::NoModifier,
+                          Qt::NoScrollPhase, /*inverted=*/false);
+        QCoreApplication::sendEvent(&window, &wheel);
+        QCoreApplication::processEvents();
+
+        // The handler ran, engaged the controller, and left follow-latest.
+        QVERIFY(scroll->motionActive());
+        QCOMPARE(timeline->property("stickToBottom").toBool(), false);
         QCOMPARE(warnings, QStringList{});
     }
 

@@ -11,6 +11,7 @@
 #include "models/EmojiCatalog.h"
 #include "models/RoomListModel.h"
 #include "models/TimelineModel.h"
+#include "models/TimelineScrollController.h"
 #include "notifications/NotificationManager.h"
 #include "spaces/SpaceManager.h"
 #include "storage/SecretStore.h"
@@ -97,6 +98,7 @@ AppController::AppController(Backend backend, QObject *parent)
     m_pagination   = std::make_unique<PaginationController>(this);
     m_readReceipts = std::make_unique<ReadReceiptCoordinator>(this);
     m_linkPreviews = std::make_unique<LinkPreviewController>(this);
+    m_timelineScroll = std::make_unique<TimelineScrollController>(this);
 
     m_crypto->setBackendName(backendName());
 

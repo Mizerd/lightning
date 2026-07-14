@@ -15,6 +15,7 @@
 #include "models/ReadReceiptCoordinator.h"
 #include "models/RoomListModel.h"
 #include "models/TimelineModel.h"
+#include "models/TimelineScrollController.h"
 #include "spaces/SpaceManager.h"
 #include "threads/ThreadManager.h"
 
@@ -101,6 +102,8 @@ class AppController : public QObject
     Q_PROPERTY(ReadReceiptCoordinator* readReceipts READ readReceipts CONSTANT)
     // v0.5.12: safe client-side link-preview backend (Rust HTTPS fetcher).
     Q_PROPERTY(LinkPreviewController* linkPreviews READ linkPreviews CONSTANT)
+    // v0.5.19: device-aware timeline wheel-scroll policy.
+    Q_PROPERTY(TimelineScrollController* timelineScroll READ timelineScroll CONSTANT)
 
 public:
     enum Screen {
@@ -154,6 +157,7 @@ public:
     PaginationController *pagination() const { return m_pagination.get(); }
     ReadReceiptCoordinator *readReceipts() const { return m_readReceipts.get(); }
     LinkPreviewController *linkPreviews() const { return m_linkPreviews.get(); }
+    TimelineScrollController *timelineScroll() const { return m_timelineScroll.get(); }
     SecretStore *secretStore() const { return m_secretStore.get(); }
 
 public Q_SLOTS:
@@ -318,6 +322,7 @@ private:
     std::unique_ptr<PaginationController> m_pagination;
     std::unique_ptr<ReadReceiptCoordinator> m_readReceipts;
     std::unique_ptr<LinkPreviewController> m_linkPreviews;
+    std::unique_ptr<TimelineScrollController> m_timelineScroll;
 
     // v0.5.0 SAS verification state cache.
     QString m_verificationFlowId;
