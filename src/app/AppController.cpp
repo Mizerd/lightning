@@ -132,6 +132,15 @@ AppController::AppController(Backend backend, QObject *parent)
             m_settings->loadPreviewsInEncryptedRooms());
     });
 
+    // v0.5.19: the timeline discrete-wheel speed follows the persisted setting
+    // live. Only discrete mouse-wheel distance is affected; touchpad pixel
+    // scrolling and all programmatic navigation are independent of it.
+    m_timelineScroll->setWheelSpeedValue(m_settings->timelineWheelSpeed());
+    connect(m_settings.get(), &SettingsManager::timelineWheelSpeedChanged,
+            this, [this]() {
+        m_timelineScroll->setWheelSpeedValue(m_settings->timelineWheelSpeed());
+    });
+
     // The read-receipt coordinator needs the real application activation
     // state; QML reports only timeline visibility and scroll position.
     if (auto *guiApp =

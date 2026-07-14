@@ -26,6 +26,11 @@ class SettingsManager : public QObject
                    WRITE setAnimateGifPreviews NOTIFY animateGifPreviewsChanged)
     Q_PROPERTY(bool showRoomActivity READ showRoomActivity
                    WRITE setShowRoomActivity NOTIFY showRoomActivityChanged)
+    // v0.5.19: discrete mouse-wheel scroll speed for the timeline. Stored as a
+    // stable integer matching TimelineScrollController::WheelSpeed
+    // (0=Standard, 1=Fast, 2=Very fast). Default and safe fallback: Fast.
+    Q_PROPERTY(int timelineWheelSpeed READ timelineWheelSpeed
+                   WRITE setTimelineWheelSpeed NOTIFY timelineWheelSpeedChanged)
     Q_PROPERTY(bool hasSession READ hasSession NOTIFY sessionChanged)
     Q_PROPERTY(QString userId READ userId NOTIFY sessionChanged)
     Q_PROPERTY(QString secretBackendName READ secretBackendName NOTIFY secretBackendChanged)
@@ -85,6 +90,12 @@ public:
     bool showRoomActivity() const;
     void setShowRoomActivity(bool v);
 
+    // v0.5.19: timeline discrete-wheel speed. 0=Standard, 1=Fast, 2=Very fast.
+    // An out-of-range or legacy value reads back as Fast (1).
+    static constexpr int kDefaultTimelineWheelSpeed = 1; // Fast
+    int timelineWheelSpeed() const;
+    void setTimelineWheelSpeed(int v);
+
     QStringList recentEmoji() const;
     void recordRecentEmoji(const QString &emoji);
     void clearRecentEmoji();
@@ -132,6 +143,7 @@ Q_SIGNALS:
     void loadPreviewsInEncryptedRoomsChanged();
     void animateGifPreviewsChanged();
     void showRoomActivityChanged();
+    void timelineWheelSpeedChanged();
     void sessionChanged();
     void secretBackendChanged();
 

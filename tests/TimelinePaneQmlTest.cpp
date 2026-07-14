@@ -685,6 +685,60 @@ private Q_SLOTS:
         QCOMPARE(warnings, QStringList{});
     }
 
+    // v0.5.19: the Settings mouse-wheel-speed control reflects the persisted
+    // value, selecting a value updates the setting, and the setting drives the
+    // shared TimelineScrollController (default Fast) without QML warnings.
+    void settingsControlTracksWheelSpeedPreference()
+    {
+        AppController controller(AppController::MockBackend);
+        auto *scroll = controller.timelineScroll();
+        QVERIFY(scroll != nullptr);
+        // QSettings persists across test runs, so normalise to the documented
+        // default (Fast) rather than assuming a pristine store. The default
+        // value itself is covered in the isolated SettingsSessionTest.
+        controller.settings()->setTimelineWheelSpeed(1);
+        QCOMPARE(controller.settings()->timelineWheelSpeed(), 1);
+        QCOMPARE(scroll->wheelSpeed(), TimelineScrollController::Fast);
+
+        QQmlApplicationEngine engine;
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this,
+                [&warnings](const QList<QQmlError> &errors) {
+                    for (const auto &e : errors)
+                        warnings << e.toString();
+                });
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("SettingsScreen"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        QObject *root = createdSpy.at(0).at(0).value<QObject *>();
+        QVERIFY(root != nullptr);
+        QObject *combo = root->findChild<QObject *>(
+            QStringLiteral("timelineWheelSpeedCombo"));
+        QVERIFY(combo != nullptr);
+        // Fast (value 1) is the second entry (index 1). The ComboBox resolves
+        // its index from the model on completion, so allow it to settle.
+        QTRY_COMPARE_WITH_TIMEOUT(combo->property("currentValue").toInt(), 1,
+                                  kSignalTimeoutMs);
+
+        // Changing the setting updates the control …
+        controller.settings()->setTimelineWheelSpeed(2);       // Very fast
+        QTRY_COMPARE_WITH_TIMEOUT(combo->property("currentValue").toInt(), 2,
+                                  kSignalTimeoutMs);
+        // … and drives the controller immediately (no timeline restart).
+        QCOMPARE(scroll->wheelSpeed(), TimelineScrollController::VeryFast);
+
+        controller.settings()->setTimelineWheelSpeed(0);       // Standard
+        QTRY_COMPARE_WITH_TIMEOUT(combo->property("currentValue").toInt(), 0,
+                                  kSignalTimeoutMs);
+        QCOMPARE(scroll->wheelSpeed(), TimelineScrollController::Standard);
+        QCOMPARE(warnings, QStringList{});
+        // Leave the persisted store back at the default for other runs/tests.
+        controller.settings()->setTimelineWheelSpeed(1);
+    }
+
     void sdkReadMarkerRendersNewMessagesDivider()
     {
         AppController controller(AppController::MockBackend);

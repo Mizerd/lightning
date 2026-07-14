@@ -24,6 +24,8 @@ constexpr auto kPreviewsAnimateGifs = "previews/animateGifs";
 // Presentation-only timeline preference. The underlying SDK/model retains
 // every state event so changing this never requires a resync.
 constexpr auto kShowRoomActivity    = "timeline/showRoomActivity";
+// v0.5.19: 0=Standard, 1=Fast, 2=Very fast (see TimelineScrollController).
+constexpr auto kTimelineWheelSpeed  = "timeline/wheelSpeed";
 constexpr int kRecentEmojiLimit     = 32;
 // v0.2/v0.3 stored the access token here in plaintext. v0.4 migrates it out
 // on first read; the key stays defined only so the migration code can find
@@ -199,6 +201,27 @@ void SettingsManager::setShowRoomActivity(bool v)
         return;
     m_store->setValue(kShowRoomActivity, v);
     Q_EMIT showRoomActivityChanged();
+}
+
+int SettingsManager::timelineWheelSpeed() const
+{
+    const int stored = m_store->value(kTimelineWheelSpeed,
+                                      kDefaultTimelineWheelSpeed).toInt();
+    // An unknown / legacy / corrupted value falls back to Fast rather than an
+    // undefined speed.
+    if (stored < 0 || stored > 2)
+        return kDefaultTimelineWheelSpeed;
+    return stored;
+}
+
+void SettingsManager::setTimelineWheelSpeed(int v)
+{
+    if (v < 0 || v > 2)
+        v = kDefaultTimelineWheelSpeed;
+    if (timelineWheelSpeed() == v)
+        return;
+    m_store->setValue(kTimelineWheelSpeed, v);
+    Q_EMIT timelineWheelSpeedChanged();
 }
 
 QStringList SettingsManager::recentEmoji() const

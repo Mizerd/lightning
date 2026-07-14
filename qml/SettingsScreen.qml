@@ -215,6 +215,53 @@ Item {
                                                + "and room setting updates. Messages and "
                                                + "decryption warnings remain visible.")
                                 }
+                                Label {
+                                    Layout.topMargin: AppTheme.spacing8
+                                    text: qsTr("Mouse-wheel speed")
+                                    color: AppTheme.textSecondary
+                                    font.pixelSize: AppTheme.fontSecondary
+                                }
+                                ComboBox {
+                                    id: wheelSpeedCombo
+                                    objectName: "timelineWheelSpeedCombo"
+                                    Layout.fillWidth: true
+                                    textRole: "label"
+                                    valueRole: "value"
+                                    // Values map to TimelineScrollController::WheelSpeed.
+                                    model: [
+                                        { label: qsTr("Standard"),  value: 0 },
+                                        { label: qsTr("Fast"),      value: 1 },
+                                        { label: qsTr("Very fast"), value: 2 }
+                                    ]
+                                    // indexOfValue() only resolves once the
+                                    // model is ready, so set it on completion
+                                    // and whenever the persisted value changes
+                                    // rather than in a one-shot binding.
+                                    function syncFromSetting() {
+                                        currentIndex = Math.max(0, indexOfValue(
+                                            app.settings.timelineWheelSpeed))
+                                    }
+                                    Component.onCompleted: syncFromSetting()
+                                    Connections {
+                                        target: app.settings
+                                        function onTimelineWheelSpeedChanged() {
+                                            wheelSpeedCombo.syncFromSetting()
+                                        }
+                                    }
+                                    onActivated: app.settings.timelineWheelSpeed = currentValue
+                                    Accessible.description: qsTr(
+                                        "How far one physical mouse-wheel notch scrolls the timeline")
+                                }
+                                Label {
+                                    Layout.fillWidth: true
+                                    Layout.leftMargin: AppTheme.spacing4
+                                    wrapMode: Text.WordWrap
+                                    color: AppTheme.textMuted
+                                    font.pixelSize: AppTheme.fontCaption
+                                    text: qsTr("How far one physical mouse-wheel notch moves "
+                                               + "the timeline. Touchpad and precision scrolling "
+                                               + "stay fine-grained regardless of this setting.")
+                                }
                             }
                         }
                     }

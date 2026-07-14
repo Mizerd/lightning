@@ -79,6 +79,7 @@ private Q_SLOTS:
     void themeChangeEmitsSignal();
     void previewDefaultsAndEncryptedOff();
     void roomActivityDefaultsEnabledAndPersists();
+    void wheelSpeedDefaultsToFastPersistsAndFallsBack();
 
 private:
     QTemporaryDir m_configHome;
@@ -255,6 +256,43 @@ void SettingsSessionTest::roomActivityDefaultsEnabledAndPersists()
     SettingsManager reopened;
     QCOMPARE(reopened.showRoomActivity(), false);
     reopened.setShowRoomActivity(true);
+}
+
+void SettingsSessionTest::wheelSpeedDefaultsToFastPersistsAndFallsBack()
+{
+    {
+        SettingsManager settings;
+        // Default is Fast (1).
+        QCOMPARE(settings.timelineWheelSpeed(), 1);
+
+        QSignalSpy spy(&settings, &SettingsManager::timelineWheelSpeedChanged);
+        settings.setTimelineWheelSpeed(2);          // Very fast
+        QCOMPARE(spy.count(), 1);
+        QCOMPARE(settings.timelineWheelSpeed(), 2);
+        settings.setTimelineWheelSpeed(2);          // no-op, no extra signal
+        QCOMPARE(spy.count(), 1);
+    }
+    {
+        // Persists across a fresh SettingsManager (restart).
+        SettingsManager reopened;
+        QCOMPARE(reopened.timelineWheelSpeed(), 2);
+    }
+    {
+        // An out-of-range write is coerced to Fast rather than stored raw.
+        SettingsManager settings;
+        settings.setTimelineWheelSpeed(99);
+        QCOMPARE(settings.timelineWheelSpeed(), 1);
+        settings.setTimelineWheelSpeed(-5);
+        QCOMPARE(settings.timelineWheelSpeed(), 1);
+    }
+    {
+        // A corrupt persisted value reads back as Fast.
+        QSettings raw;
+        raw.setValue(QStringLiteral("timeline/wheelSpeed"), 7);
+        raw.sync();
+        SettingsManager settings;
+        QCOMPARE(settings.timelineWheelSpeed(), 1);
+    }
 }
 
 QTEST_MAIN(SettingsSessionTest)
