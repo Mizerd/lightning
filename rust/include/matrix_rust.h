@@ -247,10 +247,13 @@ char *mx_rust_thread_paginate_back(void *client,
                                    const char *room_id,
                                    const char *root_event_id,
                                    unsigned short count);
+/* in_reply_to may be NULL/empty (plain thread message) or an event id in
+ * the same thread (rich reply within the thread). */
 char *mx_rust_thread_send_text(void *client,
                                const char *room_id,
                                const char *root_event_id,
-                               const char *body);
+                               const char *body,
+                               const char *in_reply_to);
 char *mx_rust_timeline_edit(void *client,
                             const char *room_id,
                             const char *target_event_id,

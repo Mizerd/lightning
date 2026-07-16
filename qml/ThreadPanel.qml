@@ -246,6 +246,7 @@ Rectangle {
                 // timeline ListView in TimelinePane.qml).
                 property var timelineModel: app.thread.model
                 property string suppressRootEventId: app.thread.rootEventId
+                property bool threadContext: true
                 property string pinnedActionsKey: ""
                 property bool emojiPickerOpen: false
                 property bool roomEncrypted: {
@@ -308,6 +309,43 @@ Rectangle {
 
         Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: AppTheme.border }
 
+        // Reply-within-thread banner (checkpoint 4): shows the active reply
+        // target; ✕ or Escape cancels it without closing the panel.
+        Rectangle {
+            objectName: "threadReplyBanner"
+            Layout.fillWidth: true
+            visible: app.thread.inReply
+            color: AppTheme.surface
+            implicitHeight: visible
+                            ? replyBannerRow.implicitHeight + AppTheme.spacingS
+                            : 0
+            RowLayout {
+                id: replyBannerRow
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.leftMargin: AppTheme.spacingM
+                anchors.rightMargin: AppTheme.spacingS
+                spacing: AppTheme.spacingS
+                Label {
+                    Layout.fillWidth: true
+                    text: qsTr("Replying to %1: %2")
+                          .arg(app.thread.replyToSender)
+                          .arg(app.thread.replyToPreview)
+                    color: AppTheme.textMuted
+                    font.pixelSize: 10
+                    elide: Label.ElideRight
+                }
+                ToolButton {
+                    objectName: "threadReplyCancelButton"
+                    text: "✕"
+                    font.pixelSize: 10
+                    Accessible.name: qsTr("Cancel reply")
+                    onClicked: app.thread.cancelReply()
+                }
+            }
+        }
+
         // ── Thread composer ──────────────────────────────────────────────
         // Sends ONLY through ThreadController.sendText → the backend's SDK
         // m.thread path. The main room composer is untouched.
@@ -320,6 +358,17 @@ Rectangle {
                 anchors.fill: parent
                 anchors.margins: AppTheme.spacingS
                 spacing: AppTheme.spacingS
+                ToolButton {
+                    text: "🙂"
+                    font.pixelSize: 13
+                    enabled: app.thread.state === ThreadController.Ready
+                    Accessible.name: qsTr("Insert emoji")
+                    onClicked: {
+                        var p = mapToItem(panel, 0, 0)
+                        threadEmojiPicker.anchorPoint = Qt.point(p.x, p.y)
+                        threadEmojiPicker.open()
+                    }
+                }
                 TextArea {
                     id: threadComposerInput
                     objectName: "threadComposerInput"
@@ -342,7 +391,10 @@ Rectangle {
                             panel.sendComposerText()
                             event.accepted = true
                         } else if (event.key === Qt.Key_Escape) {
-                            panel.closeRequested()
+                            if (app.thread.inReply)
+                                app.thread.cancelReply()
+                            else
+                                panel.closeRequested()
                             event.accepted = true
                         }
                     }
@@ -356,6 +408,16 @@ Rectangle {
                 }
             }
         }
+    }
+
+    EmojiPicker {
+        id: threadEmojiPicker
+        mode: "composer"
+        onEmojiChosen: (emoji) => {
+            threadComposerInput.insert(threadComposerInput.cursorPosition,
+                                       emoji)
+        }
+        onClosed: Qt.callLater(threadComposerInput.forceActiveFocus)
     }
 
     function sendComposerText() {

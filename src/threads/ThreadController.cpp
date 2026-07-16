@@ -62,6 +62,7 @@ void ThreadController::openThread(const QString &roomId,
     m_roomId = roomId;
     m_rootEventId = rootEventId;
     m_failureCategory.clear();
+    cancelReply();
     // Bind the model to the new composite id BEFORE dispatching so the
     // arriving snapshot reset is applied, never raced.
     m_model.setRoomId(timelineId());
@@ -78,6 +79,7 @@ void ThreadController::close()
     m_rootEventId.clear();
     m_failureCategory.clear();
     m_model.setRoomId(QString{});
+    cancelReply();
     if (wasActive)
         setState(Closed);
 }
@@ -91,8 +93,50 @@ void ThreadController::sendText(const QString &body)
     if (trimmed.isEmpty())
         return;
     // Always the backend's SDK thread path — never sendTextMessage, so a
-    // thread reply can never land as an ordinary room message.
-    m_client->sendThreadReply(m_roomId, m_rootEventId, trimmed);
+    // thread reply can never land as an ordinary room message. An active
+    // reply target makes it a rich reply within the thread.
+    if (!m_replyToEventId.isEmpty()) {
+        m_client->sendThreadReplyTo(m_roomId, m_rootEventId,
+                                    m_replyToEventId, trimmed);
+        cancelReply();
+    } else {
+        m_client->sendThreadReply(m_roomId, m_rootEventId, trimmed);
+    }
+}
+
+void ThreadController::beginReply(const QString &eventId)
+{
+    if (m_state == Closed || eventId.isEmpty())
+        return;
+    // Only loaded thread events are valid reply targets (replying to the
+    // root is a plain thread message, so it clears the target instead).
+    if (eventId == m_rootEventId) {
+        cancelReply();
+        return;
+    }
+    const int row = m_model.rowForStableId(eventId);
+    if (row < 0)
+        return;
+    const QModelIndex idx = m_model.index(row, 0);
+    m_replyToEventId = eventId;
+    m_replyToSender =
+        m_model.data(idx, TimelineModel::SenderDisplayNameRole).toString();
+    if (m_replyToSender.isEmpty())
+        m_replyToSender =
+            m_model.data(idx, TimelineModel::SenderRole).toString();
+    m_replyToPreview = m_model.visibleTextForEvent(eventId).left(80);
+    Q_EMIT replyStateChanged();
+}
+
+void ThreadController::cancelReply()
+{
+    if (m_replyToEventId.isEmpty() && m_replyToSender.isEmpty()
+        && m_replyToPreview.isEmpty())
+        return;
+    m_replyToEventId.clear();
+    m_replyToSender.clear();
+    m_replyToPreview.clear();
+    Q_EMIT replyStateChanged();
 }
 
 QStringList ThreadController::participants() const

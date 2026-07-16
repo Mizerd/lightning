@@ -2245,18 +2245,27 @@ pub unsafe extern "C" fn mx_rust_thread_send_text(
     room_id: *const c_char,
     root_event_id: *const c_char,
     body: *const c_char,
+    in_reply_to: *const c_char,
 ) -> *mut c_char {
     ffi_string(|| {
         let bridge = unsafe { bridge(ptr)? };
         let room_id = unsafe { cstr_arg(room_id) }?;
         let root = unsafe { cstr_arg(root_event_id) }?;
         let body = unsafe { cstr_arg(body) }?;
+        // Optional rich-reply target within the thread; NULL/empty = plain
+        // thread message.
+        let reply_to = if in_reply_to.is_null() {
+            None
+        } else {
+            let value = unsafe { cstr_arg(in_reply_to) }?;
+            if value.trim().is_empty() { None } else { Some(value) }
+        };
         let Some(client) = bridge.client.lock().ok().and_then(|g| g.clone()) else {
             return Err("Rust SDK session is not logged in.".to_owned());
         };
         bridge
             .timelines
-            .send_thread_text(&bridge.runtime, client, room_id, root, body)
+            .send_thread_text(&bridge.runtime, client, room_id, root, body, reply_to)
             .map(|_| String::new())
     })
 }

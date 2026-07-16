@@ -52,6 +52,10 @@ public:
     bool supportsThreadTimelines() const override { return true; }
     void openThread(const QString &roomId, const QString &rootEventId) override;
     void closeThread() override;
+    void sendThreadReplyTo(const QString &roomId,
+                           const QString &threadRootEventId,
+                           const QString &inReplyToEventId,
+                           const QString &body) override;
     void editMessage(const QString &roomId,
                      const QString &targetEventId,
                      const QString &newBody) override;

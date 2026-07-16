@@ -130,6 +130,17 @@ public:
         Q_UNUSED(rootEventId);
     }
     virtual void closeThread() {}
+    // Rich reply to a specific event WITHIN the thread. Backends without a
+    // dedicated path fall back to a plain thread reply (the message still
+    // lands in the correct thread).
+    virtual void sendThreadReplyTo(const QString &roomId,
+                                   const QString &threadRootEventId,
+                                   const QString &inReplyToEventId,
+                                   const QString &body)
+    {
+        Q_UNUSED(inReplyToEventId);
+        sendThreadReply(roomId, threadRootEventId, body);
+    }
 
     virtual void editMessage(const QString &roomId,
                              const QString &targetEventId,

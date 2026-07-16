@@ -310,6 +310,124 @@ private Q_SLOTS:
             QCOMPARE(participants.count(p), 1);
     }
 
+    // ── v0.6.0 checkpoint 4: reply-within-thread compose state ──────────
+    void replyStateTargetsLoadedThreadEventsOnly()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        ThreadController controller;
+        controller.setClient(&client);
+
+        const QString rootId = firstThreadRootId(client, kGeneral);
+        controller.openThread(kGeneral, rootId);
+        QTRY_COMPARE_WITH_TIMEOUT(controller.state(), ThreadController::Ready,
+                                  kSignalTimeoutMs);
+        QVERIFY(!controller.inReply());
+
+        // Unloaded/foreign events are not valid targets.
+        controller.beginReply(QStringLiteral("$not-in-thread:mock.local"));
+        QVERIFY(!controller.inReply());
+
+        // Replying to the root is a plain thread message (no rich target).
+        controller.beginReply(rootId);
+        QVERIFY(!controller.inReply());
+
+        // A loaded reply is a valid target and resolves its presentation.
+        auto *model = controller.model();
+        const QString replyId = model
+            ->data(model->index(1, 0), TimelineModel::EventIdRole).toString();
+        QSignalSpy replySpy(&controller, &ThreadController::replyStateChanged);
+        controller.beginReply(replyId);
+        QVERIFY(controller.inReply());
+        QCOMPARE(controller.replyToEventId(), replyId);
+        QVERIFY(!controller.replyToSender().isEmpty());
+        QVERIFY(!controller.replyToPreview().isEmpty());
+        QCOMPARE(replySpy.count(), 1);
+
+        controller.cancelReply();
+        QVERIFY(!controller.inReply());
+        QCOMPARE(replySpy.count(), 2);
+    }
+
+    // Sending with an active reply target produces a rich reply WITHIN the
+    // thread (both threadRootId and replyToEventId set) and clears the
+    // target; the next send is a plain thread message again.
+    void sendWithReplyTargetCreatesRichThreadReply()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        ThreadController controller;
+        controller.setClient(&client);
+
+        const QString rootId = firstThreadRootId(client, kGeneral);
+        controller.openThread(kGeneral, rootId);
+        QTRY_COMPARE_WITH_TIMEOUT(controller.state(), ThreadController::Ready,
+                                  kSignalTimeoutMs);
+        auto *model = controller.model();
+        const QString replyId = model
+            ->data(model->index(1, 0), TimelineModel::EventIdRole).toString();
+        const int rowsBefore = model->rowCount();
+
+        controller.beginReply(replyId);
+        controller.sendText(QStringLiteral("rich reply body"));
+        QVERIFY(!controller.inReply());   // cleared after dispatch
+
+        QTRY_COMPARE_WITH_TIMEOUT(model->rowCount(), rowsBefore + 1,
+                                  kSignalTimeoutMs);
+        const QModelIndex last = model->index(model->rowCount() - 1, 0);
+        QCOMPARE(model->data(last, TimelineModel::ThreadRootIdRole).toString(),
+                 rootId);
+        QCOMPARE(model->data(last, TimelineModel::ReplyToEventIdRole).toString(),
+                 replyId);
+        QVERIFY(!model->data(last, TimelineModel::ReplyToPreviewRole)
+                     .toString().isEmpty());
+
+        controller.sendText(QStringLiteral("plain follow-up"));
+        QTRY_COMPARE_WITH_TIMEOUT(model->rowCount(), rowsBefore + 2,
+                                  kSignalTimeoutMs);
+        const QModelIndex plain = model->index(model->rowCount() - 1, 0);
+        QCOMPARE(model->data(plain, TimelineModel::ReplyToEventIdRole)
+                     .toString(), QString{});
+        QCOMPARE(model->data(plain, TimelineModel::ThreadRootIdRole).toString(),
+                 rootId);
+    }
+
+    // Close, room switch, and thread switch all clear compose-reply state.
+    void lifecycleTransitionsClearReplyState()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        ThreadController controller;
+        controller.setClient(&client);
+
+        const QString rootId = firstThreadRootId(client, kGeneral);
+        auto arm = [&] {
+            controller.openThread(kGeneral, rootId);
+            QTRY_COMPARE_WITH_TIMEOUT(controller.state(),
+                                      ThreadController::Ready,
+                                      kSignalTimeoutMs);
+            auto *model = controller.model();
+            controller.beginReply(model
+                ->data(model->index(1, 0), TimelineModel::EventIdRole)
+                .toString());
+            QVERIFY(controller.inReply());
+        };
+
+        arm();
+        controller.close();
+        QVERIFY(!controller.inReply());
+
+        arm();
+        controller.handleCurrentRoomChanged(kDm);
+        QVERIFY(!controller.inReply());
+
+        arm();
+        const QString secondRoot = client.timeline(kGeneral).first().eventId;
+        client.sendThreadReply(kGeneral, secondRoot, QStringLiteral("seed"));
+        controller.openThread(kGeneral, secondRoot);
+        QVERIFY(!controller.inReply());
+    }
+
     void logoutClosesThread()
     {
         MockMatrixClient client;

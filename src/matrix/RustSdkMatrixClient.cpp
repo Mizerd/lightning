@@ -993,6 +993,12 @@ bool RustSdkMatrixClient::paginationFailureTransient(const QString &roomId) cons
 void RustSdkMatrixClient::retryFailedSend(const QString &roomId,
                                           const QString &transactionId)
 {
+    if (isThreadTimelineId(roomId)) {
+        // A thread echo is a room send-queue entry; retry it through the
+        // room timeline, which always outlives its thread panel.
+        retryFailedSend(threadTimelineRoomId(roomId), transactionId);
+        return;
+    }
     if (!timelineActiveFor(roomId) || transactionId.isEmpty())
         return;
     const QByteArray roomBytes = roomId.toUtf8();
@@ -1097,6 +1103,14 @@ void RustSdkMatrixClient::sendThreadReply(const QString &roomId,
                                           const QString &threadRootEventId,
                                           const QString &body)
 {
+    sendThreadReplyTo(roomId, threadRootEventId, QString{}, body);
+}
+
+void RustSdkMatrixClient::sendThreadReplyTo(const QString &roomId,
+                                            const QString &threadRootEventId,
+                                            const QString &inReplyToEventId,
+                                            const QString &body)
+{
     if (!m_loggedIn || !m_rustHandle || roomId.isEmpty()
         || threadRootEventId.isEmpty() || body.trimmed().isEmpty()) {
         refuseSend("sendThreadReply");
@@ -1105,9 +1119,11 @@ void RustSdkMatrixClient::sendThreadReply(const QString &roomId,
     const QByteArray roomBytes = roomId.toUtf8();
     const QByteArray rootBytes = threadRootEventId.toUtf8();
     const QByteArray bodyBytes = body.toUtf8();
+    const QByteArray replyBytes = inReplyToEventId.toUtf8();
     const QString result = takeRustString(mx_rust_thread_send_text(
         m_rustHandle, roomBytes.constData(), rootBytes.constData(),
-        bodyBytes.constData()));
+        bodyBytes.constData(),
+        inReplyToEventId.isEmpty() ? nullptr : replyBytes.constData()));
     if (!result.isEmpty()) {
         Q_EMIT errorOccurred(result.startsWith(QLatin1String("error: "))
                                  ? result.mid(7)

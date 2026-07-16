@@ -1,5 +1,25 @@
 # Current state (v0.5.19)
 
+## v0.6.0 (in progress) — thread composing and actions
+
+Thread participation is functional end to end. The panel composer sends
+exclusively through `ThreadController.sendText` → the backend's SDK
+`m.thread` path (a thread reply can never land as an ordinary room
+message); local echoes, send failures, and Retry flow through the same SDK
+send-queue states as room messages (a failed thread echo retries through
+the room timeline handle — the send queue is room-scoped). Reply inside
+the panel targets the THREAD composer: `ThreadController` carries the
+reply state, the panel shows a cancellable banner, Escape cancels the
+reply before closing the panel, and the send uses the thread-focused
+timeline's `send_reply`, so ReplyWithinThread semantics, the reply
+fallback, and encryption are all SDK-produced. Replying to the root stays
+a plain thread message. Edit, redaction, and reactions on thread replies
+route through the room timeline path by event id (the live room timeline
+mirrors threaded events), which preserves thread identity. The thread
+composer also gets the shared emoji picker; multiline input via
+Shift+Enter. Known limitation: attachment sending from the thread
+composer is not implemented yet (room attachments unchanged).
+
 ## v0.6.0 (in progress) — thread panel and timeline UI
 
 `ThreadPanel.qml` renders the open thread beside the room timeline: a

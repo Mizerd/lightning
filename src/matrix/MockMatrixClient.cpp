@@ -236,6 +236,49 @@ void MockMatrixClient::sendThreadReply(const QString &roomId,
     }
 }
 
+void MockMatrixClient::sendThreadReplyTo(const QString &roomId,
+                                         const QString &threadRootEventId,
+                                         const QString &inReplyToEventId,
+                                         const QString &body)
+{
+    if (inReplyToEventId.isEmpty()) {
+        sendThreadReply(roomId, threadRootEventId, body);
+        return;
+    }
+    if (!m_timelines.contains(roomId)) {
+        Q_EMIT errorOccurred(tr("Unknown room: %1").arg(roomId));
+        return;
+    }
+    TimelineEvent ev;
+    ev.eventId           = nextEventId();
+    ev.roomId            = roomId;
+    ev.sender            = m_userId;
+    ev.senderDisplayName = QStringLiteral("You");
+    ev.body              = body;
+    ev.timestamp         = QDateTime::currentDateTimeUtc();
+    ev.type              = TimelineEvent::TextMessage;
+    ev.status            = TimelineEvent::Sending;
+    ev.threadRootId      = threadRootEventId;
+    ev.replyToEventId    = inReplyToEventId;
+    if (auto *target = findEvent(roomId, inReplyToEventId)) {
+        ev.replyToSender  = target->senderDisplayName.isEmpty()
+                              ? target->sender : target->senderDisplayName;
+        ev.replyToPreview = matrix::media::previewSnippet(target->body);
+    }
+    m_timelines[roomId].append(ev);
+    Q_EMIT eventAppended(roomId, ev);
+    ackAfter(150, roomId, ev.eventId);
+
+    const QString timelineId = threadTimelineId(roomId, threadRootEventId);
+    if (m_openThreadTimelineId == timelineId) {
+        TimelineEvent threadCopy = ev;
+        threadCopy.roomId = timelineId;
+        m_timelines[timelineId].append(threadCopy);
+        Q_EMIT eventAppended(timelineId, threadCopy);
+        ackAfter(150, timelineId, ev.eventId);
+    }
+}
+
 // ── v0.6.0: mock thread timelines ────────────────────────────────────────
 
 void MockMatrixClient::rebuildOpenThreadTimeline()

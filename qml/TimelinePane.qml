@@ -228,6 +228,7 @@ Rectangle {
                 // suppresses a row as a pinned thread root.
                 property var timelineModel: app.timeline
                 property string suppressRootEventId: ""
+                property bool threadContext: false
 
                 // Which message currently has its action toolbar pinned open
                 // (by a click). Shared across delegates so only one can be

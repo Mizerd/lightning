@@ -39,6 +39,13 @@ class ThreadController : public QObject
     // display; never carries server detail or message content.
     Q_PROPERTY(QString failureCategory READ failureCategory NOTIFY stateChanged)
     Q_PROPERTY(TimelineModel *model READ model CONSTANT)
+    // v0.6.0 checkpoint 4: rich-reply-within-thread compose state. The panel
+    // composer shows the banner; sendText targets the reply through the SDK
+    // thread path.
+    Q_PROPERTY(bool inReply READ inReply NOTIFY replyStateChanged)
+    Q_PROPERTY(QString replyToEventId READ replyToEventId NOTIFY replyStateChanged)
+    Q_PROPERTY(QString replyToSender READ replyToSender NOTIFY replyStateChanged)
+    Q_PROPERTY(QString replyToPreview READ replyToPreview NOTIFY replyStateChanged)
 
 public:
     enum State { Closed, Opening, Ready, Failed };
@@ -55,6 +62,10 @@ public:
     QString rootEventId() const { return m_rootEventId; }
     QString failureCategory() const { return m_failureCategory; }
     TimelineModel *model() { return &m_model; }
+    bool inReply() const { return !m_replyToEventId.isEmpty(); }
+    QString replyToEventId() const { return m_replyToEventId; }
+    QString replyToSender() const { return m_replyToSender; }
+    QString replyToPreview() const { return m_replyToPreview; }
 
     // Open (or switch to) the thread rooted at `rootEventId`. Replaces any
     // open thread; stale results from the replaced thread are ignored by
@@ -63,8 +74,13 @@ public:
                                 const QString &rootEventId);
     Q_INVOKABLE void close();
     // Send a text reply into the open thread through the backend's SDK
-    // thread path (never as an ordinary room message).
+    // thread path (never as an ordinary room message). An active reply
+    // target turns it into a rich reply within the thread and is cleared
+    // after dispatch.
     Q_INVOKABLE void sendText(const QString &body);
+    // Begin/cancel replying to a specific loaded thread event.
+    Q_INVOKABLE void beginReply(const QString &eventId);
+    Q_INVOKABLE void cancelReply();
     // De-duplicated sender MXIDs of the loaded thread events (root first
     // when loaded). Participants of unloaded history are not invented.
     Q_INVOKABLE QStringList participants() const;
@@ -81,6 +97,7 @@ public:
 Q_SIGNALS:
     void supportedChanged();
     void stateChanged();
+    void replyStateChanged();
 
 private:
     void setState(State state, const QString &failureCategory = QString());
@@ -92,4 +109,7 @@ private:
     QString m_roomId;
     QString m_rootEventId;
     QString m_failureCategory;
+    QString m_replyToEventId;
+    QString m_replyToSender;
+    QString m_replyToPreview;
 };

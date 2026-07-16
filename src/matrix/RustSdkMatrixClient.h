@@ -197,6 +197,10 @@ public:
     void sendThreadReply(const QString &roomId,
                          const QString &threadRootEventId,
                          const QString &body) override;
+    void sendThreadReplyTo(const QString &roomId,
+                           const QString &threadRootEventId,
+                           const QString &inReplyToEventId,
+                           const QString &body) override;
 
     void loadOlderMessages(const QString &roomId) override;
     bool canPaginate(const QString &roomId) const override;

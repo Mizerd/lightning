@@ -475,7 +475,9 @@ impl TimelineRegistry {
     /// thread-focused timeline is built for the send, so the m.thread
     /// relation (with correct reply fallback) is ALWAYS produced by the SDK
     /// — never hand-assembled — and encrypted rooms use the normal SDK
-    /// encryption path.
+    /// encryption path. A non-empty `in_reply_to` produces a rich reply TO
+    /// THAT EVENT within the thread (the thread-focused timeline enforces
+    /// ReplyWithinThread semantics itself).
     pub fn send_thread_text(
         self: &Arc<Self>,
         runtime: &tokio::runtime::Runtime,
@@ -483,25 +485,52 @@ impl TimelineRegistry {
         room_id: String,
         root_event_id: String,
         body: String,
+        in_reply_to: Option<String>,
     ) -> Result<(), String> {
+        let reply_to = match &in_reply_to {
+            Some(id) if !id.trim().is_empty() => Some(
+                EventId::parse(id)
+                    .map_err(|_| "Invalid reply target event id.".to_owned())?,
+            ),
+            _ => None,
+        };
         let events = Arc::clone(&self.events);
         let lifecycle = self.lifecycle_gen.load(Ordering::SeqCst);
         let registry = Arc::clone(self);
         let open_thread = self.thread_timeline_for(&room_id, &root_event_id);
         runtime.spawn(async move {
-            let content = AnyMessageLikeEventContent::RoomMessage(
-                RoomMessageEventContent::text_plain(body),
-            );
+            let send_on = |timeline: Arc<Timeline>| {
+                let body = body.clone();
+                let reply_to = reply_to.clone();
+                async move {
+                    match reply_to {
+                        Some(reply_to) => timeline
+                            .send_reply(
+                                RoomMessageEventContentWithoutRelation::text_plain(
+                                    body,
+                                ),
+                                reply_to,
+                            )
+                            .await
+                            .is_ok(),
+                        None => timeline
+                            .send(AnyMessageLikeEventContent::RoomMessage(
+                                RoomMessageEventContent::text_plain(body),
+                            ))
+                            .await
+                            .is_ok(),
+                    }
+                }
+            };
             let sent = if let Some((timeline, _gen, _lc)) = open_thread {
-                timeline.send(content).await.is_ok()
+                send_on(timeline).await
             } else {
-                send_via_transient_thread_timeline(
-                    &client,
-                    &room_id,
-                    &root_event_id,
-                    content,
-                )
-                .await
+                match build_transient_thread_timeline(&client, &room_id, &root_event_id)
+                    .await
+                {
+                    Some(timeline) => send_on(timeline).await,
+                    None => false,
+                }
             };
             if !sent && registry.lifecycle_current(lifecycle) {
                 enqueue(
@@ -1156,27 +1185,24 @@ async fn open_thread_task(
     }
 }
 
-/// One-shot thread send used when the panel is not open: a thread-focused
-/// SDK timeline is built, the message is sent through it (the SDK attaches
+/// One-shot thread timeline used when the panel is not open: a
+/// thread-focused SDK timeline is built just for a send (the SDK attaches
 /// the m.thread relation and reply fallback, and encrypts for encrypted
-/// rooms), and the timeline is dropped again.
-async fn send_via_transient_thread_timeline(
+/// rooms) and dropped again.
+async fn build_transient_thread_timeline(
     client: &Client,
     room_id: &str,
     root_event_id: &str,
-    content: AnyMessageLikeEventContent,
-) -> bool {
-    let Ok(room_ref) = RoomId::parse(room_id) else { return false };
-    let Some(room) = client.get_room(&room_ref) else { return false };
-    let Ok(root_ref) = EventId::parse(root_event_id) else { return false };
-    let Ok(timeline) = TimelineBuilder::new(&room)
+) -> Option<Arc<Timeline>> {
+    let room_ref = RoomId::parse(room_id).ok()?;
+    let room = client.get_room(&room_ref)?;
+    let root_ref = EventId::parse(root_event_id).ok()?;
+    TimelineBuilder::new(&room)
         .with_focus(TimelineFocus::Thread { root_event_id: root_ref })
         .build()
         .await
-    else {
-        return false;
-    };
-    timeline.send(content).await.is_ok()
+        .ok()
+        .map(Arc::new)
 }
 
 fn emit_timeline_error(

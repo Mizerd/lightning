@@ -70,9 +70,18 @@ Item {
         clipboardHelper.copy()
         clipboardHelper.text = ""
     }
+    // v0.6.0: inside the thread panel a reply targets the thread composer
+    // (a rich reply WITHIN the thread via the SDK path); in the room
+    // timeline it targets the main composer as before.
+    readonly property bool inThreadPanel:
+        ListView.view && ListView.view.threadContext === true
     function beginReply(eventId) {
         var details = root.timelineModel.messageDetails(eventId)
         if (!details.eventId) return
+        if (root.inThreadPanel) {
+            app.thread.beginReply(eventId)
+            return
+        }
         var previewText = root.timelineModel.visibleTextForEvent(eventId)
         app.composer.beginReply(eventId, details.senderName || details.senderId,
                                 (previewText || "").substring(0, 80))
