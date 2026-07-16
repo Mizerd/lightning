@@ -68,6 +68,11 @@ public:
     // De-duplicated sender MXIDs of the loaded thread events (root first
     // when loaded). Participants of unloaded history are not invented.
     Q_INVOKABLE QStringList participants() const;
+    // Presentation data for the pinned root header. Resolved from the
+    // loaded thread timeline first, then from the room timeline; when the
+    // root is not loaded anywhere, {loaded: false} lets QML show the
+    // honest "original message unavailable" state. Safe fields only.
+    Q_INVOKABLE QVariantMap rootInfo() const;
 
     // The active room changed; a thread panel never survives into another
     // room. Called by AppController.

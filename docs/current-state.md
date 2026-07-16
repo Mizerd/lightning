@@ -1,5 +1,27 @@
 # Current state (v0.5.19)
 
+## v0.6.0 (in progress) — thread panel and timeline UI
+
+`ThreadPanel.qml` renders the open thread beside the room timeline: a
+Thread header with reply count and close button, the pinned root header
+(sender identity, timestamp, encryption mark, body — with honest
+"Message deleted" / "Unable to decrypt" / "original message unavailable"
+states and an "Open in room" jump that highlights the root in the main
+timeline), the reply list, loading/failed/empty states with Retry, a
+near-top backfill indicator, and a thread composer that sends ONLY through
+`ThreadController.sendText` (the SDK m.thread path). Replies reuse
+`MessageDelegate` unchanged: the delegate now resolves its stable-id
+actions against a view-provided `timelineModel` (room: `app.timeline`;
+panel: `app.thread.model`) and collapses the root row inside the list via
+the existing zero-height presentation filter, so the pinned root is never
+duplicated. Thread roots in the room timeline show a clickable summary
+(reply count · latest preview, with a conservative unread dot) that opens
+the panel; "Reply in thread" in the context menu opens it too. Wide
+windows (≥ 900 px) show the panel as a 360 px side column; narrower
+windows hand it the whole pane while the room state stays alive
+underneath. Escape closes room info first, then the thread panel, then a
+pinned toolbar; room switches always close the panel.
+
 ## v0.6.0 (in progress) — SDK-backed thread foundation
 
 Before 0.6.0, "Reply in thread" on the Rust backend fell back to an ordinary

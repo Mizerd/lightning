@@ -118,8 +118,11 @@ private Q_SLOTS:
         const QString settings = read(QStringLiteral("SettingsScreen.qml"));
         QVERIFY(delegate.contains(QStringLiteral(
             "!isRoutineActivity || app.settings.showRoomActivity")));
+        // v0.6.0: the zero-height presentation filter also covers the
+        // thread panel's pinned-root suppression — same mechanism, still
+        // presentation-only.
         QVERIFY(delegate.contains(QStringLiteral(
-            "implicitHeight: !roomActivityVisible ? 0")));
+            "implicitHeight: (!roomActivityVisible || suppressedAsThreadRoot) ? 0")));
         QVERIFY(settings.contains(QStringLiteral("Show room activity")));
         QVERIFY(settings.contains(QStringLiteral(
             "onToggled: app.settings.showRoomActivity = checked")));

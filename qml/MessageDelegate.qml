@@ -16,13 +16,24 @@ Item {
     // same delegates without a resync or a second timeline.
     readonly property bool roomActivityVisible:
         !isRoutineActivity || app.settings.showRoomActivity
+    // v0.6.0: the timeline model this delegate's stable-id actions resolve
+    // against. The room timeline supplies app.timeline; the thread panel
+    // supplies app.thread.model — identical role/invokable surface.
+    readonly property var timelineModel:
+        ListView.view && ListView.view.timelineModel
+        ? ListView.view.timelineModel : app.timeline
+    // v0.6.0: the thread panel pins the root above the reply list; the same
+    // row inside the ListView collapses so the root is never duplicated.
+    readonly property bool suppressedAsThreadRoot:
+        ListView.view && (ListView.view.suppressRootEventId || "") !== ""
+        && (model.eventId || "") === ListView.view.suppressRootEventId
     readonly property var stateActivityEntries: model.stateGroupEntries || []
     readonly property bool showsIdentity: model.showSenderIdentity === true
     readonly property real messageTopSpacing: showsIdentity
                                                ? AppTheme.spacingS : 1
     readonly property real avatarGutterWidth: 40
-    visible: roomActivityVisible
-    implicitHeight: !roomActivityVisible ? 0
+    visible: roomActivityVisible && !suppressedAsThreadRoot
+    implicitHeight: (!roomActivityVisible || suppressedAsThreadRoot) ? 0
                     : isVirtualRow ? virtualRow.implicitHeight
                     : isStateActivity ? stateActivity.implicitHeight
                     : layout.implicitHeight + messageTopSpacing
@@ -60,9 +71,9 @@ Item {
         clipboardHelper.text = ""
     }
     function beginReply(eventId) {
-        var details = app.timeline.messageDetails(eventId)
+        var details = root.timelineModel.messageDetails(eventId)
         if (!details.eventId) return
-        var previewText = app.timeline.visibleTextForEvent(eventId)
+        var previewText = root.timelineModel.visibleTextForEvent(eventId)
         app.composer.beginReply(eventId, details.senderName || details.senderId,
                                 (previewText || "").substring(0, 80))
     }
@@ -501,25 +512,40 @@ Item {
                             MouseArea {
                                 anchors.fill: parent
                                 cursorShape: Qt.PointingHandCursor
-                                onClicked: app.timeline.retrySend(index)
+                                onClicked: root.timelineModel.retrySend(index)
                             }
                         }
-                        // v0.4.1: thread indicator on the root event.
-                        Label {
+                        // v0.6.0: thread summary on the root event — reply
+                        // count, latest-reply preview and a conservative
+                        // unread dot (SDK-provided where available). Clicking
+                        // it opens the thread panel.
+                        Row {
                             visible: model.isThreadRoot === true
-                            text: qsTr("· %n reply(s) in thread", "",
-                                       model.threadReplyCount || 0)
-                            color: AppTheme.accent
-                            font.pixelSize: 10
-                            font.underline: true
-                            MouseArea {
-                                anchors.fill: parent
-                                cursorShape: Qt.PointingHandCursor
-                                onClicked: {
-                                    var previewText = model.body || ""
-                                    app.composer.beginThreadReply(
-                                        root.eventIdForActions(),
-                                        previewText.substring(0, 80))
+                            spacing: 4
+                            Rectangle {
+                                visible: model.threadUnread === true
+                                width: 7; height: 7; radius: 3.5
+                                color: AppTheme.accent
+                                anchors.verticalCenter: parent.verticalCenter
+                            }
+                            Label {
+                                text: {
+                                    var summary = qsTr("%n reply(s) in thread", "",
+                                                       model.threadReplyCount || 0)
+                                    var preview = model.threadLatestPreview || ""
+                                    return preview.length > 0
+                                        ? summary + " · " + preview.substring(0, 60)
+                                        : summary
+                                }
+                                color: AppTheme.accent
+                                font.pixelSize: 10
+                                font.underline: true
+                                MouseArea {
+                                    anchors.fill: parent
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: app.thread.openThread(
+                                        app.currentRoomId,
+                                        root.eventIdForActions())
                                 }
                             }
                         }
@@ -563,7 +589,7 @@ Item {
                     ToolButton {
                         id: reactButton
                         enabled: !model.redacted
-                                 && app.timeline.messagePermalink(
+                                 && root.timelineModel.messagePermalink(
                                      root.eventIdForActions()).length > 0
                         text: "\u{1F60A}"
                         Accessible.name: qsTr("React to message")
@@ -584,7 +610,7 @@ Item {
                     ToolButton {
                         text: "↰"
                         enabled: !model.redacted
-                                 && app.timeline.messagePermalink(
+                                 && root.timelineModel.messagePermalink(
                                      root.eventIdForActions()).length > 0
                         Accessible.name: qsTr("Reply to message")
                         ToolTip.text: qsTr("Reply")
@@ -608,17 +634,17 @@ Item {
                             onClosed: root.menuEventId = ""
                             MenuItem {
                                 text: qsTr("Reply")
-                                enabled: app.timeline.messagePermalink(
+                                enabled: root.timelineModel.messagePermalink(
                                              root.menuEventId).length > 0
-                                         && !app.timeline.messageDetails(
+                                         && !root.timelineModel.messageDetails(
                                              root.menuEventId).redacted
                                 onTriggered: root.beginReply(root.menuEventId)
                             }
                             MenuItem {
                                 text: qsTr("React")
-                                enabled: app.timeline.messagePermalink(
+                                enabled: root.timelineModel.messagePermalink(
                                              root.menuEventId).length > 0
-                                         && !app.timeline.messageDetails(
+                                         && !root.timelineModel.messageDetails(
                                              root.menuEventId).redacted
                                 onTriggered: {
                                     root.reactionEventId = root.menuEventId
@@ -627,56 +653,58 @@ Item {
                             }
                             MenuItem {
                                 text: qsTr("Copy text")
-                                enabled: app.timeline.visibleTextForEvent(
+                                enabled: root.timelineModel.visibleTextForEvent(
                                              root.menuEventId).length > 0
                                 onTriggered: root.copyToClipboard(
-                                    app.timeline.visibleTextForEvent(root.menuEventId))
+                                    root.timelineModel.visibleTextForEvent(root.menuEventId))
                             }
                             MenuItem {
                                 text: qsTr("Copy message link")
-                                enabled: app.timeline.messagePermalink(
+                                enabled: root.timelineModel.messagePermalink(
                                              root.menuEventId).length > 0
                                 onTriggered: root.copyToClipboard(
-                                    app.timeline.messagePermalink(root.menuEventId))
+                                    root.timelineModel.messagePermalink(root.menuEventId))
                             }
                             MenuItem {
                                 text: qsTr("Reply in thread")
-                                enabled: app.timeline.messagePermalink(
+                                enabled: root.timelineModel.messagePermalink(
                                              root.menuEventId).length > 0
-                                         && !app.timeline.messageDetails(
+                                         && !root.timelineModel.messageDetails(
                                              root.menuEventId).redacted
                                 onTriggered: {
-                                    var details = app.timeline.messageDetails(
+                                    var details = root.timelineModel.messageDetails(
                                                       root.menuEventId)
                                     var rootId = (details.threadRootId || "").length > 0
                                                  ? details.threadRootId
                                                  : root.menuEventId
-                                    app.composer.beginThreadReply(
-                                        rootId, app.timeline.visibleTextForEvent(
-                                            root.menuEventId).substring(0, 80))
+                                    // v0.6.0: opens the thread panel; its
+                                    // composer sends real SDK m.thread
+                                    // replies.
+                                    app.thread.openThread(app.currentRoomId,
+                                                          rootId)
                                 }
                             }
                             MenuItem {
                                 text: qsTr("Edit")
-                                enabled: app.timeline.canEditEvent(root.menuEventId)
+                                enabled: root.timelineModel.canEditEvent(root.menuEventId)
                                 visible: enabled
                                 onTriggered: app.composer.beginEdit(
                                     root.menuEventId,
-                                    app.timeline.visibleTextForEvent(root.menuEventId))
+                                    root.timelineModel.visibleTextForEvent(root.menuEventId))
                             }
                             MenuItem {
                                 text: qsTr("View details")
                                 enabled: root.menuEventId !== ""
                                 onTriggered: {
                                     messageDetailsDialog.details =
-                                        app.timeline.messageDetails(root.menuEventId)
+                                        root.timelineModel.messageDetails(root.menuEventId)
                                     if (messageDetailsDialog.details.eventId)
                                         messageDetailsDialog.open()
                                 }
                             }
                             MenuItem {
                                 text: qsTr("Delete")
-                                enabled: app.timeline.canRedactEvent(root.menuEventId)
+                                enabled: root.timelineModel.canRedactEvent(root.menuEventId)
                                 visible: enabled
                                 onTriggered: app.composer.redact(root.menuEventId)
                             }

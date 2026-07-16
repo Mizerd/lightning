@@ -175,6 +175,7 @@ set(APP_QML_FILES
     qml/NewConversationDialog.qml
     qml/InvitePeopleDialog.qml
     qml/RoomInfoPanel.qml
+    qml/ThreadPanel.qml
     qml/ImageViewerOverlay.qml
     qml/AccountMenu.qml
     qml/MemberProfilePopover.qml

@@ -110,6 +110,74 @@ QStringList ThreadController::participants() const
     return result;
 }
 
+QVariantMap ThreadController::rootInfo() const
+{
+    QVariantMap info;
+    info.insert(QStringLiteral("loaded"), false);
+    if (m_state == Closed || m_rootEventId.isEmpty())
+        return info;
+
+    auto fill = [&](auto data) {
+        info.insert(QStringLiteral("loaded"), true);
+        info.insert(QStringLiteral("eventId"), m_rootEventId);
+        info.insert(QStringLiteral("sender"),
+                    data(TimelineModel::SenderRole));
+        info.insert(QStringLiteral("senderDisplayName"),
+                    data(TimelineModel::SenderDisplayNameRole));
+        info.insert(QStringLiteral("senderAvatarMxc"),
+                    data(TimelineModel::SenderAvatarMxcRole));
+        info.insert(QStringLiteral("body"), data(TimelineModel::BodyRole));
+        info.insert(QStringLiteral("timestamp"),
+                    data(TimelineModel::TimestampRole));
+        info.insert(QStringLiteral("redacted"),
+                    data(TimelineModel::RedactedRole));
+        info.insert(QStringLiteral("undecryptable"),
+                    data(TimelineModel::UndecryptableRole));
+        info.insert(QStringLiteral("isEncrypted"),
+                    data(TimelineModel::IsEncryptedRole));
+        info.insert(QStringLiteral("isImage"),
+                    data(TimelineModel::IsImageRole));
+        info.insert(QStringLiteral("isFile"),
+                    data(TimelineModel::IsFileRole));
+    };
+
+    // Prefer the loaded thread timeline; the room timeline is the fallback
+    // while the thread snapshot is still arriving.
+    const int threadRow = m_model.rowForStableId(m_rootEventId);
+    if (threadRow >= 0) {
+        const QModelIndex idx = m_model.index(threadRow, 0);
+        fill([&](int role) { return m_model.data(idx, role); });
+        return info;
+    }
+    if (m_client) {
+        const auto roomEvents = m_client->timeline(m_roomId);
+        for (const auto &event : roomEvents) {
+            if (event.eventId != m_rootEventId)
+                continue;
+            info.insert(QStringLiteral("loaded"), true);
+            info.insert(QStringLiteral("eventId"), event.eventId);
+            info.insert(QStringLiteral("sender"), event.sender);
+            info.insert(QStringLiteral("senderDisplayName"),
+                        event.senderDisplayName.isEmpty()
+                            ? event.sender
+                            : event.senderDisplayName);
+            info.insert(QStringLiteral("senderAvatarMxc"),
+                        event.senderAvatarUrl);
+            info.insert(QStringLiteral("body"), event.body);
+            info.insert(QStringLiteral("timestamp"), event.timestamp);
+            info.insert(QStringLiteral("redacted"), event.redacted);
+            info.insert(QStringLiteral("undecryptable"), event.undecryptable);
+            info.insert(QStringLiteral("isEncrypted"), event.isEncrypted);
+            info.insert(QStringLiteral("isImage"),
+                        event.type == TimelineEvent::Image);
+            info.insert(QStringLiteral("isFile"),
+                        event.type == TimelineEvent::File);
+            return info;
+        }
+    }
+    return info;
+}
+
 void ThreadController::handleCurrentRoomChanged(const QString &currentRoomId)
 {
     if (m_state == Closed)

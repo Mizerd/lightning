@@ -27,6 +27,7 @@
 #include "models/RoomListModel.h"
 #include "models/TimelineModel.h"
 #include "models/TimelineScrollController.h"
+#include "threads/ThreadController.h"
 #include "matrix/MockMatrixClient.h"
 
 namespace {
@@ -59,6 +60,21 @@ private:
         return controller.roomList()
             ->data(idx, RoomListModel::RoomIdRole)
             .toString();
+    }
+
+    // v0.6.0: first loaded event in the current room model that other
+    // events name as their thread root (the mock thread fixture).
+    static QString fixtureThreadRootId(AppController &controller)
+    {
+        auto *timeline = controller.timeline();
+        for (int row = 0; row < timeline->rowCount(); ++row) {
+            const QString rootId = timeline
+                ->data(timeline->index(row, 0), TimelineModel::ThreadRootIdRole)
+                .toString();
+            if (!rootId.isEmpty())
+                return rootId;
+        }
+        return {};
     }
 
     // The first stateGroupId belonging to a group leader in the currently
@@ -1349,6 +1365,212 @@ private Q_SLOTS:
         controller.setCurrentRoomId(generalId);
         QVERIFY(!isExpanded());
 
+        QCOMPARE(warnings, QStringList{});
+    }
+
+    // ── v0.6.0 checkpoint 3: thread panel ─────────────────────────────────
+    // Delegate incubation never runs under the offscreen platform, so these
+    // assert the panel's controller-driven state machine, visibility wiring,
+    // composer send path, and narrow-layout behaviour on the REAL compiled
+    // TimelinePane.qml — not pixel geometry of individual replies.
+    void threadPanelOpensAndClosesWithController()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        controller.setCurrentRoomId(QStringLiteral("!general:mock.local"));
+
+        QQmlApplicationEngine engine;
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this,
+                [&warnings](const QList<QQmlError> &errors) {
+                    for (const auto &e : errors) warnings << e.toString();
+                });
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("TimelinePane"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        QObject *root = createdSpy.at(0).at(0).value<QObject *>();
+        QVERIFY(root != nullptr);
+        QObject *panel = root->findChild<QObject *>(
+            QStringLiteral("threadPanel"));
+        QVERIFY(panel != nullptr);
+        QCOMPARE(panel->property("visible").toBool(), false);
+
+        const QString rootId = fixtureThreadRootId(controller);
+        QVERIFY(!rootId.isEmpty());
+        controller.thread()->openThread(QStringLiteral("!general:mock.local"),
+                                        rootId);
+        QTRY_COMPARE_WITH_TIMEOUT(controller.thread()->state(),
+                                  ThreadController::Ready, kSignalTimeoutMs);
+        QTRY_COMPARE_WITH_TIMEOUT(panel->property("visible").toBool(), true,
+                                  kSignalTimeoutMs);
+
+        // The panel's pinned root header resolves the fixture root.
+        QObject *rootHeader = root->findChild<QObject *>(
+            QStringLiteral("threadRootHeader"));
+        QVERIFY(rootHeader != nullptr);
+        const QVariantMap rootInfo = controller.thread()->rootInfo();
+        QCOMPARE(rootInfo.value(QStringLiteral("loaded")).toBool(), true);
+        QCOMPARE(rootInfo.value(QStringLiteral("eventId")).toString(), rootId);
+
+        // The close button closes through the controller.
+        QObject *closeButton = root->findChild<QObject *>(
+            QStringLiteral("threadCloseButton"));
+        QVERIFY(closeButton != nullptr);
+        QVERIFY(QMetaObject::invokeMethod(closeButton, "click"));
+        QTRY_COMPARE_WITH_TIMEOUT(controller.thread()->state(),
+                                  ThreadController::Closed, kSignalTimeoutMs);
+        QTRY_COMPARE_WITH_TIMEOUT(panel->property("visible").toBool(), false,
+                                  kSignalTimeoutMs);
+        QCOMPARE(warnings, QStringList{});
+    }
+
+    void roomSwitchClosesThreadPanel()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        controller.setCurrentRoomId(QStringLiteral("!general:mock.local"));
+
+        QQmlApplicationEngine engine;
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this,
+                [&warnings](const QList<QQmlError> &errors) {
+                    for (const auto &e : errors) warnings << e.toString();
+                });
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("TimelinePane"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        QObject *root = createdSpy.at(0).at(0).value<QObject *>();
+        QVERIFY(root != nullptr);
+        QObject *panel = root->findChild<QObject *>(
+            QStringLiteral("threadPanel"));
+        QVERIFY(panel != nullptr);
+
+        const QString rootId = fixtureThreadRootId(controller);
+        controller.thread()->openThread(QStringLiteral("!general:mock.local"),
+                                        rootId);
+        QTRY_COMPARE_WITH_TIMEOUT(controller.thread()->state(),
+                                  ThreadController::Ready, kSignalTimeoutMs);
+
+        controller.setCurrentRoomId(QStringLiteral("!dm-bob:mock.local"));
+        QCOMPARE(controller.thread()->state(), ThreadController::Closed);
+        QTRY_COMPARE_WITH_TIMEOUT(panel->property("visible").toBool(), false,
+                                  kSignalTimeoutMs);
+        QCOMPARE(warnings, QStringList{});
+    }
+
+    // The panel composer sends through ThreadController.sendText — the
+    // reply lands in the thread model with the correct root and exactly
+    // once in the room timeline, never as an ordinary room message.
+    void threadComposerSendsThreadReply()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        controller.setCurrentRoomId(QStringLiteral("!general:mock.local"));
+
+        QQmlApplicationEngine engine;
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this,
+                [&warnings](const QList<QQmlError> &errors) {
+                    for (const auto &e : errors) warnings << e.toString();
+                });
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("TimelinePane"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        QObject *root = createdSpy.at(0).at(0).value<QObject *>();
+        QVERIFY(root != nullptr);
+
+        const QString rootId = fixtureThreadRootId(controller);
+        controller.thread()->openThread(QStringLiteral("!general:mock.local"),
+                                        rootId);
+        QTRY_COMPARE_WITH_TIMEOUT(controller.thread()->state(),
+                                  ThreadController::Ready, kSignalTimeoutMs);
+        auto *threadModel = controller.thread()->model();
+        const int rowsBefore = threadModel->rowCount();
+
+        QObject *input = root->findChild<QObject *>(
+            QStringLiteral("threadComposerInput"));
+        QObject *send = root->findChild<QObject *>(
+            QStringLiteral("threadSendButton"));
+        QVERIFY(input != nullptr);
+        QVERIFY(send != nullptr);
+        QVERIFY(input->setProperty("text",
+                                   QStringLiteral("panel thread reply")));
+        QVERIFY(QMetaObject::invokeMethod(send, "click"));
+
+        QTRY_COMPARE_WITH_TIMEOUT(threadModel->rowCount(), rowsBefore + 1,
+                                  kSignalTimeoutMs);
+        const QModelIndex last =
+            threadModel->index(threadModel->rowCount() - 1, 0);
+        QCOMPARE(threadModel->data(last, TimelineModel::BodyRole).toString(),
+                 QStringLiteral("panel thread reply"));
+        QCOMPARE(threadModel
+                     ->data(last, TimelineModel::ThreadRootIdRole).toString(),
+                 rootId);
+        QCOMPARE(input->property("text").toString(), QString{});
+        QCOMPARE(warnings, QStringList{});
+    }
+
+    // Narrow window (< 900): the open panel takes the whole pane and the
+    // room column hides — and returns when the panel closes.
+    void narrowWindowThreadPanelReplacesRoomColumn()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        controller.setCurrentRoomId(QStringLiteral("!general:mock.local"));
+
+        QQmlApplicationEngine engine;
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this,
+                [&warnings](const QList<QQmlError> &errors) {
+                    for (const auto &e : errors) warnings << e.toString();
+                });
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("TimelinePane"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(root != nullptr);
+        root->setWidth(640);   // narrow
+        root->setHeight(480);
+        QObject *roomColumn = root->findChild<QObject *>(
+            QStringLiteral("roomColumn"));
+        QObject *panel = root->findChild<QObject *>(
+            QStringLiteral("threadPanel"));
+        QVERIFY(roomColumn != nullptr);
+        QVERIFY(panel != nullptr);
+        QCOMPARE(roomColumn->property("visible").toBool(), true);
+
+        const QString rootId = fixtureThreadRootId(controller);
+        controller.thread()->openThread(QStringLiteral("!general:mock.local"),
+                                        rootId);
+        QTRY_COMPARE_WITH_TIMEOUT(controller.thread()->state(),
+                                  ThreadController::Ready, kSignalTimeoutMs);
+        QTRY_COMPARE_WITH_TIMEOUT(panel->property("visible").toBool(), true,
+                                  kSignalTimeoutMs);
+        QTRY_COMPARE_WITH_TIMEOUT(roomColumn->property("visible").toBool(),
+                                  false, kSignalTimeoutMs);
+
+        // Wide again: both are visible side by side.
+        root->setWidth(1200);
+        QTRY_COMPARE_WITH_TIMEOUT(roomColumn->property("visible").toBool(),
+                                  true, kSignalTimeoutMs);
+        QCOMPARE(panel->property("visible").toBool(), true);
+
+        controller.thread()->close();
+        QTRY_COMPARE_WITH_TIMEOUT(panel->property("visible").toBool(), false,
+                                  kSignalTimeoutMs);
         QCOMPARE(warnings, QStringList{});
     }
 };

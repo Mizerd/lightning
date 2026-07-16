@@ -55,10 +55,13 @@ Rectangle {
     Shortcut {
         sequence: "Escape"
         enabled: !timeline.emojiPickerOpen
-                 && (root.infoOpen || timeline.pinnedActionsKey !== "")
+                 && (root.infoOpen || app.thread.active
+                     || timeline.pinnedActionsKey !== "")
         onActivated: {
             if (root.infoOpen)
                 root.infoOpen = false
+            else if (app.thread.active)
+                app.thread.close()
             else
                 timeline.pinnedActionsKey = ""
         }
@@ -100,6 +103,11 @@ Rectangle {
         spacing: 0
 
     ColumnLayout {
+        objectName: "roomColumn"
+        // v0.6.0: on narrow windows the open thread panel takes the whole
+        // pane (the room and its state stay alive underneath and return
+        // when the panel closes or the window widens).
+        visible: !(app.thread.active && root.width < 900)
         Layout.fillWidth: true
         Layout.fillHeight: true
         Layout.minimumWidth: 320
@@ -214,6 +222,12 @@ Rectangle {
 
                 // Auto-scroll to end on new events when already near the bottom.
                 property bool stickToBottom: true
+
+                // v0.6.0: MessageDelegate view contract — the room timeline
+                // resolves stable-id actions against app.timeline and never
+                // suppresses a row as a pinned thread root.
+                property var timelineModel: app.timeline
+                property string suppressRootEventId: ""
 
                 // Which message currently has its action toolbar pinned open
                 // (by a click). Shared across delegates so only one can be
@@ -834,6 +848,32 @@ Rectangle {
         Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: AppTheme.border }
 
         MessageComposerBar { Layout.fillWidth: true }
+    }
+
+    // ── Thread side panel ────────────────────────────────────────────────
+    Rectangle {
+        visible: app.thread.active && root.width >= 900
+        Layout.fillHeight: true
+        implicitWidth: 1
+        color: AppTheme.border
+    }
+    ThreadPanel {
+        id: threadPanel
+        objectName: "threadPanel"
+        visible: app.thread.active
+        Layout.fillHeight: true
+        Layout.preferredWidth: root.width >= 900 ? 360 : root.width
+        Layout.fillWidth: app.thread.active && root.width < 900
+        onCloseRequested: app.thread.close()
+        openImage: function(mediaKey, httpUrl) {
+            imageViewer.openFor(mediaKey || "", httpUrl)
+        }
+        saveMedia: function(mediaKey, filename) {
+            if (!mediaKey || mediaKey.length === 0) return
+            saveMediaDialog.pendingMediaKey = mediaKey
+            saveMediaDialog.currentFile = "file:///" + (filename || "download")
+            saveMediaDialog.open()
+        }
     }
 
     // ── Room Information side panel ──────────────────────────────────────
