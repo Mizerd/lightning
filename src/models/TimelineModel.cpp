@@ -303,19 +303,28 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
     case ReactionsRole:          return reactionsVariant(e);
     case ThreadRootIdRole:       return e.threadRootId;
     case IsThreadRootRole: {
-        // Scan the loaded timeline for any reply that names this event.
+        // v0.6.0: the SDK's bundled thread summary is authoritative when
+        // present; otherwise scan the loaded timeline (mock/HTTP backends).
+        if (e.isThreadRoot)
+            return true;
         for (const auto &other : m_events) {
             if (other.threadRootId == e.eventId) return true;
         }
         return false;
     }
     case ThreadReplyCountRole: {
+        if (e.threadReplyCount >= 0)
+            return e.threadReplyCount;   // SDK summary (server aggregation)
         int c = 0;
         for (const auto &other : m_events) {
             if (other.threadRootId == e.eventId) ++c;
         }
         return c;
     }
+    case ThreadLatestPreviewRole:   return e.threadLatestPreview;
+    case ThreadLatestSenderRole:    return e.threadLatestSender;
+    case ThreadLatestTimestampRole: return e.threadLatestTimestamp;
+    case ThreadUnreadRole:          return e.threadUnread;
     case IsEncryptedRole:        return e.isEncrypted;
     case IsDecryptedRole:        return e.isDecrypted;
     case UndecryptableRole:      return e.undecryptable;
@@ -402,6 +411,10 @@ QHash<int, QByteArray> TimelineModel::roleNames() const
         { ThreadRootIdRole,        "threadRootId" },
         { IsThreadRootRole,        "isThreadRoot" },
         { ThreadReplyCountRole,    "threadReplyCount" },
+        { ThreadLatestPreviewRole,   "threadLatestPreview" },
+        { ThreadLatestSenderRole,    "threadLatestSender" },
+        { ThreadLatestTimestampRole, "threadLatestTimestamp" },
+        { ThreadUnreadRole,          "threadUnread" },
         { IsEncryptedRole,         "isEncrypted" },
         { IsDecryptedRole,         "isDecrypted" },
         { UndecryptableRole,       "undecryptable" },
@@ -888,6 +901,8 @@ QVariantMap TimelineModel::messageDetails(const QString &eventId) const
     details.insert(QStringLiteral("redacted"), event->redacted);
     details.insert(QStringLiteral("replyTargetId"), event->replyToEventId);
     details.insert(QStringLiteral("threadRootId"), event->threadRootId);
+    details.insert(QStringLiteral("isThreadRoot"), event->isThreadRoot);
+    details.insert(QStringLiteral("threadReplyCount"), event->threadReplyCount);
     return details;
 }
 

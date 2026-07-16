@@ -58,6 +58,18 @@ struct TimelineEvent {
     QString replyToSender;
     QString replyToPreview;    // Short preview of the replied-to body, best-effort.
 
+    // v0.6.0: SDK-provided thread summary on thread ROOT events. The reply
+    // count is the server's bundled aggregation (authoritative, kept live by
+    // sync); -1 means "no SDK summary" and the model falls back to counting
+    // locally loaded replies (mock/HTTP backends). threadUnread is a
+    // conservative receipt-based hint, never an exact count.
+    bool isThreadRoot = false;
+    int threadReplyCount = -1;
+    QString threadLatestPreview;
+    QString threadLatestSender;
+    QDateTime threadLatestTimestamp;
+    bool threadUnread = false;
+
     // Media (v0.3). Non-empty only for Image/File events.
     QString mediaMxcUrl;
     QString mediaMimetype;

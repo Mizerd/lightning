@@ -42,8 +42,8 @@ use matrix_sdk_ui::{
     timeline::{
         AttachmentConfig, AttachmentSource, EncryptedMessage, EventSendState,
         EventTimelineItem, MsgLikeKind, Timeline, TimelineBuilder, TimelineDetails,
-        TimelineEventItemId, TimelineItem, TimelineItemContent, TimelineItemKind,
-        VirtualTimelineItem,
+        TimelineEventItemId, TimelineFocus, TimelineItem, TimelineItemContent,
+        TimelineItemKind, VirtualTimelineItem,
     },
 };
 use serde_json::json;
@@ -94,9 +94,31 @@ struct ActiveTimeline {
     reached_start: Arc<AtomicBool>,
 }
 
+/// v0.6.0: one SDK-backed thread timeline for the currently open room. The
+/// SDK `Timeline` uses `TimelineFocus::Thread`, so the root and its replies
+/// (and thread sends, edits, reactions, redactions through it) all use the
+/// official thread machinery — no relation JSON is built by hand and no
+/// second sync engine exists: this is a filtered view over the same SDK
+/// room data the live timeline uses.
+struct ActiveThread {
+    room_id: String,
+    root_event_id: String,
+    thread_gen: u64,
+    timeline: Option<Arc<Timeline>>,
+    task: Option<tokio::task::JoinHandle<()>>,
+    pagination_busy: Arc<AtomicBool>,
+    reached_start: Arc<AtomicBool>,
+}
+
 pub struct TimelineRegistry {
     events: EventQueue,
     active: Mutex<Option<ActiveTimeline>>,
+    /// v0.6.0: the open thread panel's SDK timeline, if any. A thread always
+    /// belongs to the open room: opening/closing a room closes it.
+    active_thread: Mutex<Option<ActiveThread>>,
+    /// Bumped on every open-thread/close-thread call; stale thread events
+    /// are rejected on both sides by this stamp.
+    thread_gen: AtomicU64,
     /// Bumped on every open-room call. Diffs/pagination results stamped with
     /// an older generation are stale and must be ignored on both sides.
     room_gen: AtomicU64,
@@ -113,6 +135,8 @@ impl TimelineRegistry {
         Self {
             events,
             active: Mutex::new(None),
+            active_thread: Mutex::new(None),
+            thread_gen: AtomicU64::new(0),
             room_gen: AtomicU64::new(0),
             lifecycle_gen: AtomicU64::new(1),
             media_sources: Mutex::new(HashMap::new()),
@@ -194,6 +218,8 @@ impl TimelineRegistry {
         client: Client,
         room_id: String,
     ) {
+        // A thread panel never survives into another room.
+        self.close_thread();
         let room_gen = self.room_gen.fetch_add(1, Ordering::SeqCst) + 1;
         let lifecycle = self.lifecycle_gen.load(Ordering::SeqCst);
         self.clear_media();
@@ -244,6 +270,8 @@ impl TimelineRegistry {
 
     /// Close the active timeline (room deselected). Safe when none is open.
     pub fn close(&self) {
+        // A thread belongs to the open room; it never outlives it.
+        self.close_thread();
         // Invalidate stale pagination/send completions for the closed room.
         self.room_gen.fetch_add(1, Ordering::SeqCst);
         if let Some((_task, old_room)) = self.take_active() {
@@ -257,13 +285,259 @@ impl TimelineRegistry {
         }
     }
 
+    // ── v0.6.0: SDK-backed thread timelines ─────────────────────────────
+
+    fn take_active_thread(&self) -> Option<(Option<tokio::task::JoinHandle<()>>, String, String)> {
+        let mut guard = self.active_thread.lock().ok()?;
+        let thread = guard.take()?;
+        if let Some(task) = &thread.task {
+            task.abort();
+        }
+        Some((thread.task, thread.room_id, thread.root_event_id))
+    }
+
+    fn thread_current(&self, thread_gen: u64, lifecycle: u64) -> bool {
+        self.thread_gen.load(Ordering::SeqCst) == thread_gen
+            && self.lifecycle_gen.load(Ordering::SeqCst) == lifecycle
+    }
+
+    /// Open (or replace) the thread timeline for `root_event_id` in the
+    /// currently relevant room. Uses `TimelineFocus::Thread`, so the SDK owns
+    /// thread relations, pagination, and encryption exactly as for the live
+    /// room timeline.
+    pub fn open_thread(
+        self: &Arc<Self>,
+        runtime: &tokio::runtime::Runtime,
+        client: Client,
+        room_id: String,
+        root_event_id: String,
+    ) {
+        let thread_gen = self.thread_gen.fetch_add(1, Ordering::SeqCst) + 1;
+        let lifecycle = self.lifecycle_gen.load(Ordering::SeqCst);
+
+        if let Some((_task, old_room, old_root)) = self.take_active_thread() {
+            enqueue(
+                &self.events,
+                json!({
+                    "type": "thread_closed",
+                    "room_id": old_room,
+                    "thread_root_id": old_root,
+                }),
+            );
+        }
+
+        let pagination_busy = Arc::new(AtomicBool::new(false));
+        let reached_start = Arc::new(AtomicBool::new(false));
+        if let Ok(mut guard) = self.active_thread.lock() {
+            *guard = Some(ActiveThread {
+                room_id: room_id.clone(),
+                root_event_id: root_event_id.clone(),
+                thread_gen,
+                timeline: None,
+                task: None,
+                pagination_busy: Arc::clone(&pagination_busy),
+                reached_start: Arc::clone(&reached_start),
+            });
+        }
+
+        let registry = Arc::clone(self);
+        let events = Arc::clone(&self.events);
+        let handle = runtime.spawn(open_thread_task(
+            registry,
+            client,
+            room_id,
+            root_event_id,
+            thread_gen,
+            lifecycle,
+            events,
+        ));
+
+        if let Ok(mut guard) = self.active_thread.lock() {
+            match guard.as_mut() {
+                Some(thread) if thread.thread_gen == thread_gen => thread.task = Some(handle),
+                _ => handle.abort(),
+            }
+        } else {
+            handle.abort();
+        }
+    }
+
+    /// Close the open thread timeline (panel closed / room switch). Safe
+    /// when none is open.
+    pub fn close_thread(&self) {
+        self.thread_gen.fetch_add(1, Ordering::SeqCst);
+        if let Some((_task, old_room, old_root)) = self.take_active_thread() {
+            enqueue(
+                &self.events,
+                json!({
+                    "type": "thread_closed",
+                    "room_id": old_room,
+                    "thread_root_id": old_root,
+                }),
+            );
+        }
+    }
+
+    /// Snapshot of the open thread timeline when it matches, and its stamps.
+    fn thread_timeline_for(
+        &self,
+        room_id: &str,
+        root_event_id: &str,
+    ) -> Option<(Arc<Timeline>, u64, u64)> {
+        let guard = self.active_thread.lock().ok()?;
+        let thread = guard.as_ref()?;
+        if thread.room_id != room_id || thread.root_event_id != root_event_id {
+            return None;
+        }
+        let timeline = thread.timeline.clone()?;
+        Some((timeline, thread.thread_gen, self.lifecycle_gen.load(Ordering::SeqCst)))
+    }
+
+    /// One backward pagination batch for the open thread. Single-flight and
+    /// reached-start suppressed, mirroring the room path.
+    pub fn paginate_thread_back(
+        self: &Arc<Self>,
+        runtime: &tokio::runtime::Runtime,
+        room_id: String,
+        root_event_id: String,
+        count: u16,
+    ) -> Result<(), String> {
+        let Some((timeline, thread_gen, lifecycle)) =
+            self.thread_timeline_for(&room_id, &root_event_id)
+        else {
+            return Err("No live thread timeline is open for that root.".to_owned());
+        };
+        let (busy, reached) = {
+            let guard = self
+                .active_thread
+                .lock()
+                .map_err(|_| "thread registry lock poisoned".to_owned())?;
+            let thread = guard.as_ref().ok_or("thread timeline gone")?;
+            (Arc::clone(&thread.pagination_busy), Arc::clone(&thread.reached_start))
+        };
+        if reached.load(Ordering::SeqCst) {
+            return Ok(());
+        }
+        if busy
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_err()
+        {
+            return Ok(()); // single-flight
+        }
+
+        let count = if count == 0 { PAGINATION_BATCH } else { count };
+        let registry = Arc::clone(self);
+        let events = Arc::clone(&self.events);
+        let pagination_event = move |state: &str, extra: serde_json::Value| {
+            let mut v = json!({
+                "type": "thread_pagination",
+                "room_id": room_id,
+                "thread_root_id": root_event_id,
+                "thread_generation": thread_gen,
+                "lifecycle": lifecycle,
+                "state": state,
+            });
+            if let (Some(obj), Some(add)) = (v.as_object_mut(), extra.as_object()) {
+                for (k, val) in add {
+                    obj.insert(k.clone(), val.clone());
+                }
+            }
+            v
+        };
+        enqueue(&events, pagination_event("loading", json!({})));
+        runtime.spawn(async move {
+            let result = timeline.paginate_backwards(count).await;
+            busy.store(false, Ordering::SeqCst);
+            if !registry.thread_current(thread_gen, lifecycle) {
+                return; // stale completion after thread/room switch
+            }
+            match result {
+                Ok(hit_start) => {
+                    reached.store(hit_start, Ordering::SeqCst);
+                    enqueue(
+                        &events,
+                        pagination_event("idle", json!({ "reached_start": hit_start })),
+                    );
+                }
+                Err(_err) => {
+                    enqueue(
+                        &events,
+                        pagination_event("failed", json!({ "category": "network" })),
+                    );
+                }
+            }
+        });
+        Ok(())
+    }
+
+    /// Send a plain-text thread reply through the SDK. When the thread panel
+    /// is open its focused timeline is used directly; otherwise a transient
+    /// thread-focused timeline is built for the send, so the m.thread
+    /// relation (with correct reply fallback) is ALWAYS produced by the SDK
+    /// — never hand-assembled — and encrypted rooms use the normal SDK
+    /// encryption path.
+    pub fn send_thread_text(
+        self: &Arc<Self>,
+        runtime: &tokio::runtime::Runtime,
+        client: Client,
+        room_id: String,
+        root_event_id: String,
+        body: String,
+    ) -> Result<(), String> {
+        let events = Arc::clone(&self.events);
+        let lifecycle = self.lifecycle_gen.load(Ordering::SeqCst);
+        let registry = Arc::clone(self);
+        let open_thread = self.thread_timeline_for(&room_id, &root_event_id);
+        runtime.spawn(async move {
+            let content = AnyMessageLikeEventContent::RoomMessage(
+                RoomMessageEventContent::text_plain(body),
+            );
+            let sent = if let Some((timeline, _gen, _lc)) = open_thread {
+                timeline.send(content).await.is_ok()
+            } else {
+                send_via_transient_thread_timeline(
+                    &client,
+                    &room_id,
+                    &root_event_id,
+                    content,
+                )
+                .await
+            };
+            if !sent && registry.lifecycle_current(lifecycle) {
+                enqueue(
+                    &events,
+                    json!({
+                        "type": "thread_send_failed",
+                        "room_id": room_id,
+                        "thread_root_id": root_event_id,
+                        "lifecycle": lifecycle,
+                        "category": "rejected",
+                    }),
+                );
+            }
+        });
+        Ok(())
+    }
+
     /// Deterministic stop of all timeline work: advances the lifecycle
     /// generation, aborts the subscription task and awaits it (bounded).
     /// Called before sign-out store cleanup and before handle destruction.
     pub fn shutdown(&self, runtime: &tokio::runtime::Runtime) {
         self.lifecycle_gen.fetch_add(1, Ordering::SeqCst);
         self.room_gen.fetch_add(1, Ordering::SeqCst);
+        self.thread_gen.fetch_add(1, Ordering::SeqCst);
         self.clear_media();
+        if let Some((task, _room, _root)) = self.take_active_thread() {
+            if let Some(task) = task {
+                let _ = runtime.block_on(async {
+                    tokio::time::timeout(
+                        std::time::Duration::from_secs(SHUTDOWN_JOIN_TIMEOUT_SECS),
+                        task,
+                    )
+                    .await
+                });
+            }
+        }
         if let Some((task, _room)) = self.take_active() {
             if let Some(task) = task {
                 let _ = runtime.block_on(async {
@@ -784,6 +1058,127 @@ async fn open_room_task(
     }
 }
 
+/// v0.6.0: build the thread-focused SDK timeline and forward its snapshot +
+/// diff stream, mirroring `open_room_task`. All payloads are stamped with
+/// the thread generation so stale thread events can never mutate a newer
+/// panel (or another room's panel).
+async fn open_thread_task(
+    registry: Arc<TimelineRegistry>,
+    client: Client,
+    room_id: String,
+    root_event_id: String,
+    thread_gen: u64,
+    lifecycle: u64,
+    events: EventQueue,
+) {
+    let own_user = client.user_id().map(|u| u.to_string()).unwrap_or_default();
+
+    let emit_error = |category: &str| {
+        enqueue(
+            &events,
+            json!({
+                "type": "thread_error",
+                "room_id": room_id,
+                "thread_root_id": root_event_id,
+                "thread_generation": thread_gen,
+                "lifecycle": lifecycle,
+                "category": category,
+            }),
+        );
+    };
+
+    let Ok(room_ref) = RoomId::parse(&room_id) else {
+        emit_error("invalid_room_id");
+        return;
+    };
+    let Some(room) = client.get_room(&room_ref) else {
+        emit_error("unknown_room");
+        return;
+    };
+    let Ok(root_ref) = EventId::parse(&root_event_id) else {
+        emit_error("invalid_root_id");
+        return;
+    };
+
+    let timeline = match TimelineBuilder::new(&room)
+        .with_focus(TimelineFocus::Thread { root_event_id: root_ref })
+        .build()
+        .await
+    {
+        Ok(timeline) => Arc::new(timeline),
+        Err(_err) => {
+            emit_error("build_failed");
+            return;
+        }
+    };
+
+    let (items, mut stream) = timeline.subscribe().await;
+
+    {
+        let Ok(mut guard) = registry.active_thread.lock() else { return };
+        match guard.as_mut() {
+            Some(thread) if thread.thread_gen == thread_gen => {
+                thread.timeline = Some(Arc::clone(&timeline));
+            }
+            _ => return, // superseded while building
+        }
+    }
+
+    let snapshot: Vec<serde_json::Value> =
+        items.iter().map(|item| item_to_json(item, &own_user, &registry)).collect();
+    enqueue(
+        &events,
+        json!({
+            "type": "thread_reset",
+            "room_id": room_id,
+            "thread_root_id": root_event_id,
+            "thread_generation": thread_gen,
+            "lifecycle": lifecycle,
+            "items": snapshot,
+        }),
+    );
+
+    while let Some(diffs) = stream.next().await {
+        if !registry.thread_current(thread_gen, lifecycle) {
+            break;
+        }
+        for diff in diffs {
+            let base = json!({
+                "type": "thread_diff",
+                "room_id": room_id,
+                "thread_root_id": root_event_id,
+                "thread_generation": thread_gen,
+                "lifecycle": lifecycle,
+            });
+            let value = fill_diff_json(base, &diff, &own_user, &registry);
+            enqueue(&events, value);
+        }
+    }
+}
+
+/// One-shot thread send used when the panel is not open: a thread-focused
+/// SDK timeline is built, the message is sent through it (the SDK attaches
+/// the m.thread relation and reply fallback, and encrypts for encrypted
+/// rooms), and the timeline is dropped again.
+async fn send_via_transient_thread_timeline(
+    client: &Client,
+    room_id: &str,
+    root_event_id: &str,
+    content: AnyMessageLikeEventContent,
+) -> bool {
+    let Ok(room_ref) = RoomId::parse(room_id) else { return false };
+    let Some(room) = client.get_room(&room_ref) else { return false };
+    let Ok(root_ref) = EventId::parse(root_event_id) else { return false };
+    let Ok(timeline) = TimelineBuilder::new(&room)
+        .with_focus(TimelineFocus::Thread { root_event_id: root_ref })
+        .build()
+        .await
+    else {
+        return false;
+    };
+    timeline.send(content).await.is_ok()
+}
+
 fn emit_timeline_error(
     events: &EventQueue,
     room_id: &str,
@@ -813,14 +1208,28 @@ fn diff_to_json(
     own_user: &str,
     registry: &TimelineRegistry,
 ) -> serde_json::Value {
+    let base = json!({
+        "type": "timeline_diff",
+        "room_id": room_id,
+        "room_generation": room_gen,
+        "lifecycle": lifecycle,
+    });
+    fill_diff_json(base, diff, own_user, registry)
+}
+
+/// Fill the shared `op`/`items`/`index` fields of a diff envelope. The base
+/// carries the stream identity (room vs thread) so room and thread diffs
+/// serialize identically everywhere else.
+fn fill_diff_json(
+    envelope: serde_json::Value,
+    diff: &VectorDiff<Arc<TimelineItem>>,
+    own_user: &str,
+    registry: &TimelineRegistry,
+) -> serde_json::Value {
     let base = |op: &str| {
-        json!({
-            "type": "timeline_diff",
-            "room_id": room_id,
-            "room_generation": room_gen,
-            "lifecycle": lifecycle,
-            "op": op,
-        })
+        let mut v = envelope.clone();
+        v["op"] = op.into();
+        v
     };
     match diff {
         VectorDiff::Append { values } => {
@@ -982,6 +1391,35 @@ fn event_item_to_json(
             }
             if let Some(root) = &msg_like.thread_root {
                 out["thread_root_id"] = root.to_string().into();
+            }
+            // v0.6.0: SDK-provided thread summary on thread ROOT events —
+            // authoritative reply count and latest-reply metadata from the
+            // server's bundled aggregation, kept live by sync. Only safe
+            // presentation fields cross the FFI (previews reuse the same
+            // sanitized content_preview as reply previews).
+            if let Some(summary) = &msg_like.thread_summary {
+                out["is_thread_root"] = true.into();
+                out["thread_reply_count"] = summary.num_replies.into();
+                if let TimelineDetails::Ready(latest) = &summary.latest_event {
+                    out["thread_latest_preview"] =
+                        content_preview(&latest.content).into();
+                    out["thread_latest_sender"] = latest.sender.to_string().into();
+                    out["thread_latest_timestamp_ms"] =
+                        u64::from(latest.timestamp.get()).into();
+                    if let TimelineEventItemId::EventId(latest_id) = &latest.identifier {
+                        // Conservative unread hint: read only when the user's
+                        // own threaded receipt points at the latest reply (or
+                        // the latest reply is their own). Absent receipts
+                        // with replies present count as unread.
+                        let read = latest.sender.as_str() == own_user
+                            || summary.public_read_receipt_event_id.as_deref()
+                                == Some(&**latest_id)
+                            || summary.private_read_receipt_event_id.as_deref()
+                                == Some(&**latest_id);
+                        out["thread_unread"] =
+                            (!read && summary.num_replies > 0).into();
+                    }
+                }
             }
             match &msg_like.kind {
                 MsgLikeKind::Message(message) => {

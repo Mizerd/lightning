@@ -68,6 +68,8 @@ private Q_SLOTS:
     void parsesLocalEchoStates();
     void parsesVirtualItems();
     void parsesReactionsAndReply();
+    void parsesThreadSummary();
+    void threadSummaryAbsentKeepsFallbackContract();
     void parsesTypedStateActivity();
 
     // ── Diff application: every VectorDiff variant ──────────────────
@@ -218,6 +220,50 @@ void RustTimelineIngestTest::parsesReactionsAndReply()
     QCOMPARE(e.replyToEventId, QStringLiteral("$orig"));
     QCOMPARE(e.replyToSender, QStringLiteral("@bob:example.org"));
     QCOMPARE(e.replyToPreview, QStringLiteral("original"));
+}
+
+// v0.6.0: SDK thread-summary fields on a thread root item.
+void RustTimelineIngestTest::parsesThreadSummary()
+{
+    QJsonObject item = itemJson(QStringLiteral("uid-root"),
+                                QStringLiteral("$root"),
+                                QStringLiteral("root message"));
+    item.insert(QStringLiteral("is_thread_root"), true);
+    item.insert(QStringLiteral("thread_reply_count"), 4);
+    item.insert(QStringLiteral("thread_latest_preview"),
+                QStringLiteral("latest reply"));
+    item.insert(QStringLiteral("thread_latest_sender"),
+                QStringLiteral("@carol:example.org"));
+    item.insert(QStringLiteral("thread_latest_timestamp_ms"), 1700000123000.0);
+    item.insert(QStringLiteral("thread_unread"), true);
+
+    const TimelineEvent e = eventFromItemJson(item, kRoom);
+    QVERIFY(e.isThreadRoot);
+    QCOMPARE(e.threadReplyCount, 4);
+    QCOMPARE(e.threadLatestPreview, QStringLiteral("latest reply"));
+    QCOMPARE(e.threadLatestSender, QStringLiteral("@carol:example.org"));
+    QCOMPARE(e.threadLatestTimestamp.toMSecsSinceEpoch(),
+             Q_INT64_C(1700000123000));
+    QVERIFY(e.threadUnread);
+}
+
+// Events without a summary keep the -1 "unknown" contract so non-SDK
+// backends fall back to local reply counting, and a plain thread reply
+// stays a reply — never a root.
+void RustTimelineIngestTest::threadSummaryAbsentKeepsFallbackContract()
+{
+    QJsonObject reply = itemJson(QStringLiteral("uid-reply"),
+                                 QStringLiteral("$reply"),
+                                 QStringLiteral("in thread"));
+    reply.insert(QStringLiteral("thread_root_id"), QStringLiteral("$root"));
+
+    const TimelineEvent e = eventFromItemJson(reply, kRoom);
+    QCOMPARE(e.threadRootId, QStringLiteral("$root"));
+    QVERIFY(!e.isThreadRoot);
+    QCOMPARE(e.threadReplyCount, -1);
+    QVERIFY(e.threadLatestPreview.isEmpty());
+    QVERIFY(!e.threadUnread);
+    QVERIFY(!e.threadLatestTimestamp.isValid());
 }
 
 void RustTimelineIngestTest::parsesTypedStateActivity()

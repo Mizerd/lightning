@@ -97,6 +97,24 @@ TimelineEvent eventFromItemJson(const QJsonObject &item, const QString &roomId)
     e.replyToPreview = item.value(QStringLiteral("reply_to_preview")).toString();
     e.threadRootId = item.value(QStringLiteral("thread_root_id")).toString();
 
+    // v0.6.0: SDK thread summary on thread root events (absent fields keep
+    // the "-1 = unknown" contract so non-SDK backends fall back to local
+    // counting).
+    e.isThreadRoot = item.value(QStringLiteral("is_thread_root")).toBool(false);
+    e.threadReplyCount = item.contains(QStringLiteral("thread_reply_count"))
+        ? item.value(QStringLiteral("thread_reply_count")).toInt(-1)
+        : -1;
+    e.threadLatestPreview =
+        item.value(QStringLiteral("thread_latest_preview")).toString();
+    e.threadLatestSender =
+        item.value(QStringLiteral("thread_latest_sender")).toString();
+    const auto latestTs = static_cast<qint64>(
+        item.value(QStringLiteral("thread_latest_timestamp_ms")).toDouble(0));
+    if (latestTs > 0)
+        e.threadLatestTimestamp =
+            QDateTime::fromMSecsSinceEpoch(latestTs, Qt::UTC);
+    e.threadUnread = item.value(QStringLiteral("thread_unread")).toBool(false);
+
     e.mediaMxcUrl = item.value(QStringLiteral("media_mxc")).toString();
     e.mediaMimetype = item.value(QStringLiteral("media_mimetype")).toString();
     e.mediaFilename = item.value(QStringLiteral("media_filename")).toString();

@@ -237,6 +237,20 @@ char *mx_rust_timeline_send_reply(void *client,
                                   const char *room_id,
                                   const char *in_reply_to_event_id,
                                   const char *body);
+/* v0.6.0: SDK-backed thread timelines. One thread panel at a time; it
+ * belongs to the open room and is closed automatically by room switches. */
+char *mx_rust_thread_open(void *client,
+                          const char *room_id,
+                          const char *root_event_id);
+char *mx_rust_thread_close(void *client);
+char *mx_rust_thread_paginate_back(void *client,
+                                   const char *room_id,
+                                   const char *root_event_id,
+                                   unsigned short count);
+char *mx_rust_thread_send_text(void *client,
+                               const char *room_id,
+                               const char *root_event_id,
+                               const char *body);
 char *mx_rust_timeline_edit(void *client,
                             const char *room_id,
                             const char *target_event_id,

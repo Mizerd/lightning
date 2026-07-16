@@ -92,6 +92,7 @@ AppController::AppController(Backend backend, QObject *parent)
     m_crypto       = std::make_unique<CryptoManager>(this);
     m_spaces       = std::make_unique<SpaceManager>(this);
     m_threads      = std::make_unique<ThreadManager>(this);
+    m_thread       = std::make_unique<ThreadController>(this);
     m_conversations= std::make_unique<ConversationController>(this);
     m_roomInfo     = std::make_unique<RoomInfoController>(this);
     m_mediaBridge  = std::make_unique<MediaBridge>(this);
@@ -104,6 +105,7 @@ AppController::AppController(Backend backend, QObject *parent)
 
     m_spaces->setClient(m_client.get());
     m_threads->setClient(m_client.get());
+    m_thread->setClient(m_client.get());
     m_roomList->setClient(m_client.get());
     m_roomList->setSpaceManager(m_spaces.get());
     m_timeline->setClient(m_client.get());
@@ -604,6 +606,9 @@ void AppController::setCurrentRoomId(const QString &roomId)
     if (m_currentRoomId == roomId)
         return;
     m_currentRoomId = roomId;
+    // A thread panel never survives into another room; close it BEFORE the
+    // room timeline switches so no stale thread work targets the new room.
+    m_thread->handleCurrentRoomChanged(roomId);
     m_timeline->setRoomId(roomId);
     m_composer->setRoomId(roomId);
     m_pagination->setRoomId(roomId);

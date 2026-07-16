@@ -139,6 +139,8 @@ set(APP_SOURCES
     src/spaces/SpaceManager.cpp
     src/threads/ThreadManager.h
     src/threads/ThreadManager.cpp
+    src/threads/ThreadController.h
+    src/threads/ThreadController.cpp
 )
 
 if(ENABLE_RUST_SDK_BACKEND)
@@ -220,7 +222,7 @@ function(lightning_configure_qml_app target)
     # bare filename, not the "models/HeaderName.h" path used by quoted
     # includes elsewhere. Add each subdirectory holding a QML-registered type
     # so that angle-bracket lookup resolves.
-    target_include_directories(${target} PRIVATE src/models)
+    target_include_directories(${target} PRIVATE src/models src/threads)
 
     target_link_libraries(${target} PRIVATE
         Qt6::Core
@@ -497,6 +499,27 @@ if(BUILD_TESTING)
     target_include_directories(conversation-flow-test PRIVATE src)
     target_link_libraries(conversation-flow-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME conversation-flow COMMAND conversation-flow-test)
+
+    # v0.6.0: SDK-backed thread foundation — lifecycle (open/close/switch),
+    # root/reply identity via the composite timeline id, failure states,
+    # thread-only send path, encrypted-thread fixtures, participants.
+    qt_add_executable(thread-controller-test
+        tests/ThreadControllerTest.cpp
+        src/threads/ThreadController.h
+        src/threads/ThreadController.cpp
+        src/models/TimelineModel.h
+        src/models/TimelineModel.cpp
+        src/matrix/MatrixClient.h
+        src/matrix/MatrixClient.cpp
+        src/matrix/MockMatrixClient.h
+        src/matrix/MockMatrixClient.cpp
+        src/matrix/MediaHelpers.h
+        src/matrix/MediaHelpers.cpp
+    )
+    target_include_directories(thread-controller-test PRIVATE src)
+    target_link_libraries(thread-controller-test PRIVATE
+        Qt6::Core Qt6::Qml Qt6::Test)
+    add_test(NAME thread-controller COMMAND thread-controller-test)
 
     # v0.5.11: safe link previews — URL extraction with scheme allow-list,
     # GIF MIME classification, encrypted-room privacy gating, bounded cache,

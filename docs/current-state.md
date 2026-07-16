@@ -1,5 +1,40 @@
 # Current state (v0.5.19)
 
+## v0.6.0 (in progress) — SDK-backed thread foundation
+
+Before 0.6.0, "Reply in thread" on the Rust backend fell back to an ordinary
+rich reply (no real `m.thread` relation) and thread roles were derived only
+by scanning loaded rows. The foundation now uses matrix-sdk-ui 0.18.0's
+native thread machinery end to end:
+
+- **Rust** (`rust/src/timeline.rs`): one `TimelineFocus::Thread` SDK timeline
+  per open thread panel, generation-isolated (`thread_generation`) and closed
+  automatically by room switches, sign-out, and shutdown. Snapshot + diffs
+  are forwarded as `thread_reset`/`thread_diff` envelopes reusing the exact
+  room diff serializer; thread backward pagination is single-flight with
+  reached-start suppression. `send_thread_text` sends through the
+  thread-focused timeline (or a transient one when the panel is closed), so
+  the `m.thread` relation, reply fallback, and encryption are ALWAYS produced
+  by the SDK. Thread ROOT items additionally carry the SDK's bundled
+  `ThreadSummary`: authoritative reply count, latest-reply
+  preview/sender/timestamp, and a conservative receipt-based unread hint.
+- **C++**: a thread timeline is addressed by a composite timeline id
+  (`MatrixClient::threadTimelineId`, unit-separator delimited, collision-free
+  with real room ids) and flows through the SAME diff signals, ingest code,
+  pagination state, and `TimelineModel` as a room timeline — no duplicated
+  timeline implementation and no second sync path. `ThreadController`
+  (`app.thread`) owns only the lifecycle: Closed/Opening/Ready/Failed,
+  thread/room-switch cancellation by composite-id identity, logout reset,
+  the thread-only send entry point, and de-duplicated participants.
+  `TimelineModel` gains thread-summary roles (`threadLatestPreview`,
+  `threadLatestSender`, `threadLatestTimestamp`, `threadUnread`) and prefers
+  SDK summary values for `isThreadRoot`/`threadReplyCount`, falling back to
+  local scans on non-SDK backends.
+- **Mock**: serves thread timelines under the same composite-id contract
+  (root pinned first, replies in room order, live reply propagation) plus an
+  encrypted-thread fixture (decrypted root/reply + undecryptable reply), so
+  the panel UI and controller are fully testable offline.
+
 ## v0.6.0 (in progress) — smooth long-message wheel motion
 
 0.5.19's discrete-wheel path computed a coalesced target in

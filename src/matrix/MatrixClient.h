@@ -89,6 +89,48 @@ public:
     {
         sendReply(roomId, threadRootEventId, body);
     }
+    // ---- v0.6.0: SDK-backed thread timelines.
+    //
+    // A thread timeline is addressed by a composite timeline id so it flows
+    // through the SAME diff signal pipeline (timelineReset, eventInsertedAt,
+    // paginationStateChanged, ...) and model code as a room timeline —
+    // TimelineModel simply sets its roomId to the composite id. The id
+    // embeds a unit separator, which can never appear in Matrix room/event
+    // ids, so it can never collide with a real room id.
+    static QString threadTimelineId(const QString &roomId,
+                                    const QString &rootEventId)
+    {
+        return roomId + QStringLiteral("\x1f" "thread" "\x1f") + rootEventId;
+    }
+    static bool isThreadTimelineId(const QString &timelineId)
+    {
+        return timelineId.contains(QStringLiteral("\x1f" "thread" "\x1f"));
+    }
+    static QString threadTimelineRoomId(const QString &timelineId)
+    {
+        const int sep = timelineId.indexOf(QChar(0x1f));
+        return sep < 0 ? timelineId : timelineId.left(sep);
+    }
+    static QString threadTimelineRootId(const QString &timelineId)
+    {
+        const int sep = timelineId.lastIndexOf(QChar(0x1f));
+        return sep < 0 ? QString{} : timelineId.mid(sep + 1);
+    }
+
+    // True when the backend can open live thread timelines. Backends
+    // without support keep the false default and the thread UI stays
+    // hidden.
+    virtual bool supportsThreadTimelines() const { return false; }
+    // Open (or replace) the single live thread timeline. The backend
+    // responds with timelineReset(threadTimelineId(...)) on success or
+    // threadTimelineFailed(...) on failure. A room switch closes it.
+    virtual void openThread(const QString &roomId, const QString &rootEventId)
+    {
+        Q_UNUSED(roomId);
+        Q_UNUSED(rootEventId);
+    }
+    virtual void closeThread() {}
+
     virtual void editMessage(const QString &roomId,
                              const QString &targetEventId,
                              const QString &newBody) = 0;
@@ -243,6 +285,11 @@ Q_SIGNALS:
     void roomsChanged();
     void roomUpdated(const QString &roomId);
     void timelineReset(const QString &roomId);
+    // v0.6.0: opening a thread timeline failed (unknown root, build failure,
+    // network). Success is signalled by timelineReset(threadTimelineId(...)).
+    void threadTimelineFailed(const QString &roomId,
+                              const QString &rootEventId,
+                              const QString &category);
     void eventAppended(const QString &roomId, const TimelineEvent &event);
     void eventStatusChanged(const QString &roomId,
                             const QString &eventId,

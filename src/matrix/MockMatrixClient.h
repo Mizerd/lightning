@@ -46,6 +46,12 @@ public:
     void sendThreadReply(const QString &roomId,
                          const QString &threadRootEventId,
                          const QString &body) override;
+    // v0.6.0: mock thread timelines so ThreadController and the thread UI
+    // are testable without a homeserver. Mirrors the composite timeline-id
+    // contract of the Rust backend (root first, replies in room order).
+    bool supportsThreadTimelines() const override { return true; }
+    void openThread(const QString &roomId, const QString &rootEventId) override;
+    void closeThread() override;
     void editMessage(const QString &roomId,
                      const QString &targetEventId,
                      const QString &newBody) override;
@@ -99,4 +105,9 @@ private:
 
     quint64 m_eventCounter = 0;
     quint64 m_txnCounter = 0;
+
+    // v0.6.0: the single open mock thread timeline (composite id), rebuilt
+    // from the room timeline on open and kept in sync by sendThreadReply.
+    QString m_openThreadTimelineId;
+    void rebuildOpenThreadTimeline();
 };

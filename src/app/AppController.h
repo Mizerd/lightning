@@ -17,6 +17,7 @@
 #include "models/TimelineModel.h"
 #include "models/TimelineScrollController.h"
 #include "spaces/SpaceManager.h"
+#include "threads/ThreadController.h"
 #include "threads/ThreadManager.h"
 
 #include <QObject>
@@ -92,6 +93,8 @@ class AppController : public QObject
     Q_PROPERTY(CryptoManager* crypto READ crypto CONSTANT)
     Q_PROPERTY(SpaceManager* spaces READ spaces CONSTANT)
     Q_PROPERTY(ThreadManager* threads READ threads CONSTANT)
+    // v0.6.0: the single open SDK-backed thread panel (app.thread).
+    Q_PROPERTY(ThreadController* thread READ thread CONSTANT)
     // v0.5.9: conversation creation (DMs, rooms, invites), Room Information
     // (members, permissions, editing, leave) and the media bridge.
     Q_PROPERTY(ConversationController* conversations READ conversations CONSTANT)
@@ -151,6 +154,7 @@ public:
     CryptoManager *crypto() const;
     SpaceManager *spaces() const;
     ThreadManager *threads() const;
+    ThreadController *thread() const { return m_thread.get(); }
     ConversationController *conversations() const { return m_conversations.get(); }
     RoomInfoController *roomInfo() const { return m_roomInfo.get(); }
     MediaBridge *mediaBridge() const { return m_mediaBridge.get(); }
@@ -316,6 +320,7 @@ private:
     std::unique_ptr<CryptoManager> m_crypto;
     std::unique_ptr<SpaceManager> m_spaces;
     std::unique_ptr<ThreadManager> m_threads;
+    std::unique_ptr<ThreadController> m_thread;
     std::unique_ptr<ConversationController> m_conversations;
     std::unique_ptr<RoomInfoController> m_roomInfo;
     std::unique_ptr<MediaBridge> m_mediaBridge;

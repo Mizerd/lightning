@@ -2189,6 +2189,78 @@ pub unsafe extern "C" fn mx_rust_timeline_send_reply(
     })
 }
 
+// ── v0.6.0: SDK-backed thread timelines ─────────────────────────────────
+
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_thread_open(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    root_event_id: *const c_char,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let root = unsafe { cstr_arg(root_event_id) }?;
+        if room_id.trim().is_empty() || root.trim().is_empty() {
+            return Err("empty room or thread root id".to_owned());
+        }
+        let Some(client) = bridge.client.lock().ok().and_then(|g| g.clone()) else {
+            return Err("Rust SDK session is not logged in.".to_owned());
+        };
+        bridge.timelines.open_thread(&bridge.runtime, client, room_id, root);
+        Ok(String::new())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_thread_close(ptr: *mut c_void) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        bridge.timelines.close_thread();
+        Ok(String::new())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_thread_paginate_back(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    root_event_id: *const c_char,
+    count: u16,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let root = unsafe { cstr_arg(root_event_id) }?;
+        bridge
+            .timelines
+            .paginate_thread_back(&bridge.runtime, room_id, root, count)
+            .map(|_| String::new())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_thread_send_text(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    root_event_id: *const c_char,
+    body: *const c_char,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let root = unsafe { cstr_arg(root_event_id) }?;
+        let body = unsafe { cstr_arg(body) }?;
+        let Some(client) = bridge.client.lock().ok().and_then(|g| g.clone()) else {
+            return Err("Rust SDK session is not logged in.".to_owned());
+        };
+        bridge
+            .timelines
+            .send_thread_text(&bridge.runtime, client, room_id, root, body)
+            .map(|_| String::new())
+    })
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_timeline_edit(
     ptr: *mut c_void,

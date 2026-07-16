@@ -52,6 +52,11 @@ public:
         ThreadRootIdRole,        // Non-empty on thread replies.
         IsThreadRootRole,        // True if any event in this room has this as root.
         ThreadReplyCountRole,    // Number of visible replies for a thread root.
+        // v0.6.0: SDK thread-summary presentation roles (thread roots only).
+        ThreadLatestPreviewRole,   // Sanitized preview of the latest reply.
+        ThreadLatestSenderRole,    // MXID of the latest reply's sender.
+        ThreadLatestTimestampRole, // QDateTime of the latest reply.
+        ThreadUnreadRole,          // Conservative receipt-based unread hint.
         // v0.5.0-prep+12: encryption metadata roles surface the four
         // flags C++ already carries on TimelineEvent so MessageDelegate
         // can style undecryptable rows without body-string matching.

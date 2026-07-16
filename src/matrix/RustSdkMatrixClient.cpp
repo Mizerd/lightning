@@ -173,6 +173,7 @@ void RustSdkMatrixClient::clearLocalState()
     m_pendingSends.clear();
     m_pendingProbes.clear();
     m_timelineTracker.reset();
+    m_threadTracker.reset();
     m_pagination.clear();
     m_maxUploadSize = 0;
     m_uploadLimitRequested = false;
@@ -277,6 +278,7 @@ void RustSdkMatrixClient::releaseRustHandle()
     const QString shutdown = takeRustString(mx_rust_shutdown_tasks(m_rustHandle));
     qCInfo(lcRust) << "rust managed-task shutdown" << shutdown;
     m_timelineTracker.reset();
+    m_threadTracker.reset();
     m_pagination.clear();
     mx_rust_destroy(m_rustHandle);
     m_rustHandle = nullptr;
@@ -590,6 +592,7 @@ void RustSdkMatrixClient::logout()
         }
     }
     m_timelineTracker.reset();
+    m_threadTracker.reset();
     m_pagination.clear();
     stopSync();
 
@@ -931,9 +934,18 @@ void RustSdkMatrixClient::loadOlderMessages(const QString &roomId)
     auto &state = m_pagination[roomId];
     if (state.loading || state.reachedStart)
         return;
-    const QByteArray roomBytes = roomId.toUtf8();
-    const QString result = takeRustString(mx_rust_timeline_paginate_back(
-        m_rustHandle, roomBytes.constData(), kPaginationBatch));
+    QString result;
+    if (isThreadTimelineId(roomId)) {
+        const QByteArray room = threadTimelineRoomId(roomId).toUtf8();
+        const QByteArray root = threadTimelineRootId(roomId).toUtf8();
+        result = takeRustString(mx_rust_thread_paginate_back(
+            m_rustHandle, room.constData(), root.constData(),
+            kPaginationBatch));
+    } else {
+        const QByteArray roomBytes = roomId.toUtf8();
+        result = takeRustString(mx_rust_timeline_paginate_back(
+            m_rustHandle, roomBytes.constData(), kPaginationBatch));
+    }
     if (!result.isEmpty()) {
         qCWarning(lcRust) << "timeline pagination dispatch failed";
         state.failed = true;
@@ -996,9 +1008,18 @@ void RustSdkMatrixClient::retryFailedSend(const QString &roomId,
 
 bool RustSdkMatrixClient::timelineActiveFor(const QString &roomId) const
 {
+    if (isThreadTimelineId(roomId))
+        return threadTimelineActiveFor(roomId);
     return m_rustHandle && !roomId.isEmpty()
         && (m_timelineTracker.activeRoom() == roomId
             || m_timelineTracker.requestedRoom() == roomId);
+}
+
+bool RustSdkMatrixClient::threadTimelineActiveFor(const QString &timelineId) const
+{
+    return m_rustHandle && !timelineId.isEmpty()
+        && (m_threadTracker.activeRoom() == timelineId
+            || m_threadTracker.requestedRoom() == timelineId);
 }
 
 bool RustSdkMatrixClient::timelineReadyForPagination(const QString &roomId) const
@@ -1006,6 +1027,8 @@ bool RustSdkMatrixClient::timelineReadyForPagination(const QString &roomId) cons
     // A requested room is not yet pagination-ready: the Rust registry's
     // timeline_for() accepts requests only after the initial timeline_reset
     // snapshot has supplied and adopted a live room generation.
+    if (isThreadTimelineId(roomId))
+        return m_rustHandle && m_threadTracker.readyForPagination(roomId);
     return m_rustHandle && !roomId.isEmpty()
         && m_timelineTracker.readyForPagination(roomId);
 }
@@ -1014,6 +1037,7 @@ void RustSdkMatrixClient::openRoomTimeline(const QString &roomId)
 {
     if (!m_loggedIn || !m_rustHandle || roomId.isEmpty())
         return;
+    clearThreadTimelineState();
     m_timelineTracker.request(roomId);
     m_pagination.insert(roomId, PaginationState{});
     qCInfo(lcRust) << "timeline open room=" << roomId.right(12);
@@ -1030,8 +1054,233 @@ void RustSdkMatrixClient::openRoomTimeline(const QString &roomId)
     Q_EMIT paginationStateChanged(roomId);
 }
 
+// ── v0.6.0: SDK-backed thread timelines ─────────────────────────────────
+
+void RustSdkMatrixClient::openThread(const QString &roomId,
+                                     const QString &rootEventId)
+{
+    if (!m_loggedIn || !m_rustHandle || roomId.isEmpty()
+        || rootEventId.isEmpty()) {
+        Q_EMIT threadTimelineFailed(roomId, rootEventId,
+                                    QStringLiteral("not_ready"));
+        return;
+    }
+    clearThreadTimelineState();
+    const QString timelineId = threadTimelineId(roomId, rootEventId);
+    m_threadTracker.request(timelineId);
+    m_pagination.insert(timelineId, PaginationState{});
+    qCInfo(lcRust) << "thread open root=" << rootEventId.right(12);
+    const QByteArray roomBytes = roomId.toUtf8();
+    const QByteArray rootBytes = rootEventId.toUtf8();
+    const QString result = takeRustString(mx_rust_thread_open(
+        m_rustHandle, roomBytes.constData(), rootBytes.constData()));
+    if (!result.isEmpty()) {
+        m_threadTracker.reset();
+        m_pagination.remove(timelineId);
+        Q_EMIT threadTimelineFailed(roomId, rootEventId,
+                                    QStringLiteral("dispatch_failed"));
+        return;
+    }
+    Q_EMIT paginationStateChanged(timelineId);
+}
+
+void RustSdkMatrixClient::closeThread()
+{
+    if (m_rustHandle && m_threadTracker.hasActiveTimeline())
+        qCInfo(lcRust) << "thread close";
+    if (m_rustHandle)
+        takeRustString(mx_rust_thread_close(m_rustHandle));
+    clearThreadTimelineState();
+}
+
+void RustSdkMatrixClient::sendThreadReply(const QString &roomId,
+                                          const QString &threadRootEventId,
+                                          const QString &body)
+{
+    if (!m_loggedIn || !m_rustHandle || roomId.isEmpty()
+        || threadRootEventId.isEmpty() || body.trimmed().isEmpty()) {
+        refuseSend("sendThreadReply");
+        return;
+    }
+    const QByteArray roomBytes = roomId.toUtf8();
+    const QByteArray rootBytes = threadRootEventId.toUtf8();
+    const QByteArray bodyBytes = body.toUtf8();
+    const QString result = takeRustString(mx_rust_thread_send_text(
+        m_rustHandle, roomBytes.constData(), rootBytes.constData(),
+        bodyBytes.constData()));
+    if (!result.isEmpty()) {
+        Q_EMIT errorOccurred(result.startsWith(QLatin1String("error: "))
+                                 ? result.mid(7)
+                                 : result);
+    }
+}
+
+void RustSdkMatrixClient::clearThreadTimelineState()
+{
+    const QString requested = m_threadTracker.requestedRoom();
+    const QString active = m_threadTracker.activeRoom();
+    for (const QString &timelineId : { requested, active }) {
+        if (timelineId.isEmpty())
+            continue;
+        m_timelines.remove(timelineId);
+        m_pagination.remove(timelineId);
+    }
+    m_threadTracker.reset();
+}
+
+void RustSdkMatrixClient::handleThreadReset(const QJsonObject &event)
+{
+    const QString roomId = event.value(QStringLiteral("room_id")).toString();
+    const QString rootId =
+        event.value(QStringLiteral("thread_root_id")).toString();
+    const QString timelineId = threadTimelineId(roomId, rootId);
+    const auto generation = static_cast<quint64>(
+        event.value(QStringLiteral("thread_generation")).toDouble(0));
+    if (!m_threadTracker.adoptReset(timelineId, generation)) {
+        qCInfo(lcRust) << "thread stale reset ignored generation="
+                       << generation;
+        return;
+    }
+    const QJsonArray items = event.value(QStringLiteral("items")).toArray();
+    m_timelines[timelineId] =
+        matrix::rust_timeline::eventsFromItemArray(items, timelineId);
+    qCInfo(lcRust) << "thread subscription started"
+                   << "thread_generation=" << generation
+                   << "items=" << m_timelines[timelineId].size();
+    Q_EMIT timelineReset(timelineId);
+    Q_EMIT paginationStateChanged(timelineId);
+}
+
+void RustSdkMatrixClient::handleThreadDiff(const QJsonObject &event)
+{
+    const QString roomId = event.value(QStringLiteral("room_id")).toString();
+    const QString rootId =
+        event.value(QStringLiteral("thread_root_id")).toString();
+    const QString timelineId = threadTimelineId(roomId, rootId);
+    const auto generation = static_cast<quint64>(
+        event.value(QStringLiteral("thread_generation")).toDouble(0));
+    if (!m_threadTracker.accepts(timelineId, generation)) {
+        qCInfo(lcRust) << "thread stale diff ignored generation="
+                       << generation;
+        return;
+    }
+
+    using matrix::rust_timeline::DiffOutcome;
+    auto &mirror = m_timelines[timelineId];
+    const DiffOutcome outcome =
+        matrix::rust_timeline::applyTimelineDiff(mirror, event, timelineId);
+
+    switch (outcome.kind) {
+    case DiffOutcome::Appended:
+        for (const auto &item : outcome.items)
+            Q_EMIT eventAppended(timelineId, item);
+        break;
+    case DiffOutcome::Prepended:
+        Q_EMIT eventsPrepended(timelineId, outcome.items);
+        break;
+    case DiffOutcome::Inserted:
+        Q_EMIT eventInsertedAt(timelineId, outcome.index, outcome.items.first());
+        break;
+    case DiffOutcome::Changed:
+        Q_EMIT eventChangedAt(timelineId, outcome.index, outcome.items.first());
+        break;
+    case DiffOutcome::Removed:
+        Q_EMIT eventRemovedAt(timelineId, outcome.index);
+        break;
+    case DiffOutcome::Cleared:
+    case DiffOutcome::Reset:
+        Q_EMIT timelineReset(timelineId);
+        break;
+    case DiffOutcome::Truncated:
+        Q_EMIT eventsTruncatedTo(timelineId, outcome.length);
+        break;
+    case DiffOutcome::Invalid:
+        // Never apply a malformed/stale thread diff; recover with one fresh
+        // snapshot of the same thread. No message bodies in this log line.
+        qCWarning(lcRust) << "thread invalid diff rejected"
+                          << "op=" << event.value(QStringLiteral("op")).toString()
+                          << "mirror_size=" << mirror.size();
+        openThread(roomId, rootId);
+        break;
+    }
+}
+
+void RustSdkMatrixClient::handleThreadPagination(const QJsonObject &event)
+{
+    const QString roomId = event.value(QStringLiteral("room_id")).toString();
+    const QString rootId =
+        event.value(QStringLiteral("thread_root_id")).toString();
+    const QString timelineId = threadTimelineId(roomId, rootId);
+    const auto generation = static_cast<quint64>(
+        event.value(QStringLiteral("thread_generation")).toDouble(0));
+    if (!m_threadTracker.accepts(timelineId, generation)) {
+        qCInfo(lcRust) << "thread stale pagination ignored generation="
+                       << generation;
+        return;
+    }
+    auto &state = m_pagination[timelineId];
+    const QString paginationState =
+        event.value(QStringLiteral("state")).toString();
+    if (paginationState == QLatin1String("loading")) {
+        state.loading = true;
+        state.failed = false;
+        state.failureTransient = false;
+    } else if (paginationState == QLatin1String("idle")) {
+        state.loading = false;
+        state.failed = false;
+        state.failureTransient = false;
+        state.reachedStart =
+            event.value(QStringLiteral("reached_start")).toBool(false);
+    } else if (paginationState == QLatin1String("failed")) {
+        state.loading = false;
+        state.failed = true;
+        const QString category =
+            event.value(QStringLiteral("category")).toString();
+        state.failureTransient = category == QLatin1String("network")
+            || category == QLatin1String("not_ready");
+        qCWarning(lcRust) << "thread pagination failed category=" << category;
+    }
+    Q_EMIT paginationStateChanged(timelineId);
+}
+
+void RustSdkMatrixClient::handleThreadError(const QJsonObject &event)
+{
+    const QString roomId = event.value(QStringLiteral("room_id")).toString();
+    const QString rootId =
+        event.value(QStringLiteral("thread_root_id")).toString();
+    const QString timelineId = threadTimelineId(roomId, rootId);
+    const QString category = event.value(QStringLiteral("category"))
+                                 .toString(QStringLiteral("unknown"));
+    qCWarning(lcRust) << "thread error category=" << category;
+    // Only the currently requested/active thread may surface the failure.
+    if (m_threadTracker.requestedRoom() == timelineId
+        || m_threadTracker.activeRoom() == timelineId) {
+        clearThreadTimelineState();
+        Q_EMIT threadTimelineFailed(roomId, rootId, category);
+    }
+}
+
+void RustSdkMatrixClient::handleThreadClosed(const QJsonObject &event)
+{
+    const QString roomId = event.value(QStringLiteral("room_id")).toString();
+    const QString rootId =
+        event.value(QStringLiteral("thread_root_id")).toString();
+    const QString timelineId = threadTimelineId(roomId, rootId);
+    // Drop mirror state for the closed thread only; a newer thread may
+    // already have been requested (its id differs, so it is untouched).
+    m_timelines.remove(timelineId);
+    m_pagination.remove(timelineId);
+    if (m_threadTracker.activeRoom() == timelineId
+        || m_threadTracker.requestedRoom() == timelineId)
+        m_threadTracker.reset();
+    qCInfo(lcRust) << "thread subscription stopped";
+}
+
 void RustSdkMatrixClient::closeRoomTimeline()
 {
+    // A thread panel never survives its room: Rust closes it as part of
+    // timeline close/open, and the C++ mirror drops it immediately.
+    clearThreadTimelineState();
     if (m_rustHandle && m_timelineTracker.hasActiveTimeline()) {
         const QString room = m_timelineTracker.activeRoom();
         takeRustString(mx_rust_timeline_close(m_rustHandle));
@@ -1340,6 +1589,33 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
     }
     if (type == QLatin1String("timeline_pagination")) {
         handleTimelinePagination(event);
+        return;
+    }
+    // v0.6.0: SDK-backed thread timeline events.
+    if (type == QLatin1String("thread_reset")) {
+        handleThreadReset(event);
+        return;
+    }
+    if (type == QLatin1String("thread_diff")) {
+        handleThreadDiff(event);
+        return;
+    }
+    if (type == QLatin1String("thread_pagination")) {
+        handleThreadPagination(event);
+        return;
+    }
+    if (type == QLatin1String("thread_error")) {
+        handleThreadError(event);
+        return;
+    }
+    if (type == QLatin1String("thread_closed")) {
+        handleThreadClosed(event);
+        return;
+    }
+    if (type == QLatin1String("thread_send_failed")) {
+        qCWarning(lcRust) << "thread send state=failed category="
+                          << event.value(QStringLiteral("category")).toString();
+        Q_EMIT errorOccurred(tr("The thread reply could not be sent."));
         return;
     }
     if (type == QLatin1String("timeline_retry_decryption")) {

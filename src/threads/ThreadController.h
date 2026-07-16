@@ -1,0 +1,90 @@
+#pragma once
+
+#include <QObject>
+#include <QString>
+#include <QStringList>
+#include <QtQmlIntegration/qqmlintegration.h>
+
+#include "models/TimelineModel.h"
+
+class MatrixClient;
+
+// v0.6.0: lifecycle owner for the single open SDK-backed thread panel.
+//
+// The heavy lifting is deliberately NOT here: the backend serves the thread
+// as a normal timeline under a composite thread timeline id
+// (MatrixClient::threadTimelineId), so this controller owns only the
+// LIFECYCLE — open/close, generation isolation across rapid thread and room
+// switches, state presentation, and the thread send entry point. The
+// thread's rows live in an ordinary TimelineModel bound to the composite
+// id, reusing the exact diff application, roles, grouping, and pagination
+// plumbing of the room timeline (per the architecture rule: no duplicated
+// timeline implementation, no independent sync).
+//
+// Never logs message bodies, tokens, or media URLs.
+class ThreadController : public QObject
+{
+    Q_OBJECT
+    QML_ELEMENT
+    // Instantiated in C++ and exposed to QML only as the "app.threads"
+    // context-property instance; registration exists so QML can name the
+    // State enum as ThreadController.Ready etc.
+    QML_UNCREATABLE("ThreadController is exposed via app.threads")
+    Q_PROPERTY(bool supported READ supported NOTIFY supportedChanged)
+    Q_PROPERTY(State state READ state NOTIFY stateChanged)
+    Q_PROPERTY(bool active READ active NOTIFY stateChanged)
+    Q_PROPERTY(QString roomId READ roomId NOTIFY stateChanged)
+    Q_PROPERTY(QString rootEventId READ rootEventId NOTIFY stateChanged)
+    // Coarse failure category ("unknown_root", "network", ...). Safe for
+    // display; never carries server detail or message content.
+    Q_PROPERTY(QString failureCategory READ failureCategory NOTIFY stateChanged)
+    Q_PROPERTY(TimelineModel *model READ model CONSTANT)
+
+public:
+    enum State { Closed, Opening, Ready, Failed };
+    Q_ENUM(State)
+
+    explicit ThreadController(QObject *parent = nullptr);
+
+    void setClient(MatrixClient *client);
+
+    bool supported() const;
+    State state() const { return m_state; }
+    bool active() const { return m_state != Closed; }
+    QString roomId() const { return m_roomId; }
+    QString rootEventId() const { return m_rootEventId; }
+    QString failureCategory() const { return m_failureCategory; }
+    TimelineModel *model() { return &m_model; }
+
+    // Open (or switch to) the thread rooted at `rootEventId`. Replaces any
+    // open thread; stale results from the replaced thread are ignored by
+    // composite-id identity.
+    Q_INVOKABLE void openThread(const QString &roomId,
+                                const QString &rootEventId);
+    Q_INVOKABLE void close();
+    // Send a text reply into the open thread through the backend's SDK
+    // thread path (never as an ordinary room message).
+    Q_INVOKABLE void sendText(const QString &body);
+    // De-duplicated sender MXIDs of the loaded thread events (root first
+    // when loaded). Participants of unloaded history are not invented.
+    Q_INVOKABLE QStringList participants() const;
+
+    // The active room changed; a thread panel never survives into another
+    // room. Called by AppController.
+    void handleCurrentRoomChanged(const QString &currentRoomId);
+
+Q_SIGNALS:
+    void supportedChanged();
+    void stateChanged();
+
+private:
+    void setState(State state, const QString &failureCategory = QString());
+    QString timelineId() const;
+
+    MatrixClient *m_client = nullptr;
+    TimelineModel m_model;
+    State m_state = Closed;
+    QString m_roomId;
+    QString m_rootEventId;
+    QString m_failureCategory;
+};

@@ -188,6 +188,16 @@ public:
     void sendImage(const QString &roomId, const QString &localPath) override;
     void sendFile(const QString &roomId, const QString &localPath) override;
 
+    // v0.6.0: SDK-backed thread timelines (TimelineFocus::Thread in Rust).
+    // The thread flows through the same diff signals under its composite
+    // timeline id; the pagination methods below answer for both id kinds.
+    bool supportsThreadTimelines() const override { return true; }
+    void openThread(const QString &roomId, const QString &rootEventId) override;
+    void closeThread() override;
+    void sendThreadReply(const QString &roomId,
+                         const QString &threadRootEventId,
+                         const QString &body) override;
+
     void loadOlderMessages(const QString &roomId) override;
     bool canPaginate(const QString &roomId) const override;
     bool paginationReady(const QString &roomId) const override
@@ -337,6 +347,15 @@ private:
     void handleTimelineReset(const QJsonObject &event);
     void handleTimelineDiff(const QJsonObject &event);
     void handleTimelinePagination(const QJsonObject &event);
+    // v0.6.0: thread-timeline event handlers (same envelopes as the room
+    // handlers, addressed by the composite thread timeline id).
+    void handleThreadReset(const QJsonObject &event);
+    void handleThreadDiff(const QJsonObject &event);
+    void handleThreadPagination(const QJsonObject &event);
+    void handleThreadError(const QJsonObject &event);
+    void handleThreadClosed(const QJsonObject &event);
+    bool threadTimelineActiveFor(const QString &timelineId) const;
+    void clearThreadTimelineState();
     void handleTimelineRetryDecryption(const QJsonObject &event);
     void updateRoomPreviewFrom(const QString &roomId,
                                const QList<TimelineEvent> &newestFirstCandidates);
@@ -397,6 +416,10 @@ private:
         bool failureTransient = false;
     };
     matrix::rust_timeline::TimelineGenerationTracker m_timelineTracker;
+    // v0.6.0: same tracker type for the single open thread timeline, keyed
+    // by the composite thread timeline id and stamped with Rust's
+    // thread_generation.
+    matrix::rust_timeline::TimelineGenerationTracker m_threadTracker;
     QHash<QString, PaginationState> m_pagination;
 
     // v0.5.9: operation-id counter for room-management/media commands and

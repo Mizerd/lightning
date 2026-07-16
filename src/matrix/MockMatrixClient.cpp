@@ -7,6 +7,8 @@
 #include <QTimer>
 #include <QUrl>
 
+#include <algorithm>
+
 MockMatrixClient::MockMatrixClient(QObject *parent)
     : MatrixClient(parent)
 {
@@ -37,6 +39,7 @@ void MockMatrixClient::login(const QString &homeserver,
 void MockMatrixClient::logout()
 {
     stopSync();
+    closeThread();
     m_loggedIn = false;
     m_userId.clear();
     Q_EMIT loggedOut();
@@ -220,6 +223,70 @@ void MockMatrixClient::sendThreadReply(const QString &roomId,
     m_timelines[roomId].append(ev);
     Q_EMIT eventAppended(roomId, ev);
     ackAfter(150, roomId, ev.eventId);
+
+    // Keep the open mock thread timeline in sync, exactly like the SDK's
+    // thread-focused timeline would receive the reply.
+    const QString timelineId = threadTimelineId(roomId, threadRootEventId);
+    if (m_openThreadTimelineId == timelineId) {
+        TimelineEvent threadCopy = ev;
+        threadCopy.roomId = timelineId;
+        m_timelines[timelineId].append(threadCopy);
+        Q_EMIT eventAppended(timelineId, threadCopy);
+        ackAfter(150, timelineId, ev.eventId);
+    }
+}
+
+// ── v0.6.0: mock thread timelines ────────────────────────────────────────
+
+void MockMatrixClient::rebuildOpenThreadTimeline()
+{
+    if (m_openThreadTimelineId.isEmpty())
+        return;
+    const QString roomId = threadTimelineRoomId(m_openThreadTimelineId);
+    const QString rootId = threadTimelineRootId(m_openThreadTimelineId);
+    QList<TimelineEvent> thread;
+    for (const auto &event : m_timelines.value(roomId)) {
+        if (event.eventId != rootId && event.threadRootId != rootId)
+            continue;
+        TimelineEvent copy = event;
+        copy.roomId = m_openThreadTimelineId;
+        if (event.eventId == rootId)
+            thread.prepend(copy);      // root pinned first, never duplicated
+        else
+            thread.append(copy);
+    }
+    m_timelines[m_openThreadTimelineId] = thread;
+}
+
+void MockMatrixClient::openThread(const QString &roomId,
+                                  const QString &rootEventId)
+{
+    if (!m_timelines.contains(roomId)) {
+        Q_EMIT threadTimelineFailed(roomId, rootEventId,
+                                    QStringLiteral("unknown_room"));
+        return;
+    }
+    const auto &roomTimeline = m_timelines.value(roomId);
+    const bool rootExists = std::any_of(
+        roomTimeline.cbegin(), roomTimeline.cend(),
+        [&](const TimelineEvent &e) { return e.eventId == rootEventId; });
+    if (!rootExists) {
+        Q_EMIT threadTimelineFailed(roomId, rootEventId,
+                                    QStringLiteral("unknown_root"));
+        return;
+    }
+    closeThread();
+    m_openThreadTimelineId = threadTimelineId(roomId, rootEventId);
+    rebuildOpenThreadTimeline();
+    Q_EMIT timelineReset(m_openThreadTimelineId);
+}
+
+void MockMatrixClient::closeThread()
+{
+    if (m_openThreadTimelineId.isEmpty())
+        return;
+    m_timelines.remove(m_openThreadTimelineId);
+    m_openThreadTimelineId.clear();
 }
 
 void MockMatrixClient::editMessage(const QString &roomId,
@@ -672,11 +739,36 @@ void MockMatrixClient::seedMockData()
     longDecrypted.isEncrypted = true;
     longDecrypted.isDecrypted = true;
 
+    // v0.6.0: an encrypted thread — decrypted root, one decrypted reply and
+    // one undecryptable reply — so encrypted-thread handling is testable
+    // without a homeserver.
+    auto encThreadRoot = makeEvent(
+        devs.id, QStringLiteral("@dave:mock.local"), "Dave",
+        QStringLiteral("Encrypted thread root fixture."), 450);
+    encThreadRoot.isEncrypted = true;
+    encThreadRoot.isDecrypted = true;
+    auto encThreadReply = makeEvent(
+        devs.id, QStringLiteral("@eve:mock.local"), "Eve",
+        QStringLiteral("Encrypted thread reply fixture."), 430);
+    encThreadReply.isEncrypted = true;
+    encThreadReply.isDecrypted = true;
+    encThreadReply.threadRootId = encThreadRoot.eventId;
+    auto encThreadUtd = makeEvent(
+        devs.id, QStringLiteral("@unknown:mock.local"), QString{},
+        QStringLiteral("Unable to decrypt this message"), 410);
+    encThreadUtd.isEncrypted = true;
+    encThreadUtd.undecryptable = true;
+    encThreadUtd.errorKind = QStringLiteral("session_missing");
+    encThreadUtd.threadRootId = encThreadRoot.eventId;
+
     m_timelines[devs.id] = {
         decrypted,
         undecryptable,
         missingReply,
         pendingMedia,
+        encThreadRoot,
+        encThreadReply,
+        encThreadUtd,
         stateEvent(devs.id, QStringLiteral("membership"),
                    QStringLiteral("Grace joined the room."), 200),
         stateEvent(devs.id, QStringLiteral("member_profile"),
