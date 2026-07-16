@@ -1163,7 +1163,6 @@ private Q_SLOTS:
         const QList<QPair<Qt::Key, Qt::KeyboardModifiers>> keys = {
             {Qt::Key_PageUp, Qt::NoModifier},
             {Qt::Key_PageDown, Qt::NoModifier},
-            {Qt::Key_Home, Qt::NoModifier},
             {Qt::Key_Space, Qt::ShiftModifier},
             {Qt::Key_Space, Qt::NoModifier},
         };
@@ -1177,6 +1176,21 @@ private Q_SLOTS:
             QVERIFY2(timeline->property("wheelAnimating").toBool(),
                      "navigation key did not start timeline motion");
         }
+
+        // v0.6.0: Home is programmatic navigation like End — it must BYPASS
+        // the wheel motion engine (no smooth motion) and land directly on the
+        // earliest loaded position.
+        QVERIFY(QMetaObject::invokeMethod(timeline, "cancelWheelMotion"));
+        timeline->forceActiveFocus();
+        QTRY_VERIFY_WITH_TIMEOUT(timeline->hasActiveFocus(), kSignalTimeoutMs);
+        QTest::keyClick(&window, Qt::Key_Home, Qt::NoModifier);
+        QVERIFY2(!timeline->property("wheelAnimating").toBool(),
+                 "Home must jump instantly, not start wheel motion");
+        QVariant minY;
+        QVERIFY(QMetaObject::invokeMethod(timeline, "wheelMinY",
+                                          Q_RETURN_ARG(QVariant, minY)));
+        QCOMPARE(timeline->property("contentY").toDouble(), minY.toDouble());
+
         QCOMPARE(warnings, QStringList{});
         QVERIFY(QMetaObject::invokeMethod(timeline, "cancelWheelMotion"));
     }

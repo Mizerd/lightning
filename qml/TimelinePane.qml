@@ -281,18 +281,20 @@ Rectangle {
                         positionViewAtEnd()
                 }
 
-                // ── v0.5.19: device-aware wheel scrolling ────────────────
-                // In 0.5.18 the timeline used Flickable's built-in wheel
-                // handling, which maps one physical notch to only a few lines.
-                // Discrete mouse-wheel notches are now coalesced into one
-                // short, reusable animation driven by TimelineScrollController
-                // (app.timelineScroll), so a notch covers a bounded,
-                // viewport-relative distance. Touchpad / high-resolution pixel
-                // deltas move contentY directly to keep fine movement and
-                // native momentum precise. Programmatic navigation cancels
-                // wheel motion first, so restoration is never animated as if
-                // it were physical input.
-                property bool wheelAnimating: false
+                // ── v0.5.19/v0.6.0: device-aware wheel scrolling ─────────
+                // Discrete mouse-wheel notches are coalesced by
+                // TimelineScrollController (app.timelineScroll), which in
+                // 0.6.0 also OWNS the motion: a wheel-only C++ engine
+                // integrates contentY toward the coalesced target each frame
+                // with continuous velocity, so movement through one tall
+                // wrapped message is a single smooth glide instead of the
+                // restart-per-notch bursts a fixed-duration animation
+                // produced. Touchpad / high-resolution pixel deltas still
+                // move contentY directly to keep fine movement and native
+                // momentum precise. Programmatic navigation cancels wheel
+                // motion first, so restoration is never animated as if it
+                // were physical input.
+                property bool wheelAnimating: app.timelineScroll.motionActive
 
                 // Valid contentY range for this ListView, accounting for the
                 // scroll margins, the pagination header, and a prepend-shifted
@@ -316,8 +318,6 @@ Rectangle {
                 }
 
                 function cancelWheelMotion() {
-                    wheelScrollAnimation.stop()
-                    wheelAnimating = false
                     app.timelineScroll.cancel()
                 }
 
@@ -328,14 +328,10 @@ Rectangle {
                     var lo = wheelMinY()
                     var hi = wheelMaxY()
                     targetY = targetY < lo ? lo : (targetY > hi ? hi : targetY)
-                    wheelScrollAnimation.stop()
-                    wheelScrollAnimation.from = contentY
-                    wheelScrollAnimation.to = targetY
-                    wheelAnimating = true
-                    wheelScrollAnimation.start()
+                    app.timelineScroll.animateTo(targetY, contentY, lo, hi)
                     updateStickAndPaginate()
                     // Any upward intent leaves follow-latest — applied last so
-                    // the geometry recompute above (still on the pre-animation
+                    // the geometry recompute above (still on the pre-motion
                     // position) cannot re-enable it while scrolling up.
                     if (targetY < contentY - 0.5)
                         stickToBottom = false
@@ -352,7 +348,15 @@ Rectangle {
                 function keyboardPage(direction) {   // -1 up, +1 down
                     beginWheelTo(contentY + direction * height * 0.9)
                 }
-                function goToEarliestLoaded() { beginWheelTo(wheelMinY()) }
+                // Home is programmatic navigation like End: it bypasses the
+                // wheel motion engine and jumps directly, then recomputes
+                // pagination / follow-latest and saves one settled anchor.
+                function goToEarliestLoaded() {
+                    cancelWheelMotion()
+                    contentY = wheelMinY()
+                    updateStickAndPaginate()
+                    scrollSettleTimer.restart()
+                }
                 function goToLatest() {
                     cancelWheelMotion()
                     stickToBottom = true
@@ -390,17 +394,25 @@ Rectangle {
                     onTapped: timeline.forceActiveFocus()
                 }
 
-                // One reusable animation for ALL discrete-wheel motion — never
-                // a per-event queue and never a permanently running timer.
-                NumberAnimation {
-                    id: wheelScrollAnimation
-                    target: timeline
-                    property: "contentY"
-                    duration: 140
-                    easing.type: Easing.OutCubic
-                    onStopped: {
-                        timeline.wheelAnimating = false
-                        app.timelineScroll.endMotion()
+                // v0.6.0: the wheel motion engine lives in C++ (one ticker,
+                // active only while motion is in flight — never a per-event
+                // animation queue and never a permanently running timer).
+                // QML's job is to apply each emitted frame to contentY,
+                // re-clamped against LIVE geometry: a pagination prepend or a
+                // delegate height change mid-motion can move the valid range,
+                // and pushing past a bound must end the motion instead of
+                // jittering against it.
+                Connections {
+                    target: app.timelineScroll
+                    function onWheelPositionChanged(y) {
+                        var lo = timeline.wheelMinY()
+                        var hi = timeline.wheelMaxY()
+                        var clamped = y < lo ? lo : (y > hi ? hi : y)
+                        timeline.contentY = clamped
+                        if (clamped !== y)
+                            app.timelineScroll.notifyBoundReached(clamped)
+                    }
+                    function onWheelMotionSettled() {
                         timeline.updateStickAndPaginate()
                         scrollSettleTimer.restart()
                     }
@@ -436,10 +448,17 @@ Rectangle {
                             timeline.updateStickAndPaginate()
                             scrollSettleTimer.restart()
                         } else if (event.angleDelta.y !== 0) {
-                            // Discrete mouse wheel: coalesced smooth animation.
-                            timeline.beginWheelTo(app.timelineScroll.wheelTargetY(
+                            // Discrete mouse wheel: the C++ engine coalesces
+                            // the notch into the in-flight motion (or starts
+                            // one) with continuous velocity.
+                            app.timelineScroll.wheelNotch(
                                 event.angleDelta.y, timeline.contentY,
-                                minY, maxY, timeline.height))
+                                minY, maxY, timeline.height)
+                            timeline.updateStickAndPaginate()
+                            // Any upward intent leaves follow-latest.
+                            if (event.angleDelta.y > 0)
+                                timeline.stickToBottom = false
+                            scrollSettleTimer.restart()
                         }
                         event.accepted = true
                     }

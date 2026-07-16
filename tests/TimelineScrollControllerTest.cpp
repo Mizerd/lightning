@@ -251,6 +251,174 @@ private Q_SLOTS:
         QVERIFY(qFuzzyCompare(stdPx, 5000.0 - 50.0));
     }
 
+    // ── v0.6.0: wheel motion engine (continuous smoothness) ─────────────
+    // The 0.5.19 chunkiness inside one tall wrapped delegate was caused by
+    // restarting a fixed-duration OutCubic animation per notch: slow notch
+    // cadences produced stop-start bursts (OutCubic ends at zero velocity),
+    // fast cadences re-ran the whole remaining distance in a fresh 140 ms.
+    // The engine below integrates position toward the coalesced target with
+    // continuous velocity; these tests drive advanceMotion() deterministically
+    // (16 ms frames) — the same code the frame ticker runs.
+
+    // One notch produces MANY monotonic intermediate positions, not one step
+    // per notch — the property a delegate taller than the viewport exposes.
+    void motionProgressesThroughIntermediatePositions()
+    {
+        TimelineScrollController c;
+        QSignalSpy frames(&c, &TimelineScrollController::wheelPositionChanged);
+        c.wheelNotch(-kNotch, 5000.0, kMinY, kMaxY, kViewport);   // downward
+        const double target = c.targetYForTest();
+        while (c.motionActive())
+            c.advanceMotion(16.0);
+        QVERIFY(frames.count() >= 5);
+        double prev = 5000.0;
+        for (int i = 0; i < frames.count(); ++i) {
+            const double y = frames.at(i).at(0).toDouble();
+            QVERIFY2(y > prev - 0.001, "position must advance monotonically");
+            // No single frame may cover the whole notch in one visible jump.
+            QVERIFY2(y - prev < 0.6 * (target - 5000.0),
+                     "one frame covered most of the notch — chunky");
+            prev = y;
+        }
+        QVERIFY(qFuzzyCompare(prev, target));
+    }
+
+    // Same-direction notches arriving at a realistic cadence (150 ms) keep
+    // the motion alive continuously — never a full stop between notches, and
+    // the frame after a new notch moves at least as fast as the frame before
+    // it (velocity is preserved or raised, never reset).
+    void repeatedNotchesPreserveContinuousVelocity()
+    {
+        TimelineScrollController c;
+        c.setWheelSpeed(TimelineScrollController::VeryFast);
+        c.wheelNotch(-kNotch, 5000.0, kMinY, kMaxY, kViewport);
+        double before = 0.0;
+        // ~150 ms of frames: motion must still be active when notch 2 lands.
+        for (int i = 0; i < 9; ++i) {
+            const double y0 = c.positionYForTest();
+            QVERIFY2(c.advanceMotion(16.0), "motion stopped between notches");
+            before = c.positionYForTest() - y0;
+            QVERIFY2(before > 0.0, "a frame produced no movement mid-gesture");
+        }
+        c.wheelNotch(-kNotch, c.positionYForTest(), kMinY, kMaxY, kViewport);
+        const double y1 = c.positionYForTest();
+        c.advanceMotion(16.0);
+        const double after = c.positionYForTest() - y1;
+        QVERIFY2(after >= before - 0.001,
+                 "velocity dropped when a same-direction notch landed");
+    }
+
+    // Reversing direction redirects on the very next frame.
+    void reversalRedirectsOnNextFrame()
+    {
+        TimelineScrollController c;
+        c.wheelNotch(-kNotch, 5000.0, kMinY, kMaxY, kViewport);   // down
+        c.advanceMotion(16.0);
+        c.advanceMotion(16.0);
+        const double mid = c.positionYForTest();
+        c.wheelNotch(+kNotch, mid, kMinY, kMaxY, kViewport);      // reverse: up
+        c.advanceMotion(16.0);
+        QVERIFY2(c.positionYForTest() < mid,
+                 "reversal did not redirect immediately");
+    }
+
+    // Motion settles in bounded time with no asymptotic tail, emits exactly
+    // one settle signal, and leaves no ticker running afterwards.
+    void motionSettlesWithinBoundedTimeAndStopsCleanly()
+    {
+        TimelineScrollController c;
+        c.setWheelSpeed(TimelineScrollController::VeryFast);
+        QSignalSpy settled(&c, &TimelineScrollController::wheelMotionSettled);
+        // A large coalesced goal: five rapid Very fast notches.
+        for (int i = 0; i < 5; ++i)
+            c.wheelNotch(-kNotch, 5000.0, kMinY, kMaxY, kViewport);
+        double elapsed = 0.0;
+        while (c.motionActive() && elapsed < 5000.0) {
+            c.advanceMotion(16.0);
+            elapsed += 16.0;
+        }
+        QVERIFY2(elapsed < 2000.0, "motion did not settle in bounded time");
+        QCOMPARE(settled.count(), 1);
+        QVERIFY(!c.motionActive());
+        QVERIFY(!c.tickerRunningForTest());
+        QVERIFY(qFuzzyCompare(c.positionYForTest(), c.targetYForTest()));
+    }
+
+    // A stalled frame (long dt) may not integrate one giant visible jump.
+    void stalledFrameDoesNotJump()
+    {
+        TimelineScrollController c;
+        c.setWheelSpeed(TimelineScrollController::VeryFast);
+        c.wheelNotch(-kNotch, 5000.0, kMinY, kMaxY, kViewport);
+        const double y0 = c.positionYForTest();
+        c.advanceMotion(400.0);   // e.g. window drag stalled the loop
+        const double moved = c.positionYForTest() - y0;
+        const double total = c.targetYForTest() - 5000.0;
+        QVERIFY2(moved < 0.6 * total, "stalled frame jumped most of the way");
+    }
+
+    // QML re-clamps emitted positions against live geometry; when it reports
+    // a bound was hit, the engine adopts the clamped position and settles
+    // instead of pushing into the bound.
+    void boundReportSettlesMotion()
+    {
+        TimelineScrollController c;
+        QSignalSpy settled(&c, &TimelineScrollController::wheelMotionSettled);
+        c.wheelNotch(+kNotch, 100.0, kMinY, kMaxY, kViewport);   // toward top
+        c.advanceMotion(16.0);
+        c.notifyBoundReached(kMinY);
+        QVERIFY(!c.motionActive());
+        QVERIFY(!c.tickerRunningForTest());
+        QCOMPARE(settled.count(), 1);
+        QCOMPARE(c.positionYForTest(), kMinY);
+    }
+
+    // animateTo (keyboard paging) uses the same engine: motion engages
+    // synchronously, progresses through intermediate frames, and settles.
+    void animateToDrivesSameEngine()
+    {
+        TimelineScrollController c;
+        QSignalSpy frames(&c, &TimelineScrollController::wheelPositionChanged);
+        c.animateTo(5800.0, 5000.0, kMinY, kMaxY);
+        QVERIFY(c.motionActive());
+        while (c.motionActive())
+            c.advanceMotion(16.0);
+        QVERIFY(frames.count() >= 4);
+        QCOMPARE(c.positionYForTest(), 5800.0);
+    }
+
+    // cancel() (room switch, Jump to latest, reply navigation, restore) stops
+    // the engine immediately: no further frames, no settle signal — the
+    // programmatic caller owns contentY from here.
+    void cancelStopsEngineWithoutSettleSignal()
+    {
+        TimelineScrollController c;
+        QSignalSpy frames(&c, &TimelineScrollController::wheelPositionChanged);
+        QSignalSpy settled(&c, &TimelineScrollController::wheelMotionSettled);
+        c.wheelNotch(-kNotch, 5000.0, kMinY, kMaxY, kViewport);
+        c.advanceMotion(16.0);
+        const int framesBefore = frames.count();
+        c.cancel();
+        QVERIFY(!c.motionActive());
+        QVERIFY(!c.tickerRunningForTest());
+        QVERIFY(!c.advanceMotion(16.0));          // engine refuses to move
+        QCOMPARE(frames.count(), framesBefore);
+        QCOMPARE(settled.count(), 0);
+    }
+
+    // The pixel-delta touchpad path stays direct and precise, and stops any
+    // in-flight engine motion (the platform owns momentum there).
+    void pixelPathStopsEngine()
+    {
+        TimelineScrollController c;
+        c.wheelNotch(-kNotch, 5000.0, kMinY, kMaxY, kViewport);
+        QVERIFY(c.tickerRunningForTest() || c.motionActive());
+        const double y = c.pixelTargetY(25.0, 5100.0, kMinY, kMaxY);
+        QVERIFY(qFuzzyCompare(y, 5075.0));
+        QVERIFY(!c.motionActive());
+        QVERIFY(!c.tickerRunningForTest());
+    }
+
     // Changing the speed mid-motion is safe and takes effect on the next notch.
     void speedChangeDuringMotionIsSafe()
     {

@@ -572,12 +572,51 @@ void MockMatrixClient::seedMockData()
     auto evThreadReply2 = makeEvent(general.id, QStringLiteral("@bob:mock.local"), "Bob",
                                     QStringLiteral("I'll take the afternoon slot."), 160);
     evThreadReply2.threadRootId = evThreadRoot.eventId;
+    // ── Long-message scrolling regression fixtures (0.6.0) ──────────────
+    // Deterministic bodies that exercise wheel motion while the viewport is
+    // fully inside ONE tall delegate, framed by normal short messages.
+    //
+    // 1. Exactly 3,764 characters with no hard line break, so the delegate's
+    //    Text wrapping alone produces a body far taller than the viewport.
+    const QString longSentence = QStringLiteral(
+        "This deterministic long-message fixture exists so wheel scrolling "
+        "can be exercised while the viewport sits entirely inside one tall "
+        "wrapped text delegate, with no item boundary to mask stepping. ");
+    QString longWrappedBody;
+    while (longWrappedBody.size() < 3764)
+        longWrappedBody += longSentence;
+    longWrappedBody.truncate(3764);
+    auto evShortBeforeLong = makeEvent(
+        general.id, QStringLiteral("@bob:mock.local"), "Bob",
+        QStringLiteral("Short message before the long fixture."), 152);
+    auto evLongWrapped = makeEvent(
+        general.id, QStringLiteral("@carol:mock.local"), "Carol",
+        longWrappedBody, 150);
+    // 2. A many-line body substantially taller than any realistic viewport.
+    auto evVeryTall = makeEvent(
+        general.id, QStringLiteral("@alice:mock.local"), "Alice",
+        QStringLiteral("Tall fixture line for scroll continuity checks.\n")
+            .repeated(80).trimmed(), 140);
+    // 3. A multiline body with links (link-preview and rich-text layout in a
+    //    tall delegate).
+    auto evMultilineLinks = makeEvent(
+        general.id, QStringLiteral("@bob:mock.local"), "Bob",
+        QStringLiteral("Reading list for the scroll test:\n"
+                       "https://example.org/first-long-article\n"
+                       "https://example.org/second-long-article\n"
+                       "Both stay deterministic and offline."), 130);
+    auto evShortAfterLong = makeEvent(
+        general.id, QStringLiteral("@carol:mock.local"), "Carol",
+        QStringLiteral("Short message after the long fixture."), 120);
+
     // Latest message
     auto ev9 = makeEvent(general.id, QStringLiteral("@alice:mock.local"), "Alice",
                          QStringLiteral("Type something below and press Send."), 60);
 
     m_timelines[general.id] = { ev1, ev2, ev3, ev4, ev5, ev6, ev7, ev8,
-                                evThreadRoot, evThreadReply1, evThreadReply2, ev9 };
+                                evThreadRoot, evThreadReply1, evThreadReply2,
+                                evShortBeforeLong, evLongWrapped, evVeryTall,
+                                evMultilineLinks, evShortAfterLong, ev9 };
 
     // Two consecutive room-activity (state-change) events after the last
     // message — matches what the Rust bridge produces for membership/

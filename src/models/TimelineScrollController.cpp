@@ -1,5 +1,10 @@
 #include "models/TimelineScrollController.h"
 
+#include <QAbstractAnimation>
+
+#include <algorithm>
+#include <cmath>
+
 namespace {
 // Per-notch distance is a fraction of the viewport, clamped to an absolute
 // pixel range. Viewport-relative keeps the feel consistent across window
@@ -23,6 +28,19 @@ constexpr SpeedProfile kVeryFast{0.55, 220.0, 1000.0};
 // one (e.g. before the pane has a size).
 constexpr double kFallbackViewport = 600.0;
 
+// Motion engine tuning. The exponential time constant sets responsiveness:
+// each frame covers (1 - exp(-dt/tau)) of the remaining distance, so speed is
+// proportional to what is left — high right after a notch, decaying smoothly,
+// and RISING smoothly again when another same-direction notch extends the
+// target. The minimum settle speed bounds the exponential tail so motion
+// stops crisply (a pure exponential never quite arrives); the snap distance
+// ends it exactly. A dt clamp keeps a stalled frame (GC, window move) from
+// integrating one giant visible jump.
+constexpr double kTauMs = 90.0;
+constexpr double kMinSettleSpeed = 700.0;   // px/s
+constexpr double kSnapDistance = 0.5;       // px
+constexpr double kMaxTickMs = 50.0;
+
 const SpeedProfile &profileFor(int speed)
 {
     switch (speed) {
@@ -32,6 +50,40 @@ const SpeedProfile &profileFor(int speed)
     default:                                 return kFast;
     }
 }
+
+// Frame source for the motion engine: driven by Qt's unified animation
+// driver (vsync-aligned inside a Qt Quick application), started only while
+// motion is in flight and stopped the moment it settles — never a
+// permanently running timer.
+class WheelTicker : public QAbstractAnimation
+{
+public:
+    explicit WheelTicker(TimelineScrollController *controller)
+        : QAbstractAnimation(controller), m_controller(controller) {}
+
+    int duration() const override { return -1; }   // runs until stopped
+
+protected:
+    void updateCurrentTime(int currentTime) override
+    {
+        const int dt = currentTime - m_lastMs;
+        m_lastMs = currentTime;
+        if (dt <= 0)
+            return;
+        if (!m_controller->advanceMotion(dt))
+            stop();
+    }
+
+    void updateState(State newState, State) override
+    {
+        if (newState == Running)
+            m_lastMs = 0;
+    }
+
+private:
+    TimelineScrollController *m_controller;
+    int m_lastMs = 0;
+};
 }
 
 TimelineScrollController::TimelineScrollController(QObject *parent)
@@ -124,6 +176,37 @@ double TimelineScrollController::wheelTargetY(double angleDeltaY, double content
     return target;
 }
 
+void TimelineScrollController::wheelNotch(double angleDeltaY, double contentY,
+                                          double minContentY, double maxContentY,
+                                          double viewportHeight)
+{
+    // Mid-motion the engine's integrated position is authoritative (QML's
+    // contentY may lag by the frame in flight); otherwise seed from the view.
+    if (!m_motionActive)
+        m_positionY = clampY(contentY, minContentY, maxContentY);
+    m_minY = minContentY;
+    m_maxY = maxContentY;
+    wheelTargetY(angleDeltaY, m_positionY, minContentY, maxContentY,
+                 viewportHeight);
+    if (!m_motionActive)
+        return;                    // zero-delta event: nothing to do.
+    startTicker();                 // idempotent while already running.
+}
+
+void TimelineScrollController::animateTo(double targetY, double contentY,
+                                         double minContentY, double maxContentY)
+{
+    if (!m_motionActive)
+        m_positionY = clampY(contentY, minContentY, maxContentY);
+    m_minY = minContentY;
+    m_maxY = maxContentY;
+    m_targetY = clampY(targetY, minContentY, maxContentY);
+    m_direction = m_targetY < m_positionY ? -1
+                  : (m_targetY > m_positionY ? 1 : m_direction);
+    setMotionActive(true);
+    startTicker();
+}
+
 double TimelineScrollController::pixelTargetY(double pixelDeltaY, double contentY,
                                               double minContentY,
                                               double maxContentY)
@@ -137,14 +220,87 @@ double TimelineScrollController::pixelTargetY(double pixelDeltaY, double content
                   minContentY, maxContentY);
 }
 
+void TimelineScrollController::notifyBoundReached(double clampedY)
+{
+    if (!m_motionActive)
+        return;
+    m_positionY = clampedY;
+    m_targetY = clampedY;
+    settle();
+}
+
+bool TimelineScrollController::advanceMotion(double dtMs)
+{
+    if (!m_motionActive)
+        return false;
+    if (dtMs <= 0.0)
+        return true;
+    dtMs = std::min(dtMs, kMaxTickMs);
+
+    const double remaining = m_targetY - m_positionY;
+    const double absRemaining = std::abs(remaining);
+    if (absRemaining <= kSnapDistance) {
+        m_positionY = m_targetY;
+        Q_EMIT wheelPositionChanged(m_positionY);
+        settle();
+        return false;
+    }
+
+    double step = remaining * (1.0 - std::exp(-dtMs / kTauMs));
+    const double minStep = kMinSettleSpeed * dtMs / 1000.0;
+    if (std::abs(step) < minStep)
+        step = std::copysign(std::min(minStep, absRemaining), remaining);
+
+    m_positionY += step;
+    Q_EMIT wheelPositionChanged(m_positionY);
+
+    if (m_positionY == m_targetY) {
+        settle();
+        return false;
+    }
+    return true;
+}
+
+void TimelineScrollController::startTicker()
+{
+    if (!m_ticker)
+        m_ticker = new WheelTicker(this);
+    if (m_ticker->state() != QAbstractAnimation::Running)
+        m_ticker->start();
+}
+
+void TimelineScrollController::stopTicker()
+{
+    // Guard against re-entrancy: settle() can be reached from inside the
+    // ticker's own updateCurrentTime (which stops itself via the advance
+    // return value).
+    if (m_ticker && m_ticker->state() == QAbstractAnimation::Running)
+        m_ticker->stop();
+}
+
+bool TimelineScrollController::tickerRunningForTest() const
+{
+    return m_ticker && m_ticker->state() == QAbstractAnimation::Running;
+}
+
+void TimelineScrollController::settle()
+{
+    stopTicker();
+    m_direction = 0;
+    setMotionActive(false);
+    Q_EMIT wheelMotionSettled();
+}
+
 void TimelineScrollController::endMotion()
 {
+    stopTicker();
     m_direction = 0;
     setMotionActive(false);
 }
 
 void TimelineScrollController::cancel()
 {
+    stopTicker();
     m_direction = 0;
     setMotionActive(false);
 }

@@ -3,7 +3,10 @@
 #include <QObject>
 #include <QtQmlIntegration/qqmlintegration.h>
 
+class QAbstractAnimation;
+
 // v0.5.19: device-aware timeline wheel-scroll policy.
+// v0.6.0:  wheel-only motion engine for continuously smooth movement.
 //
 // Lightning's timeline is a plain Qt Quick ListView. In 0.5.18 it relied
 // entirely on Flickable's built-in wheel handling, which maps one physical
@@ -12,19 +15,42 @@
 // SCROLL MATH so it can be unit-tested deterministically: the offscreen QPA
 // platform used by the QML tests never incubates ListView delegates, so
 // geometry-dependent behaviour cannot be exercised through the real view.
-// QML supplies live geometry and runs the animation; this class decides how
-// far to move and keeps the three movement sources cleanly separated:
 //
-//   * discrete angle-delta mouse wheel -> wheelTargetY(): a bounded per-notch
-//     distance derived from the viewport and the selected speed, with rapid
-//     notches coalesced into one reusable animation and partial/high-res
-//     angle deltas accumulated rather than dropped;
+// 0.5.19 computed a coalesced target here but let QML animate contentY with a
+// single fixed-duration OutCubic NumberAnimation that was STOPPED AND
+// RESTARTED on every notch. That restart pattern was the confirmed cause of
+// "chunky" movement inside one tall wrapped message: OutCubic ends at zero
+// velocity, so slow notch cadences produced stop-start bursts, while fast
+// cadences re-ran the whole remaining distance in a fresh fixed 140 ms —
+// a sawtooth velocity profile that item boundaries normally mask but a
+// delegate taller than the viewport exposes.
+//
+// 0.6.0 therefore moves the MOTION itself into this class. A wheel-only
+// ticker (a QAbstractAnimation driven by Qt's animation driver, running only
+// while motion is active — never a permanent frame timer) integrates the
+// position toward the coalesced target each frame:
+//
+//   step = remaining * (1 - exp(-dt/tau))        // exponential approach
+//   |step| >= minSettleSpeed * dt                // bounded tail, quick stop
+//
+// Velocity is therefore continuous within a gesture, same-direction notches
+// raise it smoothly (the remaining distance grows), a reversal redirects
+// immediately (remaining flips sign), and motion always settles in bounded
+// time with no momentum tail. QML applies emitted positions to contentY and
+// re-clamps against live geometry; programmatic navigation (Jump to latest,
+// reply target, anchor restore, room switch, Home/End) bypasses the engine
+// entirely via cancel().
+//
+// The three movement sources remain cleanly separated:
+//
+//   * discrete angle-delta mouse wheel -> wheelNotch(): a bounded per-notch
+//     distance derived from the viewport and the selected speed, coalesced
+//     into one continuous motion; partial/high-res deltas accumulate;
 //   * high-resolution pixel-delta touchpad / precision wheel -> pixelTargetY():
 //     applied directly (mild bounded scaling only, never the notch
 //     multiplier) so fine movement and native momentum are preserved;
-//   * programmatic navigation (Jump to latest, reply target, anchor restore,
-//     room switch) -> NOT routed here; QML cancels any active wheel motion via
-//     cancel() so restoration is never mistaken for physical wheel input.
+//   * programmatic navigation -> NOT routed here; QML cancels any active
+//     wheel motion via cancel() first.
 //
 // Never logs; carries no message content, room ids, or URLs.
 class TimelineScrollController : public QObject
@@ -37,9 +63,9 @@ class TimelineScrollController : public QObject
     QML_UNCREATABLE("TimelineScrollController is exposed via app.timelineScroll")
     Q_PROPERTY(WheelSpeed wheelSpeed READ wheelSpeed WRITE setWheelSpeed
                    NOTIFY wheelSpeedChanged)
-    // True while a coalesced discrete-wheel animation owns the viewport, so
-    // QML can treat programmatic contentY changes as user-intent for
-    // follow-latest / pagination without waiting for Flickable.moving.
+    // True while the wheel motion engine owns the viewport, so QML can treat
+    // programmatic contentY changes as user-intent for follow-latest /
+    // pagination without waiting for Flickable.moving.
     Q_PROPERTY(bool motionActive READ motionActive NOTIFY motionActiveChanged)
 
 public:
@@ -67,12 +93,28 @@ public:
     Q_INVOKABLE double notchDistance(double viewportHeight) const;
     Q_INVOKABLE double notchDistanceForSpeed(int speed, double viewportHeight) const;
 
-    // Discrete angle-delta wheel. Returns the absolute contentY the view
-    // should animate to, clamped to [minContentY, maxContentY]. angleDeltaY is
-    // Qt's WheelEvent.angleDelta.y (>0 = wheel up = scroll toward older/top,
-    // so contentY decreases). Same-direction input extends the in-flight
-    // target (coalescing); a direction reversal redirects from the live
-    // position. Partial/high-resolution deltas contribute proportionally.
+    // Discrete angle-delta wheel input: updates the coalesced target and
+    // (re)engages the motion engine. angleDeltaY is Qt's WheelEvent
+    // angleDelta.y (>0 = wheel up = scroll toward older/top, so contentY
+    // decreases). Same-direction input extends the in-flight target; a
+    // reversal redirects from the live position. Partial/high-resolution
+    // deltas contribute proportionally. contentY seeds the engine position
+    // only when no motion is in flight — mid-motion the engine's own
+    // integrated position is authoritative.
+    Q_INVOKABLE void wheelNotch(double angleDeltaY, double contentY,
+                                double minContentY, double maxContentY,
+                                double viewportHeight);
+
+    // Smooth motion to an absolute target (keyboard paging: Page Up/Down,
+    // Space). Reuses the same engine so repeated presses never queue and
+    // coalesce exactly like wheel notches.
+    Q_INVOKABLE void animateTo(double targetY, double contentY,
+                               double minContentY, double maxContentY);
+
+    // Pure target computation for the coalescing policy (also drives
+    // wheelNotch). Returns the absolute contentY goal, clamped to
+    // [minContentY, maxContentY]. Kept invokable-free of motion so the policy
+    // stays independently testable.
     Q_INVOKABLE double wheelTargetY(double angleDeltaY, double contentY,
                                     double minContentY, double maxContentY,
                                     double viewportHeight);
@@ -84,31 +126,64 @@ public:
     Q_INVOKABLE double pixelTargetY(double pixelDeltaY, double contentY,
                                     double minContentY, double maxContentY);
 
-    // QML reports the coalescing animation ran to completion (or was stopped),
-    // so the next notch starts from the live position, not a stale target.
+    // QML re-clamped an emitted position against live geometry (content grew
+    // or shrank mid-motion) and it hit a bound: adopt the clamped position and
+    // settle instead of pushing further into the bound.
+    Q_INVOKABLE void notifyBoundReached(double clampedY);
+
+    // Legacy explicit end-of-motion (tests); the engine normally settles
+    // itself and emits wheelMotionSettled().
     Q_INVOKABLE void endMotion();
     // Hard cancel: room/account change, programmatic navigation, destruction.
+    // Stops the ticker without emitting a final position or settle signal —
+    // the caller owns contentY from here.
     Q_INVOKABLE void cancel();
+
+    // Internal engine step; public so the frame ticker and deterministic
+    // tests share the exact same integration code. Returns false once motion
+    // has settled (the ticker stops itself on that).
+    bool advanceMotion(double dtMs);
 
     // Test hooks.
     void setPixelFactorForTest(double factor) { m_pixelFactor = factor; }
     double targetYForTest() const { return m_targetY; }
+    double positionYForTest() const { return m_positionY; }
+    bool tickerRunningForTest() const;
 
 Q_SIGNALS:
     void wheelSpeedChanged();
     void motionActiveChanged();
+    // One frame of wheel motion: QML applies this to contentY (re-clamping
+    // against live geometry).
+    void wheelPositionChanged(double contentY);
+    // Motion reached its target (or a bound) and stopped. QML recomputes
+    // follow-latest / pagination and schedules ONE settled anchor save.
+    void wheelMotionSettled();
 
 private:
     static double clampY(double y, double lo, double hi);
     void setMotionActive(bool active);
+    void startEngine(double targetY, double contentY,
+                     double minContentY, double maxContentY, int direction);
+    void startTicker();
+    void stopTicker();
+    void settle();
 
     WheelSpeed m_wheelSpeed = Fast;
 
-    // Coalesced discrete-wheel goal. Valid only while m_motionActive.
+    // Coalesced wheel goal + engine state. Valid only while m_motionActive.
     double m_targetY = 0.0;
+    double m_positionY = 0.0;
     int m_direction = 0;         // -1 = toward top, +1 = toward bottom, 0 = none
     bool m_motionActive = false;
 
+    // Live clamping bounds supplied with the most recent motion request.
+    double m_minY = 0.0;
+    double m_maxY = 0.0;
+
     // Touchpad pixel scaling. 1.0 == native; kept mild and tunable.
     double m_pixelFactor = 1.0;
+
+    // Frame ticker; parented to this, running only while motion is active.
+    QAbstractAnimation *m_ticker = nullptr;
 };

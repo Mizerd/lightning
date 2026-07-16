@@ -1,5 +1,33 @@
 # Current state (v0.5.19)
 
+## v0.6.0 (in progress) — smooth long-message wheel motion
+
+0.5.19's discrete-wheel path computed a coalesced target in
+`TimelineScrollController` but animated `contentY` in QML with a single
+fixed-duration (140 ms, OutCubic) `NumberAnimation` that was stopped and
+restarted on every notch. That restart pattern was the confirmed cause of
+"chunky" movement while the viewport sits inside one tall wrapped message:
+OutCubic ends each notch at zero velocity (stop-start bursts at slow notch
+cadences), and fast cadences re-ran the whole remaining distance in a fresh
+140 ms (a sawtooth velocity profile). Item boundaries usually mask this; a
+delegate taller than the viewport exposes it.
+
+The motion itself now lives in `TimelineScrollController`: a wheel-only frame
+ticker (a `QAbstractAnimation` on Qt's animation driver, running only while
+motion is in flight) integrates the position toward the coalesced target with
+exponential approach (`tau` = 90 ms) plus a bounded minimum settle speed, so
+velocity is continuous within a gesture, same-direction notches raise it,
+reversals redirect on the next frame, and motion always settles in bounded
+time with no momentum tail. QML applies each emitted frame to `contentY`,
+re-clamped against live geometry (a bound hit settles the engine). Per-notch
+distances and the Standard/Fast/Very fast profiles are unchanged; the
+touchpad pixel-delta path remains direct. Programmatic navigation — Jump to
+latest, reply targets, anchor restore, room switch, and now **Home**/**End**
+— bypasses the engine entirely via `cancel()`. Deterministic long-message
+fixtures (an exactly 3,764-character wrapped body, an 80-line body, a
+multiline body with links, framed by short messages) live in the mock
+backend's `!general:mock.local` timeline.
+
 ## v0.5.19 — timeline scrolling and input ergonomics
 
 Physical mouse-wheel scrolling was too slow in 0.5.18 because the timeline
