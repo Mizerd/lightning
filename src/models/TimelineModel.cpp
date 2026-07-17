@@ -828,12 +828,20 @@ QString TimelineModel::messagePermalink(const QString &eventId) const
     if (!event || event->roomId.isEmpty() || event->eventId.isEmpty()
         || event->eventId.startsWith(QLatin1String("local:")))
         return {};
+    // Thread-timeline events carry the composite timeline id in roomId so the
+    // model's diff filtering works; a matrix.to link must use the REAL room
+    // id, never the internal composite (which embeds a unit separator and the
+    // "thread" marker and would produce a broken permalink).
+    const QString realRoomId =
+        MatrixClient::isThreadTimelineId(event->roomId)
+            ? MatrixClient::threadTimelineRoomId(event->roomId)
+            : event->roomId;
     const auto encodeId = [](const QString &id) {
         return QString::fromLatin1(QUrl::toPercentEncoding(
             id, QByteArrayLiteral("!$:@")));
     };
     return QStringLiteral("https://matrix.to/#/%1/%2")
-        .arg(encodeId(event->roomId), encodeId(event->eventId));
+        .arg(encodeId(realRoomId), encodeId(event->eventId));
 }
 
 bool TimelineModel::canRedactEvent(const QString &eventId) const
@@ -895,7 +903,11 @@ QVariantMap TimelineModel::messageDetails(const QString &eventId) const
     details.insert(QStringLiteral("senderName"), senderDisplayName(*event));
     details.insert(QStringLiteral("senderId"), event->sender);
     details.insert(QStringLiteral("timestamp"), event->timestamp.toString(Qt::ISODate));
-    details.insert(QStringLiteral("roomId"), event->roomId);
+    // Show the real room id, not the internal composite thread-timeline id.
+    details.insert(QStringLiteral("roomId"),
+                   MatrixClient::isThreadTimelineId(event->roomId)
+                       ? MatrixClient::threadTimelineRoomId(event->roomId)
+                       : event->roomId);
     details.insert(QStringLiteral("eventId"), event->eventId);
     details.insert(QStringLiteral("eventType"), type);
     details.insert(QStringLiteral("edited"), event->edited);

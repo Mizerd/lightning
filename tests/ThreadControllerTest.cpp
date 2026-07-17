@@ -576,6 +576,42 @@ private Q_SLOTS:
         QCOMPARE(client.decryptionRetryRoomsForTest().size(), 2);
     }
 
+    // v0.6.1: Copy message link / message details on a thread reply must use
+    // the REAL room id, never the internal composite thread-timeline id (which
+    // embeds a unit separator + "thread" marker and would break the permalink
+    // and leak the internal scheme into the details dialog).
+    void threadReplyPermalinkUsesRealRoomId()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        ThreadController controller;
+        controller.setClient(&client);
+
+        const QString rootId = firstThreadRootId(client, kGeneral);
+        controller.openThread(kGeneral, rootId);
+        QTRY_COMPARE_WITH_TIMEOUT(controller.state(), ThreadController::Ready,
+                                  kSignalTimeoutMs);
+        auto *model = controller.model();
+        // The model is bound to the composite thread timeline id …
+        QVERIFY(MatrixClient::isThreadTimelineId(model->roomId()));
+
+        // … but a reply's permalink and details resolve the real room.
+        const QString replyId =
+            model->data(model->index(1, 0), TimelineModel::EventIdRole)
+                .toString();
+        QVERIFY(!replyId.isEmpty());
+
+        const QString link = model->messagePermalink(replyId);
+        QVERIFY(link.startsWith(QStringLiteral("https://matrix.to/#/")));
+        QVERIFY(!link.contains(QStringLiteral("thread")));
+        QVERIFY(!link.contains(QChar(0x1f)));
+        QVERIFY(!link.contains(QStringLiteral("%1F"))); // encoded separator
+        QVERIFY(link.contains(QStringLiteral("general"))); // the real room
+
+        const QVariantMap details = model->messageDetails(replyId);
+        QCOMPARE(details.value(QStringLiteral("roomId")).toString(), kGeneral);
+    }
+
     void logoutClosesThread()
     {
         MockMatrixClient client;
