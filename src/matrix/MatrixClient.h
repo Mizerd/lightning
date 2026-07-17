@@ -130,6 +130,12 @@ public:
         Q_UNUSED(rootEventId);
     }
     virtual void closeThread() {}
+    // v0.6.0 checkpoint 8: manual decryption retry for a room's visible
+    // unable-to-decrypt events. The Rust backend re-runs SDK decryption
+    // against key material that has arrived since; other backends have no
+    // crypto machine and keep the no-op default. Never resets any store.
+    virtual void retryDecryption(const QString &roomId) { Q_UNUSED(roomId); }
+
     // ---- v0.6.0 checkpoint 5: thread list, follow state, threaded read.
     //
     // The Threads view lists a room's threads (server /threads pagination,

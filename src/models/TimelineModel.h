@@ -139,6 +139,11 @@ public:
     // SDK re-attempts the same queued item, so no duplicate can appear.
     Q_INVOKABLE void retrySend(int row);
 
+    // v0.6.0 checkpoint 8: manual decryption retry for this timeline's
+    // visible unable-to-decrypt events (backend no-op without a crypto
+    // machine).
+    Q_INVOKABLE void retryDecryption();
+
     // v0.5.9: image events currently loaded in this timeline, oldest
     // first, for the image viewer's previous/next navigation. Each entry:
     // {row, mediaKey, filename, sender, timestamp, mime, httpUrl}. Only

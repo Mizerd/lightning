@@ -70,6 +70,12 @@ public:
         ++m_markThreadReadCalls;
     }
     int markThreadReadCallsForTest() const { return m_markThreadReadCalls; }
+    void retryDecryption(const QString &roomId) override
+    {
+        m_decryptionRetryRooms.append(roomId);
+    }
+    QStringList decryptionRetryRoomsForTest() const
+    { return m_decryptionRetryRooms; }
     void queryThreadSubscription(const QString &roomId,
                                  const QString &rootEventId) override;
     void setThreadSubscribed(const QString &roomId, const QString &rootEventId,
@@ -136,5 +142,6 @@ private:
     QString m_openThreadListRoom;
     QHash<QString, bool> m_threadSubscriptions; // roomId+"\x1f"+rootId → followed
     int m_markThreadReadCalls = 0;
+    QStringList m_decryptionRetryRooms;
     void emitThreadList(const QString &roomId);
 };

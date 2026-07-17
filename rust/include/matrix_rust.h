@@ -262,6 +262,11 @@ char *mx_rust_thread_send_text(void *client,
                                const char *root_event_id,
                                const char *body,
                                const char *in_reply_to);
+/* v0.6.0 checkpoint 8: manual decryption retry for the open room's visible
+ * unable-to-decrypt events (incl. the open thread panel). Never resets or
+ * touches the crypto store. */
+char *mx_rust_timeline_retry_decryption(void *client, const char *room_id);
+
 /* v0.6.0 checkpoint 5: room thread list (Threads view), MSC4306 follow
  * state, and threaded read receipts for the open thread panel. */
 char *mx_rust_thread_list_open(void *client, const char *room_id);

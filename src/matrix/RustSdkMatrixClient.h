@@ -207,6 +207,7 @@ public:
                            const QString &threadRootEventId,
                            const QString &inReplyToEventId,
                            const QString &body) override;
+    void retryDecryption(const QString &roomId) override;
     bool supportsThreadList() const override { return true; }
     void openThreadList(const QString &roomId) override;
     void closeThreadList() override;
@@ -451,6 +452,9 @@ private:
     // adopted Rust thread-list generation (stale snapshots are rejected).
     QString m_threadListRoom;
     quint64 m_threadListGeneration = 0;
+    // v0.6.0 checkpoint 8: bound manual decryption retries (one dispatch per
+    // room per short window — a double-click never doubles the SDK work).
+    QHash<QString, qint64> m_lastDecryptionRetryMs;
 
     // v0.5.9: operation-id counter for room-management/media commands and
     // the cached server upload limit (0 until the first upload_limit event).

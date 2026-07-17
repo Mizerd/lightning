@@ -128,6 +128,24 @@ private Q_SLOTS:
             "onToggled: app.settings.showRoomActivity = checked")));
     }
 
+    // v0.6.0 checkpoint 8: the unable-to-decrypt placeholder exposes a
+    // manual Retry (through the view-provided timeline model, so it works
+    // in the thread panel too) and a Security settings jump — and never
+    // renders raw session/ciphertext fields.
+    void undecryptableRowsExposeRetryAndSecurityActions()
+    {
+        const QString delegate = read(QStringLiteral("MessageDelegate.qml"));
+        QVERIFY(delegate.contains(QStringLiteral("Retry decryption")));
+        QVERIFY(delegate.contains(QStringLiteral(
+            "root.timelineModel.retryDecryption()")));
+        QVERIFY(delegate.contains(QStringLiteral(
+            "app.showSettingsSection(\"security\")")));
+        // No ciphertext/session-id MODEL fields are ever bound (the word in
+        // a comment is fine; a binding would be model.<field>).
+        QVERIFY(!delegate.contains(QStringLiteral("model.sessionId")));
+        QVERIFY(!delegate.contains(QStringLiteral("model.ciphertext")));
+    }
+
     void unreadNavigationUsesSdkMarkerAndBottomThreshold()
     {
         const QString delegate = read(QStringLiteral("MessageDelegate.qml"));

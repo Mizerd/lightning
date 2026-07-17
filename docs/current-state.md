@@ -1,5 +1,34 @@
 # Current state (v0.5.19)
 
+## v0.6.0 (in progress) — automatic E2EE key recovery and decryption retry
+
+Audit result: matrix-sdk 0.18's Redecryptor already re-decrypts
+unable-to-decrypt events automatically whenever room keys arrive (late
+to-device delivery, backup download, key import, secret recovery) and the
+matrix-sdk-ui timeline pushes the decrypted replacement through the same
+diff stream Lightning has applied in place since 0.5.7 — no restart, no
+room switch, and scroll anchors/stable ids are preserved because the item
+is replaced by a Set diff. Lightning therefore does NOT duplicate the
+SDK's request machinery; the 0.6.0 additions are:
+
+- the client is now built with
+  `BackupDownloadStrategy::AfterDecryptionFailure`, so the SDK itself
+  downloads the missing room key from the server-side key backup per
+  unable-to-decrypt event (deduplicated/bounded inside the SDK) once
+  backup access exists — trust policy is unchanged (no auto cross-signing
+  or backup enabling);
+- a manual **Retry decryption** action: `mx_rust_timeline_retry_decryption`
+  collects the Megolm session IDS (identifiers only) of the open room's
+  visible unable-to-decrypt items — including the open thread panel, which
+  shares the same recovery pass — and calls the SDK's `retry_decryption`.
+  The C++ dispatch coalesces repeats (2 s window per room), a thread-panel
+  retry maps to its parent room, and no crypto store is ever reset;
+- the unable-to-decrypt placeholder shows a safe reason category (from the
+  SDK's UtdCause: waiting for keys / sent before you joined / sender
+  requires verified session / key withheld), the Retry action, and a jump
+  to Security settings. No session ids, ciphertext, or raw event JSON are
+  rendered.
+
 ## v0.6.0 (in progress) — E2EE health and readiness model
 
 `CryptoHealthModel` (`app.cryptoHealth`) is a single READ-ONLY model

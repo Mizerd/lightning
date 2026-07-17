@@ -467,6 +467,53 @@ Item {
                         }
                     }
 
+                    // v0.6.0 checkpoint 8: unable-to-decrypt action row —
+                    // safe reason category, automatic-recovery hint, a manual
+                    // Retry (bounded/deduplicated in the backend), and a jump
+                    // to Security settings. Never shows session ids,
+                    // ciphertext, or raw event JSON.
+                    RowLayout {
+                        visible: model.undecryptable === true
+                        spacing: AppTheme.spacingS
+                        Label {
+                            text: {
+                                var kind = model.errorKind || ""
+                                if (kind === "membership")
+                                    return qsTr("Sent before you joined")
+                                if (kind === "device_trust")
+                                    return qsTr("Sender requires a verified session")
+                                if (kind === "withheld")
+                                    return qsTr("Key withheld by sender")
+                                return qsTr("Waiting for keys…")
+                            }
+                            color: AppTheme.textMuted
+                            font.pixelSize: 10
+                            font.italic: true
+                        }
+                        Label {
+                            text: qsTr("Retry decryption")
+                            color: AppTheme.accent
+                            font.pixelSize: 10
+                            font.underline: true
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: root.timelineModel.retryDecryption()
+                            }
+                        }
+                        Label {
+                            text: qsTr("Security settings")
+                            color: AppTheme.accent
+                            font.pixelSize: 10
+                            font.underline: true
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: app.showSettingsSection("security")
+                            }
+                        }
+                    }
+
                     // v0.5.11: rich link-preview card. Backed by
                     // LinkPreviewController — Rust performs the protected
                     // outbound fetch; QML only renders whitelisted fields.

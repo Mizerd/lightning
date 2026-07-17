@@ -542,6 +542,40 @@ private Q_SLOTS:
         QCOMPARE(controller.state(), ThreadController::Ready);
     }
 
+    // ── v0.6.0 checkpoint 8: manual decryption retry dispatch ───────────
+    // Both the room model and the thread model dispatch retryDecryption to
+    // the backend with their own timeline id (the Rust backend maps a
+    // composite thread id onto its parent room and retries both timelines).
+    void retryDecryptionDispatchesFromBothModels()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+
+        TimelineModel room;
+        room.setClient(&client);
+        room.setRoomId(kDevs);
+        room.retryDecryption();
+        QCOMPARE(client.decryptionRetryRoomsForTest(),
+                 QStringList{ kDevs });
+
+        ThreadController controller;
+        controller.setClient(&client);
+        const QString rootId = firstThreadRootId(client, kDevs);
+        controller.openThread(kDevs, rootId);
+        QTRY_COMPARE_WITH_TIMEOUT(controller.state(), ThreadController::Ready,
+                                  kSignalTimeoutMs);
+        controller.model()->retryDecryption();
+        QCOMPARE(client.decryptionRetryRoomsForTest().size(), 2);
+        QCOMPARE(client.decryptionRetryRoomsForTest().at(1),
+                 MatrixClient::threadTimelineId(kDevs, rootId));
+
+        // An unbound model never dispatches.
+        TimelineModel unbound;
+        unbound.setClient(&client);
+        unbound.retryDecryption();
+        QCOMPARE(client.decryptionRetryRoomsForTest().size(), 2);
+    }
+
     void logoutClosesThread()
     {
         MockMatrixClient client;

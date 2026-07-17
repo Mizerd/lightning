@@ -1138,6 +1138,26 @@ void RustSdkMatrixClient::queryCryptoHealth()
     takeRustString(mx_rust_query_crypto_health(m_rustHandle));
 }
 
+void RustSdkMatrixClient::retryDecryption(const QString &roomId)
+{
+    if (!m_loggedIn || !m_rustHandle || roomId.isEmpty())
+        return;
+    // A thread panel retry targets its parent room (both timelines are
+    // retried in one Rust pass).
+    const QString targetRoom = isThreadTimelineId(roomId)
+        ? threadTimelineRoomId(roomId)
+        : roomId;
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    const qint64 last = m_lastDecryptionRetryMs.value(targetRoom, 0);
+    if (now - last < 2000)
+        return;   // bounded: coalesce rapid repeat requests
+    m_lastDecryptionRetryMs.insert(targetRoom, now);
+    const QByteArray roomBytes = targetRoom.toUtf8();
+    takeRustString(mx_rust_timeline_retry_decryption(
+        m_rustHandle, roomBytes.constData()));
+    qCInfo(lcRust) << "manual decryption retry dispatched";
+}
+
 void RustSdkMatrixClient::openThreadList(const QString &roomId)
 {
     if (!m_loggedIn || !m_rustHandle || roomId.isEmpty())

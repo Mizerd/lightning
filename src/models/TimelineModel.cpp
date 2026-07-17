@@ -934,6 +934,13 @@ void TimelineModel::retrySend(int row)
     m_client->retryFailedSend(m_roomId, e.transactionId);
 }
 
+void TimelineModel::retryDecryption()
+{
+    if (!m_client || m_roomId.isEmpty())
+        return;
+    m_client->retryDecryption(m_roomId);
+}
+
 void TimelineModel::reload()
 {
     beginResetModel();

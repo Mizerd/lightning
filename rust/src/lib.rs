@@ -2362,6 +2362,24 @@ pub unsafe extern "C" fn mx_rust_thread_send_text(
     })
 }
 
+/// v0.6.0 checkpoint 8: manual "Retry decryption" for the open room (and
+/// its open thread panel). One bounded pass per call; the SDK's own
+/// AfterDecryptionFailure strategy performs any backup key download.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_timeline_retry_decryption(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        bridge
+            .timelines
+            .retry_visible_decryption(&bridge.runtime, room_id)
+            .map(|_| String::new())
+    })
+}
+
 // ── v0.6.0 checkpoint 5: thread list, follow state, threaded read ───────
 
 #[no_mangle]
@@ -2970,10 +2988,21 @@ pub unsafe extern "C" fn mx_rust_free_cstring(ptr: *mut c_char) {
 }
 
 async fn build_client(homeserver: &str, store_path: &Path) -> Result<Client, String> {
+    // v0.6.0 checkpoint 8: AfterDecryptionFailure lets the SDK download the
+    // missing room key from the server-side key backup for each
+    // unable-to-decrypt event (deduplicated and bounded inside the SDK),
+    // once backup access exists — no custom key-transfer protocol, no
+    // change to trust policy (auto cross-signing/backup enabling stay off).
+    let encryption_settings = matrix_sdk::encryption::EncryptionSettings {
+        backup_download_strategy:
+            matrix_sdk::encryption::BackupDownloadStrategy::AfterDecryptionFailure,
+        ..Default::default()
+    };
     Client::builder()
         .homeserver_url(homeserver)
         .sqlite_store(store_path, None)
         .user_agent("Lightning/0.5.19")
+        .with_encryption_settings(encryption_settings)
         .build()
         .await
         .map_err(|err| format_matrix_error("failed to build Matrix Rust SDK client", err))

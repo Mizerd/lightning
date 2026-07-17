@@ -1106,6 +1106,79 @@ impl TimelineRegistry {
     /// inside Rust. If the active timeline's room is affected, the pinned
     /// SDK `Timeline::retry_decryption` is awaited and the SDK emits
     /// in-place `Set` diffs for every newly decryptable item.
+    /// v0.6.0 checkpoint 8: manual "Retry decryption" for the open room.
+    /// Collects the session ids of the currently visible unable-to-decrypt
+    /// items (room timeline + open thread timeline) and asks the SDK to
+    /// retry them — one bounded pass per user action, no polling, no custom
+    /// key transfer. Key DOWNLOAD attempts (backup) are the SDK's own
+    /// AfterDecryptionFailure behavior; this only re-runs decryption against
+    /// whatever key material has arrived since.
+    pub fn retry_visible_decryption(
+        self: &Arc<Self>,
+        runtime: &tokio::runtime::Runtime,
+        room_id: String,
+    ) -> Result<(), String> {
+        let Some((timeline, room_gen, lifecycle)) = self.timeline_for(&room_id) else {
+            return Err("No live timeline is open for that room.".to_owned());
+        };
+        let thread_timeline = {
+            let guard = self
+                .active_thread
+                .lock()
+                .map_err(|_| "thread registry lock poisoned".to_owned())?;
+            guard.as_ref().and_then(|thread| {
+                (thread.room_id == room_id)
+                    .then(|| thread.timeline.clone())
+                    .flatten()
+            })
+        };
+        let registry = Arc::clone(self);
+        let events = Arc::clone(&self.events);
+        runtime.spawn(async move {
+            let mut session_ids = utd_session_ids(&timeline).await;
+            if let Some(thread) = &thread_timeline {
+                for id in utd_session_ids(thread).await {
+                    if !session_ids.contains(&id) {
+                        session_ids.push(id);
+                    }
+                }
+            }
+            if session_ids.is_empty() {
+                return;
+            }
+            enqueue(
+                &events,
+                json!({
+                    "type": "timeline_retry_decryption",
+                    "room_id": room_id,
+                    "room_generation": room_gen,
+                    "lifecycle": lifecycle,
+                    "state": "started",
+                    "sessions": session_ids.len(),
+                }),
+            );
+            timeline.retry_decryption(session_ids.iter().cloned()).await;
+            if let Some(thread) = &thread_timeline {
+                thread.retry_decryption(session_ids.iter().cloned()).await;
+            }
+            if !registry.is_current(room_gen, lifecycle) {
+                return;
+            }
+            enqueue(
+                &events,
+                json!({
+                    "type": "timeline_retry_decryption",
+                    "room_id": room_id,
+                    "room_generation": room_gen,
+                    "lifecycle": lifecycle,
+                    "state": "done",
+                    "sessions": session_ids.len(),
+                }),
+            );
+        });
+        Ok(())
+    }
+
     pub async fn retry_decryption_after_import(
         &self,
         sessions_by_room: &[(String, Vec<String>)],
@@ -2003,6 +2076,27 @@ fn content_preview(content: &TimelineItemContent) -> String {
 }
 
 /// Safe, coarse UTD reason categories. No crypto internals are exposed.
+/// Megolm session IDS (identifiers only — no key material) of the timeline's
+/// currently visible unable-to-decrypt items.
+async fn utd_session_ids(timeline: &Timeline) -> Vec<String> {
+    let mut session_ids = Vec::new();
+    for item in timeline.items().await.iter() {
+        let TimelineItemKind::Event(event) = item.kind() else { continue };
+        let TimelineItemContent::MsgLike(msg_like) = event.content() else {
+            continue;
+        };
+        let MsgLikeKind::UnableToDecrypt(encrypted) = &msg_like.kind else {
+            continue;
+        };
+        if let EncryptedMessage::MegolmV1AesSha2 { session_id, .. } = encrypted {
+            if !session_ids.contains(session_id) {
+                session_ids.push(session_id.clone());
+            }
+        }
+    }
+    session_ids
+}
+
 fn utd_category(encrypted: &EncryptedMessage) -> &'static str {
     use matrix_sdk_base::crypto::types::events::UtdCause;
     match encrypted {
