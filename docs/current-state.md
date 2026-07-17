@@ -1,5 +1,25 @@
 # Current state (v0.5.19)
 
+## v0.6.0 (in progress) — E2EE health and readiness model
+
+`CryptoHealthModel` (`app.cryptoHealth`) is a single READ-ONLY model
+mirroring sanitized `crypto_health` snapshots from the Rust bridge
+(`mx_rust_query_crypto_health`), which reads only official SDK state:
+own-device trust (`is_verified` / `is_cross_signed_by_owner`), own
+identity, `CrossSigningStatus`, `BackupState` + `exists_on_server`,
+`RecoveryState`, and secret-storage enablement. Snapshots carry booleans,
+enum names, and the public device id — never keys, signatures, secrets,
+or store paths. The model distinguishes unsupported / initializing /
+ready / error, tri-state (Yes/No/Unknown) device and identity trust,
+backup absent vs exists-but-unusable vs actively usable, recovery
+enabled vs incomplete vs disabled, and exposes a pending-verification
+counter and a human-readable summary. Generation isolation: logout and
+account switches bump the model epoch and stale async answers are
+dropped. Refreshes are bounded (login, verification completion, backup
+operations, explicit Settings Refresh) — QML never polls. Settings gains
+a read-only "Security status" card; unsupported capabilities render as
+informative state, never as errors.
+
 ## v0.6.0 (in progress) — thread and timeline integration polish
 
 The thread panel's reply list now runs the same device-aware wheel motion

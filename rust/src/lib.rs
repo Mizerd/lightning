@@ -1950,6 +1950,98 @@ pub unsafe extern "C" fn mx_rust_query_own_device_status(
     })
 }
 
+/// v0.6.0 checkpoint 7: one async E2EE health snapshot, entirely from
+/// official SDK state APIs. Emits `crypto_health` on the poll queue:
+///   { device_id, device_verified, device_cross_signed,
+///     own_identity_available, own_identity_verified,
+///     has_master, has_self_signing, has_user_signing,
+///     backup_exists_on_server, backup_state, recovery_state,
+///     secret_storage_enabled, lifecycle }
+/// Only booleans, enum names, and the (public) device id — never keys,
+/// signatures, secrets, or store paths.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_query_crypto_health(ptr: *mut c_void) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let Some(client) = bridge.client.lock().ok().and_then(|g| g.clone()) else {
+            return Err("Rust SDK session is not logged in.".to_owned());
+        };
+        let events = Arc::clone(&bridge.events);
+        let lifecycle = bridge.timelines.lifecycle();
+        bridge.spawn_room_action(async move {
+            use matrix_sdk::encryption::{backups::BackupState, recovery::RecoveryState};
+
+            let user_id = client.user_id().map(|u| u.to_owned());
+            let device_id = client.device_id().map(|d| d.to_string()).unwrap_or_default();
+
+            let mut own_identity_available = false;
+            let mut own_identity_verified = false;
+            if let Some(uid) = &user_id {
+                if let Ok(Some(identity)) = client.encryption().get_user_identity(uid).await {
+                    own_identity_available = true;
+                    own_identity_verified = identity.is_verified();
+                }
+            }
+            let mut device_verified = false;
+            let mut device_cross_signed = false;
+            if let Ok(Some(device)) = client.encryption().get_own_device().await {
+                device_verified = device.is_verified();
+                device_cross_signed = device.is_cross_signed_by_owner();
+            }
+            let (mut has_master, mut has_self_signing, mut has_user_signing) =
+                (false, false, false);
+            if let Some(status) = client.encryption().cross_signing_status().await {
+                has_master = status.has_master;
+                has_self_signing = status.has_self_signing;
+                has_user_signing = status.has_user_signing;
+            }
+
+            let backups = client.encryption().backups();
+            let backup_state = match backups.state() {
+                BackupState::Unknown => "unknown",
+                BackupState::Creating => "creating",
+                BackupState::Enabling => "enabling",
+                BackupState::Resuming => "resuming",
+                BackupState::Enabled => "enabled",
+                BackupState::Downloading => "downloading",
+                BackupState::Disabling => "disabling",
+            };
+            let backup_exists = backups.exists_on_server().await.unwrap_or(false);
+
+            let recovery_state = match client.encryption().recovery().state() {
+                RecoveryState::Unknown => "unknown",
+                RecoveryState::Enabled => "enabled",
+                RecoveryState::Disabled => "disabled",
+                RecoveryState::Incomplete => "incomplete",
+            };
+            let secret_storage_enabled = client
+                .encryption()
+                .secret_storage()
+                .is_enabled()
+                .await
+                .unwrap_or(false);
+
+            enqueue(&events, json!({
+                "type": "crypto_health",
+                "lifecycle": lifecycle,
+                "device_id": device_id,
+                "device_verified": device_verified,
+                "device_cross_signed": device_cross_signed,
+                "own_identity_available": own_identity_available,
+                "own_identity_verified": own_identity_verified,
+                "has_master": has_master,
+                "has_self_signing": has_self_signing,
+                "has_user_signing": has_user_signing,
+                "backup_exists_on_server": backup_exists,
+                "backup_state": backup_state,
+                "recovery_state": recovery_state,
+                "secret_storage_enabled": secret_storage_enabled,
+            }));
+        });
+        Ok(String::new())
+    })
+}
+
 /// Encrypted Megolm room-key import (v0.5.6). Delegates to
 /// `Encryption::import_room_keys`, which internally uses
 /// `matrix_sdk_base::crypto::decrypt_room_key_export` and imports the

@@ -127,6 +127,12 @@ public:
     // events. Only advertises SAS as a method.
     void startOwnVerification();
 
+    // v0.6.0 checkpoint 7. Ask Rust for one sanitized E2EE health snapshot
+    // (device trust, cross-signing keys, backup/recovery/secret-storage
+    // state). Result arrives as cryptoHealthUpdated(map). Safe to call at
+    // any time; skipped when not logged in.
+    void queryCryptoHealth();
+
     // v0.5.6. Snapshot the current session's cross-signing trust state
     // from the SDK. Emits ownDeviceStatusUpdated(...) with only the
     // aggregate fields the UI displays. Safe to call at any time; the
@@ -301,6 +307,9 @@ Q_SIGNALS:
     // v0.5.6. Aggregate cross-signing trust snapshot from the SDK. All
     // fields are non-secret metadata; the UI must derive its "Verified"
     // label from deviceCrossSigned, not from generic own-device trust.
+    // v0.6.0 checkpoint 7: sanitized E2EE health snapshot (booleans, enum
+    // names, public device id only).
+    void cryptoHealthUpdated(const QVariantMap &snapshot);
     void ownDeviceStatusUpdated(const QString &deviceId,
                                 bool ownIdentityAvailable,
                                 bool ownIdentityVerified,

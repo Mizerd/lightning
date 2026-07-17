@@ -618,6 +618,100 @@ Item {
                             }
                         }
 
+                        // v0.6.0 checkpoint 7: read-only E2EE health from
+                        // the Rust SDK (app.cryptoHealth). Unsupported
+                        // capabilities show as informative state, never as
+                        // errors.
+                        SettingsCard {
+                            visible: app.backendName === "rust"
+                            ColumnLayout {
+                                width: parent.width
+                                spacing: AppTheme.spacing8
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    Label {
+                                        text: qsTr("Security status")
+                                        color: AppTheme.textSecondary
+                                        font.pixelSize: AppTheme.fontSecondary
+                                        font.weight: Font.DemiBold
+                                    }
+                                    Item { Layout.fillWidth: true }
+                                    Label {
+                                        objectName: "cryptoHealthRefresh"
+                                        text: qsTr("Refresh")
+                                        color: AppTheme.accent
+                                        font.pixelSize: AppTheme.fontSecondary
+                                        font.underline: true
+                                        MouseArea {
+                                            anchors.fill: parent
+                                            cursorShape: Qt.PointingHandCursor
+                                            onClicked: app.refreshCryptoHealth()
+                                        }
+                                    }
+                                }
+                                Label {
+                                    objectName: "cryptoHealthSummary"
+                                    Layout.fillWidth: true
+                                    wrapMode: Text.WordWrap
+                                    color: AppTheme.text
+                                    text: app.cryptoHealth.statusSummary
+                                }
+                                Label {
+                                    Layout.fillWidth: true
+                                    wrapMode: Text.WordWrap
+                                    color: AppTheme.textMuted
+                                    text: {
+                                        var device = app.cryptoHealth.currentDeviceVerified
+                                        var deviceText = device === CryptoHealthModel.Yes
+                                            ? qsTr("Yes")
+                                            : device === CryptoHealthModel.No
+                                              ? qsTr("No") : qsTr("Unknown")
+                                        return qsTr("Current session verified: %1").arg(deviceText)
+                                    }
+                                }
+                                Label {
+                                    Layout.fillWidth: true
+                                    wrapMode: Text.WordWrap
+                                    color: AppTheme.textMuted
+                                    text: app.cryptoHealth.crossSigningReady
+                                          ? qsTr("Cross-signing: ready")
+                                          : app.cryptoHealth.crossSigningAvailable
+                                            ? qsTr("Cross-signing: not complete on this session")
+                                            : qsTr("Cross-signing: not set up")
+                                }
+                                Label {
+                                    Layout.fillWidth: true
+                                    wrapMode: Text.WordWrap
+                                    color: AppTheme.textMuted
+                                    text: app.cryptoHealth.keyBackupUsable
+                                          ? qsTr("Key backup: active on this session")
+                                          : app.cryptoHealth.keyBackupAvailable
+                                            ? qsTr("Key backup: exists, but this session cannot use it yet")
+                                            : qsTr("Key backup: none found")
+                                }
+                                Label {
+                                    Layout.fillWidth: true
+                                    wrapMode: Text.WordWrap
+                                    color: AppTheme.textMuted
+                                    text: app.cryptoHealth.recoveryAvailable
+                                          ? qsTr("Recovery: set up")
+                                          : app.cryptoHealth.recoveryRequired
+                                            ? qsTr("Recovery: set up, but secrets are missing here")
+                                            : qsTr("Recovery: not set up")
+                                }
+                                Label {
+                                    Layout.fillWidth: true
+                                    wrapMode: Text.WordWrap
+                                    color: AppTheme.textMuted
+                                    text: app.cryptoHealth.cryptoSyncing
+                                          ? qsTr("Encryption sync: active")
+                                          : app.cryptoHealth.cryptoReady
+                                            ? qsTr("Encryption sync: ready")
+                                            : qsTr("Encryption sync: waiting")
+                                }
+                            }
+                        }
+
                         // Rust-only: session verification.
                         SettingsCard {
                             visible: app.backendName === "rust"

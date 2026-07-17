@@ -5,6 +5,7 @@
 #include "app/SettingsManager.h"
 #include "auth/AccountManager.h"
 #include "auth/AuthManager.h"
+#include "crypto/CryptoHealthModel.h"
 #include "crypto/CryptoManager.h"
 #include "media/MediaBridge.h"
 #include "media/MediaManager.h"
@@ -91,6 +92,8 @@ class AppController : public QObject
     Q_PROPERTY(EmojiCatalog* emojiCatalog READ emojiCatalog CONSTANT)
     Q_PROPERTY(MediaManager* media READ media CONSTANT)
     Q_PROPERTY(CryptoManager* crypto READ crypto CONSTANT)
+    // v0.6.0 checkpoint 7: read-only E2EE health/readiness (app.cryptoHealth).
+    Q_PROPERTY(CryptoHealthModel* cryptoHealth READ cryptoHealth CONSTANT)
     Q_PROPERTY(SpaceManager* spaces READ spaces CONSTANT)
     Q_PROPERTY(ThreadManager* threads READ threads CONSTANT)
     // v0.6.0: the single open SDK-backed thread panel (app.thread).
@@ -156,6 +159,9 @@ public:
     EmojiCatalog *emojiCatalog() const { return m_emojiCatalog.get(); }
     MediaManager *media() const;
     CryptoManager *crypto() const;
+    CryptoHealthModel *cryptoHealth() const { return m_cryptoHealth.get(); }
+    // Bounded UI refresh (Settings "Refresh" and post-operation updates).
+    Q_INVOKABLE void refreshCryptoHealth();
     SpaceManager *spaces() const;
     ThreadManager *threads() const;
     ThreadController *thread() const { return m_thread.get(); }
@@ -323,6 +329,7 @@ private:
     std::unique_ptr<NotificationManager> m_notifications;
     std::unique_ptr<MediaManager> m_media;
     std::unique_ptr<CryptoManager> m_crypto;
+    std::unique_ptr<CryptoHealthModel> m_cryptoHealth;
     std::unique_ptr<SpaceManager> m_spaces;
     std::unique_ptr<ThreadManager> m_threads;
     std::unique_ptr<ThreadController> m_thread;

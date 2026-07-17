@@ -90,6 +90,7 @@ AppController::AppController(Backend backend, QObject *parent)
     m_notifications= std::make_unique<NotificationManager>(this);
     m_media        = std::make_unique<MediaManager>(this);
     m_crypto       = std::make_unique<CryptoManager>(this);
+    m_cryptoHealth = std::make_unique<CryptoHealthModel>(this);
     m_spaces       = std::make_unique<SpaceManager>(this);
     m_threads      = std::make_unique<ThreadManager>(this);
     m_thread       = std::make_unique<ThreadController>(this);
@@ -262,6 +263,28 @@ AppController::AppController(Backend backend, QObject *parent)
                 this, [this, rust](const QString &) {
             Q_EMIT rustDeviceIdChanged();
             rust->refreshOwnDeviceStatus();
+            rust->queryCryptoHealth();
+        });
+        // v0.6.0 checkpoint 7: sanitized health snapshots feed the read-only
+        // model; the generation stamp drops answers from a previous session,
+        // and any verification-state transition updates the pending counter.
+        m_cryptoHealth->setSupported(true);
+        connect(rust, &RustSdkMatrixClient::cryptoHealthUpdated,
+                this, [this](const QVariantMap &snapshot) {
+            m_cryptoHealth->applySnapshot(snapshot,
+                                          m_cryptoHealth->generation());
+        });
+        connect(rust, &MatrixClient::connectionStateChanged,
+                this, [this](MatrixClient::ConnectionState state) {
+            m_cryptoHealth->setSyncing(state == MatrixClient::Syncing);
+        });
+        connect(rust, &MatrixClient::loggedOut, this, [this] {
+            m_cryptoHealth->resetForNewGeneration();
+        });
+        connect(this, &AppController::verificationStateChanged,
+                this, [this] {
+            m_cryptoHealth->setPendingVerificationCount(
+                verificationActive() ? 1 : 0);
         });
         connect(rust, &MatrixClient::loggedOut,
                 this, [this] {
@@ -763,9 +786,25 @@ void AppController::refreshSessionTrustState()
 {
 #ifdef ENABLE_RUST_SDK_BACKEND
     if (m_backend != RustBackend || !m_client) return;
-    if (auto *rust = qobject_cast<RustSdkMatrixClient *>(m_client.get()))
+    if (auto *rust = qobject_cast<RustSdkMatrixClient *>(m_client.get())) {
         rust->refreshOwnDeviceStatus();
+        rust->queryCryptoHealth();
+    }
 #endif
+}
+
+void AppController::refreshCryptoHealth()
+{
+#ifdef ENABLE_RUST_SDK_BACKEND
+    if (m_backend == RustBackend && m_client) {
+        if (auto *rust = qobject_cast<RustSdkMatrixClient *>(m_client.get())) {
+            rust->queryCryptoHealth();
+            return;
+        }
+    }
+#endif
+    // Non-Rust backends have no crypto machine; the model already reports
+    // unsupported.
 }
 
 void AppController::importRoomKeys(const QUrl &fileUrl, const QString &passphrase)

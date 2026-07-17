@@ -168,6 +168,14 @@ char *mx_rust_start_own_verification(void *client);
 char *mx_rust_query_own_device_status(void *client);
 
 /*
+ * v0.6.0 checkpoint 7: async E2EE health snapshot from official SDK state
+ * APIs (device trust, cross-signing keys, key backup, recovery, secret
+ * storage). Result arrives as a `crypto_health` poll event carrying only
+ * booleans, enum names, and the public device id — never key material.
+ */
+char *mx_rust_query_crypto_health(void *client);
+
+/*
  * Encrypted Megolm room-key import (v0.5.6). Decrypts an
  * Element/Matrix-SDK-compatible encrypted export file with `passphrase`
  * and imports the extracted inbound room-session keys into the active

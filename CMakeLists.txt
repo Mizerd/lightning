@@ -135,6 +135,8 @@ set(APP_SOURCES
     src/media/MediaImageProvider.cpp
     src/crypto/CryptoManager.h
     src/crypto/CryptoManager.cpp
+    src/crypto/CryptoHealthModel.h
+    src/crypto/CryptoHealthModel.cpp
     src/spaces/SpaceManager.h
     src/spaces/SpaceManager.cpp
     src/threads/ThreadManager.h
@@ -223,7 +225,7 @@ function(lightning_configure_qml_app target)
     # bare filename, not the "models/HeaderName.h" path used by quoted
     # includes elsewhere. Add each subdirectory holding a QML-registered type
     # so that angle-bracket lookup resolves.
-    target_include_directories(${target} PRIVATE src/models src/threads)
+    target_include_directories(${target} PRIVATE src/models src/threads src/crypto)
 
     target_link_libraries(${target} PRIVATE
         Qt6::Core
@@ -521,6 +523,19 @@ if(BUILD_TESTING)
     target_link_libraries(thread-controller-test PRIVATE
         Qt6::Core Qt6::Qml Qt6::Test)
     add_test(NAME thread-controller COMMAND thread-controller-test)
+
+    # v0.6.0 checkpoint 7: read-only E2EE health model — readiness states,
+    # tri-state trust, backup/recovery distinctions, generation isolation,
+    # and the no-secrets contract.
+    qt_add_executable(crypto-health-model-test
+        tests/CryptoHealthModelTest.cpp
+        src/crypto/CryptoHealthModel.h
+        src/crypto/CryptoHealthModel.cpp
+    )
+    target_include_directories(crypto-health-model-test PRIVATE src)
+    target_link_libraries(crypto-health-model-test PRIVATE
+        Qt6::Core Qt6::Qml Qt6::Test)
+    add_test(NAME crypto-health-model COMMAND crypto-health-model-test)
 
     # v0.5.11: safe link previews — URL extraction with scheme allow-list,
     # GIF MIME classification, encrypted-room privacy gating, bounded cache,

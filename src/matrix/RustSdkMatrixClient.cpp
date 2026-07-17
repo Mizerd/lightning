@@ -1131,6 +1131,13 @@ void RustSdkMatrixClient::sendThreadReplyTo(const QString &roomId,
     }
 }
 
+void RustSdkMatrixClient::queryCryptoHealth()
+{
+    if (!m_loggedIn || !m_rustHandle)
+        return;
+    takeRustString(mx_rust_query_crypto_health(m_rustHandle));
+}
+
 void RustSdkMatrixClient::openThreadList(const QString &roomId)
 {
     if (!m_loggedIn || !m_rustHandle || roomId.isEmpty())
@@ -1770,6 +1777,14 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
     }
     if (type == QLatin1String("thread_closed")) {
         handleThreadClosed(event);
+        return;
+    }
+    if (type == QLatin1String("crypto_health")) {
+        // Forward verbatim (already sanitized in Rust); AppController stamps
+        // the generation before the model adopts it.
+        QVariantMap snapshot = event.toVariantMap();
+        snapshot.remove(QStringLiteral("type"));
+        Q_EMIT cryptoHealthUpdated(snapshot);
         return;
     }
     if (type == QLatin1String("thread_list_reset")
