@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QHash>
+#include <QList>
 #include <QObject>
 #include <QString>
 #include <QVariantMap>
@@ -40,6 +41,13 @@ public:
         // Active-at-latest suppression: the room is on screen, focused, and
         // following the newest message.
         bool roomVisibleAtLatest = false;
+        // v0.6.1: false while the client is still applying its initial sync
+        // backlog. Events that arrive before the first sync completes are
+        // pre-existing history, not fresh activity, and must never raise a
+        // native notification — otherwise every backlog message re-notifies
+        // on each launch (the 0.6.0 cold-start storm). Defaults true so the
+        // Mock backend and pure-policy tests notify unless told otherwise.
+        bool initialSyncComplete = true;
     };
     struct Decision {
         bool notify = false;
@@ -52,6 +60,14 @@ public:
     // Pure policy — no I/O, no logging. Exposed for tests.
     static Decision decide(const TimelineEvent &event, const Context &context);
 
+    // v0.6.1: pure policy for pending-invite notifications. An invite raises a
+    // native notification only once the initial sync backlog has been applied
+    // (so a restart does not re-announce every existing invite), only for an
+    // invite not already announced this session, and only when notifications
+    // are enabled. Exposed for tests.
+    static bool shouldNotifyInvite(bool initialSyncComplete, bool alreadyKnown,
+                                   bool notificationsEnabled);
+
     // Decide and (when positive) deliver natively. The click payload is
     // {roomId, eventId, threadRootId} only.
     void processEvent(const TimelineEvent &event, const Context &context);
@@ -63,6 +79,13 @@ public:
 
     // Logout/account switch: forget queued click payloads.
     void clearPending();
+
+    // Test hook: record a delivered notification's click payload exactly as
+    // deliver() would, exercising the bounded FIFO eviction without a live
+    // DBus service. Not used in production paths.
+    void recordPayloadForTest(quint32 id, const QVariantMap &payload)
+    { recordPayload(id, payload); }
+    int pendingPayloadCountForTest() const { return m_pendingPayloads.size(); }
 
 Q_SIGNALS:
     // The user activated a notification. Identity only — no tokens.
@@ -77,6 +100,17 @@ private Q_SLOTS:
 private:
     void deliver(const QString &title, const QString &body,
                  const QVariantMap &payload);
+    // Store one click payload, evicting the oldest when the bounded cap is
+    // exceeded (a desktop only keeps a handful visible). FIFO eviction keeps
+    // the most recent notifications clickable instead of dropping them all.
+    void recordPayload(quint32 id, const QVariantMap &payload);
+    void forgetPayload(quint32 id);
+
+    // Bounded number of click payloads retained for routing.
+    static constexpr int kMaxPendingPayloads = 64;
 
     QHash<quint32, QVariantMap> m_pendingPayloads;
+    // Insertion order of the ids in m_pendingPayloads, oldest first, so the
+    // eviction can drop the least-recent entry (QHash is unordered).
+    QList<quint32> m_payloadOrder;
 };

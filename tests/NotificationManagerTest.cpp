@@ -172,6 +172,84 @@ private Q_SLOTS:
         const auto decision = NotificationManager::decide(reply, context);
         QVERIFY(decision.notify);
     }
+
+    // v0.6.1 regression (cold-start message storm): events applied before the
+    // initial sync completes are backlog history, never fresh activity, and
+    // must be suppressed regardless of privacy mode or mention state.
+    void initialSyncBacklogNeverNotifies()
+    {
+        auto context = baseContext();
+        context.initialSyncComplete = false;
+        QVERIFY(!NotificationManager::decide(incomingText(), context).notify);
+
+        // Even a direct mention during backlog stays silent.
+        TimelineEvent mention = incomingText();
+        mention.mentionsMe = true;
+        QVERIFY(!NotificationManager::decide(mention, context).notify);
+
+        // Once the sync is live the same event notifies.
+        context.initialSyncComplete = true;
+        QVERIFY(NotificationManager::decide(incomingText(), context).notify);
+    }
+
+    // v0.6.1 regression (cold-start invite storm): pending invites present at
+    // launch are seeded silently; only invites seen after the initial sync
+    // (and not already announced) raise a notification.
+    void invitePolicySuppressesBacklog()
+    {
+        // During initial sync: never notify, even for a brand-new invite.
+        QVERIFY(!NotificationManager::shouldNotifyInvite(
+            /*initialSyncComplete=*/false, /*alreadyKnown=*/false,
+            /*notificationsEnabled=*/true));
+        // After sync, a genuinely new invite notifies once.
+        QVERIFY(NotificationManager::shouldNotifyInvite(true, false, true));
+        // Already-announced invites never re-notify.
+        QVERIFY(!NotificationManager::shouldNotifyInvite(true, true, true));
+        // Notifications disabled: never.
+        QVERIFY(!NotificationManager::shouldNotifyInvite(true, false, false));
+    }
+
+    // v0.6.1 regression (click routing lost after 64 pending): the bounded
+    // map evicts the OLDEST payloads (FIFO) instead of clearing everything, so
+    // the most recent notifications remain clickable.
+    void clickPayloadEvictionIsFifo()
+    {
+        NotificationManager manager;
+        QSignalSpy spy(&manager, &NotificationManager::openRequested);
+
+        auto payload = [](const QString &room) {
+            QVariantMap p;
+            p.insert(QStringLiteral("roomId"), room);
+            p.insert(QStringLiteral("eventId"), QStringLiteral("$e:example.org"));
+            p.insert(QStringLiteral("threadRootId"), QString{});
+            return p;
+        };
+
+        // Record 66 payloads (ids 1..66) — two past the cap of 64.
+        for (quint32 id = 1; id <= 66; ++id)
+            manager.recordPayloadForTest(id, payload(QStringLiteral("!r%1")
+                                                         .arg(id)));
+        QCOMPARE(manager.pendingPayloadCountForTest(), 64);
+
+        // The two oldest (ids 1, 2) were evicted: clicking them routes nowhere.
+        QMetaObject::invokeMethod(&manager, "onActionInvoked",
+                                  Q_ARG(quint32, 1u),
+                                  Q_ARG(QString, QStringLiteral("default")));
+        QCOMPARE(spy.count(), 0);
+
+        // A recent notification (id 66) still routes to its room.
+        QMetaObject::invokeMethod(&manager, "onActionInvoked",
+                                  Q_ARG(quint32, 66u),
+                                  Q_ARG(QString, QStringLiteral("default")));
+        QCOMPARE(spy.count(), 1);
+        QCOMPARE(spy.first().at(0).toString(), QStringLiteral("!r66"));
+        // Consumed on activation.
+        QCOMPARE(manager.pendingPayloadCountForTest(), 63);
+
+        // clearPending() drops everything (logout/account switch).
+        manager.clearPending();
+        QCOMPARE(manager.pendingPayloadCountForTest(), 0);
+    }
 };
 
 QTEST_MAIN(NotificationManagerTest)

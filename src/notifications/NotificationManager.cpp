@@ -40,6 +40,11 @@ NotificationManager::decide(const TimelineEvent &event, const Context &context)
     Decision decision;
     if (!context.notificationsEnabled)
         return decision;
+    // Backlog applied during the initial sync is pre-existing history, never
+    // fresh activity — suppress it so a restart does not re-notify every
+    // already-seen message.
+    if (!context.initialSyncComplete)
+        return decision;
     if (context.roomMode == Muted)
         return decision;
     if (event.isVirtual() || event.type == TimelineEvent::StateChange)
@@ -102,6 +107,13 @@ NotificationManager::decide(const TimelineEvent &event, const Context &context)
     return decision;
 }
 
+bool NotificationManager::shouldNotifyInvite(bool initialSyncComplete,
+                                             bool alreadyKnown,
+                                             bool notificationsEnabled)
+{
+    return notificationsEnabled && initialSyncComplete && !alreadyKnown;
+}
+
 void NotificationManager::processEvent(const TimelineEvent &event,
                                        const Context &context)
 {
@@ -129,6 +141,27 @@ void NotificationManager::showGeneric(const QString &title,
 void NotificationManager::clearPending()
 {
     m_pendingPayloads.clear();
+    m_payloadOrder.clear();
+}
+
+void NotificationManager::recordPayload(quint32 id, const QVariantMap &payload)
+{
+    if (!m_pendingPayloads.contains(id))
+        m_payloadOrder.append(id);
+    m_pendingPayloads.insert(id, payload);
+    // Evict the oldest entries once over the cap so the most recent
+    // notifications stay clickable (the 0.6.0 code cleared the whole map,
+    // silently breaking click routing for every still-visible notification).
+    while (m_payloadOrder.size() > kMaxPendingPayloads) {
+        const quint32 oldest = m_payloadOrder.takeFirst();
+        m_pendingPayloads.remove(oldest);
+    }
+}
+
+void NotificationManager::forgetPayload(quint32 id)
+{
+    if (m_pendingPayloads.remove(id) > 0)
+        m_payloadOrder.removeOne(id);
 }
 
 void NotificationManager::deliver(const QString &title, const QString &body,
@@ -148,12 +181,8 @@ void NotificationManager::deliver(const QString &title, const QString &body,
     QDBusReply<quint32> reply = notifications.call(
         QStringLiteral("Notify"), QStringLiteral("Lightning"), quint32(0),
         QStringLiteral("lightning"), title, body, actions, hints, int(-1));
-    if (reply.isValid()) {
-        // Bounded pending map: the desktop keeps only a handful visible.
-        if (m_pendingPayloads.size() > 64)
-            m_pendingPayloads.clear();
-        m_pendingPayloads.insert(reply.value(), payload);
-    }
+    if (reply.isValid())
+        recordPayload(reply.value(), payload);
 #else
     Q_UNUSED(title);
     Q_UNUSED(body);
@@ -166,7 +195,8 @@ void NotificationManager::onActionInvoked(quint32 id, const QString &action)
 {
     if (action != QLatin1String("default"))
         return;
-    const QVariantMap payload = m_pendingPayloads.take(id);
+    const QVariantMap payload = m_pendingPayloads.value(id);
+    forgetPayload(id);
     if (payload.isEmpty())
         return;
     Q_EMIT openRequested(payload.value(QStringLiteral("roomId")).toString(),
@@ -178,5 +208,5 @@ void NotificationManager::onActionInvoked(quint32 id, const QString &action)
 void NotificationManager::onNotificationClosed(quint32 id, quint32 reason)
 {
     Q_UNUSED(reason);
-    m_pendingPayloads.remove(id);
+    forgetPayload(id);
 }

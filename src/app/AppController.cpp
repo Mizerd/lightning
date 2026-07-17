@@ -134,6 +134,9 @@ AppController::AppController(Backend backend, QObject *parent)
         context.notificationsEnabled = m_settings->notificationsEnabled();
         context.roomVisibleAtLatest =
             roomId == m_currentRoomId && m_activeRoomAtLatest;
+        // Suppress the initial-sync backlog: those events are pre-existing
+        // history, not fresh activity, and must not re-notify on each launch.
+        context.initialSyncComplete = m_client->initialSyncDone();
         m_notifications->processEvent(event, context);
     });
     connect(m_notifications.get(), &NotificationManager::openRequested, this,
@@ -143,7 +146,9 @@ AppController::AppController(Backend backend, QObject *parent)
     });
     connect(m_client.get(), &MatrixClient::loggedOut, this,
             [this] { m_notifications->clearPending(); m_knownInvites.clear(); });
-    // Invites: notify once per newly seen invited room.
+    // Invites: notify once per newly seen invited room. Invites present
+    // before the initial sync completes are seeded silently (see
+    // shouldNotifyInvite) so a restart never re-announces existing invites.
     connect(m_client.get(), &MatrixClient::roomsChanged, this, [this] {
         const auto rooms = m_client->rooms();
         QSet<QString> current;
@@ -151,9 +156,10 @@ AppController::AppController(Backend backend, QObject *parent)
             if (room.membership != RoomInfo::Invited)
                 continue;
             current.insert(room.id);
-            if (m_knownInvites.contains(room.id))
-                continue;
-            if (m_settings->notificationsEnabled()) {
+            if (NotificationManager::shouldNotifyInvite(
+                    m_client->initialSyncDone(),
+                    m_knownInvites.contains(room.id),
+                    m_settings->notificationsEnabled())) {
                 m_notifications->showGeneric(
                     tr("Room invitation"),
                     m_settings->notificationPreview() == 2
