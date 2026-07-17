@@ -485,6 +485,36 @@ Item {
                                                + "suppressed while the room is open, "
                                                + "focused, and at the latest message.")
                                 }
+                                // v0.6.1: notification sound.
+                                Label {
+                                    text: qsTr("Notification sound")
+                                    color: AppTheme.textSecondary
+                                    font.pixelSize: AppTheme.fontSecondary
+                                    font.weight: Font.DemiBold
+                                }
+                                ComboBox {
+                                    objectName: "notificationSoundCombo"
+                                    Layout.fillWidth: true
+                                    enabled: app.settings.notificationsEnabled
+                                    model: [
+                                        qsTr("Off"),
+                                        qsTr("Mentions and direct messages"),
+                                        qsTr("All notifications")
+                                    ]
+                                    currentIndex: app.settings.notificationSound
+                                    onActivated: (index) =>
+                                        app.settings.notificationSound = index
+                                }
+                                Label {
+                                    Layout.fillWidth: true
+                                    wrapMode: Text.WordWrap
+                                    color: AppTheme.textMuted
+                                    font.pixelSize: AppTheme.fontCaption
+                                    text: qsTr("The sound plays only when a "
+                                               + "notification is shown, so muted and "
+                                               + "active rooms stay silent. Bursts are "
+                                               + "coalesced into a single alert.")
+                                }
                                 Label {
                                     Layout.fillWidth: true
                                     wrapMode: Text.WordWrap

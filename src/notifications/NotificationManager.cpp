@@ -3,6 +3,7 @@
 #include "matrix/TimelineEvent.h"
 
 #include <QCoreApplication>
+#include <QDateTime>
 #include <QLoggingCategory>
 
 #ifdef HAVE_QT_DBUS
@@ -19,6 +20,8 @@ namespace {
 const auto kService = QStringLiteral("org.freedesktop.Notifications");
 const auto kPath = QStringLiteral("/org/freedesktop/Notifications");
 const auto kInterface = QStringLiteral("org.freedesktop.Notifications");
+// Notification-sound burst coalescing window (ms).
+constexpr qint64 kSoundCoalesceMs = 1500;
 } // namespace
 
 NotificationManager::NotificationManager(QObject *parent)
@@ -104,6 +107,22 @@ NotificationManager::decide(const TimelineEvent &event, const Context &context)
             "Notifications", "New Matrix notification");
         break;
     }
+
+    // Sound rides on the notify decision (so muted / active-room /
+    // mentions-only suppression already suppressed it). The mode narrows which
+    // eligible notifications also make a sound.
+    switch (context.soundMode) {
+    case SoundOff:
+        decision.playSound = false;
+        break;
+    case SoundMentionsAndDirect:
+        decision.playSound =
+            mention || context.roomIsDirect;
+        break;
+    case SoundAll:
+        decision.playSound = true;
+        break;
+    }
     return decision;
 }
 
@@ -124,7 +143,7 @@ void NotificationManager::processEvent(const TimelineEvent &event,
     payload.insert(QStringLiteral("roomId"), event.roomId);
     payload.insert(QStringLiteral("eventId"), event.eventId);
     payload.insert(QStringLiteral("threadRootId"), event.threadRootId);
-    deliver(decision.title, decision.body, payload);
+    deliver(decision.title, decision.body, payload, decision.playSound);
 }
 
 void NotificationManager::showGeneric(const QString &title,
@@ -165,7 +184,7 @@ void NotificationManager::forgetPayload(quint32 id)
 }
 
 void NotificationManager::deliver(const QString &title, const QString &body,
-                                  const QVariantMap &payload)
+                                  const QVariantMap &payload, bool sound)
 {
 #ifdef HAVE_QT_DBUS
     QDBusInterface notifications(kService, kPath, kInterface,
@@ -175,9 +194,20 @@ void NotificationManager::deliver(const QString &title, const QString &body,
         return;
     }
     const QStringList actions{ QStringLiteral("default"), tr("Open") };
-    const QVariantMap hints{
+    QVariantMap hints{
         { QStringLiteral("desktop-entry"), QStringLiteral("lightning") },
     };
+    if (sound) {
+        // Coalesce bursts: at most one alert per short window.
+        const qint64 now = QDateTime::currentMSecsSinceEpoch();
+        if (now - m_lastSoundMs >= kSoundCoalesceMs) {
+            m_lastSoundMs = now;
+            // Themed freedesktop sound name — the notification server plays
+            // it; Lightning bundles no audio and touches no audio device.
+            hints.insert(QStringLiteral("sound-name"),
+                         QStringLiteral("message-new-instant"));
+        }
+    }
     QDBusReply<quint32> reply = notifications.call(
         QStringLiteral("Notify"), QStringLiteral("Lightning"), quint32(0),
         QStringLiteral("lightning"), title, body, actions, hints, int(-1));

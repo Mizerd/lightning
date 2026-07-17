@@ -29,6 +29,9 @@ public:
     // push rules).
     enum RoomMode { AllMessages = 0, MentionsOnly = 1, Muted = 2 };
     Q_ENUM(RoomMode)
+    // SettingsManager's notificationSound values.
+    enum SoundMode { SoundOff = 0, SoundMentionsAndDirect = 1, SoundAll = 2 };
+    Q_ENUM(SoundMode)
 
     // Everything the decision needs, supplied by the app layer.
     struct Context {
@@ -48,11 +51,16 @@ public:
         // on each launch (the 0.6.0 cold-start storm). Defaults true so the
         // Mock backend and pure-policy tests notify unless told otherwise.
         bool initialSyncComplete = true;
+        SoundMode soundMode = SoundMentionsAndDirect;
     };
     struct Decision {
         bool notify = false;
         QString title;
         QString body;
+        // Whether this notification should also play a sound. Always false
+        // when notify is false, so muted / active-room / mentions-only
+        // suppression suppresses the sound too.
+        bool playSound = false;
     };
 
     explicit NotificationManager(QObject *parent = nullptr);
@@ -99,7 +107,7 @@ private Q_SLOTS:
 
 private:
     void deliver(const QString &title, const QString &body,
-                 const QVariantMap &payload);
+                 const QVariantMap &payload, bool sound = false);
     // Store one click payload, evicting the oldest when the bounded cap is
     // exceeded (a desktop only keeps a handful visible). FIFO eviction keeps
     // the most recent notifications clickable instead of dropping them all.
@@ -113,4 +121,7 @@ private:
     // Insertion order of the ids in m_pendingPayloads, oldest first, so the
     // eviction can drop the least-recent entry (QHash is unordered).
     QList<quint32> m_payloadOrder;
+    // Monotonic time (ms) of the last sound played; a short window coalesces
+    // notification bursts into a single alert.
+    qint64 m_lastSoundMs = 0;
 };

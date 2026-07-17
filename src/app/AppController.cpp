@@ -138,6 +138,8 @@ AppController::AppController(Backend backend, QObject *parent)
         // Suppress the initial-sync backlog: those events are pre-existing
         // history, not fresh activity, and must not re-notify on each launch.
         context.initialSyncComplete = m_client->initialSyncDone();
+        context.soundMode = static_cast<NotificationManager::SoundMode>(
+            m_settings->notificationSound());
         m_notifications->processEvent(event, context);
     });
     connect(m_notifications.get(), &NotificationManager::openRequested, this,

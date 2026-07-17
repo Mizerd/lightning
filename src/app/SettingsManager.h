@@ -20,6 +20,12 @@ class SettingsManager : public QObject
     // 1 = sender only (default), 2 = private ("New Matrix notification").
     Q_PROPERTY(int notificationPreview READ notificationPreview
                    WRITE setNotificationPreview NOTIFY notificationPreviewChanged)
+    // v0.6.1: notification sound. 0 = off, 1 = mentions and direct messages
+    // (default), 2 = all displayed notifications. Sound rides on the same
+    // decision as the notification, so muted / active-room / mentions-only
+    // suppression suppresses the sound too.
+    Q_PROPERTY(int notificationSound READ notificationSound
+                   WRITE setNotificationSound NOTIFY notificationSoundChanged)
     // v0.5.11: link previews. Encrypted-room previews default OFF (privacy).
     Q_PROPERTY(bool autoLoadLinkPreviews READ autoLoadLinkPreviews
                    WRITE setAutoLoadLinkPreviews NOTIFY autoLoadLinkPreviewsChanged)
@@ -83,6 +89,8 @@ public:
 
     bool notificationsEnabled() const;
     int notificationPreview() const;
+    int notificationSound() const;
+    void setNotificationSound(int mode);
     void setNotificationPreview(int mode);
     // v0.6.0 checkpoint 11: LOCAL per-room notification mode (0 = all
     // messages, 1 = mentions only, 2 = mute). Explicitly this-device-only —
@@ -151,6 +159,7 @@ Q_SIGNALS:
     void startMinimizedChanged();
     void notificationsEnabledChanged();
     void notificationPreviewChanged();
+    void notificationSoundChanged();
     void roomNotificationModeChanged(const QString &roomId);
     void autoLoadLinkPreviewsChanged();
     void loadPreviewsInEncryptedRoomsChanged();

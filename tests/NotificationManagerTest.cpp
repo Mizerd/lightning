@@ -209,6 +209,64 @@ private Q_SLOTS:
         QVERIFY(!NotificationManager::shouldNotifyInvite(true, false, false));
     }
 
+    // v0.6.1: notification sound rides on the notify decision and the mode
+    // narrows which eligible notifications also sound.
+    void soundModeGatesEligibleNotifications()
+    {
+        auto ctx = baseContext();
+
+        // Off: never sounds, even for a mention.
+        ctx.soundMode = NotificationManager::SoundOff;
+        TimelineEvent mention = incomingText();
+        mention.mentionsMe = true;
+        QVERIFY(!NotificationManager::decide(mention, ctx).playSound);
+
+        // Mentions & DMs: a plain non-DM message notifies but is silent…
+        ctx.soundMode = NotificationManager::SoundMentionsAndDirect;
+        const auto plain = NotificationManager::decide(incomingText(), ctx);
+        QVERIFY(plain.notify);
+        QVERIFY(!plain.playSound);
+        // …a mention sounds…
+        QVERIFY(NotificationManager::decide(mention, ctx).playSound);
+        // …and a direct message sounds.
+        auto dm = baseContext();
+        dm.soundMode = NotificationManager::SoundMentionsAndDirect;
+        dm.roomIsDirect = true;
+        QVERIFY(NotificationManager::decide(incomingText(), dm).playSound);
+
+        // All: every eligible notification sounds.
+        ctx.soundMode = NotificationManager::SoundAll;
+        QVERIFY(NotificationManager::decide(incomingText(), ctx).playSound);
+    }
+
+    // Suppression that stops the notification also stops the sound.
+    void suppressedNotificationsNeverSound()
+    {
+        auto ctx = baseContext();
+        ctx.soundMode = NotificationManager::SoundAll;
+
+        // Muted room: no notify, no sound.
+        auto muted = ctx;
+        muted.roomMode = NotificationManager::Muted;
+        QVERIFY(!NotificationManager::decide(incomingText(), muted).playSound);
+
+        // Active room at latest: no notify, no sound.
+        auto active = ctx;
+        active.roomVisibleAtLatest = true;
+        QVERIFY(!NotificationManager::decide(incomingText(), active).playSound);
+
+        // Backlog during initial sync: no notify, no sound.
+        auto backlog = ctx;
+        backlog.initialSyncComplete = false;
+        QVERIFY(!NotificationManager::decide(incomingText(), backlog).playSound);
+
+        // Mentions-only room, plain message: no notify, no sound.
+        auto mentionsOnly = ctx;
+        mentionsOnly.roomMode = NotificationManager::MentionsOnly;
+        QVERIFY(!NotificationManager::decide(incomingText(), mentionsOnly)
+                     .playSound);
+    }
+
     // v0.6.1 regression (click routing lost after 64 pending): the bounded
     // map evicts the OLDEST payloads (FIFO) instead of clearing everything, so
     // the most recent notifications remain clickable.

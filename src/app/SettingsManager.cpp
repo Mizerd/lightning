@@ -162,6 +162,24 @@ void SettingsManager::setNotificationPreview(int mode)
     Q_EMIT notificationPreviewChanged();
 }
 
+int SettingsManager::notificationSound() const
+{
+    // 1 = mentions and direct messages: the conservative default.
+    const int mode =
+        m_store->value(QStringLiteral("notifications/sound"), 1).toInt();
+    return (mode < 0 || mode > 2) ? 1 : mode;
+}
+
+void SettingsManager::setNotificationSound(int mode)
+{
+    if (mode < 0 || mode > 2)
+        mode = 1;
+    if (notificationSound() == mode)
+        return;
+    m_store->setValue(QStringLiteral("notifications/sound"), mode);
+    Q_EMIT notificationSoundChanged();
+}
+
 int SettingsManager::roomNotificationMode(const QString &roomId) const
 {
     if (roomId.isEmpty())
