@@ -1,6 +1,6 @@
-# Current state (v0.5.19)
+# Current state (v0.6.0)
 
-## v0.6.0 (in progress) — E2EE, threads, notifications, scrolling integration
+## v0.6.0 — E2EE, threads, notifications, scrolling integration
 
 Integration fix found during the pass: sync `timeline_event` payloads for
 rooms WITHOUT a live timeline (the main notification source) did not carry
@@ -24,7 +24,7 @@ bounded to fetched pages, the notification payload map is capped, manual
 decryption retries coalesce in a 2 s window, and no permanently running
 frame timer was added.
 
-## v0.6.0 (in progress) — native notifications and mentions
+## v0.6.0 — native notifications and mentions
 
 **Mentions.** The Rust bridge serializes the SDK-parsed `m.mentions`
 metadata (`mentions_me` from the user-id list, `mentions_room` from
@@ -51,7 +51,7 @@ identity only, never a token. Honest limitations: no Matrix push-rule
 evaluation (the SDK's NotificationClient is push-oriented; local modes
 are labeled local), no notification sounds, no push registration.
 
-## v0.6.0 (in progress) — cross-signing, recovery, and key-backup controls
+## v0.6.0 — cross-signing, recovery, and key-backup controls
 
 Audit result for matrix-sdk 0.18: `Recovery::recover()` accepts both a
 recovery key AND a passphrase, imports the 4S secrets (including
@@ -70,7 +70,7 @@ through the SDK's automatic secret gossip after verification — no manual
 "request secrets" button pretends otherwise; no crypto store is ever
 reset as a recovery path.
 
-## v0.6.0 (in progress) — device and session security management
+## v0.6.0 — device and session security management
 
 Settings gains a read-only **Sessions** card for the Rust backend:
 `mx_rust_list_devices` merges the homeserver's device list (display name,
@@ -88,7 +88,7 @@ requires interactive re-authentication (UIA), which Lightning does not
 implement in this release — the destructive action is omitted rather than
 faked. QR verification is not offered (SAS only).
 
-## v0.6.0 (in progress) — automatic E2EE key recovery and decryption retry
+## v0.6.0 — automatic E2EE key recovery and decryption retry
 
 Audit result: matrix-sdk 0.18's Redecryptor already re-decrypts
 unable-to-decrypt events automatically whenever room keys arrive (late
@@ -117,7 +117,7 @@ SDK's request machinery; the 0.6.0 additions are:
   to Security settings. No session ids, ciphertext, or raw event JSON are
   rendered.
 
-## v0.6.0 (in progress) — E2EE health and readiness model
+## v0.6.0 — E2EE health and readiness model
 
 `CryptoHealthModel` (`app.cryptoHealth`) is a single READ-ONLY model
 mirroring sanitized `crypto_health` snapshots from the Rust bridge
@@ -137,7 +137,7 @@ operations, explicit Settings Refresh) — QML never polls. Settings gains
 a read-only "Security status" card; unsupported capabilities render as
 informative state, never as errors.
 
-## v0.6.0 (in progress) — thread and timeline integration polish
+## v0.6.0 — thread and timeline integration polish
 
 The thread panel's reply list now runs the same device-aware wheel motion
 engine as the room timeline through its OWN `TimelineScrollController`
@@ -153,7 +153,7 @@ per-thread scroll anchor. The thread composer takes keyboard focus when a
 thread becomes ready; Escape order is room info → reply banner → thread
 panel → Threads list → pinned toolbar.
 
-## v0.6.0 (in progress) — thread unread, following, and navigation
+## v0.6.0 — thread unread, following, and navigation
 
 **Unread.** Thread roots carry the SDK ThreadSummary's conservative
 receipt-based unread hint (dot in the room-timeline summary row and in the
@@ -183,7 +183,7 @@ unavailable-target message), and per-thread scroll positions restore when
 reopening a thread (session-local). Room switches close the view;
 generation stamps drop stale list snapshots.
 
-## v0.6.0 (in progress) — thread composing and actions
+## v0.6.0 — thread composing and actions
 
 Thread participation is functional end to end. The panel composer sends
 exclusively through `ThreadController.sendText` → the backend's SDK
@@ -203,7 +203,7 @@ composer also gets the shared emoji picker; multiline input via
 Shift+Enter. Known limitation: attachment sending from the thread
 composer is not implemented yet (room attachments unchanged).
 
-## v0.6.0 (in progress) — thread panel and timeline UI
+## v0.6.0 — thread panel and timeline UI
 
 `ThreadPanel.qml` renders the open thread beside the room timeline: a
 Thread header with reply count and close button, the pinned root header
@@ -225,7 +225,7 @@ windows hand it the whole pane while the room state stays alive
 underneath. Escape closes room info first, then the thread panel, then a
 pinned toolbar; room switches always close the panel.
 
-## v0.6.0 (in progress) — SDK-backed thread foundation
+## v0.6.0 — SDK-backed thread foundation
 
 Before 0.6.0, "Reply in thread" on the Rust backend fell back to an ordinary
 rich reply (no real `m.thread` relation) and thread roles were derived only
@@ -260,7 +260,7 @@ native thread machinery end to end:
   encrypted-thread fixture (decrypted root/reply + undecryptable reply), so
   the panel UI and controller are fully testable offline.
 
-## v0.6.0 (in progress) — smooth long-message wheel motion
+## v0.6.0 — smooth long-message wheel motion
 
 0.5.19's discrete-wheel path computed a coalesced target in
 `TimelineScrollController` but animated `contentY` in QML with a single

@@ -12,18 +12,20 @@ across the rename. The product name is **Lightning**.
 
 ## Status
 
-**v0.5.19** — Timeline scrolling and input ergonomics release. Physical
-mouse-wheel scrolling is substantially more responsive: a device-aware policy
-maps one notch to a bounded, viewport-relative distance and coalesces rapid
-notches into one smooth motion, while high-resolution touchpad/pixel scrolling
-stays fine-grained (never multiplied by the notch factor). A persistent
-**Mouse-wheel speed** setting (Standard / Fast / Very fast; default **Fast**)
-tunes the discrete-wheel distance only. Keyboard navigation adds **Page Up /
-Page Down / Home / End** (plus Space / Shift+Space), yielding to a focused
-composer, dialog, or menu. Pagination, the first-unread divider, Jump to
-latest, reply navigation, per-room scroll anchors, and follow-latest all
-continue to work, and the Matrix SDK, E2EE, media, and preview security
-boundaries are unchanged (`matrix-sdk 0.18.0`, `matrix-sdk-ui 0.18.0`).
+**v0.6.0** — Threads, E2EE recovery, and smooth-scrolling release. The
+timeline gains a continuously smooth wheel-motion engine (long wrapped
+messages scroll as one glide; Very fast stays fast). Matrix threads are
+SDK-backed end to end: a thread panel with pinned root and reply timeline,
+real `m.thread` composing (rich replies within threads, encrypted rooms via
+the SDK), a Threads view per room, MSC4306 follow/unfollow, threaded read
+receipts, and conservative unread hints. E2EE gets a read-only health model
+(Settings → Security status), automatic key recovery (per-UTD backup
+download plus the SDK's automatic redecryption, applied in place), a manual
+Retry decryption action, a read-only Sessions list with honest trust
+labels, and a recovery key/passphrase restore flow. Native freedesktop
+notifications with three privacy modes (default: sender only), local
+per-room modes, active-room suppression, and authoritative m.mentions
+highlighting round out the release.
 
 **v0.5.18** — Timeline reliability and usability release. Room history now
 waits for live SDK timeline readiness and automatically retries transient
