@@ -712,6 +712,130 @@ Item {
                             }
                         }
 
+                        // v0.6.0 checkpoint 9: the account's Matrix
+                        // devices/sessions — server metadata merged with SDK
+                        // crypto trust. Read-only: removing other sessions
+                        // requires interactive re-authentication, which
+                        // Lightning does not implement yet (limitation shown
+                        // honestly below).
+                        SettingsCard {
+                            visible: app.backendName === "rust"
+                            ColumnLayout {
+                                width: parent.width
+                                spacing: AppTheme.spacing8
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    Label {
+                                        text: qsTr("Sessions")
+                                        color: AppTheme.textSecondary
+                                        font.pixelSize: AppTheme.fontSecondary
+                                        font.weight: Font.DemiBold
+                                    }
+                                    Item { Layout.fillWidth: true }
+                                    Label {
+                                        objectName: "sessionDevicesRefresh"
+                                        text: app.sessionDevicesLoading
+                                              ? qsTr("Loading…") : qsTr("Refresh")
+                                        color: AppTheme.accent
+                                        font.pixelSize: AppTheme.fontSecondary
+                                        font.underline: !app.sessionDevicesLoading
+                                        MouseArea {
+                                            anchors.fill: parent
+                                            cursorShape: Qt.PointingHandCursor
+                                            enabled: !app.sessionDevicesLoading
+                                            onClicked: app.refreshSessionDevices()
+                                        }
+                                    }
+                                }
+                                Label {
+                                    visible: app.sessionDevicesFailed
+                                    Layout.fillWidth: true
+                                    wrapMode: Text.WordWrap
+                                    color: AppTheme.danger
+                                    font.pixelSize: AppTheme.fontSecondary
+                                    text: qsTr("The session list could not be loaded.")
+                                }
+                                Label {
+                                    visible: !app.sessionDevicesFailed
+                                             && !app.sessionDevicesLoading
+                                             && app.sessionDevices.length === 0
+                                    Layout.fillWidth: true
+                                    wrapMode: Text.WordWrap
+                                    color: AppTheme.textMuted
+                                    font.pixelSize: AppTheme.fontSecondary
+                                    text: qsTr("Press Refresh to load this account's sessions.")
+                                }
+                                Repeater {
+                                    model: app.sessionDevices
+                                    delegate: ColumnLayout {
+                                        Layout.fillWidth: true
+                                        spacing: 2
+                                        RowLayout {
+                                            Layout.fillWidth: true
+                                            spacing: AppTheme.spacing8
+                                            Label {
+                                                text: (modelData.displayName
+                                                       && modelData.displayName.length > 0)
+                                                      ? modelData.displayName
+                                                      : modelData.deviceId
+                                                color: AppTheme.text
+                                                font.pixelSize: AppTheme.fontSecondary
+                                                font.weight: Font.DemiBold
+                                                elide: Label.ElideRight
+                                                Layout.fillWidth: true
+                                            }
+                                            Label {
+                                                visible: modelData.isCurrent === true
+                                                text: qsTr("This session")
+                                                color: AppTheme.accent
+                                                font.pixelSize: AppTheme.fontSecondary
+                                            }
+                                            Label {
+                                                text: modelData.crossSigned === true
+                                                      ? qsTr("Verified")
+                                                      : modelData.hasCryptoIdentity === true
+                                                        ? qsTr("Not verified")
+                                                        : qsTr("No encryption")
+                                                color: modelData.crossSigned === true
+                                                       ? AppTheme.success
+                                                       : AppTheme.textMuted
+                                                font.pixelSize: AppTheme.fontSecondary
+                                            }
+                                        }
+                                        Label {
+                                            Layout.fillWidth: true
+                                            color: AppTheme.textMuted
+                                            font.pixelSize: AppTheme.fontSecondary
+                                            elide: Label.ElideRight
+                                            text: {
+                                                var parts = [ modelData.deviceId ]
+                                                if (modelData.lastSeen
+                                                    && !isNaN(modelData.lastSeen.getTime()))
+                                                    parts.push(qsTr("last seen %1").arg(
+                                                        Qt.formatDateTime(modelData.lastSeen,
+                                                                          "d MMM yyyy hh:mm")))
+                                                if (modelData.lastSeenIp
+                                                    && modelData.lastSeenIp.length > 0)
+                                                    parts.push(modelData.lastSeenIp)
+                                                return parts.join(" · ")
+                                            }
+                                        }
+                                    }
+                                }
+                                Label {
+                                    Layout.fillWidth: true
+                                    wrapMode: Text.WordWrap
+                                    color: AppTheme.textMuted
+                                    font.pixelSize: AppTheme.fontSecondary
+                                    text: qsTr("Signing out other sessions from Lightning "
+                                               + "is not supported yet — use another "
+                                               + "client for that. Verification below "
+                                               + "always requires explicit confirmation "
+                                               + "on both sessions.")
+                                }
+                            }
+                        }
+
                         // Rust-only: session verification.
                         SettingsCard {
                             visible: app.backendName === "rust"

@@ -1138,6 +1138,13 @@ void RustSdkMatrixClient::queryCryptoHealth()
     takeRustString(mx_rust_query_crypto_health(m_rustHandle));
 }
 
+void RustSdkMatrixClient::requestDeviceList()
+{
+    if (!m_loggedIn || !m_rustHandle)
+        return;
+    takeRustString(mx_rust_list_devices(m_rustHandle));
+}
+
 void RustSdkMatrixClient::retryDecryption(const QString &roomId)
 {
     if (!m_loggedIn || !m_rustHandle || roomId.isEmpty())
@@ -1797,6 +1804,38 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
     }
     if (type == QLatin1String("thread_closed")) {
         handleThreadClosed(event);
+        return;
+    }
+    if (type == QLatin1String("device_list")) {
+        QVariantList devices;
+        const QJsonArray items = event.value(QStringLiteral("devices")).toArray();
+        for (const auto &value : items) {
+            const QJsonObject obj = value.toObject();
+            QVariantMap entry;
+            entry.insert(QStringLiteral("deviceId"),
+                         obj.value(QStringLiteral("device_id")).toString());
+            entry.insert(QStringLiteral("displayName"),
+                         obj.value(QStringLiteral("display_name")).toString());
+            const auto ts = static_cast<qint64>(
+                obj.value(QStringLiteral("last_seen_ts")).toDouble(0));
+            entry.insert(QStringLiteral("lastSeen"),
+                         ts > 0 ? QDateTime::fromMSecsSinceEpoch(ts, Qt::UTC)
+                                : QDateTime{});
+            entry.insert(QStringLiteral("lastSeenIp"),
+                         obj.value(QStringLiteral("last_seen_ip")).toString());
+            entry.insert(QStringLiteral("isCurrent"),
+                         obj.value(QStringLiteral("is_current")).toBool(false));
+            entry.insert(QStringLiteral("hasCryptoIdentity"),
+                         obj.value(QStringLiteral("has_crypto_identity"))
+                             .toBool(false));
+            entry.insert(QStringLiteral("verified"),
+                         obj.value(QStringLiteral("verified")).toBool(false));
+            entry.insert(QStringLiteral("crossSigned"),
+                         obj.value(QStringLiteral("cross_signed")).toBool(false));
+            devices.append(entry);
+        }
+        Q_EMIT deviceListUpdated(
+            event.value(QStringLiteral("ok")).toBool(false), devices);
         return;
     }
     if (type == QLatin1String("crypto_health")) {

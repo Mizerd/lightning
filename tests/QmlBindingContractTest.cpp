@@ -146,6 +146,22 @@ private Q_SLOTS:
         QVERIFY(!delegate.contains(QStringLiteral("model.ciphertext")));
     }
 
+    // v0.6.0 checkpoint 9: the Sessions card lists devices read-only with
+    // honest trust labels, no destructive remote sign-out (limitation is
+    // stated), and never binds token-like fields.
+    void sessionsCardIsReadOnlyAndHonest()
+    {
+        const QString settings = read(QStringLiteral("SettingsScreen.qml"));
+        QVERIFY(settings.contains(QStringLiteral(
+            "onClicked: app.refreshSessionDevices()")));
+        QVERIFY(settings.contains(QStringLiteral("model: app.sessionDevices")));
+        QVERIFY(settings.contains(QStringLiteral("This session")));
+        QVERIFY(settings.contains(QStringLiteral("Not verified")));
+        QVERIFY(settings.contains(QStringLiteral("is not supported yet")));
+        QVERIFY(!settings.contains(QStringLiteral("accessToken")));
+        QVERIFY(!settings.contains(QStringLiteral("access_token")));
+    }
+
     void unreadNavigationUsesSdkMarkerAndBottomThreshold()
     {
         const QString delegate = read(QStringLiteral("MessageDelegate.qml"));

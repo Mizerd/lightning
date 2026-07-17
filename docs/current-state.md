@@ -1,5 +1,23 @@
 # Current state (v0.5.19)
 
+## v0.6.0 (in progress) — device and session security management
+
+Settings gains a read-only **Sessions** card for the Rust backend:
+`mx_rust_list_devices` merges the homeserver's device list (display name,
+last-seen timestamp/IP) with the SDK crypto store's per-device trust
+(`is_verified` / `is_cross_signed_by_owner`), and the UI shows each
+session with a This session badge and an honest trust label (Verified /
+Not verified / No encryption — never conflating token validity with
+device verification). The current session sorts first, then most recently
+seen. Interactive SAS verification (outgoing "Verify with another
+session" and incoming request prompts with explicit Accept/Confirm/They
+don't match/Cancel on both sides, emoji + decimals rendered exactly as
+the SDK supplies them) predates 0.6.0 and is unchanged. Honest
+limitation, stated in the UI: removing/signing out OTHER sessions
+requires interactive re-authentication (UIA), which Lightning does not
+implement in this release — the destructive action is omitted rather than
+faked. QR verification is not offered (SAS only).
+
 ## v0.6.0 (in progress) — automatic E2EE key recovery and decryption retry
 
 Audit result: matrix-sdk 0.18's Redecryptor already re-decrypts

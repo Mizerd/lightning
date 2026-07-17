@@ -262,6 +262,11 @@ char *mx_rust_thread_send_text(void *client,
                                const char *root_event_id,
                                const char *body,
                                const char *in_reply_to);
+/* v0.6.0 checkpoint 9: list the account's devices/sessions (server list
+ * merged with SDK crypto trust). Result: `device_list` poll event with
+ * presentation-safe fields only — never device keys or tokens. */
+char *mx_rust_list_devices(void *client);
+
 /* v0.6.0 checkpoint 8: manual decryption retry for the open room's visible
  * unable-to-decrypt events (incl. the open thread panel). Never resets or
  * touches the crypto store. */

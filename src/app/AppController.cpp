@@ -1,5 +1,7 @@
 #include "app/AppController.h"
 
+#include <algorithm>
+
 #include "app/SettingsManager.h"
 #include "auth/AccountManager.h"
 #include "auth/AuthManager.h"
@@ -280,6 +282,33 @@ AppController::AppController(Backend backend, QObject *parent)
         });
         connect(rust, &MatrixClient::loggedOut, this, [this] {
             m_cryptoHealth->resetForNewGeneration();
+            m_sessionDevices.clear();
+            m_sessionDevicesLoading = false;
+            m_sessionDevicesFailed = false;
+            Q_EMIT sessionDevicesChanged();
+        });
+        // v0.6.0 checkpoint 9: device/session list — current session first,
+        // then most recently seen. Stale answers after logout are cleared by
+        // the reset above (the handle generation already drops post-destroy
+        // events).
+        connect(rust, &RustSdkMatrixClient::deviceListUpdated,
+                this, [this](bool ok, const QVariantList &devices) {
+            QVariantList sorted = devices;
+            std::sort(sorted.begin(), sorted.end(),
+                      [](const QVariant &a, const QVariant &b) {
+                const QVariantMap ma = a.toMap();
+                const QVariantMap mb = b.toMap();
+                const bool ca = ma.value(QStringLiteral("isCurrent")).toBool();
+                const bool cb = mb.value(QStringLiteral("isCurrent")).toBool();
+                if (ca != cb)
+                    return ca;
+                return ma.value(QStringLiteral("lastSeen")).toDateTime()
+                       > mb.value(QStringLiteral("lastSeen")).toDateTime();
+            });
+            m_sessionDevices = sorted;
+            m_sessionDevicesLoading = false;
+            m_sessionDevicesFailed = !ok;
+            Q_EMIT sessionDevicesChanged();
         });
         connect(this, &AppController::verificationStateChanged,
                 this, [this] {
@@ -789,6 +818,21 @@ void AppController::refreshSessionTrustState()
     if (auto *rust = qobject_cast<RustSdkMatrixClient *>(m_client.get())) {
         rust->refreshOwnDeviceStatus();
         rust->queryCryptoHealth();
+    }
+#endif
+}
+
+void AppController::refreshSessionDevices()
+{
+#ifdef ENABLE_RUST_SDK_BACKEND
+    if (m_backend == RustBackend && m_client) {
+        if (auto *rust = qobject_cast<RustSdkMatrixClient *>(m_client.get())) {
+            m_sessionDevicesLoading = true;
+            m_sessionDevicesFailed = false;
+            Q_EMIT sessionDevicesChanged();
+            rust->requestDeviceList();
+            return;
+        }
     }
 #endif
 }

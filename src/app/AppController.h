@@ -94,6 +94,11 @@ class AppController : public QObject
     Q_PROPERTY(CryptoManager* crypto READ crypto CONSTANT)
     // v0.6.0 checkpoint 7: read-only E2EE health/readiness (app.cryptoHealth).
     Q_PROPERTY(CryptoHealthModel* cryptoHealth READ cryptoHealth CONSTANT)
+    // v0.6.0 checkpoint 9: the account's devices/sessions (server metadata +
+    // SDK crypto trust; current session first, then by last-seen).
+    Q_PROPERTY(QVariantList sessionDevices READ sessionDevices NOTIFY sessionDevicesChanged)
+    Q_PROPERTY(bool sessionDevicesLoading READ sessionDevicesLoading NOTIFY sessionDevicesChanged)
+    Q_PROPERTY(bool sessionDevicesFailed READ sessionDevicesFailed NOTIFY sessionDevicesChanged)
     Q_PROPERTY(SpaceManager* spaces READ spaces CONSTANT)
     Q_PROPERTY(ThreadManager* threads READ threads CONSTANT)
     // v0.6.0: the single open SDK-backed thread panel (app.thread).
@@ -162,6 +167,10 @@ public:
     CryptoHealthModel *cryptoHealth() const { return m_cryptoHealth.get(); }
     // Bounded UI refresh (Settings "Refresh" and post-operation updates).
     Q_INVOKABLE void refreshCryptoHealth();
+    QVariantList sessionDevices() const { return m_sessionDevices; }
+    bool sessionDevicesLoading() const { return m_sessionDevicesLoading; }
+    bool sessionDevicesFailed() const { return m_sessionDevicesFailed; }
+    Q_INVOKABLE void refreshSessionDevices();
     SpaceManager *spaces() const;
     ThreadManager *threads() const;
     ThreadController *thread() const { return m_thread.get(); }
@@ -288,6 +297,7 @@ Q_SIGNALS:
 
     // v0.5.0 SAS verification.
     void verificationStateChanged();
+    void sessionDevicesChanged();
 
     // v0.5.6 Security & Recovery.
     void securityStateChanged();
@@ -330,6 +340,9 @@ private:
     std::unique_ptr<MediaManager> m_media;
     std::unique_ptr<CryptoManager> m_crypto;
     std::unique_ptr<CryptoHealthModel> m_cryptoHealth;
+    QVariantList m_sessionDevices;
+    bool m_sessionDevicesLoading = false;
+    bool m_sessionDevicesFailed = false;
     std::unique_ptr<SpaceManager> m_spaces;
     std::unique_ptr<ThreadManager> m_threads;
     std::unique_ptr<ThreadController> m_thread;

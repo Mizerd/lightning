@@ -133,6 +133,11 @@ public:
     // any time; skipped when not logged in.
     void queryCryptoHealth();
 
+    // v0.6.0 checkpoint 9. Ask Rust for the account's device/session list
+    // (server metadata + SDK crypto trust). Result arrives as
+    // deviceListUpdated(ok, devices).
+    void requestDeviceList();
+
     // v0.5.6. Snapshot the current session's cross-signing trust state
     // from the SDK. Emits ownDeviceStatusUpdated(...) with only the
     // aggregate fields the UI displays. Safe to call at any time; the
@@ -311,6 +316,9 @@ Q_SIGNALS:
     // v0.6.0 checkpoint 7: sanitized E2EE health snapshot (booleans, enum
     // names, public device id only).
     void cryptoHealthUpdated(const QVariantMap &snapshot);
+    // v0.6.0 checkpoint 9: entries carry deviceId, displayName, lastSeenTs,
+    // lastSeenIp, isCurrent, hasCryptoIdentity, verified, crossSigned.
+    void deviceListUpdated(bool ok, const QVariantList &devices);
     void ownDeviceStatusUpdated(const QString &deviceId,
                                 bool ownIdentityAvailable,
                                 bool ownIdentityVerified,

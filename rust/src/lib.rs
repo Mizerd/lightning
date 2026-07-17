@@ -2362,6 +2362,80 @@ pub unsafe extern "C" fn mx_rust_thread_send_text(
     })
 }
 
+/// v0.6.0 checkpoint 9: list the account's Matrix devices/sessions. Merges
+/// the server device list (display name, last-seen metadata) with the SDK
+/// crypto store's per-device trust (is_verified / is_cross_signed_by_owner).
+/// Emits a `device_list` poll event with presentation-safe fields only —
+/// device ids, names, timestamps, last-seen IP as reported by the
+/// homeserver — never device keys, signatures, or tokens.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_list_devices(ptr: *mut c_void) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let Some(client) = bridge.client.lock().ok().and_then(|g| g.clone()) else {
+            return Err("Rust SDK session is not logged in.".to_owned());
+        };
+        let events = Arc::clone(&bridge.events);
+        let lifecycle = bridge.timelines.lifecycle();
+        bridge.spawn_room_action(async move {
+            let own_device_id =
+                client.device_id().map(|d| d.to_string()).unwrap_or_default();
+            let user_id = client.user_id().map(|u| u.to_owned());
+            let response = match client.devices().await {
+                Ok(response) => response,
+                Err(_err) => {
+                    enqueue(&events, json!({
+                        "type": "device_list",
+                        "lifecycle": lifecycle,
+                        "ok": false,
+                        "category": "network",
+                        "devices": [],
+                    }));
+                    return;
+                }
+            };
+            let mut devices = Vec::new();
+            for device in response.devices {
+                let device_id = device.device_id.to_string();
+                let mut verified = false;
+                let mut cross_signed = false;
+                let mut has_crypto_identity = false;
+                if let Some(uid) = &user_id {
+                    if let Ok(Some(crypto_device)) = client
+                        .encryption()
+                        .get_device(uid, &device.device_id)
+                        .await
+                    {
+                        has_crypto_identity = true;
+                        verified = crypto_device.is_verified();
+                        cross_signed = crypto_device.is_cross_signed_by_owner();
+                    }
+                }
+                devices.push(json!({
+                    "device_id": device_id,
+                    "display_name": device.display_name.unwrap_or_default(),
+                    "last_seen_ts": device
+                        .last_seen_ts
+                        .map(|ts| u64::from(ts.get()))
+                        .unwrap_or(0),
+                    "last_seen_ip": device.last_seen_ip.unwrap_or_default(),
+                    "is_current": device.device_id == own_device_id,
+                    "has_crypto_identity": has_crypto_identity,
+                    "verified": verified,
+                    "cross_signed": cross_signed,
+                }));
+            }
+            enqueue(&events, json!({
+                "type": "device_list",
+                "lifecycle": lifecycle,
+                "ok": true,
+                "devices": devices,
+            }));
+        });
+        Ok(String::new())
+    })
+}
+
 /// v0.6.0 checkpoint 8: manual "Retry decryption" for the open room (and
 /// its open thread panel). One bounded pass per call; the SDK's own
 /// AfterDecryptionFailure strategy performs any backup key download.
