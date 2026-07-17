@@ -162,6 +162,21 @@ private Q_SLOTS:
         QVERIFY(!settings.contains(QStringLiteral("access_token")));
     }
 
+    // v0.6.0 checkpoint 10: the recovery input is masked, accepts key or
+    // passphrase, is wiped immediately after dispatch, and a successful
+    // recovery re-reads SDK trust/backup state. No new-backup or
+    // cross-signing SETUP button is faked (UIA limitation documented).
+    void recoveryInputIsMaskedClearedAndHonest()
+    {
+        const QString settings = read(QStringLiteral("SettingsScreen.qml"));
+        QVERIFY(settings.contains(QStringLiteral("echoMode: TextInput.Password")));
+        QVERIFY(settings.contains(QStringLiteral("Recovery key or passphrase")));
+        QVERIFY(settings.contains(QStringLiteral("recoveryField.text = \"\"")));
+        QVERIFY(settings.contains(QStringLiteral("app.refreshCryptoHealth()")));
+        QVERIFY(!settings.contains(QStringLiteral("Set up backup")));
+        QVERIFY(!settings.contains(QStringLiteral("Set up cross-signing")));
+    }
+
     void unreadNavigationUsesSdkMarkerAndBottomThreshold()
     {
         const QString delegate = read(QStringLiteral("MessageDelegate.qml"));

@@ -1,5 +1,24 @@
 # Current state (v0.5.19)
 
+## v0.6.0 (in progress) — cross-signing, recovery, and key-backup controls
+
+Audit result for matrix-sdk 0.18: `Recovery::recover()` accepts both a
+recovery key AND a passphrase, imports the 4S secrets (including
+cross-signing keys, which lets the SDK sign this session), and — combined
+with the AfterDecryptionFailure backup strategy — restores room-key
+access. Lightning's recovery entry is therefore the one honest control:
+masked input relabeled "Recovery key or passphrase", wiped from the QML
+property immediately on dispatch, never logged, explicit progress /
+success / failure states, and a successful recovery re-reads SDK trust
+and backup state so the Security status card updates in place. "Check
+backup" is the status card's Refresh. Honest limitations (stated in the
+UI and here): bootstrapping NEW cross-signing or creating a NEW key
+backup requires interactive re-authentication / full 4S setup, which
+Lightning omits rather than fakes; secrets from other sessions arrive
+through the SDK's automatic secret gossip after verification — no manual
+"request secrets" button pretends otherwise; no crypto store is ever
+reset as a recovery path.
+
 ## v0.6.0 (in progress) — device and session security management
 
 Settings gains a read-only **Sessions** card for the Rust backend:

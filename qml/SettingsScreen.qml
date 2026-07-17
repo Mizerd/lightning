@@ -1026,7 +1026,17 @@ Item {
                             }
                         }
 
-                        // Rust-only: recovery key + room-key import.
+                        // Rust-only: recovery key/passphrase + room-key
+                        // import. Restoring recovery also restores
+                        // cross-signing secrets where they are stored in 4S
+                        // (the SDK imports them and can sign this session).
+                        // Honest limitations: SETTING UP new cross-signing or
+                        // a new key backup requires interactive
+                        // re-authentication / full 4S bootstrap, which
+                        // Lightning does not implement in 0.6.0; secrets from
+                        // other sessions arrive via the SDK's automatic
+                        // secret gossip after verification (no manual
+                        // request button is faked).
                         SettingsCard {
                             visible: app.backendName === "rust"
                             ColumnLayout {
@@ -1045,7 +1055,7 @@ Item {
                                 }
 
                                 Label {
-                                    text: qsTr("Recovery key")
+                                    text: qsTr("Recovery key or passphrase")
                                     font.weight: Font.DemiBold
                                     color: AppTheme.text
                                 }
@@ -1059,8 +1069,11 @@ Item {
                                         id: recoveryField
                                         Layout.fillWidth: true
                                         Layout.minimumWidth: 160
+                                        objectName: "recoveryInputField"
                                         echoMode: TextInput.Password
-                                        placeholderText: qsTr("Paste the Element recovery key")
+                                        // The SDK's recover() accepts both a
+                                        // recovery key and a passphrase.
+                                        placeholderText: qsTr("Recovery key or passphrase")
                                         enabled: !recoveryPanel.running
                                     }
                                     Button {
@@ -1108,6 +1121,11 @@ Item {
                                                 "decrypt as keys arrive. Some old messages may " +
                                                 "still require another verified device to share " +
                                                 "keys.")
+                                            // v0.6.0 checkpoint 10: recovered
+                                            // secrets change trust/backup
+                                            // state — re-read it from the SDK.
+                                            app.refreshCryptoHealth()
+                                            app.refreshSessionTrustState()
                                             recoveryPanel.statusColor = AppTheme.success
                                         } else if (state === "failed") {
                                             recoveryPanel.running = false
