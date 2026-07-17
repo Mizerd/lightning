@@ -966,6 +966,85 @@ impl TimelineRegistry {
         Ok(())
     }
 
+    /// v0.6.1: send an attachment INTO a thread through the SDK's
+    /// thread-focused timeline. Because the timeline is focused on the thread
+    /// root, `send_attachment` runs the SDK's `infer_reply`, which attaches a
+    /// correct `m.thread` relation (with the reply-to fallback for
+    /// non-thread-aware clients) and, in encrypted rooms, encrypts the
+    /// attachment — exactly as the SDK does for a thread text reply. No
+    /// relation JSON is built by hand and the send never lands as an ordinary
+    /// room message. If the panel is not open (a race), a transient
+    /// thread-focused timeline is built for the send. The result is gated on
+    /// the thread still being current so a stale echo never crosses the FFI.
+    #[allow(clippy::too_many_arguments)]
+    pub fn send_thread_attachment(
+        self: &Arc<Self>,
+        runtime: &tokio::runtime::Runtime,
+        client: Client,
+        room_id: String,
+        root_event_id: String,
+        source: AttachmentSource,
+        mime_str: String,
+        caption: Option<String>,
+        info: Option<AttachmentInfo>,
+        op_id: u64,
+    ) -> Result<(), String> {
+        let mime: mime::Mime = mime_str
+            .parse()
+            .map_err(|_| "Unsupported attachment MIME type.".to_owned())?;
+        let events = Arc::clone(&self.events);
+        let lifecycle = self.lifecycle_gen.load(Ordering::SeqCst);
+        let thread_gen = self.thread_gen.load(Ordering::SeqCst);
+        let registry = Arc::clone(self);
+        let open_thread = self.thread_timeline_for(&room_id, &root_event_id);
+        runtime.spawn(async move {
+            let timeline = match open_thread {
+                Some((timeline, _gen, _lc)) => Some(timeline),
+                None => {
+                    build_transient_thread_timeline(&client, &room_id, &root_event_id)
+                        .await
+                }
+            };
+            let sent = if let Some(timeline) = timeline {
+                let config = AttachmentConfig {
+                    txn_id: None,
+                    info,
+                    thumbnail: None,
+                    caption: caption
+                        .filter(|c| !c.is_empty())
+                        .map(TextMessageEventContent::plain),
+                    mentions: None,
+                    // None → infer_reply threads it from the focus; never an
+                    // ordinary room message.
+                    in_reply_to: None,
+                };
+                timeline
+                    .send_attachment(source, mime, config)
+                    .use_send_queue()
+                    .await
+                    .is_ok()
+            } else {
+                false
+            };
+            if registry.thread_current(thread_gen, lifecycle) {
+                enqueue(
+                    &events,
+                    json!({
+                        "type": "attachment_send_result",
+                        "op_id": op_id,
+                        "room_id": room_id,
+                        "thread_root_id": root_event_id,
+                        "lifecycle": lifecycle,
+                        "ok": sent,
+                        // Coarse category only; never local paths or detail.
+                        "category": if sent { "" } else { "rejected" },
+                    }),
+                );
+            }
+        });
+        Ok(())
+    }
+
     /// Edit an existing message through the SDK timeline.
     pub fn edit(
         self: &Arc<Self>,

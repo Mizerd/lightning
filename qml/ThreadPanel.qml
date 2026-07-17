@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Dialogs
 import QtQuick.Layouts
 import MatrixClient
 
@@ -612,66 +613,222 @@ Rectangle {
 
         // ── Thread composer ──────────────────────────────────────────────
         // Sends ONLY through ThreadController.sendText → the backend's SDK
-        // m.thread path. The main room composer is untouched.
+        // m.thread path (text and attachments). The main room composer is
+        // untouched.
         Rectangle {
             Layout.fillWidth: true
             visible: app.thread.active
             color: AppTheme.surface
-            implicitHeight: composerRow.implicitHeight + AppTheme.spacingS * 2
-            RowLayout {
-                id: composerRow
+            implicitHeight: composerCol.implicitHeight + AppTheme.spacingS * 2
+
+            // Files dropped over the thread composer are queued for the OPEN
+            // thread — never rerouted to the room composer.
+            DropArea {
+                id: threadDropArea
+                anchors.fill: parent
+                enabled: app.thread.attachmentsSupported
+                keys: ["text/uri-list"]
+                onDropped: (drop) => {
+                    if (!drop.hasUrls) return
+                    for (var i = 0; i < drop.urls.length; ++i)
+                        app.thread.addAttachment(drop.urls[i])
+                    drop.accept(Qt.CopyAction)
+                }
+            }
+            Rectangle {
+                anchors.fill: parent
+                visible: threadDropArea.containsDrag
+                color: "transparent"
+                border.color: AppTheme.accent
+                border.width: 2
+                radius: AppTheme.radiusSm
+                z: 10
+            }
+
+            ColumnLayout {
+                id: composerCol
                 anchors.fill: parent
                 anchors.margins: AppTheme.spacingS
-                spacing: AppTheme.spacingS
-                ToolButton {
-                    text: "🙂"
-                    font.pixelSize: 13
-                    enabled: app.thread.state === ThreadController.Ready
-                    Accessible.name: qsTr("Insert emoji")
-                    onClicked: {
-                        var p = mapToItem(panel, 0, 0)
-                        threadEmojiPicker.anchorPoint = Qt.point(p.x, p.y)
-                        threadEmojiPicker.open()
-                    }
-                }
-                TextArea {
-                    id: threadComposerInput
-                    objectName: "threadComposerInput"
+                spacing: AppTheme.spacingXS
+
+                // Attachment validation notice.
+                Label {
+                    visible: panel.attachmentNotice.length > 0
                     Layout.fillWidth: true
-                    placeholderText: qsTr("Reply in thread…")
-                    wrapMode: TextArea.Wrap
-                    enabled: app.thread.state === ThreadController.Ready
-                    background: Rectangle {
-                        color: AppTheme.background
-                        border.color: threadComposerInput.activeFocus
-                                      ? AppTheme.accent : AppTheme.border
-                        radius: AppTheme.radiusSm
-                    }
-                    color: AppTheme.text
-                    font.pixelSize: 12
-                    Keys.onPressed: (event) => {
-                        if ((event.key === Qt.Key_Return
-                             || event.key === Qt.Key_Enter)
-                            && !(event.modifiers & Qt.ShiftModifier)) {
-                            panel.sendComposerText()
-                            event.accepted = true
-                        } else if (event.key === Qt.Key_Escape) {
-                            if (app.thread.inReply)
-                                app.thread.cancelReply()
-                            else
-                                panel.closeRequested()
-                            event.accepted = true
+                    text: panel.attachmentNotice
+                    color: AppTheme.warning
+                    font.pixelSize: 11
+                    wrapMode: Text.WordWrap
+                }
+
+                // Attachment tray.
+                Flow {
+                    visible: app.thread.hasAttachments
+                    Layout.fillWidth: true
+                    spacing: AppTheme.spacingXS
+                    Repeater {
+                        model: app.thread.attachments
+                        Rectangle {
+                            radius: AppTheme.radiusSm
+                            color: AppTheme.cardElevated
+                            border.color: model.state === "failed"
+                                          ? AppTheme.danger : AppTheme.border
+                            border.width: 1
+                            implicitWidth: Math.min(
+                                threadChipRow.implicitWidth
+                                + AppTheme.spacingS * 2, 240)
+                            implicitHeight: threadChipRow.implicitHeight
+                                            + AppTheme.spacingS
+                            RowLayout {
+                                id: threadChipRow
+                                anchors.centerIn: parent
+                                spacing: AppTheme.spacingXS
+                                Label {
+                                    text: model.isImage ? "🖼" : "📎"
+                                    font.pixelSize: 14
+                                }
+                                ColumnLayout {
+                                    spacing: 0
+                                    Label {
+                                        text: model.fileName
+                                        color: AppTheme.text
+                                        font.pixelSize: 11
+                                        elide: Label.ElideMiddle
+                                        Layout.maximumWidth: 120
+                                    }
+                                    Label {
+                                        text: model.state === "failed"
+                                              ? (model.error || qsTr("Failed"))
+                                              : (model.state === "dispatching"
+                                                 ? qsTr("Sending…")
+                                                 : model.sizeLabel)
+                                        color: model.state === "failed"
+                                               ? AppTheme.danger
+                                               : AppTheme.textMuted
+                                        font.pixelSize: 10
+                                        elide: Label.ElideRight
+                                        Layout.maximumWidth: 120
+                                    }
+                                }
+                                ToolButton {
+                                    visible: model.state === "failed"
+                                    implicitWidth: 20; implicitHeight: 20
+                                    text: "↻"
+                                    Accessible.name:
+                                        qsTr("Retry sending %1").arg(model.fileName)
+                                    onClicked: {
+                                        app.thread.attachments.retryAt(index)
+                                        app.thread.sendText("")
+                                    }
+                                }
+                                ToolButton {
+                                    enabled: model.state !== "dispatching"
+                                    implicitWidth: 20; implicitHeight: 20
+                                    text: "✕"
+                                    Accessible.name:
+                                        qsTr("Remove attachment %1").arg(model.fileName)
+                                    onClicked: app.thread.attachments.removeAt(index)
+                                }
+                            }
                         }
                     }
                 }
-                Button {
-                    objectName: "threadSendButton"
-                    text: qsTr("Send")
-                    enabled: app.thread.state === ThreadController.Ready
-                             && threadComposerInput.text.trim().length > 0
-                    onClicked: panel.sendComposerText()
+
+                RowLayout {
+                    id: composerRow
+                    Layout.fillWidth: true
+                    spacing: AppTheme.spacingS
+                    ToolButton {
+                        objectName: "threadAttachButton"
+                        text: "＋"
+                        font.pixelSize: 15
+                        enabled: app.thread.attachmentsSupported
+                        Accessible.name: qsTr("Attach files")
+                        ToolTip.text: qsTr("Attach")
+                        ToolTip.visible: hovered
+                        ToolTip.delay: 500
+                        onClicked: threadAttachDialog.open()
+                    }
+                    ToolButton {
+                        text: "🙂"
+                        font.pixelSize: 13
+                        enabled: app.thread.state === ThreadController.Ready
+                        Accessible.name: qsTr("Insert emoji")
+                        onClicked: {
+                            var p = mapToItem(panel, 0, 0)
+                            threadEmojiPicker.anchorPoint = Qt.point(p.x, p.y)
+                            threadEmojiPicker.open()
+                        }
+                    }
+                    TextArea {
+                        id: threadComposerInput
+                        objectName: "threadComposerInput"
+                        Layout.fillWidth: true
+                        placeholderText: qsTr("Reply in thread…")
+                        wrapMode: TextArea.Wrap
+                        enabled: app.thread.state === ThreadController.Ready
+                        background: Rectangle {
+                            color: AppTheme.background
+                            border.color: threadComposerInput.activeFocus
+                                          ? AppTheme.accent : AppTheme.border
+                            radius: AppTheme.radiusSm
+                        }
+                        color: AppTheme.text
+                        font.pixelSize: 12
+                        Keys.onPressed: (event) => {
+                            if ((event.key === Qt.Key_Return
+                                 || event.key === Qt.Key_Enter)
+                                && !(event.modifiers & Qt.ShiftModifier)) {
+                                panel.sendComposerText()
+                                event.accepted = true
+                            } else if (event.key === Qt.Key_Escape) {
+                                if (app.thread.inReply)
+                                    app.thread.cancelReply()
+                                else
+                                    panel.closeRequested()
+                                event.accepted = true
+                            } else if (event.matches(StandardKey.Paste)
+                                       && app.thread.pasteFromClipboard()) {
+                                event.accepted = true
+                            }
+                        }
+                    }
+                    Button {
+                        objectName: "threadSendButton"
+                        text: qsTr("Send")
+                        enabled: app.thread.state === ThreadController.Ready
+                                 && (threadComposerInput.text.trim().length > 0
+                                     || app.thread.hasAttachments)
+                        onClicked: panel.sendComposerText()
+                    }
                 }
             }
+        }
+    }
+
+    // Attachment picker for the thread composer.
+    FileDialog {
+        id: threadAttachDialog
+        title: qsTr("Attach files")
+        fileMode: FileDialog.OpenFiles
+        onAccepted: {
+            for (var i = 0; i < selectedFiles.length; ++i)
+                app.thread.addAttachment(selectedFiles[i])
+        }
+    }
+
+    // Transient attachment validation feedback.
+    property string attachmentNotice: ""
+    Timer {
+        id: threadNoticeTimer
+        interval: 6000
+        onTriggered: panel.attachmentNotice = ""
+    }
+    Connections {
+        target: app.thread
+        function onAttachmentRejected(reason) {
+            panel.attachmentNotice = reason
+            threadNoticeTimer.restart()
         }
     }
 
@@ -686,9 +843,12 @@ Rectangle {
     }
 
     function sendComposerText() {
-        var body = threadComposerInput.text.trim()
-        if (body.length === 0 || app.thread.state !== ThreadController.Ready)
+        if (app.thread.state !== ThreadController.Ready)
             return
+        var body = threadComposerInput.text.trim()
+        if (body.length === 0 && !app.thread.hasAttachments)
+            return
+        // sendText dispatches any queued attachments first, then the text.
         app.thread.sendText(body)
         threadComposerInput.text = ""
         replyList.followLatest = true

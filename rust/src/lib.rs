@@ -2953,6 +2953,66 @@ pub unsafe extern "C" fn mx_rust_timeline_send_attachment_bytes(
 }
 
 #[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn mx_rust_thread_send_attachment(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    root_event_id: *const c_char,
+    local_path: *const c_char,
+    mime: *const c_char,
+    caption: *const c_char,
+    width: u64,
+    height: u64,
+    animated: c_int,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let root = unsafe { cstr_arg(root_event_id) }?;
+        let local_path = unsafe { cstr_arg(local_path) }?;
+        let mime = unsafe { cstr_arg(mime) }?;
+        let caption = unsafe { cstr_arg(caption) }?;
+        rooms::send_thread_attachment_path(
+            bridge, room_id, root, local_path, mime, caption, width, height,
+            animated != 0, op_id,
+        )
+        .map(|_| String::new())
+    })
+}
+
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn mx_rust_thread_send_attachment_bytes(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    root_event_id: *const c_char,
+    data: *const u8,
+    len: usize,
+    filename: *const c_char,
+    mime: *const c_char,
+    width: u64,
+    height: u64,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let root = unsafe { cstr_arg(root_event_id) }?;
+        let filename = unsafe { cstr_arg(filename) }?;
+        let mime = unsafe { cstr_arg(mime) }?;
+        if data.is_null() || len == 0 {
+            return Err("attachment data is empty".to_owned());
+        }
+        let bytes = unsafe { std::slice::from_raw_parts(data, len) }.to_vec();
+        rooms::send_thread_attachment_bytes(
+            bridge, room_id, root, bytes, filename, mime, width, height, op_id,
+        )
+        .map(|_| String::new())
+    })
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn mx_rust_media_fetch(
     ptr: *mut c_void,
     key: *const c_char,

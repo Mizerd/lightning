@@ -7,10 +7,16 @@
 // homeserver.
 
 #include "matrix/MockMatrixClient.h"
+#include "models/AttachmentQueueModel.h"
 #include "models/TimelineModel.h"
 #include "threads/ThreadController.h"
 
+#include <QDir>
+#include <QFileInfo>
+#include <QImage>
 #include <QSignalSpy>
+#include <QTemporaryFile>
+#include <QUrl>
 #include <QtTest/QtTest>
 
 namespace {
@@ -610,6 +616,137 @@ private Q_SLOTS:
 
         const QVariantMap details = model->messageDetails(replyId);
         QCOMPARE(details.value(QStringLiteral("roomId")).toString(), kGeneral);
+    }
+
+    // ── v0.6.1: thread attachment sending ───────────────────────────────
+
+    // A queued file attachment sends into the OPEN thread: it lands in the
+    // thread timeline AND the room timeline with the correct thread root, as
+    // an Image/File (never an ordinary room message), and the tray clears once
+    // the SDK send queue accepts it.
+    void threadAttachmentSendsIntoThread()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        ThreadController controller;
+        controller.setClient(&client);
+        QVERIFY(controller.attachmentsSupported() == false); // no thread yet
+
+        const QString rootId = firstThreadRootId(client, kGeneral);
+        controller.openThread(kGeneral, rootId);
+        QTRY_COMPARE_WITH_TIMEOUT(controller.state(), ThreadController::Ready,
+                                  kSignalTimeoutMs);
+        QVERIFY(controller.attachmentsSupported());
+
+        // Prepare a real temporary image file for validation.
+        QTemporaryFile img(QDir::tempPath()
+                           + QStringLiteral("/lightning-XXXXXX.png"));
+        QVERIFY(img.open());
+        QImage(4, 4, QImage::Format_RGB32).save(img.fileName(), "PNG");
+        controller.addAttachment(QUrl::fromLocalFile(img.fileName()));
+        QCOMPARE(controller.attachments()->rowCount(), 1);
+        QVERIFY(controller.hasAttachments());
+
+        const int threadRowsBefore = controller.model()->rowCount();
+        controller.sendText(QString{});   // attachment-only send
+        QCOMPARE(client.threadAttachmentCallsForTest(), 1);
+
+        // Local echo appears in the thread with the correct root and an image.
+        QTRY_COMPARE_WITH_TIMEOUT(controller.model()->rowCount(),
+                                  threadRowsBefore + 1, kSignalTimeoutMs);
+        const QModelIndex last =
+            controller.model()->index(controller.model()->rowCount() - 1, 0);
+        QCOMPARE(controller.model()
+                     ->data(last, TimelineModel::ThreadRootIdRole).toString(),
+                 rootId);
+        QVERIFY(controller.model()->data(last, TimelineModel::IsImageRole)
+                    .toBool());
+
+        // The room timeline saw exactly one copy, threaded (never a room msg).
+        int roomImages = 0;
+        for (const auto &e : client.timeline(kGeneral)) {
+            if (e.type == TimelineEvent::Image
+                && e.body == QFileInfo(img.fileName()).fileName()) {
+                ++roomImages;
+                QCOMPARE(e.threadRootId, rootId);
+            }
+        }
+        QCOMPARE(roomImages, 1);
+
+        // The tray clears once the queue accepts the upload.
+        QTRY_COMPARE_WITH_TIMEOUT(controller.attachments()->rowCount(), 0,
+                                  kSignalTimeoutMs);
+        QVERIFY(!controller.hasAttachments());
+    }
+
+    // A failed queue attempt leaves the entry as a retryable "failed" tray
+    // item — never an immortal spinner, never a room-timeline fallback.
+    void threadAttachmentFailureIsRetryable()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        ThreadController controller;
+        controller.setClient(&client);
+        const QString rootId = firstThreadRootId(client, kGeneral);
+        controller.openThread(kGeneral, rootId);
+        QTRY_COMPARE_WITH_TIMEOUT(controller.state(), ThreadController::Ready,
+                                  kSignalTimeoutMs);
+
+        QTemporaryFile file(QDir::tempPath()
+                            + QStringLiteral("/lightning-XXXXXX.bin"));
+        QVERIFY(file.open());
+        file.write("payload");
+        file.flush();
+        controller.addAttachment(QUrl::fromLocalFile(file.fileName()));
+
+        client.failNextThreadAttachmentForTest();
+        const int roomRowsBefore = client.timeline(kGeneral).size();
+        controller.sendText(QString{});
+        // No room-timeline event was produced by the failed thread send.
+        QCOMPARE(client.timeline(kGeneral).size(), roomRowsBefore);
+        // The entry is marked failed (retryable), not stuck dispatching.
+        QCOMPARE(controller.attachments()->rowCount(), 1);
+        const QModelIndex idx = controller.attachments()->index(0, 0);
+        QCOMPARE(controller.attachments()
+                     ->data(idx, AttachmentQueueModel::StateRole).toString(),
+                 QStringLiteral("failed"));
+    }
+
+    // Switching threads or closing the panel before sending discards queued
+    // attachments so they can never reach the new thread or the room.
+    void threadSwitchDiscardsQueuedAttachments()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        ThreadController controller;
+        controller.setClient(&client);
+        const QString rootId = firstThreadRootId(client, kGeneral);
+        controller.openThread(kGeneral, rootId);
+        QTRY_COMPARE_WITH_TIMEOUT(controller.state(), ThreadController::Ready,
+                                  kSignalTimeoutMs);
+
+        QTemporaryFile file(QDir::tempPath()
+                            + QStringLiteral("/lightning-XXXXXX.bin"));
+        QVERIFY(file.open());
+        file.write("payload");
+        file.flush();
+        controller.addAttachment(QUrl::fromLocalFile(file.fileName()));
+        QCOMPARE(controller.attachments()->rowCount(), 1);
+
+        // Open a different thread — queued attachment is dropped, not resent.
+        const QString secondRoot = client.timeline(kGeneral).first().eventId;
+        client.sendThreadReply(kGeneral, secondRoot, QStringLiteral("seed"));
+        controller.openThread(kGeneral, secondRoot);
+        QTRY_COMPARE_WITH_TIMEOUT(controller.state(), ThreadController::Ready,
+                                  kSignalTimeoutMs);
+        QCOMPARE(controller.attachments()->rowCount(), 0);
+        QCOMPARE(client.threadAttachmentCallsForTest(), 0);
+
+        // Closing also clears; logout too.
+        controller.addAttachment(QUrl::fromLocalFile(file.fileName()));
+        QCOMPARE(controller.attachments()->rowCount(), 1);
+        controller.close();
+        QCOMPARE(controller.attachments()->rowCount(), 0);
     }
 
     void logoutClosesThread()

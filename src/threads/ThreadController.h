@@ -3,8 +3,10 @@
 #include <QObject>
 #include <QString>
 #include <QStringList>
+#include <QUrl>
 #include <QtQmlIntegration/qqmlintegration.h>
 
+#include "models/AttachmentQueueModel.h"
 #include "models/TimelineModel.h"
 
 class MatrixClient;
@@ -61,6 +63,11 @@ class ThreadController : public QObject
     Q_PROPERTY(bool listEndReached READ listEndReached NOTIFY listStateChanged)
     Q_PROPERTY(bool listFailed READ listFailed NOTIFY listStateChanged)
     Q_PROPERTY(QVariantList threadList READ threadList NOTIFY listStateChanged)
+    // v0.6.1: thread composer attachment tray (SDK thread-focused send).
+    Q_PROPERTY(AttachmentQueueModel *attachments READ attachments CONSTANT)
+    Q_PROPERTY(bool hasAttachments READ hasAttachments NOTIFY attachmentsChanged)
+    Q_PROPERTY(bool attachmentsSupported READ attachmentsSupported
+                   NOTIFY stateChanged)
 
 public:
     enum State { Closed, Opening, Ready, Failed };
@@ -90,6 +97,12 @@ public:
     bool listEndReached() const { return m_listEndReached; }
     bool listFailed() const { return m_listFailed; }
     QVariantList threadList() const { return m_threadList; }
+    AttachmentQueueModel *attachments() const { return m_attachments; }
+    bool hasAttachments() const
+    { return m_attachments && !m_attachments->isEmpty(); }
+    // Attachment sending is available only when the backend supports both
+    // attachment upload and live thread timelines.
+    bool attachmentsSupported() const;
 
     // Open (or switch to) the thread rooted at `rootEventId`. Replaces any
     // open thread; stale results from the replaced thread are ignored by
@@ -105,6 +118,13 @@ public:
     // Begin/cancel replying to a specific loaded thread event.
     Q_INVOKABLE void beginReply(const QString &eventId);
     Q_INVOKABLE void cancelReply();
+    // v0.6.1: queue a picked/dropped file for the open thread; emits
+    // attachmentRejected(reason) on validation failure. Never logs the path.
+    Q_INVOKABLE void addAttachment(const QUrl &fileUrl);
+    // Intercept Ctrl+V: queue a clipboard image or local file URLs; returns
+    // true when handled (so the editor does not also paste), false to let the
+    // text editor paste normally.
+    Q_INVOKABLE bool pasteFromClipboard();
     // Follow/unfollow the open thread (server-side MSC4306 subscription).
     Q_INVOKABLE void setFollowed(bool followed);
     // Send ONE threaded read receipt for the open thread's latest readable
@@ -134,13 +154,24 @@ Q_SIGNALS:
     void replyStateChanged();
     void followStateChanged();
     void listStateChanged();
+    void attachmentsChanged();
+    void attachmentRejected(const QString &reason);
+
+private Q_SLOTS:
+    void onAttachmentQueueFinished(quint64 opId, const QString &roomId,
+                                   bool ok, const QString &category);
 
 private:
     void setState(State state, const QString &failureCategory = QString());
     QString timelineId() const;
+    // Send every queued attachment through the SDK thread path. Each becomes
+    // its own local echo in the thread timeline.
+    void dispatchAttachments();
+    void clearAttachments();
 
     MatrixClient *m_client = nullptr;
     TimelineModel m_model;
+    AttachmentQueueModel *m_attachments = nullptr;
     State m_state = Closed;
     QString m_roomId;
     QString m_rootEventId;

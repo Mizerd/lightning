@@ -1318,6 +1318,94 @@ pub(crate) fn send_attachment_bytes(
     )
 }
 
+/// v0.6.1: thread attachment (file) — same validation and info as the room
+/// path, but routed through the thread-focused SDK timeline so the SDK
+/// attaches the m.thread relation and encrypts for encrypted rooms.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn send_thread_attachment_path(
+    bridge: &RustClient,
+    room_id: String,
+    root_event_id: String,
+    path: String,
+    mime: String,
+    caption: String,
+    width: u64,
+    height: u64,
+    animated: bool,
+    op_id: u64,
+) -> Result<(), String> {
+    let metadata =
+        std::fs::metadata(&path).map_err(|_| "attachment file is not readable".to_owned())?;
+    if !metadata.is_file() {
+        return Err("attachment path is not a regular file".to_owned());
+    }
+    if metadata.len() == 0 {
+        return Err("attachment file is empty".to_owned());
+    }
+    let info = if mime.starts_with("image/") {
+        image_info(width, height, metadata.len(), animated)
+    } else {
+        None
+    };
+    let caption = if caption.trim().is_empty() { None } else { Some(caption) };
+    let Some(client) = bridge.client.lock().ok().and_then(|g| g.clone()) else {
+        return Err("Rust SDK session is not logged in.".to_owned());
+    };
+    bridge.timelines.send_thread_attachment(
+        &bridge.runtime,
+        client,
+        room_id,
+        root_event_id,
+        AttachmentSource::File(std::path::PathBuf::from(path)),
+        mime,
+        caption,
+        info,
+        op_id,
+    )
+}
+
+/// v0.6.1: thread attachment (clipboard bytes) — no temporary file, routed
+/// through the thread-focused SDK timeline.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn send_thread_attachment_bytes(
+    bridge: &RustClient,
+    room_id: String,
+    root_event_id: String,
+    bytes: Vec<u8>,
+    filename: String,
+    mime: String,
+    width: u64,
+    height: u64,
+    op_id: u64,
+) -> Result<(), String> {
+    if bytes.is_empty() {
+        return Err("attachment data is empty".to_owned());
+    }
+    if mime.starts_with("image/") && sniff_image_mime(&bytes).is_none() {
+        return Err("clipboard data is not a supported image".to_owned());
+    }
+    let size = bytes.len() as u64;
+    let info = if mime.starts_with("image/") {
+        image_info(width, height, size, mime == "image/gif")
+    } else {
+        None
+    };
+    let Some(client) = bridge.client.lock().ok().and_then(|g| g.clone()) else {
+        return Err("Rust SDK session is not logged in.".to_owned());
+    };
+    bridge.timelines.send_thread_attachment(
+        &bridge.runtime,
+        client,
+        room_id,
+        root_event_id,
+        AttachmentSource::Data { bytes, filename },
+        mime,
+        None,
+        info,
+        op_id,
+    )
+}
+
 // ---------------------------------------------------------------------------
 // Media retrieval (the download half of the media bridge)
 // ---------------------------------------------------------------------------

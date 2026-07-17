@@ -402,6 +402,31 @@ char *mx_rust_timeline_send_attachment_bytes(void *client,
                                              unsigned long long width,
                                              unsigned long long height,
                                              unsigned long long op_id);
+/* v0.6.1: send an attachment INTO a thread. Routed through the SDK's
+ * thread-focused timeline, so the SDK attaches the m.thread relation (and
+ * reply-to fallback) and encrypts for encrypted rooms — never an ordinary
+ * room message, never hand-built relation JSON. Result echoes on the
+ * attachment_send_result poll event by op_id, exactly like the room path. */
+char *mx_rust_thread_send_attachment(void *client,
+                                     const char *room_id,
+                                     const char *root_event_id,
+                                     const char *local_path,
+                                     const char *mime,
+                                     const char *caption,
+                                     unsigned long long width,
+                                     unsigned long long height,
+                                     int animated,
+                                     unsigned long long op_id);
+char *mx_rust_thread_send_attachment_bytes(void *client,
+                                           const char *room_id,
+                                           const char *root_event_id,
+                                           const unsigned char *data,
+                                           size_t len,
+                                           const char *filename,
+                                           const char *mime,
+                                           unsigned long long width,
+                                           unsigned long long height,
+                                           unsigned long long op_id);
 
 /*
  * Media retrieval. `key` is the item's media_key from timeline payloads

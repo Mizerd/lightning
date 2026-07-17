@@ -283,6 +283,79 @@ void MockMatrixClient::sendThreadReplyTo(const QString &roomId,
         emitThreadList(roomId);
 }
 
+quint64 MockMatrixClient::appendThreadAttachment(const QString &roomId,
+                                                 const QString &rootEventId,
+                                                 const QString &fileName,
+                                                 const QString &mime)
+{
+    if (!m_timelines.contains(roomId) || rootEventId.isEmpty())
+        return 0;
+    if (m_failNextThreadAttachment) {
+        m_failNextThreadAttachment = false;
+        return 0;   // queue rejection
+    }
+    ++m_threadAttachmentCalls;
+    const quint64 opId = ++m_opCounter;
+
+    TimelineEvent ev;
+    ev.eventId           = nextEventId();
+    ev.roomId            = roomId;
+    ev.sender            = m_userId;
+    ev.senderDisplayName = QStringLiteral("You");
+    ev.body              = fileName;
+    ev.timestamp         = QDateTime::currentDateTimeUtc();
+    ev.type              = mime.startsWith(QLatin1String("image/"))
+                               ? TimelineEvent::Image
+                               : TimelineEvent::File;
+    ev.status            = TimelineEvent::Sending;
+    ev.threadRootId      = rootEventId;
+    m_timelines[roomId].append(ev);
+    Q_EMIT eventAppended(roomId, ev);
+    ackAfter(150, roomId, ev.eventId);
+
+    const QString timelineId = threadTimelineId(roomId, rootEventId);
+    if (m_openThreadTimelineId == timelineId) {
+        TimelineEvent threadCopy = ev;
+        threadCopy.roomId = timelineId;
+        m_timelines[timelineId].append(threadCopy);
+        Q_EMIT eventAppended(timelineId, threadCopy);
+        ackAfter(150, timelineId, ev.eventId);
+    }
+    if (m_openThreadListRoom == roomId)
+        emitThreadList(roomId);
+
+    // The SDK send queue reports acceptance asynchronously; mirror that so the
+    // composer tray reconciliation is exercised like the real backend.
+    QTimer::singleShot(50, this, [this, opId, roomId] {
+        Q_EMIT attachmentQueueFinished(opId, roomId, true, QString());
+    });
+    return opId;
+}
+
+quint64 MockMatrixClient::sendThreadAttachment(const QString &roomId,
+                                               const QString &rootEventId,
+                                               const QString &localPath,
+                                               const QString &mime,
+                                               const QString &caption,
+                                               int width, int height,
+                                               bool animated)
+{
+    Q_UNUSED(caption); Q_UNUSED(width); Q_UNUSED(height); Q_UNUSED(animated);
+    return appendThreadAttachment(roomId, rootEventId,
+                                  QFileInfo(localPath).fileName(), mime);
+}
+
+quint64 MockMatrixClient::sendThreadAttachmentBytes(const QString &roomId,
+                                                    const QString &rootEventId,
+                                                    const QByteArray &bytes,
+                                                    const QString &filename,
+                                                    const QString &mime,
+                                                    int width, int height)
+{
+    Q_UNUSED(bytes); Q_UNUSED(width); Q_UNUSED(height);
+    return appendThreadAttachment(roomId, rootEventId, filename, mime);
+}
+
 // ── v0.6.0: mock thread timelines ────────────────────────────────────────
 
 void MockMatrixClient::rebuildOpenThreadTimeline()

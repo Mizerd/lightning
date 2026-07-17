@@ -3049,6 +3049,65 @@ quint64 RustSdkMatrixClient::sendAttachmentBytes(const QString &roomId,
     return opId;
 }
 
+quint64 RustSdkMatrixClient::sendThreadAttachment(const QString &roomId,
+                                                  const QString &rootEventId,
+                                                  const QString &localPath,
+                                                  const QString &mime,
+                                                  const QString &caption,
+                                                  int width, int height,
+                                                  bool animated)
+{
+    if (!m_loggedIn || !m_rustHandle || roomId.isEmpty()
+        || rootEventId.isEmpty() || localPath.isEmpty() || mime.isEmpty())
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray room = roomId.toUtf8();
+    const QByteArray root = rootEventId.toUtf8();
+    const QByteArray path = localPath.toUtf8();
+    const QByteArray mimeBytes = mime.toUtf8();
+    const QByteArray captionBytes = caption.toUtf8();
+    const QString result = takeRustString(mx_rust_thread_send_attachment(
+        m_rustHandle, room.constData(), root.constData(), path.constData(),
+        mimeBytes.constData(), captionBytes.constData(),
+        static_cast<unsigned long long>(qMax(0, width)),
+        static_cast<unsigned long long>(qMax(0, height)),
+        animated ? 1 : 0, opId));
+    if (!result.isEmpty()) {
+        qCWarning(lcRust) << "thread attachment send rejected";
+        return 0;
+    }
+    return opId;
+}
+
+quint64 RustSdkMatrixClient::sendThreadAttachmentBytes(const QString &roomId,
+                                                       const QString &rootEventId,
+                                                       const QByteArray &bytes,
+                                                       const QString &filename,
+                                                       const QString &mime,
+                                                       int width, int height)
+{
+    if (!m_loggedIn || !m_rustHandle || roomId.isEmpty()
+        || rootEventId.isEmpty() || bytes.isEmpty() || mime.isEmpty())
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray room = roomId.toUtf8();
+    const QByteArray root = rootEventId.toUtf8();
+    const QByteArray name = filename.toUtf8();
+    const QByteArray mimeBytes = mime.toUtf8();
+    const QString result = takeRustString(mx_rust_thread_send_attachment_bytes(
+        m_rustHandle, room.constData(), root.constData(),
+        reinterpret_cast<const unsigned char *>(bytes.constData()),
+        static_cast<size_t>(bytes.size()), name.constData(),
+        mimeBytes.constData(),
+        static_cast<unsigned long long>(qMax(0, width)),
+        static_cast<unsigned long long>(qMax(0, height)), opId));
+    if (!result.isEmpty()) {
+        qCWarning(lcRust) << "thread clipboard attachment send rejected";
+        return 0;
+    }
+    return opId;
+}
+
 quint64 RustSdkMatrixClient::fetchMedia(const QString &mediaKey, int kind)
 {
     if (!m_rustHandle || mediaKey.isEmpty())

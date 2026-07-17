@@ -2,11 +2,27 @@
 
 #include "matrix/MatrixClient.h"
 
+#include <QBuffer>
+#include <QClipboard>
+#include <QGuiApplication>
+#include <QImage>
+#include <QMimeData>
+
 #include <algorithm>
+
+namespace {
+// Clipboard images beyond this edge are scaled down before encoding so a
+// paste can never trigger an unbounded allocation or upload (mirrors the
+// room composer's guard).
+constexpr int kMaxPasteEdge = 4096;
+}
 
 ThreadController::ThreadController(QObject *parent)
     : QObject(parent)
+    , m_attachments(new AttachmentQueueModel(this))
 {
+    connect(m_attachments, &AttachmentQueueModel::countChanged, this,
+            [this] { Q_EMIT attachmentsChanged(); });
 }
 
 void ThreadController::setClient(MatrixClient *client)
@@ -18,7 +34,10 @@ void ThreadController::setClient(MatrixClient *client)
     close();
     m_client = client;
     m_model.setClient(client);
+    m_attachments->setClient(client);
     if (m_client) {
+        connect(m_client, &MatrixClient::attachmentQueueFinished, this,
+                &ThreadController::onAttachmentQueueFinished);
         connect(m_client, &MatrixClient::timelineReset, this,
                 [this](const QString &timelineId) {
                     // Only the currently requested thread's reset promotes
@@ -132,6 +151,9 @@ void ThreadController::openThread(const QString &roomId,
     m_rootEventId = rootEventId;
     m_failureCategory.clear();
     cancelReply();
+    // Queued attachments belong to the thread they were prepared in; a thread
+    // switch must never reroute them into the newly opened thread.
+    clearAttachments();
     // Bind the model to the new composite id BEFORE dispatching so the
     // arriving snapshot reset is applied, never raced.
     m_model.setRoomId(timelineId());
@@ -154,6 +176,7 @@ void ThreadController::close()
     m_failureCategory.clear();
     m_model.setRoomId(QString{});
     cancelReply();
+    clearAttachments();
     resetFollowState();
     m_lastMarkedReadEventId.clear();
     if (wasActive)
@@ -165,9 +188,13 @@ void ThreadController::sendText(const QString &body)
     if (!m_client || m_state == Closed || m_roomId.isEmpty()
         || m_rootEventId.isEmpty())
         return;
+    // Attachments go first — each becomes its own SDK local echo in the
+    // thread — then the text as a separate thread message, matching the room
+    // composer's "files + comment" behaviour.
+    dispatchAttachments();
     const QString trimmed = body.trimmed();
     if (trimmed.isEmpty())
-        return;
+        return;   // attachment-only send is valid.
     // Always the backend's SDK thread path — never sendTextMessage, so a
     // thread reply can never land as an ordinary room message. An active
     // reply target makes it a rich reply within the thread.
@@ -178,6 +205,136 @@ void ThreadController::sendText(const QString &body)
     } else {
         m_client->sendThreadReply(m_roomId, m_rootEventId, trimmed);
     }
+}
+
+bool ThreadController::attachmentsSupported() const
+{
+    return m_client && m_client->supportsAttachmentSend() && supported()
+        && m_state != Closed;
+}
+
+void ThreadController::addAttachment(const QUrl &fileUrl)
+{
+    if (!attachmentsSupported()) {
+        Q_EMIT attachmentRejected(
+            tr("Attachments are not supported on this backend."));
+        return;
+    }
+    const QString reason = m_attachments->addFile(fileUrl);
+    if (!reason.isEmpty())
+        Q_EMIT attachmentRejected(reason);
+}
+
+bool ThreadController::pasteFromClipboard()
+{
+    if (!attachmentsSupported())
+        return false;
+    const QClipboard *clipboard = QGuiApplication::clipboard();
+    const QMimeData *mime = clipboard ? clipboard->mimeData() : nullptr;
+    if (!mime)
+        return false;
+
+    // Real file MIME (text/uri-list) — plain text is never treated as paths.
+    if (mime->hasUrls()) {
+        bool any = false;
+        const auto urls = mime->urls();
+        for (const QUrl &url : urls) {
+            if (!url.isLocalFile())
+                continue;
+            any = true;
+            addAttachment(url);
+        }
+        if (any)
+            return true;
+    }
+
+    if (mime->hasImage()) {
+        QImage image = qvariant_cast<QImage>(mime->imageData());
+        if (image.isNull())
+            return false;
+        if (image.width() > kMaxPasteEdge || image.height() > kMaxPasteEdge)
+            image = image.scaled(kMaxPasteEdge, kMaxPasteEdge,
+                                 Qt::KeepAspectRatio, Qt::SmoothTransformation);
+        QByteArray bytes;
+        QBuffer buffer(&bytes);
+        buffer.open(QIODevice::WriteOnly);
+        if (!image.save(&buffer, "PNG")) {
+            Q_EMIT attachmentRejected(
+                tr("The clipboard image could not be read."));
+            return true;   // handled: never paste binary junk as text
+        }
+        const QString reason = m_attachments->addImageData(
+            bytes, QStringLiteral("image/png"), image.width(), image.height());
+        if (!reason.isEmpty())
+            Q_EMIT attachmentRejected(reason);
+        return true;
+    }
+    return false;
+}
+
+void ThreadController::dispatchAttachments()
+{
+    if (!m_client || m_state != Ready || m_roomId.isEmpty()
+        || m_rootEventId.isEmpty())
+        return;
+    auto &entries = m_attachments->entries();
+    for (int row = 0; row < entries.size(); ++row) {
+        auto &entry = entries[row];
+        if (entry.state != QLatin1String("queued"))
+            continue;
+        quint64 opId = 0;
+        if (!entry.localPath.isEmpty()) {
+            opId = m_client->sendThreadAttachment(
+                m_roomId, m_rootEventId, entry.localPath, entry.mime, QString(),
+                entry.width, entry.height, entry.animated);
+        } else {
+            opId = m_client->sendThreadAttachmentBytes(
+                m_roomId, m_rootEventId, entry.data, entry.fileName, entry.mime,
+                entry.width, entry.height);
+        }
+        if (opId == 0) {
+            entry.state = QStringLiteral("failed");
+            entry.error = tr("The attachment could not be queued.");
+        } else {
+            entry.state = QStringLiteral("dispatching");
+            entry.opId = opId;
+        }
+        m_attachments->updateEntry(row);
+    }
+}
+
+void ThreadController::onAttachmentQueueFinished(quint64 opId,
+                                                 const QString &roomId,
+                                                 bool ok,
+                                                 const QString &category)
+{
+    Q_UNUSED(roomId);
+    Q_UNUSED(category);
+    if (opId == 0)
+        return;
+    auto &entries = m_attachments->entries();
+    for (int row = 0; row < entries.size(); ++row) {
+        if (entries[row].opId != opId)
+            continue;   // not ours (the room composer owns other op ids).
+        if (ok) {
+            // The SDK local echo now owns this attachment's send state; the
+            // tray entry has served its purpose.
+            entries[row].state = QStringLiteral("sent");
+            m_attachments->removeAt(row);
+        } else {
+            entries[row].state = QStringLiteral("failed");
+            entries[row].error = tr("Upload failed. Retry or remove.");
+            entries[row].opId = 0;
+            m_attachments->updateEntry(row);
+        }
+        return;
+    }
+}
+
+void ThreadController::clearAttachments()
+{
+    if (m_attachments && !m_attachments->isEmpty())
+        m_attachments->clearAll();
 }
 
 void ThreadController::beginReply(const QString &eventId)

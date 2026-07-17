@@ -56,6 +56,23 @@ public:
                            const QString &threadRootEventId,
                            const QString &inReplyToEventId,
                            const QString &body) override;
+    // v0.6.1: thread attachment sending — mirrors the SDK thread path so
+    // ThreadController's attachment queue is testable without a homeserver.
+    bool supportsAttachmentSend() const override { return true; }
+    quint64 sendThreadAttachment(const QString &roomId,
+                                 const QString &rootEventId,
+                                 const QString &localPath, const QString &mime,
+                                 const QString &caption, int width, int height,
+                                 bool animated) override;
+    quint64 sendThreadAttachmentBytes(const QString &roomId,
+                                      const QString &rootEventId,
+                                      const QByteArray &bytes,
+                                      const QString &filename,
+                                      const QString &mime, int width,
+                                      int height) override;
+    int threadAttachmentCallsForTest() const { return m_threadAttachmentCalls; }
+    // Make the NEXT thread attachment send fail (queue rejection) for tests.
+    void failNextThreadAttachmentForTest() { m_failNextThreadAttachment = true; }
     // v0.6.0 checkpoint 5: deterministic thread list + follow state. The
     // subscription map is mock-local (a stand-in for MSC4306 server state).
     bool supportsThreadList() const override { return true; }
@@ -144,4 +161,12 @@ private:
     int m_markThreadReadCalls = 0;
     QStringList m_decryptionRetryRooms;
     void emitThreadList(const QString &roomId);
+    // v0.6.1: thread attachment sending.
+    quint64 m_opCounter = 0;
+    int m_threadAttachmentCalls = 0;
+    bool m_failNextThreadAttachment = false;
+    quint64 appendThreadAttachment(const QString &roomId,
+                                   const QString &rootEventId,
+                                   const QString &fileName,
+                                   const QString &mime);
 };

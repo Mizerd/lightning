@@ -312,6 +312,35 @@ public:
         return 0;
     }
 
+    // v0.6.1: attachment sending INTO a thread. Routed through the SDK's
+    // thread-focused timeline so the m.thread relation and (in encrypted
+    // rooms) encryption are handled by the SDK — never an ordinary room
+    // send. Result echoes on attachmentQueueFinished by op id, exactly like
+    // the room path. Backends without thread attachment support return 0.
+    virtual quint64 sendThreadAttachment(const QString &roomId,
+                                         const QString &rootEventId,
+                                         const QString &localPath,
+                                         const QString &mime,
+                                         const QString &caption,
+                                         int width, int height, bool animated)
+    {
+        Q_UNUSED(roomId); Q_UNUSED(rootEventId); Q_UNUSED(localPath);
+        Q_UNUSED(mime); Q_UNUSED(caption); Q_UNUSED(width);
+        Q_UNUSED(height); Q_UNUSED(animated);
+        return 0;
+    }
+    virtual quint64 sendThreadAttachmentBytes(const QString &roomId,
+                                              const QString &rootEventId,
+                                              const QByteArray &bytes,
+                                              const QString &filename,
+                                              const QString &mime,
+                                              int width, int height)
+    {
+        Q_UNUSED(roomId); Q_UNUSED(rootEventId); Q_UNUSED(bytes);
+        Q_UNUSED(filename); Q_UNUSED(mime); Q_UNUSED(width); Q_UNUSED(height);
+        return 0;
+    }
+
     // Media bridge: fetch (and decrypt, inside the SDK) media bytes for a
     // timeline item media key. kind: 0 = full, 1 = thumbnail.
     virtual quint64 fetchMedia(const QString &mediaKey, int kind)

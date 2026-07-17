@@ -521,6 +521,8 @@ if(BUILD_TESTING)
         src/threads/ThreadController.cpp
         src/models/TimelineModel.h
         src/models/TimelineModel.cpp
+        src/models/AttachmentQueueModel.h
+        src/models/AttachmentQueueModel.cpp
         src/matrix/MatrixClient.h
         src/matrix/MatrixClient.cpp
         src/matrix/MockMatrixClient.h
@@ -530,7 +532,7 @@ if(BUILD_TESTING)
     )
     target_include_directories(thread-controller-test PRIVATE src)
     target_link_libraries(thread-controller-test PRIVATE
-        Qt6::Core Qt6::Qml Qt6::Test)
+        Qt6::Core Qt6::Gui Qt6::Qml Qt6::Test)
     add_test(NAME thread-controller COMMAND thread-controller-test)
 
     # v0.6.0 checkpoint 7: read-only E2EE health model — readiness states,
