@@ -644,6 +644,12 @@ impl TimelineRegistry {
         };
         let events = Arc::clone(&self.events);
         let lifecycle = self.lifecycle_gen.load(Ordering::SeqCst);
+        // Capture the thread generation at dispatch so a send that resolves
+        // after the user has switched or closed the thread does not raise a
+        // spurious cross-context error toast (mirrors the room path's
+        // is_current gate). A thread switch, room switch, or logout all bump
+        // thread_gen.
+        let thread_gen = self.thread_gen.load(Ordering::SeqCst);
         let registry = Arc::clone(self);
         let open_thread = self.thread_timeline_for(&room_id, &root_event_id);
         runtime.spawn(async move {
@@ -680,7 +686,7 @@ impl TimelineRegistry {
                     None => false,
                 }
             };
-            if !sent && registry.lifecycle_current(lifecycle) {
+            if !sent && registry.thread_current(thread_gen, lifecycle) {
                 enqueue(
                     &events,
                     json!({

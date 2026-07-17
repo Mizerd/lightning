@@ -319,6 +319,8 @@ if(ENABLE_RUST_SDK_BACKEND)
                 --offline --locked
                 --manifest-path ${_rust_dir}/Cargo.toml
         DEPENDS ${_rust_dir}/src/lib.rs
+                ${_rust_dir}/src/rooms.rs
+                ${_rust_dir}/src/timeline.rs
                 ${_rust_dir}/include/matrix_rust.h
                 ${_rust_dir}/Cargo.toml
                 ${_rust_dir}/Cargo.lock
