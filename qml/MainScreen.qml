@@ -8,6 +8,13 @@ import MatrixClient
 //   Column 3 — TimelinePane (fills remaining width)
 // E2EE / SAS / recovery / backend behaviour is unchanged.
 Item {
+    // v0.6.1: Ctrl+K quick switcher over rooms / DMs / Spaces / invites.
+    Shortcut {
+        sequences: ["Ctrl+K"]
+        onActivated: quickSwitcher.open()
+    }
+    QuickSwitcher { id: quickSwitcher }
+
     SplitView {
         anchors.fill: parent
         orientation: Qt.Horizontal

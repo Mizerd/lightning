@@ -105,6 +105,8 @@ set(APP_SOURCES
 
     src/models/RoomListModel.h
     src/models/RoomListModel.cpp
+    src/models/QuickSwitcherModel.h
+    src/models/QuickSwitcherModel.cpp
     src/models/TimelineModel.h
     src/models/TimelineModel.cpp
     src/models/TimelineScrollController.h
@@ -181,6 +183,7 @@ set(APP_QML_FILES
     qml/InvitePeopleDialog.qml
     qml/RoomInfoPanel.qml
     qml/ThreadPanel.qml
+    qml/QuickSwitcher.qml
     qml/ImageViewerOverlay.qml
     qml/AccountMenu.qml
     qml/MemberProfilePopover.qml
@@ -670,6 +673,24 @@ if(BUILD_TESTING)
     target_include_directories(room-state-model-test PRIVATE src)
     target_link_libraries(room-state-model-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME room-state-model COMMAND room-state-model-test)
+
+    # v0.6.1: quick switcher result model — matching, categories, bounded
+    # results, routing payload, logout clearing.
+    qt_add_executable(quick-switcher-test
+        tests/QuickSwitcherTest.cpp
+        src/models/QuickSwitcherModel.h
+        src/models/QuickSwitcherModel.cpp
+        src/matrix/MatrixClient.h
+        src/matrix/MatrixClient.cpp
+        src/matrix/MockMatrixClient.h
+        src/matrix/MockMatrixClient.cpp
+        src/matrix/MediaHelpers.h
+        src/matrix/MediaHelpers.cpp
+    )
+    target_include_directories(quick-switcher-test PRIVATE src)
+    target_link_libraries(quick-switcher-test PRIVATE
+        Qt6::Core Qt6::Gui Qt6::Qml Qt6::Test)
+    add_test(NAME quick-switcher COMMAND quick-switcher-test)
 endif()
 
 install(TARGETS matrix-client

@@ -13,6 +13,7 @@
 #include "models/EmojiCatalog.h"
 #include "models/LinkPreviewController.h"
 #include "models/PaginationController.h"
+#include "models/QuickSwitcherModel.h"
 #include "models/ReadReceiptCoordinator.h"
 #include "models/RoomListModel.h"
 #include "models/TimelineModel.h"
@@ -88,6 +89,7 @@ class AppController : public QObject
     Q_PROPERTY(AuthManager* auth READ auth CONSTANT)
     Q_PROPERTY(AccountManager* accounts READ accounts CONSTANT)
     Q_PROPERTY(RoomListModel* roomList READ roomList CONSTANT)
+    Q_PROPERTY(QuickSwitcherModel* quickSwitcher READ quickSwitcher CONSTANT)
     Q_PROPERTY(TimelineModel* timeline READ timeline CONSTANT)
     Q_PROPERTY(MessageComposer* composer READ composer CONSTANT)
     Q_PROPERTY(EmojiCatalog* emojiCatalog READ emojiCatalog CONSTANT)
@@ -165,6 +167,7 @@ public:
     AuthManager *auth() const;
     AccountManager *accounts() const;
     RoomListModel *roomList() const;
+    QuickSwitcherModel *quickSwitcher() const;
     TimelineModel *timeline() const;
     MessageComposer *composer() const;
     EmojiCatalog *emojiCatalog() const { return m_emojiCatalog.get(); }
@@ -348,6 +351,7 @@ private:
     std::unique_ptr<AccountManager> m_accounts;
     std::unique_ptr<AuthManager> m_auth;
     std::unique_ptr<RoomListModel> m_roomList;
+    std::unique_ptr<QuickSwitcherModel> m_quickSwitcher;
     std::unique_ptr<TimelineModel> m_timeline;
     std::unique_ptr<MessageComposer> m_composer;
     std::unique_ptr<EmojiCatalog> m_emojiCatalog;

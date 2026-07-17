@@ -86,6 +86,7 @@ AppController::AppController(Backend backend, QObject *parent)
     m_accounts     = std::make_unique<AccountManager>(this);
     m_auth         = std::make_unique<AuthManager>(m_client.get(), this);
     m_roomList     = std::make_unique<RoomListModel>(this);
+    m_quickSwitcher = std::make_unique<QuickSwitcherModel>(this);
     m_timeline     = std::make_unique<TimelineModel>(this);
     m_composer     = std::make_unique<MessageComposer>(this);
     m_emojiCatalog = std::make_unique<EmojiCatalog>(m_settings.get(), this);
@@ -177,6 +178,8 @@ AppController::AppController(Backend backend, QObject *parent)
     m_thread->setClient(m_client.get());
     m_roomList->setClient(m_client.get());
     m_roomList->setSpaceManager(m_spaces.get());
+    m_quickSwitcher->setClient(m_client.get());
+    m_quickSwitcher->setSpaceManager(m_spaces.get());
     m_timeline->setClient(m_client.get());
     m_composer->setClient(m_client.get());
     m_media->setClient(m_client.get());
@@ -659,6 +662,8 @@ SettingsManager *AppController::settings() const { return m_settings.get(); }
 AuthManager *AppController::auth() const { return m_auth.get(); }
 AccountManager *AppController::accounts() const { return m_accounts.get(); }
 RoomListModel *AppController::roomList() const { return m_roomList.get(); }
+QuickSwitcherModel *AppController::quickSwitcher() const
+{ return m_quickSwitcher.get(); }
 TimelineModel *AppController::timeline() const { return m_timeline.get(); }
 MessageComposer *AppController::composer() const { return m_composer.get(); }
 MediaManager *AppController::media() const { return m_media.get(); }
