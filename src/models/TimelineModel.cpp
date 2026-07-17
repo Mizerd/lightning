@@ -15,6 +15,23 @@ constexpr qint64 kSenderGroupThresholdSeconds = 5 * 60;
 TimelineModel::TimelineModel(QObject *parent)
     : QAbstractListModel(parent)
 {
+    // Keep an active loaded-timeline search in sync as the timeline changes
+    // (pagination prepend, decryption, edits, redactions). Recompute is O(n)
+    // over the bounded loaded set and only runs while a search is active.
+    const auto resync = [this] {
+        if (!m_searchActive)
+            return;
+        const QString before = searchCurrentEventId();
+        const int beforeCount = m_searchResults.size();
+        recomputeSearch();
+        if (searchCurrentEventId() != before
+            || m_searchResults.size() != beforeCount)
+            Q_EMIT searchChanged();
+    };
+    connect(this, &QAbstractItemModel::rowsInserted, this, resync);
+    connect(this, &QAbstractItemModel::rowsRemoved, this, resync);
+    connect(this, &QAbstractItemModel::modelReset, this, resync);
+    connect(this, &QAbstractItemModel::dataChanged, this, resync);
 }
 
 QString TimelineModel::senderDisplayName(const TimelineEvent &event) const
@@ -150,9 +167,97 @@ void TimelineModel::setRoomId(const QString &roomId)
         return;
     m_roomId = roomId;
     Q_EMIT roomIdChanged();
+    // A room/thread switch clears search state — never carry a query or its
+    // plaintext matches across timelines.
+    endSearch();
     reload();
     refreshTypingText();
     Q_EMIT paginationChanged();
+}
+
+void TimelineModel::beginSearch(const QString &query)
+{
+    m_searchActive = true;
+    m_searchQuery = query;
+    recomputeSearch();
+    // Start at the newest match (closest to where the user is reading).
+    m_searchIndex = m_searchResults.isEmpty()
+                        ? -1
+                        : static_cast<int>(m_searchResults.size()) - 1;
+    Q_EMIT searchChanged();
+}
+
+void TimelineModel::updateSearch(const QString &query)
+{
+    if (!m_searchActive) {
+        beginSearch(query);
+        return;
+    }
+    if (query == m_searchQuery)
+        return;
+    m_searchQuery = query;
+    recomputeSearch();
+    m_searchIndex = m_searchResults.isEmpty()
+                        ? -1
+                        : static_cast<int>(m_searchResults.size()) - 1;
+    Q_EMIT searchChanged();
+}
+
+void TimelineModel::searchNext()
+{
+    if (m_searchResults.isEmpty())
+        return;
+    m_searchIndex = (m_searchIndex + 1) % m_searchResults.size();
+    Q_EMIT searchChanged();
+}
+
+void TimelineModel::searchPrev()
+{
+    if (m_searchResults.isEmpty())
+        return;
+    const int n = static_cast<int>(m_searchResults.size());
+    m_searchIndex = (m_searchIndex - 1 + n) % n;
+    Q_EMIT searchChanged();
+}
+
+void TimelineModel::endSearch()
+{
+    if (!m_searchActive && m_searchQuery.isEmpty() && m_searchResults.isEmpty()
+        && m_searchIndex < 0)
+        return;
+    m_searchActive = false;
+    m_searchQuery.clear();
+    m_searchResults.clear();
+    m_searchIndex = -1;
+    Q_EMIT searchChanged();
+}
+
+void TimelineModel::recomputeSearch()
+{
+    // Preserve the currently selected match across a recompute (timeline diff,
+    // decryption, edit) when it still matches.
+    const QString wasSelected = (m_searchIndex >= 0
+                                 && m_searchIndex < m_searchResults.size())
+                                    ? m_searchResults.at(m_searchIndex)
+                                    : QString{};
+    m_searchResults.clear();
+    const QString needle = m_searchQuery.trimmed();
+    if (m_searchActive && !needle.isEmpty()) {
+        for (const auto &event : m_events) {
+            if (event.isVirtual() || event.eventId.isEmpty())
+                continue;
+            const QString text = visibleTextForEvent(event.eventId);
+            if (text.contains(needle, Qt::CaseInsensitive))
+                m_searchResults.append(event.eventId);
+        }
+    }
+    if (m_searchResults.isEmpty()) {
+        m_searchIndex = -1;
+        return;
+    }
+    const int keep = m_searchResults.indexOf(wasSelected);
+    m_searchIndex = keep >= 0 ? keep
+                              : static_cast<int>(m_searchResults.size()) - 1;
 }
 
 int TimelineModel::rowCount(const QModelIndex &parent) const

@@ -21,6 +21,19 @@ class TimelineModel : public QAbstractListModel
     Q_PROPERTY(bool paginating READ paginating NOTIFY paginationChanged)
     // v0.5.7: last backward pagination failed; QML shows a Retry affordance.
     Q_PROPERTY(bool paginationFailed READ paginationFailed NOTIFY paginationChanged)
+    // v0.6.1: find-in-loaded-messages. Searches only the events currently
+    // present in this timeline (main or thread) — never a server history
+    // search, never a persistent plaintext index. State is memory-only and is
+    // cleared on endSearch() and on any room/thread switch.
+    Q_PROPERTY(bool searchActive READ searchActive NOTIFY searchChanged)
+    Q_PROPERTY(QString searchQuery READ searchQuery NOTIFY searchChanged)
+    Q_PROPERTY(int searchResultCount READ searchResultCount NOTIFY searchChanged)
+    // 1-based position of the current match for display ("2 of 7"); 0 when
+    // there are no matches.
+    Q_PROPERTY(int searchCurrentPosition READ searchCurrentPosition
+                   NOTIFY searchChanged)
+    Q_PROPERTY(QString searchCurrentEventId READ searchCurrentEventId
+                   NOTIFY searchChanged)
 
 public:
     enum Roles {
@@ -132,6 +145,22 @@ public:
     // Stable-id message action helpers. Each call re-resolves the event in
     // the current room so a recycled QML delegate cannot act on another row.
     Q_INVOKABLE QString visibleTextForEvent(const QString &eventId) const;
+
+    // v0.6.1: loaded-timeline search. beginSearch/updateSearch (re)compute
+    // matches over the currently loaded, visible message text; next/prev walk
+    // them (wrapping); endSearch clears all state. Case-insensitive.
+    bool searchActive() const { return m_searchActive; }
+    QString searchQuery() const { return m_searchQuery; }
+    int searchResultCount() const { return m_searchResults.size(); }
+    int searchCurrentPosition() const
+    { return m_searchIndex < 0 ? 0 : m_searchIndex + 1; }
+    QString searchCurrentEventId() const
+    { return m_searchIndex < 0 ? QString{} : m_searchResults.at(m_searchIndex); }
+    Q_INVOKABLE void beginSearch(const QString &query);
+    Q_INVOKABLE void updateSearch(const QString &query);
+    Q_INVOKABLE void searchNext();
+    Q_INVOKABLE void searchPrev();
+    Q_INVOKABLE void endSearch();
     Q_INVOKABLE QString messagePermalink(const QString &eventId) const;
     Q_INVOKABLE QVariantMap messageDetails(const QString &eventId) const;
     Q_INVOKABLE bool canEditEvent(const QString &eventId) const;
@@ -165,6 +194,7 @@ Q_SIGNALS:
     // v0.5.11: a backward-pagination batch prepended `count` rows; existing
     // rows shifted down by exactly that amount.
     void olderPrepended(int count);
+    void searchChanged();
 
 private Q_SLOTS:
     void onEventAppended(const QString &roomId, const TimelineEvent &event);
@@ -195,6 +225,9 @@ private Q_SLOTS:
 
 private:
     const TimelineEvent *eventForId(const QString &eventId) const;
+    // Recompute search matches over the loaded timeline, preserving the
+    // currently selected match's event id when it still matches.
+    void recomputeSearch();
     void reload();
     int rowForEventId(const QString &eventId) const;
     void refreshTypingText();
@@ -219,4 +252,10 @@ private:
     QString m_selfUserId;
     QList<TimelineEvent> m_events;
     QString m_typingText;
+
+    // v0.6.1 loaded-timeline search (memory-only; never persisted).
+    bool m_searchActive = false;
+    QString m_searchQuery;
+    QStringList m_searchResults;   // matching event ids, oldest → newest
+    int m_searchIndex = -1;        // index into m_searchResults; -1 = none
 };

@@ -37,6 +37,11 @@ Rectangle {
         target: app
         function onCurrentRoomIdChanged() {
             refreshCurrentRoom()
+            // A find session belongs to the room it was opened in.
+            if (root.findOpen) {
+                root.findOpen = false
+                findField.text = ""
+            }
             // Old-room wheel motion must not continue into the new room.
             timeline.cancelWheelMotion()
             // A pinned message-action toolbar belongs to the room it was
@@ -55,14 +60,51 @@ Rectangle {
         }
     }
 
+    // v0.6.1: find in loaded messages (this room's currently loaded timeline
+    // only — never a server history search, never a persistent index).
+    property bool findOpen: false
+    function openFind() {
+        if (app.currentRoomId === "") return
+        root.findOpen = true
+        app.timeline.beginSearch(findField.text)
+        findField.forceActiveFocus()
+        findField.selectAll()
+    }
+    function closeFind() {
+        root.findOpen = false
+        app.timeline.endSearch()
+    }
+    function scrollToSearchMatch() {
+        var eventId = app.timeline.searchCurrentEventId
+        if (eventId === "") return
+        var row = app.timeline.rowForStableId(eventId)
+        if (row < 0) return
+        timeline.cancelWheelMotion()
+        timeline.stickToBottom = false
+        timeline.positionViewAtIndex(row, ListView.Center)
+    }
+    Shortcut {
+        sequences: [StandardKey.Find]
+        enabled: app.currentRoomId !== ""
+        onActivated: root.openFind()
+    }
+    Connections {
+        target: app.timeline
+        function onSearchChanged() {
+            if (root.findOpen) root.scrollToSearchMatch()
+        }
+    }
+
     // Escape closes the room info panel first, then any pinned toolbar.
     Shortcut {
         sequence: "Escape"
         enabled: !timeline.emojiPickerOpen
-                 && (root.infoOpen || root.threadSurfaceOpen
+                 && (root.findOpen || root.infoOpen || root.threadSurfaceOpen
                      || timeline.pinnedActionsKey !== "")
         onActivated: {
-            if (root.infoOpen)
+            if (root.findOpen)
+                root.closeFind()
+            else if (root.infoOpen)
                 root.infoOpen = false
             else if (app.thread.active)
                 app.thread.close()
@@ -207,6 +249,69 @@ Rectangle {
         }
 
         Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: AppTheme.border }
+
+        // v0.6.1: find-in-loaded-messages bar.
+        Rectangle {
+            id: findBar
+            objectName: "timelineFindBar"
+            Layout.fillWidth: true
+            visible: root.findOpen
+            implicitHeight: findRow.implicitHeight + AppTheme.spacingS * 2
+            color: AppTheme.surface
+            RowLayout {
+                id: findRow
+                anchors.fill: parent
+                anchors.margins: AppTheme.spacingS
+                spacing: AppTheme.spacingS
+                Label {
+                    text: qsTr("Find in loaded messages:")
+                    color: AppTheme.textMuted
+                    font.pixelSize: 12
+                }
+                TextField {
+                    id: findField
+                    objectName: "timelineFindField"
+                    Layout.fillWidth: true
+                    placeholderText: qsTr("Search visible messages…")
+                    onTextChanged: if (root.findOpen)
+                                       app.timeline.updateSearch(text)
+                    Keys.onReturnPressed: (event) => {
+                        if (event.modifiers & Qt.ShiftModifier)
+                            app.timeline.searchPrev()
+                        else
+                            app.timeline.searchNext()
+                        event.accepted = true
+                    }
+                    Keys.onEscapePressed: root.closeFind()
+                }
+                Label {
+                    objectName: "timelineFindCount"
+                    text: app.timeline.searchResultCount > 0
+                          ? qsTr("%1 of %2").arg(app.timeline.searchCurrentPosition)
+                                            .arg(app.timeline.searchResultCount)
+                          : (findField.text.length > 0 ? qsTr("No matches") : "")
+                    color: AppTheme.textMuted
+                    font.pixelSize: 12
+                }
+                ToolButton {
+                    text: "▲"
+                    enabled: app.timeline.searchResultCount > 0
+                    Accessible.name: qsTr("Previous match")
+                    onClicked: app.timeline.searchPrev()
+                }
+                ToolButton {
+                    text: "▼"
+                    enabled: app.timeline.searchResultCount > 0
+                    Accessible.name: qsTr("Next match")
+                    onClicked: app.timeline.searchNext()
+                }
+                ToolButton {
+                    text: "✕"
+                    Accessible.name: qsTr("Close find")
+                    onClicked: root.closeFind()
+                }
+            }
+        }
 
         // Timeline
         Item {

@@ -126,6 +126,11 @@ private Q_SLOTS:
     void clientSwitchDoesNotLeakSenderProfile();
     void messageActionsUseStableIdentityAndSafeMetadata();
     void staleAndInapplicableMessageActionsAreRejected();
+    // v0.6.1 loaded-timeline search.
+    void searchFindsMatchesAndNavigatesWithWrap();
+    void searchUpdatesOnPaginationInsert();
+    void searchClearsOnRoomSwitchAndEnd();
+    void searchSurvivesEditAndExcludesRedacted();
 
 private:
     FakeClient *m_client = nullptr;
@@ -669,6 +674,109 @@ void TimelineModelDiffTest::staleAndInapplicableMessageActionsAreRejected()
     QVERIFY(!m_model->canRedactEvent(redacted.eventId));
     QVERIFY(m_model->messageDetails(QStringLiteral("$stale")).isEmpty());
     QVERIFY(m_model->messagePermalink(QStringLiteral("$stale")).isEmpty());
+}
+
+// beginSearch matches loaded, visible message text (case-insensitive),
+// starts at the newest match, and next/prev walk with wrap-around.
+void TimelineModelDiffTest::searchFindsMatchesAndNavigatesWithWrap()
+{
+    // init() gives "m0","m1"; add two more so "m" matches four and "hello"
+    // matches one.
+    for (const auto &pair : { std::pair<QString, QString>{ "$e2", "hello world" },
+                              std::pair<QString, QString>{ "$e3", "m3" } }) {
+        auto e = makeEvent(pair.first, pair.second);
+        m_client->mirror.append(e);
+        Q_EMIT m_client->eventAppended(kRoom, e);
+    }
+    QSignalSpy spy(m_model, &TimelineModel::searchChanged);
+
+    m_model->beginSearch(QStringLiteral("M"));   // case-insensitive
+    QVERIFY(m_model->searchActive());
+    QCOMPARE(m_model->searchResultCount(), 3);    // m0, m1, m3 (not "hello")
+    // Starts at the newest match ("m3").
+    QCOMPARE(m_model->searchCurrentEventId(), QStringLiteral("$e3"));
+    QCOMPARE(m_model->searchCurrentPosition(), 3);
+
+    m_model->searchPrev();
+    QCOMPARE(m_model->searchCurrentEventId(), QStringLiteral("$e1"));
+    QCOMPARE(m_model->searchCurrentPosition(), 2);
+
+    m_model->searchNext();
+    QCOMPARE(m_model->searchCurrentEventId(), QStringLiteral("$e3"));
+    m_model->searchNext();                        // wraps to the first
+    QCOMPARE(m_model->searchCurrentEventId(), QStringLiteral("$e0"));
+    QCOMPARE(m_model->searchCurrentPosition(), 1);
+
+    // A single-match query positions "1 of 1".
+    m_model->updateSearch(QStringLiteral("hello"));
+    QCOMPARE(m_model->searchResultCount(), 1);
+    QCOMPARE(m_model->searchCurrentEventId(), QStringLiteral("$e2"));
+    QVERIFY(spy.count() >= 1);
+}
+
+// A pagination prepend of an older matching event grows the result set and
+// keeps the current match selected.
+void TimelineModelDiffTest::searchUpdatesOnPaginationInsert()
+{
+    m_model->beginSearch(QStringLiteral("m1"));
+    QCOMPARE(m_model->searchResultCount(), 1);
+    const QString selected = m_model->searchCurrentEventId();
+    QCOMPARE(selected, QStringLiteral("$e1"));
+
+    // Prepend an older event that also matches "m1".
+    auto older = makeEvent(QStringLiteral("$old"), QStringLiteral("m1 older"));
+    m_client->mirror.prepend(older);
+    Q_EMIT m_client->eventsPrepended(kRoom, { older });
+
+    QCOMPARE(m_model->searchResultCount(), 2);
+    // The originally-selected match is preserved (not reset to newest).
+    QCOMPARE(m_model->searchCurrentEventId(), selected);
+}
+
+// Search state is memory-only: a room switch and endSearch both clear it.
+void TimelineModelDiffTest::searchClearsOnRoomSwitchAndEnd()
+{
+    m_model->beginSearch(QStringLiteral("m0"));
+    QVERIFY(m_model->searchActive());
+    QCOMPARE(m_model->searchResultCount(), 1);
+
+    m_model->endSearch();
+    QVERIFY(!m_model->searchActive());
+    QCOMPARE(m_model->searchResultCount(), 0);
+    QVERIFY(m_model->searchQuery().isEmpty());
+    QVERIFY(m_model->searchCurrentEventId().isEmpty());
+
+    // A room switch also clears an active search.
+    m_model->beginSearch(QStringLiteral("m0"));
+    QVERIFY(m_model->searchActive());
+    const QString other = QStringLiteral("!other:example.org");
+    m_client->mirror.clear();
+    m_model->setRoomId(other);
+    QVERIFY(!m_model->searchActive());
+    QCOMPARE(m_model->searchResultCount(), 0);
+}
+
+// An edit that changes a body updates matches; redacted events never match.
+void TimelineModelDiffTest::searchSurvivesEditAndExcludesRedacted()
+{
+    m_model->beginSearch(QStringLiteral("needle"));
+    QCOMPARE(m_model->searchResultCount(), 0);
+
+    // Edit $e1 to contain the needle → it now matches, live.
+    auto edited = makeEvent(QStringLiteral("$e1"),
+                            QStringLiteral("has needle now"));
+    edited.edited = true;
+    m_client->mirror[1] = edited;
+    Q_EMIT m_client->eventChangedAt(kRoom, 1, edited);
+    QCOMPARE(m_model->searchResultCount(), 1);
+    QCOMPARE(m_model->searchCurrentEventId(), QStringLiteral("$e1"));
+
+    // Redact it → visible text becomes empty, so it stops matching.
+    auto redacted = makeEvent(QStringLiteral("$e1"), QString());
+    redacted.redacted = true;
+    m_client->mirror[1] = redacted;
+    Q_EMIT m_client->eventChangedAt(kRoom, 1, redacted);
+    QCOMPARE(m_model->searchResultCount(), 0);
 }
 
 QTEST_GUILESS_MAIN(TimelineModelDiffTest)
