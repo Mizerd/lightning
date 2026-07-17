@@ -434,6 +434,137 @@ private Q_SLOTS:
                                             kViewport);
         QVERIFY(qFuzzyCompare(after, before - perVf));
     }
+
+    // ── v0.6.1: geometry, finiteness, and controller-independence hardening ──
+
+    // A delegate taller than the viewport is the case that exposed 0.5.19
+    // chunkiness. Even at Very fast over a tall viewport (largest bounded
+    // notch), a single notch must still produce many monotonic frames, none
+    // covering most of the distance in one visible jump.
+    void tallDelegateStillProducesSmoothFrames()
+    {
+        TimelineScrollController c;
+        c.setWheelSpeed(TimelineScrollController::VeryFast);
+        const double tallViewport = 1600.0;   // a maximised window
+        QSignalSpy frames(&c, &TimelineScrollController::wheelPositionChanged);
+        c.wheelNotch(-kNotch, 5000.0, kMinY, /*maxY*/ 100000.0, tallViewport);
+        const double target = c.targetYForTest();
+        const double total = target - 5000.0;
+        QVERIFY(total > tallViewport * 0.3);   // genuinely a big move
+        double prev = 5000.0;
+        while (c.motionActive())
+            c.advanceMotion(16.0);
+        QVERIFY(frames.count() >= 6);
+        for (int i = 0; i < frames.count(); ++i) {
+            const double y = frames.at(i).at(0).toDouble();
+            QVERIFY(y > prev - 0.001);                 // monotonic
+            QVERIFY2(y - prev < 0.6 * total, "one frame covered most of it");
+            prev = y;
+        }
+        QVERIFY(qFuzzyCompare(prev, target));
+    }
+
+    // Repeated notches at a SLOW cadence (each settles before the next) must
+    // each be individually smooth — the old fixed-duration OutCubic restart
+    // produced stop-start bursts here. Every notch yields several frames and
+    // no single-frame lurch.
+    void slowCadenceNotchesStaySmooth()
+    {
+        TimelineScrollController c;
+        double pos = 5000.0;
+        for (int round = 0; round < 3; ++round) {
+            c.wheelNotch(-kNotch, pos, kMinY, kMaxY, kViewport);
+            const double total = c.targetYForTest() - pos;
+            int frameCount = 0;
+            double prev = pos;
+            while (c.motionActive()) {
+                c.advanceMotion(16.0);
+                const double y = c.positionYForTest();
+                QVERIFY2(y - prev < 0.6 * total, "chunky single-frame jump");
+                prev = y;
+                ++frameCount;
+            }
+            QVERIFY2(frameCount >= 4, "notch settled in too few frames (chunky)");
+            pos = c.positionYForTest();
+        }
+    }
+
+    // Content shrinking mid-motion (e.g. a link preview collapses, a room
+    // trims history): QML re-clamps the emitted position and reports the bound.
+    // The engine settles exactly at the clamped position — never past it.
+    void contentShrinkDuringMotionDoesNotOverscroll()
+    {
+        TimelineScrollController c;
+        c.setWheelSpeed(TimelineScrollController::VeryFast);
+        c.wheelNotch(-kNotch, 5000.0, kMinY, /*maxY*/ 10000.0, kViewport);
+        c.advanceMotion(16.0);
+        const double target = c.targetYForTest();
+        // Content shrank so the new bottom is above the in-flight target.
+        const double newMax = target - 40.0;
+        c.notifyBoundReached(newMax);
+        QVERIFY(!c.motionActive());
+        QVERIFY(!c.tickerRunningForTest());
+        QCOMPARE(c.positionYForTest(), newMax);
+        // No residual motion can push past the shrunk bound.
+        QVERIFY(!c.advanceMotion(16.0));
+        QVERIFY(c.positionYForTest() <= newMax);
+    }
+
+    // The main timeline and thread panel own independent controllers
+    // (app.timelineScroll / app.threadScroll). Driving one must never move or
+    // engage the other.
+    void mainAndThreadControllersAreIndependent()
+    {
+        TimelineScrollController main;
+        TimelineScrollController thread;
+
+        main.wheelNotch(-kNotch, 5000.0, kMinY, kMaxY, kViewport);
+        QVERIFY(main.motionActive());
+        QVERIFY(!thread.motionActive());       // thread untouched
+        QVERIFY(!thread.tickerRunningForTest());
+
+        // Advancing main leaves thread's state at its defaults.
+        main.advanceMotion(16.0);
+        QCOMPARE(thread.positionYForTest(), 0.0);
+
+        // Now drive the thread; main keeps its own in-flight target.
+        const double mainTarget = main.targetYForTest();
+        thread.setWheelSpeed(TimelineScrollController::VeryFast);
+        thread.wheelNotch(+kNotch, 800.0, kMinY, kMaxY, kViewport);
+        QVERIFY(thread.motionActive());
+        QCOMPARE(main.targetYForTest(), mainTarget);   // main goal unchanged
+
+        // Cancelling one never settles the other.
+        thread.cancel();
+        QVERIFY(!thread.motionActive());
+        QVERIFY(main.motionActive());
+    }
+
+    // Across a stress sequence (extreme deltas, huge room, reversals, a
+    // stalled frame, bound clamps) the integrated position and target must
+    // never become NaN/Inf.
+    void positionsAndTargetsStayFinite()
+    {
+        TimelineScrollController c;
+        c.setWheelSpeed(TimelineScrollController::VeryFast);
+        const double bigMax = 1.0e9;
+        c.wheelNotch(-12.0 * kNotch, 5000.0, kMinY, bigMax, 2000.0);
+        for (int i = 0; i < 60; ++i) {
+            if (i == 15)   // reverse mid-flight
+                c.wheelNotch(+8.0 * kNotch, c.positionYForTest(), kMinY,
+                             bigMax, 2000.0);
+            if (i == 30)
+                c.advanceMotion(1000.0);   // a long stall
+            else
+                c.advanceMotion(16.0);
+            QVERIFY(qIsFinite(c.positionYForTest()));
+            QVERIFY(qIsFinite(c.targetYForTest()));
+            QVERIFY(c.positionYForTest() >= kMinY - 0.001);
+            QVERIFY(c.positionYForTest() <= bigMax + 0.001);
+        }
+        QVERIFY(qIsFinite(c.positionYForTest()));
+        QVERIFY(qIsFinite(c.targetYForTest()));
+    }
 };
 
 QTEST_MAIN(TimelineScrollControllerTest)
