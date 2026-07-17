@@ -3277,6 +3277,22 @@ fn install_event_handlers(
                 };
 
                 let is_encrypted = encryption_info.is_some();
+                // v0.6.0 checkpoint 12: notification-relevant metadata for
+                // rooms WITHOUT a live timeline — authoritative m.mentions
+                // and the m.thread root, matching the live-timeline payload.
+                let (mentions_me, mentions_room) = match &ev.content.mentions {
+                    Some(mentions) => (
+                        mentions.user_ids.contains(room.own_user_id()),
+                        mentions.room,
+                    ),
+                    None => (false, false),
+                };
+                let thread_root_id = match &ev.content.relates_to {
+                    Some(matrix_sdk::ruma::events::room::message::Relation::Thread(
+                        thread,
+                    )) => thread.event_id.to_string(),
+                    _ => String::new(),
+                };
                 enqueue(
                     &events,
                     json!({
@@ -3291,6 +3307,9 @@ fn install_event_handlers(
                             "is_encrypted": is_encrypted,
                             "is_decrypted": is_encrypted,
                             "undecryptable": false,
+                            "mentions_me": mentions_me,
+                            "mentions_room": mentions_room,
+                            "thread_root_id": thread_root_id,
                             // Kept for backward compat with C++ builds that
                             // still read `decrypted` — remove after prep+6.
                             "decrypted": is_encrypted,

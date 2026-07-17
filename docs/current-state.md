@@ -1,5 +1,29 @@
 # Current state (v0.5.19)
 
+## v0.6.0 (in progress) — E2EE, threads, notifications, scrolling integration
+
+Integration fix found during the pass: sync `timeline_event` payloads for
+rooms WITHOUT a live timeline (the main notification source) did not carry
+mention or thread metadata — the Rust handler now serializes the event's
+`m.mentions` (own-user and @room) and the `m.thread` root id, so Mentions
+only mode and thread-notification navigation behave identically for open
+and non-open rooms.
+
+Security audit of the full 0.5.19 → 0.6.0 diff: every new log statement
+carries only categories, generations, or truncated event-id suffixes —
+no message bodies, keys, tokens, secrets, or URLs (the old notification
+stub that logged title+body was removed); recovery input is masked, wiped
+after dispatch, and never persisted; `crypto_health` and `device_list`
+payloads carry booleans/enums/public ids only; notification click
+payloads carry room/event/thread identity only; CacheStore is untouched
+by 0.6.0 (no decrypted-body persistence); all crypto operations are
+official SDK calls (no custom Olm/Megolm, no key-transfer protocol, no
+automatic trust, no crypto-store resets). Bounded-resource audit: the
+wheel tickers stop at settle (asserted by tests), the thread list is
+bounded to fetched pages, the notification payload map is capped, manual
+decryption retries coalesce in a 2 s window, and no permanently running
+frame timer was added.
+
 ## v0.6.0 (in progress) — native notifications and mentions
 
 **Mentions.** The Rust bridge serializes the SDK-parsed `m.mentions`

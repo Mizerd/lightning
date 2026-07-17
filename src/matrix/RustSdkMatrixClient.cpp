@@ -2283,6 +2283,14 @@ void RustSdkMatrixClient::handleTimelineEvent(const QJsonObject &event)
     timelineEvent.undecryptable = undecryptable;
     timelineEvent.errorKind     =
         obj.value(QStringLiteral("error_kind")).toString();
+    // v0.6.0 checkpoint 12: mention/thread metadata for notification policy
+    // in rooms without a live timeline.
+    timelineEvent.mentionsMe =
+        obj.value(QStringLiteral("mentions_me")).toBool(false);
+    timelineEvent.mentionsRoom =
+        obj.value(QStringLiteral("mentions_room")).toBool(false);
+    timelineEvent.threadRootId =
+        obj.value(QStringLiteral("thread_root_id")).toString();
 
     // v0.5-prep+3: Rust bridges undecryptable encrypted events with
     // `undecryptable = true` and an empty body. Render an honest
