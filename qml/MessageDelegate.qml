@@ -693,6 +693,19 @@ Item {
                                                           rootId)
                                 }
                             }
+                            // v0.6.0 checkpoint 5: from a thread reply,
+                            // locate the same event in the room timeline
+                            // (highlighted); the existing navigation shows a
+                            // safe message when the target is unavailable.
+                            MenuItem {
+                                text: qsTr("Open in room")
+                                visible: root.inThreadPanel
+                                height: root.inThreadPanel
+                                        ? implicitHeight : 0
+                                enabled: root.menuEventId !== ""
+                                onTriggered: app.pagination.jumpToEvent(
+                                    root.menuEventId)
+                            }
                             MenuItem {
                                 text: qsTr("Edit")
                                 enabled: root.timelineModel.canEditEvent(root.menuEventId)

@@ -56,6 +56,24 @@ public:
                            const QString &threadRootEventId,
                            const QString &inReplyToEventId,
                            const QString &body) override;
+    // v0.6.0 checkpoint 5: deterministic thread list + follow state. The
+    // subscription map is mock-local (a stand-in for MSC4306 server state).
+    bool supportsThreadList() const override { return true; }
+    void openThreadList(const QString &roomId) override;
+    void closeThreadList() override;
+    void paginateThreadList(const QString &roomId) override;
+    void markThreadRead(const QString &roomId,
+                        const QString &rootEventId) override
+    {
+        Q_UNUSED(roomId);
+        Q_UNUSED(rootEventId);
+        ++m_markThreadReadCalls;
+    }
+    int markThreadReadCallsForTest() const { return m_markThreadReadCalls; }
+    void queryThreadSubscription(const QString &roomId,
+                                 const QString &rootEventId) override;
+    void setThreadSubscribed(const QString &roomId, const QString &rootEventId,
+                             bool subscribed) override;
     void editMessage(const QString &roomId,
                      const QString &targetEventId,
                      const QString &newBody) override;
@@ -114,4 +132,9 @@ private:
     // from the room timeline on open and kept in sync by sendThreadReply.
     QString m_openThreadTimelineId;
     void rebuildOpenThreadTimeline();
+    // v0.6.0 checkpoint 5.
+    QString m_openThreadListRoom;
+    QHash<QString, bool> m_threadSubscriptions; // roomId+"\x1f"+rootId → followed
+    int m_markThreadReadCalls = 0;
+    void emitThreadList(const QString &roomId);
 };

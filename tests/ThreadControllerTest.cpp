@@ -428,6 +428,120 @@ private Q_SLOTS:
         QVERIFY(!controller.inReply());
     }
 
+    // ── v0.6.0 checkpoint 5: follow state, thread list, threaded read ───
+
+    // Follow state round-trips through the backend; stale answers for other
+    // threads are ignored; unfollow works; close resets it.
+    void followStateTracksSubscription()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        ThreadController controller;
+        controller.setClient(&client);
+
+        const QString rootId = firstThreadRootId(client, kGeneral);
+        controller.openThread(kGeneral, rootId);
+        QTRY_COMPARE_WITH_TIMEOUT(controller.state(), ThreadController::Ready,
+                                  kSignalTimeoutMs);
+        // The mock answers synchronously: supported, not subscribed.
+        QVERIFY(controller.followSupported());
+        QVERIFY(!controller.followed());
+        QVERIFY(!controller.followBusy());
+
+        controller.setFollowed(true);
+        QTRY_COMPARE_WITH_TIMEOUT(controller.followed(), true,
+                                  kSignalTimeoutMs);
+        QVERIFY(!controller.followBusy());
+
+        // A stale answer for a different thread must not disturb state.
+        Q_EMIT client.threadSubscriptionState(
+            kGeneral, QStringLiteral("$other:mock.local"), true, false, false);
+        QVERIFY(controller.followed());
+
+        controller.setFollowed(false);
+        QTRY_COMPARE_WITH_TIMEOUT(controller.followed(), false,
+                                  kSignalTimeoutMs);
+
+        // Persistence across reopen (mock's map is the stand-in for the
+        // MSC4306 server state).
+        controller.setFollowed(true);
+        QTRY_COMPARE_WITH_TIMEOUT(controller.followed(), true,
+                                  kSignalTimeoutMs);
+        controller.close();
+        QVERIFY(!controller.followSupported());   // reset while closed
+        controller.openThread(kGeneral, rootId);
+        QTRY_COMPARE_WITH_TIMEOUT(controller.followed(), true,
+                                  kSignalTimeoutMs);
+    }
+
+    // The Threads view lists the room's threads sorted by latest activity,
+    // updates live on new replies, and closes on room switch.
+    void threadListListsAndFollowsActivity()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        ThreadController controller;
+        controller.setClient(&client);
+
+        controller.openList(kGeneral);
+        QTRY_COMPARE_WITH_TIMEOUT(controller.listLoading(), false,
+                                  kSignalTimeoutMs);
+        QVERIFY(controller.listOpen());
+        QVERIFY(controller.listEndReached());
+        QVERIFY(!controller.listFailed());
+        QCOMPARE(controller.threadList().size(), 1);   // one fixture thread
+        const QVariantMap entry = controller.threadList().first().toMap();
+        QCOMPARE(entry.value(QStringLiteral("rootEventId")).toString(),
+                 firstThreadRootId(client, kGeneral));
+        QCOMPARE(entry.value(QStringLiteral("replyCount")).toInt(), 2);
+        QVERIFY(!entry.value(QStringLiteral("latestPreview"))
+                     .toString().isEmpty());
+
+        // A new thread appears in the live list, newest activity first.
+        const QString secondRoot = client.timeline(kGeneral).first().eventId;
+        client.sendThreadReply(kGeneral, secondRoot,
+                               QStringLiteral("fresh thread"));
+        QTRY_COMPARE_WITH_TIMEOUT(controller.threadList().size(), 2,
+                                  kSignalTimeoutMs);
+        QCOMPARE(controller.threadList().first().toMap()
+                     .value(QStringLiteral("rootEventId")).toString(),
+                 secondRoot);
+
+        controller.handleCurrentRoomChanged(kDm);
+        QVERIFY(!controller.listOpen());
+        QVERIFY(controller.threadList().isEmpty());
+    }
+
+    // markRead sends exactly one threaded receipt per new latest reply —
+    // repeated calls (delegate churn, repeated settle events) deduplicate.
+    void markReadDeduplicatesPerLatestReply()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        ThreadController controller;
+        controller.setClient(&client);
+
+        const QString rootId = firstThreadRootId(client, kGeneral);
+        controller.openThread(kGeneral, rootId);
+        QTRY_COMPARE_WITH_TIMEOUT(controller.state(), ThreadController::Ready,
+                                  kSignalTimeoutMs);
+
+        // Repeated calls with an unchanged latest reply send exactly ONE
+        // threaded receipt; a new reply re-arms exactly one more.
+        controller.markRead();
+        controller.markRead();
+        controller.markRead();
+        QCOMPARE(client.markThreadReadCallsForTest(), 1);
+
+        controller.sendText(QStringLiteral("advance latest"));
+        QTRY_VERIFY_WITH_TIMEOUT(
+            controller.model()->rowCount() >= 4, kSignalTimeoutMs);
+        controller.markRead();
+        controller.markRead();
+        QCOMPARE(client.markThreadReadCallsForTest(), 2);
+        QCOMPARE(controller.state(), ThreadController::Ready);
+    }
+
     void logoutClosesThread()
     {
         MockMatrixClient client;

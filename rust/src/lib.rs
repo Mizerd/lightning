@@ -2270,6 +2270,167 @@ pub unsafe extern "C" fn mx_rust_thread_send_text(
     })
 }
 
+// ── v0.6.0 checkpoint 5: thread list, follow state, threaded read ───────
+
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_thread_list_open(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        if room_id.trim().is_empty() {
+            return Err("empty room id".to_owned());
+        }
+        let Some(client) = bridge.client.lock().ok().and_then(|g| g.clone()) else {
+            return Err("Rust SDK session is not logged in.".to_owned());
+        };
+        bridge.timelines.open_thread_list(&bridge.runtime, client, room_id);
+        Ok(String::new())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_thread_list_close(ptr: *mut c_void) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        bridge.timelines.close_thread_list();
+        Ok(String::new())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_thread_list_paginate(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        bridge
+            .timelines
+            .paginate_thread_list(&bridge.runtime, room_id)
+            .map(|_| String::new())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_thread_mark_read(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    root_event_id: *const c_char,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let root = unsafe { cstr_arg(root_event_id) }?;
+        bridge
+            .timelines
+            .mark_thread_read(&bridge.runtime, room_id, root)
+            .map(|_| String::new())
+    })
+}
+
+/// Query MSC4306 thread-subscription (follow) state. Result event:
+///   thread_subscription_state { room_id, thread_root_id, supported,
+///                               subscribed, automatic }
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_thread_subscription_query(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    root_event_id: *const c_char,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let root = unsafe { cstr_arg(root_event_id) }?;
+        let client = bridge.client.lock().ok().and_then(|guard| guard.clone())
+            .ok_or_else(|| "no active Matrix session".to_owned())?;
+        let room = RoomId::parse(&room_id).ok().and_then(|id| client.get_room(&id))
+            .ok_or_else(|| "unknown room".to_owned())?;
+        let root_ref = matrix_sdk::ruma::EventId::parse(&root)
+            .map_err(|_| "invalid thread root id".to_owned())?;
+        let events = Arc::clone(&bridge.events);
+        bridge.spawn_room_action(async move {
+            match room.load_or_fetch_thread_subscription(&root_ref).await {
+                Ok(subscription) => enqueue(&events, json!({
+                    "type": "thread_subscription_state",
+                    "room_id": room_id,
+                    "thread_root_id": root,
+                    "supported": true,
+                    "subscribed": subscription.is_some(),
+                    "automatic": subscription.map(|s| s.automatic).unwrap_or(false),
+                })),
+                // Coarse category only: homeservers without MSC4306 (or a
+                // network failure) both surface as unsupported/unavailable —
+                // the UI hides the control rather than lying about state.
+                Err(_) => enqueue(&events, json!({
+                    "type": "thread_subscription_state",
+                    "room_id": room_id,
+                    "thread_root_id": root,
+                    "supported": false,
+                    "subscribed": false,
+                    "automatic": false,
+                })),
+            }
+        });
+        Ok(String::new())
+    })
+}
+
+/// Manually follow/unfollow a thread (MSC4306). Result events: a
+/// thread_subscription_result acknowledgement followed by a fresh
+/// thread_subscription_state on success.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_thread_set_subscribed(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    root_event_id: *const c_char,
+    subscribed: c_int,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let root = unsafe { cstr_arg(root_event_id) }?;
+        let client = bridge.client.lock().ok().and_then(|guard| guard.clone())
+            .ok_or_else(|| "no active Matrix session".to_owned())?;
+        let room = RoomId::parse(&room_id).ok().and_then(|id| client.get_room(&id))
+            .ok_or_else(|| "unknown room".to_owned())?;
+        let root_ref = matrix_sdk::ruma::EventId::parse(&root)
+            .map_err(|_| "invalid thread root id".to_owned())?;
+        let subscribe = subscribed != 0;
+        let events = Arc::clone(&bridge.events);
+        bridge.spawn_room_action(async move {
+            let result = if subscribe {
+                // Manual subscription (no `automatic` event id) by design:
+                // this is the user's explicit Follow action.
+                room.subscribe_thread(root_ref.to_owned(), None).await
+            } else {
+                room.unsubscribe_thread(root_ref.to_owned()).await
+            };
+            enqueue(&events, json!({
+                "type": "thread_subscription_result",
+                "room_id": room_id,
+                "thread_root_id": root,
+                "ok": result.is_ok(),
+                "subscribed": subscribe,
+            }));
+            if result.is_ok() {
+                enqueue(&events, json!({
+                    "type": "thread_subscription_state",
+                    "room_id": room_id,
+                    "thread_root_id": root,
+                    "supported": true,
+                    "subscribed": subscribe,
+                    "automatic": false,
+                }));
+            }
+        });
+        Ok(String::new())
+    })
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_timeline_edit(
     ptr: *mut c_void,

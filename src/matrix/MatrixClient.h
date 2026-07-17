@@ -130,6 +130,38 @@ public:
         Q_UNUSED(rootEventId);
     }
     virtual void closeThread() {}
+    // ---- v0.6.0 checkpoint 5: thread list, follow state, threaded read.
+    //
+    // The Threads view lists a room's threads (server /threads pagination,
+    // kept live by the backend); follow state is MSC4306 server-side thread
+    // subscription where the homeserver supports it; markThreadRead sends a
+    // THREADED read receipt for the open thread panel only — never a
+    // room-wide receipt.
+    virtual bool supportsThreadList() const { return false; }
+    virtual void openThreadList(const QString &roomId) { Q_UNUSED(roomId); }
+    virtual void closeThreadList() {}
+    virtual void paginateThreadList(const QString &roomId) { Q_UNUSED(roomId); }
+    virtual void markThreadRead(const QString &roomId,
+                                const QString &rootEventId)
+    {
+        Q_UNUSED(roomId);
+        Q_UNUSED(rootEventId);
+    }
+    virtual void queryThreadSubscription(const QString &roomId,
+                                         const QString &rootEventId)
+    {
+        Q_UNUSED(roomId);
+        Q_UNUSED(rootEventId);
+    }
+    virtual void setThreadSubscribed(const QString &roomId,
+                                     const QString &rootEventId,
+                                     bool subscribed)
+    {
+        Q_UNUSED(roomId);
+        Q_UNUSED(rootEventId);
+        Q_UNUSED(subscribed);
+    }
+
     // Rich reply to a specific event WITHIN the thread. Backends without a
     // dedicated path fall back to a plain thread reply (the message still
     // lands in the correct thread).
@@ -301,6 +333,18 @@ Q_SIGNALS:
     void threadTimelineFailed(const QString &roomId,
                               const QString &rootEventId,
                               const QString &category);
+    // v0.6.0 checkpoint 5. Each thread entry map: rootEventId, rootSender,
+    // rootSenderName, rootPreview, rootTimestamp, replyCount, latestSender,
+    // latestSenderName, latestPreview, latestTimestamp. Bounded to the pages
+    // fetched so far.
+    void threadListUpdated(const QString &roomId, const QVariantList &threads,
+                           bool endReached, bool failed);
+    void threadSubscriptionState(const QString &roomId,
+                                 const QString &rootEventId, bool supported,
+                                 bool subscribed, bool automatic);
+    void threadSubscriptionResult(const QString &roomId,
+                                  const QString &rootEventId, bool ok,
+                                  bool subscribed);
     void eventAppended(const QString &roomId, const TimelineEvent &event);
     void eventStatusChanged(const QString &roomId,
                             const QString &eventId,

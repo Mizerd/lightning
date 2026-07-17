@@ -234,6 +234,8 @@ void MockMatrixClient::sendThreadReply(const QString &roomId,
         Q_EMIT eventAppended(timelineId, threadCopy);
         ackAfter(150, timelineId, ev.eventId);
     }
+    if (m_openThreadListRoom == roomId)
+        emitThreadList(roomId);
 }
 
 void MockMatrixClient::sendThreadReplyTo(const QString &roomId,
@@ -277,6 +279,8 @@ void MockMatrixClient::sendThreadReplyTo(const QString &roomId,
         Q_EMIT eventAppended(timelineId, threadCopy);
         ackAfter(150, timelineId, ev.eventId);
     }
+    if (m_openThreadListRoom == roomId)
+        emitThreadList(roomId);
 }
 
 // ── v0.6.0: mock thread timelines ────────────────────────────────────────
@@ -330,6 +334,92 @@ void MockMatrixClient::closeThread()
         return;
     m_timelines.remove(m_openThreadTimelineId);
     m_openThreadTimelineId.clear();
+}
+
+// ── v0.6.0 checkpoint 5: mock thread list + follow state ─────────────────
+
+void MockMatrixClient::emitThreadList(const QString &roomId)
+{
+    QVariantList threads;
+    QHash<QString, QVariantMap> byRoot;
+    QStringList order;
+    for (const auto &event : m_timelines.value(roomId)) {
+        if (event.threadRootId.isEmpty())
+            continue;
+        auto &entry = byRoot[event.threadRootId];
+        if (entry.isEmpty()) {
+            order.append(event.threadRootId);
+            entry.insert(QStringLiteral("rootEventId"), event.threadRootId);
+            entry.insert(QStringLiteral("replyCount"), 0);
+            for (const auto &root : m_timelines.value(roomId)) {
+                if (root.eventId != event.threadRootId)
+                    continue;
+                entry.insert(QStringLiteral("rootSender"), root.sender);
+                entry.insert(QStringLiteral("rootSenderName"),
+                             root.senderDisplayName.isEmpty()
+                                 ? root.sender : root.senderDisplayName);
+                entry.insert(QStringLiteral("rootPreview"),
+                             matrix::media::previewSnippet(root.body));
+                entry.insert(QStringLiteral("rootTimestamp"), root.timestamp);
+                break;
+            }
+        }
+        entry.insert(QStringLiteral("replyCount"),
+                     entry.value(QStringLiteral("replyCount")).toInt() + 1);
+        entry.insert(QStringLiteral("latestSender"), event.sender);
+        entry.insert(QStringLiteral("latestSenderName"),
+                     event.senderDisplayName.isEmpty()
+                         ? event.sender : event.senderDisplayName);
+        entry.insert(QStringLiteral("latestPreview"),
+                     matrix::media::previewSnippet(event.body));
+        entry.insert(QStringLiteral("latestTimestamp"), event.timestamp);
+    }
+    for (const auto &rootId : order)
+        threads.append(byRoot.value(rootId));
+    Q_EMIT threadListUpdated(roomId, threads, /*endReached=*/true,
+                             /*failed=*/false);
+}
+
+void MockMatrixClient::openThreadList(const QString &roomId)
+{
+    if (!m_timelines.contains(roomId)) {
+        Q_EMIT threadListUpdated(roomId, {}, true, true);
+        return;
+    }
+    m_openThreadListRoom = roomId;
+    emitThreadList(roomId);
+}
+
+void MockMatrixClient::closeThreadList()
+{
+    m_openThreadListRoom.clear();
+}
+
+void MockMatrixClient::paginateThreadList(const QString &roomId)
+{
+    // One deterministic page; end is always reached.
+    if (roomId == m_openThreadListRoom)
+        emitThreadList(roomId);
+}
+
+void MockMatrixClient::queryThreadSubscription(const QString &roomId,
+                                               const QString &rootEventId)
+{
+    const QString key = roomId + QChar(0x1f) + rootEventId;
+    Q_EMIT threadSubscriptionState(roomId, rootEventId, /*supported=*/true,
+                                   m_threadSubscriptions.value(key, false),
+                                   /*automatic=*/false);
+}
+
+void MockMatrixClient::setThreadSubscribed(const QString &roomId,
+                                           const QString &rootEventId,
+                                           bool subscribed)
+{
+    const QString key = roomId + QChar(0x1f) + rootEventId;
+    m_threadSubscriptions.insert(key, subscribed);
+    Q_EMIT threadSubscriptionResult(roomId, rootEventId, true, subscribed);
+    Q_EMIT threadSubscriptionState(roomId, rootEventId, true, subscribed,
+                                   false);
 }
 
 void MockMatrixClient::editMessage(const QString &roomId,

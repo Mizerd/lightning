@@ -11,6 +11,10 @@ Rectangle {
     property var currentRoom: ({})
     // v0.5.9: Room Information side panel (Phases 6/10 surface).
     property bool infoOpen: false
+    // v0.6.0: the thread side surface is open when a thread panel OR the
+    // room's Threads list view is showing.
+    readonly property bool threadSurfaceOpen: app.thread.active
+                                              || app.thread.listOpen
 
     function refreshCurrentRoom() {
         currentRoom = app.currentRoomId === ""
@@ -55,13 +59,15 @@ Rectangle {
     Shortcut {
         sequence: "Escape"
         enabled: !timeline.emojiPickerOpen
-                 && (root.infoOpen || app.thread.active
+                 && (root.infoOpen || root.threadSurfaceOpen
                      || timeline.pinnedActionsKey !== "")
         onActivated: {
             if (root.infoOpen)
                 root.infoOpen = false
             else if (app.thread.active)
                 app.thread.close()
+            else if (app.thread.listOpen)
+                app.thread.closeList()
             else
                 timeline.pinnedActionsKey = ""
         }
@@ -104,10 +110,10 @@ Rectangle {
 
     ColumnLayout {
         objectName: "roomColumn"
-        // v0.6.0: on narrow windows the open thread panel takes the whole
+        // v0.6.0: on narrow windows the open thread surface takes the whole
         // pane (the room and its state stay alive underneath and return
         // when the panel closes or the window widens).
-        visible: !(app.thread.active && root.width < 900)
+        visible: !(root.threadSurfaceOpen && root.width < 900)
         Layout.fillWidth: true
         Layout.fillHeight: true
         Layout.minimumWidth: 320
@@ -167,6 +173,25 @@ Rectangle {
                     }
                 }
                 Item { Layout.fillWidth: true }
+                ToolButton {
+                    objectName: "threadsViewButton"
+                    visible: app.currentRoomId !== "" && app.thread.supported
+                    text: "🧵"
+                    font.pixelSize: 14
+                    checked: app.thread.listOpen
+                    Accessible.name: qsTr("Threads")
+                    ToolTip.text: qsTr("Threads in this room")
+                    ToolTip.visible: hovered
+                    ToolTip.delay: 500
+                    onClicked: {
+                        if (app.thread.listOpen && !app.thread.active) {
+                            app.thread.closeList()
+                        } else {
+                            app.thread.close()
+                            app.thread.openList(app.currentRoomId)
+                        }
+                    }
+                }
                 ToolButton {
                     visible: app.currentRoomId !== "" && app.roomInfo.supported
                     text: "ⓘ"
@@ -853,7 +878,7 @@ Rectangle {
 
     // ── Thread side panel ────────────────────────────────────────────────
     Rectangle {
-        visible: app.thread.active && root.width >= 900
+        visible: root.threadSurfaceOpen && root.width >= 900
         Layout.fillHeight: true
         implicitWidth: 1
         color: AppTheme.border
@@ -861,11 +886,16 @@ Rectangle {
     ThreadPanel {
         id: threadPanel
         objectName: "threadPanel"
-        visible: app.thread.active
+        visible: root.threadSurfaceOpen
         Layout.fillHeight: true
         Layout.preferredWidth: root.width >= 900 ? 360 : root.width
-        Layout.fillWidth: app.thread.active && root.width < 900
-        onCloseRequested: app.thread.close()
+        Layout.fillWidth: root.threadSurfaceOpen && root.width < 900
+        onCloseRequested: {
+            if (app.thread.active)
+                app.thread.close()
+            else
+                app.thread.closeList()
+        }
         openImage: function(mediaKey, httpUrl) {
             imageViewer.openFor(mediaKey || "", httpUrl)
         }

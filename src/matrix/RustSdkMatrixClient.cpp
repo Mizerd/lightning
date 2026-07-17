@@ -1131,6 +1131,148 @@ void RustSdkMatrixClient::sendThreadReplyTo(const QString &roomId,
     }
 }
 
+void RustSdkMatrixClient::openThreadList(const QString &roomId)
+{
+    if (!m_loggedIn || !m_rustHandle || roomId.isEmpty())
+        return;
+    m_threadListRoom = roomId;
+    m_threadListGeneration = 0;
+    const QByteArray roomBytes = roomId.toUtf8();
+    const QString result = takeRustString(
+        mx_rust_thread_list_open(m_rustHandle, roomBytes.constData()));
+    if (!result.isEmpty()) {
+        m_threadListRoom.clear();
+        Q_EMIT threadListUpdated(roomId, {}, true, true);
+    }
+}
+
+void RustSdkMatrixClient::closeThreadList()
+{
+    if (m_rustHandle && !m_threadListRoom.isEmpty())
+        takeRustString(mx_rust_thread_list_close(m_rustHandle));
+    m_threadListRoom.clear();
+    m_threadListGeneration = 0;
+}
+
+void RustSdkMatrixClient::paginateThreadList(const QString &roomId)
+{
+    if (!m_rustHandle || roomId.isEmpty() || roomId != m_threadListRoom)
+        return;
+    const QByteArray roomBytes = roomId.toUtf8();
+    takeRustString(
+        mx_rust_thread_list_paginate(m_rustHandle, roomBytes.constData()));
+}
+
+void RustSdkMatrixClient::markThreadRead(const QString &roomId,
+                                         const QString &rootEventId)
+{
+    if (!m_rustHandle || roomId.isEmpty() || rootEventId.isEmpty())
+        return;
+    const QByteArray roomBytes = roomId.toUtf8();
+    const QByteArray rootBytes = rootEventId.toUtf8();
+    takeRustString(mx_rust_thread_mark_read(
+        m_rustHandle, roomBytes.constData(), rootBytes.constData()));
+}
+
+void RustSdkMatrixClient::queryThreadSubscription(const QString &roomId,
+                                                  const QString &rootEventId)
+{
+    if (!m_rustHandle || roomId.isEmpty() || rootEventId.isEmpty())
+        return;
+    const QByteArray roomBytes = roomId.toUtf8();
+    const QByteArray rootBytes = rootEventId.toUtf8();
+    takeRustString(mx_rust_thread_subscription_query(
+        m_rustHandle, roomBytes.constData(), rootBytes.constData()));
+}
+
+void RustSdkMatrixClient::setThreadSubscribed(const QString &roomId,
+                                              const QString &rootEventId,
+                                              bool subscribed)
+{
+    if (!m_rustHandle || roomId.isEmpty() || rootEventId.isEmpty())
+        return;
+    const QByteArray roomBytes = roomId.toUtf8();
+    const QByteArray rootBytes = rootEventId.toUtf8();
+    takeRustString(mx_rust_thread_set_subscribed(
+        m_rustHandle, roomBytes.constData(), rootBytes.constData(),
+        subscribed ? 1 : 0));
+}
+
+void RustSdkMatrixClient::handleThreadListReset(const QJsonObject &event)
+{
+    const QString roomId = event.value(QStringLiteral("room_id")).toString();
+    if (roomId != m_threadListRoom)
+        return;   // stale: list view moved to another room (or closed)
+    const auto generation = static_cast<quint64>(
+        event.value(QStringLiteral("thread_list_generation")).toDouble(0));
+    if (generation < m_threadListGeneration)
+        return;
+    m_threadListGeneration = generation;
+
+    if (event.value(QStringLiteral("type")).toString()
+        == QLatin1String("thread_list_error")) {
+        Q_EMIT threadListUpdated(roomId, {}, true, true);
+        return;
+    }
+
+    QVariantList threads;
+    const QJsonArray items = event.value(QStringLiteral("items")).toArray();
+    for (const auto &value : items) {
+        const QJsonObject obj = value.toObject();
+        QVariantMap entry;
+        entry.insert(QStringLiteral("rootEventId"),
+                     obj.value(QStringLiteral("root_event_id")).toString());
+        entry.insert(QStringLiteral("rootSender"),
+                     obj.value(QStringLiteral("root_sender")).toString());
+        entry.insert(QStringLiteral("rootSenderName"),
+                     obj.value(QStringLiteral("root_sender_name")).toString(
+                         obj.value(QStringLiteral("root_sender")).toString()));
+        entry.insert(QStringLiteral("rootPreview"),
+                     obj.value(QStringLiteral("root_preview")).toString());
+        entry.insert(QStringLiteral("rootTimestamp"),
+                     timestampFromMs(static_cast<qint64>(
+                         obj.value(QStringLiteral("root_timestamp_ms"))
+                             .toDouble(0))));
+        entry.insert(QStringLiteral("replyCount"),
+                     obj.value(QStringLiteral("reply_count")).toInt(0));
+        entry.insert(QStringLiteral("latestSender"),
+                     obj.value(QStringLiteral("latest_sender")).toString());
+        entry.insert(QStringLiteral("latestSenderName"),
+                     obj.value(QStringLiteral("latest_sender_name")).toString(
+                         obj.value(QStringLiteral("latest_sender")).toString()));
+        entry.insert(QStringLiteral("latestPreview"),
+                     obj.value(QStringLiteral("latest_preview")).toString());
+        entry.insert(QStringLiteral("latestTimestamp"),
+                     timestampFromMs(static_cast<qint64>(
+                         obj.value(QStringLiteral("latest_timestamp_ms"))
+                             .toDouble(0))));
+        threads.append(entry);
+    }
+    Q_EMIT threadListUpdated(
+        roomId, threads,
+        event.value(QStringLiteral("end_reached")).toBool(false),
+        event.value(QStringLiteral("failed")).toBool(false));
+}
+
+void RustSdkMatrixClient::handleThreadSubscriptionEvent(const QString &type,
+                                                        const QJsonObject &event)
+{
+    const QString roomId = event.value(QStringLiteral("room_id")).toString();
+    const QString rootId =
+        event.value(QStringLiteral("thread_root_id")).toString();
+    if (type == QLatin1String("thread_subscription_state")) {
+        Q_EMIT threadSubscriptionState(
+            roomId, rootId,
+            event.value(QStringLiteral("supported")).toBool(false),
+            event.value(QStringLiteral("subscribed")).toBool(false),
+            event.value(QStringLiteral("automatic")).toBool(false));
+    } else {
+        Q_EMIT threadSubscriptionResult(
+            roomId, rootId, event.value(QStringLiteral("ok")).toBool(false),
+            event.value(QStringLiteral("subscribed")).toBool(false));
+    }
+}
+
 void RustSdkMatrixClient::clearThreadTimelineState()
 {
     const QString requested = m_threadTracker.requestedRoom();
@@ -1294,9 +1436,11 @@ void RustSdkMatrixClient::handleThreadClosed(const QJsonObject &event)
 
 void RustSdkMatrixClient::closeRoomTimeline()
 {
-    // A thread panel never survives its room: Rust closes it as part of
-    // timeline close/open, and the C++ mirror drops it immediately.
+    // A thread panel / Threads view never survives its room: Rust closes
+    // them as part of timeline close/open; the C++ mirrors drop immediately.
     clearThreadTimelineState();
+    m_threadListRoom.clear();
+    m_threadListGeneration = 0;
     if (m_rustHandle && m_timelineTracker.hasActiveTimeline()) {
         const QString room = m_timelineTracker.activeRoom();
         takeRustString(mx_rust_timeline_close(m_rustHandle));
@@ -1626,6 +1770,16 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
     }
     if (type == QLatin1String("thread_closed")) {
         handleThreadClosed(event);
+        return;
+    }
+    if (type == QLatin1String("thread_list_reset")
+        || type == QLatin1String("thread_list_error")) {
+        handleThreadListReset(event);
+        return;
+    }
+    if (type == QLatin1String("thread_subscription_state")
+        || type == QLatin1String("thread_subscription_result")) {
+        handleThreadSubscriptionEvent(type, event);
         return;
     }
     if (type == QLatin1String("thread_send_failed")) {

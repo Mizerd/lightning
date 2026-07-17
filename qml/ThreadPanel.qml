@@ -21,9 +21,51 @@ Rectangle {
 
     property var rootData: ({})
     function refreshRoot() { rootData = app.thread.rootInfo() }
+
+    // v0.6.0 checkpoint 5: per-thread scroll restoration (session-local).
+    // Positions are keyed by the composite thread timeline id and saved when
+    // scrolling settles; reopening the same thread restores the position
+    // instead of always jumping to the end.
+    property var savedScrollPositions: ({})
+    function saveThreadScrollPosition() {
+        var key = app.thread.model.roomId
+        if (key === "" || !app.thread.active)
+            return
+        var positions = savedScrollPositions
+        positions[key] = { contentY: replyList.contentY,
+                           follow: replyList.followLatest }
+        savedScrollPositions = positions
+    }
+    function restoreThreadScrollPosition() {
+        var key = app.thread.model.roomId
+        var saved = savedScrollPositions[key]
+        if (saved === undefined) {
+            replyList.followLatest = true
+            replyList.scrollToEndDeferredIfFollowing()
+            return
+        }
+        replyList.followLatest = saved.follow
+        if (saved.follow) {
+            replyList.scrollToEndDeferredIfFollowing()
+        } else {
+            Qt.callLater(function() {
+                var lo = replyList.originY
+                var hi = Math.max(lo, replyList.originY
+                                      + replyList.contentHeight
+                                      - replyList.height)
+                replyList.contentY =
+                    Math.max(lo, Math.min(hi, saved.contentY))
+            })
+        }
+    }
+
     Connections {
         target: app.thread
-        function onStateChanged() { panel.refreshRoot() }
+        function onStateChanged() {
+            panel.refreshRoot()
+            if (app.thread.state === ThreadController.Ready)
+                panel.restoreThreadScrollPosition()
+        }
     }
     Connections {
         target: app.thread.model
@@ -48,20 +90,44 @@ Rectangle {
                 anchors.fill: parent
                 anchors.margins: AppTheme.spacingM
                 spacing: AppTheme.spacingS
+                // Back to the Threads list when the panel was entered from it.
+                ToolButton {
+                    objectName: "threadBackToListButton"
+                    visible: app.thread.active && app.thread.listOpen
+                    text: "‹"
+                    font.pixelSize: 14
+                    Accessible.name: qsTr("Back to threads")
+                    onClicked: app.thread.close()
+                }
                 Label {
-                    text: qsTr("Thread")
+                    text: app.thread.active ? qsTr("Thread") : qsTr("Threads")
                     color: AppTheme.text
                     font.pixelSize: 14
                     font.weight: Font.DemiBold
                 }
                 Label {
                     Layout.fillWidth: true
-                    text: app.thread.model.count > 1
+                    text: app.thread.active && app.thread.model.count > 1
                           ? qsTr("%n reply(s)", "", app.thread.model.count - 1)
                           : ""
                     color: AppTheme.textMuted
                     font.pixelSize: 11
                     elide: Label.ElideRight
+                }
+                // v0.6.0 checkpoint 5: MSC4306 follow state. Hidden until the
+                // homeserver confirms support — never a pretend toggle.
+                ToolButton {
+                    objectName: "threadFollowButton"
+                    visible: app.thread.active && app.thread.followSupported
+                    enabled: !app.thread.followBusy
+                    text: app.thread.followed ? qsTr("Unfollow") : qsTr("Follow")
+                    font.pixelSize: 11
+                    ToolTip.text: app.thread.followed
+                                  ? qsTr("Stop following this thread")
+                                  : qsTr("Follow this thread")
+                    ToolTip.visible: hovered
+                    ToolTip.delay: 500
+                    onClicked: app.thread.setFollowed(!app.thread.followed)
                 }
                 ToolButton {
                     objectName: "threadCloseButton"
@@ -77,11 +143,135 @@ Rectangle {
         }
         Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: AppTheme.border }
 
+        // ── Threads list (Threads view mode) ─────────────────────────────
+        Item {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            visible: !app.thread.active && app.thread.listOpen
+
+            Column {
+                anchors.centerIn: parent
+                spacing: AppTheme.spacingS
+                visible: app.thread.listLoading && threadListView.count === 0
+                BusyIndicator {
+                    width: 22; height: 22
+                    running: visible
+                    anchors.horizontalCenter: parent.horizontalCenter
+                }
+                Label {
+                    text: qsTr("Loading threads…")
+                    color: AppTheme.textMuted
+                    font.pixelSize: 11
+                }
+            }
+            Label {
+                anchors.centerIn: parent
+                visible: !app.thread.listLoading && threadListView.count === 0
+                text: app.thread.listFailed
+                      ? qsTr("Threads could not be loaded.")
+                      : qsTr("No threads in this room yet.")
+                color: AppTheme.textMuted
+                font.pixelSize: 11
+            }
+
+            ListView {
+                id: threadListView
+                objectName: "threadListView"
+                anchors.fill: parent
+                clip: true
+                model: app.thread.threadList
+                spacing: 1
+                delegate: Rectangle {
+                    width: threadListView.width
+                    color: rowHover.hovered ? AppTheme.surface : "transparent"
+                    implicitHeight: listEntry.implicitHeight
+                                    + AppTheme.spacingS * 2
+                    HoverHandler { id: rowHover }
+                    TapHandler {
+                        onTapped: app.thread.openThread(
+                            app.currentRoomId, modelData.rootEventId || "")
+                    }
+                    ColumnLayout {
+                        id: listEntry
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.leftMargin: AppTheme.spacingM
+                        anchors.rightMargin: AppTheme.spacingM
+                        spacing: 2
+                        RowLayout {
+                            spacing: AppTheme.spacingS
+                            Rectangle {
+                                visible: modelData.unread === true
+                                width: 7; height: 7; radius: 3.5
+                                color: AppTheme.accent
+                            }
+                            Label {
+                                text: modelData.rootSenderName || ""
+                                color: AppTheme.text
+                                font.pixelSize: 11
+                                font.weight: Font.DemiBold
+                            }
+                            Item { Layout.fillWidth: true }
+                            Label {
+                                text: modelData.latestTimestamp
+                                      ? Qt.formatDateTime(
+                                            modelData.latestTimestamp,
+                                            "d MMM hh:mm")
+                                      : ""
+                                color: AppTheme.textMuted
+                                font.pixelSize: 9
+                            }
+                        }
+                        Label {
+                            Layout.fillWidth: true
+                            text: modelData.rootPreview || ""
+                            color: AppTheme.text
+                            font.pixelSize: 11
+                            elide: Label.ElideRight
+                        }
+                        Label {
+                            Layout.fillWidth: true
+                            text: qsTr("%n reply(s)", "",
+                                       modelData.replyCount || 0)
+                                  + ((modelData.latestPreview || "").length > 0
+                                     ? " · " + (modelData.latestSenderName || "")
+                                       + ": " + modelData.latestPreview
+                                     : "")
+                            color: AppTheme.textMuted
+                            font.pixelSize: 10
+                            elide: Label.ElideRight
+                        }
+                    }
+                }
+                footer: Item {
+                    width: threadListView.width
+                    height: !app.thread.listEndReached ? 30 : 0
+                    Label {
+                        anchors.centerIn: parent
+                        visible: !app.thread.listEndReached
+                        text: app.thread.listLoading
+                              ? qsTr("Loading…") : qsTr("Load more threads")
+                        color: AppTheme.accent
+                        font.pixelSize: 10
+                        font.underline: !app.thread.listLoading
+                        MouseArea {
+                            anchors.fill: parent
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: app.thread.paginateList()
+                        }
+                    }
+                }
+                ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+            }
+        }
+
         // ── Pinned root ──────────────────────────────────────────────────
         Rectangle {
             objectName: "threadRootHeader"
             Layout.fillWidth: true
-            visible: app.thread.state !== ThreadController.Failed
+            visible: app.thread.active
+                     && app.thread.state !== ThreadController.Failed
             implicitHeight: Math.min(rootColumn.implicitHeight
                                      + AppTheme.spacingM * 2, 180)
             clip: true
@@ -260,16 +450,23 @@ Rectangle {
 
                 property bool followLatest: true
                 function scrollToEndDeferredIfFollowing() {
-                    if (followLatest && count > 0)
+                    if (followLatest && count > 0) {
                         Qt.callLater(function() { replyList.positionViewAtEnd() })
+                        // v0.6.0 checkpoint 5: reading the latest reply sends
+                        // ONE deduplicated THREADED receipt (never room-wide).
+                        app.thread.markRead()
+                    }
                 }
                 onMovementEnded: {
                     followLatest = atYEnd
                                    || (contentY + height >= contentHeight - 40)
+                    if (followLatest)
+                        app.thread.markRead()
                     // Near-top backfill for long threads; the model's
                     // requestOlder() is single-flight in the backend.
                     if (contentY - originY < height * 0.5)
                         app.thread.model.requestOlder()
+                    panel.saveThreadScrollPosition()
                 }
                 Component.onCompleted: scrollToEndDeferredIfFollowing()
 
@@ -351,6 +548,7 @@ Rectangle {
         // m.thread path. The main room composer is untouched.
         Rectangle {
             Layout.fillWidth: true
+            visible: app.thread.active
             color: AppTheme.surface
             implicitHeight: composerRow.implicitHeight + AppTheme.spacingS * 2
             RowLayout {

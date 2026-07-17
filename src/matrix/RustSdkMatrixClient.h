@@ -201,6 +201,16 @@ public:
                            const QString &threadRootEventId,
                            const QString &inReplyToEventId,
                            const QString &body) override;
+    bool supportsThreadList() const override { return true; }
+    void openThreadList(const QString &roomId) override;
+    void closeThreadList() override;
+    void paginateThreadList(const QString &roomId) override;
+    void markThreadRead(const QString &roomId,
+                        const QString &rootEventId) override;
+    void queryThreadSubscription(const QString &roomId,
+                                 const QString &rootEventId) override;
+    void setThreadSubscribed(const QString &roomId, const QString &rootEventId,
+                             bool subscribed) override;
 
     void loadOlderMessages(const QString &roomId) override;
     bool canPaginate(const QString &roomId) const override;
@@ -360,6 +370,9 @@ private:
     void handleThreadClosed(const QJsonObject &event);
     bool threadTimelineActiveFor(const QString &timelineId) const;
     void clearThreadTimelineState();
+    void handleThreadListReset(const QJsonObject &event);
+    void handleThreadSubscriptionEvent(const QString &type,
+                                       const QJsonObject &event);
     void handleTimelineRetryDecryption(const QJsonObject &event);
     void updateRoomPreviewFrom(const QString &roomId,
                                const QList<TimelineEvent> &newestFirstCandidates);
@@ -425,6 +438,10 @@ private:
     // thread_generation.
     matrix::rust_timeline::TimelineGenerationTracker m_threadTracker;
     QHash<QString, PaginationState> m_pagination;
+    // v0.6.0 checkpoint 5: the room whose Threads view is open, plus the
+    // adopted Rust thread-list generation (stale snapshots are rejected).
+    QString m_threadListRoom;
+    quint64 m_threadListGeneration = 0;
 
     // v0.5.9: operation-id counter for room-management/media commands and
     // the cached server upload limit (0 until the first upload_limit event).

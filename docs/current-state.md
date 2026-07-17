@@ -1,5 +1,35 @@
 # Current state (v0.5.19)
 
+## v0.6.0 (in progress) — thread unread, following, and navigation
+
+**Unread.** Thread roots carry the SDK ThreadSummary's conservative
+receipt-based unread hint (dot in the room-timeline summary row and in the
+Threads view). Reading a thread at its latest reply sends ONE deduplicated
+THREADED read receipt via the SDK's focus-aware `mark_as_read` — never a
+room-wide receipt, so opening a thread can never incorrectly mark the room
+read. Exact unread reply counts, mention indicators, and a panel
+first-unread divider are NOT invented: SDK 0.18's thread summary does not
+supply them reliably (documented limitation).
+
+**Following.** Follow/Unfollow uses the SDK's server-side MSC4306 thread
+subscriptions (`subscribe_thread` manual, `unsubscribe_thread`,
+`load_or_fetch_thread_subscription`) — real server state, not a local
+preference. The control stays hidden until the backend confirms the
+homeserver answers subscription queries; a failed change re-queries so the
+UI never lies about server state. The mock backend stands in with an
+explicit local map for tests.
+
+**Navigation.** The room header's Threads button opens a Threads view in
+the side panel: the SDK `ThreadListService` (server `/threads` pagination
+kept live by the event cache) is forwarded as bounded snapshots, sorted by
+latest activity with known-unread threads first, with Load more and
+loading/empty/failed states. Selecting a thread opens the panel (back
+button returns to the list); thread replies and the pinned root gain "Open
+in room" (highlighted main-timeline jump with the existing
+unavailable-target message), and per-thread scroll positions restore when
+reopening a thread (session-local). Room switches close the view;
+generation stamps drop stale list snapshots.
+
 ## v0.6.0 (in progress) — thread composing and actions
 
 Thread participation is functional end to end. The panel composer sends

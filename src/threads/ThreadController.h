@@ -46,6 +46,21 @@ class ThreadController : public QObject
     Q_PROPERTY(QString replyToEventId READ replyToEventId NOTIFY replyStateChanged)
     Q_PROPERTY(QString replyToSender READ replyToSender NOTIFY replyStateChanged)
     Q_PROPERTY(QString replyToPreview READ replyToPreview NOTIFY replyStateChanged)
+    // v0.6.0 checkpoint 5: MSC4306 follow state for the OPEN thread.
+    // followSupported is false until the backend confirms the homeserver
+    // supports thread subscriptions — the UI hides the control rather than
+    // pretending. followBusy covers the query and the change round-trips.
+    Q_PROPERTY(bool followSupported READ followSupported NOTIFY followStateChanged)
+    Q_PROPERTY(bool followed READ followed NOTIFY followStateChanged)
+    Q_PROPERTY(bool followAutomatic READ followAutomatic NOTIFY followStateChanged)
+    Q_PROPERTY(bool followBusy READ followBusy NOTIFY followStateChanged)
+    // v0.6.0 checkpoint 5: the room's Threads view (bounded to fetched
+    // pages, sorted by latest activity, unread-first where known).
+    Q_PROPERTY(bool listOpen READ listOpen NOTIFY listStateChanged)
+    Q_PROPERTY(bool listLoading READ listLoading NOTIFY listStateChanged)
+    Q_PROPERTY(bool listEndReached READ listEndReached NOTIFY listStateChanged)
+    Q_PROPERTY(bool listFailed READ listFailed NOTIFY listStateChanged)
+    Q_PROPERTY(QVariantList threadList READ threadList NOTIFY listStateChanged)
 
 public:
     enum State { Closed, Opening, Ready, Failed };
@@ -66,6 +81,15 @@ public:
     QString replyToEventId() const { return m_replyToEventId; }
     QString replyToSender() const { return m_replyToSender; }
     QString replyToPreview() const { return m_replyToPreview; }
+    bool followSupported() const { return m_followSupported; }
+    bool followed() const { return m_followed; }
+    bool followAutomatic() const { return m_followAutomatic; }
+    bool followBusy() const { return m_followBusy; }
+    bool listOpen() const { return m_listOpen; }
+    bool listLoading() const { return m_listLoading; }
+    bool listEndReached() const { return m_listEndReached; }
+    bool listFailed() const { return m_listFailed; }
+    QVariantList threadList() const { return m_threadList; }
 
     // Open (or switch to) the thread rooted at `rootEventId`. Replaces any
     // open thread; stale results from the replaced thread are ignored by
@@ -81,6 +105,16 @@ public:
     // Begin/cancel replying to a specific loaded thread event.
     Q_INVOKABLE void beginReply(const QString &eventId);
     Q_INVOKABLE void cancelReply();
+    // Follow/unfollow the open thread (server-side MSC4306 subscription).
+    Q_INVOKABLE void setFollowed(bool followed);
+    // Send ONE threaded read receipt for the open thread's latest readable
+    // event (deduplicated; never a room-wide receipt). QML calls this when
+    // the panel is at the latest reply.
+    Q_INVOKABLE void markRead();
+    // Threads view lifecycle for the current room.
+    Q_INVOKABLE void openList(const QString &roomId);
+    Q_INVOKABLE void closeList();
+    Q_INVOKABLE void paginateList();
     // De-duplicated sender MXIDs of the loaded thread events (root first
     // when loaded). Participants of unloaded history are not invented.
     Q_INVOKABLE QStringList participants() const;
@@ -98,6 +132,8 @@ Q_SIGNALS:
     void supportedChanged();
     void stateChanged();
     void replyStateChanged();
+    void followStateChanged();
+    void listStateChanged();
 
 private:
     void setState(State state, const QString &failureCategory = QString());
@@ -112,4 +148,19 @@ private:
     QString m_replyToEventId;
     QString m_replyToSender;
     QString m_replyToPreview;
+    void resetFollowState();
+    // Conservative unread hint for a list entry: the loaded room timeline's
+    // SDK thread summary for that root, when present.
+    bool threadUnreadHint(const QString &rootEventId) const;
+    bool m_followSupported = false;
+    bool m_followed = false;
+    bool m_followAutomatic = false;
+    bool m_followBusy = false;
+    QString m_lastMarkedReadEventId;
+    bool m_listOpen = false;
+    bool m_listLoading = false;
+    bool m_listEndReached = false;
+    bool m_listFailed = false;
+    QString m_listRoomId;
+    QVariantList m_threadList;
 };

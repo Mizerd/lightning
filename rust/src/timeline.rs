@@ -23,6 +23,7 @@ use matrix_sdk::{
     attachment::AttachmentInfo,
     room::edit::EditedContent,
     ruma::{
+        api::client::receipt::create_receipt::v3::ReceiptType,
         events::{
             room::{
                 message::{
@@ -40,6 +41,7 @@ use matrix_sdk::{
 use matrix_sdk_ui::{
     eyeball_im::VectorDiff,
     timeline::{
+        thread_list_service::{ThreadListItem, ThreadListService},
         AttachmentConfig, AttachmentSource, EncryptedMessage, EventSendState,
         EventTimelineItem, MsgLikeKind, Timeline, TimelineBuilder, TimelineDetails,
         TimelineEventItemId, TimelineFocus, TimelineItem, TimelineItemContent,
@@ -110,12 +112,27 @@ struct ActiveThread {
     reached_start: Arc<AtomicBool>,
 }
 
+/// v0.6.0 checkpoint 5: the room's paginated SDK thread list
+/// (`ThreadListService`) while the Threads view is open. Live updates come
+/// from the service's own event-cache listener; full (bounded, page-sized)
+/// snapshots are forwarded to C++ on each update batch.
+struct ActiveThreadList {
+    room_id: String,
+    list_gen: u64,
+    service: Option<Arc<ThreadListService>>,
+    task: Option<tokio::task::JoinHandle<()>>,
+    pagination_busy: Arc<AtomicBool>,
+}
+
 pub struct TimelineRegistry {
     events: EventQueue,
     active: Mutex<Option<ActiveTimeline>>,
     /// v0.6.0: the open thread panel's SDK timeline, if any. A thread always
     /// belongs to the open room: opening/closing a room closes it.
     active_thread: Mutex<Option<ActiveThread>>,
+    /// v0.6.0: the open room's thread list view, if any.
+    active_thread_list: Mutex<Option<ActiveThreadList>>,
+    thread_list_gen: AtomicU64,
     /// Bumped on every open-thread/close-thread call; stale thread events
     /// are rejected on both sides by this stamp.
     thread_gen: AtomicU64,
@@ -136,6 +153,8 @@ impl TimelineRegistry {
             events,
             active: Mutex::new(None),
             active_thread: Mutex::new(None),
+            active_thread_list: Mutex::new(None),
+            thread_list_gen: AtomicU64::new(0),
             thread_gen: AtomicU64::new(0),
             room_gen: AtomicU64::new(0),
             lifecycle_gen: AtomicU64::new(1),
@@ -218,8 +237,9 @@ impl TimelineRegistry {
         client: Client,
         room_id: String,
     ) {
-        // A thread panel never survives into another room.
+        // A thread panel / Threads view never survives into another room.
         self.close_thread();
+        self.close_thread_list();
         let room_gen = self.room_gen.fetch_add(1, Ordering::SeqCst) + 1;
         let lifecycle = self.lifecycle_gen.load(Ordering::SeqCst);
         self.clear_media();
@@ -270,8 +290,10 @@ impl TimelineRegistry {
 
     /// Close the active timeline (room deselected). Safe when none is open.
     pub fn close(&self) {
-        // A thread belongs to the open room; it never outlives it.
+        // A thread (and the Threads view) belongs to the open room; neither
+        // outlives it.
         self.close_thread();
+        self.close_thread_list();
         // Invalidate stale pagination/send completions for the closed room.
         self.room_gen.fetch_add(1, Ordering::SeqCst);
         if let Some((_task, old_room)) = self.take_active() {
@@ -360,6 +382,132 @@ impl TimelineRegistry {
         } else {
             handle.abort();
         }
+    }
+
+    // ── v0.6.0 checkpoint 5: room thread list + threaded read state ─────
+
+    fn take_active_thread_list(&self) -> Option<(Option<tokio::task::JoinHandle<()>>, String)> {
+        let mut guard = self.active_thread_list.lock().ok()?;
+        let list = guard.take()?;
+        if let Some(task) = &list.task {
+            task.abort();
+        }
+        Some((list.task, list.room_id))
+    }
+
+    fn thread_list_current(&self, list_gen: u64, lifecycle: u64) -> bool {
+        self.thread_list_gen.load(Ordering::SeqCst) == list_gen
+            && self.lifecycle_gen.load(Ordering::SeqCst) == lifecycle
+    }
+
+    /// Open (or replace) the Threads view for `room_id`: builds the SDK
+    /// ThreadListService, fetches the first page, and forwards a full
+    /// snapshot on every live update batch.
+    pub fn open_thread_list(
+        self: &Arc<Self>,
+        runtime: &tokio::runtime::Runtime,
+        client: Client,
+        room_id: String,
+    ) {
+        let list_gen = self.thread_list_gen.fetch_add(1, Ordering::SeqCst) + 1;
+        let lifecycle = self.lifecycle_gen.load(Ordering::SeqCst);
+        let _ = self.take_active_thread_list();
+
+        let pagination_busy = Arc::new(AtomicBool::new(false));
+        if let Ok(mut guard) = self.active_thread_list.lock() {
+            *guard = Some(ActiveThreadList {
+                room_id: room_id.clone(),
+                list_gen,
+                service: None,
+                task: None,
+                pagination_busy: Arc::clone(&pagination_busy),
+            });
+        }
+
+        let registry = Arc::clone(self);
+        let events = Arc::clone(&self.events);
+        let handle = runtime.spawn(open_thread_list_task(
+            registry, client, room_id, list_gen, lifecycle, events,
+        ));
+        if let Ok(mut guard) = self.active_thread_list.lock() {
+            match guard.as_mut() {
+                Some(list) if list.list_gen == list_gen => list.task = Some(handle),
+                _ => handle.abort(),
+            }
+        } else {
+            handle.abort();
+        }
+    }
+
+    /// Close the Threads view. Safe when none is open.
+    pub fn close_thread_list(&self) {
+        self.thread_list_gen.fetch_add(1, Ordering::SeqCst);
+        let _ = self.take_active_thread_list();
+    }
+
+    /// Fetch the next thread-list page. Single-flight; end-of-list requests
+    /// are dropped silently (the UI already knows via end_reached).
+    pub fn paginate_thread_list(
+        self: &Arc<Self>,
+        runtime: &tokio::runtime::Runtime,
+        room_id: String,
+    ) -> Result<(), String> {
+        let (service, list_gen, lifecycle, busy) = {
+            let guard = self
+                .active_thread_list
+                .lock()
+                .map_err(|_| "thread list lock poisoned".to_owned())?;
+            let list = guard.as_ref().ok_or("no thread list open")?;
+            if list.room_id != room_id {
+                return Err("thread list is open for another room".to_owned());
+            }
+            let service = list.service.clone().ok_or("thread list not ready")?;
+            (
+                service,
+                list.list_gen,
+                self.lifecycle_gen.load(Ordering::SeqCst),
+                Arc::clone(&list.pagination_busy),
+            )
+        };
+        if busy
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_err()
+        {
+            return Ok(());
+        }
+        let registry = Arc::clone(self);
+        let events = Arc::clone(&self.events);
+        runtime.spawn(async move {
+            let result = service.paginate().await;
+            busy.store(false, Ordering::SeqCst);
+            if !registry.thread_list_current(list_gen, lifecycle) {
+                return;
+            }
+            emit_thread_list_snapshot(
+                &events, &room_id, list_gen, lifecycle, &service,
+                result.is_err(),
+            );
+        });
+        Ok(())
+    }
+
+    /// Send a threaded read receipt for the open thread panel (the SDK's
+    /// focus-aware mark_as_read — never a room-wide receipt).
+    pub fn mark_thread_read(
+        self: &Arc<Self>,
+        runtime: &tokio::runtime::Runtime,
+        room_id: String,
+        root_event_id: String,
+    ) -> Result<(), String> {
+        let Some((timeline, _gen, _lifecycle)) =
+            self.thread_timeline_for(&room_id, &root_event_id)
+        else {
+            return Err("No live thread timeline is open for that root.".to_owned());
+        };
+        runtime.spawn(async move {
+            let _ = timeline.mark_as_read(ReceiptType::Read).await;
+        });
+        Ok(())
     }
 
     /// Close the open thread timeline (panel closed / room switch). Safe
@@ -555,6 +703,7 @@ impl TimelineRegistry {
         self.lifecycle_gen.fetch_add(1, Ordering::SeqCst);
         self.room_gen.fetch_add(1, Ordering::SeqCst);
         self.thread_gen.fetch_add(1, Ordering::SeqCst);
+        self.close_thread_list();
         self.clear_media();
         if let Some((task, _room, _root)) = self.take_active_thread() {
             if let Some(task) = task {
@@ -1183,6 +1332,142 @@ async fn open_thread_task(
             enqueue(&events, value);
         }
     }
+}
+
+/// v0.6.0 checkpoint 5: build the room's ThreadListService, fetch the first
+/// page, and forward a full bounded snapshot on every live update batch.
+async fn open_thread_list_task(
+    registry: Arc<TimelineRegistry>,
+    client: Client,
+    room_id: String,
+    list_gen: u64,
+    lifecycle: u64,
+    events: EventQueue,
+) {
+    let Ok(room_ref) = RoomId::parse(&room_id) else {
+        enqueue(
+            &events,
+            json!({
+                "type": "thread_list_error",
+                "room_id": room_id,
+                "thread_list_generation": list_gen,
+                "lifecycle": lifecycle,
+                "category": "invalid_room_id",
+            }),
+        );
+        return;
+    };
+    let Some(room) = client.get_room(&room_ref) else {
+        enqueue(
+            &events,
+            json!({
+                "type": "thread_list_error",
+                "room_id": room_id,
+                "thread_list_generation": list_gen,
+                "lifecycle": lifecycle,
+                "category": "unknown_room",
+            }),
+        );
+        return;
+    };
+
+    let service = Arc::new(ThreadListService::new(room));
+    {
+        let Ok(mut guard) = registry.active_thread_list.lock() else { return };
+        match guard.as_mut() {
+            Some(list) if list.list_gen == list_gen => {
+                list.service = Some(Arc::clone(&service));
+            }
+            _ => return, // superseded while building
+        }
+    }
+
+    let (_initial, mut stream) = service.subscribe_to_items_updates();
+
+    // First page (server /threads). A failure still emits a snapshot so the
+    // UI leaves its loading state honestly.
+    let first_page_failed = service.paginate().await.is_err();
+    if !registry.thread_list_current(list_gen, lifecycle) {
+        return;
+    }
+    emit_thread_list_snapshot(
+        &events, &room_id, list_gen, lifecycle, &service, first_page_failed,
+    );
+
+    while let Some(_diffs) = stream.next().await {
+        if !registry.thread_list_current(list_gen, lifecycle) {
+            break;
+        }
+        emit_thread_list_snapshot(&events, &room_id, list_gen, lifecycle, &service, false);
+    }
+}
+
+/// Serialize the service's current (page-bounded) items. Presentation-safe
+/// fields only; previews reuse the sanitized content_preview.
+fn emit_thread_list_snapshot(
+    events: &EventQueue,
+    room_id: &str,
+    list_gen: u64,
+    lifecycle: u64,
+    service: &ThreadListService,
+    failed: bool,
+) {
+    use matrix_sdk_ui::timeline::thread_list_service::ThreadListPaginationState;
+    let items: Vec<serde_json::Value> =
+        service.items().iter().map(thread_list_item_to_json).collect();
+    let end_reached = matches!(
+        service.pagination_state(),
+        ThreadListPaginationState::Idle { end_reached: true }
+    );
+    enqueue(
+        events,
+        json!({
+            "type": "thread_list_reset",
+            "room_id": room_id,
+            "thread_list_generation": list_gen,
+            "lifecycle": lifecycle,
+            "end_reached": end_reached,
+            "failed": failed,
+            "items": items,
+        }),
+    );
+}
+
+fn thread_list_item_to_json(item: &ThreadListItem) -> serde_json::Value {
+    let mut out = json!({
+        "root_event_id": item.root_event.event_id.to_string(),
+        "root_sender": item.root_event.sender.to_string(),
+        "root_timestamp_ms": u64::from(item.root_event.timestamp.get()),
+        "root_preview": item
+            .root_event
+            .content
+            .as_ref()
+            .map(content_preview)
+            .unwrap_or_else(|| "[unsupported event]".to_owned()),
+        "reply_count": item.num_replies,
+    });
+    if let TimelineDetails::Ready(profile) = &item.root_event.sender_profile {
+        if let Some(name) = &profile.display_name {
+            out["root_sender_name"] = name.clone().into();
+        }
+    }
+    if let Some(latest) = &item.latest_event {
+        out["latest_sender"] = latest.sender.to_string().into();
+        out["latest_timestamp_ms"] =
+            u64::from(latest.timestamp.get()).into();
+        out["latest_preview"] = latest
+            .content
+            .as_ref()
+            .map(content_preview)
+            .unwrap_or_else(|| "[unsupported event]".to_owned())
+            .into();
+        if let TimelineDetails::Ready(profile) = &latest.sender_profile {
+            if let Some(name) = &profile.display_name {
+                out["latest_sender_name"] = name.clone().into();
+            }
+        }
+    }
+    out
 }
 
 /// One-shot thread timeline used when the panel is not open: a
