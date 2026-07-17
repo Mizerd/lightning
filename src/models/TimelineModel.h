@@ -57,6 +57,9 @@ public:
         ThreadLatestSenderRole,    // MXID of the latest reply's sender.
         ThreadLatestTimestampRole, // QDateTime of the latest reply.
         ThreadUnreadRole,          // Conservative receipt-based unread hint.
+        // v0.6.0 checkpoint 11: m.mentions metadata (SDK-parsed).
+        MentionsMeRole,
+        MentionsRoomRole,
         // v0.5.0-prep+12: encryption metadata roles surface the four
         // flags C++ already carries on TimelineEvent so MessageDelegate
         // can style undecryptable rows without body-string matching.

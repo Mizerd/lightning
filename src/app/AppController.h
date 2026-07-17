@@ -23,6 +23,7 @@
 
 #include <QObject>
 #include <QString>
+#include <QSet>
 #include <QStringList>
 #include <QUrl>
 #include <QVariantList>
@@ -97,6 +98,11 @@ class AppController : public QObject
     // v0.6.0 checkpoint 9: the account's devices/sessions (server metadata +
     // SDK crypto trust; current session first, then by last-seen).
     Q_PROPERTY(QVariantList sessionDevices READ sessionDevices NOTIFY sessionDevicesChanged)
+    // v0.6.0 checkpoint 11: whether the room timeline is on screen, focused,
+    // and following the latest message (QML supplies it; notifications use
+    // it for active-room suppression).
+    Q_PROPERTY(bool activeRoomAtLatest READ activeRoomAtLatest
+                   WRITE setActiveRoomAtLatest NOTIFY activeRoomAtLatestChanged)
     Q_PROPERTY(bool sessionDevicesLoading READ sessionDevicesLoading NOTIFY sessionDevicesChanged)
     Q_PROPERTY(bool sessionDevicesFailed READ sessionDevicesFailed NOTIFY sessionDevicesChanged)
     Q_PROPERTY(SpaceManager* spaces READ spaces CONSTANT)
@@ -171,6 +177,8 @@ public:
     bool sessionDevicesLoading() const { return m_sessionDevicesLoading; }
     bool sessionDevicesFailed() const { return m_sessionDevicesFailed; }
     Q_INVOKABLE void refreshSessionDevices();
+    bool activeRoomAtLatest() const { return m_activeRoomAtLatest; }
+    void setActiveRoomAtLatest(bool atLatest);
     SpaceManager *spaces() const;
     ThreadManager *threads() const;
     ThreadController *thread() const { return m_thread.get(); }
@@ -298,6 +306,13 @@ Q_SIGNALS:
     // v0.5.0 SAS verification.
     void verificationStateChanged();
     void sessionDevicesChanged();
+    void activeRoomAtLatestChanged();
+    // v0.6.0 checkpoint 11: a notification was clicked — QML raises the
+    // window, selects the room, opens the thread, and locates the event.
+    // Identity only, never tokens.
+    void notificationOpenRequested(const QString &roomId,
+                                   const QString &eventId,
+                                   const QString &threadRootId);
 
     // v0.5.6 Security & Recovery.
     void securityStateChanged();
@@ -343,6 +358,8 @@ private:
     QVariantList m_sessionDevices;
     bool m_sessionDevicesLoading = false;
     bool m_sessionDevicesFailed = false;
+    bool m_activeRoomAtLatest = false;
+    QSet<QString> m_knownInvites;
     std::unique_ptr<SpaceManager> m_spaces;
     std::unique_ptr<ThreadManager> m_threads;
     std::unique_ptr<ThreadController> m_thread;

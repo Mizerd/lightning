@@ -325,6 +325,8 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
     case ThreadLatestSenderRole:    return e.threadLatestSender;
     case ThreadLatestTimestampRole: return e.threadLatestTimestamp;
     case ThreadUnreadRole:          return e.threadUnread;
+    case MentionsMeRole:            return e.mentionsMe;
+    case MentionsRoomRole:          return e.mentionsRoom;
     case IsEncryptedRole:        return e.isEncrypted;
     case IsDecryptedRole:        return e.isDecrypted;
     case UndecryptableRole:      return e.undecryptable;
@@ -415,6 +417,8 @@ QHash<int, QByteArray> TimelineModel::roleNames() const
         { ThreadLatestSenderRole,    "threadLatestSender" },
         { ThreadLatestTimestampRole, "threadLatestTimestamp" },
         { ThreadUnreadRole,          "threadUnread" },
+        { MentionsMeRole,            "mentionsMe" },
+        { MentionsRoomRole,          "mentionsRoom" },
         { IsEncryptedRole,         "isEncrypted" },
         { IsDecryptedRole,         "isDecrypted" },
         { UndecryptableRole,       "undecryptable" },

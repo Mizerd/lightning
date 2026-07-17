@@ -70,6 +70,11 @@ struct TimelineEvent {
     QDateTime threadLatestTimestamp;
     bool threadUnread = false;
 
+    // v0.6.0 checkpoint 11: authoritative mention metadata from the event's
+    // m.mentions (SDK-parsed) — never derived by substring matching.
+    bool mentionsMe = false;
+    bool mentionsRoom = false;
+
     // Media (v0.3). Non-empty only for Image/File events.
     QString mediaMxcUrl;
     QString mediaMimetype;

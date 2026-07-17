@@ -521,6 +521,15 @@ Rectangle {
                     property: "nearBottom"
                     value: timeline.stickToBottom
                 }
+                // v0.6.0 checkpoint 11: active-room notification suppression
+                // uses the same signals as read receipts: on screen, window
+                // focused, following the latest message.
+                Binding {
+                    target: app
+                    property: "activeRoomAtLatest"
+                    value: timeline.visible && timeline.Window.active === true
+                           && timeline.stickToBottom
+                }
 
                 // v0.5.11: ask the pagination controller for one more batch
                 // whenever the loaded content cannot fill the viewport (a

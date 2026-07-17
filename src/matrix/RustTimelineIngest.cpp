@@ -114,6 +114,8 @@ TimelineEvent eventFromItemJson(const QJsonObject &item, const QString &roomId)
         e.threadLatestTimestamp =
             QDateTime::fromMSecsSinceEpoch(latestTs, Qt::UTC);
     e.threadUnread = item.value(QStringLiteral("thread_unread")).toBool(false);
+    e.mentionsMe = item.value(QStringLiteral("mentions_me")).toBool(false);
+    e.mentionsRoom = item.value(QStringLiteral("mentions_room")).toBool(false);
 
     e.mediaMxcUrl = item.value(QStringLiteral("media_mxc")).toString();
     e.mediaMimetype = item.value(QStringLiteral("media_mimetype")).toString();

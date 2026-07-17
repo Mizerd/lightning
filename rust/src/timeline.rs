@@ -1808,6 +1808,18 @@ fn event_item_to_json(
             match &msg_like.kind {
                 MsgLikeKind::Message(message) => {
                     out["edited"] = message.is_edited().into();
+                    // v0.6.0 checkpoint 11: authoritative mention metadata
+                    // from the event's m.mentions — never substring matching.
+                    if let Some(mentions) = message.mentions() {
+                        if mentions.room {
+                            out["mentions_room"] = true.into();
+                        }
+                        if let Ok(own) = UserId::parse(own_user) {
+                            if mentions.user_ids.contains(&own) {
+                                out["mentions_me"] = true.into();
+                            }
+                        }
+                    }
                     if let Some(media) = fill_message_content(&mut out, message.msgtype()) {
                         // Stable retrieval key: the event id once the item is
                         // remote, the SDK unique id while it is a local echo.

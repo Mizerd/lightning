@@ -144,6 +144,50 @@ void SettingsManager::setStartMinimized(bool v)
     Q_EMIT startMinimizedChanged();
 }
 
+int SettingsManager::notificationPreview() const
+{
+    // 1 = sender only: the privacy-preserving default.
+    const int mode =
+        m_store->value(QStringLiteral("notifications/preview"), 1).toInt();
+    return (mode < 0 || mode > 2) ? 1 : mode;
+}
+
+void SettingsManager::setNotificationPreview(int mode)
+{
+    if (mode < 0 || mode > 2)
+        mode = 1;
+    if (notificationPreview() == mode)
+        return;
+    m_store->setValue(QStringLiteral("notifications/preview"), mode);
+    Q_EMIT notificationPreviewChanged();
+}
+
+int SettingsManager::roomNotificationMode(const QString &roomId) const
+{
+    if (roomId.isEmpty())
+        return 0;
+    const int mode = m_store
+        ->value(QStringLiteral("notifications/room-mode/") + roomId, 0)
+        .toInt();
+    return (mode < 0 || mode > 2) ? 0 : mode;
+}
+
+void SettingsManager::setRoomNotificationMode(const QString &roomId, int mode)
+{
+    if (roomId.isEmpty())
+        return;
+    if (mode < 0 || mode > 2)
+        mode = 0;
+    if (roomNotificationMode(roomId) == mode)
+        return;
+    const QString key = QStringLiteral("notifications/room-mode/") + roomId;
+    if (mode == 0)
+        m_store->remove(key);     // default: keep the settings file compact
+    else
+        m_store->setValue(key, mode);
+    Q_EMIT roomNotificationModeChanged(roomId);
+}
+
 bool SettingsManager::notificationsEnabled() const
 {
     return m_store->value(kNotifications, true).toBool();

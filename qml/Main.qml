@@ -20,6 +20,29 @@ ApplicationWindow {
             window.visibility = Window.Minimized
     }
 
+    // v0.6.0 checkpoint 11: a clicked notification raises Lightning, selects
+    // the room, opens the thread when it was a thread reply, and locates the
+    // event (the existing navigation shows a safe message when the target is
+    // unavailable). Identity only — the payload never carries tokens.
+    Connections {
+        target: app
+        function onNotificationOpenRequested(roomId, eventId, threadRootId) {
+            window.show()
+            window.raise()
+            window.requestActivate()
+            if (roomId === "")
+                return
+            app.showMain()
+            app.currentRoomId = roomId
+            if (threadRootId && threadRootId.length > 0)
+                app.thread.openThread(roomId, threadRootId)
+            if (eventId && eventId.length > 0)
+                Qt.callLater(function() {
+                    app.pagination.jumpToEvent(eventId)
+                })
+        }
+    }
+
     // Push the current theme selection into the AppTheme singleton so all
     // consumers repaint on change.
     Binding {

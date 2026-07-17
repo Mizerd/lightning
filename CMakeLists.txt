@@ -34,6 +34,9 @@ find_package(Qt6 6.5 REQUIRED COMPONENTS
     Sql
     Widgets
 )
+# v0.6.0 checkpoint 11: freedesktop notifications (Linux-first). Optional so
+# non-DBus platforms still build; NotificationManager degrades to a no-op.
+find_package(Qt6 6.5 COMPONENTS DBus)
 
 qt_standard_project_setup(REQUIRES 6.5)
 
@@ -237,6 +240,10 @@ function(lightning_configure_qml_app target)
         Qt6::Sql
         Qt6::Widgets
     )
+    if(TARGET Qt6::DBus)
+        target_link_libraries(${target} PRIVATE Qt6::DBus)
+        target_compile_definitions(${target} PRIVATE HAVE_QT_DBUS=1)
+    endif()
 
     target_compile_definitions(${target} PRIVATE
         APP_VERSION="${APP_VERSION_LABEL}"
@@ -536,6 +543,24 @@ if(BUILD_TESTING)
     target_link_libraries(crypto-health-model-test PRIVATE
         Qt6::Core Qt6::Qml Qt6::Test)
     add_test(NAME crypto-health-model COMMAND crypto-health-model-test)
+
+    # v0.6.0 checkpoint 11: the pure notification decision policy — privacy
+    # modes, mention metadata, local room modes, active-room suppression,
+    # never-expose-ciphertext.
+    qt_add_executable(notification-manager-test
+        tests/NotificationManagerTest.cpp
+        src/notifications/NotificationManager.h
+        src/notifications/NotificationManager.cpp
+    )
+    target_include_directories(notification-manager-test PRIVATE src)
+    target_link_libraries(notification-manager-test PRIVATE
+        Qt6::Core Qt6::Test)
+    if(TARGET Qt6::DBus)
+        target_link_libraries(notification-manager-test PRIVATE Qt6::DBus)
+        target_compile_definitions(notification-manager-test
+            PRIVATE HAVE_QT_DBUS=1)
+    endif()
+    add_test(NAME notification-manager COMMAND notification-manager-test)
 
     # v0.5.11: safe link previews — URL extraction with scheme allow-list,
     # GIF MIME classification, encrypted-room privacy gating, bounded cache,

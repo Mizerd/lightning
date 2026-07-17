@@ -452,14 +452,50 @@ Item {
                                     checked: app.settings.notificationsEnabled
                                     onToggled: app.settings.notificationsEnabled = checked
                                 }
+                                // v0.6.0 checkpoint 11: notification privacy.
+                                Label {
+                                    text: qsTr("Notification preview")
+                                    color: AppTheme.textSecondary
+                                    font.pixelSize: AppTheme.fontSecondary
+                                    font.weight: Font.DemiBold
+                                }
+                                ComboBox {
+                                    objectName: "notificationPreviewCombo"
+                                    Layout.fillWidth: true
+                                    enabled: app.settings.notificationsEnabled
+                                    model: [
+                                        qsTr("Sender and message"),
+                                        qsTr("Sender only"),
+                                        qsTr("Private")
+                                    ]
+                                    currentIndex: app.settings.notificationPreview
+                                    onActivated: (index) =>
+                                        app.settings.notificationPreview = index
+                                }
                                 Label {
                                     Layout.fillWidth: true
                                     wrapMode: Text.WordWrap
                                     color: AppTheme.textMuted
                                     font.pixelSize: AppTheme.fontCaption
-                                    text: qsTr("Push notification registration and "
-                                               + "per-room notification rules are not "
-                                               + "implemented yet.")
+                                    text: qsTr("Sender only (the default) never shows "
+                                               + "message text in notifications. "
+                                               + "Encrypted messages that cannot be "
+                                               + "decrypted always show a generic "
+                                               + "notification. Notifications are "
+                                               + "suppressed while the room is open, "
+                                               + "focused, and at the latest message.")
+                                }
+                                Label {
+                                    Layout.fillWidth: true
+                                    wrapMode: Text.WordWrap
+                                    color: AppTheme.textMuted
+                                    font.pixelSize: AppTheme.fontCaption
+                                    text: qsTr("Per-room notification modes (set from "
+                                               + "Room information) apply to this "
+                                               + "device only — they are not server "
+                                               + "push rules. Push registration for "
+                                               + "mobile-style notifications is not "
+                                               + "implemented.")
                                 }
                             }
                         }

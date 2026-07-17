@@ -224,8 +224,12 @@ private Q_SLOTS:
         QVERIFY(!delegate.contains(QStringLiteral("Qt.AlignRight")));
         QVERIFY(!delegate.contains(QStringLiteral("AppTheme.ownBubble")));
         QVERIFY(!delegate.contains(QStringLiteral("AppTheme.otherBubble")));
-        QVERIFY(delegate.contains(QStringLiteral("color: \"transparent\"")));
-        QVERIFY(delegate.contains(QStringLiteral("radius: 0")));
+        // v0.6.0: the bubble stays transparent by default; the only tint is
+        // the sender-NEUTRAL mention highlight (applies to any sender, never
+        // an own-message color or alignment change).
+        QVERIFY(delegate.contains(QStringLiteral("? Qt.alpha(AppTheme.accent, 0.14)")));
+        QVERIFY(delegate.contains(QStringLiteral(": \"transparent\"")));
+        QVERIFY(delegate.contains(QStringLiteral("? AppTheme.radiusSm : 0")));
     }
 
     void continuationRowsStayCompactAndActionsFloat()

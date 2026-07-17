@@ -16,6 +16,10 @@ class SettingsManager : public QObject
     Q_PROPERTY(QString language READ language WRITE setLanguage NOTIFY languageChanged)
     Q_PROPERTY(bool startMinimized READ startMinimized WRITE setStartMinimized NOTIFY startMinimizedChanged)
     Q_PROPERTY(bool notificationsEnabled READ notificationsEnabled WRITE setNotificationsEnabled NOTIFY notificationsEnabledChanged)
+    // v0.6.0 checkpoint 11: notification privacy. 0 = sender and message,
+    // 1 = sender only (default), 2 = private ("New Matrix notification").
+    Q_PROPERTY(int notificationPreview READ notificationPreview
+                   WRITE setNotificationPreview NOTIFY notificationPreviewChanged)
     // v0.5.11: link previews. Encrypted-room previews default OFF (privacy).
     Q_PROPERTY(bool autoLoadLinkPreviews READ autoLoadLinkPreviews
                    WRITE setAutoLoadLinkPreviews NOTIFY autoLoadLinkPreviewsChanged)
@@ -78,6 +82,13 @@ public:
     void setStartMinimized(bool v);
 
     bool notificationsEnabled() const;
+    int notificationPreview() const;
+    void setNotificationPreview(int mode);
+    // v0.6.0 checkpoint 11: LOCAL per-room notification mode (0 = all
+    // messages, 1 = mentions only, 2 = mute). Explicitly this-device-only —
+    // it is NOT synchronized to server push rules.
+    Q_INVOKABLE int roomNotificationMode(const QString &roomId) const;
+    Q_INVOKABLE void setRoomNotificationMode(const QString &roomId, int mode);
     void setNotificationsEnabled(bool v);
 
     // v0.5.11: link-preview policy (see Q_PROPERTY block).
@@ -139,6 +150,8 @@ Q_SIGNALS:
     void languageChanged();
     void startMinimizedChanged();
     void notificationsEnabledChanged();
+    void notificationPreviewChanged();
+    void roomNotificationModeChanged(const QString &roomId);
     void autoLoadLinkPreviewsChanged();
     void loadPreviewsInEncryptedRoomsChanged();
     void animateGifPreviewsChanged();

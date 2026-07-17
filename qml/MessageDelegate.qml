@@ -287,8 +287,15 @@ Item {
                 width: Math.max(1, parent.width - x)
                 height: implicitHeight
                 implicitHeight: bubbleContent.implicitHeight
-                color: "transparent"
-                radius: 0
+                // v0.6.0 checkpoint 11: mentions get a subtle accent tint —
+                // direct mentions stronger than room-wide @room.
+                color: model.mentionsMe === true
+                       ? Qt.alpha(AppTheme.accent, 0.14)
+                       : model.mentionsRoom === true
+                         ? Qt.alpha(AppTheme.accent, 0.07)
+                         : "transparent"
+                radius: model.mentionsMe === true || model.mentionsRoom === true
+                        ? AppTheme.radiusSm : 0
                 opacity: model.redacted ? 0.65 : 1.0
 
                 // Click the message content to pin the action toolbar (click again

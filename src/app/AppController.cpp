@@ -107,6 +107,65 @@ AppController::AppController(Backend backend, QObject *parent)
 
     m_crypto->setBackendName(backendName());
 
+    // v0.6.0 checkpoint 11: native notifications. Every appended remote
+    // event (any room, incl. thread-timeline copies which are filtered by
+    // their composite id) runs the pure decision; the manager delivers via
+    // freedesktop DBus. Bodies are never logged or persisted.
+    connect(m_client.get(), &MatrixClient::eventAppended, this,
+            [this](const QString &roomId, const TimelineEvent &event) {
+        if (MatrixClient::isThreadTimelineId(roomId))
+            return;   // the room copy of the same event already notifies
+        NotificationManager::Context context;
+        context.selfUserId = m_client->currentUserId();
+        RoomInfo info;
+        const auto rooms = m_client->rooms();
+        for (const auto &candidate : rooms) {
+            if (candidate.id == roomId) {
+                info = candidate;
+                break;
+            }
+        }
+        context.roomName = info.name.isEmpty() ? roomId : info.name;
+        context.roomIsDirect = info.isDirect;
+        context.roomMode = static_cast<NotificationManager::RoomMode>(
+            m_settings->roomNotificationMode(roomId));
+        context.previewMode = static_cast<NotificationManager::PreviewMode>(
+            m_settings->notificationPreview());
+        context.notificationsEnabled = m_settings->notificationsEnabled();
+        context.roomVisibleAtLatest =
+            roomId == m_currentRoomId && m_activeRoomAtLatest;
+        m_notifications->processEvent(event, context);
+    });
+    connect(m_notifications.get(), &NotificationManager::openRequested, this,
+            [this](const QString &roomId, const QString &eventId,
+                   const QString &threadRootId) {
+        Q_EMIT notificationOpenRequested(roomId, eventId, threadRootId);
+    });
+    connect(m_client.get(), &MatrixClient::loggedOut, this,
+            [this] { m_notifications->clearPending(); m_knownInvites.clear(); });
+    // Invites: notify once per newly seen invited room.
+    connect(m_client.get(), &MatrixClient::roomsChanged, this, [this] {
+        const auto rooms = m_client->rooms();
+        QSet<QString> current;
+        for (const auto &room : rooms) {
+            if (room.membership != RoomInfo::Invited)
+                continue;
+            current.insert(room.id);
+            if (m_knownInvites.contains(room.id))
+                continue;
+            if (m_settings->notificationsEnabled()) {
+                m_notifications->showGeneric(
+                    tr("Room invitation"),
+                    m_settings->notificationPreview() == 2
+                        ? tr("New Matrix notification")
+                        : tr("You were invited to %1")
+                              .arg(room.name.isEmpty() ? room.id : room.name),
+                    room.id);
+            }
+        }
+        m_knownInvites = current;
+    });
+
     m_spaces->setClient(m_client.get());
     m_threads->setClient(m_client.get());
     m_thread->setClient(m_client.get());
@@ -314,6 +373,20 @@ AppController::AppController(Backend backend, QObject *parent)
                 this, [this] {
             m_cryptoHealth->setPendingVerificationCount(
                 verificationActive() ? 1 : 0);
+            // v0.6.0 checkpoint 11: surface INCOMING verification requests
+            // natively (identity only; a verification prompt never carries
+            // message content or SAS data).
+            static QString lastNotifiedFlow;
+            if (m_verificationState == QLatin1String("requested")
+                && !m_verificationFlowId.isEmpty()
+                && m_verificationFlowId != lastNotifiedFlow
+                && m_settings->notificationsEnabled()) {
+                lastNotifiedFlow = m_verificationFlowId;
+                m_notifications->showGeneric(
+                    tr("Verification request"),
+                    tr("%1 wants to verify a session. Open Lightning to "
+                       "review it.").arg(m_verificationOtherUser));
+            }
         });
         connect(rust, &MatrixClient::loggedOut,
                 this, [this] {
@@ -820,6 +893,14 @@ void AppController::refreshSessionTrustState()
         rust->queryCryptoHealth();
     }
 #endif
+}
+
+void AppController::setActiveRoomAtLatest(bool atLatest)
+{
+    if (m_activeRoomAtLatest == atLatest)
+        return;
+    m_activeRoomAtLatest = atLatest;
+    Q_EMIT activeRoomAtLatestChanged();
 }
 
 void AppController::refreshSessionDevices()

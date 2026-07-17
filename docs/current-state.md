@@ -1,5 +1,32 @@
 # Current state (v0.5.19)
 
+## v0.6.0 (in progress) — native notifications and mentions
+
+**Mentions.** The Rust bridge serializes the SDK-parsed `m.mentions`
+metadata (`mentions_me` from the user-id list, `mentions_room` from
+@room) — never substring matching. Direct mentions get a stronger
+sender-neutral accent tint than room-wide mentions in the timeline; the
+room list's mention badge (SDK `num_unread_mentions`) predates 0.6.0.
+
+**Notifications.** `NotificationManager` separates a PURE, unit-tested
+decision policy from freedesktop `org.freedesktop.Notifications` DBus
+delivery (Linux-first; a build without QtDBus degrades to a no-op).
+Policy: own messages, local echoes, state/virtual rows never notify;
+local per-room modes All messages / Mentions only / Mute (explicitly
+this-device-only — NOT server push rules, stated in the UI); active-room
+suppression when the room is on screen, focused, and at the latest
+message (scrolled-away rooms still notify). Privacy modes (Settings →
+Notifications): Sender and message / **Sender only (default)** /
+Private; undecryptable events always render a generic "Encrypted
+message" — never ciphertext or raw JSON; bodies are never logged (the
+old stub's body logging was removed) and never persisted. Invites and
+incoming verification requests notify generically. Clicking a
+notification raises the window, selects the room, opens the thread for
+thread replies, and locates the event — the payload is room/event/thread
+identity only, never a token. Honest limitations: no Matrix push-rule
+evaluation (the SDK's NotificationClient is push-oriented; local modes
+are labeled local), no notification sounds, no push registration.
+
 ## v0.6.0 (in progress) — cross-signing, recovery, and key-backup controls
 
 Audit result for matrix-sdk 0.18: `Recovery::recover()` accepts both a

@@ -136,6 +136,49 @@ Rectangle {
                 width: parent.width
                 spacing: AppTheme.spacing12
 
+                // v0.6.0 checkpoint 11: LOCAL per-room notification mode.
+                // Explicitly this-device-only — never presented as a server
+                // push rule.
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    Layout.leftMargin: AppTheme.spacing12
+                    Layout.rightMargin: AppTheme.spacing12
+                    Layout.topMargin: AppTheme.spacing12
+                    spacing: 4
+                    Label {
+                        text: qsTr("Notifications (this device)")
+                        color: AppTheme.textSecondary
+                        font.pixelSize: AppTheme.fontSecondary
+                        font.weight: Font.DemiBold
+                    }
+                    ComboBox {
+                        objectName: "roomNotificationModeCombo"
+                        Layout.fillWidth: true
+                        model: [
+                            qsTr("All messages"),
+                            qsTr("Mentions only"),
+                            qsTr("Mute")
+                        ]
+                        currentIndex: app.roomInfo.roomId !== ""
+                            ? app.settings.roomNotificationMode(
+                                  app.roomInfo.roomId)
+                            : 0
+                        onActivated: (index) => {
+                            if (app.roomInfo.roomId !== "")
+                                app.settings.setRoomNotificationMode(
+                                    app.roomInfo.roomId, index)
+                        }
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                        color: AppTheme.textMuted
+                        font.pixelSize: AppTheme.fontCaption
+                        text: qsTr("Local setting: it does not change this "
+                                   + "room's server push rules.")
+                    }
+                }
+
                 // Identity block
                 ColumnLayout {
                     Layout.fillWidth: true
