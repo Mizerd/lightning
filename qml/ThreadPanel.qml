@@ -63,8 +63,16 @@ Rectangle {
         target: app.thread
         function onStateChanged() {
             panel.refreshRoot()
-            if (app.thread.state === ThreadController.Ready)
+            // Any lifecycle transition invalidates in-flight wheel motion —
+            // old-thread motion must never scroll the new thread.
+            app.threadScroll.cancel()
+            if (app.thread.state === ThreadController.Ready) {
                 panel.restoreThreadScrollPosition()
+                Qt.callLater(function() {
+                    if (app.thread.active)
+                        threadComposerInput.forceActiveFocus()
+                })
+            }
         }
     }
     Connections {
@@ -447,6 +455,65 @@ Rectangle {
                 function toggleStateGroup(groupId) {}
                 property var openImage: panel.openImage
                 property var saveMedia: panel.saveMedia
+
+                // v0.6.0 checkpoint 6: the panel's own wheel motion engine
+                // (app.threadScroll) — same device-aware policy as the room
+                // timeline, fully isolated motion state. Programmatic
+                // positioning (restore, follow-latest) cancels it first.
+                function wheelMinY() { return originY - topMargin }
+                function wheelMaxY() {
+                    var maxY = originY + contentHeight + bottomMargin - height
+                    var minY = wheelMinY()
+                    return maxY < minY ? minY : maxY
+                }
+                function afterWheelSettled() {
+                    followLatest = atYEnd
+                                   || (contentY + height >= contentHeight - 40)
+                    if (followLatest)
+                        app.thread.markRead()
+                    if (contentY - originY < height * 0.5)
+                        app.thread.model.requestOlder()
+                    panel.saveThreadScrollPosition()
+                }
+                WheelHandler {
+                    objectName: "threadWheelHandler"
+                    target: null
+                    acceptedDevices: PointerDevice.Mouse
+                                     | PointerDevice.TouchPad
+                    onWheel: (event) => {
+                        var minY = replyList.wheelMinY()
+                        var maxY = replyList.wheelMaxY()
+                        if (event.pixelDelta.y !== 0) {
+                            app.threadScroll.cancel()
+                            replyList.contentY = app.threadScroll.pixelTargetY(
+                                event.pixelDelta.y, replyList.contentY,
+                                minY, maxY)
+                            replyList.afterWheelSettled()
+                        } else if (event.angleDelta.y !== 0) {
+                            app.threadScroll.wheelNotch(
+                                event.angleDelta.y, replyList.contentY,
+                                minY, maxY, replyList.height)
+                            if (event.angleDelta.y > 0)
+                                replyList.followLatest = false
+                        }
+                        event.accepted = true
+                    }
+                }
+                Connections {
+                    target: app.threadScroll
+                    function onWheelPositionChanged(y) {
+                        var lo = replyList.wheelMinY()
+                        var hi = replyList.wheelMaxY()
+                        var clamped = y < lo ? lo : (y > hi ? hi : y)
+                        replyList.contentY = clamped
+                        if (clamped !== y)
+                            app.threadScroll.notifyBoundReached(clamped)
+                    }
+                    function onWheelMotionSettled() {
+                        replyList.afterWheelSettled()
+                    }
+                }
+                Component.onDestruction: app.threadScroll.cancel()
 
                 property bool followLatest: true
                 function scrollToEndDeferredIfFollowing() {

@@ -100,6 +100,7 @@ AppController::AppController(Backend backend, QObject *parent)
     m_readReceipts = std::make_unique<ReadReceiptCoordinator>(this);
     m_linkPreviews = std::make_unique<LinkPreviewController>(this);
     m_timelineScroll = std::make_unique<TimelineScrollController>(this);
+    m_threadScroll   = std::make_unique<TimelineScrollController>(this);
 
     m_crypto->setBackendName(backendName());
 
@@ -138,9 +139,11 @@ AppController::AppController(Backend backend, QObject *parent)
     // live. Only discrete mouse-wheel distance is affected; touchpad pixel
     // scrolling and all programmatic navigation are independent of it.
     m_timelineScroll->setWheelSpeedValue(m_settings->timelineWheelSpeed());
+    m_threadScroll->setWheelSpeedValue(m_settings->timelineWheelSpeed());
     connect(m_settings.get(), &SettingsManager::timelineWheelSpeedChanged,
             this, [this]() {
         m_timelineScroll->setWheelSpeedValue(m_settings->timelineWheelSpeed());
+        m_threadScroll->setWheelSpeedValue(m_settings->timelineWheelSpeed());
     });
 
     // The read-receipt coordinator needs the real application activation

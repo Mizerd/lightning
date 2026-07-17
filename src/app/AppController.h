@@ -107,6 +107,10 @@ class AppController : public QObject
     Q_PROPERTY(LinkPreviewController* linkPreviews READ linkPreviews CONSTANT)
     // v0.5.19: device-aware timeline wheel-scroll policy.
     Q_PROPERTY(TimelineScrollController* timelineScroll READ timelineScroll CONSTANT)
+    // v0.6.0 checkpoint 6: the thread panel's OWN wheel motion engine.
+    // Same policy/speed as the room timeline, but fully isolated motion
+    // state — the two panels can never share an active contentY target.
+    Q_PROPERTY(TimelineScrollController* threadScroll READ threadScroll CONSTANT)
 
 public:
     enum Screen {
@@ -162,6 +166,7 @@ public:
     ReadReceiptCoordinator *readReceipts() const { return m_readReceipts.get(); }
     LinkPreviewController *linkPreviews() const { return m_linkPreviews.get(); }
     TimelineScrollController *timelineScroll() const { return m_timelineScroll.get(); }
+    TimelineScrollController *threadScroll() const { return m_threadScroll.get(); }
     SecretStore *secretStore() const { return m_secretStore.get(); }
 
 public Q_SLOTS:
@@ -328,6 +333,7 @@ private:
     std::unique_ptr<ReadReceiptCoordinator> m_readReceipts;
     std::unique_ptr<LinkPreviewController> m_linkPreviews;
     std::unique_ptr<TimelineScrollController> m_timelineScroll;
+    std::unique_ptr<TimelineScrollController> m_threadScroll;
 
     // v0.5.0 SAS verification state cache.
     QString m_verificationFlowId;

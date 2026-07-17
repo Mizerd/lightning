@@ -1573,6 +1573,71 @@ private Q_SLOTS:
                                   kSignalTimeoutMs);
         QCOMPARE(warnings, QStringList{});
     }
+
+    // ── v0.6.0 checkpoint 6: isolated thread scroll motion ───────────────
+    // The thread panel has its OWN wheel engine: separate instance, both
+    // track the persisted speed, motion on one never engages the other,
+    // and closing the thread cancels the panel's in-flight motion.
+    void threadScrollMotionIsIsolatedFromRoomTimeline()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        controller.setCurrentRoomId(QStringLiteral("!general:mock.local"));
+        auto *roomScroll = controller.timelineScroll();
+        auto *threadScroll = controller.threadScroll();
+        QVERIFY(roomScroll != nullptr);
+        QVERIFY(threadScroll != nullptr);
+        QVERIFY(roomScroll != threadScroll);
+
+        // Both follow the persisted wheel-speed setting.
+        controller.settings()->setTimelineWheelSpeed(2);   // Very fast
+        QCOMPARE(roomScroll->wheelSpeed(), TimelineScrollController::VeryFast);
+        QCOMPARE(threadScroll->wheelSpeed(),
+                 TimelineScrollController::VeryFast);
+        controller.settings()->setTimelineWheelSpeed(1);
+
+        QQmlApplicationEngine engine;
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this,
+                [&warnings](const QList<QQmlError> &errors) {
+                    for (const auto &e : errors) warnings << e.toString();
+                });
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("TimelinePane"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        QObject *root = createdSpy.at(0).at(0).value<QObject *>();
+        QVERIFY(root != nullptr);
+
+        const QString rootId = fixtureThreadRootId(controller);
+        controller.thread()->openThread(QStringLiteral("!general:mock.local"),
+                                        rootId);
+        QTRY_COMPARE_WITH_TIMEOUT(controller.thread()->state(),
+                                  ThreadController::Ready, kSignalTimeoutMs);
+
+        // Thread wheel motion engages ONLY the thread engine.
+        threadScroll->wheelNotch(-120.0, 100.0, 0.0, 5000.0, 600.0);
+        QVERIFY(threadScroll->motionActive());
+        QVERIFY(!roomScroll->motionActive());
+
+        // Room wheel motion engages ONLY the room engine.
+        roomScroll->wheelNotch(-120.0, 100.0, 0.0, 5000.0, 600.0);
+        QVERIFY(roomScroll->motionActive());
+        threadScroll->cancel();
+        QVERIFY(roomScroll->motionActive());   // untouched by the other panel
+        roomScroll->cancel();
+
+        // Closing the thread cancels the panel's in-flight wheel motion
+        // (the panel's state-change handler owns this).
+        threadScroll->wheelNotch(-120.0, 100.0, 0.0, 5000.0, 600.0);
+        QVERIFY(threadScroll->motionActive());
+        controller.thread()->close();
+        QTRY_COMPARE_WITH_TIMEOUT(threadScroll->motionActive(), false,
+                                  kSignalTimeoutMs);
+        QCOMPARE(warnings, QStringList{});
+    }
 };
 
 int main(int argc, char *argv[])

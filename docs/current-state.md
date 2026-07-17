@@ -1,5 +1,21 @@
 # Current state (v0.5.19)
 
+## v0.6.0 (in progress) — thread and timeline integration polish
+
+The thread panel's reply list now runs the same device-aware wheel motion
+engine as the room timeline through its OWN `TimelineScrollController`
+instance (`app.threadScroll`): identical Standard/Fast/Very fast policy
+(both instances follow the persisted setting live), continuous-velocity
+coalescing, direct touchpad pixel deltas, bound clamping — with fully
+isolated motion state, so the two panels can never share an active
+contentY target and scrolling one never moves the other. Thread lifecycle
+transitions (open, switch, close, room switch) cancel the panel's
+in-flight wheel motion, wheel settling recomputes follow-latest, sends the
+deduplicated threaded read receipt, backfills near the top, and saves the
+per-thread scroll anchor. The thread composer takes keyboard focus when a
+thread becomes ready; Escape order is room info → reply banner → thread
+panel → Threads list → pinned toolbar.
+
 ## v0.6.0 (in progress) — thread unread, following, and navigation
 
 **Unread.** Thread roots carry the SDK ThreadSummary's conservative
