@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>net.smetonis.Lightning</id>
+  <name>Lightning</name>
+  <summary>Native Matrix desktop client</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>LicenseRef-Proprietary</project_license>
+  <description>
+    <p>Lightning is a native C++ and Qt Matrix desktop client with a Matrix Rust SDK backend.</p>
+  </description>
+  <launchable type="desktop-id">lightning.desktop</launchable>
+  <url type="homepage">https://gitlab.smetonis.net/Mizerd/lightning</url>
+  <developer id="net.smetonis">
+    <name>Mizerd</name>
+  </developer>
+  <content_rating type="oars-1.1" />
+</component>

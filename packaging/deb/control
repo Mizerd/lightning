@@ -1,0 +1,7 @@
+Package: lightning
+Section: net
+Priority: optional
+Architecture: amd64
+Maintainer: Mizerd <rsmetonis@gmail.com>
+Description: Lightning Matrix client
+ A native C++ and Qt Matrix desktop client with the Matrix Rust SDK backend.

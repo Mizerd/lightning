@@ -1,0 +1,13 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: Lightning
+Source: https://gitlab.smetonis.net/Mizerd/lightning
+
+Files: *
+Copyright: Lightning contributors
+License: LicenseRef-Proprietary
+ The upstream repository does not currently contain a repository-wide license
+ declaration. These private CI artifacts do not grant redistribution rights.
+
+Files: usr/share/metainfo/lightning.metainfo.xml
+Copyright: 2026 Mizerd
+License: CC0-1.0

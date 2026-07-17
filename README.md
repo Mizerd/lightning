@@ -1,93 +1,108 @@
 # lightning-deploy
 
-Manual DEB, RPM and Nix packaging pipelines for the Lightning Matrix client.
+Private, manually triggered Linux packaging pipelines for the Lightning Matrix
+client. Every job independently fetches an explicitly selected revision from
+the private `Mizerd/lightning` project, builds the production Rust SDK/E2EE
+backend, validates the package, and publishes it only as a GitLab job artifact.
 
-## Getting started
+## Supported outputs
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+| Job | Runner | Output |
+| --- | --- | --- |
+| `package-deb` | `package-runner-apt` | Debian `.deb` |
+| `package-rpm` | `package-runner-dnf` | Fedora/RHEL `.rpm` |
+| `package-nix` | `package-runner-nix` | Portable file-based Nix cache archive |
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
+Artifacts expire after 30 days. No job publishes a release or a public package
+repository.
 
-## Add your files
+## Manual usage
 
-* [Create](https://docs.gitlab.com/user/project/repository/web_editor/#create-a-file) or [upload](https://docs.gitlab.com/user/project/repository/web_editor/#upload-a-file) files
-* [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
+1. Open `Mizerd/lightning-deploy` in GitLab.
+2. Go to **Build → Pipelines** and select **New pipeline**.
+3. Set `LIGHTNING_REF` to a branch, release tag, or full commit SHA.
+4. Run the pipeline, then press the play button for one or more manual package jobs.
+5. Download `dist/` from each successful job's artifacts.
 
+Examples:
+
+```text
+LIGHTNING_REF=main
+LIGHTNING_REF=v0.6.0
+LIGHTNING_REF=2157194d2ddbfe57aa7a636f2ac5b188acc1bcc0
 ```
-cd existing_repo
-git remote add origin https://gitlab.smetonis.net/Mizerd/lightning-deploy.git
-git branch -M main
-git push -uf origin main
-```
 
-## Integrate with your tools
+Only UI (`web`) and API pipelines are accepted. Package jobs never run merely
+because this repository receives a push.
 
-* [Set up project integrations](https://gitlab.smetonis.net/Mizerd/lightning-deploy/-/settings/integrations)
+## Versioning
 
-## Collaborate with your team
-
-* [Invite team members and collaborators](https://docs.gitlab.com/user/project/members/)
-* [Create a new merge request](https://docs.gitlab.com/user/project/merge_requests/creating_merge_requests/)
-* [Automatically close issues from merge requests](https://docs.gitlab.com/user/project/issues/managing_issues/#closing-issues-automatically)
-* [Enable merge request approvals](https://docs.gitlab.com/user/project/merge_requests/approvals/)
-* [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
-
-## Test and Deploy
-
-Use the built-in continuous integration in GitLab.
-
-* [Get started with GitLab CI/CD](https://docs.gitlab.com/ci/quick_start/)
-* [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/user/application_security/sast/)
-* [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/topics/autodevops/requirements/)
-* [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/user/clusters/agent/)
-* [Set up protected environments](https://docs.gitlab.com/ci/environments/protected_environments/)
-
-***
-
-# Editing this README
-
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
-
-## Suggestions for a good README
-
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
-
-## Name
-Choose a self-explaining name for your project.
-
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
-
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
-
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
+An exact `vX.Y.Z` source tag produces `X.Y.Z`. A branch or commit build uses
+the version declared by Lightning's top-level CMake project plus date and SHA,
+for example `0.6.0+git20260717.c197129`. RPM encodes the Git suffix in its
+release field. `dist/version.json`, `source-info.json`, and `build-info.json`
+record the complete resolution and provenance.
 
 ## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
 
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
+```bash
+sudo apt install ./lightning_<version>_amd64.deb
+sudo dnf install ./lightning-<version>-1.x86_64.rpm
+```
 
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
+For Nix, extract the cache and copy the output path recorded in
+`nix-path-info.json`:
 
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
+```bash
+tar --use-compress-program=zstd -xf lightning-<version>-x86_64-linux-nix-cache.tar.zst
+nix copy --from "file://$PWD/nix-cache" /nix/store/<recorded-lightning-output>
+```
 
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
+## Security model
 
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
+- Both projects remain private.
+- `Mizerd/lightning` allows this project's short-lived `CI_JOB_TOKEN` through
+  GitLab's inbound job-token allowlist. No long-lived source credential is
+  committed or configured by default.
+- A temporary `GIT_ASKPASS` helper supplies the token without putting it in a
+  URL or trace; it is removed immediately and the clone remote is reset to the
+  clean HTTPS URL.
+- Jobs use only the exact designated tag triplets and pinned images.
+- The runner managers control the host Docker socket. Therefore only trusted
+  administrators should be allowed to change this private project's CI code.
+- No signing key, Nix key, Matrix account, or decrypted Matrix content is used.
 
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
+## Build implementation
 
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
+Lightning requires CMake 3.21+, C++20, Qt 6.5+, Cargo, SQLite, and libsecret.
+The pipeline enables `ENABLE_RUST_SDK_BACKEND=ON`, retains the source's E2EE
+gate, honors `Cargo.lock`, fetches dependencies once, and lets CMake perform its
+required `cargo build --offline --locked`. DEB and RPM packages use a staged
+`cmake --install`; the Nix job vendors the same locked Cargo graph and builds a
+derivation from the exact local checkout. Build parallelism is capped at two.
 
-## License
-For open source projects, say how it is licensed.
+## Troubleshooting
 
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+- **No pipeline is created:** use **New pipeline** or the API; push pipelines
+  are rejected by workflow rules.
+- **Manual job remains pending / no matching runner:** verify all three job
+  tags and confirm the corresponding package runner is online.
+- **Private clone returns 403:** confirm this project is in Lightning's inbound
+  CI job-token allowlist and the user starting the pipeline can read Lightning.
+- **Source ref not found:** use an existing branch/tag or a full reachable SHA.
+- **Out of memory / exit 137:** rerun with `BUILD_JOBS=1`; inspect runner and VM
+  OOM events before changing resource limits.
+- **Missing Qt dependency:** compare the CMake component error with the pinned
+  image's Qt development package set; do not disable the Rust backend.
+- **Rust dependency failure:** verify `Cargo.lock`, registry reachability during
+  dependency resolution, and runner cache health. Locks are never auto-updated.
+- **Installed package does not start:** inspect `dist/ldd.txt`, run
+  `matrix-client --version`, then use `QT_QPA_PLATFORM=offscreen` for GUI smoke
+  diagnostics without a Matrix account.
+- **Nix store permission error:** verify the runner's persistent `/nix` bind is
+  traversable and `sandbox = false`; privileged mode is not required.
+- **Artifact too large:** measure it and the project limit. Prefer the private
+  GitLab Generic Package Registry with `CI_JOB_TOKEN` rather than raising a
+  global limit.
+
+See [docs/package-layout.md](docs/package-layout.md) for installed paths.

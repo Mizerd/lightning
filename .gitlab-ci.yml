@@ -1,0 +1,121 @@
+stages:
+  - package
+
+workflow:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "web"'
+    - if: '$CI_PIPELINE_SOURCE == "api"'
+    - when: never
+
+variables:
+  LIGHTNING_REPOSITORY:
+    value: "https://gitlab.smetonis.net/Mizerd/lightning.git"
+    description: "Lightning source repository."
+  LIGHTNING_REF:
+    value: "main"
+    description: "Branch, tag or commit SHA to package."
+  BUILD_TYPE:
+    value: "Release"
+    description: "CMake build type."
+  BUILD_JOBS:
+    value: "2"
+    description: "Maximum compilation parallelism."
+  CMAKE_BUILD_PARALLEL_LEVEL: "2"
+  CARGO_BUILD_JOBS: "2"
+
+.package-base:
+  stage: package
+  when: manual
+  allow_failure: false
+  interruptible: true
+  timeout: 2h
+  artifacts:
+    name: "lightning-${FORMAT}-${CI_PIPELINE_ID}"
+    when: always
+    expire_in: 30 days
+    paths:
+      - dist/
+
+package-deb:
+  extends: .package-base
+  image: debian:13.6-slim
+  tags:
+    - apt
+    - deb
+    - package
+  variables:
+    FORMAT: "deb"
+    BASE_IMAGE: "debian:13.6-slim"
+    DEBIAN_FRONTEND: "noninteractive"
+  before_script:
+    - apt-get update
+    - >-
+      apt-get install -y --no-install-recommends
+      appstream build-essential ca-certificates cargo cmake curl
+      debhelper desktop-file-utils dpkg-dev fakeroot file git jq
+      libsecret-1-dev libsqlite3-dev libssl-dev lintian ninja-build
+      patchelf pkg-config qt6-base-dev qt6-declarative-dev
+      qt6-tools-dev rustc shellcheck zstd
+  script:
+    - ./scripts/fetch-lightning-source.sh
+    - ./scripts/resolve-version.sh
+    - ./scripts/build-deb.sh
+    - ./scripts/validate-deb.sh
+    - ./scripts/write-build-info.sh deb
+
+package-rpm:
+  extends: .package-base
+  image: fedora:44
+  tags:
+    - dnf
+    - rpm
+    - package
+  variables:
+    FORMAT: "rpm"
+    BASE_IMAGE: "fedora:44"
+  before_script:
+    - >-
+      dnf install -y
+      appstream cargo ca-certificates cmake curl desktop-file-utils file
+      gcc gcc-c++ git jq libsecret-devel ninja-build openssl-devel
+      pkgconf-pkg-config qt6-qtbase-devel qt6-qtdeclarative-devel
+      qt6-qtsvg-devel qt6-qttools-devel rpm-build rpmdevtools rpmlint
+      rust shellcheck sqlite-devel zstd
+  script:
+    - ./scripts/fetch-lightning-source.sh
+    - ./scripts/resolve-version.sh
+    - ./scripts/build-rpm.sh
+    - ./scripts/validate-rpm.sh
+    - ./scripts/write-build-info.sh rpm
+
+package-nix:
+  extends: .package-base
+  image: nixos/nix:2.35.1
+  tags:
+    - nix
+    - nixos
+    - package
+  variables:
+    FORMAT: "nix"
+    BASE_IMAGE: "nixos/nix:2.35.1"
+    NIX_CONFIG: |
+      experimental-features = nix-command flakes
+      sandbox = false
+      max-jobs = 2
+      cores = 2
+  script:
+    - >-
+      nix shell
+      nixpkgs#bash
+      nixpkgs#coreutils
+      nixpkgs#findutils
+      nixpkgs#git
+      nixpkgs#gnutar
+      nixpkgs#jq
+      nixpkgs#zstd
+      --command bash -lc
+      './scripts/fetch-lightning-source.sh &&
+      ./scripts/resolve-version.sh &&
+      ./scripts/build-nix.sh &&
+      ./scripts/validate-nix.sh &&
+      ./scripts/write-build-info.sh nix'
