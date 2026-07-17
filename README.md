@@ -75,6 +75,9 @@ nix copy --from "file://$PWD/nix-cache" /nix/store/<recorded-lightning-output>
 ## Build implementation
 
 Lightning requires CMake 3.21+, C++20, Qt 6.5+, Cargo, SQLite, and libsecret.
+The pinned Matrix SDK 0.18 graph requires Rust 1.93; the Debian job uses an
+ephemeral, explicitly selected official Rust 1.93 toolchain because Debian
+13.6 provides Rust 1.85.
 The pipeline enables `ENABLE_RUST_SDK_BACKEND=ON`, retains the source's E2EE
 gate, honors `Cargo.lock`, fetches dependencies once, and lets CMake perform its
 required `cargo build --offline --locked`. DEB and RPM packages use a staged

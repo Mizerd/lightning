@@ -47,15 +47,24 @@ package-deb:
     FORMAT: "deb"
     BASE_IMAGE: "debian:13.6-slim"
     DEBIAN_FRONTEND: "noninteractive"
+    RUST_TOOLCHAIN: "1.93.0"
   before_script:
     - apt-get update
     - >-
       apt-get install -y --no-install-recommends
-      appstream build-essential ca-certificates cargo cmake curl
+      appstream build-essential ca-certificates cmake curl
       debhelper desktop-file-utils dpkg-dev fakeroot file git jq
       libsecret-1-dev libsqlite3-dev libssl-dev lintian ninja-build
       patchelf pkg-config qt6-base-dev qt6-declarative-dev
-      qt6-tools-dev rustc shellcheck zstd
+      qt6-tools-dev shellcheck zstd
+    - >-
+      curl --fail --show-error --silent --location
+      --proto '=https' --tlsv1.2
+      https://sh.rustup.rs
+      --output /tmp/rustup-init.sh
+    - sh /tmp/rustup-init.sh -y --profile minimal --default-toolchain "$RUST_TOOLCHAIN"
+    - export PATH="/root/.cargo/bin:$PATH"
+    - rustc --version
   script:
     - ./scripts/fetch-lightning-source.sh
     - ./scripts/resolve-version.sh
