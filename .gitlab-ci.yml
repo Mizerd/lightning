@@ -117,6 +117,7 @@ package-nix:
       nix shell
       nixpkgs#bash
       nixpkgs#coreutils
+      nixpkgs#curl
       nixpkgs#findutils
       nixpkgs#git
       nixpkgs#gnused

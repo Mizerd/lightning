@@ -16,14 +16,23 @@ case "$FORMAT" in
     nix) PACKAGE_VERSION="$NIX_VERSION" ;;
 esac
 
-mapfile -t artifacts < <(find "$ROOT/dist" -maxdepth 1 -type f \
-    \( -name '*.deb' -o -name '*.rpm' -o -name '*.tar.zst' \) -printf '%f\n' | sort)
-(( ${#artifacts[@]} > 0 )) || die "no distributable artifact found"
+if [[ "$FORMAT" == "nix" ]]; then
+    # The Nix closure archive is published to the package registry rather than
+    # shipped as a job artifact; take its name and checksum from the manifest.
+    MANIFEST="$ROOT/dist/nix-package-manifest.json"
+    [[ -f "$MANIFEST" ]] || die "nix package manifest is missing"
+    FILES_JSON="$(jq '[.filename]' "$MANIFEST")"
+    CHECKSUMS_JSON="$(jq '[{filename:.filename, sha256:.sha256}]' "$MANIFEST")"
+else
+    mapfile -t artifacts < <(find "$ROOT/dist" -maxdepth 1 -type f \
+        \( -name '*.deb' -o -name '*.rpm' \) -printf '%f\n' | sort)
+    (( ${#artifacts[@]} > 0 )) || die "no distributable artifact found"
 
-FILES_JSON="$(printf '%s\n' "${artifacts[@]}" | jq -R . | jq -s .)"
-CHECKSUMS_JSON="$(cd "$ROOT/dist" && for file in "${artifacts[@]}"; do
-    sha256sum "$file" | jq -R 'split("  ") | {filename:.[1], sha256:.[0]}'
-done | jq -s .)"
+    FILES_JSON="$(printf '%s\n' "${artifacts[@]}" | jq -R . | jq -s .)"
+    CHECKSUMS_JSON="$(cd "$ROOT/dist" && for file in "${artifacts[@]}"; do
+        sha256sum "$file" | jq -R 'split("  ") | {filename:.[1], sha256:.[0]}'
+    done | jq -s .)"
+fi
 
 SOURCE_TIME="$(json_value "$ROOT/dist/source-info.json" commit_time)"
 EXACT_TAG="$(json_value "$ROOT/dist/source-info.json" exact_tag)"

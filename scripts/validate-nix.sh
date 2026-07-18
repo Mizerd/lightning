@@ -12,10 +12,13 @@ nix path-info --closure-size "$ROOT/result"
 nix store verify --no-trust "$ROOT/result"
 "$ROOT/result/bin/matrix-client" --version
 
-archive="$ROOT/dist/lightning-${NIX_VERSION}-x86_64-linux-nix-cache.tar.zst"
+archive_name="lightning-${NIX_VERSION}-x86_64-linux-nix-cache.tar.zst"
+archive="$ROOT/work/$archive_name"
 zstd -t "$archive"
 tar --use-compress-program=zstd -tf "$archive" >"$ROOT/dist/nix-archive-contents.txt"
-(cd "$ROOT/dist" && sha256sum -c "$(basename "$archive").sha256")
+# The archive stays under work/ (it is published to the package registry, not
+# shipped as an artifact); its basename-relative checksum lives in dist/.
+(cd "$ROOT/work" && sha256sum -c "$ROOT/dist/${archive_name}.sha256")
 
 TEST_DIR="$(mktemp -d "$ROOT/work/nix-cache-test.XXXXXX")"
 trap 'rm -rf "$TEST_DIR"' EXIT
