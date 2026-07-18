@@ -12,7 +12,13 @@ package="${packages[0]}"
 
 rpm -qpi "$package"
 rpm -qlp "$package"
-rpmlint "$package" | tee "$ROOT/dist/rpmlint.log"
+# rpmlint returns non-zero for warnings too; log everything but only treat
+# genuine errors (E: lines) as fatal, mirroring the DEB lintian --fail-on error.
+rpmlint "$package" >"$ROOT/dist/rpmlint.log" 2>&1 || true
+cat "$ROOT/dist/rpmlint.log"
+if grep -qE '(^|: )E: ' "$ROOT/dist/rpmlint.log"; then
+    die "rpmlint reported errors"
+fi
 dnf install -y "$package"
 desktop-file-validate /usr/share/applications/lightning.desktop
 appstreamcli validate --no-net /usr/share/metainfo/lightning.metainfo.xml

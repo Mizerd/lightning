@@ -17,9 +17,17 @@ cp -a "$STAGE/." "$PKGROOT/"
 install -Dm0644 "$ROOT/packaging/common/copyright" \
     "$PKGROOT/usr/share/doc/lightning/copyright"
 
-cp "$ROOT/packaging/deb/control" "$ROOT/work/debian/control"
-# dpkg-shlibdeps needs a debian/ working tree; run it from work/ and keep its
-# diagnostics visible so a resolution failure is not silently swallowed.
+# dpkg-shlibdeps expects a *source-package* debian/control (first stanza with a
+# Source field, then a binary Package stanza), which differs from the binary
+# DEBIAN/control shipped in the .deb. Synthesize a minimal one for it here.
+cat >"$ROOT/work/debian/control" <<'EOF'
+Source: lightning
+
+Package: lightning
+Architecture: amd64
+EOF
+# Run dpkg-shlibdeps from work/ and keep its diagnostics visible so a
+# resolution failure is not silently swallowed.
 SHLIBS_OUT="$ROOT/work/shlibdeps.out"
 if ! ( cd "$ROOT/work" && dpkg-shlibdeps -O -e "$PKGROOT/usr/bin/matrix-client" ) >"$SHLIBS_OUT" 2>&1; then
     printf 'dpkg-shlibdeps failed:\n' >&2

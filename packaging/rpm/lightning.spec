@@ -1,3 +1,8 @@
+# The binary is packaged from a pre-staged install root; do not split out a
+# separate -debuginfo/-debugsource subpackage (there are no build sources here
+# and the "exactly one RPM" packaging check expects a single artifact).
+%global debug_package %{nil}
+
 Name:           lightning
 Version:        %{pkg_version}
 Release:        %{pkg_release}
