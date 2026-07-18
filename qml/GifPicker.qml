@@ -24,6 +24,13 @@ Popup {
     readonly property var gif: app.gif
     readonly property int cell: 132
 
+    // "browse" (trending/search/categories) | "favorites" | "recent".
+    property string section: "browse"
+    readonly property var activeModel:
+        section === "favorites" ? gif.favorites
+        : section === "recent" ? gif.recent
+        : gif.results
+
     parent: Overlay.overlay
     width: Math.min(460, parent ? parent.width - AppTheme.spacingM * 2 : 460)
     height: Math.min(520, parent ? parent.height - AppTheme.spacingM * 2 : 520)
@@ -53,11 +60,20 @@ Popup {
 
     onAboutToShow: {
         placeInsideWindow()
+        section = "browse"
         if (gif.results.count === 0)
             gif.showTrending()
         Qt.callLater(searchField.forceActiveFocus)
     }
     onClosed: gif.reset()
+
+    // Toggle favorite for the tile at `row` of the currently shown model,
+    // without sending. Refreshes the browse grid's star state.
+    function toggleFavorite(row) {
+        if (row < 0 || row >= activeModel.count)
+            return
+        gif.toggleFavorite(activeModel.get(row))
+    }
 
     background: Rectangle {
         color: AppTheme.surface
@@ -121,7 +137,11 @@ Popup {
                 Accessible.name: qsTr("Search GIFs")
                 selectByMouse: true
                 font.pixelSize: 13
-                onTextChanged: picker.gif.setQueryText(text)
+                onTextChanged: {
+                    if (text.length > 0)
+                        picker.section = "browse"
+                    picker.gif.setQueryText(text)
+                }
                 Keys.onDownPressed: {
                     grid.forceActiveFocus()
                     if (grid.currentIndex < 0 && grid.count > 0)
@@ -140,11 +160,48 @@ Popup {
             }
         }
 
+        // ── Section nav: Trending / Favorites / Recent ──────────────
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: AppTheme.spacingXS
+            Repeater {
+                model: [
+                    { key: "browse", label: qsTr("Trending") },
+                    { key: "favorites", label: qsTr("Favorites") },
+                    { key: "recent", label: qsTr("Recent") },
+                ]
+                delegate: Button {
+                    required property var modelData
+                    text: modelData.label
+                    font.pixelSize: 11
+                    implicitHeight: 26
+                    checkable: true
+                    checked: picker.section === modelData.key
+                    Accessible.name: modelData.label
+                    onClicked: {
+                        picker.section = modelData.key
+                        if (modelData.key === "browse"
+                            && picker.gif.results.count === 0)
+                            picker.gif.showTrending()
+                    }
+                    background: Rectangle {
+                        color: picker.section === modelData.key
+                               ? AppTheme.hover : "transparent"
+                        radius: AppTheme.radiusSm
+                        border.color: picker.section === modelData.key
+                                      ? AppTheme.accent : "transparent"
+                    }
+                }
+            }
+            Item { Layout.fillWidth: true }
+        }
+
         // ── Category chips (client-side search shortcuts) ───────────
         Flow {
             Layout.fillWidth: true
             spacing: AppTheme.spacingXS
-            visible: searchField.text.length === 0 && picker.gif.configured
+            visible: picker.section === "browse"
+                     && searchField.text.length === 0 && picker.gif.configured
             Repeater {
                 model: picker.gif.categories
                 delegate: Button {
@@ -172,14 +229,15 @@ Popup {
             cellWidth: picker.cell
             cellHeight: picker.cell
             cacheBuffer: picker.cell * 2   // bounded off-screen retention
-            model: picker.gif.results
+            model: picker.activeModel
             currentIndex: -1
             keyNavigationEnabled: true
             boundsBehavior: Flickable.StopAtBounds
 
-            // Infinite scroll: request the next page as the end nears.
+            // Infinite scroll: only the network-backed browse view paginates;
+            // Favorites/Recent are complete local lists.
             onContentYChanged: {
-                if (contentHeight <= 0)
+                if (picker.section !== "browse" || contentHeight <= 0)
                     return
                 if (contentY + height > contentHeight - picker.cell * 2)
                     picker.gif.loadMore()
@@ -230,25 +288,44 @@ Popup {
                             ? qsTr("GIF: %1").arg(tile.title) : qsTr("GIF")
                     }
 
-                    // Favorite marker (toggled from the context action).
-                    Label {
-                        visible: tile.favorite
-                        text: "★"
-                        color: AppTheme.warning
-                        font.pixelSize: 14
-                        anchors.top: parent.top
-                        anchors.right: parent.right
-                        anchors.margins: 3
-                    }
-
+                    // Choosing (send) is the tile body; the star toggles
+                    // favorite WITHOUT sending. The star is always actionable.
                     MouseArea {
                         anchors.fill: parent
                         cursorShape: Qt.PointingHandCursor
-                        onClicked: {
+                        acceptedButtons: Qt.LeftButton | Qt.RightButton
+                        onClicked: (mouse) => {
                             grid.currentIndex = tile.index
-                            picker.choose(tile.index)
+                            if (mouse.button === Qt.RightButton)
+                                picker.toggleFavorite(tile.index)
+                            else
+                                picker.choose(tile.index)
                         }
                     }
+
+                    ToolButton {
+                        anchors.top: parent.top
+                        anchors.right: parent.right
+                        width: 24; height: 24
+                        text: tile.favorite ? "★" : "☆"
+                        font.pixelSize: 14
+                        opacity: tile.favorite || tileHover.hovered ? 1 : 0
+                        Accessible.name: tile.favorite
+                            ? qsTr("Remove from favorites")
+                            : qsTr("Add to favorites")
+                        onClicked: picker.toggleFavorite(tile.index)
+                        contentItem: Label {
+                            text: parent.text
+                            color: AppTheme.warning
+                            font: parent.font
+                            horizontalAlignment: Text.AlignHCenter
+                        }
+                        background: Rectangle {
+                            radius: 12
+                            color: Qt.rgba(0, 0, 0, 0.35)
+                        }
+                    }
+                    HoverHandler { id: tileHover }
                 }
             }
 
@@ -266,7 +343,8 @@ Popup {
         BusyIndicator {
             id: busy
             anchors.centerIn: parent
-            running: picker.gif.state === GifSearchController.Loading
+            running: picker.section === "browse"
+                     && picker.gif.state === GifSearchController.Loading
                      && picker.gif.results.count === 0
         }
         Label {
@@ -280,6 +358,13 @@ Popup {
             text: {
                 if (!picker.gif.available)
                     return qsTr("GIFs are unavailable on this backend.")
+                if (picker.section === "favorites")
+                    return picker.gif.favorites.count === 0
+                        ? qsTr("No favorites yet. Tap the star on a GIF to save it.")
+                        : ""
+                if (picker.section === "recent")
+                    return picker.gif.recent.count === 0
+                        ? qsTr("No recent GIFs yet.") : ""
                 var s = picker.gif.state
                 if (s === GifSearchController.MissingKey)
                     return qsTr("%1 is not configured. Set its API key to browse GIFs.")

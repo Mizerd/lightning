@@ -135,6 +135,12 @@ set(APP_SOURCES
     src/gif/GifProvider.cpp
     src/gif/GifResultModel.h
     src/gif/GifResultModel.cpp
+    src/gif/GifStoredModel.h
+    src/gif/GifStoredModel.cpp
+    src/gif/GifFavoritesModel.h
+    src/gif/GifFavoritesModel.cpp
+    src/gif/GifRecentModel.h
+    src/gif/GifRecentModel.cpp
     src/gif/GifTransport.h
     src/gif/GifSearchController.h
     src/gif/GifSearchController.cpp
@@ -429,21 +435,48 @@ if(BUILD_TESTING)
     target_link_libraries(gif-provider-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME gif-provider COMMAND gif-provider-test)
 
-    qt_add_executable(gif-search-controller-test
-        tests/GifSearchControllerTest.cpp
+    set(GIF_CORE_SOURCES
         src/gif/GifResponseParser.h
         src/gif/GifResponseParser.cpp
         src/gif/GifProvider.h
         src/gif/GifProvider.cpp
         src/gif/GifResultModel.h
         src/gif/GifResultModel.cpp
+        src/gif/GifStoredModel.h
+        src/gif/GifStoredModel.cpp
+        src/gif/GifFavoritesModel.h
+        src/gif/GifFavoritesModel.cpp
+        src/gif/GifRecentModel.h
+        src/gif/GifRecentModel.cpp
         src/gif/GifTransport.h
         src/gif/GifSearchController.h
         src/gif/GifSearchController.cpp
     )
+
+    qt_add_executable(gif-search-controller-test
+        tests/GifSearchControllerTest.cpp
+        ${GIF_CORE_SOURCES}
+    )
     target_include_directories(gif-search-controller-test PRIVATE src)
     target_link_libraries(gif-search-controller-test PRIVATE Qt6::Core Qt6::Qml Qt6::Test)
     add_test(NAME gif-search-controller COMMAND gif-search-controller-test)
+
+    qt_add_executable(gif-collections-test
+        tests/GifCollectionsTest.cpp
+        src/gif/GifResponseParser.h
+        src/gif/GifResponseParser.cpp
+        src/gif/GifResultModel.h
+        src/gif/GifResultModel.cpp
+        src/gif/GifStoredModel.h
+        src/gif/GifStoredModel.cpp
+        src/gif/GifFavoritesModel.h
+        src/gif/GifFavoritesModel.cpp
+        src/gif/GifRecentModel.h
+        src/gif/GifRecentModel.cpp
+    )
+    target_include_directories(gif-collections-test PRIVATE src)
+    target_link_libraries(gif-collections-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME gif-collections COMMAND gif-collections-test)
 
     qt_add_executable(emoji-ui-contract-test tests/EmojiUiContractTest.cpp)
     target_compile_definitions(emoji-ui-contract-test PRIVATE

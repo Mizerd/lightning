@@ -8,7 +8,9 @@
 #include "gif/GifResultModel.h"
 #include "gif/GifTransport.h"
 
+#include <QCoreApplication>
 #include <QSignalSpy>
+#include <QStandardPaths>
 #include <QtTest/QtTest>
 
 namespace {
@@ -76,6 +78,14 @@ class GifSearchControllerTest : public QObject
     }
 
 private Q_SLOTS:
+    void initTestCase()
+    {
+        // Isolate QSettings (favorites/recents) into a throwaway location.
+        QStandardPaths::setTestModeEnabled(true);
+        QCoreApplication::setOrganizationName(QStringLiteral("LightningTest"));
+        QCoreApplication::setApplicationName(QStringLiteral("GifControllerTest"));
+    }
+
     void cleanup()
     {
         delete gif; gif = nullptr;
@@ -94,6 +104,7 @@ private Q_SLOTS:
     void emptyQueryReturnsToTrending();
     void safeSearchChangeReRuns();
     void keyNeverAppearsInSignals();
+    void toggleFavoriteReflectsInGrid();
 };
 
 void GifSearchControllerTest::trendingLoadsResults()
@@ -245,6 +256,23 @@ void GifSearchControllerTest::keyNeverAppearsInSignals()
                  .contains(QStringLiteral("GKEY")));
     QVERIFY(!row.value(QStringLiteral("gifUrl")).toString()
                  .contains(QStringLiteral("api_key")));
+}
+
+void GifSearchControllerTest::toggleFavoriteReflectsInGrid()
+{
+    makeController();
+    gif->favorites()->clearAll();
+    gif->showTrending();
+    transport->complete(transport->lastOp(), true, 200,
+                        giphyBody({ "fav1" }), QStringLiteral("ok"));
+    const QVariantMap row = gif->results()->get(0);
+    QVERIFY(!row.value(QStringLiteral("favorite")).toBool());
+    QVERIFY(gif->toggleFavorite(row));            // now favorited
+    QCOMPARE(gif->favorites()->count(), 1);
+    QVERIFY(gif->results()->get(0).value(QStringLiteral("favorite")).toBool());
+    QVERIFY(!gif->toggleFavorite(row));           // toggled off
+    QCOMPARE(gif->favorites()->count(), 0);
+    gif->favorites()->clearAll();
 }
 
 QTEST_MAIN(GifSearchControllerTest)

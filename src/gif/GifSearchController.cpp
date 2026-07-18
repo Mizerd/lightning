@@ -5,6 +5,9 @@
 GifSearchController::GifSearchController(QObject *parent)
     : QObject(parent)
     , m_provider(gif::makeGifProvider(m_activeProviderId))
+    , m_settings(std::make_unique<QSettings>())
+    , m_favorites(std::make_unique<GifFavoritesModel>(m_settings.get(), this))
+    , m_recent(std::make_unique<GifRecentModel>(m_settings.get(), this))
 {
     // Environment keys. Read once; never logged. A settings override may call
     // setApiKey() later.
@@ -12,6 +15,17 @@ GifSearchController::GifSearchController(QObject *parent)
                      qEnvironmentVariable("LIGHTNING_GIPHY_API_KEY"));
     m_apiKeys.insert(QStringLiteral("klipy"),
                      qEnvironmentVariable("LIGHTNING_KLIPY_API_KEY"));
+
+    // The grid's star reflects live favorite state; a toggle refreshes only the
+    // affected tile, never the whole grid.
+    m_results.setFavoriteResolver(
+        [this](const QString &provider, const QString &id) {
+            return m_favorites->isFavorite(provider, id);
+        });
+    connect(m_favorites.get(), &GifFavoritesModel::favoriteToggled, this,
+            [this](const QString &provider, const QString &id, bool) {
+                m_results.refreshFavorite(provider, id);
+            });
 
     m_debounce.setSingleShot(true);
     connect(&m_debounce, &QTimer::timeout, this, [this] {
@@ -281,6 +295,21 @@ void GifSearchController::reset()
     setMode(Trending);
     setState(RequestState::Idle);
     Q_EMIT queryChanged();
+}
+
+bool GifSearchController::toggleFavorite(const QVariantMap &resultMap)
+{
+    const bool now = m_favorites->toggle(resultMap);
+    // Reflect the change in whichever grid is showing this item.
+    const QString provider = resultMap.value(QStringLiteral("provider")).toString();
+    const QString id = resultMap.value(QStringLiteral("gifId")).toString();
+    m_results.refreshFavorite(provider, id);
+    return now;
+}
+
+void GifSearchController::recordSent(const QVariantMap &resultMap)
+{
+    m_recent->recordSentMap(resultMap);
 }
 
 void GifSearchController::setState(RequestState state)

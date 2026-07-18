@@ -2,10 +2,13 @@
 
 #include "gif/GifProvider.h"
 #include "gif/GifResultModel.h"
+#include "gif/GifFavoritesModel.h"
+#include "gif/GifRecentModel.h"
 
 #include <QHash>
 #include <QObject>
 #include <QQmlEngine>
+#include <QSettings>
 #include <QString>
 #include <QStringList>
 #include <QTimer>
@@ -30,6 +33,8 @@ class GifSearchController : public QObject
     QML_ELEMENT
     QML_UNCREATABLE("GifSearchController is exposed via app.gif")
     Q_PROPERTY(GifResultModel *results READ results CONSTANT)
+    Q_PROPERTY(GifFavoritesModel *favorites READ favorites CONSTANT)
+    Q_PROPERTY(GifRecentModel *recent READ recent CONSTANT)
     Q_PROPERTY(bool available READ available NOTIFY availableChanged)
     Q_PROPERTY(QStringList providerIds READ providerIds CONSTANT)
     Q_PROPERTY(QString providerId READ providerId NOTIFY providerChanged)
@@ -66,6 +71,8 @@ public:
     void setDebounceMs(int ms) { m_debounceMs = ms; }
 
     GifResultModel *results() { return &m_results; }
+    GifFavoritesModel *favorites() { return m_favorites.get(); }
+    GifRecentModel *recent() { return m_recent.get(); }
     bool available() const;
     QStringList providerIds() const { return gif::knownGifProviderIds(); }
     QString providerId() const { return m_activeProviderId; }
@@ -92,6 +99,13 @@ public:
     Q_INVOKABLE void loadMore();
     Q_INVOKABLE void reset();  // cancel + clear (picker closed / logout)
 
+    // Favorite the search/favorites/recent result described by `resultMap`
+    // (a GifResultModel role map). Returns the new favorite state. Refreshes
+    // the grids so the star updates without a rebuild.
+    Q_INVOKABLE bool toggleFavorite(const QVariantMap &resultMap);
+    // Record a successful send handoff into Recents (Phase GIF-7 calls this).
+    Q_INVOKABLE void recordSent(const QVariantMap &resultMap);
+
 Q_SIGNALS:
     void availableChanged();
     void providerChanged();
@@ -114,6 +128,9 @@ private:
     RequestState categoryToState(const QString &category) const;
 
     GifResultModel m_results;
+    std::unique_ptr<QSettings> m_settings;
+    std::unique_ptr<GifFavoritesModel> m_favorites;
+    std::unique_ptr<GifRecentModel> m_recent;
     GifTransport *m_transport = nullptr;
 
     QString m_activeProviderId = QStringLiteral("giphy");

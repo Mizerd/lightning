@@ -99,8 +99,12 @@ private Q_SLOTS:
         QVERIFY(picker.contains(QStringLiteral("gif.setQueryText(text)")));
         QVERIFY(picker.contains(QStringLiteral("gif.openCategory(modelData)")));
         QVERIFY(picker.contains(QStringLiteral("picker.gif.loadMore()")));
-        // Grid binds to the controller's result model.
-        QVERIFY(picker.contains(QStringLiteral("model: picker.gif.results")));
+        // Grid binds to the active section model (results / favorites / recent).
+        QVERIFY(picker.contains(QStringLiteral("model: picker.activeModel")));
+        QVERIFY(picker.contains(QStringLiteral("gif.favorites")));
+        QVERIFY(picker.contains(QStringLiteral("gif.recent")));
+        // Favorite toggles without sending; recents are handed off in Phase 7.
+        QVERIFY(picker.contains(QStringLiteral("gif.toggleFavorite(")));
         // Previews animate only while visible (offscreen/hidden → paused).
         QVERIFY(picker.contains(QStringLiteral("playing: picker.visible")));
         // Tiles use the PREVIEW variant, never the sendable original gifUrl.
