@@ -578,48 +578,25 @@ Item {
                                 onClicked: root.timelineModel.retrySend(index)
                             }
                         }
-                        // v0.6.0: thread summary on the root event — reply
-                        // count, latest-reply preview and a conservative
-                        // unread dot (SDK-provided where available). Clicking
-                        // it opens the thread panel.
-                        Row {
+                        // v0.6.1: Element-style thread summary card on the root
+                        // event. Thread replies are hidden from the main
+                        // timeline (SDK hide_threaded_events), so the root
+                        // carries the entire thread's presence here. The card
+                        // shows the message-bubble icon, latest sender, a safe
+                        // preview, the authoritative reply count and an unread
+                        // indicator; activating it opens the correct thread.
+                        ThreadSummaryCard {
                             visible: model.isThreadRoot === true
-                            spacing: 4
-                            Rectangle {
-                                visible: model.threadUnread === true
-                                width: 7; height: 7; radius: 3.5
-                                color: AppTheme.accent
-                                anchors.verticalCenter: parent.verticalCenter
-                            }
-                            Label {
-                                text: {
-                                    var summary = qsTr("%n reply(s) in thread", "",
-                                                       model.threadReplyCount || 0)
-                                    var preview = model.threadLatestPreview || ""
-                                    return preview.length > 0
-                                        ? summary + " · " + preview.substring(0, 60)
-                                        : summary
-                                }
-                                color: AppTheme.accent
-                                font.pixelSize: 10
-                                font.underline: true
-                                MouseArea {
-                                    anchors.fill: parent
-                                    cursorShape: Qt.PointingHandCursor
-                                    onClicked: app.thread.openThread(
-                                        app.currentRoomId,
-                                        root.eventIdForActions())
-                                }
-                            }
-                        }
-                        // v0.4.1: reply-in-thread mark on non-root thread events.
-                        Label {
-                            visible: (model.threadRootId || "").length > 0
-                                     && !(model.isThreadRoot === true)
-                            text: qsTr("· in thread")
-                            color: AppTheme.textMuted
-                            font.pixelSize: 10
-                            font.italic: true
+                            replyCount: model.threadReplyCount !== undefined
+                                        ? model.threadReplyCount : -1
+                            latestSender: model.threadLatestSenderDisplayName || ""
+                            latestPreview: model.threadLatestPreview || ""
+                            latestKind: model.threadLatestKind || "text"
+                            latestAvatarMxc: model.threadLatestSenderAvatarMxc || ""
+                            latestTimestamp: model.threadLatestTimestamp
+                            unread: model.threadUnread === true
+                            onActivated: app.thread.openThread(
+                                app.currentRoomId, root.eventIdForActions())
                         }
                     }
                 }

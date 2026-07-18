@@ -185,6 +185,7 @@ set(APP_QML_FILES
     qml/InvitePeopleDialog.qml
     qml/RoomInfoPanel.qml
     qml/ThreadPanel.qml
+    qml/ThreadSummaryCard.qml
     qml/QuickSwitcher.qml
     qml/ImageViewerOverlay.qml
     qml/AccountMenu.qml

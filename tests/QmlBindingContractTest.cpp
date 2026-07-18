@@ -73,6 +73,48 @@ private Q_SLOTS:
         QVERIFY(delegate.contains(QStringLiteral("onMediaIdentityChanged")));
     }
 
+    // v0.6.1: the thread root uses the Element-style summary card wired to the
+    // SDK thread-summary roles, and activating it opens the real thread. The
+    // old plain-text "reply(s) in thread" link and the redundant "· in thread"
+    // reply label are gone.
+    void threadRootUsesSummaryCard()
+    {
+        const QString delegate = read(QStringLiteral("MessageDelegate.qml"));
+        QVERIFY(!delegate.isEmpty());
+        QVERIFY(delegate.contains(QStringLiteral("ThreadSummaryCard {")));
+        QVERIFY(delegate.contains(QStringLiteral(
+            "visible: model.isThreadRoot === true")));
+        QVERIFY(delegate.contains(QStringLiteral(
+            "replyCount: model.threadReplyCount")));
+        QVERIFY(delegate.contains(QStringLiteral(
+            "latestKind: model.threadLatestKind")));
+        QVERIFY(delegate.contains(QStringLiteral(
+            "latestSender: model.threadLatestSenderDisplayName")));
+        QVERIFY(delegate.contains(QStringLiteral(
+            "onActivated: app.thread.openThread(")));
+        // The noisy legacy presentation must not come back.
+        QVERIFY(!delegate.contains(QStringLiteral("reply(s) in thread")));
+        QVERIFY(!delegate.contains(QStringLiteral("· in thread")));
+
+        // The card renders a bubble icon, elides its preview, never plays a
+        // full GIF (still label only), and is keyboard-activable + accessible.
+        const QString cardQml = read(QStringLiteral("ThreadSummaryCard.qml"));
+        QVERIFY(!cardQml.isEmpty());
+        QVERIFY(cardQml.contains(QStringLiteral("signal activated()")));
+        QVERIFY(cardQml.contains(QStringLiteral("Canvas {")));       // vector icon
+        QVERIFY(cardQml.contains(QStringLiteral("elide: Text.ElideRight")));
+        QVERIFY(cardQml.contains(QStringLiteral("maximumLineCount: 1")));
+        QVERIFY(cardQml.contains(QStringLiteral("Keys.onReturnPressed")));
+        QVERIFY(cardQml.contains(QStringLiteral("Keys.onSpacePressed")));
+        QVERIFY(cardQml.contains(QStringLiteral("Accessible.role: Accessible.Button")));
+        QVERIFY(cardQml.contains(QStringLiteral("qsTr(\"GIF\")")));
+        QVERIFY(cardQml.contains(QStringLiteral("qsTr(\"Encrypted reply\")")));
+        QVERIFY(cardQml.contains(QStringLiteral("qsTr(\"Message removed\")")));
+        // Count is never invented: number only when the SDK count is > 0.
+        QVERIFY(cardQml.contains(QStringLiteral(
+            "replyCount > 0 ? qsTr(\"%n reply(s)\", \"\", replyCount)")));
+    }
+
     void stateActivityUsesNeutralGroupedPresentation()
     {
         const QString delegate = read(QStringLiteral("MessageDelegate.qml"));
