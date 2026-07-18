@@ -70,6 +70,7 @@ private Q_SLOTS:
     void parsesReactionsAndReply();
     void parsesThreadSummary();
     void threadSummaryAbsentKeepsFallbackContract();
+    void threadPanelIngestPreservesReplies();
     void parsesTypedStateActivity();
 
     // ── Diff application: every VectorDiff variant ──────────────────
@@ -264,6 +265,47 @@ void RustTimelineIngestTest::threadSummaryAbsentKeepsFallbackContract()
     QVERIFY(e.threadLatestPreview.isEmpty());
     QVERIFY(!e.threadUnread);
     QVERIFY(!e.threadLatestTimestamp.isValid());
+}
+
+// Phase 1 split-responsibility guard. The main room timeline excludes
+// m.thread replies at the SDK layer (TimelineFocus::Live hide_threaded_events);
+// the identical ingest translation is reused for the thread panel, where those
+// same replies MUST be preserved. This proves the C++ ingest is not a filter —
+// it faithfully keeps every thread reply (with its thread_root_id) when the
+// thread-focused SDK timeline delivers them, so hiding replies from main never
+// means losing them.
+void RustTimelineIngestTest::threadPanelIngestPreservesReplies()
+{
+    const QString root = QStringLiteral("$root");
+    QJsonArray items;
+    // Pinned root the panel shows above the replies.
+    QJsonObject rootItem = itemJson(QStringLiteral("uid-root"), root,
+                                    QStringLiteral("root message"));
+    rootItem.insert(QStringLiteral("is_thread_root"), true);
+    rootItem.insert(QStringLiteral("thread_reply_count"), 3);
+    items.append(rootItem);
+    // Three real m.thread replies, each carrying the authoritative relation.
+    for (int i = 1; i <= 3; ++i) {
+        QJsonObject reply =
+            itemJson(QStringLiteral("uid-r%1").arg(i),
+                     QStringLiteral("$reply%1").arg(i),
+                     QStringLiteral("reply %1").arg(i));
+        reply.insert(QStringLiteral("thread_root_id"), root);
+        items.append(reply);
+    }
+
+    const auto mirror = eventsFromItemArray(items, kRoom);
+    QCOMPARE(mirror.size(), 4);
+    QVERIFY(mirror.first().isThreadRoot);
+    QVERIFY(mirror.first().threadRootId.isEmpty()); // the root is not a reply
+    int replies = 0;
+    for (const auto &e : mirror) {
+        if (e.threadRootId == root) {
+            ++replies;
+            QVERIFY(!e.isThreadRoot); // a reply is never classified as a root
+        }
+    }
+    QCOMPARE(replies, 3);
 }
 
 void RustTimelineIngestTest::parsesTypedStateActivity()

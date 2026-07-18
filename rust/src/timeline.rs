@@ -1346,7 +1346,20 @@ async fn open_room_task(
 
     // TimelineBuilder::new (not RoomExt::timeline_builder) — read-receipt
     // tracking stays off; Lightning does not consume receipt metadata yet.
-    let timeline = match TimelineBuilder::new(&room).build().await {
+    //
+    // hide_threaded_events: true asks the SDK to keep in-thread replies out of
+    // the live room timeline (its `should_add` rule is
+    // `thread_root.is_none() || !hide_threaded_events`). Lightning presents each
+    // thread through a dedicated TimelineFocus::Thread panel plus a summary card
+    // on the root, so replies belong there, not as ordinary main-timeline rows.
+    // The classification is the SDK's authoritative m.thread relation — never a
+    // body-text heuristic — and the thread ROOT (no thread_root, only a
+    // thread_summary) still stays in the main timeline.
+    let timeline = match TimelineBuilder::new(&room)
+        .with_focus(TimelineFocus::Live { hide_threaded_events: true })
+        .build()
+        .await
+    {
         Ok(timeline) => Arc::new(timeline),
         Err(_err) => {
             emit_timeline_error(&events, &room_id, room_gen, lifecycle, "build_failed");

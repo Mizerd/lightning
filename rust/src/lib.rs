@@ -42,7 +42,7 @@ use matrix_sdk::{
     },
     room::Receipts,
     store::RoomLoadSettings,
-    Client, LoopCtrl, Room, SessionMeta, SessionTokens,
+    Client, LoopCtrl, Room, SessionMeta, SessionTokens, ThreadingSupport,
 };
 use futures_util::StreamExt;
 use matrix_sdk_ui::{
@@ -3132,11 +3132,20 @@ async fn build_client(homeserver: &str, store_path: &Path) -> Result<Client, Str
             matrix_sdk::encryption::BackupDownloadStrategy::AfterDecryptionFailure,
         ..Default::default()
     };
+    // Threading support routes m.thread events into the event cache's per-thread
+    // linked chunks so TimelineFocus::Thread panels (and their live updates) can
+    // populate — without it subscribe_to_thread() returns nothing and a thread
+    // panel opens empty even though the root's bundled thread_summary reports
+    // replies. It also makes room unread/read-receipt computation thread-aware.
+    // with_subscriptions stays false: Lightning drives thread follow state
+    // through the direct Room subscribe/unsubscribe/query API, not the MSC4308
+    // sliding-sync extension.
     Client::builder()
         .homeserver_url(homeserver)
         .sqlite_store(store_path, None)
         .user_agent("Lightning/0.6.0")
         .with_encryption_settings(encryption_settings)
+        .with_threading_support(ThreadingSupport::Enabled { with_subscriptions: false })
         .build()
         .await
         .map_err(|err| format_matrix_error("failed to build Matrix Rust SDK client", err))
