@@ -179,7 +179,7 @@ private Q_SLOTS:
         QVERIFY(NotificationManager::decide(reply, context).notify);
 
         // Muted room: never.
-        context.roomMode = NotificationManager::Mute;
+        context.roomMode = NotificationManager::Muted;
         QVERIFY(!NotificationManager::decide(reply, context).notify);
 
         // Mentions-only: a plain thread reply is silent; a mentioning one is not.
