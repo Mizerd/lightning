@@ -22,7 +22,9 @@ repository.
 2. Go to **Build → Pipelines** and select **New pipeline**.
 3. Set `LIGHTNING_REF` to a branch, release tag, or full commit SHA.
 4. Run the pipeline, then press the play button for one or more manual package jobs.
-5. Download `dist/` from each successful job's artifacts.
+5. Download `dist/` from each successful job's artifacts. For `package-nix`, the
+   closure archive itself is published to the project **package registry** (see
+   Installation); the job artifact holds only the manifest and metadata.
 
 Examples:
 
@@ -34,6 +36,15 @@ LIGHTNING_REF=2157194d2ddbfe57aa7a636f2ac5b188acc1bcc0
 
 Only UI (`web`) and API pipelines are accepted. Package jobs never run merely
 because this repository receives a push.
+
+From the CLI (use `--variables-env`; the `variables[][key]=…` form of the raw
+pipeline API does not attach variables reliably):
+
+```bash
+glab ci run -b main --variables-env "LIGHTNING_REF:v0.6.0"
+glab api /projects/<id>/pipelines/<pipeline-id>/jobs
+glab api -X POST /projects/<id>/jobs/<job-id>/play
+```
 
 ## Versioning
 
@@ -50,12 +61,18 @@ sudo apt install ./lightning_<version>_amd64.deb
 sudo dnf install ./lightning-<version>-1.x86_64.rpm
 ```
 
-For Nix, extract the cache and copy the output path recorded in
-`nix-path-info.json`:
+For Nix, the closure archive exceeds the 100 MB Cloudflare request-body limit,
+so it is split into `<name>.tar.zst.part.NN` pieces and stored in the project
+generic package registry (`lightning-nix-cache`). `dist/nix-package-manifest.json`
+lists every part URL, its checksum, and the exact reassembly command; download
+the parts with a GitLab token, then:
 
 ```bash
+cat lightning-<version>-x86_64-linux-nix-cache.tar.zst.part.* \
+  > lightning-<version>-x86_64-linux-nix-cache.tar.zst
+sha256sum -c lightning-<version>-x86_64-linux-nix-cache.tar.zst.sha256
 tar --use-compress-program=zstd -xf lightning-<version>-x86_64-linux-nix-cache.tar.zst
-nix copy --from "file://$PWD/nix-cache" /nix/store/<recorded-lightning-output>
+nix copy --no-check-sigs --from "file://$PWD/nix-cache" /nix/store/<recorded-lightning-output>
 ```
 
 ## Security model
