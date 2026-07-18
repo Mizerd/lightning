@@ -119,7 +119,9 @@ package-nix:
       nixpkgs#coreutils
       nixpkgs#findutils
       nixpkgs#git
+      nixpkgs#gnused
       nixpkgs#gnutar
+      nixpkgs#gzip
       nixpkgs#jq
       nixpkgs#zstd
       --command bash -lc
