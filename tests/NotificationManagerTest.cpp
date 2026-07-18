@@ -164,13 +164,60 @@ private Q_SLOTS:
     // Thread replies notify like messages; the click payload identity is the
     // event's thread root (delivery-side contract: payload = room, event,
     // threadRootId only — no tokens are even available to this layer).
+    // v0.6.1 (thread work): thread replies are hidden from the main timeline,
+    // but a reply still reaches the notification path through the sync-level
+    // room-message handler (real room id + m.thread root), independent of any
+    // rendered main-timeline row. It is then subject to the SAME push-rule
+    // policy as any message, and its click payload routes to the thread.
     void threadRepliesCarryThreadIdentity()
     {
         auto context = baseContext();
         TimelineEvent reply = incomingText(QStringLiteral("thread reply"));
         reply.threadRootId = QStringLiteral("$root:example.org");
-        const auto decision = NotificationManager::decide(reply, context);
-        QVERIFY(decision.notify);
+
+        // Inactive (background) room: notifies like any message.
+        QVERIFY(NotificationManager::decide(reply, context).notify);
+
+        // Muted room: never.
+        context.roomMode = NotificationManager::Mute;
+        QVERIFY(!NotificationManager::decide(reply, context).notify);
+
+        // Mentions-only: a plain thread reply is silent; a mentioning one is not.
+        context.roomMode = NotificationManager::MentionsOnly;
+        QVERIFY(!NotificationManager::decide(reply, context).notify);
+        TimelineEvent mentioningReply = reply;
+        mentioningReply.mentionsMe = true;
+        QVERIFY(NotificationManager::decide(mentioningReply, context).notify);
+
+        // Initial-sync backlog: never (no cold-start storm from threads).
+        context.roomMode = NotificationManager::AllMessages;
+        context.initialSyncComplete = false;
+        QVERIFY(!NotificationManager::decide(reply, context).notify);
+        context.initialSyncComplete = true;
+
+        // Active, visible-at-latest room: suppressed.
+        context.roomVisibleAtLatest = true;
+        QVERIFY(!NotificationManager::decide(reply, context).notify);
+    }
+
+    // The click payload for a thread reply carries the thread root id, so
+    // activating the notification opens the correct thread (not just the room).
+    void threadReplyClickRoutesToThread()
+    {
+        NotificationManager manager;
+        QSignalSpy spy(&manager, &NotificationManager::openRequested);
+        QVariantMap p;
+        p.insert(QStringLiteral("roomId"), QStringLiteral("!room:example.org"));
+        p.insert(QStringLiteral("eventId"), QStringLiteral("$reply:example.org"));
+        p.insert(QStringLiteral("threadRootId"),
+                 QStringLiteral("$root:example.org"));
+        manager.recordPayloadForTest(7, p);
+        QMetaObject::invokeMethod(&manager, "onActionInvoked",
+                                  Q_ARG(quint32, 7u),
+                                  Q_ARG(QString, QStringLiteral("default")));
+        QCOMPARE(spy.count(), 1);
+        QCOMPARE(spy.first().at(0).toString(), QStringLiteral("!room:example.org"));
+        QCOMPARE(spy.first().at(2).toString(), QStringLiteral("$root:example.org"));
     }
 
     // v0.6.1 regression (cold-start message storm): events applied before the
