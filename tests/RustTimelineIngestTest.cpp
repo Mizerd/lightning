@@ -108,6 +108,9 @@ private Q_SLOTS:
     void trackerRejectsStaleGenerations();
     void trackerRejectsAfterNewRequest();
     void trackerResetClearsEverything();
+
+    // ── Phase 2: cold-cache thread loads empty then populates ───────
+    void emptyThreadResetThenAppendPopulates();
 };
 
 void RustTimelineIngestTest::parsesEventItem()
@@ -704,6 +707,45 @@ void RustTimelineIngestTest::trackerResetClearsEverything()
     QVERIFY(!tracker.hasActiveTimeline());
     QVERIFY(!tracker.accepts(kRoom, 2));
     QVERIFY(!tracker.adoptReset(kRoom, 3)); // nothing requested anymore
+}
+
+// Phase 2: a cold-cache thread subscribes with an empty snapshot (items=0)
+// and the auto-pagination then delivers the replies as an append diff. This
+// proves the generation the empty reset adopts stays valid for the follow-up
+// diff, so the panel populates in place rather than staying permanently empty.
+void RustTimelineIngestTest::emptyThreadResetThenAppendPopulates()
+{
+    const QString threadId = QStringLiteral("!room:example.org|$root");
+    TimelineGenerationTracker tracker;
+    tracker.request(threadId);
+    // Empty initial snapshot — the exact items=0 subscription start.
+    QVERIFY(tracker.adoptReset(threadId, 3));
+    QList<TimelineEvent> mirror; // reset installed an empty mirror
+    QVERIFY(mirror.isEmpty());
+
+    // The auto-pagination's /relations fetch arrives as an append for the
+    // same still-current generation and must be accepted.
+    QVERIFY(tracker.accepts(threadId, 3));
+    QJsonObject diff;
+    diff.insert(QStringLiteral("type"), QStringLiteral("thread_diff"));
+    diff.insert(QStringLiteral("op"), QStringLiteral("append"));
+    QJsonArray items;
+    for (int i = 1; i <= 3; ++i) {
+        QJsonObject reply =
+            itemJson(QStringLiteral("uid-r%1").arg(i),
+                     QStringLiteral("$reply%1").arg(i),
+                     QStringLiteral("reply %1").arg(i));
+        reply.insert(QStringLiteral("thread_root_id"), QStringLiteral("$root"));
+        items.append(reply);
+    }
+    diff.insert(QStringLiteral("items"), items);
+    const auto outcome = applyTimelineDiff(mirror, diff, threadId);
+    QCOMPARE(outcome.kind, DiffOutcome::Appended);
+    QCOMPARE(mirror.size(), 3);
+
+    // A stale-generation append (an older open of the same thread) is rejected
+    // — it can never repopulate a superseded panel.
+    QVERIFY(!tracker.accepts(threadId, 2));
 }
 
 QTEST_GUILESS_MAIN(RustTimelineIngestTest)

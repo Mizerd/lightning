@@ -576,44 +576,29 @@ impl TimelineRegistry {
         let count = if count == 0 { PAGINATION_BATCH } else { count };
         let registry = Arc::clone(self);
         let events = Arc::clone(&self.events);
-        let pagination_event = move |state: &str, extra: serde_json::Value| {
-            let mut v = json!({
-                "type": "thread_pagination",
-                "room_id": room_id,
-                "thread_root_id": root_event_id,
-                "thread_generation": thread_gen,
-                "lifecycle": lifecycle,
-                "state": state,
-            });
-            if let (Some(obj), Some(add)) = (v.as_object_mut(), extra.as_object()) {
-                for (k, val) in add {
-                    obj.insert(k.clone(), val.clone());
-                }
-            }
-            v
-        };
-        enqueue(&events, pagination_event("loading", json!({})));
+        enqueue(
+            &events,
+            thread_pagination_json(&room_id, &root_event_id, thread_gen, lifecycle,
+                                   "loading", json!({})),
+        );
         runtime.spawn(async move {
             let result = timeline.paginate_backwards(count).await;
             busy.store(false, Ordering::SeqCst);
             if !registry.thread_current(thread_gen, lifecycle) {
                 return; // stale completion after thread/room switch
             }
-            match result {
+            let payload = match result {
                 Ok(hit_start) => {
                     reached.store(hit_start, Ordering::SeqCst);
-                    enqueue(
-                        &events,
-                        pagination_event("idle", json!({ "reached_start": hit_start })),
-                    );
+                    thread_pagination_json(&room_id, &root_event_id, thread_gen,
+                                           lifecycle, "idle",
+                                           json!({ "reached_start": hit_start }))
                 }
-                Err(_err) => {
-                    enqueue(
-                        &events,
-                        pagination_event("failed", json!({ "category": "network" })),
-                    );
-                }
-            }
+                Err(_err) => thread_pagination_json(&room_id, &root_event_id,
+                                                    thread_gen, lifecycle, "failed",
+                                                    json!({ "category": "network" })),
+            };
+            enqueue(&events, payload);
         });
         Ok(())
     }
@@ -1407,6 +1392,34 @@ async fn open_room_task(
     }
 }
 
+/// Build a `thread_pagination` lifecycle envelope. Shared by the initial
+/// auto-load in `open_thread_task` and the scroll-driven
+/// `paginate_thread_back`, so both stamp the same generation/lifecycle and
+/// carry identical `state` semantics.
+fn thread_pagination_json(
+    room_id: &str,
+    root_event_id: &str,
+    thread_gen: u64,
+    lifecycle: u64,
+    state: &str,
+    extra: serde_json::Value,
+) -> serde_json::Value {
+    let mut v = json!({
+        "type": "thread_pagination",
+        "room_id": room_id,
+        "thread_root_id": root_event_id,
+        "thread_generation": thread_gen,
+        "lifecycle": lifecycle,
+        "state": state,
+    });
+    if let (Some(obj), Some(add)) = (v.as_object_mut(), extra.as_object()) {
+        for (k, val) in add {
+            obj.insert(k.clone(), val.clone());
+        }
+    }
+    v
+}
+
 /// v0.6.0: build the thread-focused SDK timeline and forward its snapshot +
 /// diff stream, mirroring `open_room_task`. All payloads are stamped with
 /// the thread generation so stale thread events can never mutate a newer
@@ -1475,6 +1488,9 @@ async fn open_thread_task(
 
     let snapshot: Vec<serde_json::Value> =
         items.iter().map(|item| item_to_json(item, &own_user, &registry)).collect();
+    let has_event_rows = items
+        .iter()
+        .any(|item| matches!(item.kind(), TimelineItemKind::Event(_)));
     enqueue(
         &events,
         json!({
@@ -1486,6 +1502,66 @@ async fn open_thread_task(
             "items": snapshot,
         }),
     );
+
+    // Auto-load cold-cache threads. subscribe() only returns what the event
+    // cache already holds for this thread; a thread whose replies never went
+    // through live sync thread-routing (room history, or events pulled in by
+    // back-pagination, which the SDK cannot place into a thread) opens with no
+    // event rows even though the root's bundled thread_summary reports replies
+    // — the "root says N replies, panel items=0" symptom. Kick one backward
+    // pagination so the SDK fetches the thread over /relations; the fetched
+    // replies arrive as diffs on the loop below. Threads that already carry
+    // cached replies skip this and paginate lazily on scroll. Single-flight and
+    // reached-start guarded, so a concurrent scroll cannot double-fetch.
+    if !has_event_rows {
+        let atomics = match registry.active_thread.lock() {
+            Ok(guard) => match guard.as_ref() {
+                Some(thread) if thread.thread_gen == thread_gen => Some((
+                    Arc::clone(&thread.pagination_busy),
+                    Arc::clone(&thread.reached_start),
+                )),
+                _ => return, // superseded while building
+            },
+            Err(_) => return,
+        };
+        if let Some((busy, reached)) = atomics {
+            if !reached.load(Ordering::SeqCst)
+                && busy
+                    .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+                    .is_ok()
+            {
+                enqueue(
+                    &events,
+                    thread_pagination_json(&room_id, &root_event_id, thread_gen,
+                                           lifecycle, "loading", json!({})),
+                );
+                let events = Arc::clone(&events);
+                let registry = Arc::clone(&registry);
+                let timeline = Arc::clone(&timeline);
+                let room_id = room_id.clone();
+                let root_event_id = root_event_id.clone();
+                tokio::spawn(async move {
+                    let result = timeline.paginate_backwards(PAGINATION_BATCH).await;
+                    busy.store(false, Ordering::SeqCst);
+                    if !registry.thread_current(thread_gen, lifecycle) {
+                        return; // stale completion after thread/room switch
+                    }
+                    let payload = match result {
+                        Ok(hit_start) => {
+                            reached.store(hit_start, Ordering::SeqCst);
+                            thread_pagination_json(&room_id, &root_event_id,
+                                                   thread_gen, lifecycle, "idle",
+                                                   json!({ "reached_start": hit_start }))
+                        }
+                        Err(_err) => thread_pagination_json(
+                            &room_id, &root_event_id, thread_gen, lifecycle,
+                            "failed", json!({ "category": "network" })),
+                    };
+                    enqueue(&events, payload);
+                });
+            }
+        }
+    }
 
     while let Some(diffs) = stream.next().await {
         if !registry.thread_current(thread_gen, lifecycle) {
