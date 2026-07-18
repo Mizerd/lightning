@@ -9,12 +9,6 @@ load_versions
 
 "$SCRIPT_DIR/configure-build.sh"
 
-# The Qt6 CMake finalization adds an $ORIGIN-relative RPATH, but every runtime
-# dependency is a system library in a standard search path, so the RPATH is
-# superfluous. rpmlint treats it as an error (binary-or-shlib-defines-rpath),
-# so remove it from the staged binary before packaging.
-patchelf --remove-rpath "$ROOT/work/stage/usr/bin/matrix-client"
-
 TOPDIR="$ROOT/work/rpmbuild"
 mkdir -p "$TOPDIR"/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
 rpmbuild -bb "$ROOT/packaging/rpm/lightning.spec" \

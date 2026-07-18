@@ -4,47 +4,30 @@ set -Eeuo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./scripts/lib.sh
 source "$SCRIPT_DIR/lib.sh"
-[[ $# -eq 1 ]] || die "usage: write-build-info.sh <deb|rpm|nix>"
+[[ $# -eq 1 ]] || die "usage: write-build-info.sh <deb|rpm>"
 FORMAT="$1"
-[[ "$FORMAT" =~ ^(deb|rpm|nix)$ ]] || die "unsupported package format: $FORMAT"
+[[ "$FORMAT" =~ ^(deb|rpm)$ ]] || die "unsupported package format: $FORMAT"
 ROOT="$(project_dir)"
 load_versions
 
 case "$FORMAT" in
-    deb) PACKAGE_VERSION="$DEB_VERSION" ;;
-    rpm) PACKAGE_VERSION="${RPM_VERSION}-${RPM_RELEASE}" ;;
-    nix) PACKAGE_VERSION="$NIX_VERSION" ;;
+    deb) PACKAGE_VERSION="$DEB_VERSION"; PACKAGE_ARCHITECTURE="amd64" ;;
+    rpm) PACKAGE_VERSION="${RPM_VERSION}-${RPM_RELEASE}"; PACKAGE_ARCHITECTURE="x86_64" ;;
 esac
 
-if [[ "$FORMAT" == "nix" ]]; then
-    # The Nix closure archive is published to the package registry rather than
-    # shipped as a job artifact; take its name and checksum from the manifest.
-    MANIFEST="$ROOT/dist/nix-package-manifest.json"
-    [[ -f "$MANIFEST" ]] || die "nix package manifest is missing"
-    FILES_JSON="$(jq '[.filename]' "$MANIFEST")"
-    CHECKSUMS_JSON="$(jq '[{filename:.filename, sha256:.sha256}]' "$MANIFEST")"
-else
-    mapfile -t artifacts < <(find "$ROOT/dist" -maxdepth 1 -type f \
-        \( -name '*.deb' -o -name '*.rpm' \) -printf '%f\n' | sort)
-    (( ${#artifacts[@]} > 0 )) || die "no distributable artifact found"
-
-    FILES_JSON="$(printf '%s\n' "${artifacts[@]}" | jq -R . | jq -s .)"
-    CHECKSUMS_JSON="$(cd "$ROOT/dist" && for file in "${artifacts[@]}"; do
-        sha256sum "$file" | jq -R 'split("  ") | {filename:.[1], sha256:.[0]}'
-    done | jq -s .)"
-fi
+mapfile -t artifacts < <(find "$ROOT/dist" -maxdepth 1 -type f \
+    \( -name '*.deb' -o -name '*.rpm' \) -printf '%f\n' | sort)
+(( ${#artifacts[@]} > 0 )) || die "no distributable artifact found"
+FILES_JSON="$(printf '%s\n' "${artifacts[@]}" | jq -R . | jq -s .)"
+CHECKSUMS_JSON="$(cd "$ROOT/dist" && for file in "${artifacts[@]}"; do
+    sha256sum "$file" | jq -R 'split("  ") | {filename:.[1], sha256:.[0]}'
+done | jq -s .)"
 
 SOURCE_TIME="$(json_value "$ROOT/dist/source-info.json" commit_time)"
 EXACT_TAG="$(json_value "$ROOT/dist/source-info.json" exact_tag)"
 QT_VERSION="$(pkg-config --modversion Qt6Core 2>/dev/null || true)"
 RUST_VERSION="$(rustc --version 2>/dev/null || true)"
 CMAKE_VERSION="$(cmake --version 2>/dev/null | head -1 || true)"
-NIX_TOOL_VERSION="$(nix --version 2>/dev/null || true)"
-if [[ "$FORMAT" == "nix" ]]; then
-    QT_VERSION="$(nix eval --raw "path:$ROOT#packages.x86_64-linux.default.toolchain.qt")"
-    CMAKE_VERSION="cmake $(nix eval --raw "path:$ROOT#packages.x86_64-linux.default.toolchain.cmake")"
-    RUST_VERSION="rustc $(nix eval --raw "path:$ROOT#packages.x86_64-linux.default.toolchain.rust")"
-fi
 BUILD_TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 jq -n \
@@ -61,7 +44,7 @@ jq -n \
     --arg source_tag "$EXACT_TAG" \
     --arg logical_version "$LOGICAL_VERSION" \
     --arg package_version "$PACKAGE_VERSION" \
-    --arg architecture "x86_64" \
+    --arg architecture "$PACKAGE_ARCHITECTURE" \
     --arg build_type "${BUILD_TYPE:-Release}" \
     --arg runner_description "${CI_RUNNER_DESCRIPTION:-local}" \
     --arg runner_id "${CI_RUNNER_ID:-local}" \
@@ -70,7 +53,6 @@ jq -n \
     --arg qt_version "$QT_VERSION" \
     --arg cmake_version "$CMAKE_VERSION" \
     --arg rust_version "$RUST_VERSION" \
-    --arg nix_version "$NIX_TOOL_VERSION" \
     --arg build_timestamp "$BUILD_TIMESTAMP" \
     --argjson files "$FILES_JSON" \
     --argjson checksums "$CHECKSUMS_JSON" \
@@ -84,6 +66,6 @@ jq -n \
       rust_sdk_backend:true, e2ee_enabled:true,
       runner:{description:$runner_description,id:$runner_id,tags:$runner_tags},
       base_image:$base_image,
-      toolchain:{qt:$qt_version,cmake:$cmake_version,rust:$rust_version,nix:$nix_version},
+      toolchain:{qt:$qt_version,cmake:$cmake_version,rust:$rust_version},
       build_timestamp_utc:$build_timestamp, artifacts:$files, checksums:$checksums}' \
     >"$ROOT/dist/build-info.json"

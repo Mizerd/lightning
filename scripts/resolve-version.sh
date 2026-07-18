@@ -27,13 +27,11 @@ if [[ -n "$EXACT_TAG" && "$SOURCE_REF" == "$EXACT_TAG" && "$EXACT_TAG" =~ ^v?${B
     DEB_VERSION="$BASE_VERSION"
     RPM_VERSION="$BASE_VERSION"
     RPM_RELEASE="1"
-    NIX_VERSION="$BASE_VERSION"
 else
     LOGICAL_VERSION="${BASE_VERSION}+git${GIT_DATE}.${SHORT_SHA}"
     DEB_VERSION="$LOGICAL_VERSION"
     RPM_VERSION="$BASE_VERSION"
     RPM_RELEASE="0.git${GIT_DATE}.${SHORT_SHA}"
-    NIX_VERSION="$LOGICAL_VERSION"
 fi
 
 cat >"$ROOT/dist/version.env" <<EOF
@@ -42,7 +40,6 @@ LOGICAL_VERSION=$LOGICAL_VERSION
 DEB_VERSION=$DEB_VERSION
 RPM_VERSION=$RPM_VERSION
 RPM_RELEASE=$RPM_RELEASE
-NIX_VERSION=$NIX_VERSION
 SOURCE_SHA=$SOURCE_SHA
 SOURCE_REF=$SOURCE_REF
 IS_EXACT_TAG=$IS_EXACT_TAG
@@ -54,13 +51,12 @@ jq -n \
     --arg debian_version "$DEB_VERSION" \
     --arg rpm_version "$RPM_VERSION" \
     --arg rpm_release "$RPM_RELEASE" \
-    --arg nix_version "$NIX_VERSION" \
     --arg source_sha "$SOURCE_SHA" \
     --arg source_ref "$SOURCE_REF" \
     --argjson exact_tag "$IS_EXACT_TAG" \
     '{base_version:$base_version, logical_version:$logical_version,
       debian_version:$debian_version, rpm_version:$rpm_version,
-      rpm_release:$rpm_release, nix_version:$nix_version,
+      rpm_release:$rpm_release,
       source_sha:$source_sha, source_ref:$source_ref, exact_tag:$exact_tag}' \
     >"$ROOT/dist/version.json"
 

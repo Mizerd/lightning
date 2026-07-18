@@ -1,5 +1,9 @@
 stages:
-  - package
+  - resolve
+  - build
+  - validate
+  - publish
+  - release
 
 workflow:
   rules:
@@ -10,39 +14,63 @@ workflow:
 variables:
   LIGHTNING_REPOSITORY:
     value: "https://gitlab.smetonis.net/Mizerd/lightning.git"
-    description: "Lightning source repository."
-  LIGHTNING_REF:
+    description: "Canonical Lightning source repository (project 6)."
+  SOURCE_REF:
     value: "main"
-    description: "Branch, tag or commit SHA to package."
-  BUILD_TYPE:
-    value: "Release"
-    description: "CMake build type."
-  BUILD_JOBS:
-    value: "2"
-    description: "Maximum compilation parallelism."
+    description: "Lightning vX.Y.Z tag, branch, or full commit SHA to build. Publication requires vX.Y.Z."
+  PUBLISH_PACKAGES:
+    value: "false"
+    options: ["false", "true"]
+    description: "Upload both validated packages to project 6 and link its existing release."
+  BUILD_TYPE: "Release"
+  BUILD_JOBS: "2"
   CMAKE_BUILD_PARALLEL_LEVEL: "2"
   CARGO_BUILD_JOBS: "2"
+  LIGHTNING_PROJECT_ID: "6"
+  PACKAGE_NAME: "lightning"
 
-.package-base:
-  stage: package
-  when: manual
-  allow_failure: false
+.trusted-pipeline:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api"'
+
+.build-base:
+  extends: .trusted-pipeline
+  stage: build
   interruptible: true
   timeout: 2h
+  needs:
+    - job: resolve-source
+      artifacts: true
   artifacts:
     name: "lightning-${FORMAT}-${CI_PIPELINE_ID}"
     when: always
-    expire_in: 30 days
-    paths:
-      - dist/
+    expire_in: 7 days
+    paths: [dist/]
 
-package-deb:
-  extends: .package-base
+resolve-source:
+  extends: .trusted-pipeline
+  stage: resolve
   image: debian:13.6-slim
-  tags:
-    - apt
-    - deb
-    - package
+  tags: [apt, deb, package]
+  variables:
+    DEBIAN_FRONTEND: "noninteractive"
+  before_script:
+    - apt-get update
+    - apt-get install -y --no-install-recommends ca-certificates git jq
+  script:
+    - ./scripts/fetch-lightning-source.sh
+    - ./scripts/resolve-version.sh
+    - ./scripts/write-resolved-env.sh
+  artifacts:
+    expire_in: 7 days
+    paths: [dist/source-info.json, dist/version.env, dist/version.json]
+    reports:
+      dotenv: dist/resolved.env
+
+build-deb:
+  extends: .build-base
+  image: debian:13.6-slim
+  tags: [apt, deb, package]
   variables:
     FORMAT: "deb"
     BASE_IMAGE: "debian:13.6-slim"
@@ -52,82 +80,126 @@ package-deb:
     - apt-get update
     - >-
       apt-get install -y --no-install-recommends
-      appstream build-essential ca-certificates cmake curl
-      debhelper desktop-file-utils dpkg-dev fakeroot file git jq
-      libsecret-1-dev libsqlite3-dev libssl-dev lintian ninja-build
-      patchelf pkg-config qt6-base-dev qt6-declarative-dev
-      qt6-tools-dev shellcheck zstd
+      build-essential ca-certificates cmake curl debhelper dpkg-dev fakeroot
+      file git jq libsecret-1-dev libsqlite3-dev libssl-dev ninja-build
+      patchelf pkg-config qt6-base-dev qt6-declarative-dev qt6-tools-dev zstd
     - >-
       curl --fail --show-error --silent --location
-      --proto '=https' --tlsv1.2
-      https://sh.rustup.rs
+      --proto '=https' --tlsv1.2 https://sh.rustup.rs
       --output /tmp/rustup-init.sh
     - sh /tmp/rustup-init.sh -y --profile minimal --default-toolchain "$RUST_TOOLCHAIN"
     - export PATH="/root/.cargo/bin:$PATH"
-    - rustc --version
   script:
-    - ./scripts/fetch-lightning-source.sh
-    - ./scripts/resolve-version.sh
+    - ./scripts/prepare-pinned-source.sh
     - ./scripts/build-deb.sh
-    - ./scripts/validate-deb.sh
     - ./scripts/write-build-info.sh deb
 
-package-rpm:
-  extends: .package-base
+build-rpm:
+  extends: .build-base
   image: fedora:44
-  tags:
-    - dnf
-    - rpm
-    - package
+  tags: [dnf, rpm, package]
   variables:
     FORMAT: "rpm"
     BASE_IMAGE: "fedora:44"
   before_script:
     - >-
       dnf install -y
-      appstream cargo ca-certificates cmake curl desktop-file-utils file
-      gcc gcc-c++ git jq libsecret-devel ninja-build openssl-devel
-      patchelf pkgconf-pkg-config qt6-qtbase-devel qt6-qtdeclarative-devel
-      qt6-qtsvg-devel qt6-qttools-devel rpm-build rpmdevtools rpmlint
-      rust shellcheck sqlite-devel zstd
+      cargo ca-certificates cmake curl gcc gcc-c++ git jq libsecret-devel
+      ninja-build openssl-devel patchelf pkgconf-pkg-config
+      qt6-qtbase-devel qt6-qtdeclarative-devel qt6-qtsvg-devel
+      qt6-qttools-devel rpm-build rust sqlite-devel zstd
   script:
-    - ./scripts/fetch-lightning-source.sh
-    - ./scripts/resolve-version.sh
+    - ./scripts/prepare-pinned-source.sh
     - ./scripts/build-rpm.sh
-    - ./scripts/validate-rpm.sh
     - ./scripts/write-build-info.sh rpm
 
-package-nix:
-  extends: .package-base
-  image: nixos/nix:2.35.1
-  tags:
-    - nix
-    - nixos
-    - package
-  variables:
-    FORMAT: "nix"
-    BASE_IMAGE: "nixos/nix:2.35.1"
-    NIX_CONFIG: |
-      experimental-features = nix-command flakes
-      sandbox = false
-      max-jobs = 2
-      cores = 2
-  script:
+validate-deb:
+  extends: .trusted-pipeline
+  stage: validate
+  image: debian:13.6-slim
+  tags: [apt, deb, package]
+  needs:
+    - job: resolve-source
+      artifacts: true
+    - job: build-deb
+      artifacts: true
+  before_script:
+    - test ! -e work/lightning
+    - command -v nix >/dev/null 2>&1 && exit 1 || true
+    - apt-get update
     - >-
-      nix shell
-      nixpkgs#bash
-      nixpkgs#coreutils
-      nixpkgs#curl
-      nixpkgs#findutils
-      nixpkgs#git
-      nixpkgs#gnused
-      nixpkgs#gnutar
-      nixpkgs#gzip
-      nixpkgs#jq
-      nixpkgs#zstd
-      --command bash -lc
-      './scripts/fetch-lightning-source.sh &&
-      ./scripts/resolve-version.sh &&
-      ./scripts/build-nix.sh &&
-      ./scripts/validate-nix.sh &&
-      ./scripts/write-build-info.sh nix'
+      apt-get install -y --no-install-recommends
+      appstream binutils ca-certificates desktop-file-utils file lintian
+      procps shared-mime-info
+  script: [./scripts/validate-deb.sh]
+  artifacts:
+    when: always
+    expire_in: 7 days
+    paths:
+      - dist/*.deb
+      - dist/*.sha256
+      - dist/*deb*.log
+      - dist/*deb*.txt
+      - dist/source-info.json
+      - dist/version.json
+
+validate-rpm:
+  extends: .trusted-pipeline
+  stage: validate
+  image: fedora:44
+  tags: [dnf, rpm, package]
+  needs:
+    - job: resolve-source
+      artifacts: true
+    - job: build-rpm
+      artifacts: true
+  before_script:
+    - test ! -e work/lightning
+    - command -v nix >/dev/null 2>&1 && exit 1 || true
+    - dnf install -y appstream binutils cpio desktop-file-utils file procps-ng rpmlint
+  script: [./scripts/validate-rpm.sh]
+  artifacts:
+    when: always
+    expire_in: 7 days
+    paths:
+      - dist/*.rpm
+      - dist/*.sha256
+      - dist/*rpm*.log
+      - dist/*rpm*.txt
+      - dist/source-info.json
+      - dist/version.json
+
+publish-packages:
+  stage: publish
+  image: alpine:3.22
+  resource_group: lightning-project-6-publication
+  needs:
+    - job: resolve-source
+      artifacts: true
+    - job: validate-deb
+      artifacts: true
+    - job: validate-rpm
+      artifacts: true
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $PUBLISH_PACKAGES == "true" && $SOURCE_REF =~ /^v[0-9]+\.[0-9]+\.[0-9]+$/'
+    - when: never
+  before_script: [apk add --no-cache bash coreutils curl jq]
+  script: [./scripts/publish-packages.sh]
+  artifacts:
+    expire_in: 1 day
+    paths: [dist/publication.json]
+
+attach-release-assets:
+  stage: release
+  image: alpine:3.22
+  resource_group: lightning-project-6-publication
+  needs:
+    - job: resolve-source
+      artifacts: true
+    - job: publish-packages
+      artifacts: true
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $PUBLISH_PACKAGES == "true" && $SOURCE_REF =~ /^v[0-9]+\.[0-9]+\.[0-9]+$/'
+    - when: never
+  before_script: [apk add --no-cache bash curl jq]
+  script: [./scripts/attach-release-assets.sh]

@@ -19,6 +19,9 @@ BUILD_JOBS="${BUILD_JOBS:-2}"
 export CMAKE_BUILD_PARALLEL_LEVEL="$BUILD_JOBS"
 export CARGO_BUILD_JOBS="$BUILD_JOBS"
 export CARGO_HOME="$ROOT/work/cargo-home"
+export CFLAGS="${CFLAGS:-} -ffile-prefix-map=$ROOT=/usr/src/lightning -fdebug-prefix-map=$ROOT=/usr/src/lightning"
+export CXXFLAGS="${CXXFLAGS:-} -ffile-prefix-map=$ROOT=/usr/src/lightning -fdebug-prefix-map=$ROOT=/usr/src/lightning"
+export RUSTFLAGS="${RUSTFLAGS:-} --remap-path-prefix=$ROOT=/usr/src/lightning"
 mkdir -p "$CARGO_HOME" "$STAGE_DIR"
 
 printf 'Toolchain: '; cmake --version | head -1
@@ -34,6 +37,10 @@ cmake -S "$SOURCE_DIR" -B "$BUILD_DIR" -G Ninja \
     -DENABLE_RUST_SDK_BACKEND=ON
 cmake --build "$BUILD_DIR" --parallel "$BUILD_JOBS"
 DESTDIR="$STAGE_DIR" cmake --install "$BUILD_DIR"
+
+# Native packages use system libraries in standard paths. Remove the
+# build-generated RPATH from the staged executable for both formats.
+patchelf --remove-rpath "$STAGE_DIR/usr/bin/matrix-client"
 
 install -Dm0644 "$ROOT/packaging/common/lightning.desktop" \
     "$STAGE_DIR/usr/share/applications/lightning.desktop"

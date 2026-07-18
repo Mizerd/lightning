@@ -5,25 +5,78 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./scripts/lib.sh
 source "$SCRIPT_DIR/lib.sh"
 ROOT="$(project_dir)"
+load_versions
 shopt -s nullglob
 packages=("$ROOT"/dist/*.rpm)
 (( ${#packages[@]} == 1 )) || die "expected exactly one RPM package"
 package="${packages[0]}"
+expected="lightning-${RPM_VERSION}-${RPM_RELEASE}.x86_64.rpm"
+[[ "$(basename "$package")" == "$expected" ]] || die "unexpected RPM filename"
+[[ ! -e "$ROOT/work/lightning" ]] || die "validation must not receive a source checkout"
+command -v nix >/dev/null 2>&1 && die "Nix must be absent from the validation environment"
 
-rpm -qpi "$package"
-rpm -qlp "$package"
-# rpmlint returns non-zero for warnings too; log everything but only treat
-# genuine errors (E: lines) as fatal, mirroring the DEB lintian --fail-on error.
-rpmlint "$package" >"$ROOT/dist/rpmlint.log" 2>&1 || true
-cat "$ROOT/dist/rpmlint.log"
-if grep -qE '(^|: )E: ' "$ROOT/dist/rpmlint.log"; then
+rpm -qpi "$package" | tee "$ROOT/dist/rpm-info.txt"
+rpm -qpl "$package" | tee "$ROOT/dist/rpm-contents.txt"
+rpm -qpR "$package" | tee "$ROOT/dist/rpm-requires.txt"
+rpmlint "$package" >"$ROOT/dist/rpm-rpmlint.log" 2>&1 || true
+cat "$ROOT/dist/rpm-rpmlint.log"
+if grep -qE '(^|: )E: ' "$ROOT/dist/rpm-rpmlint.log"; then
     die "rpmlint reported errors"
 fi
+(cd "$ROOT/dist" && sha256sum -c "$(basename "$package").sha256")
+
+audit_root="$(mktemp -d)"
+cleanup() { rm -rf "$audit_root"; }
+trap cleanup EXIT
+rpm2cpio "$package" | (cd "$audit_root" && cpio -idm --quiet)
+binary="$audit_root/usr/bin/matrix-client"
+[[ -x "$binary" ]] || die "packaged executable is missing"
+file "$binary" | tee "$ROOT/dist/rpm-file.txt"
+readelf -d "$binary" | tee "$ROOT/dist/rpm-readelf.txt"
+if grep -E '(RPATH|RUNPATH)' "$ROOT/dist/rpm-readelf.txt"; then
+    die "RPM executable contains an RPATH or RUNPATH"
+fi
+if grep -RIlE '/nix/store|/home/roksme|/builds/|LIGHTNING_(GIPHY|KLIPY)_API_KEY=|PRIVATE-TOKEN:|recovery_key=' "$audit_root" | grep -q . || \
+   strings "$binary" | grep -qE '/nix/store|/home/roksme|/builds/|LIGHTNING_(GIPHY|KLIPY)_API_KEY=|PRIVATE-TOKEN:|recovery_key='; then
+    die "RPM contains a forbidden path or credential marker"
+fi
+if find "$audit_root" -xdev -type f \( -name '*.o' -o -name '*.a' -o -name '*.cpp' -o -name '*.rs' \) -print -quit | grep -q .; then
+    die "RPM contains source or intermediate build files"
+fi
+if find "$audit_root" -xdev \( -type f -o -type d \) -perm -0002 -print -quit | grep -q .; then
+    die "RPM contains world-writable files"
+fi
+if find "$audit_root" -xdev -type f \( -perm -4000 -o -perm -2000 \) -print -quit | grep -q .; then
+    die "RPM contains setuid or setgid files"
+fi
+
 dnf install -y "$package"
+test -x /usr/bin/matrix-client
 desktop-file-validate /usr/share/applications/lightning.desktop
 appstreamcli validate --no-net /usr/share/metainfo/lightning.metainfo.xml
-matrix-client --version
-if ldd /usr/bin/matrix-client | tee "$ROOT/dist/ldd.txt" | grep -q 'not found'; then
-    die "installed executable has missing shared libraries"
+version_output="$(cd /tmp && /usr/bin/matrix-client --version)"
+printf '%s\n' "$version_output" | tee "$ROOT/dist/rpm-version.txt"
+[[ "$version_output" == "matrix-client $BASE_VERSION" ]] || die "installed RPM version output is wrong"
+if ldd /usr/bin/matrix-client | tee "$ROOT/dist/rpm-ldd.txt" | grep -q 'not found'; then
+    die "installed RPM executable has missing shared libraries"
 fi
-(cd "$ROOT/dist" && sha256sum -c "$(basename "$package").sha256")
+
+set +e
+(cd /tmp && timeout 15s env QT_QPA_PLATFORM=offscreen /usr/bin/matrix-client --backend=mock) \
+    >"$ROOT/dist/rpm-headless.log" 2>&1
+headless_status=$?
+set -e
+[[ "$headless_status" == 0 || "$headless_status" == 124 ]] || {
+    cat "$ROOT/dist/rpm-headless.log" >&2
+    die "RPM headless launch failed with status $headless_status"
+}
+if grep -Ei 'module .* is not installed|cannot load library|failed to load.*plugin|no such file' "$ROOT/dist/rpm-headless.log"; then
+    die "RPM headless launch reported a missing runtime component"
+fi
+
+dnf remove -y lightning
+dnf check
+if rpm -q lightning >/dev/null 2>&1; then
+    die "RPM package remains installed after removal"
+fi
+printf 'RPM clean install, runtime, headless launch, and uninstall passed\n'

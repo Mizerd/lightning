@@ -6,7 +6,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib.sh"
 
 require_var LIGHTNING_REPOSITORY
-require_var LIGHTNING_REF
+require_var SOURCE_REF
 
 ROOT="$(project_dir)"
 SOURCE_DIR="$ROOT/work/lightning"
@@ -15,8 +15,8 @@ EXPECTED_REPOSITORY="https://gitlab.smetonis.net/Mizerd/lightning.git"
 
 [[ "$LIGHTNING_REPOSITORY" == "$EXPECTED_REPOSITORY" ]] || \
     die "LIGHTNING_REPOSITORY must be ${EXPECTED_REPOSITORY}"
-[[ "$LIGHTNING_REF" != -* && "$LIGHTNING_REF" != *$'\n'* && "$LIGHTNING_REF" != *$'\r'* ]] || \
-    die "LIGHTNING_REF contains unsafe characters"
+[[ "$SOURCE_REF" != -* && "$SOURCE_REF" != *$'\n'* && "$SOURCE_REF" != *$'\r'* ]] || \
+    die "SOURCE_REF contains unsafe characters"
 
 mkdir -p "$ROOT/work" "$DIST_DIR"
 [[ ! -e "$SOURCE_DIR" ]] || die "source directory already exists: ${SOURCE_DIR}"
@@ -51,18 +51,22 @@ fi
 export GIT_ASKPASS="$ASKPASS_DIR/askpass.sh"
 export GIT_TERMINAL_PROMPT=0
 
-printf 'Fetching Lightning ref %s from the configured private GitLab project\n' "$LIGHTNING_REF"
+printf 'Fetching Lightning ref %s from the configured private GitLab project\n' "$SOURCE_REF"
 git clone --no-checkout --origin origin "$LIGHTNING_REPOSITORY" "$SOURCE_DIR"
 git -C "$SOURCE_DIR" fetch --force --tags origin
 
-if git -C "$SOURCE_DIR" show-ref --verify --quiet "refs/tags/$LIGHTNING_REF"; then
-    RESOLVED_SHA="$(git -C "$SOURCE_DIR" rev-parse "refs/tags/$LIGHTNING_REF^{commit}")"
-elif git -C "$SOURCE_DIR" show-ref --verify --quiet "refs/remotes/origin/$LIGHTNING_REF"; then
-    RESOLVED_SHA="$(git -C "$SOURCE_DIR" rev-parse "refs/remotes/origin/$LIGHTNING_REF^{commit}")"
-elif RESOLVED_SHA="$(git -C "$SOURCE_DIR" rev-parse --verify "${LIGHTNING_REF}^{commit}" 2>/dev/null)"; then
+if git -C "$SOURCE_DIR" show-ref --verify --quiet "refs/tags/$SOURCE_REF"; then
+    RESOLVED_SHA="$(git -C "$SOURCE_DIR" rev-parse "refs/tags/$SOURCE_REF^{commit}")"
+elif git -C "$SOURCE_DIR" show-ref --verify --quiet "refs/remotes/origin/$SOURCE_REF"; then
+    RESOLVED_SHA="$(git -C "$SOURCE_DIR" rev-parse "refs/remotes/origin/$SOURCE_REF^{commit}")"
+elif RESOLVED_SHA="$(git -C "$SOURCE_DIR" rev-parse --verify "${SOURCE_REF}^{commit}" 2>/dev/null)"; then
     :
 else
-    die "Lightning ref not found: ${LIGHTNING_REF}"
+    die "Lightning ref not found: ${SOURCE_REF}"
+fi
+
+if [[ -n "${EXPECTED_SOURCE_SHA:-}" && "$RESOLVED_SHA" != "$EXPECTED_SOURCE_SHA" ]]; then
+    die "source ref moved: expected ${EXPECTED_SOURCE_SHA}, resolved ${RESOLVED_SHA}"
 fi
 
 git -C "$SOURCE_DIR" checkout --detach "$RESOLVED_SHA"
@@ -81,7 +85,7 @@ CLOSEST_TAG="$(git -C "$SOURCE_DIR" describe --tags --abbrev=0 2>/dev/null || tr
 EXACT_TAG="$(git -C "$SOURCE_DIR" describe --tags --exact-match 2>/dev/null || true)"
 
 jq -n \
-    --arg requested_ref "$LIGHTNING_REF" \
+    --arg requested_ref "$SOURCE_REF" \
     --arg resolved_sha "$RESOLVED_SHA" \
     --arg commit_time "$COMMIT_TIME" \
     --arg closest_tag "$CLOSEST_TAG" \
@@ -91,4 +95,4 @@ jq -n \
       commit_time:$commit_time, closest_tag:$closest_tag, exact_tag:$exact_tag,
       dirty:false}' >"$DIST_DIR/source-info.json"
 
-printf 'Resolved Lightning ref %s to %s (%s)\n' "$LIGHTNING_REF" "$RESOLVED_SHA" "$COMMIT_TIME"
+printf 'Resolved Lightning ref %s to %s (%s)\n' "$SOURCE_REF" "$RESOLVED_SHA" "$COMMIT_TIME"
