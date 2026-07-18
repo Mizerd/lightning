@@ -236,8 +236,13 @@ void RustTimelineIngestTest::parsesThreadSummary()
     item.insert(QStringLiteral("thread_reply_count"), 4);
     item.insert(QStringLiteral("thread_latest_preview"),
                 QStringLiteral("latest reply"));
+    item.insert(QStringLiteral("thread_latest_kind"), QStringLiteral("image"));
     item.insert(QStringLiteral("thread_latest_sender"),
                 QStringLiteral("@carol:example.org"));
+    item.insert(QStringLiteral("thread_latest_sender_display_name"),
+                QStringLiteral("Carol"));
+    item.insert(QStringLiteral("thread_latest_sender_avatar_url"),
+                QStringLiteral("mxc://example.org/carol"));
     item.insert(QStringLiteral("thread_latest_timestamp_ms"), 1700000123000.0);
     item.insert(QStringLiteral("thread_unread"), true);
 
@@ -245,7 +250,11 @@ void RustTimelineIngestTest::parsesThreadSummary()
     QVERIFY(e.isThreadRoot);
     QCOMPARE(e.threadReplyCount, 4);
     QCOMPARE(e.threadLatestPreview, QStringLiteral("latest reply"));
+    QCOMPARE(e.threadLatestKind, QStringLiteral("image"));
     QCOMPARE(e.threadLatestSender, QStringLiteral("@carol:example.org"));
+    QCOMPARE(e.threadLatestSenderDisplayName, QStringLiteral("Carol"));
+    QCOMPARE(e.threadLatestSenderAvatarUrl,
+             QStringLiteral("mxc://example.org/carol"));
     QCOMPARE(e.threadLatestTimestamp.toMSecsSinceEpoch(),
              Q_INT64_C(1700000123000));
     QVERIFY(e.threadUnread);

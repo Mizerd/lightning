@@ -66,7 +66,10 @@ struct TimelineEvent {
     bool isThreadRoot = false;
     int threadReplyCount = -1;
     QString threadLatestPreview;
-    QString threadLatestSender;
+    QString threadLatestKind;   // text/notice/image/gif/file/redacted/encrypted…
+    QString threadLatestSender; // MXID of the latest reply's sender
+    QString threadLatestSenderDisplayName;
+    QString threadLatestSenderAvatarUrl; // mxc:// only, via the safe media path
     QDateTime threadLatestTimestamp;
     bool threadUnread = false;
 

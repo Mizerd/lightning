@@ -1961,9 +1961,25 @@ fn event_item_to_json(
                 if let TimelineDetails::Ready(latest) = &summary.latest_event {
                     out["thread_latest_preview"] =
                         content_preview(&latest.content).into();
+                    out["thread_latest_kind"] =
+                        thread_latest_kind(&latest.content).into();
                     out["thread_latest_sender"] = latest.sender.to_string().into();
                     out["thread_latest_timestamp_ms"] =
                         u64::from(latest.timestamp.get()).into();
+                    // Latest-reply sender profile from the SDK's bundled
+                    // aggregation — the card shows a friendly name/avatar
+                    // without a separate lookup. Absent fields fall back to
+                    // the MXID / existing avatar path on the C++ side.
+                    if let TimelineDetails::Ready(profile) = &latest.sender_profile {
+                        if let Some(name) = &profile.display_name {
+                            out["thread_latest_sender_display_name"] =
+                                name.clone().into();
+                        }
+                        if let Some(avatar) = &profile.avatar_url {
+                            out["thread_latest_sender_avatar_url"] =
+                                avatar.to_string().into();
+                        }
+                    }
                     if let TimelineEventItemId::EventId(latest_id) = &latest.identifier {
                         // Conservative unread hint: read only when the user's
                         // own threaded receipt points at the latest reply (or
@@ -2243,6 +2259,40 @@ fn fill_message_content(
 }
 
 /// Best-effort short preview for reply boxes. Never includes ciphertext.
+/// Coarse semantic kind of a thread's latest reply, so the summary card can
+/// render a safe label ("Image", "GIF", "Encrypted reply", …) instead of a
+/// raw body or a placeholder token. Derived from the SDK content type only —
+/// never from body text. Ciphertext and media URLs never leave the SDK.
+fn thread_latest_kind(content: &TimelineItemContent) -> &'static str {
+    match content {
+        TimelineItemContent::MsgLike(msg_like) => match &msg_like.kind {
+            MsgLikeKind::Message(message) => match message.msgtype() {
+                MessageType::Text(_) => "text",
+                MessageType::Notice(_) => "notice",
+                MessageType::Emote(_) => "emote",
+                MessageType::Image(content) => {
+                    let gif = content
+                        .info
+                        .as_ref()
+                        .and_then(|info| info.mimetype.as_deref())
+                        == Some("image/gif");
+                    if gif { "gif" } else { "image" }
+                }
+                MessageType::Video(_) => "video",
+                MessageType::Audio(_) => "audio",
+                MessageType::File(_) => "file",
+                _ => "text",
+            },
+            MsgLikeKind::Redacted => "redacted",
+            MsgLikeKind::UnableToDecrypt(_) => "encrypted",
+            MsgLikeKind::Sticker(_) => "sticker",
+            MsgLikeKind::Poll(_) => "poll",
+            _ => "unsupported",
+        },
+        _ => "unsupported",
+    }
+}
+
 fn content_preview(content: &TimelineItemContent) -> String {
     const PREVIEW_MAX: usize = 80;
     let text = match content {

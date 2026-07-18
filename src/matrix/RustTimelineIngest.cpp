@@ -106,8 +106,14 @@ TimelineEvent eventFromItemJson(const QJsonObject &item, const QString &roomId)
         : -1;
     e.threadLatestPreview =
         item.value(QStringLiteral("thread_latest_preview")).toString();
+    e.threadLatestKind =
+        item.value(QStringLiteral("thread_latest_kind")).toString();
     e.threadLatestSender =
         item.value(QStringLiteral("thread_latest_sender")).toString();
+    e.threadLatestSenderDisplayName =
+        item.value(QStringLiteral("thread_latest_sender_display_name")).toString();
+    e.threadLatestSenderAvatarUrl =
+        item.value(QStringLiteral("thread_latest_sender_avatar_url")).toString();
     const auto latestTs = static_cast<qint64>(
         item.value(QStringLiteral("thread_latest_timestamp_ms")).toDouble(0));
     if (latestTs > 0)

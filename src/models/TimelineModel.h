@@ -67,7 +67,10 @@ public:
         ThreadReplyCountRole,    // Number of visible replies for a thread root.
         // v0.6.0: SDK thread-summary presentation roles (thread roots only).
         ThreadLatestPreviewRole,   // Sanitized preview of the latest reply.
+        ThreadLatestKindRole,      // Semantic kind for a safe label (image/gif/…).
         ThreadLatestSenderRole,    // MXID of the latest reply's sender.
+        ThreadLatestSenderDisplayNameRole, // Friendly name (falls back to MXID).
+        ThreadLatestSenderAvatarMxcRole,   // mxc:// via the safe avatar path.
         ThreadLatestTimestampRole, // QDateTime of the latest reply.
         ThreadUnreadRole,          // Conservative receipt-based unread hint.
         // v0.6.0 checkpoint 11: m.mentions metadata (SDK-parsed).

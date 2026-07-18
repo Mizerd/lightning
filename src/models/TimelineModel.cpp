@@ -427,7 +427,14 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
         return c;
     }
     case ThreadLatestPreviewRole:   return e.threadLatestPreview;
+    case ThreadLatestKindRole:      return e.threadLatestKind;
     case ThreadLatestSenderRole:    return e.threadLatestSender;
+    case ThreadLatestSenderDisplayNameRole:
+        return e.threadLatestSenderDisplayName.isEmpty()
+            ? e.threadLatestSender
+            : e.threadLatestSenderDisplayName;
+    case ThreadLatestSenderAvatarMxcRole:
+        return e.threadLatestSenderAvatarUrl;
     case ThreadLatestTimestampRole: return e.threadLatestTimestamp;
     case ThreadUnreadRole:          return e.threadUnread;
     case MentionsMeRole:            return e.mentionsMe;
@@ -519,7 +526,10 @@ QHash<int, QByteArray> TimelineModel::roleNames() const
         { IsThreadRootRole,        "isThreadRoot" },
         { ThreadReplyCountRole,    "threadReplyCount" },
         { ThreadLatestPreviewRole,   "threadLatestPreview" },
+        { ThreadLatestKindRole,      "threadLatestKind" },
         { ThreadLatestSenderRole,    "threadLatestSender" },
+        { ThreadLatestSenderDisplayNameRole, "threadLatestSenderDisplayName" },
+        { ThreadLatestSenderAvatarMxcRole,   "threadLatestSenderAvatarMxc" },
         { ThreadLatestTimestampRole, "threadLatestTimestamp" },
         { ThreadUnreadRole,          "threadUnread" },
         { MentionsMeRole,            "mentionsMe" },
