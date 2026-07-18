@@ -131,6 +131,8 @@ set(APP_SOURCES
     src/models/LinkPreviewController.cpp
     src/gif/GifResponseParser.h
     src/gif/GifResponseParser.cpp
+    src/gif/GifProvider.h
+    src/gif/GifProvider.cpp
 
     src/notifications/NotificationManager.h
     src/notifications/NotificationManager.cpp
@@ -407,6 +409,17 @@ if(BUILD_TESTING)
     target_include_directories(gif-response-parser-test PRIVATE src)
     target_link_libraries(gif-response-parser-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME gif-response-parser COMMAND gif-response-parser-test)
+
+    qt_add_executable(gif-provider-test
+        tests/GifProviderTest.cpp
+        src/gif/GifResponseParser.h
+        src/gif/GifResponseParser.cpp
+        src/gif/GifProvider.h
+        src/gif/GifProvider.cpp
+    )
+    target_include_directories(gif-provider-test PRIVATE src)
+    target_link_libraries(gif-provider-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME gif-provider COMMAND gif-provider-test)
 
     qt_add_executable(emoji-ui-contract-test tests/EmojiUiContractTest.cpp)
     target_compile_definitions(emoji-ui-contract-test PRIVATE

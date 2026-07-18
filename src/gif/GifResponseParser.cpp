@@ -39,25 +39,16 @@ int ratingRank(Rating r)
     return 3;
 }
 
-QString ratingToString(Rating r)
-{
-    switch (r) {
-    case Rating::G:    return QStringLiteral("g");
-    case Rating::PG:   return QStringLiteral("pg");
-    case Rating::PG13: return QStringLiteral("pg-13");
-    case Rating::R:    return QStringLiteral("r");
-    }
-    return QStringLiteral("r");
-}
-
-// Pick the first rendition in `keys` that has a usable https .gif url.
+// Pick the first rendition in `keys` whose `url` is a sendable .gif on one of
+// `hosts`.
 QString firstGifUrl(const QJsonObject &images, const QStringList &keys,
-                    int &width, int &height, qint64 &bytes)
+                    const QStringList &hosts, int &width, int &height,
+                    qint64 &bytes)
 {
     for (const QString &key : keys) {
         const QJsonObject r = images.value(key).toObject();
         const QString url = stripTracking(r.value(QStringLiteral("url")).toString());
-        if (isSendableGifUrl(url)) {
+        if (isSendableGifUrlForHosts(url, hosts)) {
             width = asInt(r.value(QStringLiteral("width")));
             height = asInt(r.value(QStringLiteral("height")));
             bytes = asInt64(r.value(QStringLiteral("size")));
@@ -98,6 +89,17 @@ Rating ratingFromString(const QString &value)
     return Rating::R;
 }
 
+QString ratingToString(Rating r)
+{
+    switch (r) {
+    case Rating::G:    return QStringLiteral("g");
+    case Rating::PG:   return QStringLiteral("pg");
+    case Rating::PG13: return QStringLiteral("pg-13");
+    case Rating::R:    return QStringLiteral("r");
+    }
+    return QStringLiteral("r");
+}
+
 bool ratingWithin(const QString &itemRating, Rating maxRating)
 {
     return ratingRank(ratingFromString(itemRating)) <= ratingRank(maxRating);
@@ -115,7 +117,8 @@ QString stripTracking(const QString &url)
     return u.toString();
 }
 
-bool isSendableGifUrl(const QString &url)
+bool isSendableGifUrlForHosts(const QString &url,
+                              const QStringList &allowedHostSuffixes)
 {
     if (!url.startsWith(QLatin1String("https://")))
         return false;
@@ -123,13 +126,26 @@ bool isSendableGifUrl(const QString &url)
     if (!u.isValid())
         return false;
     const QString host = u.host().toLower();
-    // Provider-CDN host policy: only GIPHY media hosts.
-    const bool giphyHost = host == QLatin1String("giphy.com")
-        || host.endsWith(QLatin1String(".giphy.com"));
-    if (!giphyHost)
+    // Provider-CDN host policy: only the provider's own media hosts. A suffix
+    // like ".giphy.com" also matches the bare apex "giphy.com".
+    bool hostOk = false;
+    for (const QString &suffix : allowedHostSuffixes) {
+        const QString bare = suffix.startsWith(QLatin1Char('.'))
+            ? suffix.mid(1) : suffix;
+        if (host == bare || host.endsWith(suffix)) {
+            hostOk = true;
+            break;
+        }
+    }
+    if (!hostOk)
         return false;
     // Must be a GIF, not an mp4/webp/jpg still renamed into place.
     return u.path().endsWith(QLatin1String(".gif"), Qt::CaseInsensitive);
+}
+
+bool isSendableGifUrl(const QString &url)
+{
+    return isSendableGifUrlForHosts(url, { QStringLiteral(".giphy.com") });
 }
 
 ParseOutcome parseGiphy(const QByteArray &json, Rating maxRating,
@@ -156,6 +172,7 @@ ParseOutcome parseGiphy(const QByteArray &json, Rating maxRating,
         ? asInt(pagination.value(QStringLiteral("total_count")))
         : -1;
 
+    const QStringList giphyHosts = { QStringLiteral(".giphy.com") };
     QSet<QString> seen;
     const QJsonArray data = dataVal.toArray();
     for (const QJsonValue &entry : data) {
@@ -175,7 +192,7 @@ ParseOutcome parseGiphy(const QByteArray &json, Rating maxRating,
         r.gifUrl = firstGifUrl(images,
             { QStringLiteral("original"), QStringLiteral("downsized_medium"),
               QStringLiteral("downsized"), QStringLiteral("fixed_height") },
-            r.gifWidth, r.gifHeight, r.gifBytes);
+            giphyHosts, r.gifWidth, r.gifHeight, r.gifBytes);
         if (r.gifUrl.isEmpty())
             continue; // nothing sendable — skip entirely
         // Enforce the sendable caps when the provider reports dimensions/size.
@@ -190,7 +207,8 @@ ParseOutcome parseGiphy(const QByteArray &json, Rating maxRating,
             int pw = 0, ph = 0;
             const QString preview = firstGifUrl(images,
                 { QStringLiteral("fixed_width"), QStringLiteral("preview_gif"),
-                  QStringLiteral("fixed_width_small") }, pw, ph, ignoreBytes);
+                  QStringLiteral("fixed_width_small") }, giphyHosts, pw, ph,
+                ignoreBytes);
             if (!preview.isEmpty()) {
                 r.previewUrl = preview;
                 r.previewWidth = pw;
@@ -221,6 +239,7 @@ ParseOutcome parseGiphy(const QByteArray &json, Rating maxRating,
             }
         }
 
+        r.provider = QStringLiteral("giphy");
         r.id = id;
         r.title = obj.value(QStringLiteral("title")).toString();
         r.rating = ratingToString(ratingFromString(rating));
@@ -230,6 +249,138 @@ ParseOutcome parseGiphy(const QByteArray &json, Rating maxRating,
 
     out.ok = true;
     out.nextOffset = requestOffset + static_cast<int>(data.size());
+    // Another page exists when the server reports more than we have seen.
+    if (out.totalCount >= 0)
+        out.hasMore = out.nextOffset < out.totalCount;
+    else
+        out.hasMore = !data.isEmpty();
+    return out;
+}
+
+// ── KLIPY ───────────────────────────────────────────────────────────────
+// Response: { result, data: { data:[items], current_page, per_page, has_next }}
+// Item: { id, slug, title, type, file: { hd|md|sm|xs: { gif|webp|jpg|mp4: {
+//         url, width, height, size } } } }. No per-item rating — safe-search is
+// applied at request time, so `requestRating` is stamped onto each result.
+ParseOutcome parseKlipy(const QByteArray &json, Rating requestRating,
+                        int requestPage)
+{
+    ParseOutcome out;
+
+    QJsonParseError err{};
+    const QJsonDocument doc = QJsonDocument::fromJson(json, &err);
+    if (err.error != QJsonParseError::NoError || !doc.isObject()) {
+        out.errorCategory = QStringLiteral("malformed");
+        return out;
+    }
+    const QJsonObject root = doc.object();
+    // KLIPY reports failures as {"result":false,...}. Treat as malformed so the
+    // controller shows a bounded error rather than an empty success.
+    if (root.contains(QStringLiteral("result"))
+        && !root.value(QStringLiteral("result")).toBool(true)) {
+        out.errorCategory = QStringLiteral("malformed");
+        return out;
+    }
+    const QJsonObject data = root.value(QStringLiteral("data")).toObject();
+    const QJsonValue itemsVal = data.value(QStringLiteral("data"));
+    if (!itemsVal.isArray()) {
+        out.errorCategory = QStringLiteral("malformed");
+        return out;
+    }
+
+    const QStringList klipyHosts = { QStringLiteral(".klipy.com") };
+    const QString ratingStr = ratingToString(requestRating);
+    QSet<QString> seen;
+    const QJsonArray items = itemsVal.toArray();
+    for (const QJsonValue &entry : items) {
+        const QJsonObject obj = entry.toObject();
+        // id may be a number or a string.
+        const QJsonValue idVal = obj.value(QStringLiteral("id"));
+        const QString id = idVal.isDouble()
+            ? QString::number(static_cast<qint64>(idVal.toDouble()))
+            : idVal.toString();
+        if (id.isEmpty() || seen.contains(id))
+            continue;
+        if (obj.value(QStringLiteral("type")).toString(QStringLiteral("gif"))
+                != QLatin1String("gif"))
+            continue; // gifs only from the gifs endpoint
+
+        const QJsonObject file = obj.value(QStringLiteral("file")).toObject();
+
+        // Build a {size: {url,width,height,size}} view of the .gif renditions
+        // so the shared firstGifUrl helper can pick one.
+        QJsonObject gifBySize;
+        for (const QString &size : { QStringLiteral("md"), QStringLiteral("hd"),
+                                     QStringLiteral("sm"), QStringLiteral("xs") }) {
+            const QJsonObject gif =
+                file.value(size).toObject().value(QStringLiteral("gif")).toObject();
+            if (!gif.isEmpty())
+                gifBySize.insert(size, gif);
+        }
+
+        GifResult r;
+        r.gifUrl = firstGifUrl(gifBySize,
+            { QStringLiteral("md"), QStringLiteral("hd"), QStringLiteral("sm") },
+            klipyHosts, r.gifWidth, r.gifHeight, r.gifBytes);
+        if (r.gifUrl.isEmpty())
+            continue;
+        if (r.gifWidth > kMaxGifDimension || r.gifHeight > kMaxGifDimension
+            || (r.gifBytes > 0 && r.gifBytes > kMaxGifBytes))
+            continue;
+
+        {
+            qint64 ignoreBytes = 0;
+            int pw = 0, ph = 0;
+            const QString preview = firstGifUrl(gifBySize,
+                { QStringLiteral("sm"), QStringLiteral("xs"),
+                  QStringLiteral("md") }, klipyHosts, pw, ph, ignoreBytes);
+            if (!preview.isEmpty()) {
+                r.previewUrl = preview;
+                r.previewWidth = pw;
+                r.previewHeight = ph;
+            } else {
+                r.previewUrl = r.gifUrl;
+                r.previewWidth = r.gifWidth;
+                r.previewHeight = r.gifHeight;
+            }
+        }
+
+        // Static still (jpg) for fast scrolling.
+        QJsonObject jpgBySize;
+        for (const QString &size : { QStringLiteral("sm"), QStringLiteral("md"),
+                                     QStringLiteral("xs") }) {
+            const QJsonObject jpg =
+                file.value(size).toObject().value(QStringLiteral("jpg")).toObject();
+            if (!jpg.isEmpty())
+                jpgBySize.insert(size, jpg);
+        }
+        int sw = 0, sh = 0;
+        r.stillUrl = firstHttpsUrl(jpgBySize,
+            { QStringLiteral("sm"), QStringLiteral("md"), QStringLiteral("xs") },
+            QStringLiteral("url"), sw, sh);
+
+        // Optional preview mp4 — never sent as a gif.
+        for (const QString &size : { QStringLiteral("sm"), QStringLiteral("md") }) {
+            const QString mp4 = file.value(size).toObject()
+                .value(QStringLiteral("mp4")).toObject()
+                .value(QStringLiteral("url")).toString();
+            if (mp4.startsWith(QLatin1String("https://"))) {
+                r.mp4Url = mp4;
+                break;
+            }
+        }
+
+        r.provider = QStringLiteral("klipy");
+        r.id = id;
+        r.title = obj.value(QStringLiteral("title")).toString();
+        r.rating = ratingStr;
+        seen.insert(id);
+        out.results.append(r);
+    }
+
+    out.ok = true;
+    out.nextPage = requestPage + 1;
+    out.hasMore = data.value(QStringLiteral("has_next")).toBool(false);
     return out;
 }
 

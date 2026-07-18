@@ -57,6 +57,14 @@ private Q_SLOTS:
     void emptyDataIsOkButEmpty();
     void paginationOffsetAdvances();
     void ratingHelpers();
+    void hasMoreReflectsTotalCount();
+    // KLIPY
+    void parsesKlipyResult();
+    void klipyRejectsNonKlipyHost();
+    void klipyResultFalseIsMalformed();
+    void klipyPageAdvancesAndHasNext();
+    void klipySkipsNonGifType();
+    void resultsCarryProviderIdentity();
 };
 
 void GifResponseParserTest::parsesTrendingResult()
@@ -218,6 +226,123 @@ void GifResponseParserTest::ratingHelpers()
     // Unknown → most permissive.
     QCOMPARE(static_cast<int>(gif::ratingFromString(QStringLiteral("weird"))),
              static_cast<int>(Rating::R));
+}
+
+void GifResponseParserTest::hasMoreReflectsTotalCount()
+{
+    // total_count 42, offset 0, 1 returned → more pages exist.
+    const auto more = gif::parseGiphy(giphyResponse(gifItem("a", "g"), 42),
+                                      Rating::R, 0);
+    QVERIFY(more.hasMore);
+    // At the end (offset already past total) → no more.
+    const auto end = gif::parseGiphy(giphyResponse(gifItem("z", "g"), 1),
+                                     Rating::R, 5);
+    QVERIFY(!end.hasMore);
+}
+
+// ── KLIPY ────────────────────────────────────────────────────────────────
+namespace {
+QByteArray klipyItem(const QByteArray &id)
+{
+    return "{\"id\":" + id + ",\"slug\":\"cat\",\"title\":\"a cat\","
+           "\"type\":\"gif\",\"file\":{"
+           "\"md\":{\"gif\":{\"url\":\"https://static.klipy.com/ii/x/md/"
+        + id + ".gif\",\"width\":400,\"height\":400,\"size\":1846435},"
+           "\"jpg\":{\"url\":\"https://static.klipy.com/ii/x/md/" + id
+        + ".jpg\",\"width\":400,\"height\":400,\"size\":25000},"
+           "\"mp4\":{\"url\":\"https://static.klipy.com/ii/x/md/" + id
+        + ".mp4\",\"width\":400,\"height\":400,\"size\":246501}},"
+           "\"sm\":{\"gif\":{\"url\":\"https://static.klipy.com/ii/x/sm/" + id
+        + ".gif\",\"width\":200,\"height\":200,\"size\":90000}}}}";
+}
+QByteArray klipyResponse(const QByteArray &items, bool hasNext = true)
+{
+    return "{\"result\":true,\"data\":{\"data\":[" + items
+        + "],\"current_page\":1,\"per_page\":24,\"has_next\":"
+        + (hasNext ? "true" : "false") + "}}";
+}
+} // namespace
+
+void GifResponseParserTest::parsesKlipyResult()
+{
+    const auto out = gif::parseKlipy(klipyResponse(klipyItem("111")),
+                                     Rating::PG13, 0);
+    QVERIFY(out.ok);
+    QCOMPARE(out.results.size(), 1);
+    const GifResult &r = out.results.first();
+    QCOMPARE(r.provider, QStringLiteral("klipy"));
+    QCOMPARE(r.id, QStringLiteral("111"));
+    QCOMPARE(r.title, QStringLiteral("a cat"));
+    // Sendable = md .gif on a klipy host.
+    QCOMPARE(r.gifUrl,
+             QStringLiteral("https://static.klipy.com/ii/x/md/111.gif"));
+    QCOMPARE(r.gifWidth, 400);
+    QCOMPARE(r.gifBytes, Q_INT64_C(1846435));
+    // Preview = smaller sm .gif.
+    QCOMPARE(r.previewUrl,
+             QStringLiteral("https://static.klipy.com/ii/x/sm/111.gif"));
+    // Still = jpg; mp4 captured but never a gif.
+    QCOMPARE(r.stillUrl,
+             QStringLiteral("https://static.klipy.com/ii/x/md/111.jpg"));
+    QCOMPARE(r.mp4Url,
+             QStringLiteral("https://static.klipy.com/ii/x/md/111.mp4"));
+    // No per-item rating → request rating stamped.
+    QCOMPARE(r.rating, QStringLiteral("pg-13"));
+}
+
+void GifResponseParserTest::klipyRejectsNonKlipyHost()
+{
+    QByteArray evil =
+        "{\"id\":9,\"type\":\"gif\",\"file\":{\"md\":{\"gif\":{"
+        "\"url\":\"https://static.evil.com/x/md/9.gif\",\"width\":10,"
+        "\"height\":10,\"size\":1}}}}";
+    const auto out = gif::parseKlipy(klipyResponse(evil), Rating::R, 0);
+    QVERIFY(out.ok);
+    QVERIFY(out.results.isEmpty()); // wrong CDN host dropped
+    // GIPHY host must not be accepted by the KLIPY host policy either.
+    QVERIFY(gif::isSendableGifUrlForHosts(
+        QStringLiteral("https://static.klipy.com/x.gif"),
+        { QStringLiteral(".klipy.com") }));
+    QVERIFY(!gif::isSendableGifUrlForHosts(
+        QStringLiteral("https://media.giphy.com/x.gif"),
+        { QStringLiteral(".klipy.com") }));
+}
+
+void GifResponseParserTest::klipyResultFalseIsMalformed()
+{
+    QVERIFY(!gif::parseKlipy("{\"result\":false,\"data\":{}}", Rating::R, 0).ok);
+    QVERIFY(!gif::parseKlipy("not json", Rating::R, 0).ok);
+    QVERIFY(!gif::parseKlipy("{\"result\":true,\"data\":{}}", Rating::R, 0).ok);
+}
+
+void GifResponseParserTest::klipyPageAdvancesAndHasNext()
+{
+    const auto more = gif::parseKlipy(klipyResponse(klipyItem("1"), true),
+                                      Rating::R, 2);
+    QCOMPARE(more.nextPage, 3);
+    QVERIFY(more.hasMore);
+    const auto last = gif::parseKlipy(klipyResponse(klipyItem("1"), false),
+                                      Rating::R, 0);
+    QVERIFY(!last.hasMore);
+}
+
+void GifResponseParserTest::klipySkipsNonGifType()
+{
+    QByteArray sticker =
+        "{\"id\":5,\"type\":\"sticker\",\"file\":{\"md\":{\"gif\":{"
+        "\"url\":\"https://static.klipy.com/x.gif\",\"width\":10,\"height\":10,"
+        "\"size\":1}}}}";
+    const auto out = gif::parseKlipy(klipyResponse(sticker), Rating::R, 0);
+    QVERIFY(out.ok);
+    QVERIFY(out.results.isEmpty());
+}
+
+void GifResponseParserTest::resultsCarryProviderIdentity()
+{
+    const auto g = gif::parseGiphy(giphyResponse(gifItem("g1", "g")), Rating::R, 0);
+    const auto k = gif::parseKlipy(klipyResponse(klipyItem("2")), Rating::R, 0);
+    QCOMPARE(g.results.first().provider, QStringLiteral("giphy"));
+    QCOMPARE(k.results.first().provider, QStringLiteral("klipy"));
 }
 
 QTEST_GUILESS_MAIN(GifResponseParserTest)
