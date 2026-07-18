@@ -63,5 +63,5 @@ install -m0755 "$ROOT/packaging/deb/postrm" "$CONTROL/postrm"
 
 PACKAGE="$ROOT/dist/lightning_${DEB_VERSION}_amd64.deb"
 dpkg-deb --build --root-owner-group "$PKGROOT" "$PACKAGE"
-sha256sum "$PACKAGE" >"$PACKAGE.sha256"
+write_sha256 "$PACKAGE"
 printf 'Built %s\n' "$PACKAGE"

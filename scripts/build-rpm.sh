@@ -26,5 +26,5 @@ mapfile -t packages < <(find "$TOPDIR/RPMS" -type f -name '*.rpm' -print)
 (( ${#packages[@]} == 1 )) || die "expected exactly one binary RPM"
 cp "${packages[0]}" "$ROOT/dist/"
 PACKAGE="$ROOT/dist/$(basename "${packages[0]}")"
-sha256sum "$PACKAGE" >"$PACKAGE.sha256"
+write_sha256 "$PACKAGE"
 printf 'Built %s\n' "$PACKAGE"

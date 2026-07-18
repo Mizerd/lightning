@@ -21,8 +21,8 @@ mapfile -t artifacts < <(find "$ROOT/dist" -maxdepth 1 -type f \
 (( ${#artifacts[@]} > 0 )) || die "no distributable artifact found"
 
 FILES_JSON="$(printf '%s\n' "${artifacts[@]}" | jq -R . | jq -s .)"
-CHECKSUMS_JSON="$(for file in "${artifacts[@]}"; do
-    sha256sum "$ROOT/dist/$file" | jq -R 'split("  ") | {filename:.[1], sha256:.[0]}'
+CHECKSUMS_JSON="$(cd "$ROOT/dist" && for file in "${artifacts[@]}"; do
+    sha256sum "$file" | jq -R 'split("  ") | {filename:.[1], sha256:.[0]}'
 done | jq -s .)"
 
 SOURCE_TIME="$(json_value "$ROOT/dist/source-info.json" commit_time)"

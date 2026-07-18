@@ -32,3 +32,11 @@ json_value() {
     local file="$1" key="$2"
     jq -er --arg key "$key" '.[$key]' "$file"
 }
+
+# Write a sibling <name>.sha256 that records only the basename, so that a
+# downloaded artifact verifies with `sha256sum -c <name>.sha256` regardless of
+# where it is checked out.
+write_sha256() {
+    local path="$1"
+    ( cd "$(dirname "$path")" && sha256sum "$(basename "$path")" >"$(basename "$path").sha256" )
+}

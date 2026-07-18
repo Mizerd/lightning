@@ -37,7 +37,7 @@ nix path-info --closure-size "$ROOT/result" >"$ROOT/dist/nix-closure-size.txt"
 ARCHIVE="$ROOT/dist/lightning-${NIX_VERSION}-x86_64-linux-nix-cache.tar.zst"
 tar --sort=name --mtime='UTC 1970-01-01' -C "$ROOT/dist" -cf - nix-cache |
     zstd -T2 -10 -o "$ARCHIVE"
-sha256sum "$ARCHIVE" >"$ARCHIVE.sha256"
+write_sha256 "$ARCHIVE"
 
 cat >"$ROOT/dist/nix-install-instructions.txt" <<EOF
 Extract the archive, then copy the closure into the local Nix store:
