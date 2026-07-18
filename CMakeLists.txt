@@ -129,6 +129,8 @@ set(APP_SOURCES
     src/models/LinkPreview.cpp
     src/models/LinkPreviewController.h
     src/models/LinkPreviewController.cpp
+    src/gif/GifResponseParser.h
+    src/gif/GifResponseParser.cpp
 
     src/notifications/NotificationManager.h
     src/notifications/NotificationManager.cpp
@@ -396,6 +398,15 @@ if(BUILD_TESTING)
     target_include_directories(emoji-catalog-test PRIVATE src)
     target_link_libraries(emoji-catalog-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME emoji-catalog COMMAND emoji-catalog-test)
+
+    qt_add_executable(gif-response-parser-test
+        tests/GifResponseParserTest.cpp
+        src/gif/GifResponseParser.h
+        src/gif/GifResponseParser.cpp
+    )
+    target_include_directories(gif-response-parser-test PRIVATE src)
+    target_link_libraries(gif-response-parser-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME gif-response-parser COMMAND gif-response-parser-test)
 
     qt_add_executable(emoji-ui-contract-test tests/EmojiUiContractTest.cpp)
     target_compile_definitions(emoji-ui-contract-test PRIVATE
