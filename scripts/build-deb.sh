@@ -14,8 +14,24 @@ PKGROOT="$ROOT/work/deb-root"
 CONTROL="$PKGROOT/DEBIAN"
 mkdir -p "$CONTROL" "$ROOT/dist" "$ROOT/work/debian"
 cp -a "$STAGE/." "$PKGROOT/"
+
+# Strip the release binary (lintian error: unstripped-binary-or-object).
+strip "$PKGROOT/usr/bin/matrix-client"
+
 install -Dm0644 "$ROOT/packaging/common/copyright" \
     "$PKGROOT/usr/share/doc/lightning/copyright"
+
+# Debian requires a changelog (lintian error: no-changelog). This is a native
+# package (no Debian revision), so it must be shipped as changelog.gz compressed
+# at maximum level. Reproducible content beyond the wall-clock build date.
+MAINTAINER="$(sed -n 's/^Maintainer:[[:space:]]*//p' "$ROOT/packaging/deb/control")"
+{
+    printf 'lightning (%s) unstable; urgency=medium\n\n' "$DEB_VERSION"
+    printf '  * Automated package build from Lightning source %s.\n\n' "$SOURCE_SHA"
+    printf ' -- %s  %s\n' "$MAINTAINER" "$(date -R)"
+} >"$ROOT/work/changelog"
+install -d "$PKGROOT/usr/share/doc/lightning"
+gzip -9nc "$ROOT/work/changelog" >"$PKGROOT/usr/share/doc/lightning/changelog.gz"
 
 # dpkg-shlibdeps expects a *source-package* debian/control (first stanza with a
 # Source field, then a binary Package stanza), which differs from the binary

@@ -6,7 +6,7 @@
 Name:           lightning
 Version:        %{pkg_version}
 Release:        %{pkg_release}
-Summary:        Lightning Matrix client
+Summary:        Native Matrix desktop client
 License:        LicenseRef-Proprietary
 URL:            https://gitlab.smetonis.net/Mizerd/lightning
 

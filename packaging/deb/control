@@ -3,5 +3,6 @@ Section: net
 Priority: optional
 Architecture: amd64
 Maintainer: Mizerd <rsmetonis@gmail.com>
-Description: Lightning Matrix client
- A native C++ and Qt Matrix desktop client with the Matrix Rust SDK backend.
+Description: Native Matrix desktop client
+ Lightning is a native C++ and Qt Matrix desktop client with the Matrix
+ Rust SDK backend, providing end-to-end encrypted messaging.
