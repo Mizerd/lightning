@@ -24,21 +24,24 @@ frontend.
 
 ## 2. Current release and development state
 
-The state verified on 2026-07-18 is:
+The state verified on 2026-07-19 is:
 
-- Latest published release: **Lightning 0.6.0**
-- Published tag and release commit: `v0.6.0` -> `2157194`
-- Current inspected `main`: `fdd6c88`
-- Application version: **0.6.0** in `CMakeLists.txt`, `rust/Cargo.toml`, and
-  the Rust user agent
-- Current `main` is post-0.6.0, unreleased development toward 0.6.1
-- There is no `v0.6.1` tag or GitLab Release
+- Latest published release: **Lightning 0.6.1**
+- Published tag: `v0.6.1`, cut from the release commit on `main`
+- Previous release: `v0.6.0` -> `2157194` (immutable, unchanged)
+- Application version: **0.6.1** in `CMakeLists.txt`, `rust/Cargo.toml`, and
+  the Rust/HTTP user agent
+- `main` is at or just past the 0.6.1 release commit
 - `matrix-sdk`, `matrix-sdk-ui`, and `matrix-sdk-base` resolve to **0.18.0** in
   `rust/Cargo.lock`; UI and base are exact-pinned in `rust/Cargo.toml`
 - Dependencies remain lock-file controlled. Do not update them incidentally.
 
-Important post-release checkpoints, newest first:
+Important checkpoints leading into 0.6.1, newest first:
 
+- The `0.6.1` release completed the user-facing multi-provider GIF browser
+  (GIPHY/KLIPY tabs, trending/search/categories, favorites, recents, autoplay
+  and safe-search settings), the safe validated provider download pipeline, and
+  room and real Matrix-thread GIF sending through the SDK media path.
 - `fdd6c88` licensed the project as GPL-3.0-or-later and refreshed the README.
 - `73ee4ed`, `4a01f11`, and `373087a` added GIPHY/KLIPY response parsing, a
   shared provider abstraction, bounded SDK-backed network transport, result
@@ -54,7 +57,7 @@ Important post-release checkpoints, newest first:
 - `98d0bf0` through `cc2414f` hardened notification cold starts/click routing,
   stale thread failures, scrolling, and real room IDs in thread links/details.
 
-Do not describe these systems as future-only work. Keep the version at 0.6.0
+Do not describe these systems as future-only work. Keep the version at 0.6.1
 until an explicitly requested release checkpoint changes it.
 
 ## 3. User and response preferences
@@ -272,10 +275,17 @@ and pagination behavior, attribution, a provider-agnostic search controller,
 result model, stale-response rejection, deduplication, trending/search modes,
 and bounded redirect-validated HTTPS transport through the Rust backend.
 
-A complete user-facing GIF browser is **not** implemented. There is no picker
-or result-grid QML, favorites, GIF recents, provider settings UI, or completed
-download-and-send path from a provider result into a room/thread. Existing GIF
-attachment/direct-media playback is separate and already implemented.
+The user-facing GIF browser is implemented: a shared room/thread picker with
+GIPHY and KLIPY provider tabs, trending, debounced search, client-side category
+shortcuts, pagination, per-provider attribution, favorites, bounded local
+recents, safe-search rating, a configurable autoplay policy, and accessible
+keyboard-navigable tiles. The safe validated download pipeline (HTTPS-only,
+revalidated redirects, bounded size, GIF magic and dimension validation) and
+the send path into a room or a real Matrix thread — uploading through the SDK
+media path, with SDK media encryption in encrypted rooms — are implemented.
+Existing GIF attachment/direct-media playback remains separate and implemented.
+Live Element interoperability of provider GIF sends should still be tested
+honestly rather than assumed.
 
 ## 8. Threads and main-timeline rules
 
@@ -367,12 +377,12 @@ term to the explicitly selected external provider; never send Matrix IDs,
 room IDs, event IDs, user IDs, message bodies, homeserver credentials, or
 other Matrix context. Display the selected provider's required attribution.
 
-Provider API search/trending fetching is implemented; downloading the selected
-provider media and sending it to Matrix are unfinished. When implementing that
-path, validate scheme, DNS/IP, redirects, MIME/type, size, and dimensions, then
-use the existing Matrix attachment/media path. Encrypted-room and
-encrypted-thread GIF sends must use SDK media encryption exactly like other
-attachments.
+Provider API search/trending fetching, downloading the selected provider media,
+and sending it to Matrix are implemented. The download path validates scheme,
+DNS/IP, redirects, MIME/type, size, and dimensions before handing bytes to the
+existing Matrix attachment/media path. Preserve these checks. Encrypted-room and
+encrypted-thread GIF sends use SDK media encryption exactly like other
+attachments; never send a bare provider URL and never weaken these validations.
 
 ## 11. Build, test, and run commands
 
@@ -434,7 +444,7 @@ Use the category that matches the evidence:
 - **Unit tests:** focused pure C++/Qt behavior.
 - **Rust tests:** SDK bridge, parser, timeline, recovery, and Rust behavior.
 - **CTest:** registered C++/Qt/QML/controller/bridge tests. The current CMake
-  registers 29 tests in each configured build tree.
+  registers 31 tests in each configured build tree.
 - **QML tests:** contract scans and real offscreen module/component loading.
 - **Bridge/controller tests:** generation isolation, diff ingestion, media,
   thread, notification, and application policy.
@@ -485,10 +495,11 @@ Published tags and GitLab Releases are immutable. Never move, recreate, or
 replace them. Do not bump a version, tag, or create a release unless Rokas
 explicitly requests release work.
 
-Current 0.6.1 work is unreleased and still reports version 0.6.0. A release
-checkpoint alone updates the synchronized CMake, Rust, and user-agent version.
-Before release, run complete Rust tests plus Rust and non-Rust builds/CTest,
-and report unavailable live validation honestly.
+Version 0.6.1 is released and the synchronized CMake, Rust, and user-agent
+version report 0.6.1. Any future version bump is a release checkpoint alone and
+updates those same synchronized locations. Before release, run complete Rust
+tests plus Rust and non-Rust builds/CTest, and report unavailable live
+validation honestly.
 
 The normal release flow is:
 
@@ -502,8 +513,8 @@ The normal release flow is:
 7. Verify `git rev-parse <tag>^{}` equals the release commit and re-verify
    `origin/main` equals the final commit.
 
-The latest published release remains `v0.6.0` at `2157194`; no 0.6.1 tag or
-release exists.
+The latest published release is `v0.6.1`, cut from its release commit on `main`.
+The previous release `v0.6.0` at `2157194` remains immutable and unchanged.
 
 ## 15. Licensing and public repository state
 
@@ -520,21 +531,21 @@ direct merge-request submission may not be enabled on this GitLab instance.
 
 Keep this list grounded in source and recent history:
 
-- Complete the user-facing multi-provider GIF browser/picker and result grid.
-- Add GIF favorites and recents, provider/settings UI, and the safe validated
-  provider-result download -> Matrix room/thread attachment send flow.
 - Continue GIF playback, cancellation, resource, cache, and malformed-media
-  hardening as the user-facing flow lands.
+  hardening now that the user-facing flow has landed.
+- Perform real Element interoperability validation of provider GIF sends across
+  plain and encrypted rooms and threads.
 - Validate notification coverage/routing for thread replies now that true
   thread replies are excluded from the live main timeline.
 - Perform real homeserver and Element interoperability validation for thread
   timelines, thread sending/attachments, late E2EE recovery, backup recovery,
   verification, notifications, and physical scrolling.
-- Finalize 0.6.1 only through an explicitly requested release checkpoint.
+- Plan any post-0.6.1 work only through explicitly requested checkpoints.
 
-Do not list implemented provider networking, thread summaries/attachments,
-notification sounds, or E2EE generation isolation as unfinished. Do not turn
-possible future ideas into commitments.
+Do not list the implemented GIF browser, favorites/recents, download/send path,
+provider networking, thread summaries/attachments, notification sounds, or E2EE
+generation isolation as unfinished. Do not turn possible future ideas into
+commitments.
 
 ## 17. Agent completion-report requirements
 

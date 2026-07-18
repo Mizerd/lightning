@@ -91,23 +91,34 @@ is still developing, some workflows remain experimental.
 
 ## GIF support
 
-GIF support is available in an early and actively developed form. Lightning
-can display animated GIF attachments and validated direct GIF media.
+Lightning includes a multi-provider GIF browser alongside its existing animated
+GIF attachment playback and validated inline rendering of direct GIF media. The
+browser is actively developed but is now feature-complete for everyday use.
 
-The client-side GIPHY and KLIPY integration now has implemented provider
-clients for search, trending results, safe-search selection, and pagination.
-The visual browser, favourites, recent GIFs, and sending provider results to
-rooms or threads are still in development; Lightning should not yet be treated
-as having a complete Discord-style GIF browser.
+- GIPHY and KLIPY provider tabs, with per-provider attribution shown in the
+  picker
+- Trending results, debounced search, and client-side category shortcuts
+- Pagination and infinite scrolling as results are browsed
+- Favourites and a bounded local recent-GIF history
+- Safe-search rating selection and a configurable autoplay policy
+- Keyboard-navigable, accessible tiles shared by the room and thread composers
+- Sending a chosen GIF as real Matrix media into a room or a thread; thread
+  sends always land as true `m.thread` replies, and encrypted rooms use the SDK
+  media-encryption path exactly like other attachments
 
 Provider access is configured through:
 
 - `LIGHTNING_GIPHY_API_KEY`
 - `LIGHTNING_KLIPY_API_KEY`
 
-When provider integration is enabled, external GIF searches are sent to the
-selected provider. API keys must be supplied by the user and must never be
-committed to the repository.
+When provider integration is enabled, only the user's search term is sent to the
+explicitly selected provider — Matrix room, event, thread, and user identifiers
+are never sent. Provider keys are application configuration, not Matrix
+credentials. Downloaded provider media is fetched over HTTPS only, with
+revalidated redirects, a bounded download size, and GIF magic and dimension
+validation before it is uploaded through Matrix rather than sent as a bare
+provider URL. API keys must be supplied by the user and must never be committed
+to the repository.
 
 ## Screenshots
 
