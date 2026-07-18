@@ -18,7 +18,15 @@ install -Dm0644 "$ROOT/packaging/common/copyright" \
     "$PKGROOT/usr/share/doc/lightning/copyright"
 
 cp "$ROOT/packaging/deb/control" "$ROOT/work/debian/control"
-SHLIBS="$(cd "$ROOT/work" && dpkg-shlibdeps -O -e"$PKGROOT/usr/bin/matrix-client" 2>/dev/null | sed -n 's/^shlibs:Depends=//p')"
+# dpkg-shlibdeps needs a debian/ working tree; run it from work/ and keep its
+# diagnostics visible so a resolution failure is not silently swallowed.
+SHLIBS_OUT="$ROOT/work/shlibdeps.out"
+if ! ( cd "$ROOT/work" && dpkg-shlibdeps -O -e "$PKGROOT/usr/bin/matrix-client" ) >"$SHLIBS_OUT" 2>&1; then
+    printf 'dpkg-shlibdeps failed:\n' >&2
+    cat "$SHLIBS_OUT" >&2
+    die "dpkg-shlibdeps could not resolve runtime dependencies"
+fi
+SHLIBS="$(sed -n 's/^shlibs:Depends=//p' "$SHLIBS_OUT")"
 [[ -n "$SHLIBS" ]] || die "dpkg-shlibdeps did not determine runtime dependencies"
 
 {
