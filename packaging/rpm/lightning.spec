@@ -7,7 +7,7 @@ Name:           lightning
 Version:        %{pkg_version}
 Release:        %{pkg_release}
 Summary:        Native Matrix desktop client
-License:        LicenseRef-Proprietary
+License:        GPL-3.0-or-later
 URL:            https://gitlab.smetonis.net/Mizerd/lightning
 
 Requires:       desktop-file-utils
@@ -33,6 +33,8 @@ appstreamcli validate --no-net %{buildroot}%{_datadir}/metainfo/lightning.metain
 %{_datadir}/applications/lightning.desktop
 %{_datadir}/metainfo/lightning.metainfo.xml
 %license %{_datadir}/licenses/lightning/copyright
+%license %{_docdir}/lightning/LICENSE
+%doc %{_docdir}/lightning/README.md
 
 %post
 update-desktop-database -q %{_datadir}/applications || :

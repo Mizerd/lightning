@@ -15,6 +15,8 @@ BUILD_JOBS="${BUILD_JOBS:-2}"
 [[ "$BUILD_TYPE" == "Release" ]] || die "only BUILD_TYPE=Release is supported for distributable packages"
 [[ "$BUILD_JOBS" =~ ^[12]$ ]] || die "BUILD_JOBS must be 1 or 2 on the package runners"
 [[ -f "$SOURCE_DIR/CMakeLists.txt" && -f "$SOURCE_DIR/rust/Cargo.lock" ]] || die "Lightning source is incomplete"
+[[ -f "$SOURCE_DIR/LICENSE" && -f "$SOURCE_DIR/README.md" ]] || \
+    die "Lightning source must include its licence and README"
 
 export CMAKE_BUILD_PARALLEL_LEVEL="$BUILD_JOBS"
 export CARGO_BUILD_JOBS="$BUILD_JOBS"
@@ -48,6 +50,10 @@ install -Dm0644 "$ROOT/packaging/common/lightning.metainfo.xml" \
     "$STAGE_DIR/usr/share/metainfo/lightning.metainfo.xml"
 install -Dm0644 "$ROOT/packaging/common/copyright" \
     "$STAGE_DIR/usr/share/licenses/lightning/copyright"
+install -Dm0644 "$SOURCE_DIR/LICENSE" \
+    "$STAGE_DIR/usr/share/doc/lightning/LICENSE"
+install -Dm0644 "$SOURCE_DIR/README.md" \
+    "$STAGE_DIR/usr/share/doc/lightning/README.md"
 
 test -x "$STAGE_DIR/usr/bin/matrix-client"
 "$STAGE_DIR/usr/bin/matrix-client" --version

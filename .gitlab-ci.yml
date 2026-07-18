@@ -36,6 +36,7 @@ variables:
 .build-base:
   extends: .trusted-pipeline
   stage: build
+  resource_group: lightning-package-build
   interruptible: true
   timeout: 2h
   needs:
@@ -104,7 +105,8 @@ build-rpm:
   before_script:
     - >-
       dnf install -y
-      cargo ca-certificates cmake curl gcc gcc-c++ git jq libsecret-devel
+      appstream cargo ca-certificates cmake curl desktop-file-utils
+      gcc gcc-c++ git jq libsecret-devel
       ninja-build openssl-devel patchelf pkgconf-pkg-config
       qt6-qtbase-devel qt6-qtdeclarative-devel qt6-qtsvg-devel
       qt6-qttools-devel rpm-build rust sqlite-devel zstd

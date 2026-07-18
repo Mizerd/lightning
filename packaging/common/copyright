@@ -4,9 +4,10 @@ Source: https://gitlab.smetonis.net/Mizerd/lightning
 
 Files: *
 Copyright: Lightning contributors
-License: LicenseRef-Proprietary
- The upstream repository does not currently contain a repository-wide license
- declaration. These private CI artifacts do not grant redistribution rights.
+License: GPL-3.0-or-later
+ Lightning is distributed under the GNU General Public License, version 3 or
+ (at your option) any later version. The complete upstream licence text is
+ installed as /usr/share/doc/lightning/LICENSE.
 
 Files: usr/share/metainfo/lightning.metainfo.xml
 Copyright: 2026 Mizerd
