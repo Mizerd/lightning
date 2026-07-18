@@ -59,7 +59,7 @@ ARCHIVE_SIZE="$(stat -c %s "$ARCHIVE")"
 PKG_NAME="lightning-nix-cache"
 REGISTRY_BASE="${CI_API_V4_URL:-}/projects/${CI_PROJECT_ID:-}/packages/generic/${PKG_NAME}/${NIX_VERSION}"
 ( cd "$ROOT/work" && split -b 90M -d -a 2 "$ARCHIVE_NAME" "${ARCHIVE_NAME}.part." )
-mapfile -t PARTS < <(cd "$ROOT/work" && ls "${ARCHIVE_NAME}.part."* | sort)
+mapfile -t PARTS < <(cd "$ROOT/work" && find . -maxdepth 1 -name "${ARCHIVE_NAME}.part.*" -printf '%f\n' | sort)
 
 PUBLISHED=false
 if [[ -n "${CI_JOB_TOKEN:-}" && -n "${CI_API_V4_URL:-}" && -n "${CI_PROJECT_ID:-}" ]]; then
