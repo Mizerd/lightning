@@ -760,6 +760,27 @@ Rectangle {
                             threadEmojiPicker.open()
                         }
                     }
+                    ToolButton {
+                        id: threadGifButton
+                        objectName: "threadGifButton"
+                        text: "GIF"
+                        font.pixelSize: 11
+                        font.bold: true
+                        enabled: app.thread.state === ThreadController.Ready
+                                 && app.gif.available
+                        Accessible.name: qsTr("Insert a GIF")
+                        ToolTip.text: app.gif.available ? qsTr("GIF")
+                            : qsTr("GIFs are unavailable on this backend")
+                        ToolTip.visible: hovered
+                        ToolTip.delay: 500
+                        onClicked: {
+                            threadEmojiPicker.close()
+                            var p = threadGifButton.mapToItem(Overlay.overlay,
+                                                              threadGifButton.width / 2, 0)
+                            threadGifPicker.anchorPoint = p
+                            threadGifPicker.open()
+                        }
+                    }
                     TextArea {
                         id: threadComposerInput
                         objectName: "threadComposerInput"
@@ -840,6 +861,19 @@ Rectangle {
                                        emoji)
         }
         onClosed: Qt.callLater(threadComposerInput.forceActiveFocus)
+    }
+
+    GifPicker {
+        id: threadGifPicker
+        target: "thread"
+        onGifChosen: (result) => panel.onThreadGifPicked(result)
+        onClosed: Qt.callLater(threadComposerInput.forceActiveFocus)
+    }
+
+    // Phase GIF-7 wires this to the thread-focused attachment send path so the
+    // GIF lands as a real m.thread reply (never an ordinary room message).
+    function onThreadGifPicked(result) {
+        // TODO(GIF-7): app.gif download + thread send handoff.
     }
 
     function sendComposerText() {

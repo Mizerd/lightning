@@ -73,6 +73,48 @@ private Q_SLOTS:
         QVERIFY(delegate.contains(QStringLiteral("onMediaIdentityChanged")));
     }
 
+    // v0.6.1: the GIF picker is wired to app.gif in both composers, presents
+    // provider tabs / search / categories / a result grid / state overlays /
+    // attribution, animates previews only while visible, and never renders the
+    // sendable original GIF as a grid tile (previews use the small variant).
+    void gifPickerWiredIntoBothComposers()
+    {
+        const QString room = read(QStringLiteral("MessageComposerBar.qml"));
+        const QString thread = read(QStringLiteral("ThreadPanel.qml"));
+        QVERIFY(room.contains(QStringLiteral("GifPicker {")));
+        QVERIFY(room.contains(QStringLiteral("target: \"room\"")));
+        QVERIFY(room.contains(QStringLiteral("root.openGifPicker()")));
+        QVERIFY(room.contains(QStringLiteral("app.gif.available")));
+        QVERIFY(thread.contains(QStringLiteral("GifPicker {")));
+        QVERIFY(thread.contains(QStringLiteral("target: \"thread\"")));
+        QVERIFY(thread.contains(QStringLiteral("threadGifButton")));
+
+        const QString picker = read(QStringLiteral("GifPicker.qml"));
+        QVERIFY(!picker.isEmpty());
+        // Provider tabs + attribution follow the ACTIVE provider.
+        QVERIFY(picker.contains(QStringLiteral("picker.gif.providerIds")));
+        QVERIFY(picker.contains(QStringLiteral("setActiveProvider(modelData)")));
+        QVERIFY(picker.contains(QStringLiteral("picker.gif.attribution")));
+        // Debounced search + categories + pagination through the controller.
+        QVERIFY(picker.contains(QStringLiteral("gif.setQueryText(text)")));
+        QVERIFY(picker.contains(QStringLiteral("gif.openCategory(modelData)")));
+        QVERIFY(picker.contains(QStringLiteral("picker.gif.loadMore()")));
+        // Grid binds to the controller's result model.
+        QVERIFY(picker.contains(QStringLiteral("model: picker.gif.results")));
+        // Previews animate only while visible (offscreen/hidden → paused).
+        QVERIFY(picker.contains(QStringLiteral("playing: picker.visible")));
+        // Tiles use the PREVIEW variant, never the sendable original gifUrl.
+        QVERIFY(picker.contains(QStringLiteral("source: tile.previewUrl")));
+        QVERIFY(!picker.contains(QStringLiteral("source: tile.gifUrl")));
+        // State overlays cover missing-key / offline / rate-limit / error.
+        QVERIFY(picker.contains(QStringLiteral("GifSearchController.MissingKey")));
+        QVERIFY(picker.contains(QStringLiteral("GifSearchController.RateLimited")));
+        // Keyboard: Enter/Escape/arrow navigation.
+        QVERIFY(picker.contains(QStringLiteral("Keys.onReturnPressed")));
+        QVERIFY(picker.contains(QStringLiteral(
+            "Popup.CloseOnEscape | Popup.CloseOnPressOutside")));
+    }
+
     // v0.6.1: the thread root uses the Element-style summary card wired to the
     // SDK thread-summary roles, and activating it opens the real thread. The
     // old plain-text "reply(s) in thread" link and the redundant "· in thread"

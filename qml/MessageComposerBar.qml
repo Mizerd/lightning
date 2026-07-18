@@ -47,6 +47,27 @@ Rectangle {
         onEmojiChosen: (emoji) => root.insertEmoji(emoji)
         onClosed: Qt.callLater(input.forceActiveFocus)
     }
+
+    function openGifPicker() {
+        emojiPicker.close()
+        var p = gifButton.mapToItem(Overlay.overlay, gifButton.width / 2, 0)
+        gifPicker.anchorPoint = p
+        gifPicker.open()
+    }
+
+    GifPicker {
+        id: gifPicker
+        target: "room"
+        onGifChosen: (result) => root.onGifPicked(result)
+        onClosed: Qt.callLater(input.forceActiveFocus)
+    }
+
+    // Phase GIF-7 wires this to the download → validate → Matrix attachment
+    // send pipeline (room-scoped destination). The picker already routes to the
+    // room composer via target: "room".
+    function onGifPicked(result) {
+        // TODO(GIF-7): app.gif download + send handoff.
+    }
     Timer {
         id: noticeTimer
         interval: 6000
@@ -285,6 +306,20 @@ Rectangle {
                 ToolTip.visible: hovered
                 ToolTip.delay: 500
                 onClicked: root.openEmojiPicker()
+            }
+
+            ToolButton {
+                id: gifButton
+                text: "GIF"
+                font.pixelSize: 12
+                font.bold: true
+                enabled: app.currentRoomId !== "" && app.gif.available
+                Accessible.name: qsTr("Insert a GIF")
+                ToolTip.text: app.gif.available ? qsTr("GIF")
+                    : qsTr("GIFs are unavailable on this backend")
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+                onClicked: root.openGifPicker()
             }
 
             TextArea {

@@ -197,6 +197,7 @@ set(APP_QML_FILES
     qml/RoomInfoPanel.qml
     qml/ThreadPanel.qml
     qml/ThreadSummaryCard.qml
+    qml/GifPicker.qml
     qml/QuickSwitcher.qml
     qml/ImageViewerOverlay.qml
     qml/AccountMenu.qml
