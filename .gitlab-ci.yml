@@ -87,7 +87,7 @@ package-rpm:
       dnf install -y
       appstream cargo ca-certificates cmake curl desktop-file-utils file
       gcc gcc-c++ git jq libsecret-devel ninja-build openssl-devel
-      pkgconf-pkg-config qt6-qtbase-devel qt6-qtdeclarative-devel
+      patchelf pkgconf-pkg-config qt6-qtbase-devel qt6-qtdeclarative-devel
       qt6-qtsvg-devel qt6-qttools-devel rpm-build rpmdevtools rpmlint
       rust shellcheck sqlite-devel zstd
   script:

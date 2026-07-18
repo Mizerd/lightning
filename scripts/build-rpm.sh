@@ -9,13 +9,14 @@ load_versions
 
 "$SCRIPT_DIR/configure-build.sh"
 
+# The Qt6 CMake finalization adds an $ORIGIN-relative RPATH, but every runtime
+# dependency is a system library in a standard search path, so the RPATH is
+# superfluous. rpmlint treats it as an error (binary-or-shlib-defines-rpath),
+# so remove it from the staged binary before packaging.
+patchelf --remove-rpath "$ROOT/work/stage/usr/bin/matrix-client"
+
 TOPDIR="$ROOT/work/rpmbuild"
 mkdir -p "$TOPDIR"/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
-# The Qt6 CMake finalization gives matrix-client a legitimate $ORIGIN-relative
-# RPATH so it can locate its libraries. Fedora's check-rpaths QA policy treats
-# such RPATHs as fatal by default; downgrade every RPATH finding to a warning
-# (QA_RPATHS is a bitmask of findings to tolerate) instead of stripping it.
-export QA_RPATHS=$((0x0001 | 0x0002 | 0x0004 | 0x0008 | 0x0010))
 rpmbuild -bb "$ROOT/packaging/rpm/lightning.spec" \
     --define "_topdir $TOPDIR" \
     --define "pkg_version $RPM_VERSION" \
