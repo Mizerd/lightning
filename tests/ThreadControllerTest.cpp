@@ -749,6 +749,68 @@ private Q_SLOTS:
         QCOMPARE(controller.attachments()->rowCount(), 0);
     }
 
+    // v0.6.1 (E2EE): an undecryptable thread reply recovers IN PLACE when the
+    // key arrives — the SDK emits an item update (eventChangedAt) on the
+    // thread timeline, and the same row becomes decrypted with no duplicate,
+    // stable identity, and its thread root preserved. No room-timeline
+    // fallback, no reopen.
+    void threadUndecryptableReplyRecoversInPlace()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        ThreadController controller;
+        controller.setClient(&client);
+
+        const QString rootId = firstThreadRootId(client, kDevs);
+        controller.openThread(kDevs, rootId);
+        QTRY_COMPARE_WITH_TIMEOUT(controller.state(), ThreadController::Ready,
+                                  kSignalTimeoutMs);
+        auto *model = controller.model();
+        const QString timelineId = MatrixClient::threadTimelineId(kDevs, rootId);
+
+        // Locate the undecryptable reply row.
+        int utdRow = -1;
+        for (int row = 0; row < model->rowCount(); ++row) {
+            if (model->data(model->index(row, 0),
+                            TimelineModel::UndecryptableRole).toBool()) {
+                utdRow = row;
+                break;
+            }
+        }
+        QVERIFY(utdRow >= 0);
+        const int rowsBefore = model->rowCount();
+        const QString stableId =
+            model->data(model->index(utdRow, 0),
+                        TimelineModel::EventIdRole).toString();
+
+        // The key arrives: the SDK replaces the item in place. Build the
+        // decrypted event from the mock's thread copy, same identity.
+        const auto threadEvents = client.timeline(timelineId);
+        TimelineEvent decrypted;
+        for (const auto &e : threadEvents) {
+            if (e.eventId == stableId) { decrypted = e; break; }
+        }
+        QCOMPARE(decrypted.eventId, stableId);
+        decrypted.undecryptable = false;
+        decrypted.isDecrypted = true;
+        decrypted.body = QStringLiteral("now readable");
+        decrypted.type = TimelineEvent::TextMessage;
+        Q_EMIT client.eventChangedAt(timelineId, utdRow, decrypted);
+
+        // Same row, decrypted in place — no duplicate, identity preserved,
+        // thread root intact.
+        QCOMPARE(model->rowCount(), rowsBefore);
+        const QModelIndex idx = model->index(utdRow, 0);
+        QVERIFY(!model->data(idx, TimelineModel::UndecryptableRole).toBool());
+        QVERIFY(model->data(idx, TimelineModel::IsDecryptedRole).toBool());
+        QCOMPARE(model->data(idx, TimelineModel::EventIdRole).toString(),
+                 stableId);
+        QCOMPARE(model->data(idx, TimelineModel::ThreadRootIdRole).toString(),
+                 rootId);
+        QCOMPARE(model->data(idx, TimelineModel::BodyRole).toString(),
+                 QStringLiteral("now readable"));
+    }
+
     void logoutClosesThread()
     {
         MockMatrixClient client;
