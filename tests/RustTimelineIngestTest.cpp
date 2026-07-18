@@ -111,7 +111,33 @@ private Q_SLOTS:
 
     // ── Phase 2: cold-cache thread loads empty then populates ───────
     void emptyThreadResetThenAppendPopulates();
+
+    // ── Phase 5/7: thread-root summary live updates via set diffs ───
+    void threadSummaryUpdatesInPlaceViaSet();
+    void encryptedThreadSummaryDecryptsInPlace();
 };
+
+namespace {
+QJsonObject threadRootItem(const QString &eventId, int replyCount,
+                           const QString &kind, const QString &preview,
+                           const QString &sender)
+{
+    QJsonObject item;
+    item.insert(QStringLiteral("item_id"), QStringLiteral("uid-root"));
+    item.insert(QStringLiteral("kind"), QStringLiteral("event"));
+    item.insert(QStringLiteral("event_id"), eventId);
+    item.insert(QStringLiteral("sender"), QStringLiteral("@alice:example.org"));
+    item.insert(QStringLiteral("msgtype"), QStringLiteral("text"));
+    item.insert(QStringLiteral("body"), QStringLiteral("root message"));
+    item.insert(QStringLiteral("timestamp_ms"), 1700000000000.0);
+    item.insert(QStringLiteral("is_thread_root"), true);
+    item.insert(QStringLiteral("thread_reply_count"), replyCount);
+    item.insert(QStringLiteral("thread_latest_kind"), kind);
+    item.insert(QStringLiteral("thread_latest_preview"), preview);
+    item.insert(QStringLiteral("thread_latest_sender"), sender);
+    return item;
+}
+} // namespace
 
 void RustTimelineIngestTest::parsesEventItem()
 {
@@ -755,6 +781,87 @@ void RustTimelineIngestTest::emptyThreadResetThenAppendPopulates()
     // A stale-generation append (an older open of the same thread) is rejected
     // — it can never repopulate a superseded panel.
     QVERIFY(!tracker.accepts(threadId, 2));
+}
+
+// Phase 5: a thread root's summary is carried on the root event item, so any
+// thread activity (new reply, edit of the latest, redaction, receipt) arrives
+// as a `set` diff on the root. This proves the diff updates the summary IN
+// PLACE — the same row, new count/preview/kind — which is what drives the
+// bound ThreadSummaryCard roles to refresh incrementally (no rescan, no extra
+// row). An idempotent duplicate set is a no-op change on the same row.
+void RustTimelineIngestTest::threadSummaryUpdatesInPlaceViaSet()
+{
+    const QString root = QStringLiteral("$root");
+    QJsonArray items;
+    items.append(threadRootItem(root, 1, QStringLiteral("text"),
+                                QStringLiteral("first reply"),
+                                QStringLiteral("@bob:example.org")));
+    auto mirror = eventsFromItemArray(items, kRoom);
+    QCOMPARE(mirror.size(), 1);
+    QCOMPARE(mirror.first().threadReplyCount, 1);
+    QCOMPARE(mirror.first().threadLatestPreview, QStringLiteral("first reply"));
+
+    // A newer reply: count rises, latest preview/sender change.
+    QJsonObject set = diffJson(QStringLiteral("set"));
+    set.insert(QStringLiteral("index"), 0);
+    set.insert(QStringLiteral("item"),
+               threadRootItem(root, 2, QStringLiteral("image"),
+                              QStringLiteral("photo.png"),
+                              QStringLiteral("@carol:example.org")));
+    auto outcome = applyTimelineDiff(mirror, set, kRoom);
+    QCOMPARE(outcome.kind, DiffOutcome::Changed);
+    QCOMPARE(mirror.size(), 1);   // in place — no duplicate main-timeline row
+    QVERIFY(mirror.first().isThreadRoot);
+    QCOMPARE(mirror.first().threadReplyCount, 2);
+    QCOMPARE(mirror.first().threadLatestKind, QStringLiteral("image"));
+    QCOMPARE(mirror.first().threadLatestSender,
+             QStringLiteral("@carol:example.org"));
+
+    // Redaction of the latest reply: kind falls back safely, row unchanged.
+    QJsonObject redact = diffJson(QStringLiteral("set"));
+    redact.insert(QStringLiteral("index"), 0);
+    redact.insert(QStringLiteral("item"),
+                  threadRootItem(root, 2, QStringLiteral("redacted"),
+                                 QString(), QStringLiteral("@carol:example.org")));
+    outcome = applyTimelineDiff(mirror, redact, kRoom);
+    QCOMPARE(outcome.kind, DiffOutcome::Changed);
+    QCOMPARE(mirror.size(), 1);
+    QCOMPARE(mirror.first().threadLatestKind, QStringLiteral("redacted"));
+}
+
+// Phase 7: an encrypted latest reply surfaces as kind "encrypted" (the card
+// shows a safe placeholder). When the key arrives the SDK re-sends the root
+// summary as a `set` with the decrypted preview — the summary updates in the
+// same row (no duplicate, no flashed main-timeline reply), and a stale
+// generation can never apply the decrypted update to a superseded panel.
+void RustTimelineIngestTest::encryptedThreadSummaryDecryptsInPlace()
+{
+    const QString root = QStringLiteral("$root");
+    QJsonArray items;
+    items.append(threadRootItem(root, 3, QStringLiteral("encrypted"),
+                                QString(), QStringLiteral("@dave:example.org")));
+    auto mirror = eventsFromItemArray(items, kRoom);
+    QCOMPARE(mirror.first().threadLatestKind, QStringLiteral("encrypted"));
+
+    QJsonObject decrypted = diffJson(QStringLiteral("set"));
+    decrypted.insert(QStringLiteral("index"), 0);
+    decrypted.insert(QStringLiteral("item"),
+                     threadRootItem(root, 3, QStringLiteral("text"),
+                                    QStringLiteral("now readable"),
+                                    QStringLiteral("@dave:example.org")));
+    const auto outcome = applyTimelineDiff(mirror, decrypted, kRoom);
+    QCOMPARE(outcome.kind, DiffOutcome::Changed);
+    QCOMPARE(mirror.size(), 1);   // same row — no duplicate
+    QCOMPARE(mirror.first().threadLatestKind, QStringLiteral("text"));
+    QCOMPARE(mirror.first().threadLatestPreview, QStringLiteral("now readable"));
+
+    // Generation isolation: a stale-generation set for the same thread id is
+    // rejected by the tracker before it can rewrite a newer account's summary.
+    TimelineGenerationTracker tracker;
+    tracker.request(kRoom);
+    QVERIFY(tracker.adoptReset(kRoom, 5));
+    QVERIFY(!tracker.accepts(kRoom, 4)); // stale decryption completion
+    QVERIFY(tracker.accepts(kRoom, 5));
 }
 
 QTEST_GUILESS_MAIN(RustTimelineIngestTest)
