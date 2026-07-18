@@ -337,6 +337,18 @@ char *mx_rust_get_user_profile(void *client,
 char *mx_rust_get_url_preview(void *client,
                               const char *url,
                               unsigned long long op_id);
+/*
+ * v0.6.1: bounded, redirect-validated HTTPS GET for an external GIF provider
+ * (GIPHY / KLIPY). `url` is built C++-side and carries the provider API key —
+ * it is secret and is never logged by the bridge. Result arrives as a
+ * `gif_response` poll event:
+ *   {"type":"gif_response","op_id",…,"ok",bool,"status":int,
+ *    "category":"ok|rate_limited|provider_error|timeout|network|too_large|
+ *                blocked","body":"<bounded JSON, empty on error>"}
+ * No Matrix identifiers are ever sent to the provider.
+ */
+char *mx_rust_gif_get(void *client, const char *url, unsigned long long op_id);
+
 /* Synchronous m.direct projection: {"rooms":[{"room_id","name"}]}. */
 char *mx_rust_get_dm_rooms(void *client, const char *user_id);
 char *mx_rust_create_dm(void *client,

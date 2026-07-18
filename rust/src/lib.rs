@@ -54,6 +54,7 @@ use matrix_sdk_ui::{
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
+mod gifs;
 mod rooms;
 mod timeline;
 
@@ -2732,6 +2733,24 @@ pub unsafe extern "C" fn mx_rust_get_url_preview(
         let bridge = unsafe { bridge(ptr)? };
         let url = unsafe { cstr_arg(url) }?;
         rooms::fetch_url_preview(bridge, url, op_id).map(|_| String::new())
+    })
+}
+
+/// v0.6.1: bounded, redirect-validated HTTPS GET for an external GIF provider.
+/// `url` is built C++-side and carries the provider API key; it is treated as
+/// secret and never logged. The result arrives as a `gif_response` poll event
+/// (ok / status / coarse category / bounded JSON body). No Matrix identifiers
+/// are ever sent to the provider.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_gif_get(
+    ptr: *mut c_void,
+    url: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let url = unsafe { cstr_arg(url) }?;
+        gifs::gif_get(bridge, url, op_id).map(|_| String::new())
     })
 }
 

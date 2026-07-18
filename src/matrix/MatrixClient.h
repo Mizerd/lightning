@@ -260,6 +260,13 @@ public:
     virtual bool supportsUrlPreview() const { return false; }
     virtual quint64 fetchUrlPreview(const QString &url)
     { Q_UNUSED(url); return 0; }
+    // v0.6.1: bounded, redirect-validated HTTPS GET for an external GIF
+    // provider. `url` is built by the GIF provider layer and carries the
+    // provider API key — callers must treat it as secret and never log it.
+    // Backends without support return 0. Result arrives via gifResponse().
+    virtual bool supportsGifProvider() const { return false; }
+    virtual quint64 gifGet(const QString &url)
+    { Q_UNUSED(url); return 0; }
     // Existing joined DM rooms for a user, from authoritative m.direct.
     // Each entry: {roomId, name}. Synchronous store lookup.
     virtual QVariantList existingDirectRooms(const QString &userId) const
@@ -434,6 +441,13 @@ Q_SIGNALS:
     void urlPreviewFinished(quint64 opId, bool ok, const QVariantMap &fields,
                             const QString &category, int httpStatus = 0,
                             int redirectCount = 0);
+    // v0.6.1: one external GIF-provider response. `body` is the bounded JSON
+    // text (parsed by the GIF controller into safe structs — never surfaced to
+    // QML); empty on failure. `category` is a coarse safe state
+    // (ok/rate_limited/provider_error/timeout/network/too_large/blocked). The
+    // request URL (which carries the provider key) is never emitted or logged.
+    void gifResponse(quint64 opId, bool ok, int httpStatus,
+                     const QByteArray &body, const QString &category);
     void dmCreateFinished(quint64 opId, bool ok, const QString &roomId,
                           const QString &category);
     void roomCreateFinished(quint64 opId, bool ok, const QString &roomId,

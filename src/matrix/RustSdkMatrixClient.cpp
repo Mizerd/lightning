@@ -2832,6 +2832,23 @@ quint64 RustSdkMatrixClient::fetchUrlPreview(const QString &url)
     return opId;
 }
 
+quint64 RustSdkMatrixClient::gifGet(const QString &url)
+{
+    // https-only guard before the FFI; the URL carries the provider key so it
+    // is never logged, here or in Rust.
+    if (!m_rustHandle || !url.trimmed().toLower().startsWith(QLatin1String("https://")))
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray target = url.toUtf8();
+    const QString result =
+        takeRustString(mx_rust_gif_get(m_rustHandle, target.constData(), opId));
+    if (!result.isEmpty()) {
+        qCWarning(lcRust) << "gif request rejected"; // no URL
+        return 0;
+    }
+    return opId;
+}
+
 QVariantList RustSdkMatrixClient::existingDirectRooms(const QString &userId) const
 {
     if (!m_rustHandle || userId.isEmpty())
@@ -3250,6 +3267,17 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             event.value(QStringLiteral("category")).toString(),
             event.value(QStringLiteral("status")).toInt(),
             event.value(QStringLiteral("redirects")).toInt());
+        return true;
+    }
+
+    if (type == QLatin1String("gif_response")) {
+        // The bounded JSON body is provider data (no key, no Matrix ids); the
+        // GIF controller parses it into safe structs. Never logged.
+        Q_EMIT gifResponse(
+            opId(), event.value(QStringLiteral("ok")).toBool(false),
+            event.value(QStringLiteral("status")).toInt(),
+            event.value(QStringLiteral("body")).toString().toUtf8(),
+            event.value(QStringLiteral("category")).toString());
         return true;
     }
 

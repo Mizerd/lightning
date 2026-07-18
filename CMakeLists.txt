@@ -133,6 +133,13 @@ set(APP_SOURCES
     src/gif/GifResponseParser.cpp
     src/gif/GifProvider.h
     src/gif/GifProvider.cpp
+    src/gif/GifResultModel.h
+    src/gif/GifResultModel.cpp
+    src/gif/GifTransport.h
+    src/gif/GifSearchController.h
+    src/gif/GifSearchController.cpp
+    src/gif/MatrixGifTransport.h
+    src/gif/MatrixGifTransport.cpp
 
     src/notifications/NotificationManager.h
     src/notifications/NotificationManager.cpp
@@ -238,7 +245,7 @@ function(lightning_configure_qml_app target)
     # bare filename, not the "models/HeaderName.h" path used by quoted
     # includes elsewhere. Add each subdirectory holding a QML-registered type
     # so that angle-bracket lookup resolves.
-    target_include_directories(${target} PRIVATE src/models src/threads src/crypto)
+    target_include_directories(${target} PRIVATE src/models src/threads src/crypto src/gif)
 
     target_link_libraries(${target} PRIVATE
         Qt6::Core
@@ -420,6 +427,22 @@ if(BUILD_TESTING)
     target_include_directories(gif-provider-test PRIVATE src)
     target_link_libraries(gif-provider-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME gif-provider COMMAND gif-provider-test)
+
+    qt_add_executable(gif-search-controller-test
+        tests/GifSearchControllerTest.cpp
+        src/gif/GifResponseParser.h
+        src/gif/GifResponseParser.cpp
+        src/gif/GifProvider.h
+        src/gif/GifProvider.cpp
+        src/gif/GifResultModel.h
+        src/gif/GifResultModel.cpp
+        src/gif/GifTransport.h
+        src/gif/GifSearchController.h
+        src/gif/GifSearchController.cpp
+    )
+    target_include_directories(gif-search-controller-test PRIVATE src)
+    target_link_libraries(gif-search-controller-test PRIVATE Qt6::Core Qt6::Qml Qt6::Test)
+    add_test(NAME gif-search-controller COMMAND gif-search-controller-test)
 
     qt_add_executable(emoji-ui-contract-test tests/EmojiUiContractTest.cpp)
     target_compile_definitions(emoji-ui-contract-test PRIVATE

@@ -103,6 +103,9 @@ AppController::AppController(Backend backend, QObject *parent)
     m_pagination   = std::make_unique<PaginationController>(this);
     m_readReceipts = std::make_unique<ReadReceiptCoordinator>(this);
     m_linkPreviews = std::make_unique<LinkPreviewController>(this);
+    m_gifTransport = std::make_unique<MatrixGifTransport>(this);
+    m_gif          = std::make_unique<GifSearchController>(this);
+    m_gif->setTransport(m_gifTransport.get());
     m_timelineScroll = std::make_unique<TimelineScrollController>(this);
     m_threadScroll   = std::make_unique<TimelineScrollController>(this);
 
@@ -193,6 +196,7 @@ AppController::AppController(Backend backend, QObject *parent)
     m_readReceipts->setClient(m_client.get());
     m_readReceipts->setTimelineModel(m_timeline.get());
     m_linkPreviews->setClient(m_client.get());
+    m_gifTransport->setClient(m_client.get());
 
     // Link-preview policy follows the persisted settings live. The
     // encrypted-room setting defaults to OFF (privacy) in SettingsManager.

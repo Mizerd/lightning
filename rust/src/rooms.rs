@@ -51,7 +51,7 @@ const MAX_AVATAR_BYTES: u64 = 8 * 1024 * 1024;
 /// C++ enforces the real (server-provided) limit before dispatching.
 pub(crate) const FALLBACK_UPLOAD_LIMIT: u64 = 100 * 1024 * 1024;
 
-fn require_client(bridge: &RustClient) -> Result<matrix_sdk::Client, String> {
+pub(crate) fn require_client(bridge: &RustClient) -> Result<matrix_sdk::Client, String> {
     bridge
         .client
         .lock()
@@ -256,7 +256,7 @@ fn public_ip(ip: std::net::IpAddr) -> bool {
     }
 }
 
-struct SafeResponse { status: reqwest::StatusCode, mime: String, location: Option<String>, bytes: Vec<u8> }
+pub(crate) struct SafeResponse { pub status: reqwest::StatusCode, pub mime: String, pub location: Option<String>, pub bytes: Vec<u8> }
 async fn safe_get(url: &url::Url, limit: usize) -> Result<SafeResponse, &'static str> {
     use futures_util::StreamExt;
     if url.scheme() != "https" || !url.username().is_empty() || url.password().is_some()
@@ -358,7 +358,7 @@ impl From<&'static str> for PreviewFailure {
 // DNS pinning, scheme check, timeout, and response bound. Used for both the
 // primary URL and HTML metadata images; reqwest redirect following remains
 // disabled inside safe_get().
-async fn safe_get_following_redirects(
+pub(crate) async fn safe_get_following_redirects(
     mut url: url::Url,
     limit: usize,
 ) -> Result<(SafeResponse, url::Url, u32), PreviewFailure> {
