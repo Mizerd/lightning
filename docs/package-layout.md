@@ -9,9 +9,11 @@ the Rust SDK bridge is linked statically. The deployment project adds:
 /usr/share/applications/lightning.desktop
 /usr/share/metainfo/lightning.metainfo.xml
 /usr/share/licenses/lightning/copyright
+/usr/share/doc/lightning/LICENSE
+/usr/share/doc/lightning/README.md
 ```
 
 Qt, libsecret, SQLite and other system libraries remain dynamically linked and
-are declared as native DEB/RPM dependencies or captured in the Nix closure.
+are declared as native DEB/RPM dependencies.
 The source currently supplies no application icon, so packages do not invent
 or duplicate one.
