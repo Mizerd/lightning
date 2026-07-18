@@ -870,10 +870,12 @@ Rectangle {
         onClosed: Qt.callLater(threadComposerInput.forceActiveFocus)
     }
 
-    // Phase GIF-7 wires this to the thread-focused attachment send path so the
-    // GIF lands as a real m.thread reply (never an ordinary room message).
+    // Download → validate → send into THIS thread (captured room + root) so a
+    // room/thread switch cannot reroute it; the SDK produces a real m.thread
+    // reply, never an ordinary room message.
     function onThreadGifPicked(result) {
-        // TODO(GIF-7): app.gif download + thread send handoff.
+        app.gifSend.sendToThread(app.thread.roomId, app.thread.rootEventId,
+                                 result)
     }
 
     function sendComposerText() {

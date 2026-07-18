@@ -13,6 +13,7 @@
 #include "models/EmojiCatalog.h"
 #include "models/LinkPreviewController.h"
 #include "gif/GifSearchController.h"
+#include "gif/GifSendController.h"
 #include "gif/MatrixGifTransport.h"
 #include "models/PaginationController.h"
 #include "models/QuickSwitcherModel.h"
@@ -123,8 +124,9 @@ class AppController : public QObject
     Q_PROPERTY(ReadReceiptCoordinator* readReceipts READ readReceipts CONSTANT)
     // v0.5.12: safe client-side link-preview backend (Rust HTTPS fetcher).
     Q_PROPERTY(LinkPreviewController* linkPreviews READ linkPreviews CONSTANT)
-    // v0.6.1: multi-provider client-side GIF browser (app.gif).
+    // v0.6.1: multi-provider client-side GIF browser (app.gif) + send pipeline.
     Q_PROPERTY(GifSearchController* gif READ gif CONSTANT)
+    Q_PROPERTY(GifSendController* gifSend READ gifSend CONSTANT)
     // v0.5.19: device-aware timeline wheel-scroll policy.
     Q_PROPERTY(TimelineScrollController* timelineScroll READ timelineScroll CONSTANT)
     // v0.6.0 checkpoint 6: the thread panel's OWN wheel motion engine.
@@ -196,6 +198,7 @@ public:
     ReadReceiptCoordinator *readReceipts() const { return m_readReceipts.get(); }
     LinkPreviewController *linkPreviews() const { return m_linkPreviews.get(); }
     GifSearchController *gif() const { return m_gif.get(); }
+    GifSendController *gifSend() const { return m_gifSend.get(); }
     TimelineScrollController *timelineScroll() const { return m_timelineScroll.get(); }
     TimelineScrollController *threadScroll() const { return m_threadScroll.get(); }
     SecretStore *secretStore() const { return m_secretStore.get(); }
@@ -387,6 +390,7 @@ private:
     std::unique_ptr<LinkPreviewController> m_linkPreviews;
     std::unique_ptr<MatrixGifTransport> m_gifTransport;
     std::unique_ptr<GifSearchController> m_gif;
+    std::unique_ptr<GifSendController> m_gifSend;
     std::unique_ptr<TimelineScrollController> m_timelineScroll;
     std::unique_ptr<TimelineScrollController> m_threadScroll;
 

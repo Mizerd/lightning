@@ -144,6 +144,8 @@ set(APP_SOURCES
     src/gif/GifTransport.h
     src/gif/GifSearchController.h
     src/gif/GifSearchController.cpp
+    src/gif/GifSendController.h
+    src/gif/GifSendController.cpp
     src/gif/MatrixGifTransport.h
     src/gif/MatrixGifTransport.cpp
 
@@ -477,6 +479,30 @@ if(BUILD_TESTING)
     target_include_directories(gif-collections-test PRIVATE src)
     target_link_libraries(gif-collections-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME gif-collections COMMAND gif-collections-test)
+
+    qt_add_executable(gif-send-controller-test
+        tests/GifSendControllerTest.cpp
+        src/gif/GifSendController.h
+        src/gif/GifSendController.cpp
+        src/gif/GifResponseParser.h
+        src/gif/GifResponseParser.cpp
+        src/gif/GifResultModel.h
+        src/gif/GifResultModel.cpp
+        src/gif/GifStoredModel.h
+        src/gif/GifStoredModel.cpp
+        src/gif/GifRecentModel.h
+        src/gif/GifRecentModel.cpp
+        src/matrix/MatrixClient.h
+        src/matrix/MatrixClient.cpp
+        src/matrix/MockMatrixClient.h
+        src/matrix/MockMatrixClient.cpp
+        src/matrix/MediaHelpers.h
+        src/matrix/MediaHelpers.cpp
+    )
+    target_include_directories(gif-send-controller-test PRIVATE src)
+    target_link_libraries(gif-send-controller-test PRIVATE
+        Qt6::Core Qt6::Gui Qt6::Qml Qt6::Test)
+    add_test(NAME gif-send-controller COMMAND gif-send-controller-test)
 
     qt_add_executable(emoji-ui-contract-test tests/EmojiUiContractTest.cpp)
     target_compile_definitions(emoji-ui-contract-test PRIVATE

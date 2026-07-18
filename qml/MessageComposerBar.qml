@@ -62,11 +62,18 @@ Rectangle {
         onClosed: Qt.callLater(input.forceActiveFocus)
     }
 
-    // Phase GIF-7 wires this to the download → validate → Matrix attachment
-    // send pipeline (room-scoped destination). The picker already routes to the
-    // room composer via target: "room".
+    // Download → validate → send the chosen GIF as Matrix media, captured to
+    // THIS room so a later room switch cannot reroute it.
     function onGifPicked(result) {
-        // TODO(GIF-7): app.gif download + send handoff.
+        app.gifSend.sendToRoom(app.currentRoomId, result)
+    }
+    Connections {
+        target: app.gifSend
+        function onSendFailed(category, thread) {
+            if (thread) return
+            root.attachmentNotice = qsTr("The GIF could not be sent.")
+            noticeTimer.restart()
+        }
     }
     Timer {
         id: noticeTimer

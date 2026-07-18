@@ -117,6 +117,16 @@ private Q_SLOTS:
         QVERIFY(picker.contains(QStringLiteral("Keys.onReturnPressed")));
         QVERIFY(picker.contains(QStringLiteral(
             "Popup.CloseOnEscape | Popup.CloseOnPressOutside")));
+
+        // Selecting a GIF routes to the destination-captured send pipeline:
+        // the room composer to the room, the thread composer into the thread.
+        QVERIFY(room.contains(QStringLiteral(
+            "app.gifSend.sendToRoom(app.currentRoomId, result)")));
+        QVERIFY(thread.contains(QStringLiteral("app.gifSend.sendToThread(")));
+        QVERIFY(thread.contains(QStringLiteral("app.thread.rootEventId")));
+        // The picker itself never sends to a room/thread directly.
+        QVERIFY(!picker.contains(QStringLiteral("sendToRoom")));
+        QVERIFY(!picker.contains(QStringLiteral("sendTextMessage")));
     }
 
     // v0.6.1: the thread root uses the Element-style summary card wired to the
