@@ -359,6 +359,13 @@ private:
     std::unique_ptr<MediaManager> m_media;
     std::unique_ptr<CryptoManager> m_crypto;
     std::unique_ptr<CryptoHealthModel> m_cryptoHealth;
+    // The CryptoHealthModel generation captured at the moment a crypto-health
+    // query is DISPATCHED. Comparing this (not the model's live generation)
+    // against the model epoch when the async answer arrives lets a logout /
+    // account switch that happened in between correctly reject the stale
+    // answer — the 0.6.0 code passed the model's own current generation, so
+    // the guard could never reject anything.
+    quint64 m_cryptoQueryGeneration = 1;
     QVariantList m_sessionDevices;
     bool m_sessionDevicesLoading = false;
     bool m_sessionDevicesFailed = false;

@@ -202,6 +202,37 @@ private Q_SLOTS:
         QVERIFY(model.cryptoReady());
     }
 
+    // v0.6.1: the dispatch-capture pattern AppController now uses — capture
+    // the generation when a crypto-health query is dispatched, and apply the
+    // answer with THAT captured value. A session change (logout / account
+    // switch) in flight must reject the stale answer; the fresh session's
+    // answer applies. (The 0.6.0 code passed the model's live generation, so
+    // the guard was a tautology that could never reject.)
+    void dispatchCapturedGenerationRejectsAnswerAfterSessionChange()
+    {
+        CryptoHealthModel model;
+        model.setSupported(true);
+
+        // Dispatch a query: capture the generation now.
+        const quint64 dispatched = model.generation();
+
+        // A session change happens before the answer arrives.
+        model.resetForNewGeneration();
+        const quint64 fresh = model.generation();
+        QVERIFY(fresh != dispatched);
+
+        // The stale answer (stamped with the dispatch-time generation) is
+        // dropped, not applied to the new session.
+        QSignalSpy spy(&model, &CryptoHealthModel::healthChanged);
+        model.applySnapshot(baseSnapshot(), dispatched);
+        QCOMPARE(spy.count(), 0);
+        QVERIFY(!model.cryptoReady());
+
+        // The new session's answer (captured after the reset) applies.
+        model.applySnapshot(baseSnapshot(), fresh);
+        QVERIFY(model.cryptoReady());
+    }
+
     void pendingVerificationCountIsBounded()
     {
         CryptoHealthModel model;

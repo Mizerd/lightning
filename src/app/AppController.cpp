@@ -335,6 +335,10 @@ AppController::AppController(Backend backend, QObject *parent)
                 this, [this, rust](const QString &) {
             Q_EMIT rustDeviceIdChanged();
             rust->refreshOwnDeviceStatus();
+            // Start a fresh crypto epoch for the new session, then capture it
+            // at dispatch so a logout before the answer arrives rejects it.
+            m_cryptoHealth->resetForNewGeneration();
+            m_cryptoQueryGeneration = m_cryptoHealth->generation();
             rust->queryCryptoHealth();
         });
         // v0.6.0 checkpoint 7: sanitized health snapshots feed the read-only
@@ -343,8 +347,10 @@ AppController::AppController(Backend backend, QObject *parent)
         m_cryptoHealth->setSupported(true);
         connect(rust, &RustSdkMatrixClient::cryptoHealthUpdated,
                 this, [this](const QVariantMap &snapshot) {
-            m_cryptoHealth->applySnapshot(snapshot,
-                                          m_cryptoHealth->generation());
+            // Compare against the generation captured at query DISPATCH, not
+            // the model's live generation, so a session change in flight
+            // rejects the stale answer.
+            m_cryptoHealth->applySnapshot(snapshot, m_cryptoQueryGeneration);
         });
         connect(rust, &MatrixClient::connectionStateChanged,
                 this, [this](MatrixClient::ConnectionState state) {
@@ -903,6 +909,7 @@ void AppController::refreshSessionTrustState()
     if (m_backend != RustBackend || !m_client) return;
     if (auto *rust = qobject_cast<RustSdkMatrixClient *>(m_client.get())) {
         rust->refreshOwnDeviceStatus();
+        m_cryptoQueryGeneration = m_cryptoHealth->generation();
         rust->queryCryptoHealth();
     }
 #endif
@@ -936,6 +943,7 @@ void AppController::refreshCryptoHealth()
 #ifdef ENABLE_RUST_SDK_BACKEND
     if (m_backend == RustBackend && m_client) {
         if (auto *rust = qobject_cast<RustSdkMatrixClient *>(m_client.get())) {
+            m_cryptoQueryGeneration = m_cryptoHealth->generation();
             rust->queryCryptoHealth();
             return;
         }
