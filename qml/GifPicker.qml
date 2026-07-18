@@ -280,9 +280,13 @@ Popup {
                         fillMode: Image.PreserveAspectCrop
                         asynchronous: true
                         cache: true
-                        // Pause when the picker is hidden or the tile scrolls
-                        // far off-screen (GridView frees non-cached delegates).
-                        playing: picker.visible
+                        // Autoplay policy: 0 Always (while visible), 1 OnHover,
+                        // 2 Never. Also paused when the picker is hidden or the
+                        // tile scrolls far off-screen (GridView frees non-cached
+                        // delegates).
+                        playing: picker.visible && app.settings.gifAutoplay !== 2
+                                 && (app.settings.gifAutoplay === 0
+                                     || tileHover.hovered)
                         Accessible.role: Accessible.Button
                         Accessible.name: tile.title.length > 0
                             ? qsTr("GIF: %1").arg(tile.title) : qsTr("GIF")

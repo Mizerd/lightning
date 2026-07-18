@@ -21,6 +21,11 @@ constexpr auto kPreferredEmojiTone  = "emoji/preferredTone";
 constexpr auto kPreviewsUnencrypted = "previews/autoLoadUnencrypted";
 constexpr auto kPreviewsEncrypted   = "previews/loadInEncryptedRooms";
 constexpr auto kPreviewsAnimateGifs = "previews/animateGifs";
+// v0.6.1: GIF browser policy.
+constexpr auto kGifAutoplay         = "gif/autoplay";       // 0/1/2
+constexpr auto kGifSafeSearch       = "gif/safeSearch";     // gif::Rating id
+constexpr auto kGifStoreRecent      = "gif/storeRecent";    // bool
+constexpr auto kGifProvider         = "gif/provider";       // "giphy"/"klipy"
 // Presentation-only timeline preference. The underlying SDK/model retains
 // every state event so changing this never requires a resync.
 constexpr auto kShowRoomActivity    = "timeline/showRoomActivity";
@@ -250,6 +255,71 @@ void SettingsManager::setAnimateGifPreviews(bool v)
         return;
     m_store->setValue(kPreviewsAnimateGifs, v);
     Q_EMIT animateGifPreviewsChanged();
+}
+
+int SettingsManager::gifAutoplay() const
+{
+    // Default follows the legacy animateGifPreviews boolean: Always when it was
+    // on (the pre-0.6.1 default), Never when the user had turned it off.
+    const int fallback = animateGifPreviews() ? 0 : 2;
+    const int v = m_store->value(kGifAutoplay, fallback).toInt();
+    return (v >= 0 && v <= 2) ? v : 0;
+}
+
+void SettingsManager::setGifAutoplay(int mode)
+{
+    const int clamped = (mode >= 0 && mode <= 2) ? mode : 0;
+    if (m_store->value(kGifAutoplay).isValid() && gifAutoplay() == clamped)
+        return;
+    m_store->setValue(kGifAutoplay, clamped);
+    Q_EMIT gifAutoplayChanged();
+}
+
+int SettingsManager::gifSafeSearch() const
+{
+    // Default PG-13 (id 2) — a general-client default.
+    const int v = m_store->value(kGifSafeSearch, 2).toInt();
+    return (v >= 0 && v <= 3) ? v : 2;
+}
+
+void SettingsManager::setGifSafeSearch(int rating)
+{
+    const int clamped = (rating >= 0 && rating <= 3) ? rating : 2;
+    if (gifSafeSearch() == clamped)
+        return;
+    m_store->setValue(kGifSafeSearch, clamped);
+    Q_EMIT gifSafeSearchChanged();
+}
+
+bool SettingsManager::storeRecentGifs() const
+{
+    return m_store->value(kGifStoreRecent, true).toBool();
+}
+
+void SettingsManager::setStoreRecentGifs(bool v)
+{
+    if (storeRecentGifs() == v)
+        return;
+    m_store->setValue(kGifStoreRecent, v);
+    Q_EMIT storeRecentGifsChanged();
+}
+
+QString SettingsManager::gifPreferredProvider() const
+{
+    const QString v = m_store->value(kGifProvider, QStringLiteral("giphy"))
+                          .toString();
+    return (v == QLatin1String("giphy") || v == QLatin1String("klipy"))
+        ? v : QStringLiteral("giphy");
+}
+
+void SettingsManager::setGifPreferredProvider(const QString &id)
+{
+    if (id != QLatin1String("giphy") && id != QLatin1String("klipy"))
+        return;
+    if (gifPreferredProvider() == id)
+        return;
+    m_store->setValue(kGifProvider, id);
+    Q_EMIT gifPreferredProviderChanged();
 }
 
 bool SettingsManager::showRoomActivity() const

@@ -108,6 +108,19 @@ AppController::AppController(Backend backend, QObject *parent)
     m_gif->setTransport(m_gifTransport.get());
     m_gifSend      = std::make_unique<GifSendController>(this);
     m_gifSend->setRecentModel(m_gif->recent());
+
+    // GIF policy follows the persisted settings live.
+    m_gif->setRating(m_settings->gifSafeSearch());
+    m_gif->setActiveProvider(m_settings->gifPreferredProvider());
+    m_gif->recent()->setRecordingEnabled(m_settings->storeRecentGifs());
+    connect(m_settings.get(), &SettingsManager::gifSafeSearchChanged, this,
+            [this] { m_gif->setRating(m_settings->gifSafeSearch()); });
+    connect(m_settings.get(), &SettingsManager::gifPreferredProviderChanged, this,
+            [this] { m_gif->setActiveProvider(m_settings->gifPreferredProvider()); });
+    connect(m_settings.get(), &SettingsManager::storeRecentGifsChanged, this,
+            [this] {
+                m_gif->recent()->setRecordingEnabled(m_settings->storeRecentGifs());
+            });
     m_timelineScroll = std::make_unique<TimelineScrollController>(this);
     m_threadScroll   = std::make_unique<TimelineScrollController>(this);
 

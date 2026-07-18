@@ -80,6 +80,7 @@ private Q_SLOTS:
     void previewDefaultsAndEncryptedOff();
     void roomActivityDefaultsEnabledAndPersists();
     void wheelSpeedDefaultsToFastPersistsAndFallsBack();
+    void gifPolicyDefaultsPersistAndClamp();
 
 private:
     QTemporaryDir m_configHome;
@@ -292,6 +293,60 @@ void SettingsSessionTest::wheelSpeedDefaultsToFastPersistsAndFallsBack()
         raw.sync();
         SettingsManager settings;
         QCOMPARE(settings.timelineWheelSpeed(), 1);
+    }
+}
+
+void SettingsSessionTest::gifPolicyDefaultsPersistAndClamp()
+{
+    {
+        SettingsManager s;
+        // Defaults: autoplay Always (0, follows animateGifPreviews=true),
+        // safe-search PG-13 (2), recents on, provider giphy.
+        QCOMPARE(s.gifAutoplay(), 0);
+        QCOMPARE(s.gifSafeSearch(), 2);
+        QCOMPARE(s.storeRecentGifs(), true);
+        QCOMPARE(s.gifPreferredProvider(), QStringLiteral("giphy"));
+
+        QSignalSpy ap(&s, &SettingsManager::gifAutoplayChanged);
+        s.setGifAutoplay(1);
+        QCOMPARE(ap.count(), 1);
+        QCOMPARE(s.gifAutoplay(), 1);
+        s.setGifSafeSearch(0);
+        QCOMPARE(s.gifSafeSearch(), 0);
+        s.setStoreRecentGifs(false);
+        QCOMPARE(s.storeRecentGifs(), false);
+        s.setGifPreferredProvider(QStringLiteral("klipy"));
+        QCOMPARE(s.gifPreferredProvider(), QStringLiteral("klipy"));
+        // An unknown provider is ignored.
+        s.setGifPreferredProvider(QStringLiteral("bogus"));
+        QCOMPARE(s.gifPreferredProvider(), QStringLiteral("klipy"));
+    }
+    {
+        SettingsManager reopened; // persists across restart
+        QCOMPARE(reopened.gifAutoplay(), 1);
+        QCOMPARE(reopened.gifSafeSearch(), 0);
+        QCOMPARE(reopened.storeRecentGifs(), false);
+        QCOMPARE(reopened.gifPreferredProvider(), QStringLiteral("klipy"));
+    }
+    {
+        // Out-of-range writes clamp to safe values.
+        SettingsManager s;
+        s.setGifAutoplay(99);
+        QCOMPARE(s.gifAutoplay(), 0);
+        s.setGifSafeSearch(-3);
+        QCOMPARE(s.gifSafeSearch(), 2);
+    }
+    {
+        // Corrupt persisted values read back as safe defaults.
+        QSettings raw;
+        raw.setValue(QStringLiteral("gif/autoplay"), 42);
+        raw.setValue(QStringLiteral("gif/safeSearch"), 9);
+        raw.setValue(QStringLiteral("gif/provider"), QStringLiteral("evil"));
+        raw.sync();
+        SettingsManager s;
+        QCOMPARE(s.gifAutoplay(), 0);
+        QCOMPARE(s.gifSafeSearch(), 2);
+        QCOMPARE(s.gifPreferredProvider(), QStringLiteral("giphy"));
     }
 }
 

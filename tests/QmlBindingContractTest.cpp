@@ -129,6 +129,33 @@ private Q_SLOTS:
         QVERIFY(!picker.contains(QStringLiteral("sendTextMessage")));
     }
 
+    // v0.6.1: GIF autoplay is a tri-state (Always/OnHover/Never) honored by the
+    // timeline and the picker, configured in Settings alongside safe-search,
+    // provider, recents and clear actions with a privacy disclosure.
+    void gifAutoplayAndSettingsWired()
+    {
+        const QString delegate = read(QStringLiteral("MessageDelegate.qml"));
+        const QString picker = read(QStringLiteral("GifPicker.qml"));
+        const QString settings = read(QStringLiteral("SettingsScreen.qml"));
+        // Timeline honors the tri-state (Never = static, OnHover = hover-gated).
+        QVERIFY(delegate.contains(QStringLiteral("gifMode: app.settings.gifAutoplay")));
+        QVERIFY(delegate.contains(QStringLiteral("gifMode === 0 || gifHovered")));
+        QVERIFY(delegate.contains(QStringLiteral("app.settings.gifAutoplay !== 2")));
+        // Picker previews honor it too.
+        QVERIFY(picker.contains(QStringLiteral("app.settings.gifAutoplay")));
+        // Settings expose the controls, bound to the settings model.
+        QVERIFY(settings.contains(QStringLiteral("app.settings.gifAutoplay = currentValue")));
+        QVERIFY(settings.contains(QStringLiteral("app.settings.gifSafeSearch = currentValue")));
+        QVERIFY(settings.contains(QStringLiteral("app.settings.gifPreferredProvider = currentValue")));
+        QVERIFY(settings.contains(QStringLiteral("app.settings.storeRecentGifs = checked")));
+        // Honest provider availability + privacy disclosure + confirmed clears.
+        QVERIFY(settings.contains(QStringLiteral("providerConfigured(\"giphy\")")));
+        QVERIFY(settings.contains(QStringLiteral(
+            "GIF searches are sent directly to the ")));
+        QVERIFY(settings.contains(QStringLiteral("gifClearConfirm.open(\"favorites\")")));
+        QVERIFY(settings.contains(QStringLiteral("app.gif.favorites.clearAll()")));
+    }
+
     // v0.6.1: the thread root uses the Element-style summary card wired to the
     // SDK thread-summary roles, and activating it opens the real thread. The
     // old plain-text "reply(s) in thread" link and the redundant "· in thread"

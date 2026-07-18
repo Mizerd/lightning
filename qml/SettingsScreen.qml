@@ -44,6 +44,30 @@ Item {
         onActivated: root.goBack()
     }
 
+    // Confirmation before clearing local GIF collections (Favorites are the
+    // destructive one; Recents too for parity).
+    Dialog {
+        id: gifClearConfirm
+        property string kind: ""
+        function open(k) { kind = k; title = k === "favorites"
+            ? qsTr("Clear GIF favorites?") : qsTr("Clear recent GIFs?"); visible = true }
+        anchors.centerIn: parent
+        modal: true
+        standardButtons: Dialog.Yes | Dialog.Cancel
+        Label {
+            width: 280
+            wrapMode: Text.WordWrap
+            text: gifClearConfirm.kind === "favorites"
+                ? qsTr("Remove all saved GIF favorites from this device? This "
+                       + "cannot be undone.")
+                : qsTr("Clear the list of recently used GIFs on this device?")
+        }
+        onAccepted: {
+            if (kind === "favorites") app.gif.favorites.clearAll()
+            else if (kind === "recent") app.gif.recent.clearAll()
+        }
+    }
+
     Rectangle { anchors.fill: parent; color: AppTheme.background }
 
     ColumnLayout {
@@ -413,10 +437,79 @@ Item {
                                     color: AppTheme.border
                                 }
 
+                                // ─────────── GIFs ───────────
+                                Label {
+                                    text: qsTr("GIFs")
+                                    color: AppTheme.textPrimary
+                                    font.pixelSize: AppTheme.fontBody
+                                    font.weight: Font.DemiBold
+                                    Layout.topMargin: AppTheme.spacing4
+                                }
+
+                                Label { text: qsTr("Autoplay GIFs"); color: AppTheme.textSecondary }
+                                ComboBox {
+                                    id: gifAutoplayCombo
+                                    Layout.fillWidth: true
+                                    textRole: "label"; valueRole: "value"
+                                    Accessible.name: qsTr("Autoplay GIFs")
+                                    model: [
+                                        { label: qsTr("Always"),   value: 0 },
+                                        { label: qsTr("On hover"), value: 1 },
+                                        { label: qsTr("Never"),    value: 2 },
+                                    ]
+                                    currentIndex: Math.max(0, indexOfValue(app.settings.gifAutoplay))
+                                    onActivated: app.settings.gifAutoplay = currentValue
+                                }
+
+                                Label { text: qsTr("GIF safe search"); color: AppTheme.textSecondary }
+                                ComboBox {
+                                    id: gifRatingCombo
+                                    Layout.fillWidth: true
+                                    textRole: "label"; valueRole: "value"
+                                    Accessible.name: qsTr("GIF safe search rating")
+                                    // Values map to gif::Rating (0=g … 3=r).
+                                    model: [
+                                        { label: qsTr("G — strict"),  value: 0 },
+                                        { label: qsTr("PG"),          value: 1 },
+                                        { label: qsTr("PG-13"),       value: 2 },
+                                        { label: qsTr("R — all"),     value: 3 },
+                                    ]
+                                    currentIndex: Math.max(0, indexOfValue(app.settings.gifSafeSearch))
+                                    onActivated: app.settings.gifSafeSearch = currentValue
+                                }
+
+                                Label { text: qsTr("Preferred GIF provider"); color: AppTheme.textSecondary }
+                                ComboBox {
+                                    id: gifProviderCombo
+                                    Layout.fillWidth: true
+                                    textRole: "label"; valueRole: "value"
+                                    Accessible.name: qsTr("Preferred GIF provider")
+                                    model: [
+                                        { label: "GIPHY", value: "giphy" },
+                                        { label: "KLIPY", value: "klipy" },
+                                    ]
+                                    currentIndex: Math.max(0, indexOfValue(app.settings.gifPreferredProvider))
+                                    onActivated: app.settings.gifPreferredProvider = currentValue
+                                }
+                                // Honest per-provider availability.
+                                Label {
+                                    Layout.fillWidth: true
+                                    Layout.leftMargin: AppTheme.spacing4
+                                    wrapMode: Text.WordWrap
+                                    color: AppTheme.textMuted
+                                    font.pixelSize: AppTheme.fontCaption
+                                    text: qsTr("GIPHY: %1 · KLIPY: %2")
+                                        .arg(app.gif.providerConfigured("giphy")
+                                             ? qsTr("configured") : qsTr("no API key"))
+                                        .arg(app.gif.providerConfigured("klipy")
+                                             ? qsTr("configured") : qsTr("no API key"))
+                                }
+
                                 CheckBox {
-                                    text: qsTr("Animate GIF previews")
-                                    checked: app.settings.animateGifPreviews
-                                    onToggled: app.settings.animateGifPreviews = checked
+                                    text: qsTr("Store recently used GIFs")
+                                    checked: app.settings.storeRecentGifs
+                                    onToggled: app.settings.storeRecentGifs = checked
+                                    Accessible.name: qsTr("Store recently used GIFs")
                                 }
                                 Label {
                                     Layout.fillWidth: true
@@ -424,8 +517,26 @@ Item {
                                     wrapMode: Text.WordWrap
                                     color: AppTheme.textMuted
                                     font.pixelSize: AppTheme.fontCaption
-                                    text: qsTr("When off, GIFs show a static first frame "
-                                               + "until opened.")
+                                    text: qsTr("GIF searches are sent directly to the "
+                                               + "selected provider. Favorites and recent "
+                                               + "GIFs are stored locally on this device "
+                                               + "and are not synchronized; search terms "
+                                               + "are not saved.")
+                                }
+
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: AppTheme.spacing8
+                                    Button {
+                                        text: qsTr("Clear recent GIFs")
+                                        enabled: app.gif.recent.count > 0
+                                        onClicked: gifClearConfirm.open("recent")
+                                    }
+                                    Button {
+                                        text: qsTr("Clear GIF favorites")
+                                        enabled: app.gif.favorites.count > 0
+                                        onClicked: gifClearConfirm.open("favorites")
+                                    }
                                 }
                             }
                         }

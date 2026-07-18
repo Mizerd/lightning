@@ -918,7 +918,7 @@ Item {
                 return Math.max(1, Math.min(widthHint, maxWidth))
             }
             readonly property string animatedSource:
-                p.isGif === true && app.settings.animateGifPreviews
+                p.isGif === true && app.settings.gifAutoplay !== 2
                 ? app.mediaBridge.previewAnimatedSource(p.imageSource || "",
                                                         p.imageMime || "") : ""
             readonly property string staticSource:
@@ -983,7 +983,7 @@ Item {
             readonly property var p: root.preview
             readonly property string st: p.state || "none"
             readonly property string previewAnimation:
-                p.isGif === true && app.settings.animateGifPreviews
+                p.isGif === true && app.settings.gifAutoplay !== 2
                 ? app.mediaBridge.previewAnimatedSource(p.imageSource || "",
                                                         p.imageMime || "") : ""
             readonly property string previewStatic:
@@ -1255,8 +1255,16 @@ Item {
                 || (model.mediaUrl && model.mediaUrl.toString()
                     .indexOf("send-queue.localhost") >= 0)
             property string animatedSource: ""
+            // v0.6.1: autoplay policy — 0 Always, 1 OnHover, 2 Never.
+            readonly property int gifMode: app.settings.gifAutoplay
+            property bool gifHovered: false
+            HoverHandler {
+                enabled: imageBox.isGif && imageBox.gifMode === 1
+                onHoveredChanged: imageBox.gifHovered = hovered
+            }
             readonly property bool animateGif:
-                isGif && app.settings.animateGifPreviews
+                isGif && gifMode !== 2
+                && (gifMode === 0 || gifHovered)
                 && !pendingMedia && animatedSource.length > 0
 
             // v0.5.9: prefer the media bridge (works for encrypted rooms —
@@ -1273,7 +1281,9 @@ Item {
 
             function refreshBridgeSource() {
                 if (!usesBridge || !model.mediaKey) return
-                if (isGif && app.settings.animateGifPreviews && !pendingMedia) {
+                // Fetch the animated bytes whenever autoplay is not Never, so
+                // OnHover playback starts instantly on hover.
+                if (isGif && app.settings.gifAutoplay !== 2 && !pendingMedia) {
                     animatedSource = app.mediaBridge.animatedSource(model.mediaKey)
                     return
                 }

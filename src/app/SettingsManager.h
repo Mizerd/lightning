@@ -34,6 +34,18 @@ class SettingsManager : public QObject
                    NOTIFY loadPreviewsInEncryptedRoomsChanged)
     Q_PROPERTY(bool animateGifPreviews READ animateGifPreviews
                    WRITE setAnimateGifPreviews NOTIFY animateGifPreviewsChanged)
+    // v0.6.1: GIF browser policy. gifAutoplay: 0=Always (while visible),
+    // 1=OnHover, 2=Never. gifSafeSearch is a gif::Rating id (0=g,1=pg,2=pg-13,
+    // 3=r). storeRecentGifs toggles Recents recording. gifPreferredProvider is
+    // the picker's default provider id ("giphy"/"klipy").
+    Q_PROPERTY(int gifAutoplay READ gifAutoplay WRITE setGifAutoplay
+                   NOTIFY gifAutoplayChanged)
+    Q_PROPERTY(int gifSafeSearch READ gifSafeSearch WRITE setGifSafeSearch
+                   NOTIFY gifSafeSearchChanged)
+    Q_PROPERTY(bool storeRecentGifs READ storeRecentGifs
+                   WRITE setStoreRecentGifs NOTIFY storeRecentGifsChanged)
+    Q_PROPERTY(QString gifPreferredProvider READ gifPreferredProvider
+                   WRITE setGifPreferredProvider NOTIFY gifPreferredProviderChanged)
     Q_PROPERTY(bool showRoomActivity READ showRoomActivity
                    WRITE setShowRoomActivity NOTIFY showRoomActivityChanged)
     // v0.5.19: discrete mouse-wheel scroll speed for the timeline. Stored as a
@@ -106,6 +118,15 @@ public:
     void setLoadPreviewsInEncryptedRooms(bool v);
     bool animateGifPreviews() const;
     void setAnimateGifPreviews(bool v);
+    // v0.6.1: GIF browser policy.
+    int gifAutoplay() const;
+    void setGifAutoplay(int mode);
+    int gifSafeSearch() const;
+    void setGifSafeSearch(int rating);
+    bool storeRecentGifs() const;
+    void setStoreRecentGifs(bool v);
+    QString gifPreferredProvider() const;
+    void setGifPreferredProvider(const QString &id);
     bool showRoomActivity() const;
     void setShowRoomActivity(bool v);
 
@@ -164,6 +185,10 @@ Q_SIGNALS:
     void autoLoadLinkPreviewsChanged();
     void loadPreviewsInEncryptedRoomsChanged();
     void animateGifPreviewsChanged();
+    void gifAutoplayChanged();
+    void gifSafeSearchChanged();
+    void storeRecentGifsChanged();
+    void gifPreferredProviderChanged();
     void showRoomActivityChanged();
     void timelineWheelSpeedChanged();
     void sessionChanged();
