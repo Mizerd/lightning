@@ -267,6 +267,11 @@ public:
     virtual bool supportsGifProvider() const { return false; }
     virtual quint64 gifGet(const QString &url)
     { Q_UNUSED(url); return 0; }
+    // v0.6.1: download + validate a provider GIF (result via
+    // gifDownloadFinished, bytes included on success). The URL must be a
+    // provider-CDN https .gif; Rust re-validates the host + GIF magic bytes.
+    virtual quint64 gifDownload(const QString &url)
+    { Q_UNUSED(url); return 0; }
     // Existing joined DM rooms for a user, from authoritative m.direct.
     // Each entry: {roomId, name}. Synchronous store lookup.
     virtual QVariantList existingDirectRooms(const QString &userId) const
@@ -448,6 +453,12 @@ Q_SIGNALS:
     // request URL (which carries the provider key) is never emitted or logged.
     void gifResponse(quint64 opId, bool ok, int httpStatus,
                      const QByteArray &body, const QString &category);
+    // v0.6.1: a validated GIF download. `bytes` is the real GIF on success
+    // (empty on failure); `category` is a coarse safe reason on failure
+    // (blocked/not_a_gif/too_large/invalid_media/timeout/network/provider_error).
+    void gifDownloadFinished(quint64 opId, bool ok, const QByteArray &bytes,
+                             const QString &mime, int width, int height,
+                             qint64 size, const QString &category);
     void dmCreateFinished(quint64 opId, bool ok, const QString &roomId,
                           const QString &category);
     void roomCreateFinished(quint64 opId, bool ok, const QString &roomId,

@@ -257,7 +257,14 @@ fn public_ip(ip: std::net::IpAddr) -> bool {
 }
 
 pub(crate) struct SafeResponse { pub status: reqwest::StatusCode, pub mime: String, pub location: Option<String>, pub bytes: Vec<u8> }
-async fn safe_get(url: &url::Url, limit: usize) -> Result<SafeResponse, &'static str> {
+// Default Accept for HTML/image previews. GIF downloads and provider JSON pass
+// their own via the `accept` parameter so a `.gif` URL is never
+// content-negotiated into webp, and JSON endpoints get a JSON Accept.
+pub(crate) const PREVIEW_ACCEPT: &str =
+    "text/html,image/jpeg,image/png,image/webp,image/gif";
+
+async fn safe_get(url: &url::Url, limit: usize, accept: &str)
+    -> Result<SafeResponse, &'static str> {
     use futures_util::StreamExt;
     if url.scheme() != "https" || !url.username().is_empty() || url.password().is_some()
         || url.host_str().is_none() { return Err("invalid_url"); }
@@ -278,8 +285,7 @@ async fn safe_get(url: &url::Url, limit: usize) -> Result<SafeResponse, &'static
         .user_agent("Lightning/0.6.0").resolve(host, addresses[0]).build()
         .map_err(|_| "request_failure")?;
     let response = client.get(url.clone())
-        .header(reqwest::header::ACCEPT,
-            "text/html,image/jpeg,image/png,image/webp,image/gif")
+        .header(reqwest::header::ACCEPT, accept)
         // A handful of ordinary sites' CDN/WAF layers treat a request
         // missing standard browser headers (Accept-Language in particular)
         // as suspicious and serve an interstitial or a terminal status
@@ -361,10 +367,11 @@ impl From<&'static str> for PreviewFailure {
 pub(crate) async fn safe_get_following_redirects(
     mut url: url::Url,
     limit: usize,
+    accept: &str,
 ) -> Result<(SafeResponse, url::Url, u32), PreviewFailure> {
     for redirects in 0..=MAX_REDIRECTS {
         let redirects = redirects as u32;
-        let response = safe_get(&url, limit)
+        let response = safe_get(&url, limit, accept)
             .await
             .map_err(|category| PreviewFailure {
                 category,
@@ -438,7 +445,7 @@ const MAX_INITIAL_FETCH_BYTES: usize = MAX_IMAGE_BYTES;
 
 async fn preview(page: url::Url) -> Result<serde_json::Value, PreviewFailure> {
     let (response, final_page, redirects) =
-        safe_get_following_redirects(page, MAX_INITIAL_FETCH_BYTES).await?;
+        safe_get_following_redirects(page, MAX_INITIAL_FETCH_BYTES, PREVIEW_ACCEPT).await?;
     if !response.status.is_success() {
         let category = if response.status.is_server_error() || response.status.as_u16() == 429 {
             "http_transient"
@@ -515,7 +522,7 @@ async fn preview(page: url::Url) -> Result<serde_json::Value, PreviewFailure> {
                 // fetch failures and unsupported/invalid image bytes here are
                 // swallowed, leaving the image fields empty.
                 if let Ok((fetched, _, _)) =
-                    safe_get_following_redirects(image, MAX_IMAGE_BYTES).await
+                    safe_get_following_redirects(image, MAX_IMAGE_BYTES, PREVIEW_ACCEPT).await
                 {
                     if fetched.status.is_success() {
                         if let Ok(Some(mime)) =

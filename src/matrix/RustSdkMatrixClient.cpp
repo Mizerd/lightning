@@ -2849,6 +2849,21 @@ quint64 RustSdkMatrixClient::gifGet(const QString &url)
     return opId;
 }
 
+quint64 RustSdkMatrixClient::gifDownload(const QString &url)
+{
+    if (!m_rustHandle || !url.trimmed().toLower().startsWith(QLatin1String("https://")))
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray target = url.toUtf8();
+    const QString result = takeRustString(
+        mx_rust_gif_download(m_rustHandle, target.constData(), opId));
+    if (!result.isEmpty()) {
+        qCWarning(lcRust) << "gif download rejected"; // no URL
+        return 0;
+    }
+    return opId;
+}
+
 QVariantList RustSdkMatrixClient::existingDirectRooms(const QString &userId) const
 {
     if (!m_rustHandle || userId.isEmpty())
@@ -3278,6 +3293,36 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             event.value(QStringLiteral("status")).toInt(),
             event.value(QStringLiteral("body")).toString().toUtf8(),
             event.value(QStringLiteral("category")).toString());
+        return true;
+    }
+
+    if (type == QLatin1String("gif_download_result")) {
+        const quint64 op = opId();
+        const bool ok = event.value(QStringLiteral("ok")).toBool(false);
+        if (!ok) {
+            Q_EMIT gifDownloadFinished(
+                op, false, QByteArray(), QString(), 0, 0, 0,
+                event.value(QStringLiteral("category")).toString());
+            return true;
+        }
+        // Take the parked GIF bytes into Qt-owned memory (one bounded copy),
+        // then release the Rust buffer — mirrors media_ready.
+        size_t len = 0;
+        unsigned char *raw = mx_rust_media_take(m_rustHandle, op, &len);
+        if (!raw || len == 0) {
+            Q_EMIT gifDownloadFinished(op, false, QByteArray(), QString(), 0, 0,
+                                       0, QStringLiteral("gone"));
+            return true;
+        }
+        QByteArray bytes(reinterpret_cast<const char *>(raw),
+                         static_cast<qsizetype>(len));
+        mx_rust_media_free(raw, len);
+        Q_EMIT gifDownloadFinished(
+            op, true, bytes, event.value(QStringLiteral("mime")).toString(),
+            event.value(QStringLiteral("width")).toInt(),
+            event.value(QStringLiteral("height")).toInt(),
+            static_cast<qint64>(event.value(QStringLiteral("size")).toDouble()),
+            QString());
         return true;
     }
 

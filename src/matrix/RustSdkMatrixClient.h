@@ -244,6 +244,7 @@ public:
     quint64 fetchUrlPreview(const QString &url) override;
     bool supportsGifProvider() const override { return true; }
     quint64 gifGet(const QString &url) override;
+    quint64 gifDownload(const QString &url) override;
     QVariantList existingDirectRooms(const QString &userId) const override;
     quint64 createDirectChat(const QString &userId) override;
     quint64 createRoom(const QVariantMap &options) override;

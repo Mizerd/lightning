@@ -349,6 +349,20 @@ char *mx_rust_get_url_preview(void *client,
  */
 char *mx_rust_gif_get(void *client, const char *url, unsigned long long op_id);
 
+/*
+ * v0.6.1: download + validate a provider GIF for sending. Accepts only https
+ * provider-CDN URLs (*.giphy.com / *.klipy.com); the response must be a real
+ * GIF (GIF87a/GIF89a magic, bounded canvas) — HTML/JSON/mp4/webp are rejected.
+ * On success the bytes are parked for mx_rust_media_take(op_id) (never the JSON
+ * queue) and a `gif_download_result` event is emitted:
+ *   {"type":"gif_download_result","op_id",…,"ok":true,"mime":"image/gif",
+ *    "width":N,"height":N,"size":N}
+ * or ok=false with "category":"blocked|not_a_gif|too_large|invalid_media|
+ *    timeout|network|provider_error".
+ */
+char *mx_rust_gif_download(void *client, const char *url,
+                           unsigned long long op_id);
+
 /* Synchronous m.direct projection: {"rooms":[{"room_id","name"}]}. */
 char *mx_rust_get_dm_rooms(void *client, const char *user_id);
 char *mx_rust_create_dm(void *client,

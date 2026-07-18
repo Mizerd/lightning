@@ -2754,6 +2754,23 @@ pub unsafe extern "C" fn mx_rust_gif_get(
     })
 }
 
+/// v0.6.1: download + validate a provider GIF, parking the bytes for
+/// mx_rust_media_take (op_id key). Only https provider-CDN URLs are accepted;
+/// the bytes must be a real GIF (magic + bounded canvas) or the result is a
+/// rejection. Result: `gif_download_result` poll event.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_gif_download(
+    ptr: *mut c_void,
+    url: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let url = unsafe { cstr_arg(url) }?;
+        gifs::gif_download(bridge, url, op_id).map(|_| String::new())
+    })
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_get_dm_rooms(
     ptr: *mut c_void,
