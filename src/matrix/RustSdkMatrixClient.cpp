@@ -1,6 +1,7 @@
 #include "matrix/RustSdkMatrixClient.h"
 
 #include "app/SettingsManager.h"
+#include "crypto/E2eeDiagnostics.h"
 #include "matrix/MediaHelpers.h"
 #include "matrix/RustSessionPolicy.h"
 #include "matrix_rust.h"
@@ -1156,13 +1157,18 @@ void RustSdkMatrixClient::retryDecryption(const QString &roomId)
         : roomId;
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
     const qint64 last = m_lastDecryptionRetryMs.value(targetRoom, 0);
-    if (now - last < 2000)
+    if (now - last < 2000) {
+        qCDebug(lcE2ee) << "manual-retry coalesced" << "room="
+                        << matrix::e2ee::redactId(targetRoom);
         return;   // bounded: coalesce rapid repeat requests
+    }
     m_lastDecryptionRetryMs.insert(targetRoom, now);
     const QByteArray roomBytes = targetRoom.toUtf8();
     takeRustString(mx_rust_timeline_retry_decryption(
         m_rustHandle, roomBytes.constData()));
     qCInfo(lcRust) << "manual decryption retry dispatched";
+    qCDebug(lcE2ee) << "manual-retry dispatched" << "room="
+                    << matrix::e2ee::redactId(targetRoom);
 }
 
 void RustSdkMatrixClient::openThreadList(const QString &roomId)
@@ -2302,6 +2308,19 @@ void RustSdkMatrixClient::handleTimelineEvent(const QJsonObject &event)
         timelineEvent.type = TimelineEvent::Notice;
     }
 
+    // Safe recovery-lifecycle diagnostics for encrypted events (redacted ids,
+    // semantic error category — never bodies or ciphertext). Only encrypted
+    // events are traced, so this stays quiet in unencrypted rooms.
+    if (isEncrypted) {
+        qCDebug(lcE2ee) << "encrypted-event"
+                        << "room=" << matrix::e2ee::redactId(roomId)
+                        << "event=" << matrix::e2ee::redactId(timelineEvent.eventId)
+                        << (undecryptable ? "state=utd" : "state=decryptable")
+                        << "error=" << (timelineEvent.errorKind.isEmpty()
+                                            ? QStringLiteral("none")
+                                            : timelineEvent.errorKind);
+    }
+
     timeline.append(timelineEvent);
     Q_EMIT eventAppended(roomId, timelineEvent);
 
@@ -2462,6 +2481,10 @@ void RustSdkMatrixClient::handleTimelineRetryDecryption(const QJsonObject &event
     const int sessions = event.value(QStringLiteral("sessions")).toInt(0);
     qCInfo(lcRust) << "timeline retry decryption" << state
                    << "sessions=" << sessions;
+    // Safe recovery-lifecycle diagnostics: redacted room id, semantic state,
+    // and a session COUNT only — never session ids, keys, or bodies.
+    qCDebug(lcE2ee) << "retry-decryption" << "room=" << matrix::e2ee::redactId(roomId)
+                    << "state=" << state << "sessions=" << sessions;
     if (state == QLatin1String("done"))
         Q_EMIT roomKeysApplied(roomId, sessions);
 }

@@ -142,6 +142,8 @@ set(APP_SOURCES
     src/crypto/CryptoManager.cpp
     src/crypto/CryptoHealthModel.h
     src/crypto/CryptoHealthModel.cpp
+    src/crypto/E2eeDiagnostics.h
+    src/crypto/E2eeDiagnostics.cpp
     src/spaces/SpaceManager.h
     src/spaces/SpaceManager.cpp
     src/threads/ThreadManager.h
@@ -691,6 +693,17 @@ if(BUILD_TESTING)
     target_link_libraries(quick-switcher-test PRIVATE
         Qt6::Core Qt6::Gui Qt6::Qml Qt6::Test)
     add_test(NAME quick-switcher COMMAND quick-switcher-test)
+
+    # v0.6.1: E2EE diagnostics redaction — never reveals full ids, stable for
+    # correlation.
+    qt_add_executable(e2ee-diagnostics-test
+        tests/E2eeDiagnosticsTest.cpp
+        src/crypto/E2eeDiagnostics.h
+        src/crypto/E2eeDiagnostics.cpp
+    )
+    target_include_directories(e2ee-diagnostics-test PRIVATE src)
+    target_link_libraries(e2ee-diagnostics-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME e2ee-diagnostics COMMAND e2ee-diagnostics-test)
 endif()
 
 install(TARGETS matrix-client
