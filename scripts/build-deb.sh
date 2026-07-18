@@ -14,7 +14,8 @@ PKGROOT="$ROOT/work/deb-root"
 CONTROL="$PKGROOT/DEBIAN"
 mkdir -p "$CONTROL" "$ROOT/dist" "$ROOT/work/debian"
 cp -a "$STAGE/." "$PKGROOT/"
-install -Dm0644 "$ROOT/packaging/common/copyright" +    "$PKGROOT/usr/share/doc/lightning/copyright"
+install -Dm0644 "$ROOT/packaging/common/copyright" \
+    "$PKGROOT/usr/share/doc/lightning/copyright"
 
 cp "$ROOT/packaging/deb/control" "$ROOT/work/debian/control"
 SHLIBS="$(cd "$ROOT/work" && dpkg-shlibdeps -O -e"$PKGROOT/usr/bin/matrix-client" 2>/dev/null | sed -n 's/^shlibs:Depends=//p')"
