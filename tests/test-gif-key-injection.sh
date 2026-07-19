@@ -11,6 +11,15 @@ WORK="$(mktemp -d)"
 cleanup() { rm -rf "$WORK"; }
 trap cleanup EXIT
 
+# Hermetic against real pipeline variables: a protected-branch pipeline
+# injects the actual GIPHY/KLIPY project variables, which would make the
+# "publish without keys" cases pass the gate legitimately. Only the
+# synthetic canaries below may reach the scripts under test.
+unset GIPHY_API_KEY KLIPY_API_KEY \
+    LIGHTNING_GIPHY_API_KEY LIGHTNING_KLIPY_API_KEY \
+    LIGHTNING_BUILD_GIPHY_API_KEY LIGHTNING_BUILD_KLIPY_API_KEY \
+    2>/dev/null || true
+
 CANARY_G="CANARY_GIPHY_injx_11"
 CANARY_K="CANARY_KLIPY_injx_22"
 fail=0
