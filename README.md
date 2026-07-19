@@ -50,6 +50,12 @@ is still developing, some workflows remain experimental.
 ### Accounts, rooms, and spaces
 
 - Matrix password login, persistent sessions, session restoration, and logout
+- Persistent multi-account support: several signed-in accounts (any mix of
+  homeservers) with fast in-app switching from the account menu — no login
+  form between accounts, each account in its own isolated SDK and encryption
+  store; only the selected account syncs
+- Scoped account removal and logout that never touch other accounts; logging
+  out continues with the most recently added remaining account
 - Joined-room, invitation, and direct-message navigation
 - Matrix-native direct-message detection and Space hierarchy navigation
 - Keyboard quick switching between rooms, direct messages, Spaces, and invites
@@ -85,9 +91,17 @@ is still developing, some workflows remain experimental.
 
 ### Desktop experience
 
+- A four-pane design shell (spaces rail, room list, timeline, side panel)
+  implemented from the Lightning design handoff, with bundled Manrope and
+  JetBrains Mono fonts
+- Ten complete semantic themes — Moss Light, Indigo Night, Deep Teal (the
+  design-handoff set that System follows), Lightning Light/Dark, Graphite,
+  Midnight, Nordic, Purple Dusk, and Warm — all persistent, live-switching,
+  and WCAG-AA contrast tested
+- A real application icon and desktop entry installed by the build (hicolor
+  set, Wayland app-id and X11 WM_CLASS association)
 - Native freedesktop notifications, mentions, and active-room suppression
 - Global and per-room notification privacy controls
-- Light, dark, system, and additional appearance themes with persistent settings
 - Local Unicode emoji picker for composing messages and reactions
 
 ## GIF support

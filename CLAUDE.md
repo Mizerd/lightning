@@ -31,7 +31,12 @@ The state verified on 2026-07-19 is:
 - Previous release: `v0.6.0` -> `2157194` (immutable, unchanged)
 - Application version: **0.6.1** in `CMakeLists.txt`, `rust/Cargo.toml`, and
   the Rust/HTTP user agent
-- `main` is at or just past the 0.6.1 release commit
+- `main` is past the 0.6.1 release commit: the 2026-07-19 checkpoints added
+  the design-handoff UI shell (four-pane layout, Moss Light / Indigo Night /
+  Deep Teal themes, bundled Manrope + JetBrains Mono), persistent
+  multi-account support with safe in-app switching, the eager room-preview /
+  avatar-readiness fixes, and the real application icon + desktop entry.
+  The application version stays 0.6.1 until an explicitly requested release.
 - `matrix-sdk`, `matrix-sdk-ui`, and `matrix-sdk-base` resolve to **0.18.0** in
   `rust/Cargo.lock`; UI and base are exact-pinned in `rust/Cargo.toml`
 - Dependencies remain lock-file controlled. Do not update them incidentally.
@@ -195,6 +200,16 @@ backend capability checks and honest live-test status.
 
 - Password login, persistent SDK session/store, session restoration, logout,
   sync/initial-sync state, and account-scoped local reset paths
+- Persistent multi-account support: account records live under
+  `accounts/<slug>/` in QSettings (SettingsManager), tokens stay per-user-id
+  in the SecretStore, and the session accessors are views of the active
+  account. `AppController::switchToAccount` detaches the local session
+  (`MatrixClient::detachSession` — emits `loggedOut` for model cleanup
+  WITHOUT server logout or store deletion), points settings at the target,
+  and restores it through the normal restore path. Only the active account
+  syncs. Removal/logout are scoped to one account; logout continues with the
+  most recently added remaining account. The `accountSwitching` property
+  guards the UI; a failed activation falls back once to the previous account
 - Secret Service/libsecret token storage when available, with an explicit
   insecure QSettings fallback warning
 - Rust-backed unified sync/Sliding Sync behavior with compatibility fallback
@@ -260,7 +275,16 @@ were never backed up or shared.
 
 ### Settings, usability, and accessibility
 
-- System, light, Graphite, Midnight Blue, Nord, and Purple Dusk themes
+- Ten complete semantic themes (ids 1–10): Lightning Light, Lightning Dark,
+  Graphite, Midnight, Nordic, Purple Dusk, Warm, and the design-handoff
+  Moss Light / Indigo Night / Deep Teal; System (0) resolves to
+  Moss Light / Indigo Night. AppTheme.qml is the sole token source; the
+  theme test enforces palette completeness, routing, and WCAG AA pairs
+- The four-pane design shell: 68 px spaces rail (home, Spaces, settings,
+  account avatar + switcher popover), 300 px room list with workspace
+  header and Ctrl-K hint, timeline with members/threads side panel, card
+  composer; bundled Manrope/JetBrains Mono fonts; application icon and
+  desktop entry installed by CMake (see data/ and scripts/generate-icons.sh)
 - Room-activity visibility, link/GIF preview policy, notification privacy and
   sound, per-room notification mode, and wheel-speed settings
 - Unicode emoji picker with search, tones, and bounded local recents
@@ -462,7 +486,8 @@ Use the category that matches the evidence:
 - **Unit tests:** focused pure C++/Qt behavior.
 - **Rust tests:** SDK bridge, parser, timeline, recovery, and Rust behavior.
 - **CTest:** registered C++/Qt/QML/controller/bridge tests. The current CMake
-  registers 31 tests in each configured build tree.
+  registers 36 tests in each configured build tree (including the
+  account-registry, account-switch, and desktop-integration suites).
 - **QML tests:** contract scans and real offscreen module/component loading.
 - **Bridge/controller tests:** generation isolation, diff ingestion, media,
   thread, notification, and application policy.
@@ -577,6 +602,20 @@ Keep this list grounded in source and recent history:
 - Perform real homeserver and Element interoperability validation for thread
   timelines, thread sending/attachments, late E2EE recovery, backup recovery,
   verification, notifications, and physical scrolling.
+- Perform live multi-account validation on real homeservers: switching with
+  two signed-in accounts (same and different homeservers), encrypted-room
+  decryption after a switch, notification routing, restart restoration, and
+  scoped removal. The offline lifecycle is CTest-covered; the live matrix is
+  NOT TESTED.
+- Live-validate the room-list latest-event previews and avatar readiness on a
+  real account (the lazy Latest-Events registration landed with the 0.7 UI
+  checkpoints), and the design shell on a real desktop (KDE Wayland taskbar
+  icon association included).
+- Deliberate follow-ups from the design handoff: markdown-formatted sending
+  (composer toolbar deferred — sends are text_plain end-to-end today),
+  message layout modes (Modern/Bubbles/Compact), thread participant
+  facepiles (needs participant data in the thread-summary bridge payload),
+  voice messages, and Matrix presence.
 - Plan any post-0.6.1 work only through explicitly requested checkpoints.
 
 Do not list the implemented GIF browser, favorites/recents, download/send path,
