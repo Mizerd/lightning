@@ -248,6 +248,60 @@ publicly visible, raise it to `enabled` in project 6 → Settings → General �
 Visibility. This is a deliberate project-6 setting and is not changed by the
 pipeline.
 
+## GIF provider keys
+
+Official packages embed application-level GIPHY/KLIPY keys so an installed client
+opens the GIF browser without the user creating keys or setting any environment
+variable. The keys are supplied only by protected CI, never committed, and never
+printed.
+
+Required project 7 CI/CD variables (values never appear in this repo or docs):
+
+| Variable | Requirement |
+| --- | --- |
+| `GIPHY_API_KEY` | Protected + masked. Consumed only by the build jobs. |
+| `KLIPY_API_KEY` | Protected + masked. Consumed only by the build jobs. |
+
+Because they are **protected**, they are exposed only to pipelines on the
+**protected** `main` branch. Project 7 `main` must remain a protected branch; if
+it is not, protect it rather than unprotecting the variables.
+
+Flow: `resolve-source` presence-checks both variables when `PUBLISH_PACKAGES=true`
+(printing only `GIPHY_API_KEY is configured` / `KLIPY_API_KEY is configured`) so a
+keyless release fails before the expensive build. `configure-build.sh` maps them
+to the build-only `LIGHTNING_BUILD_GIPHY_API_KEY` / `LIGHTNING_BUILD_KLIPY_API_KEY`
+in the build job's environment and configures the source with
+`-DLIGHTNING_REQUIRE_GIF_KEYS=ON`; the source generator writes them into a
+build-tree header the compiler embeds, then the script scrubs that header. Values
+never reach a command line, `CMakeCache.txt`, ninja files, a dotenv report, an
+artifact, or a log. Build-only pipelines (`PUBLISH_PACKAGES=false`) require no
+keys and ship the keyless missing-key state.
+
+Clean-package validation runs, with **every** provider-key variable unset, the
+installed binary's `--gif-status` (booleans only) and, for publishing pipelines,
+`--gif-selftest` (a bounded real GIPHY and KLIPY trending request using only the
+embedded keys). It also confirms the generated header is not inside the package
+and that no key or authenticated URL appears in the diagnostics. The release job
+is downstream of both validators, so a release is never created when a key is
+missing, was not embedded, provider status is unconfigured, a live request fails,
+or leakage is detected.
+
+An application key compiled into a distributed desktop binary is inherently
+extractable; this scheme spares normal users manual configuration and protects
+the keys from accidental plaintext disclosure, not from a determined extractor.
+
+### Key rotation
+
+A compiled key cannot be changed in packages already released. To rotate:
+
+1. Replace the protected `GIPHY_API_KEY` / `KLIPY_API_KEY` CI variable.
+2. Cut a new Lightning release version (`RELEASE_ACTION=create`).
+3. Build and validate both providers with the new key.
+4. Publish the new immutable package version and finalize the release.
+
+Never overwrite an older released package file, and never attempt to replace a
+key inside an already-distributed binary.
+
 ## v0.6.1 backfill example
 
 ```text
@@ -268,10 +322,13 @@ or source archives.
 - `tests/test-publication.sh` — request gate, manifest, idempotent uploads,
   conflicts, partial-upload rollback/retry, verification, and both release
   actions against a stateful mock GitLab API.
+- `tests/test-gif-key-injection.sh` — the publish-time GIF-key presence gate and
+  the safe mapping of CI variables into the build (env, not command line; never
+  logged), using synthetic canary values only.
 - `tests/test-pipeline-config.py` — required stages/jobs, publish/verify/release
   gating for both actions, and dependency wiring.
 
-`config-tests` runs all three on every pipeline.
+`config-tests` runs all four on every pipeline.
 
 ## Release ordering (authoritative)
 
