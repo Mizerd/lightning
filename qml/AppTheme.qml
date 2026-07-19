@@ -9,20 +9,22 @@ import QtQuick
 // semantic tokens below (background, textPrimary, accent, spacing8, ...)
 // rather than hardcoding hex or magic-number pixel sizes.
 //
-// v0.5.11 themes (SettingsManager::Theme):
-//   0 System — follows the platform colour scheme (Light or Midnight Blue)
-//   1 Light
-//   2 Dark        (retained alias → Midnight Blue palette)
-//   3 Graphite    (neutral dark grey)
-//   4 Midnight Blue (the original slate/navy dark palette)
-//   5 Nord
-//   6 Purple Dusk
+// v0.7 themes (SettingsManager::Theme):
+//   0 System          — follows the platform colour scheme
+//                       (Lightning Light or Lightning Dark)
+//   1 Lightning Light
+//   2 Lightning Dark  (cool near-black; was a legacy alias of Midnight)
+//   3 Graphite        (neutral dark grey)
+//   4 Midnight        (the original slate/navy dark palette)
+//   5 Nordic          (polar-night surfaces, frost accent)
+//   6 Purple Dusk     (deep violet surfaces)
+//   7 Warm            (light cream surfaces, amber accent)
 //
 // Every preset provides the full set of semantic values; components never
 // branch on the theme themselves. The raw `_xxxLight` / `_xxxDark` colour
 // literals are retained (the theme-token/contrast test parses them by name)
 // and the Light + Midnight palettes are byte-for-byte the previous values,
-// so no existing view changes appearance under Light/Dark.
+// so no existing view changes appearance under those presets.
 QtObject {
     id: root
 
@@ -32,12 +34,14 @@ QtObject {
     // pushed in from Main.qml via AppController.systemDarkMode.
     property bool systemDark: false
 
-    // Resolve System (0) to Light or Midnight Blue based on the platform.
+    // Resolve System (0) to Lightning Light or Lightning Dark based on the
+    // platform colour scheme.
     readonly property int effectiveTheme: mode === 0
-                                          ? (systemDark ? 4 : 1)
+                                          ? (systemDark ? 2 : 1)
                                           : mode
-    // Any non-Light preset is a dark surface (used by overlay chrome).
-    readonly property bool dark: effectiveTheme !== 1
+    // Any preset that is not one of the light surfaces is dark (used by
+    // overlay chrome).
+    readonly property bool dark: effectiveTheme !== 1 && effectiveTheme !== 7
 
     // ---- Raw palette literals (retained; the token test reads these). ----
     readonly property color _bgLight:            "#EBF0F7"
@@ -81,6 +85,24 @@ QtObject {
     readonly property color _codeBlockLight:     "#E3EAF5"
     readonly property color _codeBlockDark:      "#0B1220"
 
+    // Lightning Dark — cool near-black, calmer than the navy Midnight.
+    readonly property color _dkBg:            "#0D1117"
+    readonly property color _dkSidebar:       "#10161D"
+    readonly property color _dkCard:          "#161C26"
+    readonly property color _dkCardElevated:  "#1E2633"
+    readonly property color _dkHover:         "#202A3A"
+    readonly property color _dkSelected:      "#2C4170"
+    readonly property color _dkSelectedHover: "#395088"
+    readonly property color _dkSelectedText:  "#F0F4FA"
+    readonly property color _dkTextPrimary:   "#E9EEF6"
+    readonly property color _dkTextSecondary: "#B7C2D4"
+    readonly property color _dkTextMuted:     "#8D9AB0"
+    readonly property color _dkTextDisabled:  "#5C6A80"
+    readonly property color _dkBorder:        "#273143"
+    readonly property color _dkBorderStrong:  "#3A4762"
+    readonly property color _dkInputBg:       "#10161D"
+    readonly property color _dkCodeBlock:     "#0A0E14"
+
     // Graphite — neutral dark grey.
     readonly property color _graBg:            "#1A1A1D"
     readonly property color _graSidebar:       "#202024"
@@ -115,7 +137,7 @@ QtObject {
     readonly property color _norSelectedText:  "#ECEFF4"
     readonly property color _norTextPrimary:   "#ECEFF4"
     readonly property color _norTextSecondary: "#D8DEE9"
-    readonly property color _norTextMuted:     "#A6ADBB"
+    readonly property color _norTextMuted:     "#ABB2C0"
     readonly property color _norTextDisabled:  "#727A8A"
     readonly property color _norBorder:        "#434C5E"
     readonly property color _norBorderStrong:  "#4C566A"
@@ -150,6 +172,29 @@ QtObject {
     readonly property color _purOwnBubble:     "#6748BE"
     readonly property color _purOtherBubble:   "#332C4E"
 
+    // Warm — light cream surfaces with an amber accent.
+    readonly property color _warBg:            "#F6F1E7"
+    readonly property color _warSidebar:       "#FBF7EF"
+    readonly property color _warCard:          "#FFFDF8"
+    readonly property color _warCardElevated:  "#F1E9DB"
+    readonly property color _warHover:         "#EDE2CE"
+    readonly property color _warSelected:      "#E0CBA4"
+    readonly property color _warSelectedHover: "#D5BC8E"
+    readonly property color _warSelectedText:  "#3B3428"
+    readonly property color _warTextPrimary:   "#3B3428"
+    readonly property color _warTextSecondary: "#6B5F4C"
+    readonly property color _warTextMuted:     "#6E6350"
+    readonly property color _warTextDisabled:  "#B3A78F"
+    readonly property color _warBorder:        "#DCD0B8"
+    readonly property color _warBorderStrong:  "#C2B394"
+    readonly property color _warInputBg:       "#FFFDF8"
+    readonly property color _warCodeBlock:     "#EFE7D6"
+    readonly property color _warAccent:        "#C2410C"
+    readonly property color _warAccentHover:   "#D9581F"
+    readonly property color _warAccentPressed: "#A83809"
+    readonly property color _warOwnBubble:     "#8F420C"
+    readonly property color _warOtherBubble:   "#EDE2CE"
+
     // ---- Resolved palette object for the effective theme. ----
     readonly property var _light: ({
         background: _bgLight, sidebar: _sidebarLight, surface: _cardLight,
@@ -162,6 +207,18 @@ QtObject {
         borderStrong: _borderStrongLight, accent: _accentBlue,
         accentHover: _accentBlueHover, accentPressed: _accentBluePressed,
         ownBubble: _outgoingBubbleBlue, otherBubble: _hoverLight
+    })
+    readonly property var _dark: ({
+        background: _dkBg, sidebar: _dkSidebar, surface: _dkCard,
+        cardElevated: _dkCardElevated, hover: _dkHover,
+        selected: _dkSelected, selectedHover: _dkSelectedHover,
+        selectedText: _dkSelectedText, inputBg: _dkInputBg,
+        codeBlock: _dkCodeBlock, textPrimary: _dkTextPrimary,
+        textSecondary: _dkTextSecondary, textMuted: _dkTextMuted,
+        textDisabled: _dkTextDisabled, border: _dkBorder,
+        borderStrong: _dkBorderStrong, accent: _accentBlue,
+        accentHover: _accentBlueHover, accentPressed: _accentBluePressed,
+        ownBubble: _outgoingBubbleBlue, otherBubble: _dkCardElevated
     })
     readonly property var _midnight: ({
         background: _bgDark, sidebar: _sidebarDark, surface: _cardDark,
@@ -211,14 +268,27 @@ QtObject {
         accentHover: _purAccentHover, accentPressed: _purAccentPressed,
         ownBubble: _purOwnBubble, otherBubble: _purOtherBubble
     })
+    readonly property var _warm: ({
+        background: _warBg, sidebar: _warSidebar, surface: _warCard,
+        cardElevated: _warCardElevated, hover: _warHover,
+        selected: _warSelected, selectedHover: _warSelectedHover,
+        selectedText: _warSelectedText, inputBg: _warInputBg,
+        codeBlock: _warCodeBlock, textPrimary: _warTextPrimary,
+        textSecondary: _warTextSecondary, textMuted: _warTextMuted,
+        textDisabled: _warTextDisabled, border: _warBorder,
+        borderStrong: _warBorderStrong, accent: _warAccent,
+        accentHover: _warAccentHover, accentPressed: _warAccentPressed,
+        ownBubble: _warOwnBubble, otherBubble: _warOtherBubble
+    })
     readonly property var _p: {
         switch (effectiveTheme) {
         case 1:  return _light
-        case 2:  return _midnight   // Dark alias
+        case 2:  return _dark       // Lightning Dark
         case 3:  return _graphite
-        case 4:  return _midnight   // Midnight Blue
+        case 4:  return _midnight   // Midnight
         case 5:  return _nord
         case 6:  return _purple
+        case 7:  return _warm
         default: return _light
         }
     }
@@ -281,6 +351,10 @@ QtObject {
     readonly property color unreadBadge:         accent
     readonly property color mentionBadge:        danger
     readonly property color undecryptableText:   textMuted
+    // Highlight semantics (jumped-to message rows, active thread affordances).
+    readonly property color pressedSurface:      selectedHover
+    readonly property color messageHighlight:    selected
+    readonly property color threadHighlight:     accent
 
     // ---- Legacy aliases retained for existing QML. ----
     readonly property color surfaceAlt:          cardElevated

@@ -325,19 +325,16 @@ Item {
                                     valueRole: "value"
                                     // Preset id values map to SettingsManager::Theme.
                                     model: [
-                                        { label: qsTr("System"),        value: 0 },
-                                        { label: qsTr("Light"),         value: 1 },
-                                        { label: qsTr("Graphite"),      value: 3 },
-                                        { label: qsTr("Midnight Blue"), value: 4 },
-                                        { label: qsTr("Nord"),          value: 5 },
-                                        { label: qsTr("Purple Dusk"),   value: 6 }
+                                        { label: qsTr("System"),          value: 0 },
+                                        { label: qsTr("Lightning Light"), value: 1 },
+                                        { label: qsTr("Lightning Dark"),  value: 2 },
+                                        { label: qsTr("Graphite"),        value: 3 },
+                                        { label: qsTr("Midnight"),        value: 4 },
+                                        { label: qsTr("Nordic"),          value: 5 },
+                                        { label: qsTr("Purple Dusk"),     value: 6 },
+                                        { label: qsTr("Warm"),            value: 7 }
                                     ]
-                                    // A stored legacy Dark (2) renders as the
-                                    // Midnight Blue preset and is migrated to
-                                    // its current id on the next selection.
-                                    currentIndex: Math.max(0, indexOfValue(
-                                        app.settings.theme === 2
-                                        ? 4 : app.settings.theme))
+                                    currentIndex: Math.max(0, indexOfValue(app.settings.theme))
                                     onActivated: app.settings.theme = currentValue
                                 }
                                 // Small live preview of the core palette.

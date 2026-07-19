@@ -154,6 +154,42 @@ private Q_SLOTS:
             { "dangerText", "_accentDanger", 4.5 },
             // Controls/badges (large or bold UI text): ≥ 3:1.
             { "accentText", "_accentBlue", 3.0 },
+            // Lightning Dark.
+            { "_dkTextPrimary", "_dkBg", 4.5 },
+            { "_dkTextSecondary", "_dkBg", 4.5 },
+            { "_dkTextMuted", "_dkBg", 4.5 },
+            { "_dkTextMuted", "_dkCard", 4.5 },
+            { "_dkSelectedText", "_dkSelected", 4.5 },
+            { "_dkSelectedText", "_dkSelectedHover", 4.5 },
+            { "_dkTextPrimary", "_dkCardElevated", 4.5 },
+            // Warm.
+            { "_warTextPrimary", "_warBg", 4.5 },
+            { "_warTextSecondary", "_warBg", 4.5 },
+            { "_warTextMuted", "_warBg", 4.5 },
+            { "_warTextMuted", "_warCard", 4.5 },
+            { "_warSelectedText", "_warSelected", 4.5 },
+            { "_warSelectedText", "_warSelectedHover", 4.5 },
+            { "_warTextPrimary", "_warHover", 4.5 },
+            { "ownBubbleText", "_warOwnBubble", 4.5 },
+            { "onAccentMuted", "_warOwnBubble", 4.5 },
+            { "accentText", "_warAccent", 3.0 },
+            // Graphite / Nordic / Purple Dusk core readability.
+            { "_graTextPrimary", "_graBg", 4.5 },
+            { "_graTextMuted", "_graBg", 4.5 },
+            { "_graTextMuted", "_graCard", 4.5 },
+            { "_graSelectedText", "_graSelected", 4.5 },
+            { "_norTextPrimary", "_norBg", 4.5 },
+            { "_norTextMuted", "_norBg", 4.5 },
+            { "_norTextMuted", "_norCard", 4.5 },
+            { "_norSelectedText", "_norSelected", 4.5 },
+            { "_purTextPrimary", "_purBg", 4.5 },
+            { "_purTextMuted", "_purBg", 4.5 },
+            { "_purTextMuted", "_purCard", 4.5 },
+            { "_purSelectedText", "_purSelected", 4.5 },
+            // Own-bubble body text stays readable in every preset.
+            { "ownBubbleText", "_graOwnBubble", 4.5 },
+            { "ownBubbleText", "_norOwnBubble", 4.5 },
+            { "ownBubbleText", "_purOwnBubble", 4.5 },
         };
         for (const Pair &pair : pairs) {
             const QString fg = c(pair.fg);
@@ -169,6 +205,55 @@ private Q_SLOTS:
                                          QLatin1String(pair.bg))
                                     .arg(ratio, 0, 'f', 2)
                                     .arg(pair.minimum)));
+        }
+    }
+
+    void allPresetsDefineFullRoleSet()
+    {
+        // Every registered theme preset must supply the complete palette
+        // object, and the effective-theme switch must route every valid
+        // SettingsManager::Theme id (1..7) to one of them.
+        const QStringList presets = {
+            QStringLiteral("_light"), QStringLiteral("_dark"),
+            QStringLiteral("_midnight"), QStringLiteral("_graphite"),
+            QStringLiteral("_nord"), QStringLiteral("_purple"),
+            QStringLiteral("_warm"),
+        };
+        const QStringList roles = {
+            QStringLiteral("background"), QStringLiteral("sidebar"),
+            QStringLiteral("surface"), QStringLiteral("cardElevated"),
+            QStringLiteral("hover"), QStringLiteral("selected"),
+            QStringLiteral("selectedHover"), QStringLiteral("selectedText"),
+            QStringLiteral("inputBg"), QStringLiteral("codeBlock"),
+            QStringLiteral("textPrimary"), QStringLiteral("textSecondary"),
+            QStringLiteral("textMuted"), QStringLiteral("textDisabled"),
+            QStringLiteral("border"), QStringLiteral("borderStrong"),
+            QStringLiteral("accent"), QStringLiteral("accentHover"),
+            QStringLiteral("accentPressed"), QStringLiteral("ownBubble"),
+            QStringLiteral("otherBubble"),
+        };
+        for (const QString &preset : presets) {
+            const QRegularExpression block(
+                QStringLiteral("property\\s+var\\s+%1\\s*:\\s*\\(\\{(.*?)\\}\\)")
+                    .arg(preset),
+                QRegularExpression::DotMatchesEverythingOption);
+            const auto match = block.match(m_theme);
+            QVERIFY2(match.hasMatch(),
+                     qPrintable(QStringLiteral("missing preset: %1").arg(preset)));
+            const QString body = match.captured(1);
+            for (const QString &role : roles) {
+                const QRegularExpression key(
+                    QStringLiteral("\\b%1\\s*:").arg(role));
+                QVERIFY2(body.contains(key),
+                         qPrintable(QStringLiteral("%1 lacks role %2")
+                                        .arg(preset, role)));
+            }
+        }
+        for (int id = 1; id <= 7; ++id) {
+            const QRegularExpression routed(
+                QStringLiteral("case\\s+%1\\s*:\\s*return\\s+_").arg(id));
+            QVERIFY2(m_theme.contains(routed),
+                     qPrintable(QStringLiteral("theme id %1 not routed").arg(id)));
         }
     }
 
