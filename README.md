@@ -23,12 +23,17 @@ Lightning project 6
         └── <version>
             ├── lightning_<version>_amd64.deb
             ├── lightning-<version>-1.x86_64.rpm
+            ├── lightning_<version>_amd64.flatpak
+            ├── Lightning-<version>-x86_64.AppImage
+            ├── lightning_<version>_amd64.snap
             └── future explicitly approved formats
 
 lightning-deploy project 7
 ├── source resolution     (resolve-source)
-├── builds                (build-deb, build-rpm)
-├── clean-system validation (validate-deb, validate-rpm)
+├── builds                (build-deb, build-rpm, build-flatpak,
+│                          build-appimage, build-snap)
+├── clean-system validation (validate-deb, validate-rpm, validate-flatpak,
+│                          validate-appimage, validate-snap)
 ├── publication           (publish-packages)
 ├── registry verification (verify-published-packages)
 └── final release action  (finalize-release)
@@ -48,8 +53,14 @@ Only manually created `web` and `api` pipelines are accepted.
 | resolve | `resolve-source` | Validate the request, pin the source SHA, resolve the version |
 | build | `build-deb` | Debian 13.6 build |
 | build | `build-rpm` | Fedora 44 build |
+| build | `build-flatpak` | KDE-runtime sandbox build → single-file bundle |
+| build | `build-appimage` | Debian staged build → self-contained AppImage |
+| build | `build-snap` | Snap packed from the AppImage job's AppDir |
 | validate | `validate-deb` | Clean Debian install/run/uninstall audit |
 | validate | `validate-rpm` | Clean Fedora install/run/uninstall audit |
+| validate | `validate-flatpak` | Bundle install into a disposable installation, run, uninstall |
+| validate | `validate-appimage` | extract-and-run on a Qt-less image, payload audit |
+| validate | `validate-snap` | Structural + payload audit, launcher run (no snapd in fleet) |
 | publish | `publish-packages` | Build the manifest and upload to project 6 |
 | verify | `verify-published-packages` | Re-download and check the registry files |
 | release | `finalize-release` | Attach links / create the release (final action) |
@@ -59,10 +70,19 @@ publish, verify, and release jobs are always included for **both** release
 actions; a build-only pipeline stops after validation by design.
 
 `resolve-source` resolves the requested ref to a full 40-character commit SHA.
-Both builders refetch and must resolve the same SHA, so the two formats cannot
-package different source. A shared build `resource_group` keeps the two
-memory-heavy native builds sequential; a second `resource_group` serializes all
-project-6 registry/release writes.
+Every builder refetches and must resolve the same SHA, so no two formats can
+package different source (the snap consumes the AppImage job's already-built
+AppDir artifact instead of compiling a third time). A shared build
+`resource_group` keeps the memory-heavy builds sequential; a second
+`resource_group` serializes all project-6 registry/release writes.
+
+Each format builds and validates on its own dedicated runner via one unique
+selector tag: `apt`, `dnf`, `flatpak`, `appimage`, `snap` (see the
+"GitLab Package Build Runners" infrastructure note). The flatpak runner is the
+one deliberate confinement exception: its job containers run unprivileged but
+with relaxed seccomp/apparmor so bwrap user namespaces work. Windows exe/msi
+formats are blocked and documented in `docs/windows-packaging.md` — no fake
+Windows jobs are wired.
 
 ## Modes
 
@@ -199,7 +219,19 @@ Release filenames:
 ```text
 lightning_<version>_amd64.deb
 lightning-<version>-1.x86_64.rpm
+lightning_<version>_amd64.flatpak
+Lightning-<version>-x86_64.AppImage
+lightning_<version>_amd64.snap
 ```
+
+The deb/rpm install natively; the Flatpak is a single-file bundle
+(`flatpak install ./lightning_<version>_amd64.flatpak`, runtimes come from
+Flathub); the AppImage is self-contained and unsandboxed (`chmod +x`, run);
+the snap installs with `sudo snap install --dangerous ./lightning_<v>_amd64.snap`
+(built with a snap-pack-equivalent squashfs; strict confinement is declared
+but not exercised against a live snapd in CI — the fleet cannot run snapd).
+Flathub and the Snap Store remain future decisions, not targets of this
+pipeline.
 
 Both install `/usr/bin/matrix-client`, a desktop file, AppStream metadata, the
 GPL-3.0-or-later licence and README, and the packaging copyright. QML and app
