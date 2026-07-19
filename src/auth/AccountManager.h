@@ -3,37 +3,51 @@
 #include <QObject>
 #include <QString>
 #include <QStringList>
+#include <QVariantList>
 
-// v0.1: tracks the single active account identity. Structure is ready for
-// multi-account (v0.5) — each account eventually gets its own MatrixClient
-// instance and its own SQLite/session bundle.
+class SettingsManager;
+
+// v0.7: the QML-facing view of the persistent multi-account registry.
+// Account records (user id, homeserver, device id, cached display name and
+// avatar) live in SettingsManager under accounts/<slug>/; access tokens stay
+// in the SecretStore keyed by the full Matrix user id. This class only
+// reads/writes metadata — the account-switch *lifecycle* (client handle,
+// sync, models) is orchestrated by AppController.
 class AccountManager : public QObject
 {
     Q_OBJECT
 
     Q_PROPERTY(QString activeUserId READ activeUserId NOTIFY activeUserIdChanged)
-    Q_PROPERTY(QStringList knownUserIds READ knownUserIds NOTIFY knownUserIdsChanged)
+    Q_PROPERTY(QStringList knownUserIds READ knownUserIds NOTIFY accountsChanged)
     Q_PROPERTY(bool hasActiveAccount READ hasActiveAccount NOTIFY activeUserIdChanged)
+    // List of maps: {userId, homeserver, displayName, avatarUrl, isActive}.
+    Q_PROPERTY(QVariantList accounts READ accounts NOTIFY accountsChanged)
 
 public:
-    explicit AccountManager(QObject *parent = nullptr);
+    explicit AccountManager(SettingsManager *settings, QObject *parent = nullptr);
 
-    QString activeUserId() const { return m_activeUserId; }
-    QStringList knownUserIds() const { return m_knownUserIds; }
-    bool hasActiveAccount() const { return !m_activeUserId.isEmpty(); }
+    QString activeUserId() const;
+    QStringList knownUserIds() const;
+    bool hasActiveAccount() const { return !activeUserId().isEmpty(); }
+    QVariantList accounts() const;
+
+    Q_INVOKABLE bool hasAccount(const QString &userId) const;
+    Q_INVOKABLE QVariantMap account(const QString &userId) const;
 
     void setActiveUser(const QString &userId);
     void clearActiveUser();
-
-    Q_INVOKABLE void addAccount(const QString &userId);
-    Q_INVOKABLE void removeAccount(const QString &userId);
-    Q_INVOKABLE void switchTo(const QString &userId);
+    // Cache the account's own profile for the switcher UI.
+    void updateProfile(const QString &userId,
+                       const QString &displayName,
+                       const QString &avatarUrl);
+    // Metadata + secrets removal only; AppController wraps this with the
+    // client/store lifecycle for a full account removal.
+    bool removeAccount(const QString &userId);
 
 Q_SIGNALS:
     void activeUserIdChanged();
-    void knownUserIdsChanged();
+    void accountsChanged();
 
 private:
-    QString m_activeUserId;
-    QStringList m_knownUserIds;
+    SettingsManager *m_settings = nullptr; // not owned; outlives this object
 };

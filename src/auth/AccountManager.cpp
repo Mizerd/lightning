@@ -1,50 +1,86 @@
 #include "auth/AccountManager.h"
 
-AccountManager::AccountManager(QObject *parent)
+#include "app/SettingsManager.h"
+
+AccountManager::AccountManager(SettingsManager *settings, QObject *parent)
     : QObject(parent)
+    , m_settings(settings)
 {
+    if (m_settings) {
+        connect(m_settings, &SettingsManager::accountsChanged,
+                this, &AccountManager::accountsChanged);
+        connect(m_settings, &SettingsManager::sessionChanged,
+                this, &AccountManager::activeUserIdChanged);
+    }
+}
+
+QString AccountManager::activeUserId() const
+{
+    return m_settings ? m_settings->activeAccountUserId() : QString{};
+}
+
+QStringList AccountManager::knownUserIds() const
+{
+    return m_settings ? m_settings->savedAccountUserIds() : QStringList{};
+}
+
+QVariantList AccountManager::accounts() const
+{
+    QVariantList list;
+    if (!m_settings)
+        return list;
+    const QString active = m_settings->activeAccountUserId();
+    const QStringList ids = m_settings->savedAccountUserIds();
+    for (const QString &uid : ids) {
+        QVariantMap record = m_settings->accountRecord(uid);
+        record.remove(QStringLiteral("deviceId"));
+        record.remove(QStringLiteral("addedAt"));
+        record.insert(QStringLiteral("isActive"), uid == active);
+        list.append(record);
+    }
+    return list;
+}
+
+bool AccountManager::hasAccount(const QString &userId) const
+{
+    return m_settings && m_settings->hasSavedAccount(userId);
+}
+
+QVariantMap AccountManager::account(const QString &userId) const
+{
+    if (!m_settings)
+        return {};
+    QVariantMap record = m_settings->accountRecord(userId);
+    record.remove(QStringLiteral("deviceId"));
+    return record;
 }
 
 void AccountManager::setActiveUser(const QString &userId)
 {
-    if (m_activeUserId == userId)
+    if (!m_settings)
         return;
-    m_activeUserId = userId;
-    if (!userId.isEmpty() && !m_knownUserIds.contains(userId)) {
-        m_knownUserIds.append(userId);
-        Q_EMIT knownUserIdsChanged();
-    }
-    Q_EMIT activeUserIdChanged();
+    m_settings->setActiveAccountUserId(userId);
 }
 
 void AccountManager::clearActiveUser()
 {
-    if (m_activeUserId.isEmpty())
+    if (!m_settings)
         return;
-    m_activeUserId.clear();
-    Q_EMIT activeUserIdChanged();
+    m_settings->setActiveAccountUserId({});
 }
 
-void AccountManager::addAccount(const QString &userId)
+void AccountManager::updateProfile(const QString &userId,
+                                   const QString &displayName,
+                                   const QString &avatarUrl)
 {
-    if (userId.isEmpty() || m_knownUserIds.contains(userId))
+    if (!m_settings)
         return;
-    m_knownUserIds.append(userId);
-    Q_EMIT knownUserIdsChanged();
+    m_settings->updateAccountProfile(userId, displayName, avatarUrl);
 }
 
-void AccountManager::removeAccount(const QString &userId)
+bool AccountManager::removeAccount(const QString &userId)
 {
-    if (!m_knownUserIds.removeOne(userId))
-        return;
-    Q_EMIT knownUserIdsChanged();
-    if (m_activeUserId == userId)
-        clearActiveUser();
-}
-
-void AccountManager::switchTo(const QString &userId)
-{
-    if (!m_knownUserIds.contains(userId))
-        return;
-    setActiveUser(userId);
+    if (!m_settings)
+        return false;
+    return m_settings->clearSessionForAccount(userId);
 }

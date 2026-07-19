@@ -3,7 +3,10 @@
 #include "storage/SecretStore.h"
 #include "storage/AppDataPaths.h"
 
+#include <QDateTime>
 #include <QLoggingCategory>
+
+#include <algorithm>
 
 Q_LOGGING_CATEGORY(lcSettings, "matrix.settings")
 
@@ -36,9 +39,22 @@ constexpr int kRecentEmojiLimit     = 32;
 // on first read; the key stays defined only so the migration code can find
 // and delete the legacy value.
 constexpr auto kAccessTokenLegacy   = "session/accessToken";
+// Pre-0.7 single-session metadata. Migrated into accounts/<slug>/ on first
+// start; the keys stay defined only for that migration.
 constexpr auto kUserId              = "session/userId";
 constexpr auto kDeviceId            = "session/deviceId";
 constexpr auto kSyncToken           = "session/syncToken";
+
+// v0.7 multi-account registry.
+constexpr auto kAccountsGroup       = "accounts";
+constexpr auto kActiveAccount       = "accounts/active";
+constexpr auto kAccountUserId       = "userId";
+constexpr auto kAccountHomeserver   = "homeserver";
+constexpr auto kAccountDeviceId     = "deviceId";
+constexpr auto kAccountDisplayName  = "displayName";
+constexpr auto kAccountAvatarUrl    = "avatarUrl";
+constexpr auto kAccountAddedAt      = "addedAt";
+constexpr auto kAccountSyncToken    = "syncToken";
 
 // SecretStore keys.
 constexpr auto kSecretAccessToken   = "accessToken";
@@ -51,6 +67,197 @@ SettingsManager::SettingsManager(QObject *parent)
     if (!m_store->contains(kHomeserver)) {
         m_store->setValue(kHomeserver, QStringLiteral("https://matrix.org"));
     }
+    migrateLegacySessionRecord();
+}
+
+QString SettingsManager::accountKey(const QString &slug, const char *subKey) const
+{
+    return QLatin1String(kAccountsGroup) + QLatin1Char('/') + slug
+        + QLatin1Char('/') + QLatin1String(subKey);
+}
+
+QString SettingsManager::slugForSavedAccount(const QString &userId) const
+{
+    const QString slug = matrix::app_data::safeUserSlug(userId.trimmed());
+    if (slug.isEmpty())
+        return {};
+    return m_store->contains(accountKey(slug, kAccountUserId)) ? slug : QString{};
+}
+
+void SettingsManager::migrateLegacySessionRecord()
+{
+    // Pre-0.7 builds kept exactly one session under session/*. Convert it
+    // into the first accounts/<slug>/ record so the account survives the
+    // multi-account upgrade, then drop the legacy keys.
+    QString legacyUser = m_store->value(kUserId).toString().trimmed();
+    if (legacyUser.isEmpty())
+        return;
+    matrix::app_data::AccountIdentity identity;
+    if (matrix::app_data::resolveAccountIdentity(
+            m_store->value(kHomeserver).toString(), legacyUser, &identity)) {
+        legacyUser = identity.userId;
+    }
+    const QString slug = matrix::app_data::safeUserSlug(legacyUser);
+    if (slug.isEmpty()) {
+        qCWarning(lcSettings)
+            << "legacy session user id is not a safe account id; leaving as-is";
+        return;
+    }
+    if (!m_store->contains(accountKey(slug, kAccountUserId))) {
+        m_store->setValue(accountKey(slug, kAccountUserId), legacyUser);
+        m_store->setValue(accountKey(slug, kAccountHomeserver),
+                          identity.isValid()
+                              ? identity.homeserver
+                              : m_store->value(kHomeserver).toString());
+        m_store->setValue(accountKey(slug, kAccountDeviceId),
+                          m_store->value(kDeviceId).toString());
+        m_store->setValue(accountKey(slug, kAccountSyncToken),
+                          m_store->value(kSyncToken).toString());
+        m_store->setValue(accountKey(slug, kAccountAddedAt),
+                          QDateTime::currentDateTimeUtc()
+                              .toString(Qt::ISODate));
+        qCInfo(lcSettings) << "migrated legacy session into account record";
+    }
+    if (!m_store->contains(kActiveAccount))
+        m_store->setValue(kActiveAccount, legacyUser);
+    m_store->remove(kUserId);
+    m_store->remove(kDeviceId);
+    m_store->remove(kSyncToken);
+}
+
+bool SettingsManager::upsertAccountRecord(const QString &userId,
+                                          const QString &homeserver,
+                                          const QString &deviceId)
+{
+    const QString uid = userId.trimmed();
+    const QString slug = matrix::app_data::safeUserSlug(uid);
+    if (slug.isEmpty()) {
+        qCWarning(lcSettings)
+            << "refusing to save account record for unsafe user id";
+        return false;
+    }
+    const bool isNew = !m_store->contains(accountKey(slug, kAccountUserId));
+    m_store->setValue(accountKey(slug, kAccountUserId), uid);
+    m_store->setValue(accountKey(slug, kAccountHomeserver), homeserver);
+    m_store->setValue(accountKey(slug, kAccountDeviceId), deviceId);
+    if (isNew) {
+        m_store->setValue(accountKey(slug, kAccountAddedAt),
+                          QDateTime::currentDateTimeUtc()
+                              .toString(Qt::ISODate));
+    }
+    Q_EMIT accountsChanged();
+    return true;
+}
+
+QStringList SettingsManager::savedAccountUserIds() const
+{
+    struct Entry {
+        QString addedAt;
+        QString userId;
+    };
+    QList<Entry> entries;
+    m_store->beginGroup(QLatin1String(kAccountsGroup));
+    const QStringList groups = m_store->childGroups();
+    for (const QString &slug : groups) {
+        const QString uid =
+            m_store->value(slug + QLatin1String("/") + QLatin1String(kAccountUserId))
+                .toString();
+        if (uid.isEmpty())
+            continue;
+        entries.append({m_store
+                            ->value(slug + QLatin1String("/")
+                                    + QLatin1String(kAccountAddedAt))
+                            .toString(),
+                        uid});
+    }
+    m_store->endGroup();
+    std::sort(entries.begin(), entries.end(),
+              [](const Entry &a, const Entry &b) {
+                  if (a.addedAt != b.addedAt)
+                      return a.addedAt < b.addedAt;
+                  return a.userId < b.userId;
+              });
+    QStringList ids;
+    ids.reserve(entries.size());
+    for (const Entry &e : entries)
+        ids.append(e.userId);
+    return ids;
+}
+
+bool SettingsManager::hasSavedAccount(const QString &userId) const
+{
+    return !slugForSavedAccount(userId).isEmpty();
+}
+
+QVariantMap SettingsManager::accountRecord(const QString &userId) const
+{
+    const QString slug = slugForSavedAccount(userId);
+    if (slug.isEmpty())
+        return {};
+    QVariantMap record;
+    record.insert(QStringLiteral("userId"),
+                  m_store->value(accountKey(slug, kAccountUserId)).toString());
+    record.insert(QStringLiteral("homeserver"),
+                  m_store->value(accountKey(slug, kAccountHomeserver)).toString());
+    record.insert(QStringLiteral("deviceId"),
+                  m_store->value(accountKey(slug, kAccountDeviceId)).toString());
+    record.insert(QStringLiteral("displayName"),
+                  m_store->value(accountKey(slug, kAccountDisplayName)).toString());
+    record.insert(QStringLiteral("avatarUrl"),
+                  m_store->value(accountKey(slug, kAccountAvatarUrl)).toString());
+    record.insert(QStringLiteral("addedAt"),
+                  m_store->value(accountKey(slug, kAccountAddedAt)).toString());
+    return record;
+}
+
+QString SettingsManager::accessTokenFor(const QString &userId) const
+{
+    const QString uid = userId.trimmed();
+    if (uid.isEmpty() || !m_secretStore)
+        return {};
+    return m_secretStore->readSecret(uid, QLatin1String(kSecretAccessToken));
+}
+
+QString SettingsManager::activeAccountUserId() const
+{
+    const QString uid = m_store->value(kActiveAccount).toString();
+    if (uid.isEmpty())
+        return {};
+    // Self-heal: an active pointer whose record is gone means no session.
+    return hasSavedAccount(uid) ? uid : QString{};
+}
+
+void SettingsManager::setActiveAccountUserId(const QString &userId)
+{
+    const QString uid = userId.trimmed();
+    const QString next = (!uid.isEmpty() && hasSavedAccount(uid)) ? uid : QString{};
+    if (activeAccountUserId() == next)
+        return;
+    if (next.isEmpty())
+        m_store->remove(kActiveAccount);
+    else
+        m_store->setValue(kActiveAccount, next);
+    Q_EMIT sessionChanged();
+    Q_EMIT homeserverUrlChanged();
+}
+
+void SettingsManager::updateAccountProfile(const QString &userId,
+                                           const QString &displayName,
+                                           const QString &avatarUrl)
+{
+    const QString slug = slugForSavedAccount(userId);
+    if (slug.isEmpty())
+        return;
+    const bool changed =
+        m_store->value(accountKey(slug, kAccountDisplayName)).toString()
+            != displayName
+        || m_store->value(accountKey(slug, kAccountAvatarUrl)).toString()
+            != avatarUrl;
+    if (!changed)
+        return;
+    m_store->setValue(accountKey(slug, kAccountDisplayName), displayName);
+    m_store->setValue(accountKey(slug, kAccountAvatarUrl), avatarUrl);
+    Q_EMIT accountsChanged();
 }
 
 void SettingsManager::setSecretStore(SecretStore *store)
@@ -90,6 +297,16 @@ void SettingsManager::migratePlaintextTokenIfPresent()
 
 QString SettingsManager::homeserverUrl() const
 {
+    // The active account's homeserver when one is selected; otherwise the
+    // login-screen prefill value.
+    const QString active = activeAccountUserId();
+    if (!active.isEmpty()) {
+        const QString slug = slugForSavedAccount(active);
+        const QString hs =
+            m_store->value(accountKey(slug, kAccountHomeserver)).toString();
+        if (!hs.isEmpty())
+            return hs;
+    }
     return m_store->value(kHomeserver, QStringLiteral("https://matrix.org")).toString();
 }
 
@@ -413,17 +630,23 @@ QString SettingsManager::accessToken() const
 
 QString SettingsManager::userId() const
 {
-    return m_store->value(kUserId).toString();
+    return activeAccountUserId();
 }
 
 QString SettingsManager::deviceId() const
 {
-    return m_store->value(kDeviceId).toString();
+    const QString slug = slugForSavedAccount(activeAccountUserId());
+    if (slug.isEmpty())
+        return {};
+    return m_store->value(accountKey(slug, kAccountDeviceId)).toString();
 }
 
 QString SettingsManager::syncToken() const
 {
-    return m_store->value(kSyncToken).toString();
+    const QString slug = slugForSavedAccount(activeAccountUserId());
+    if (slug.isEmpty())
+        return {};
+    return m_store->value(accountKey(slug, kAccountSyncToken)).toString();
 }
 
 bool SettingsManager::secretsAreSecure() const
@@ -442,15 +665,33 @@ void SettingsManager::saveSession(const QString &homeserverUrl_,
                                   const QString &deviceId_,
                                   const QString &accessToken_)
 {
-    const QString prevUser = userId();
     const bool hsChanged = homeserverUrl() != homeserverUrl_;
 
-    m_store->setValue(kHomeserver, homeserverUrl_);
-    m_store->setValue(kUserId, userId_);
-    m_store->setValue(kDeviceId, deviceId_);
+    // Canonicalize the identity so records, secrets, and store paths agree
+    // regardless of input casing (matches the Rust store-path resolution).
+    QString hsCanonical = homeserverUrl_;
+    QString uidCanonical = userId_.trimmed();
+    matrix::app_data::AccountIdentity identity;
+    if (matrix::app_data::resolveAccountIdentity(homeserverUrl_, userId_,
+                                                 &identity)) {
+        hsCanonical = identity.homeserver;
+        uidCanonical = identity.userId;
+    }
+
+    if (!upsertAccountRecord(uidCanonical, hsCanonical, deviceId_)) {
+        qCWarning(lcSettings) << "saveSession rejected: unsafe user id";
+        return;
+    }
+    // A fresh login is a new device — any previous sync position for this
+    // account belongs to the old session.
+    const QString slug = matrix::app_data::safeUserSlug(uidCanonical);
+    m_store->remove(accountKey(slug, kAccountSyncToken));
+    m_store->setValue(kActiveAccount, uidCanonical);
+    // Keep the login prefill on the most recently used homeserver.
+    m_store->setValue(kHomeserver, hsCanonical);
 
     if (m_secretStore) {
-        if (!m_secretStore->storeSecret(userId_, QLatin1String(kSecretAccessToken), accessToken_)) {
+        if (!m_secretStore->storeSecret(uidCanonical, QLatin1String(kSecretAccessToken), accessToken_)) {
             qCWarning(lcSettings)
                 << "failed to persist access token to SecretStore:"
                 << m_secretStore->lastError();
@@ -463,12 +704,9 @@ void SettingsManager::saveSession(const QString &homeserverUrl_,
         m_store->setValue(kAccessTokenLegacy, accessToken_);
     }
 
-    if (prevUser != userId_) {
-        m_store->remove(kSyncToken);
-        if (m_secretStore && !prevUser.isEmpty()) {
-            m_secretStore->clearAccountSecrets(prevUser);
-        }
-    }
+    // Multi-account: other signed-in accounts keep their records, sync
+    // positions, and SecretStore tokens. (Pre-0.7 builds cleared the
+    // previous user here, which made every login destroy the last session.)
 
     if (hsChanged)
         Q_EMIT homeserverUrlChanged();
@@ -477,15 +715,20 @@ void SettingsManager::saveSession(const QString &homeserverUrl_,
 
 void SettingsManager::setSyncToken(const QString &token)
 {
+    const QString slug = slugForSavedAccount(activeAccountUserId());
+    if (slug.isEmpty())
+        return;
     if (syncToken() == token)
         return;
-    m_store->setValue(kSyncToken, token);
+    m_store->setValue(accountKey(slug, kAccountSyncToken), token);
 }
 
 bool SettingsManager::clearSession()
 {
     const QString uid = userId();
     if (uid.isEmpty()) {
+        // Residual pre-0.7 metadata without an account record.
+        m_store->remove(kUserId);
         m_store->remove(kDeviceId);
         m_store->remove(kSyncToken);
         m_store->remove(kAccessTokenLegacy);
@@ -500,30 +743,44 @@ bool SettingsManager::clearSessionForAccount(const QString &uid)
     if (target.isEmpty())
         return false;
 
-    const QString activeUser = userId();
-    bool activeAccount = activeUser == target;
-    if (!activeAccount && !activeUser.isEmpty()) {
-        matrix::app_data::AccountIdentity activeIdentity;
-        matrix::app_data::AccountIdentity targetIdentity;
-        activeAccount = matrix::app_data::resolveAccountIdentity(
-                            homeserverUrl(), activeUser, &activeIdentity)
-            && matrix::app_data::resolveAccountIdentity(
-                homeserverUrl(), target, &targetIdentity)
-            && activeIdentity.userId == targetIdentity.userId;
+    // Normalize: accept the exact saved id, or resolve a localpart/mixed
+    // form against the saved records.
+    QString slug = slugForSavedAccount(target);
+    QString recordUserId = target;
+    if (!slug.isEmpty()) {
+        recordUserId =
+            m_store->value(accountKey(slug, kAccountUserId)).toString();
+    } else {
+        matrix::app_data::AccountIdentity identity;
+        if (matrix::app_data::resolveAccountIdentity(homeserverUrl(), target,
+                                                     &identity)) {
+            slug = slugForSavedAccount(identity.userId);
+            if (!slug.isEmpty()) {
+                recordUserId =
+                    m_store->value(accountKey(slug, kAccountUserId)).toString();
+            }
+        }
+    }
+
+    const bool activeAccount =
+        !activeAccountUserId().isEmpty() && activeAccountUserId() == recordUserId;
+
+    if (!slug.isEmpty()) {
+        m_store->beginGroup(QLatin1String(kAccountsGroup));
+        m_store->remove(slug);
+        m_store->endGroup();
+        Q_EMIT accountsChanged();
     }
     if (activeAccount) {
-        m_store->remove(kUserId);
-        m_store->remove(kDeviceId);
-        m_store->remove(kSyncToken);
+        m_store->remove(kActiveAccount);
         m_store->remove(kAccessTokenLegacy);
     }
 
     bool secretsCleared = true;
     if (m_secretStore) {
-        // Use the exact key originally persisted for a normalized match so a
-        // legacy mixed-case homeserver cannot orphan its SecretStore entry.
-        const QString secretUser = activeAccount ? activeUser : target;
-        secretsCleared = m_secretStore->clearAccountSecrets(secretUser);
+        // Use the exact key originally persisted so a legacy mixed-case
+        // homeserver cannot orphan its SecretStore entry.
+        secretsCleared = m_secretStore->clearAccountSecrets(recordUserId);
         if (!secretsCleared) {
             qCWarning(lcSettings)
                 << "failed to clear account secrets from SecretStore:"

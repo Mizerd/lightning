@@ -442,6 +442,19 @@ if(BUILD_TESTING)
     target_link_libraries(settings-session-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME settings-session COMMAND settings-session-test)
 
+    qt_add_executable(account-registry-test
+        tests/AccountRegistryTest.cpp
+        src/app/SettingsManager.h
+        src/app/SettingsManager.cpp
+        src/auth/AccountManager.h
+        src/auth/AccountManager.cpp
+        src/storage/SecretStore.h
+        src/storage/AppDataPaths.cpp
+    )
+    target_include_directories(account-registry-test PRIVATE src)
+    target_link_libraries(account-registry-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME account-registry COMMAND account-registry-test)
+
     qt_add_executable(emoji-catalog-test
         tests/EmojiCatalogTest.cpp
         src/models/EmojiCatalog.h

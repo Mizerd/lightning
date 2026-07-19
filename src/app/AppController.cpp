@@ -83,7 +83,7 @@ AppController::AppController(Backend backend, QObject *parent)
     m_settings->setSecretStore(m_secretStore.get());
 
     m_client       = makeClient(backend, m_settings.get(), this);
-    m_accounts     = std::make_unique<AccountManager>(this);
+    m_accounts     = std::make_unique<AccountManager>(m_settings.get(), this);
     m_auth         = std::make_unique<AuthManager>(m_client.get(), this);
     m_roomList     = std::make_unique<RoomListModel>(this);
     m_quickSwitcher = std::make_unique<QuickSwitcherModel>(this);

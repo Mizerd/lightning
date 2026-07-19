@@ -147,13 +147,41 @@ public:
     //
     // v0.4: accessToken lives in the SecretStore (libsecret when available,
     // insecure QSettings fallback otherwise). Non-secret session metadata
-    // (userId, deviceId, homeserverUrl, syncToken) stays in QSettings —
-    // syncToken is not a credential but restart-recoverable state.
+    // stays in QSettings — syncToken is not a credential but
+    // restart-recoverable state.
+    //
+    // v0.7: session metadata is stored per account under accounts/<slug>/
+    // so several signed-in accounts coexist; accounts/active names the one
+    // the UI is currently showing. userId()/deviceId()/syncToken() and
+    // accessToken() are views of the ACTIVE account. Tokens remain in the
+    // SecretStore keyed by the full Matrix user id, never in QSettings.
     bool hasSession() const;
     QString accessToken() const;
     QString userId() const;
     QString deviceId() const;
     QString syncToken() const;
+
+    // Multi-account registry.
+    //
+    // Records are keyed by the safe account slug derived from the full MXID
+    // (see matrix::app_data::safeUserSlug); a malformed or unsafe user id is
+    // rejected rather than guessed at. Ordering is oldest-added first.
+    QStringList savedAccountUserIds() const;
+    bool hasSavedAccount(const QString &userId) const;
+    // {userId, homeserver, deviceId, displayName, avatarUrl, addedAt}
+    // — empty map when the account is unknown. syncToken is deliberately
+    // not exposed here.
+    QVariantMap accountRecord(const QString &userId) const;
+    // Access token for a specific saved account (SecretStore lookup).
+    QString accessTokenFor(const QString &userId) const;
+    QString activeAccountUserId() const;
+    // Selects which saved account the session accessors describe. An empty
+    // id or an id without a saved record clears the selection.
+    void setActiveAccountUserId(const QString &userId);
+    // Cache the account's own display name / avatar for the account UI.
+    void updateAccountProfile(const QString &userId,
+                              const QString &displayName,
+                              const QString &avatarUrl);
 
     // True iff the process is using a native, secure secret backend.
     bool secretsAreSecure() const;
@@ -194,9 +222,17 @@ Q_SIGNALS:
     void timelineWheelSpeedChanged();
     void sessionChanged();
     void secretBackendChanged();
+    // A saved-account record was added, removed, or updated.
+    void accountsChanged();
 
 private:
     void migratePlaintextTokenIfPresent();
+    void migrateLegacySessionRecord();
+    QString accountKey(const QString &slug, const char *subKey) const;
+    QString slugForSavedAccount(const QString &userId) const;
+    bool upsertAccountRecord(const QString &userId,
+                             const QString &homeserver,
+                             const QString &deviceId);
 
     std::unique_ptr<QSettings> m_store;
     SecretStore *m_secretStore = nullptr; // not owned; lifetime = process
