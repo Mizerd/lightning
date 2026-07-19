@@ -165,6 +165,73 @@ build-rpm:
     - ./scripts/build-rpm.sh
     - ./scripts/write-build-info.sh rpm
 
+build-flatpak:
+  extends: .build-base
+  image: debian:13.6-slim
+  tags: [flatpak, package]
+  variables:
+    FORMAT: "flatpak"
+    BASE_IMAGE: "debian:13.6-slim"
+    DEBIAN_FRONTEND: "noninteractive"
+  before_script:
+    - apt-get update
+    - >-
+      apt-get install -y --no-install-recommends
+      ca-certificates curl flatpak flatpak-builder git jq python3 zstd
+  script:
+    - ./scripts/prepare-pinned-source.sh
+    - ./scripts/build-flatpak.sh
+
+build-appimage:
+  extends: .build-base
+  image: debian:13.6-slim
+  tags: [appimage, package]
+  variables:
+    FORMAT: "appimage"
+    BASE_IMAGE: "debian:13.6-slim"
+    DEBIAN_FRONTEND: "noninteractive"
+    RUST_TOOLCHAIN: "1.93.0"
+  before_script:
+    - apt-get update
+    - >-
+      apt-get install -y --no-install-recommends
+      build-essential ca-certificates cmake curl file git jq
+      libsecret-1-dev libsqlite3-dev libssl-dev ninja-build patchelf
+      pkg-config qt6-base-dev qt6-declarative-dev qt6-tools-dev
+      qt6-wayland qml6-module-qtquick qml6-module-qtquick-controls
+      qml6-module-qtquick-dialogs qml6-module-qtquick-effects
+      qml6-module-qtquick-layouts qml6-module-qtquick-window zstd
+    - >-
+      curl --fail --show-error --silent --location
+      --proto '=https' --tlsv1.2 https://sh.rustup.rs
+      --output /tmp/rustup-init.sh
+    - sh /tmp/rustup-init.sh -y --profile minimal --default-toolchain "$RUST_TOOLCHAIN"
+    - export PATH="/root/.cargo/bin:$PATH"
+  script:
+    - ./scripts/prepare-pinned-source.sh
+    - ./scripts/build-appimage.sh
+
+build-snap:
+  extends: .build-base
+  image: ubuntu:24.04
+  tags: [snap, package]
+  variables:
+    FORMAT: "snap"
+    BASE_IMAGE: "ubuntu:24.04"
+    DEBIAN_FRONTEND: "noninteractive"
+  needs:
+    - job: resolve-source
+      artifacts: true
+    - job: build-appimage
+      artifacts: true
+  before_script:
+    - apt-get update
+    - >-
+      apt-get install -y --no-install-recommends
+      ca-certificates file jq python3 python3-yaml squashfs-tools zstd
+  script:
+    - ./scripts/build-snap.sh
+
 validate-deb:
   extends: .trusted-pipeline
   stage: validate
@@ -223,6 +290,110 @@ validate-rpm:
       - dist/version.env
       - dist/version.json
 
+validate-flatpak:
+  extends: .trusted-pipeline
+  stage: validate
+  image: debian:13.6-slim
+  # Must run on the flatpak runner: installing/running the bundle needs the
+  # same bwrap capability as building it.
+  tags: [flatpak, package]
+  needs:
+    - job: resolve-source
+      artifacts: true
+    - job: build-flatpak
+      artifacts: true
+  variables:
+    DEBIAN_FRONTEND: "noninteractive"
+  before_script:
+    - test ! -e work/lightning
+    - command -v nix >/dev/null 2>&1 && exit 1 || true
+    - apt-get update
+    - apt-get install -y --no-install-recommends ca-certificates flatpak
+  script: [./scripts/validate-flatpak.sh]
+  artifacts:
+    when: always
+    expire_in: 7 days
+    paths:
+      - dist/*.flatpak
+      - dist/*.sha256
+      - dist/*flatpak*.log
+      - dist/*flatpak*.txt
+      - dist/source-info.json
+      - dist/version.env
+      - dist/version.json
+
+validate-appimage:
+  extends: .trusted-pipeline
+  stage: validate
+  image: debian:13.6-slim
+  tags: [appimage, package]
+  needs:
+    - job: resolve-source
+      artifacts: true
+    - job: build-appimage
+      artifacts: true
+  variables:
+    DEBIAN_FRONTEND: "noninteractive"
+  before_script:
+    - test ! -e work/lightning
+    - command -v nix >/dev/null 2>&1 && exit 1 || true
+    - apt-get update
+    # Deliberately NO Qt here: the bundle must be self-contained apart from
+    # the documented AppImage base-system excludelist.
+    - >-
+      apt-get install -y --no-install-recommends
+      binutils ca-certificates file libegl1 libfontconfig1 libfreetype6
+      libgl1 libglib2.0-0 libx11-6 libxcb1 libxext6 libxkbcommon0 zstd
+  script: [./scripts/validate-appimage.sh]
+  artifacts:
+    when: always
+    expire_in: 7 days
+    paths:
+      - dist/*.AppImage
+      - dist/*.sha256
+      - dist/*appimage*.log
+      - dist/*appimage*.txt
+      - dist/source-info.json
+      - dist/version.env
+      - dist/version.json
+
+validate-snap:
+  extends: .trusted-pipeline
+  stage: validate
+  image: ubuntu:24.04
+  tags: [snap, package]
+  needs:
+    - job: resolve-source
+      artifacts: true
+    - job: build-snap
+      artifacts: true
+  variables:
+    DEBIAN_FRONTEND: "noninteractive"
+  before_script:
+    - test ! -e work/lightning
+    - command -v nix >/dev/null 2>&1 && exit 1 || true
+    - apt-get update
+    # Base-system libs only (mirrors the AppImage policy); the snap payload
+    # bundles Qt itself. No snapd exists in this fleet — validate-snap.sh
+    # documents the structural-equivalent validation.
+    - >-
+      apt-get install -y --no-install-recommends
+      binutils ca-certificates file libegl1 libfontconfig1 libfreetype6
+      libgl1 libglib2.0-0 libx11-6 libxcb1 libxext6 libxkbcommon0
+      python3 python3-yaml squashfs-tools zstd
+  script: [./scripts/validate-snap.sh]
+  artifacts:
+    when: always
+    expire_in: 7 days
+    paths:
+      - dist/*.snap
+      - dist/*.sha256
+      - dist/*snap*.log
+      - dist/*snap*.txt
+      - dist/source-info.json
+      - dist/version.env
+      - dist/version.json
+
 publish-packages:
   extends: .publish-rules
   stage: publish
@@ -234,6 +405,12 @@ publish-packages:
     - job: validate-deb
       artifacts: true
     - job: validate-rpm
+      artifacts: true
+    - job: validate-flatpak
+      artifacts: true
+    - job: validate-appimage
+      artifacts: true
+    - job: validate-snap
       artifacts: true
   before_script: [apk add --no-cache bash coreutils curl jq]
   script:

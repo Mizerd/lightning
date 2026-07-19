@@ -1,0 +1,77 @@
+# Flatpak manifest TEMPLATE for Lightning. build-flatpak.sh substitutes the
+# @PLACEHOLDER@ values into work/flatpak/net.smetonis.Lightning.yaml — the
+# template itself never contains secrets, and the GIF provider keys reach the
+# sandbox only through flatpak-builder's secret-env (never stored in the
+# manifest, repo metadata, or bundle).
+#
+# The app builds from the pinned project-6 source checkout against the KDE
+# runtime (Qt inside the sandbox), because Flatpak binaries must link the
+# runtime's libraries — the Debian-staged build is not reusable here.
+app-id: net.smetonis.Lightning
+runtime: org.kde.Platform
+runtime-version: "6.9"
+sdk: org.kde.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+command: lightning
+
+finish-args:
+  # Matrix networking.
+  - --share=network
+  - --share=ipc
+  # Native Wayland with X11 fallback, GPU rendering, notification sounds.
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+  - --socket=pulseaudio
+  # libsecret token storage (Secret Service) and desktop notifications.
+  - --talk-name=org.freedesktop.secrets
+  - --talk-name=org.freedesktop.Notifications
+
+build-options:
+  append-path: /usr/lib/sdk/rust-stable/bin
+  # Cargo needs the network for the locked fetch; this is not a Flathub
+  # build, so sandboxed-network vendoring is not required.
+  build-args:
+    - --share=network
+  env:
+    CARGO_HOME: /run/build/lightning/cargo-home
+    CARGO_BUILD_JOBS: "2"
+  # Passed from the build job environment into the sandbox WITHOUT being
+  # recorded in the manifest, ostree metadata, or the resulting bundle.
+  # Keyless (build-only) pipelines simply leave them unset.
+  secret-env:
+    - LIGHTNING_BUILD_GIPHY_API_KEY
+    - LIGHTNING_BUILD_KLIPY_API_KEY
+
+modules:
+  - name: lightning
+    buildsystem: cmake-ninja
+    config-opts:
+      - -DCMAKE_BUILD_TYPE=Release
+      - -DENABLE_RUST_SDK_BACKEND=ON
+      - -DLIGHTNING_REQUIRE_GIF_KEYS=@REQUIRE_GIF_KEYS@
+    sources:
+      - type: dir
+        path: "@SOURCE_DIR@"
+      - type: file
+        path: "@METAINFO_PATH@"
+        dest-filename: lightning.metainfo.xml
+    post-install:
+      # Flatpak exports require app-id-named desktop, icon, and metainfo
+      # files. The source installs them under the plain "lightning" name.
+      - printf '#!/bin/sh\nexec /app/bin/matrix-client --backend=rust "$@"\n'
+        > /app/bin/lightning && chmod 0755 /app/bin/lightning
+      - mkdir -p /app/share/applications
+      - sed -e 's/^Icon=lightning$/Icon=net.smetonis.Lightning/'
+        -e 's/^Exec=matrix-client --backend=rust$/Exec=lightning/'
+        /app/share/applications/lightning.desktop
+        > /app/share/applications/net.smetonis.Lightning.desktop
+      - rm /app/share/applications/lightning.desktop
+      - for size in 16 32 48 64 128 192; do
+        if [ -f "/app/share/icons/hicolor/${size}x${size}/apps/lightning.png" ]; then
+        mv "/app/share/icons/hicolor/${size}x${size}/apps/lightning.png"
+        "/app/share/icons/hicolor/${size}x${size}/apps/net.smetonis.Lightning.png";
+        fi; done
+      - install -Dm0644 lightning.metainfo.xml
+        /app/share/metainfo/net.smetonis.Lightning.metainfo.xml

@@ -38,11 +38,29 @@ check(idxs == sorted(idxs), "required stages are in the correct order")
 
 # --- jobs present ---
 required_jobs = [
-    "resolve-source", "build-deb", "build-rpm", "validate-deb", "validate-rpm",
+    "resolve-source", "build-deb", "build-rpm",
+    "build-flatpak", "build-appimage", "build-snap",
+    "validate-deb", "validate-rpm",
+    "validate-flatpak", "validate-appimage", "validate-snap",
     "publish-packages", "verify-published-packages", "finalize-release",
 ]
 for job in required_jobs:
     check(job in doc, f"job {job} is defined")
+
+# --- one dedicated runner per format: every build/validate job selects
+# --- exactly one unique selector tag matching its format ---
+UNIQUE_SELECTORS = {"apt", "dnf", "nix", "flatpak", "appimage", "snap"}
+FORMAT_SELECTOR = {
+    "deb": "apt", "rpm": "dnf",
+    "flatpak": "flatpak", "appimage": "appimage", "snap": "snap",
+}
+for fmt, selector in FORMAT_SELECTOR.items():
+    for prefix in ("build-", "validate-"):
+        job = prefix + fmt
+        tags = set(doc[job].get("tags", []))
+        selectors = tags & UNIQUE_SELECTORS
+        check(selectors == {selector},
+              f"{job} selects exactly its own runner tag [{selector}]")
 
 
 def resolve_extends(name):
@@ -106,8 +124,10 @@ def needs_names(job):
         out.append(n["job"] if isinstance(n, dict) else n)
     return out
 
-check(set(["validate-deb", "validate-rpm"]).issubset(needs_names("publish-packages")),
-      "publish-packages depends on both validation jobs")
+check(set(["validate-deb", "validate-rpm", "validate-flatpak",
+           "validate-appimage", "validate-snap"]).issubset(
+          needs_names("publish-packages")),
+      "publish-packages depends on every format's validation job")
 check("resolve-source" in needs_names("publish-packages"),
       "publish-packages depends on resolve-source")
 check("publish-packages" in needs_names("verify-published-packages"),
@@ -117,9 +137,15 @@ check("verify-published-packages" in needs_names("finalize-release"),
 check("publish-packages" in needs_names("finalize-release"),
       "finalize-release depends on publish-packages")
 
-for job in ["validate-deb", "validate-rpm"]:
-    check("build-" + job.split("-")[1] in needs_names(job),
+for job in ["validate-deb", "validate-rpm", "validate-flatpak",
+            "validate-appimage", "validate-snap"]:
+    check("build-" + job.split("-", 1)[1] in needs_names(job),
           f"{job} depends on its build job")
+
+# The snap repackages the AppImage job's bundled AppDir instead of
+# recompiling Qt + Rust a third time.
+check("build-appimage" in needs_names("build-snap"),
+      "build-snap consumes the build-appimage AppDir artifact")
 
 
 # --- minimal rule evaluator for the shared gate ---

@@ -1,0 +1,39 @@
+# snap.yaml TEMPLATE for the Lightning snap. build-snap.sh substitutes
+# @VERSION@ and packs the tree with mksquashfs.
+#
+# Why not snapcraft: snapcraft is distributed only as a snap and its
+# build-snaps/base handling requires a running snapd, which the
+# Docker-outside-of-Docker runner fleet cannot provide, and the core24
+# Ubuntu archive Qt (6.4) is older than Lightning's minimum (6.5). A snap is
+# a squashfs with meta/snap.yaml, so the pipeline packs the fully bundled
+# AppDir produced by the AppImage job (Debian 13 Qt) directly. Strict
+# confinement is DECLARED with the interfaces below; because no snapd can
+# run inside this fleet, confinement behaviour (including the
+# password-manager-service keyring path) is validated structurally, not
+# against a live snapd — recorded honestly in the docs.
+name: lightning
+version: "@VERSION@"
+summary: Native Matrix desktop client
+description: |
+  Lightning is a native C++ and Qt Matrix desktop client with the official
+  Matrix Rust SDK backend. GPL-3.0-or-later.
+license: GPL-3.0-or-later
+base: core24
+grade: stable
+confinement: strict
+architectures:
+  - amd64
+apps:
+  lightning:
+    command: bin/lightning-launch
+    plugs:
+      - network
+      - network-bind
+      - wayland
+      - x11
+      - desktop
+      - desktop-legacy
+      - opengl
+      - audio-playback
+      # libsecret / Secret Service access for token storage.
+      - password-manager-service

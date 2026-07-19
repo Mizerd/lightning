@@ -20,7 +20,7 @@ release_contract_env
 registry_base="${API_ROOT}/packages/generic/${PACKAGE_NAME}/${PACKAGE_VERSION}"
 
 # Declared package files for this release. Append future formats here only.
-declare -a formats=(deb rpm)
+declare -a formats=(deb rpm flatpak appimage snap)
 declare -A file_of arch_of name_of
 file_of[deb]="$ROOT/dist/lightning_${PACKAGE_VERSION}_amd64.deb"
 arch_of[deb]="amd64"
@@ -28,6 +28,15 @@ name_of[deb]="Lightning ${PACKAGE_VERSION} — Debian amd64"
 file_of[rpm]="$ROOT/dist/lightning-${PACKAGE_VERSION}-1.x86_64.rpm"
 arch_of[rpm]="x86_64"
 name_of[rpm]="Lightning ${PACKAGE_VERSION} — RPM x86_64"
+file_of[flatpak]="$ROOT/dist/lightning_${PACKAGE_VERSION}_amd64.flatpak"
+arch_of[flatpak]="amd64"
+name_of[flatpak]="Lightning ${PACKAGE_VERSION} — Flatpak amd64"
+file_of[appimage]="$ROOT/dist/Lightning-${PACKAGE_VERSION}-x86_64.AppImage"
+arch_of[appimage]="x86_64"
+name_of[appimage]="Lightning ${PACKAGE_VERSION} — AppImage x86_64"
+file_of[snap]="$ROOT/dist/lightning_${PACKAGE_VERSION}_amd64.snap"
+arch_of[snap]="amd64"
+name_of[snap]="Lightning ${PACKAGE_VERSION} — Snap amd64"
 
 entries="[]"
 for fmt in "${formats[@]}"; do
