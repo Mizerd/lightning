@@ -362,11 +362,14 @@ validate-appimage:
     - apt-get update
     # Deliberately NO Qt here: the bundle must be self-contained apart from
     # the documented AppImage base-system excludelist.
+    # Base-system set the bundle's excludelist legitimately expects from the
+    # host, determined empirically in a clean container (loader-resolved:
+    # GLVND, harfbuzz, com_err, gpg-error).
     - >-
       apt-get install -y --no-install-recommends
-      binutils ca-certificates file libegl1 libfontconfig1 libfreetype6
-      libgl1 libglib2.0-0 libopengl0 libx11-6 libxcb1 libxext6
-      libxkbcommon0 zstd
+      binutils ca-certificates file libcom-err2 libegl1 libfontconfig1
+      libfreetype6 libgl1 libglib2.0-0 libgpg-error0 libharfbuzz0b
+      libopengl0 libx11-6 libxcb1 libxext6 libxkbcommon0 zstd
   script: [./scripts/validate-appimage.sh]
   artifacts:
     when: always
@@ -401,9 +404,10 @@ validate-snap:
     # documents the structural-equivalent validation.
     - >-
       apt-get install -y --no-install-recommends
-      binutils ca-certificates file libegl1 libfontconfig1 libfreetype6
-      libgl1 libglib2.0-0 libopengl0 libx11-6 libxcb1 libxext6
-      libxkbcommon0 python3 python3-yaml squashfs-tools zstd
+      binutils ca-certificates file libcom-err2 libegl1 libfontconfig1
+      libfreetype6 libgl1 libglib2.0-0 libgpg-error0 libharfbuzz0b
+      libopengl0 libx11-6 libxcb1 libxext6 libxkbcommon0
+      python3 python3-yaml squashfs-tools zstd
   script: [./scripts/validate-snap.sh]
   artifacts:
     when: always
