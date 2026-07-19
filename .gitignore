@@ -17,6 +17,12 @@ compile_commands.json
 generated/LightningGifBuildKeys.h
 **/LightningGifBuildKeys.h
 
+# Local secrets and environment files — never track these
+lightning-gif.env
+.env
+*.env
+!packaging/**/*.env.example
+
 # Nix
 result
 result-*

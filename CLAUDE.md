@@ -389,16 +389,24 @@ Provider keys resolve in one authoritative path (see `gif::resolveProviderKey`):
 
 The runtime override always wins, so a source build (which has no embedded key)
 works as soon as those variables are set. Rokas's local from-source workflow
-sources his own private env file to set them:
+keeps a private env file in the repository root (untracked, gitignored):
 
 ```text
-/home/roksme/Documents/API/lightning-gif.env   # optional local dev convenience
+/home/roksme/git/lightning/lightning-gif.env   # optional local dev convenience
 ```
 
-It exports `LIGHTNING_GIPHY_API_KEY` / `LIGHTNING_KLIPY_API_KEY`; it is local
-configuration, never a repository file, and must never be read, printed, or
-committed by tooling. It is an optional developer convenience, not a build or
-release requirement — official packages do not depend on it.
+It exports `LIGHTNING_GIPHY_API_KEY` / `LIGHTNING_KLIPY_API_KEY`. The
+supported way to run a source build with the keys loaded is:
+
+```sh
+scripts/run-dev.sh
+```
+
+which sources the file (`set -a; . ./lightning-gif.env; set +a`) and launches
+`build-rust/matrix-client --backend=rust` inside `nix develop`. The file (and
+`*.env` generally) is gitignored and must never be read aloud, printed,
+logged, or committed by tooling. It is an optional developer convenience, not
+a build or release requirement — official packages do not depend on it.
 
 Official release packages embed the keys at build time. The values come from the
 project 7 (lightning-deploy) protected+masked CI variables `GIPHY_API_KEY` and
