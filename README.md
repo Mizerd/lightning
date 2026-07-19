@@ -54,7 +54,7 @@ Only manually created `web` and `api` pipelines are accepted.
 | build | `build-deb` | Debian 13.6 build |
 | build | `build-rpm` | Fedora 44 build |
 | build | `build-flatpak` | KDE-runtime sandbox build → single-file bundle |
-| build | `build-appimage` | Debian staged build → self-contained AppImage |
+| build | `build-appimage` | Debian staged build → self-contained AppImage (remote build lane) |
 | build | `build-snap` | Snap packed from the AppImage job's AppDir |
 | validate | `validate-deb` | Clean Debian install/run/uninstall audit |
 | validate | `validate-rpm` | Clean Fedora install/run/uninstall audit |
@@ -77,12 +77,44 @@ AppDir artifact instead of compiling a third time). A shared build
 `resource_group` serializes all project-6 registry/release writes.
 
 Each format builds and validates on its own dedicated runner via one unique
-selector tag: `apt`, `dnf`, `flatpak`, `appimage`, `snap` (see the
-"GitLab Package Build Runners" infrastructure note). The flatpak runner is the
-one deliberate confinement exception: its job containers run unprivileged but
-with relaxed seccomp/apparmor so bwrap user namespaces work. Windows exe/msi
-formats are blocked and documented in `docs/windows-packaging.md` — no fake
-Windows jobs are wired.
+selector tag: `apt`, `dnf`, `flatpak`, `appimage`, `snap`, plus `remote` for
+the off-host build lane (see the "GitLab Package Build Runners" infrastructure
+note). `build-appimage` runs on `package-runner-remote` (a dedicated VM on
+xcp-ng-1) so its heavy compile executes off the GitLab VM; `validate-appimage`
+stays on the local `appimage` runner. The remote lane adds capacity headroom,
+**not** concurrency: every build job still shares the
+`lightning-package-build` resource group and every runner keeps
+`concurrent = 1`, so at most one package build runs at a time across all
+hosts. The flatpak runner is the one deliberate confinement exception: its job
+containers run unprivileged but with relaxed seccomp/apparmor **and unmasked
+system paths** (`systempaths=unconfined`) — flatpak-builder's bwrap must mount
+a fresh procfs inside its user namespace, which Docker's default masked /proc
+forbids. Windows exe/msi formats are blocked and documented in
+`docs/windows-packaging.md` — no fake Windows jobs are wired.
+
+### Build caching
+
+Every package runner bind-mounts a private host directory at `/cache` into its
+job containers. `configure-build.sh` uses it for a persistent cargo home
+(registry + crate sources), a persistent cargo target dir (symlinked over the
+source-pinned `<build>/rust` location), and — for build-only pipelines — a
+ccache. `build-flatpak.sh` persists the flatpak runtimes and, for build-only
+pipelines, the flatpak-builder state dir and its ccache. Official
+(key-embedding) builds deliberately disable the C++ compile caches so no
+object compiled from the generated GIF-key header ever persists outside the
+job; the Rust tree never sees the keys, so cargo caching stays on. Caches are
+per-runner and contain only material derived from public sources. A cold
+runner (or wiped cache) simply rebuilds at full cost.
+
+### Publish-path routing
+
+The publish/verify/release jobs route their API requests through the internal
+GitLab endpoint (`PUBLISH_API_BASE`, `http://10.195.35.2/api/v4`) — the same
+convention the runner fleet uses for polling and clone traffic — because the
+public hostname is Cloudflare-proxied with a ~100 MB request-body cap that the
+Flatpak/AppImage/snap files exceed. The durable URLs recorded in the manifest
+and in release links are always built from the canonical public
+`CI_API_V4_URL`; credentials are sent only in request headers on both paths.
 
 ## Modes
 

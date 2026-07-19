@@ -37,19 +37,31 @@ export FLATPAK_USER_DIR=/cache/flatpak-user
 mkdir -p "$FLATPAK_USER_DIR"
 
 REQUIRE_GIF_KEYS=OFF
+PERSIST_STATE=false
+BUILDER_CACHE_ARGS=()
 if [ "${PUBLISH_PACKAGES:-false}" = "true" ]; then
     require_var GIPHY_API_KEY
     require_var KLIPY_API_KEY
     export LIGHTNING_BUILD_GIPHY_API_KEY="$GIPHY_API_KEY"
     export LIGHTNING_BUILD_KLIPY_API_KEY="$KLIPY_API_KEY"
     REQUIRE_GIF_KEYS=ON
+elif [ -d /cache ] && [ -w /cache ]; then
+    # Build-only pipelines carry no keys, so the builder state (downloads,
+    # build cache, ccache) is safe to persist for warm-build speed. Official
+    # key-embedding builds keep the ephemeral in-tree state that the EXIT
+    # trap wipes.
+    STATE_DIR=/cache/flatpak-state
+    PERSIST_STATE=true
+    BUILDER_CACHE_ARGS=(--ccache)
 fi
 cleanup_keys() {
     unset LIGHTNING_BUILD_GIPHY_API_KEY LIGHTNING_BUILD_KLIPY_API_KEY \
         2>/dev/null || true
     # The generated key header lives only inside sandbox build dirs; remove
-    # them wholesale as a backstop.
-    rm -rf "$BUILD_DIR" "$STATE_DIR"
+    # them wholesale as a backstop. The persistent state dir is only ever
+    # used for keyless builds.
+    rm -rf "$BUILD_DIR"
+    [ "$PERSIST_STATE" = "true" ] || rm -rf "$STATE_DIR"
 }
 trap cleanup_keys EXIT
 
@@ -72,6 +84,8 @@ flatpak install --user --noninteractive --or-update flathub \
 
 flatpak-builder --user --force-clean --disable-rofiles-fuse \
     --state-dir="$STATE_DIR" \
+    --jobs="${BUILD_JOBS:-4}" \
+    "${BUILDER_CACHE_ARGS[@]}" \
     --repo="$REPO_DIR" "$BUILD_DIR" "$MANIFEST"
 
 flatpak build-bundle "$REPO_DIR" "$BUNDLE" "$APP_ID" \

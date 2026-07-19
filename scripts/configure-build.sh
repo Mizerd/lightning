@@ -13,7 +13,7 @@ BUILD_TYPE="${BUILD_TYPE:-Release}"
 BUILD_JOBS="${BUILD_JOBS:-2}"
 
 [[ "$BUILD_TYPE" == "Release" ]] || die "only BUILD_TYPE=Release is supported for distributable packages"
-[[ "$BUILD_JOBS" =~ ^[12]$ ]] || die "BUILD_JOBS must be 1 or 2 on the package runners"
+[[ "$BUILD_JOBS" =~ ^[1-8]$ ]] || die "BUILD_JOBS must be 1-8 on the package runners"
 [[ -f "$SOURCE_DIR/CMakeLists.txt" && -f "$SOURCE_DIR/rust/Cargo.lock" ]] || die "Lightning source is incomplete"
 [[ -f "$SOURCE_DIR/LICENSE" && -f "$SOURCE_DIR/README.md" ]] || \
     die "Lightning source must include its licence and README"
@@ -40,11 +40,51 @@ fi
 
 export CMAKE_BUILD_PARALLEL_LEVEL="$BUILD_JOBS"
 export CARGO_BUILD_JOBS="$BUILD_JOBS"
-export CARGO_HOME="$ROOT/work/cargo-home"
+
+# Persistent per-runner build caches. Every package runner bind-mounts its own
+# host cache directory at /cache into job containers; runners never share one.
+# Everything stored there derives from public sources only.
+CACHE_ROOT=""
+if [[ -d /cache && -w /cache ]]; then
+    CACHE_ROOT=/cache
+fi
+
+if [[ -n "$CACHE_ROOT" ]]; then
+    # Registry index, crate sources, and git checkouts survive across jobs, so
+    # a warm build skips the network fetch and keeps stable source mtimes for
+    # cargo's fingerprints.
+    export CARGO_HOME="$CACHE_ROOT/cargo-home"
+else
+    export CARGO_HOME="$ROOT/work/cargo-home"
+fi
 export CFLAGS="${CFLAGS:-} -ffile-prefix-map=$ROOT=/usr/src/lightning -fdebug-prefix-map=$ROOT=/usr/src/lightning"
 export CXXFLAGS="${CXXFLAGS:-} -ffile-prefix-map=$ROOT=/usr/src/lightning -fdebug-prefix-map=$ROOT=/usr/src/lightning"
 export RUSTFLAGS="${RUSTFLAGS:-} --remap-path-prefix=$ROOT=/usr/src/lightning"
 mkdir -p "$CARGO_HOME" "$STAGE_DIR"
+
+# The source pins CARGO_TARGET_DIR to <build>/rust, so persist that exact
+# location via a symlink onto the runner cache. Cargo's own fingerprints
+# decide what is reusable; the Rust tree never sees the GIF keys, so this is
+# safe for official builds as well.
+if [[ -n "$CACHE_ROOT" ]]; then
+    mkdir -p "$CACHE_ROOT/cargo-target" "$BUILD_DIR"
+    if [[ ! -e "$BUILD_DIR/rust" || -L "$BUILD_DIR/rust" ]]; then
+        ln -sfn "$CACHE_ROOT/cargo-target" "$BUILD_DIR/rust"
+    fi
+fi
+
+# C++ compile cache. Deliberately disabled for publishing builds: object files
+# compiled from the generated GIF-key header must never persist outside the
+# job. Build-only pipelines carry no keys, so caching them is safe.
+CCACHE_ARGS=()
+if [[ "${PUBLISH_PACKAGES:-false}" == true ]]; then
+    printf 'C++ compile cache disabled for the official (key-embedding) build\n'
+elif [[ -n "$CACHE_ROOT" ]] && command -v ccache >/dev/null 2>&1; then
+    export CCACHE_DIR="$CACHE_ROOT/ccache"
+    export CCACHE_MAXSIZE="${CCACHE_MAXSIZE:-3G}"
+    CCACHE_ARGS=(-DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache)
+    printf 'ccache enabled at %s\n' "$CCACHE_DIR"
+fi
 
 printf 'Toolchain: '; cmake --version | head -1
 printf 'Rust: '; rustc --version
@@ -57,7 +97,8 @@ cmake -S "$SOURCE_DIR" -B "$BUILD_DIR" -G Ninja \
     -DCMAKE_INSTALL_PREFIX=/usr \
     -DBUILD_TESTING=OFF \
     -DENABLE_RUST_SDK_BACKEND=ON \
-    -DLIGHTNING_REQUIRE_GIF_KEYS="$REQUIRE_GIF_KEYS"
+    -DLIGHTNING_REQUIRE_GIF_KEYS="$REQUIRE_GIF_KEYS" \
+    "${CCACHE_ARGS[@]}"
 cmake --build "$BUILD_DIR" --parallel "$BUILD_JOBS"
 DESTDIR="$STAGE_DIR" cmake --install "$BUILD_DIR"
 

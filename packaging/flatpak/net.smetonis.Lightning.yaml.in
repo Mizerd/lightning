@@ -36,7 +36,7 @@ build-options:
     - --share=network
   env:
     CARGO_HOME: /run/build/lightning/cargo-home
-    CARGO_BUILD_JOBS: "2"
+    CARGO_BUILD_JOBS: "4"
   # Passed from the build job environment into the sandbox WITHOUT being
   # recorded in the manifest, ostree metadata, or the resulting bundle.
   # Keyless (build-only) pipelines simply leave them unset.

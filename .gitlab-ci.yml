@@ -35,9 +35,11 @@ variables:
     value: ""
     description: "create only: base64-encoded Markdown notes. Otherwise a tracked docs/releases/vX.Y.Z.md is used."
   BUILD_TYPE: "Release"
-  BUILD_JOBS: "2"
-  CMAKE_BUILD_PARALLEL_LEVEL: "2"
-  CARGO_BUILD_JOBS: "2"
+  # Per-build parallelism. configure-build.sh derives CMAKE_BUILD_PARALLEL_LEVEL
+  # and CARGO_BUILD_JOBS from this. Jobs on the 6-CPU package runners override
+  # it to 6; the remote 4-vCPU build lane uses 4. Builds themselves stay
+  # serialized through the shared lightning-package-build resource group.
+  BUILD_JOBS: "4"
   # Publication target is fixed to Lightning project 6 and enforced in-script.
   TARGET_PROJECT_ID: "6"
   LIGHTNING_PROJECT_ID: "6"
@@ -52,6 +54,14 @@ variables:
 # The gate deliberately does NOT depend on RELEASE_ACTION, so both actions
 # always include the publish, verify, and release jobs.
 .publish-rules:
+  # Publish-chain API traffic uses the internal GitLab endpoint, matching the
+  # runner fleet's polling/clone convention. The public URL is Cloudflare-
+  # proxied with a ~100 MB request-body cap, which large package files
+  # (Flatpak/AppImage/snap) would exceed. Durable URLs recorded in the
+  # manifest and release links stay on the canonical public host; only the
+  # in-job requests are routed internally, and credentials stay in headers.
+  variables:
+    PUBLISH_API_BASE: "http://10.195.35.2/api/v4"
   rules:
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $PUBLISH_PACKAGES == "true"'
       when: on_success
@@ -127,13 +137,15 @@ build-deb:
     BASE_IMAGE: "debian:13.6-slim"
     DEBIAN_FRONTEND: "noninteractive"
     RUST_TOOLCHAIN: "1.93.0"
+    BUILD_JOBS: "6"
   before_script:
     - apt-get update
     - >-
       apt-get install -y --no-install-recommends
-      build-essential ca-certificates cmake curl debhelper dpkg-dev fakeroot
-      file git jq libsecret-1-dev libsqlite3-dev libssl-dev ninja-build
-      patchelf pkg-config qt6-base-dev qt6-declarative-dev qt6-tools-dev zstd
+      build-essential ca-certificates ccache cmake curl debhelper dpkg-dev
+      fakeroot file git jq libsecret-1-dev libsqlite3-dev libssl-dev
+      ninja-build patchelf pkg-config qt6-base-dev qt6-declarative-dev
+      qt6-tools-dev zstd
     - >-
       curl --fail --show-error --silent --location
       --proto '=https' --tlsv1.2 https://sh.rustup.rs
@@ -152,10 +164,11 @@ build-rpm:
   variables:
     FORMAT: "rpm"
     BASE_IMAGE: "fedora:44"
+    BUILD_JOBS: "6"
   before_script:
     - >-
       dnf install -y
-      appstream cargo ca-certificates cmake curl desktop-file-utils
+      appstream cargo ca-certificates ccache cmake curl desktop-file-utils
       gcc gcc-c++ git jq libsecret-devel
       ninja-build openssl-devel patchelf pkgconf-pkg-config
       qt6-qtbase-devel qt6-qtdeclarative-devel qt6-qtsvg-devel
@@ -185,17 +198,22 @@ build-flatpak:
 build-appimage:
   extends: .build-base
   image: debian:13.6-slim
-  tags: [appimage, package]
+  # Runs on the dedicated remote build lane (package-runner-remote on
+  # 10.195.35.6 / xcp-ng-1) so this heavy build executes off the GitLab VM.
+  # The shared resource_group in .build-base keeps the whole pool serialized:
+  # having a second host adds capacity headroom, not concurrency.
+  tags: [remote, package]
   variables:
     FORMAT: "appimage"
     BASE_IMAGE: "debian:13.6-slim"
     DEBIAN_FRONTEND: "noninteractive"
     RUST_TOOLCHAIN: "1.93.0"
+    BUILD_JOBS: "4"
   before_script:
     - apt-get update
     - >-
       apt-get install -y --no-install-recommends
-      build-essential ca-certificates cmake curl file git jq
+      build-essential ca-certificates ccache cmake curl file git jq
       libsecret-1-dev libsqlite3-dev libssl-dev ninja-build patchelf
       pkg-config qt6-base-dev qt6-declarative-dev qt6-tools-dev
       qt6-wayland qml6-module-qtquick qml6-module-qtquick-controls
