@@ -89,6 +89,24 @@ private Q_SLOTS:
         QVERIFY(main.contains(QStringLiteral(
             "icons/hicolor/192x192/apps/lightning.png")));
     }
+
+    // Qt routes logging to the systemd journal when stderr is not a TTY,
+    // which silently hides category logs from piped/offscreen harness runs.
+    // main() must keep forcing stderr logging for headless/self-test runs
+    // (while an explicit user-provided value still wins) or harness
+    // diagnostics regress to producing no output at all.
+    void headlessRunsForceStderrLogging()
+    {
+        const QString main =
+            readAll(QStringLiteral(SOURCE_DIR "/src/main.cpp"));
+        QVERIFY(!main.isEmpty());
+        QVERIFY(main.contains(QStringLiteral(
+            "!qEnvironmentVariableIsSet(\"QT_FORCE_STDERR_LOGGING\")")));
+        QVERIFY(main.contains(QStringLiteral(
+            "platform.startsWith(\"offscreen\")")));
+        QVERIFY(main.contains(QStringLiteral(
+            "qputenv(\"QT_FORCE_STDERR_LOGGING\", \"1\")")));
+    }
 };
 
 QTEST_GUILESS_MAIN(DesktopIntegrationTest)

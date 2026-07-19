@@ -300,6 +300,23 @@ int main(int argc, char *argv[])
     // This keeps --help / --version / bad --backend from being masked by a
     // Qt platform-plugin abort when no display is available.
     const PreflightResult pf = preflightParse(argc, argv);
+
+    // Qt's default message handler routes qCDebug/qCInfo/qCWarning to the
+    // systemd journal instead of stderr whenever stderr is not a TTY, which
+    // silently hides every category log from piped/offscreen harness runs.
+    // Headless and self-test runs need the logs on stderr where a harness
+    // can capture them; a real desktop launch keeps the default routing.
+    // An explicitly set QT_FORCE_STDERR_LOGGING always wins.
+    if (!qEnvironmentVariableIsSet("QT_FORCE_STDERR_LOGGING")) {
+        const QByteArray platform = qgetenv("QT_QPA_PLATFORM");
+        const bool headless = platform.startsWith("offscreen")
+                           || platform.startsWith("minimal")
+                           || pf.action == PreflightResult::RunSmokeTest
+                           || pf.action == PreflightResult::RunGifSelfTest;
+        if (headless)
+            qputenv("QT_FORCE_STDERR_LOGGING", "1");
+    }
+
     if (pf.action == PreflightResult::ExitSuccess) {
         QTextStream(stdout) << pf.stdoutMsg;
         return 0;
