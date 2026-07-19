@@ -501,20 +501,39 @@ updates those same synchronized locations. Before release, run complete Rust
 tests plus Rust and non-Rust builds/CTest, and report unavailable live
 validation honestly.
 
-The normal release flow is:
+Releases are **package-first**: the packaging pipeline (lightning-deploy,
+project 7) creates the tag and GitLab Release only after it has built,
+validated, published, and verified the installation packages. The tag and
+release must not exist before package publication and verification pass. The
+authoritative flow is:
 
-1. Finish and push a clean release commit on `main`.
-2. Verify `origin/main` equals that commit.
-3. Create an annotated version tag on that exact commit.
-4. Push normally; never force.
-5. Create the GitLab Release for the immutable tag.
-6. Use GitLab source archives unless real binary artifacts were explicitly
-   built, validated, and attached.
-7. Verify `git rev-parse <tag>^{}` equals the release commit and re-verify
-   `origin/main` equals the final commit.
+1. Prepare the release commit on project 6 `main`.
+2. Update the application version (CMake, Rust, user agent) and the release
+   documentation (`docs/releases/v<version>.md` if used for notes).
+3. Run complete source tests (Rust tests plus Rust and non-Rust builds/CTest),
+   and report unavailable live validation honestly.
+4. Push the release commit normally to `main`; never force.
+5. Do **not** manually create the tag or GitLab Release yet.
+6. Trigger the project 7 packaging pipeline in `RELEASE_ACTION=create` mode
+   (`SOURCE_REF=<full release commit SHA>`, `RELEASE_VERSION=<X.Y.Z>`,
+   `PUBLISH_PACKAGES=true`).
+7. The pipeline builds and validates all supported packages on clean systems.
+8. It publishes them to the project 6 Generic Package Registry under
+   `lightning / <version>`.
+9. It creates the tag and GitLab Release from the exact resolved commit only
+   after publication verifies.
+10. It attaches every package link (`link_type: package`) to the new release.
+11. The release is complete only after source archives and package links
+    verify.
+
+For an existing release that is missing packages, use
+`RELEASE_ACTION=attach-existing` (build, validate, publish, verify, then add
+links to the existing release without altering its tag, notes, or source
+archives). This was used to backfill `v0.6.1`.
 
 The latest published release is `v0.6.1`, cut from its release commit on `main`.
 The previous release `v0.6.0` at `2157194` remains immutable and unchanged.
+Publishing packages for `v0.6.1` did not move or recreate its tag or release.
 
 ## 15. Licensing and public repository state
 
