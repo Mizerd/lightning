@@ -1,101 +1,101 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+# Upload exactly the manifest's package files to project 6's Generic Package
+# Registry. Immutable: an identical existing file is accepted; a different file
+# at the same path fails; a released file is never overwritten or deleted.
+# Partial failures roll back only files this pipeline proved absent, so a retry
+# converges safely.
+
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./scripts/lib.sh
 source "$SCRIPT_DIR/lib.sh"
 # shellcheck source=./scripts/gitlab-api.sh
 source "$SCRIPT_DIR/gitlab-api.sh"
+
 ROOT="$(project_dir)"
 gitlab_api_init
-validate_release_contract
+release_contract_env
 
-deb="$ROOT/dist/lightning_${PACKAGE_VERSION}_amd64.deb"
-rpm="$ROOT/dist/lightning-${PACKAGE_VERSION}-1.x86_64.rpm"
-[[ -f "$deb" && -f "$rpm" ]] || die "both final release packages are required"
-mapfile -t packages < <(find "$ROOT/dist" -maxdepth 1 -type f \( -name '*.deb' -o -name '*.rpm' \) -print)
-(( ${#packages[@]} == 2 )) || die "publication input must contain exactly one DEB and one RPM"
+manifest="$ROOT/dist/manifest.json"
+[[ -f "$manifest" ]] || die "publication manifest is missing"
+[[ "$(jq -er '.source_sha' "$manifest")" == "$SOURCE_SHA" ]] || die "manifest source SHA mismatch"
+[[ "$(jq -er '.version' "$manifest")" == "$PACKAGE_VERSION" ]] || die "manifest version mismatch"
+count="$(jq '.entries | length' "$manifest")"
+(( count >= 1 )) || die "manifest lists no files to publish"
 
-registry_base="${API_ROOT}/packages/generic/lightning/${PACKAGE_VERSION}"
 tmp_dir="$(mktemp -d)"
+uploaded_list="$tmp_dir/uploaded.list"
+: >"$uploaded_list"
 cleanup() { rm -rf "$tmp_dir"; }
 trap cleanup EXIT
 
-preflight_file() {
-    local file="$1" name status remote
-    name="$(basename "$file")"
-    remote="$tmp_dir/$name"
-    status="$(api_request --output "$remote" --write-out '%{http_code}' "$registry_base/$name")" || \
-        die "package preflight request failed for $name"
+rollback() {
+    # Remove only files this pipeline actually uploaded this run.
+    local name
+    while IFS= read -r name; do
+        [[ -n "$name" ]] || continue
+        delete_new_package_file "$name" "$PACKAGE_VERSION" || \
+            printf 'warning: rollback could not remove %s\n' "$name" >&2
+    done <"$uploaded_list"
+}
+
+# --- Phase 1: preflight all destinations (no writes) ---
+declare -a entry_files entry_urls entry_names entry_states
+while IFS= read -r row; do
+    local_path="$(jq -r '.local_path' <<<"$row")"
+    filename="$(jq -r '.filename' <<<"$row")"
+    url="$(jq -r '.registry_url' <<<"$row")"
+    expected_sha="$(jq -r '.sha256' <<<"$row")"
+    file="$ROOT/$local_path"
+    [[ -f "$file" ]] || die "manifest file is missing on disk: $filename"
+    actual_sha="$(sha256sum "$file" | cut -d' ' -f1)"
+    [[ "$actual_sha" == "$expected_sha" ]] || \
+        die "manifest checksum mismatch for $filename (validated bytes differ)"
+    remote="$tmp_dir/remote-$filename"
+    status="$(api_request --output "$remote" --write-out '%{http_code}' "$url")" || \
+        die "package preflight request failed for $filename"
     case "$status" in
         200)
-            if ! cmp -s "$file" "$remote"; then
-                die "immutable package conflict for $name"
-            fi
-            printf 'Package already published and identical: %s\n' "$name"
-            printf 'identical\n' >"$tmp_dir/$name.state"
-            ;;
+            cmp -s "$file" "$remote" || die "immutable package conflict for $filename"
+            printf 'Already published and identical: %s\n' "$filename"
+            state=identical ;;
         404)
-            printf 'Package is not yet published: %s\n' "$name"
-            printf 'missing\n' >"$tmp_dir/$name.state"
-            ;;
-        *) die "package preflight returned HTTP $status for $name" ;;
+            printf 'Not yet published: %s\n' "$filename"
+            state=missing ;;
+        *) die "package preflight returned HTTP $status for $filename" ;;
     esac
-}
+    entry_files+=("$file")
+    entry_urls+=("$url")
+    entry_names+=("$filename")
+    entry_states+=("$state")
+done < <(jq -c '.entries[]' "$manifest")
 
-upload_file() {
-    local file="$1" name status
-    name="$(basename "$file")"
-    [[ "$(<"$tmp_dir/$name.state")" == missing ]] || return 0
-    if ! status="$(api_request --request PUT --upload-file "$file" --output "$tmp_dir/upload.json" \
-        --write-out '%{http_code}' "$registry_base/$name")"; then
-        return 1
+# --- Phase 2: upload every missing file ---
+for i in "${!entry_files[@]}"; do
+    [[ "${entry_states[$i]}" == missing ]] || continue
+    file="${entry_files[$i]}"; url="${entry_urls[$i]}"; name="${entry_names[$i]}"
+    if ! status="$(api_request --request PUT --upload-file "$file" \
+        --output "$tmp_dir/upload-$name.json" --write-out '%{http_code}' "$url")"; then
+        rollback
+        die "upload request failed for $name; newly uploaded files were rolled back"
     fi
-    [[ "$status" == 201 ]] || return 1
+    if [[ "$status" != 201 ]]; then
+        # A 201-less response may still have created the file; record it so
+        # rollback can remove it, then roll back everything from this run.
+        printf '%s\n' "$name" >>"$uploaded_list"
+        rollback
+        die "upload of $name returned HTTP $status; newly uploaded files were rolled back"
+    fi
+    printf '%s\n' "$name" >>"$uploaded_list"
     printf 'Uploaded %s\n' "$name"
-    printf 'uploaded\n' >"$tmp_dir/$name.state"
-}
+done
 
-# Check both immutable destinations and the matching release before changing
-# registry state. Uploads happen only after the complete preflight succeeds.
-preflight_file "$deb"
-preflight_file "$rpm"
-if ! upload_file "$deb"; then
-    deb_name="$(basename "$deb")"
-    if [[ "$(<"$tmp_dir/$deb_name.state")" == missing ]]; then
-        delete_new_package_file "$deb_name" || true
-    fi
-    die "DEB upload failed; any newly uploaded package file was rolled back"
-fi
-if ! upload_file "$rpm"; then
-    rpm_name="$(basename "$rpm")"
-    deb_name="$(basename "$deb")"
-    # A failed request may have reached GitLab before the connection failed.
-    # Remove only files that were absent during this pipeline's preflight.
-    if [[ "$(<"$tmp_dir/$rpm_name.state")" == missing ]]; then
-        delete_new_package_file "$rpm_name" || true
-    fi
-    if [[ "$(<"$tmp_dir/$deb_name.state")" == uploaded ]]; then
-        delete_new_package_file "$deb_name" || \
-            die "RPM upload failed and automatic DEB rollback also failed"
-    fi
-    die "RPM upload failed; any newly uploaded package files were rolled back"
-fi
-
-jq -n \
-    --arg tag "$SOURCE_REF" \
-    --arg version "$PACKAGE_VERSION" \
-    --arg source_sha "$SOURCE_SHA" \
+# --- Phase 3: publication record for downstream jobs ---
+jq \
     --arg auth_method "$AUTH_METHOD" \
-    --arg deb_name "$(basename "$deb")" \
-    --arg deb_url "$registry_base/$(basename "$deb")" \
-    --arg deb_sha "$(sha256sum "$deb" | cut -d' ' -f1)" \
-    --arg rpm_name "$(basename "$rpm")" \
-    --arg rpm_url "$registry_base/$(basename "$rpm")" \
-    --arg rpm_sha "$(sha256sum "$rpm" | cut -d' ' -f1)" \
-    '{tag:$tag,version:$version,source_sha:$source_sha,authentication:$auth_method,
-      files:[{format:"deb",name:$deb_name,url:$deb_url,sha256:$deb_sha},
-             {format:"rpm",name:$rpm_name,url:$rpm_url,sha256:$rpm_sha}]}' \
-    >"$ROOT/dist/publication.json"
+    '{package_name, version, source_sha, release_tag, release_action,
+      target_project_id, authentication:$auth_method, entries}' \
+    "$manifest" >"$ROOT/dist/publication.json"
 
-printf 'Published exactly two package files to Lightning project 6\n'
+printf 'Published %s package file(s) to Lightning project 6\n' "$count"

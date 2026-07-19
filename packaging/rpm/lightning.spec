@@ -43,5 +43,5 @@ update-desktop-database -q %{_datadir}/applications || :
 update-desktop-database -q %{_datadir}/applications || :
 
 %changelog
-* Fri Jul 17 2026 Mizerd <rsmetonis@gmail.com> - 0.6.0-1
-- External private package pipeline
+* Fri Jul 17 2026 Mizerd <rsmetonis@gmail.com> - %{pkg_version}-%{pkg_release}
+- Automated package build from Lightning source %{pkg_source_sha}

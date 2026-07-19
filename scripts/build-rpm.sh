@@ -15,6 +15,7 @@ rpmbuild -bb "$ROOT/packaging/rpm/lightning.spec" \
     --define "_topdir $TOPDIR" \
     --define "pkg_version $RPM_VERSION" \
     --define "pkg_release $RPM_RELEASE" \
+    --define "pkg_source_sha $SOURCE_SHA" \
     --define "stage_root $ROOT/work/stage"
 
 mapfile -t packages < <(find "$TOPDIR/RPMS" -type f -name '*.rpm' -print)
