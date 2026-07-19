@@ -195,9 +195,12 @@ build-flatpak:
     DEBIAN_FRONTEND: "noninteractive"
   before_script:
     - apt-get update
+    # elfutils: flatpak-builder invokes eu-strip/eu-elfcompress for the
+    # post-build debuginfo split.
     - >-
       apt-get install -y --no-install-recommends
-      ca-certificates curl flatpak flatpak-builder git jq python3 zstd
+      ca-certificates curl elfutils flatpak flatpak-builder git jq
+      python3 zstd
   script:
     - ./scripts/prepare-pinned-source.sh
     - ./scripts/build-flatpak.sh
