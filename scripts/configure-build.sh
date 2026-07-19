@@ -71,8 +71,13 @@ unset LIGHTNING_BUILD_GIPHY_API_KEY LIGHTNING_BUILD_KLIPY_API_KEY 2>/dev/null ||
 # build-generated RPATH from the staged executable for both formats.
 patchelf --remove-rpath "$STAGE_DIR/usr/bin/matrix-client"
 
-install -Dm0644 "$ROOT/packaging/common/lightning.desktop" \
-    "$STAGE_DIR/usr/share/applications/lightning.desktop"
+# Since Lightning 0.7 the source installs its own desktop entry and hicolor
+# icons via cmake --install; the copy here is only a fallback so older
+# pinned source SHAs (pre-icon) can still be rebuilt.
+if [ ! -f "$STAGE_DIR/usr/share/applications/lightning.desktop" ]; then
+    install -Dm0644 "$ROOT/packaging/common/lightning.desktop" \
+        "$STAGE_DIR/usr/share/applications/lightning.desktop"
+fi
 install -Dm0644 "$ROOT/packaging/common/lightning.metainfo.xml" \
     "$STAGE_DIR/usr/share/metainfo/lightning.metainfo.xml"
 install -Dm0644 "$ROOT/packaging/common/copyright" \

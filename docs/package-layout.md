@@ -15,5 +15,6 @@ the Rust SDK bridge is linked statically. The deployment project adds:
 
 Qt, libsecret, SQLite and other system libraries remain dynamically linked and
 are declared as native DEB/RPM dependencies.
-The source currently supplies no application icon, so packages do not invent
-or duplicate one.
+Since Lightning 0.7 the source supplies the application icon set
+(`/usr/share/icons/hicolor/<size>/apps/lightning.png`) and its own desktop
+entry through `cmake --install`; packages ship them as staged.
