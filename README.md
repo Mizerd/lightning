@@ -22,6 +22,7 @@ A native, modern Matrix desktop client built with Qt and the official Rust Matri
 - [Building](#building)
 - [Running](#running)
 - [Testing](#testing)
+- [Packaging and releases](#packaging-and-releases)
 - [Security and privacy](#security-and-privacy)
 - [Project maturity](#project-maturity)
 - [Repository access and contributing](#repository-access-and-contributing)
@@ -218,6 +219,18 @@ nix develop -c ctest \
 ```
 
 Build the corresponding tree before running its tests.
+
+## Packaging and releases
+
+This repository contains the Lightning application source. The Debian and RPM
+packages are built, tested on a clean system, published to this project's
+Package Registry, and attached to its GitLab Releases by a separate
+package-building and release-automation project,
+[lightning-deploy](https://gitlab.smetonis.net/Mizerd/lightning-deploy).
+
+Official packages are still published under this main Lightning project and
+attached to its releases; `lightning-deploy` only holds the pipeline and
+automation logic. For package-pipeline details, see that project.
 
 ## Security and privacy
 
