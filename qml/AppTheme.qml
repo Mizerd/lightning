@@ -408,6 +408,58 @@ QtObject {
         accentText: _teaAccentText,
         ownBubble: _teaOwnBubble, otherBubble: _teaOtherBubble
     })
+    // Selectable theme presets for the Settings theme picker, design order
+    // (handoff themes first). System (0) is a resolution mode, not a palette,
+    // so it is represented by the match-system toggle instead of a card.
+    readonly property var themeList: [
+        { id: 8,  name: qsTr("Moss Light") },
+        { id: 9,  name: qsTr("Indigo Night") },
+        { id: 10, name: qsTr("Deep Teal") },
+        { id: 1,  name: qsTr("Lightning Light") },
+        { id: 2,  name: qsTr("Lightning Dark") },
+        { id: 3,  name: qsTr("Graphite") },
+        { id: 4,  name: qsTr("Midnight") },
+        { id: 5,  name: qsTr("Nordic") },
+        { id: 6,  name: qsTr("Purple Dusk") },
+        { id: 7,  name: qsTr("Warm") }
+    ]
+
+    // Palette lookup for rendering theme preview cards. Must route exactly
+    // like _p below; keys missing from pre-handoff palettes (rail,
+    // accentSoft, accentBorder, accentText) are filled with the same
+    // fallbacks the semantic aliases use.
+    function paletteForTheme(id) {
+        var p
+        switch (id) {
+        case 1:  p = _light; break
+        case 2:  p = _dark; break
+        case 3:  p = _graphite; break
+        case 4:  p = _midnight; break
+        case 5:  p = _nord; break
+        case 6:  p = _purple; break
+        case 7:  p = _warm; break
+        case 8:  p = _moss; break
+        case 9:  p = _indigo; break
+        case 10: p = _teal; break
+        default: p = _p; break
+        }
+        return {
+            background: p.background,
+            rail: p.rail !== undefined ? p.rail : p.sidebar,
+            sidebar: p.sidebar,
+            surface: p.surface,
+            hover: p.hover,
+            border: p.border,
+            accent: p.accent,
+            accentSoft: p.accentSoft !== undefined ? p.accentSoft
+                                                   : Qt.alpha(p.accent, 0.16),
+            accentBorder: p.accentBorder !== undefined ? p.accentBorder
+                                                       : Qt.alpha(p.accent, 0.35),
+            textPrimary: p.textPrimary,
+            textMuted: p.textMuted
+        }
+    }
+
     readonly property var _p: {
         switch (effectiveTheme) {
         case 1:  return _light

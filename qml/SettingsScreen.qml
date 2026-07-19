@@ -4,12 +4,15 @@ import QtQuick.Dialogs
 import QtQuick.Layouts
 import MatrixClient
 
-// v0.5.9 (Phase 4): two-pane Settings. Left navigation lists only
-// categories with real, implemented controls; the right pane shows grouped
-// cards with independent scrolling. Every 0.5.6–0.5.8 security control
-// (SAS verification, recovery key, encrypted room-key import, local reset)
-// is preserved under Security & Recovery, with the destructive reset in a
-// separated Danger Zone. Sign out lives ONLY in the account menu.
+// Design-handoff screen 1d: 260px left navigation (Settings title; Account,
+// Appearance, Notifications, Privacy & security, Sessions, Labs; About
+// pinned at the bottom) with soft-accent active rows, and per-category
+// panes. Appearance carries the theme preview cards, the match-system
+// toggle, and the (backend-gated, honestly-unavailable) message-layout
+// control. Every security control (SAS verification, recovery key,
+// encrypted room-key import, local reset) is preserved under Privacy &
+// security / Sessions, with the destructive reset in a separated Danger
+// Zone. Sign out lives ONLY in the account menu.
 //
 // Category panes are toggled by visibility (never Loader), so in-flight
 // verification/import state survives switching categories.
@@ -26,14 +29,61 @@ Item {
         }
     }
 
-    // "general" | "appearance" | "notifications" | "account" | "security"
-    // | "advanced" | "about"
-    property string section: "general"
+    // Design-1d navigation row: icon + label, 9px radius, active row gets
+    // the soft-accent background with accent text.
+    component SettingsNavRow: ItemDelegate {
+        id: navRow
+        property string sectionKey: ""
+        property string iconName: ""
+        property string navLabel: ""
+        Layout.fillWidth: true
+        implicitHeight: 38
+        highlighted: root.section === sectionKey
+        Accessible.name: navLabel
+        onClicked: root.section = sectionKey
+        contentItem: RowLayout {
+            spacing: AppTheme.spacing8
+            Icon {
+                name: navRow.iconName
+                size: 18
+                color: navRow.highlighted ? AppTheme.accentText
+                                          : AppTheme.textSecondary
+            }
+            Label {
+                text: navRow.navLabel
+                Layout.fillWidth: true
+                color: navRow.highlighted ? AppTheme.accentText
+                                          : AppTheme.textPrimary
+                font.pixelSize: AppTheme.fontBody
+                font.weight: navRow.highlighted ? Font.Bold : Font.Medium
+                elide: Label.ElideRight
+            }
+        }
+        background: Rectangle {
+            radius: 9
+            color: navRow.highlighted ? AppTheme.accentSoft
+                 : navRow.hovered ? AppTheme.hover
+                 : "transparent"
+        }
+    }
+
+    // Design-1d sections: "account" | "appearance" | "notifications"
+    // | "privacy" | "sessions" | "labs" | "about"
+    property string section: "account"
+
+    // Deep links from older code paths (message rows jump to "security",
+    // etc.) keep working through this mapping.
+    function mapLegacySection(key) {
+        if (key === "general") return "appearance"
+        if (key === "security") return "privacy"
+        if (key === "advanced") return "labs"
+        return key
+    }
 
     Component.onCompleted: {
         var requested = app.takeRequestedSettingsSection()
         if (requested.length > 0)
-            section = requested
+            section = mapLegacySection(requested)
     }
 
     function goBack() {
@@ -74,82 +124,97 @@ Item {
         anchors.fill: parent
         spacing: 0
 
-        // ── Header ────────────────────────────────────────────────────────
-        Rectangle {
-            Layout.fillWidth: true
-            implicitHeight: headerRow.implicitHeight + AppTheme.spacing12 * 2
-            color: AppTheme.surface
-            RowLayout {
-                id: headerRow
-                anchors.fill: parent
-                anchors.leftMargin: AppTheme.spacing16
-                anchors.rightMargin: AppTheme.spacing16
-                spacing: AppTheme.spacing8
-                Label {
-                    text: qsTr("Settings")
-                    color: AppTheme.textPrimary
-                    font.pixelSize: AppTheme.fontPageTitle
-                    font.weight: Font.DemiBold
-                }
-                Item { Layout.fillWidth: true }
-                Button {
-                    text: qsTr("Back")
-                    Accessible.name: qsTr("Leave settings")
-                    onClicked: root.goBack()
-                }
-            }
-        }
-        Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: AppTheme.border }
-
         RowLayout {
             Layout.fillWidth: true
             Layout.fillHeight: true
             spacing: 0
 
-            // ── Left navigation ──────────────────────────────────────────
+            // ── Left navigation (design 1d: 260 px, Settings title, icon
+            // rows, About pinned at the bottom) ──────────────────────────
             Rectangle {
                 Layout.fillHeight: true
-                Layout.preferredWidth: 200
-                Layout.minimumWidth: 160
+                Layout.preferredWidth: 260
+                Layout.minimumWidth: 200
                 color: AppTheme.sidebar
 
                 ColumnLayout {
                     anchors.fill: parent
-                    anchors.margins: AppTheme.spacing8
+                    anchors.margins: AppTheme.spacing12
                     spacing: 2
 
-                    Repeater {
-                        model: [
-                            { key: "general",       label: qsTr("General") },
-                            { key: "appearance",    label: qsTr("Appearance") },
-                            { key: "notifications", label: qsTr("Notifications") },
-                            { key: "account",       label: qsTr("Account") },
-                            { key: "security",      label: qsTr("Security & Recovery") },
-                            { key: "advanced",      label: qsTr("Advanced") },
-                            { key: "about",         label: qsTr("About") }
-                        ]
-                        ItemDelegate {
-                            required property var modelData
-                            Layout.fillWidth: true
-                            highlighted: root.section === modelData.key
-                            Accessible.name: modelData.label
-                            onClicked: root.section = modelData.key
-                            contentItem: Label {
-                                text: parent.modelData.label
-                                color: parent.highlighted ? AppTheme.selectedText
-                                                          : AppTheme.textPrimary
-                                font.pixelSize: AppTheme.fontBody
-                                elide: Label.ElideRight
+                    ItemDelegate {
+                        id: backRow
+                        Layout.fillWidth: true
+                        implicitHeight: 34
+                        Accessible.name: qsTr("Leave settings")
+                        onClicked: root.goBack()
+                        contentItem: RowLayout {
+                            spacing: AppTheme.spacing8
+                            Icon {
+                                name: "arrow_back"
+                                size: 18
+                                color: AppTheme.textSecondary
                             }
-                            background: Rectangle {
-                                radius: AppTheme.radiusSm
-                                color: parent.highlighted ? AppTheme.selected
-                                     : parent.hovered ? AppTheme.hover
-                                     : "transparent"
+                            Label {
+                                text: qsTr("Back")
+                                Layout.fillWidth: true
+                                color: AppTheme.textSecondary
+                                font.pixelSize: AppTheme.fontSecondary
+                                font.weight: Font.Medium
                             }
                         }
+                        background: Rectangle {
+                            radius: 9
+                            color: backRow.hovered ? AppTheme.hover : "transparent"
+                        }
+                    }
+
+                    Label {
+                        text: qsTr("Settings")
+                        color: AppTheme.textPrimary
+                        font.pixelSize: AppTheme.fontPageTitle
+                        font.weight: Font.ExtraBold
+                        Layout.leftMargin: AppTheme.spacing8
+                        Layout.topMargin: AppTheme.spacing8
+                        Layout.bottomMargin: AppTheme.spacing12
+                    }
+
+                    SettingsNavRow {
+                        sectionKey: "account"
+                        iconName: "account_circle"
+                        navLabel: qsTr("Account")
+                    }
+                    SettingsNavRow {
+                        sectionKey: "appearance"
+                        iconName: "palette"
+                        navLabel: qsTr("Appearance")
+                    }
+                    SettingsNavRow {
+                        sectionKey: "notifications"
+                        iconName: "notifications"
+                        navLabel: qsTr("Notifications")
+                    }
+                    SettingsNavRow {
+                        sectionKey: "privacy"
+                        iconName: "verified_user"
+                        navLabel: qsTr("Privacy & security")
+                    }
+                    SettingsNavRow {
+                        sectionKey: "sessions"
+                        iconName: "devices"
+                        navLabel: qsTr("Sessions")
+                    }
+                    SettingsNavRow {
+                        sectionKey: "labs"
+                        iconName: "science"
+                        navLabel: qsTr("Labs")
                     }
                     Item { Layout.fillHeight: true }
+                    SettingsNavRow {
+                        sectionKey: "about"
+                        iconName: "info"
+                        navLabel: qsTr("About")
+                    }
                 }
             }
             Rectangle { Layout.fillHeight: true; implicitWidth: 1; color: AppTheme.border }
@@ -175,42 +240,268 @@ Item {
                     width: Math.min(640, contentFlick.width - AppTheme.spacing24 * 2)
                     spacing: AppTheme.spacing16
 
-                    // ════════════ General ════════════
+                    // ════════════ Appearance (design 1d) ════════════
                     ColumnLayout {
-                        visible: root.section === "general"
+                        visible: root.section === "appearance"
                         Layout.fillWidth: true
                         spacing: AppTheme.spacing12
 
                         Label {
-                            text: qsTr("General")
+                            text: qsTr("Appearance")
                             color: AppTheme.textPrimary
                             font.pixelSize: AppTheme.fontSectionTitle
-                            font.weight: Font.DemiBold
+                            font.weight: Font.ExtraBold
                         }
                         Label {
                             Layout.fillWidth: true
-                            text: qsTr("Startup and application behaviour.")
+                            text: qsTr("Theme, message presentation, and language. "
+                                       + "Values persist across restarts.")
                             color: AppTheme.textMuted
                             font.pixelSize: AppTheme.fontSecondary
                             wrapMode: Text.WordWrap
                         }
-                        SettingsCard {
-                            ColumnLayout {
-                                width: parent.width
-                                spacing: AppTheme.spacing8
-                                Label {
-                                    text: qsTr("Startup")
-                                    color: AppTheme.textSecondary
-                                    font.pixelSize: AppTheme.fontSecondary
-                                    font.weight: Font.DemiBold
-                                }
-                                CheckBox {
-                                    text: qsTr("Start minimized")
-                                    checked: app.settings.startMinimized
-                                    onToggled: app.settings.startMinimized = checked
+
+                        Label {
+                            Layout.topMargin: AppTheme.spacing8
+                            text: qsTr("THEME")
+                            color: AppTheme.textMuted
+                            font.pixelSize: AppTheme.fontCaption
+                            font.weight: Font.ExtraBold
+                            font.letterSpacing: 1
+                        }
+                        Flow {
+                            Layout.fillWidth: true
+                            spacing: AppTheme.spacing12
+                            Repeater {
+                                model: AppTheme.themeList
+                                delegate: Rectangle {
+                                    id: themeCard
+                                    required property var modelData
+                                    readonly property var pal:
+                                        AppTheme.paletteForTheme(modelData.id)
+                                    readonly property bool selectedTheme:
+                                        app.settings.theme === modelData.id
+                                    width: 200
+                                    height: 146
+                                    radius: 12
+                                    color: AppTheme.surface
+                                    border.width: selectedTheme ? 2 : 1
+                                    border.color: selectedTheme ? AppTheme.accent
+                                                                : AppTheme.border
+                                    Accessible.role: Accessible.RadioButton
+                                    Accessible.name: modelData.name
+                                    Accessible.focusable: true
+
+                                    // Soft selection glow ring (design 1d).
+                                    Rectangle {
+                                        anchors.fill: parent
+                                        anchors.margins: -3
+                                        radius: parent.radius + 3
+                                        visible: themeCard.selectedTheme
+                                        color: "transparent"
+                                        border.width: 3
+                                        border.color: AppTheme.accentSoft
+                                    }
+
+                                    ColumnLayout {
+                                        anchors.fill: parent
+                                        anchors.margins: AppTheme.spacing8
+                                        spacing: AppTheme.spacing8
+
+                                        // Mini rail/list/timeline mock drawn
+                                        // in the candidate theme's palette.
+                                        Rectangle {
+                                            Layout.fillWidth: true
+                                            Layout.fillHeight: true
+                                            radius: 8
+                                            color: themeCard.pal.background
+                                            border.color: themeCard.pal.border
+                                            clip: true
+                                            RowLayout {
+                                                anchors.fill: parent
+                                                anchors.margins: 6
+                                                spacing: 5
+                                                Rectangle {
+                                                    Layout.fillHeight: true
+                                                    Layout.preferredWidth: 12
+                                                    radius: 4
+                                                    color: themeCard.pal.rail
+                                                    Rectangle {
+                                                        width: 8; height: 8
+                                                        radius: 3
+                                                        anchors.horizontalCenter:
+                                                            parent.horizontalCenter
+                                                        y: 4
+                                                        color: themeCard.pal.accent
+                                                    }
+                                                }
+                                                Rectangle {
+                                                    Layout.fillHeight: true
+                                                    Layout.preferredWidth: 46
+                                                    radius: 4
+                                                    color: themeCard.pal.sidebar
+                                                    Column {
+                                                        anchors.left: parent.left
+                                                        anchors.right: parent.right
+                                                        anchors.top: parent.top
+                                                        anchors.margins: 5
+                                                        spacing: 4
+                                                        Rectangle {
+                                                            width: parent.width
+                                                            height: 7; radius: 3
+                                                            color: themeCard.pal.accentSoft
+                                                            border.color:
+                                                                themeCard.pal.accentBorder
+                                                        }
+                                                        Rectangle {
+                                                            width: parent.width * 0.85
+                                                            height: 5; radius: 2
+                                                            color: themeCard.pal.hover
+                                                        }
+                                                        Rectangle {
+                                                            width: parent.width * 0.7
+                                                            height: 5; radius: 2
+                                                            color: themeCard.pal.hover
+                                                        }
+                                                    }
+                                                }
+                                                Rectangle {
+                                                    Layout.fillHeight: true
+                                                    Layout.fillWidth: true
+                                                    radius: 4
+                                                    color: themeCard.pal.surface
+                                                    border.color: themeCard.pal.border
+                                                    Column {
+                                                        anchors.left: parent.left
+                                                        anchors.right: parent.right
+                                                        anchors.top: parent.top
+                                                        anchors.margins: 5
+                                                        spacing: 4
+                                                        Rectangle {
+                                                            width: parent.width * 0.7
+                                                            height: 5; radius: 2
+                                                            opacity: 0.5
+                                                            color: themeCard.pal.textMuted
+                                                        }
+                                                        Rectangle {
+                                                            width: parent.width * 0.5
+                                                            height: 5; radius: 2
+                                                            opacity: 0.35
+                                                            color: themeCard.pal.textMuted
+                                                        }
+                                                        Rectangle {
+                                                            width: 26; height: 8
+                                                            radius: 4
+                                                            color: themeCard.pal.accent
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        RowLayout {
+                                            Layout.fillWidth: true
+                                            spacing: AppTheme.spacing8
+                                            Rectangle {
+                                                implicitWidth: 15
+                                                implicitHeight: 15
+                                                radius: 8
+                                                color: "transparent"
+                                                border.width:
+                                                    themeCard.selectedTheme ? 5 : 2
+                                                border.color:
+                                                    themeCard.selectedTheme
+                                                        ? AppTheme.accent
+                                                        : AppTheme.borderStrong
+                                            }
+                                            Label {
+                                                text: themeCard.modelData.name
+                                                color: AppTheme.textPrimary
+                                                font.pixelSize: AppTheme.fontSecondary
+                                                font.weight: Font.Bold
+                                                elide: Label.ElideRight
+                                                Layout.fillWidth: true
+                                            }
+                                        }
+                                    }
+                                    TapHandler {
+                                        onTapped: app.settings.theme =
+                                            themeCard.modelData.id
+                                    }
                                 }
                             }
                         }
+
+                        Switch {
+                            objectName: "matchSystemSwitch"
+                            text: qsTr("Match system light/dark")
+                            checked: app.settings.theme === 0
+                            onToggled: app.settings.theme =
+                                checked ? 0 : AppTheme.effectiveTheme
+                        }
+                        Label {
+                            Layout.fillWidth: true
+                            Layout.leftMargin: AppTheme.spacing4
+                            wrapMode: Text.WordWrap
+                            color: AppTheme.textMuted
+                            font.pixelSize: AppTheme.fontCaption
+                            text: qsTr("When on, Lightning follows the system scheme: "
+                                       + "Moss Light in light mode, Indigo Night in dark mode.")
+                        }
+
+                        Label {
+                            Layout.topMargin: AppTheme.spacing8
+                            text: qsTr("MESSAGE LAYOUT")
+                            color: AppTheme.textMuted
+                            font.pixelSize: AppTheme.fontCaption
+                            font.weight: Font.ExtraBold
+                            font.letterSpacing: 1
+                        }
+                        RowLayout {
+                            spacing: AppTheme.spacing8
+                            Repeater {
+                                // The timeline backend renders one layout today;
+                                // the design's Bubbles/Compact modes are shown
+                                // as honestly unavailable, never as dead
+                                // controls that silently do nothing.
+                                model: [ qsTr("Modern"), qsTr("Bubbles"), qsTr("Compact") ]
+                                delegate: Rectangle {
+                                    id: layoutChip
+                                    required property string modelData
+                                    required property int index
+                                    readonly property bool activeMode: index === 0
+                                    implicitWidth: layoutChipLabel.implicitWidth
+                                                   + AppTheme.spacing16 * 2
+                                    implicitHeight: 30
+                                    radius: 8
+                                    color: activeMode ? AppTheme.accentSoft
+                                                      : AppTheme.surface
+                                    border.color: activeMode ? AppTheme.accentBorder
+                                                             : AppTheme.border
+                                    opacity: activeMode ? 1 : 0.55
+                                    Label {
+                                        id: layoutChipLabel
+                                        anchors.centerIn: parent
+                                        text: layoutChip.modelData
+                                        color: layoutChip.activeMode
+                                            ? AppTheme.accentText
+                                            : AppTheme.textMuted
+                                        font.pixelSize: AppTheme.fontSecondary
+                                        font.weight: Font.Bold
+                                    }
+                                }
+                            }
+                        }
+                        Label {
+                            Layout.fillWidth: true
+                            Layout.leftMargin: AppTheme.spacing4
+                            wrapMode: Text.WordWrap
+                            color: AppTheme.textMuted
+                            font.pixelSize: AppTheme.fontCaption
+                            text: qsTr("Message layout modes are not available yet — "
+                                       + "messages always use the Modern layout.")
+                        }
+
                         SettingsCard {
                             ColumnLayout {
                                 width: parent.width
@@ -290,86 +581,12 @@ Item {
                         }
                     }
 
-                    // ════════════ Appearance ════════════
+                    // ════════════ Appearance (continued: language) ════════════
                     ColumnLayout {
                         visible: root.section === "appearance"
                         Layout.fillWidth: true
                         spacing: AppTheme.spacing12
 
-                        Label {
-                            text: qsTr("Appearance")
-                            color: AppTheme.textPrimary
-                            font.pixelSize: AppTheme.fontSectionTitle
-                            font.weight: Font.DemiBold
-                        }
-                        Label {
-                            Layout.fillWidth: true
-                            text: qsTr("Theme and language. Values persist across restarts.")
-                            color: AppTheme.textMuted
-                            font.pixelSize: AppTheme.fontSecondary
-                            wrapMode: Text.WordWrap
-                        }
-                        SettingsCard {
-                            ColumnLayout {
-                                width: parent.width
-                                spacing: AppTheme.spacing8
-                                Label {
-                                    text: qsTr("Theme")
-                                    color: AppTheme.textSecondary
-                                    font.pixelSize: AppTheme.fontSecondary
-                                }
-                                ComboBox {
-                                    id: themeCombo
-                                    Layout.fillWidth: true
-                                    textRole: "label"
-                                    valueRole: "value"
-                                    // Preset id values map to SettingsManager::Theme.
-                                    model: [
-                                        { label: qsTr("System"),          value: 0 },
-                                        { label: qsTr("Moss Light"),      value: 8 },
-                                        { label: qsTr("Indigo Night"),    value: 9 },
-                                        { label: qsTr("Deep Teal"),       value: 10 },
-                                        { label: qsTr("Lightning Light"), value: 1 },
-                                        { label: qsTr("Lightning Dark"),  value: 2 },
-                                        { label: qsTr("Graphite"),        value: 3 },
-                                        { label: qsTr("Midnight"),        value: 4 },
-                                        { label: qsTr("Nordic"),          value: 5 },
-                                        { label: qsTr("Purple Dusk"),     value: 6 },
-                                        { label: qsTr("Warm"),            value: 7 }
-                                    ]
-                                    currentIndex: Math.max(0, indexOfValue(app.settings.theme))
-                                    onActivated: app.settings.theme = currentValue
-                                }
-                                // Small live preview of the core palette.
-                                RowLayout {
-                                    spacing: AppTheme.spacing8
-                                    Repeater {
-                                        model: [
-                                            { c: AppTheme.background,   n: qsTr("Background") },
-                                            { c: AppTheme.surface,      n: qsTr("Surface") },
-                                            { c: AppTheme.accent,       n: qsTr("Accent") },
-                                            { c: AppTheme.selected,     n: qsTr("Selected") },
-                                            { c: AppTheme.danger,       n: qsTr("Danger") }
-                                        ]
-                                        ColumnLayout {
-                                            required property var modelData
-                                            spacing: 2
-                                            Rectangle {
-                                                width: 40; height: 24
-                                                radius: AppTheme.radiusSm
-                                                color: parent.modelData.c
-                                                border.color: AppTheme.border
-                                            }
-                                            Label {
-                                                text: parent.modelData.n
-                                                color: AppTheme.textMuted
-                                                font.pixelSize: AppTheme.fontCaption
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
                         SettingsCard {
                             ColumnLayout {
                                 width: parent.width
@@ -391,6 +608,28 @@ Item {
                                     font.pixelSize: AppTheme.fontCaption
                                 }
                             }
+                        }
+
+                    }
+
+                    // ════════════ Privacy & security (design 1d) ════════════
+                    ColumnLayout {
+                        visible: root.section === "privacy"
+                        Layout.fillWidth: true
+                        spacing: AppTheme.spacing12
+
+                        Label {
+                            text: qsTr("Privacy & security")
+                            color: AppTheme.textPrimary
+                            font.pixelSize: AppTheme.fontSectionTitle
+                            font.weight: Font.ExtraBold
+                        }
+                        Label {
+                            Layout.fillWidth: true
+                            text: qsTr("Network privacy, encryption health, and recovery.")
+                            color: AppTheme.textMuted
+                            font.pixelSize: AppTheme.fontSecondary
+                            wrapMode: Text.WordWrap
                         }
 
                         // v0.5.11: link-preview and GIF policy.
@@ -702,8 +941,8 @@ Item {
                                     }
                                 }
                                 Button {
-                                    text: qsTr("Open Security & Recovery")
-                                    onClicked: root.section = "security"
+                                    text: qsTr("Open Privacy & security")
+                                    onClicked: root.section = "privacy"
                                 }
                                 Label {
                                     Layout.fillWidth: true
@@ -740,20 +979,31 @@ Item {
                                 }
                             }
                         }
+
+                        SettingsCard {
+                            ColumnLayout {
+                                width: parent.width
+                                spacing: AppTheme.spacing8
+                                Label {
+                                    text: qsTr("Startup")
+                                    color: AppTheme.textSecondary
+                                    font.pixelSize: AppTheme.fontSecondary
+                                    font.weight: Font.DemiBold
+                                }
+                                CheckBox {
+                                    text: qsTr("Start minimized")
+                                    checked: app.settings.startMinimized
+                                    onToggled: app.settings.startMinimized = checked
+                                }
+                            }
+                        }
                     }
 
-                    // ════════════ Security & Recovery ════════════
+                    // ════════════ Privacy & security (encryption) ════════════
                     ColumnLayout {
-                        visible: root.section === "security"
+                        visible: root.section === "privacy"
                         Layout.fillWidth: true
                         spacing: AppTheme.spacing12
-
-                        Label {
-                            text: qsTr("Security & Recovery")
-                            color: AppTheme.textPrimary
-                            font.pixelSize: AppTheme.fontSectionTitle
-                            font.weight: Font.DemiBold
-                        }
 
                         // Storage / crypto backend facts (all backends).
                         SettingsCard {
@@ -887,6 +1137,29 @@ Item {
                                             : qsTr("Encryption sync: waiting")
                                 }
                             }
+                        }
+
+                    }
+
+                    // ════════════ Sessions (design 1d) ════════════
+                    ColumnLayout {
+                        visible: root.section === "sessions"
+                        Layout.fillWidth: true
+                        spacing: AppTheme.spacing12
+
+                        Label {
+                            text: qsTr("Sessions")
+                            color: AppTheme.textPrimary
+                            font.pixelSize: AppTheme.fontSectionTitle
+                            font.weight: Font.ExtraBold
+                        }
+                        Label {
+                            Layout.fillWidth: true
+                            text: qsTr("This account's Matrix sessions and device "
+                                       + "verification.")
+                            color: AppTheme.textMuted
+                            font.pixelSize: AppTheme.fontSecondary
+                            wrapMode: Text.WordWrap
                         }
 
                         // v0.6.0 checkpoint 9: the account's Matrix
@@ -1202,6 +1475,14 @@ Item {
                                 }
                             }
                         }
+
+                    }
+
+                    // ════════════ Privacy & security (recovery) ════════════
+                    ColumnLayout {
+                        visible: root.section === "privacy"
+                        Layout.fillWidth: true
+                        spacing: AppTheme.spacing12
 
                         // Rust-only: recovery key/passphrase + room-key
                         // import. Restoring recovery also restores
@@ -1581,17 +1862,25 @@ Item {
                         }
                     }
 
-                    // ════════════ Advanced ════════════
+                    // ════════════ Labs (design 1d) ════════════
                     ColumnLayout {
-                        visible: root.section === "advanced"
+                        visible: root.section === "labs"
                         Layout.fillWidth: true
                         spacing: AppTheme.spacing12
 
                         Label {
-                            text: qsTr("Advanced")
+                            text: qsTr("Labs")
                             color: AppTheme.textPrimary
                             font.pixelSize: AppTheme.fontSectionTitle
-                            font.weight: Font.DemiBold
+                            font.weight: Font.ExtraBold
+                        }
+                        Label {
+                            Layout.fillWidth: true
+                            text: qsTr("No experimental features are available in "
+                                       + "this build. Diagnostics live here.")
+                            color: AppTheme.textMuted
+                            font.pixelSize: AppTheme.fontSecondary
+                            wrapMode: Text.WordWrap
                         }
                         SettingsCard {
                             ColumnLayout {
@@ -1676,7 +1965,7 @@ Item {
                                     wrapMode: Text.WordWrap
                                     color: AppTheme.textMuted
                                     font.pixelSize: AppTheme.fontCaption
-                                    text: qsTr("License: MIT OR Apache-2.0")
+                                    text: qsTr("License: GPL-3.0-or-later")
                                 }
                             }
                         }

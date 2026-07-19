@@ -41,6 +41,7 @@ Text {
         "done_all": "\ue877",
         "lock": "\ue899",
         "lock_open": "\ue898",
+        "account_circle": "\ue853",
         "verified_user": "\uf013",
         "palette": "\ue40a",
         "devices": "\ue326",
