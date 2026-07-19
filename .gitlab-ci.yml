@@ -87,6 +87,7 @@ config-tests:
   script:
     - ./tests/test-version.sh
     - ./tests/test-publication.sh
+    - ./tests/test-gif-key-injection.sh
     - python3 ./tests/test-pipeline-config.py
 
 resolve-source:
@@ -208,7 +209,7 @@ validate-rpm:
   before_script:
     - test ! -e work/lightning
     - command -v nix >/dev/null 2>&1 && exit 1 || true
-    - dnf install -y appstream binutils cpio desktop-file-utils file procps-ng rpmlint
+    - dnf install -y appstream binutils ca-certificates cpio desktop-file-utils file procps-ng rpmlint
   script: [./scripts/validate-rpm.sh]
   artifacts:
     when: always

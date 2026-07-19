@@ -74,6 +74,43 @@ if grep -Ei 'module .* is not installed|cannot load library|failed to load.*plug
     die "RPM headless launch reported a missing runtime component"
 fi
 
+# The generated build-only key header must never ship inside the package.
+if grep -q 'LightningGifBuildKeys.h' "$ROOT/dist/rpm-contents.txt"; then
+    die "RPM contains the generated GIF build-key header"
+fi
+
+# GIF provider configuration must hold with every key variable unset, proving
+# the values are embedded in the binary rather than read from the environment.
+gif_env_clear() {
+    env -u GIPHY_API_KEY -u KLIPY_API_KEY \
+        -u LIGHTNING_GIPHY_API_KEY -u LIGHTNING_KLIPY_API_KEY \
+        -u LIGHTNING_BUILD_GIPHY_API_KEY -u LIGHTNING_BUILD_KLIPY_API_KEY "$@"
+}
+status_out="$(cd /tmp && gif_env_clear /usr/bin/matrix-client --gif-status)"
+printf '%s\n' "$status_out" | tee "$ROOT/dist/rpm-gif-status.txt"
+if [[ "${PUBLISH_PACKAGES:-false}" == true ]]; then
+    printf '%s\n' "$status_out" | grep -qx 'GIPHY configured: yes' || \
+        die "packaged RPM reports GIPHY unconfigured with keys unset"
+    printf '%s\n' "$status_out" | grep -qx 'KLIPY configured: yes' || \
+        die "packaged RPM reports KLIPY unconfigured with keys unset"
+    # Bounded real trending request per provider using only the embedded keys.
+    set +e
+    (cd /tmp && gif_env_clear /usr/bin/matrix-client --gif-selftest) \
+        >"$ROOT/dist/rpm-gif-selftest.txt" 2>&1
+    selftest_rc=$?
+    set -e
+    cat "$ROOT/dist/rpm-gif-selftest.txt"
+    [[ "$selftest_rc" == 0 ]] || die "packaged RPM GIF provider self-test failed"
+    grep -q 'GIPHY request: ok' "$ROOT/dist/rpm-gif-selftest.txt" || die "RPM GIPHY live request failed"
+    grep -q 'KLIPY request: ok' "$ROOT/dist/rpm-gif-selftest.txt" || die "RPM KLIPY live request failed"
+    # No key or authenticated provider URL may appear in the diagnostics.
+    if grep -Eq 'api_key=|://' "$ROOT/dist/rpm-gif-status.txt" "$ROOT/dist/rpm-gif-selftest.txt"; then
+        die "RPM GIF diagnostic output leaked a key or URL"
+    fi
+else
+    printf 'Build-only RPM: GIF providers are keyless (informational only)\n'
+fi
+
 dnf remove -y lightning
 dnf check
 if rpm -q lightning >/dev/null 2>&1; then
