@@ -2,6 +2,8 @@
 set -Eeuo pipefail
 
 ROOT="$(git rev-parse --show-toplevel)"
+# Hermetic: ignore any publishing variables inherited from a real pipeline env.
+unset PUBLISH_PACKAGES RELEASE_VERSION RELEASE_ACTION SOURCE_REF PUBLISHING
 TEST_ROOT="$(mktemp -d)"
 cleanup() { rm -rf "$TEST_ROOT"; }
 trap cleanup EXIT
