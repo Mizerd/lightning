@@ -42,6 +42,8 @@ EOF
     export CI_JOB_TOKEN=mock-secret-value
     export TARGET_PROJECT_ID=6 LIGHTNING_PROJECT_ID=6 PACKAGE_NAME=lightning
     export PUBLISH_PACKAGES=true RELEASE_VERSION=$VER
+    # Synthetic provider keys so the publish-time presence gate is satisfied.
+    export GIPHY_API_KEY="SYNTH_GIPHY_pubtest" KLIPY_API_KEY="SYNTH_KLIPY_pubtest"
     export CURL_BIN="$ROOT/tests/mock-curl.sh"
     export MOCK_STATE_DIR="$MSTATE" MOCK_CURL_LOG="$MLOG"
     export MOCK_SOURCE_SHA="$SHA" MOCK_RELEASE_VERSION="$VER" MOCK_JQ="$JQ"

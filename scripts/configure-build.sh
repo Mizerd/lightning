@@ -18,6 +18,26 @@ BUILD_JOBS="${BUILD_JOBS:-2}"
 [[ -f "$SOURCE_DIR/LICENSE" && -f "$SOURCE_DIR/README.md" ]] || \
     die "Lightning source must include its licence and README"
 
+# Official release packages embed application GIF provider keys so installed
+# clients work without user configuration. Values come from the protected CI
+# variables GIPHY_API_KEY / KLIPY_API_KEY and are mapped to the build-only
+# LIGHTNING_BUILD_* names the source generator reads from the environment — never
+# passed on a command line, echoed, or written to a dotenv/artifact. This runs
+# in a child process, so the exports do not leak back to the caller, and the
+# generated header is scrubbed on exit. Keyless build-only pipelines skip this.
+REQUIRE_GIF_KEYS=OFF
+GENERATED_GIF_HEADER="$BUILD_DIR/generated/LightningGifBuildKeys.h"
+scrub_gif_header() { rm -f "$GENERATED_GIF_HEADER" 2>/dev/null || true; }
+trap scrub_gif_header EXIT
+if [[ "${PUBLISH_PACKAGES:-false}" == true ]]; then
+    [[ -n "${GIPHY_API_KEY:-}" ]] || die "official build requires GIPHY_API_KEY"
+    [[ -n "${KLIPY_API_KEY:-}" ]] || die "official build requires KLIPY_API_KEY"
+    export LIGHTNING_BUILD_GIPHY_API_KEY="$GIPHY_API_KEY"
+    export LIGHTNING_BUILD_KLIPY_API_KEY="$KLIPY_API_KEY"
+    REQUIRE_GIF_KEYS=ON
+    printf 'Embedding official GIF provider keys into the release build\n'
+fi
+
 export CMAKE_BUILD_PARALLEL_LEVEL="$BUILD_JOBS"
 export CARGO_BUILD_JOBS="$BUILD_JOBS"
 export CARGO_HOME="$ROOT/work/cargo-home"
@@ -36,9 +56,16 @@ cmake -S "$SOURCE_DIR" -B "$BUILD_DIR" -G Ninja \
     -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
     -DCMAKE_INSTALL_PREFIX=/usr \
     -DBUILD_TESTING=OFF \
-    -DENABLE_RUST_SDK_BACKEND=ON
+    -DENABLE_RUST_SDK_BACKEND=ON \
+    -DLIGHTNING_REQUIRE_GIF_KEYS="$REQUIRE_GIF_KEYS"
 cmake --build "$BUILD_DIR" --parallel "$BUILD_JOBS"
 DESTDIR="$STAGE_DIR" cmake --install "$BUILD_DIR"
+
+# The keys were consumed at configure/compile time and are embedded in the
+# binary. Remove the generated plaintext header and drop the build-only env
+# values now; the EXIT trap is a backstop.
+scrub_gif_header
+unset LIGHTNING_BUILD_GIPHY_API_KEY LIGHTNING_BUILD_KLIPY_API_KEY 2>/dev/null || true
 
 # Native packages use system libraries in standard paths. Remove the
 # build-generated RPATH from the staged executable for both formats.

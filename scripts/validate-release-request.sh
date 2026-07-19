@@ -58,5 +58,13 @@ if [[ -n "${CI:-}" ]]; then
         die "publication is allowed only from the packaging project's default branch"
 fi
 
+# Official packages embed application GIF provider keys so installed clients work
+# without user configuration. Presence-only check (never the value, length, or
+# any fragment) so a release without keys fails here, before the expensive build.
+[[ -n "${GIPHY_API_KEY:-}" ]] || die "official release requires the GIPHY_API_KEY CI variable"
+[[ -n "${KLIPY_API_KEY:-}" ]] || die "official release requires the KLIPY_API_KEY CI variable"
+printf 'GIPHY_API_KEY is configured\n'
+printf 'KLIPY_API_KEY is configured\n'
+
 printf 'Publishing pipeline accepted: action=%s version=%s ref=%s\n' \
     "$RELEASE_ACTION" "$RELEASE_VERSION" "$SOURCE_REF"
