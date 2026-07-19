@@ -11,8 +11,6 @@ app-id: net.smetonis.Lightning
 runtime: org.kde.Platform
 runtime-version: "6.9"
 sdk: org.kde.Sdk
-sdk-extensions:
-  - org.freedesktop.Sdk.Extension.rust-stable
 command: lightning
 
 finish-args:
@@ -29,13 +27,18 @@ finish-args:
   - --talk-name=org.freedesktop.Notifications
 
 build-options:
-  append-path: /usr/lib/sdk/rust-stable/bin
+  # The 24.08 rust-stable SDK extension ships rustc 1.89, too old for
+  # matrix-sdk 0.18 (needs 1.93) — the sandbox installs the same pinned
+  # rustup toolchain the deb job uses. Keep the version in step with
+  # RUST_TOOLCHAIN in .gitlab-ci.yml.
+  prepend-path: /run/build/lightning/cargo-home/bin
   # Cargo needs the network for the locked fetch; this is not a Flathub
   # build, so sandboxed-network vendoring is not required.
   build-args:
     - --share=network
   env:
     CARGO_HOME: /run/build/lightning/cargo-home
+    RUSTUP_HOME: /run/build/lightning/rustup
     CARGO_BUILD_JOBS: "4"
     CMAKE_BUILD_PARALLEL_LEVEL: "4"
   # Passed from the build job environment into the sandbox WITHOUT being
@@ -54,6 +57,10 @@ modules:
     # the bundle ships the application, not the test suite.
     buildsystem: simple
     build-commands:
+      - curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs
+        -o rustup-init.sh
+      - sh rustup-init.sh -y --profile minimal --no-modify-path
+        --default-toolchain 1.93.0
       - cargo fetch --locked --manifest-path rust/Cargo.toml
       - cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
         -DCMAKE_INSTALL_PREFIX=/app -DBUILD_TESTING=OFF
