@@ -24,6 +24,41 @@ set(CMAKE_AUTORCC ON)
 option(ENABLE_RUST_SDK_BACKEND
     "Build the Matrix Rust SDK backend (requires cargo in PATH)" OFF)
 
+# ---------------------------------------------------------------------------
+# Build-only GIF provider keys. Official release packages embed application
+# GIPHY/KLIPY keys so installed clients work without user configuration. The
+# key VALUES are read from the environment by a dedicated -P script and written
+# to a generated header in the build tree only. They never reach a compiler
+# command line, CMakeCache.txt, install rules, package contents, or logs. An
+# ordinary source build leaves the header keyless, preserving the missing-key
+# state. LIGHTNING_REQUIRE_GIF_KEYS makes the generator fail if either key is
+# absent (official release mode); project 7 sets it for publish builds.
+#
+# The generator reads:  LIGHTNING_BUILD_GIPHY_API_KEY / LIGHTNING_BUILD_KLIPY_API_KEY
+# (build-only names, distinct from the LIGHTNING_*_API_KEY runtime overrides).
+# ---------------------------------------------------------------------------
+option(LIGHTNING_REQUIRE_GIF_KEYS
+    "Require embedded GIF provider keys (official release packaging)" OFF)
+set(LIGHTNING_GENERATED_DIR "${CMAKE_BINARY_DIR}/generated")
+execute_process(
+    COMMAND "${CMAKE_COMMAND}"
+        "-DOUTPUT_DIR=${LIGHTNING_GENERATED_DIR}"
+        "-DREQUIRE_KEYS=${LIGHTNING_REQUIRE_GIF_KEYS}"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/GenerateGifBuildKeys.cmake"
+    RESULT_VARIABLE _gif_keys_rc)
+if(NOT _gif_keys_rc EQUAL 0)
+    message(FATAL_ERROR "GIF build-key generation failed")
+endif()
+# Re-run configure (and thus regenerate the header) if the script changes.
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/GenerateGifBuildKeys.cmake")
+
+# Convenience target to remove generated key material after packaging.
+add_custom_target(scrub-gif-build-keys
+    COMMAND "${CMAKE_COMMAND}" -E rm -f
+        "${LIGHTNING_GENERATED_DIR}/LightningGifBuildKeys.h"
+    COMMENT "Removing generated GIF build-key header")
+
 find_package(Qt6 6.5 REQUIRED COMPONENTS
     Core
     Gui
@@ -133,6 +168,8 @@ set(APP_SOURCES
     src/gif/GifResponseParser.cpp
     src/gif/GifProvider.h
     src/gif/GifProvider.cpp
+    src/gif/GifBuildKeys.h
+    src/gif/GifBuildKeys.cpp
     src/gif/GifResultModel.h
     src/gif/GifResultModel.cpp
     src/gif/GifStoredModel.h
@@ -146,6 +183,8 @@ set(APP_SOURCES
     src/gif/GifSearchController.cpp
     src/gif/GifSendController.h
     src/gif/GifSendController.cpp
+    src/gif/GifProviderSelfTest.h
+    src/gif/GifProviderSelfTest.cpp
     src/gif/MatrixGifTransport.h
     src/gif/MatrixGifTransport.cpp
 
@@ -255,6 +294,8 @@ function(lightning_configure_qml_app target)
     # includes elsewhere. Add each subdirectory holding a QML-registered type
     # so that angle-bracket lookup resolves.
     target_include_directories(${target} PRIVATE src/models src/threads src/crypto src/gif)
+    # Build-only GIF key header (may be keyless); include path only, no values.
+    target_include_directories(${target} PRIVATE "${LIGHTNING_GENERATED_DIR}")
 
     target_link_libraries(${target} PRIVATE
         Qt6::Core
@@ -442,6 +483,8 @@ if(BUILD_TESTING)
         src/gif/GifResponseParser.cpp
         src/gif/GifProvider.h
         src/gif/GifProvider.cpp
+        src/gif/GifBuildKeys.h
+        src/gif/GifBuildKeys.cpp
         src/gif/GifResultModel.h
         src/gif/GifResultModel.cpp
         src/gif/GifStoredModel.h
@@ -459,7 +502,25 @@ if(BUILD_TESTING)
         tests/GifSearchControllerTest.cpp
         ${GIF_CORE_SOURCES}
     )
-    target_include_directories(gif-search-controller-test PRIVATE src)
+    target_include_directories(gif-search-controller-test PRIVATE src "${LIGHTNING_GENERATED_DIR}")
+
+    # Provider-key resolution unit test (build-key fallback + precedence).
+    qt_add_executable(gif-build-keys-test
+        tests/GifBuildKeysTest.cpp
+        src/gif/GifBuildKeys.h
+        src/gif/GifBuildKeys.cpp
+    )
+    target_include_directories(gif-build-keys-test PRIVATE src "${LIGHTNING_GENERATED_DIR}")
+    target_link_libraries(gif-build-keys-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME gif-build-keys COMMAND gif-build-keys-test)
+
+    # Contract test for the build-key generator: synthetic canary embedding,
+    # presence-only reporting, safe failure, and no value leakage.
+    add_test(NAME gif-build-keys-generator
+        COMMAND "${CMAKE_COMMAND}"
+            "-DGENERATOR=${CMAKE_CURRENT_SOURCE_DIR}/cmake/GenerateGifBuildKeys.cmake"
+            "-DWORKDIR=${CMAKE_CURRENT_BINARY_DIR}/gif-keygen-test"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/GifBuildKeysGeneratorTest.cmake")
     target_link_libraries(gif-search-controller-test PRIVATE Qt6::Core Qt6::Qml Qt6::Test)
     add_test(NAME gif-search-controller COMMAND gif-search-controller-test)
 

@@ -23,10 +23,11 @@ class GifTransport;
 // safe-search state — everything shared across providers. Provider-specific
 // concerns (endpoints, key injection, parsing, attribution) live in GifProvider.
 //
-// API keys are read from the environment (LIGHTNING_GIPHY_API_KEY /
-// LIGHTNING_KLIPY_API_KEY) and never logged or exposed to QML; a provider with
-// no key is reported as unconfigured (MissingKey) and its picker section is
-// disabled, while the rest of messaging is unaffected.
+// API keys resolve as: runtime override (LIGHTNING_GIPHY_API_KEY /
+// LIGHTNING_KLIPY_API_KEY) -> key compiled into an official release build ->
+// unconfigured. Keys are never logged or exposed to QML; a provider with no key
+// is reported as unconfigured (MissingKey) and its picker section is disabled,
+// while the rest of messaging is unaffected. See gif::resolveProviderKey.
 class GifSearchController : public QObject
 {
     Q_OBJECT

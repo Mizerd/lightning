@@ -104,8 +104,29 @@ private Q_SLOTS:
     void emptyQueryReturnsToTrending();
     void safeSearchChangeReRuns();
     void keyNeverAppearsInSignals();
+    void defaultResolutionUsesEnvNotHardcoded();
     void toggleFavoriteReflectsInGrid();
 };
+
+void GifSearchControllerTest::defaultResolutionUsesEnvNotHardcoded()
+{
+    // Keyless build + no runtime override => both providers unconfigured.
+    qunsetenv("LIGHTNING_GIPHY_API_KEY");
+    qunsetenv("LIGHTNING_KLIPY_API_KEY");
+    {
+        GifSearchController c;
+        QVERIFY(!c.providerConfigured(QStringLiteral("giphy")));
+        QVERIFY(!c.providerConfigured(QStringLiteral("klipy")));
+    }
+    // A runtime override configures exactly that provider (env precedence).
+    qputenv("LIGHTNING_GIPHY_API_KEY", QByteArray("ENV-SYNTHETIC-GIPHY"));
+    {
+        GifSearchController c;
+        QVERIFY(c.providerConfigured(QStringLiteral("giphy")));
+        QVERIFY(!c.providerConfigured(QStringLiteral("klipy")));
+    }
+    qunsetenv("LIGHTNING_GIPHY_API_KEY");
+}
 
 void GifSearchControllerTest::trendingLoadsResults()
 {

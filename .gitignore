@@ -13,6 +13,10 @@ CMakeUserPresets.json
 *.pro.user*
 compile_commands.json
 
+# Generated build-only GIF provider keys — never track these
+generated/LightningGifBuildKeys.h
+**/LightningGifBuildKeys.h
+
 # Nix
 result
 result-*

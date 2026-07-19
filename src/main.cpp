@@ -1,4 +1,5 @@
 #include "app/AppController.h"
+#include "gif/GifProviderSelfTest.h"
 #include "media/MediaImageProvider.h"
 #include "storage/AppDataPaths.h"
 
@@ -62,6 +63,8 @@ struct PreflightResult {
         ExitError,     // bad argument, exit 2
         ExitResetError, // --reset-crypto-store failed, exit 3
         RunSmokeTest,  // --rust-sdk-smoke-test (Rust build only)
+        RunGifStatus,  // --gif-status: print provider-configured booleans
+        RunGifSelfTest, // --gif-selftest: bounded live provider request
     };
     Action action = Continue;
     AppController::Backend backend = AppController::HttpBackend;
@@ -105,6 +108,11 @@ PreflightResult preflightParse(int argc, char *argv[])
                 "                       (Rust-enabled build only). Reads credentials from\n"
                 "                       LIGHTNING_TEST_HOMESERVER / LIGHTNING_TEST_USER /\n"
                 "                       LIGHTNING_TEST_PASSWORD. See docs/build-and-test.md.\n"
+                "  --gif-status         Print 'GIPHY/KLIPY configured: yes|no' and exit.\n"
+                "                       Booleans only; never prints keys. No network.\n"
+                "  --gif-selftest       As --gif-status plus a bounded live trending\n"
+                "                       request per configured provider. Exit 0 only if\n"
+                "                       every provider is configured and responds.\n"
                 "\n"
                 "See docs/build-and-test.md and docs/backend-contract.md for details.\n");
             return r;
@@ -121,6 +129,14 @@ PreflightResult preflightParse(int argc, char *argv[])
         if (a == QLatin1String("--rust-sdk-smoke-test")) {
             r.smokeTestRequested = true;
             continue;
+        }
+        if (a == QLatin1String("--gif-status")) {
+            r.action = PreflightResult::RunGifStatus;
+            return r;
+        }
+        if (a == QLatin1String("--gif-selftest")) {
+            r.action = PreflightResult::RunGifSelfTest;
+            return r;
         }
         if (a == QLatin1String("--reset-crypto-store")) {
             r.action = PreflightResult::ExitSuccess;
@@ -295,6 +311,17 @@ int main(int argc, char *argv[])
         QTextStream(stdout) << pf.stdoutMsg;
         QTextStream(stderr) << pf.stderrMsg;
         return 3;
+    }
+    if (pf.action == PreflightResult::RunGifStatus) {
+        // Booleans only; no Qt application or network needed.
+        return gif::printProviderStatus();
+    }
+    if (pf.action == PreflightResult::RunGifSelfTest) {
+        // Needs an event loop for the bounded network request, but no GUI.
+        QCoreApplication::setOrganizationName(QStringLiteral("MatrixClient"));
+        QCoreApplication::setApplicationName(QStringLiteral("matrix-client"));
+        QCoreApplication selftestApp(argc, argv);
+        return gif::runProviderSelfTest();
     }
 #ifdef ENABLE_RUST_SDK_BACKEND
     if (pf.action == PreflightResult::RunSmokeTest) {

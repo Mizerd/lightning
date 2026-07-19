@@ -278,8 +278,9 @@ mod tests {
     }
 }
 
-// Live provider checks. Ignored by default (network + real key required). Run:
-//   source /home/roksme/Documents/API/lightning-gif.env
+// Live provider checks. Ignored by default (network + real key required). Set
+// the provider keys in the environment first, then run:
+//   export LIGHTNING_GIPHY_API_KEY=... LIGHTNING_KLIPY_API_KEY=...
 //   cargo test --manifest-path rust/Cargo.toml -- --ignored --nocapture gif_live
 // They exercise the exact hardened fetch gif_get uses against the real
 // provider hosts; the key/URL is never printed (only status + a parse check).

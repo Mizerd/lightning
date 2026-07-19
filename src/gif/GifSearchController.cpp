@@ -1,5 +1,6 @@
 #include "gif/GifSearchController.h"
 
+#include "gif/GifBuildKeys.h"
 #include "gif/GifTransport.h"
 
 GifSearchController::GifSearchController(QObject *parent)
@@ -9,12 +10,18 @@ GifSearchController::GifSearchController(QObject *parent)
     , m_favorites(std::make_unique<GifFavoritesModel>(m_settings.get(), this))
     , m_recent(std::make_unique<GifRecentModel>(m_settings.get(), this))
 {
-    // Environment keys. Read once; never logged. A settings override may call
-    // setApiKey() later.
-    m_apiKeys.insert(QStringLiteral("giphy"),
-                     qEnvironmentVariable("LIGHTNING_GIPHY_API_KEY"));
-    m_apiKeys.insert(QStringLiteral("klipy"),
-                     qEnvironmentVariable("LIGHTNING_KLIPY_API_KEY"));
+    // Resolve provider keys once: a non-empty runtime environment override wins,
+    // otherwise the key compiled into an official release build, otherwise empty
+    // (unconfigured). Values are never logged; a test seam (setApiKey) may
+    // override later.
+    m_apiKeys.insert(
+        QStringLiteral("giphy"),
+        gif::resolveProviderKey(qEnvironmentVariable("LIGHTNING_GIPHY_API_KEY"),
+                                gif::buildKeyFor(QStringLiteral("giphy"))));
+    m_apiKeys.insert(
+        QStringLiteral("klipy"),
+        gif::resolveProviderKey(qEnvironmentVariable("LIGHTNING_KLIPY_API_KEY"),
+                                gif::buildKeyFor(QStringLiteral("klipy"))));
 
     // The grid's star reflects live favorite state; a toggle refreshes only the
     // affected tile, never the whole grid.
