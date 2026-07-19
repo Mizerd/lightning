@@ -108,11 +108,17 @@ Rectangle {
                     Accessible.name: qsTr("Back to threads")
                     onClicked: app.thread.close()
                 }
+                // Design: accent thread glyph + ExtraBold title.
+                Label {
+                    text: "🧵"
+                    font.pixelSize: 13
+                    color: AppTheme.accent
+                }
                 Label {
                     text: app.thread.active ? qsTr("Thread") : qsTr("Threads")
                     color: AppTheme.text
-                    font.pixelSize: 14
-                    font.weight: Font.DemiBold
+                    font.pixelSize: 15
+                    font.weight: Font.ExtraBold
                 }
                 Label {
                     Layout.fillWidth: true
@@ -276,15 +282,22 @@ Rectangle {
         }
 
         // ── Pinned root ──────────────────────────────────────────────────
+        // Design: the root message sits in a raised, bordered card.
         Rectangle {
             objectName: "threadRootHeader"
             Layout.fillWidth: true
+            Layout.leftMargin: AppTheme.spacing8
+            Layout.rightMargin: AppTheme.spacing8
+            Layout.topMargin: AppTheme.spacing8
             visible: app.thread.active
                      && app.thread.state !== ThreadController.Failed
             implicitHeight: Math.min(rootColumn.implicitHeight
                                      + AppTheme.spacingM * 2, 180)
             clip: true
-            color: AppTheme.surface
+            radius: AppTheme.radiusMd + 2
+            border.color: AppTheme.border
+            border.width: 1
+            color: AppTheme.surfaceElevated
             ColumnLayout {
                 id: rootColumn
                 anchors.left: parent.left
