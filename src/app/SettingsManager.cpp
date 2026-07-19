@@ -81,7 +81,23 @@ QString SettingsManager::slugForSavedAccount(const QString &userId) const
     const QString slug = matrix::app_data::safeUserSlug(userId.trimmed());
     if (slug.isEmpty())
         return {};
-    return m_store->contains(accountKey(slug, kAccountUserId)) ? slug : QString{};
+    // The slug substitution is not injective (distinct identities can
+    // flatten to the same slug), so a record only belongs to the queried
+    // account when its stored canonical user id matches exactly.
+    const QString stored =
+        m_store->value(accountKey(slug, kAccountUserId)).toString();
+    return stored == userId.trimmed() ? slug : QString{};
+}
+
+bool SettingsManager::accountSlugConflicts(const QString &userId) const
+{
+    const QString uid = userId.trimmed();
+    const QString slug = matrix::app_data::safeUserSlug(uid);
+    if (slug.isEmpty())
+        return false;
+    const QString stored =
+        m_store->value(accountKey(slug, kAccountUserId)).toString();
+    return !stored.isEmpty() && stored != uid;
 }
 
 void SettingsManager::migrateLegacySessionRecord()
@@ -136,7 +152,17 @@ bool SettingsManager::upsertAccountRecord(const QString &userId,
             << "refusing to save account record for unsafe user id";
         return false;
     }
-    const bool isNew = !m_store->contains(accountKey(slug, kAccountUserId));
+    // Never clobber a different account whose identity flattens to the same
+    // slug — that would also alias both accounts onto one on-disk SDK store.
+    const QString existing =
+        m_store->value(accountKey(slug, kAccountUserId)).toString();
+    if (!existing.isEmpty() && existing != uid) {
+        qCWarning(lcSettings)
+            << "refusing account record: slug collision with a different "
+               "saved account";
+        return false;
+    }
+    const bool isNew = existing.isEmpty();
     m_store->setValue(accountKey(slug, kAccountUserId), uid);
     m_store->setValue(accountKey(slug, kAccountHomeserver), homeserver);
     m_store->setValue(accountKey(slug, kAccountDeviceId), deviceId);

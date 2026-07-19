@@ -171,6 +171,11 @@ public:
     // rejected rather than guessed at. Ordering is oldest-added first.
     QStringList savedAccountUserIds() const;
     bool hasSavedAccount(const QString &userId) const;
+    // True when a DIFFERENT saved account occupies this identity's slug —
+    // the slug substitution is not injective, and colliding identities
+    // would otherwise alias one settings record and one on-disk SDK store.
+    // Logins for a colliding identity must be refused.
+    bool accountSlugConflicts(const QString &userId) const;
     // {userId, homeserver, deviceId, displayName, avatarUrl, addedAt}
     // — empty map when the account is unknown. syncToken is deliberately
     // not exposed here.

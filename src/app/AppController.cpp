@@ -1273,7 +1273,12 @@ void AppController::switchToAccount(const QString &userId)
     if (m_client->isLoggedIn() && !m_client->detachSession()) {
         m_switchFallbackUserId.clear();
         setAccountSwitching(false);
-        Q_EMIT errorReported(tr("This backend cannot switch accounts."));
+        // Either the backend cannot detach, or a real sign-out is still
+        // finishing (its completion deletes that account's local data and
+        // must not be discarded).
+        Q_EMIT errorReported(tr("Could not switch accounts right now. If a "
+                                "sign-out is in progress, try again in a "
+                                "moment."));
         return;
     }
 

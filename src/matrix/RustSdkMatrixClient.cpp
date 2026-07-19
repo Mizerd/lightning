@@ -299,6 +299,19 @@ void RustSdkMatrixClient::login(const QString &homeserver,
         return;
     }
 
+    // The slug flattening is not injective: refuse a login whose identity
+    // collides with a DIFFERENT saved account before contacting the server,
+    // since both would alias one settings record and one SDK store.
+    if (m_settings && m_settings->accountSlugConflicts(identity.userId)) {
+        qCWarning(lcRust) << "login refused: account slug collision"
+                          << "slug=" << identity.slug;
+        Q_EMIT loginFailed(tr(
+            "This account's local storage name collides with a different "
+            "account already saved on this device. Remove that account "
+            "first if you want to sign in with this one."));
+        return;
+    }
+
     const bool storeExists = pathExistsOrIsLink(identity.rustStorePath);
     // v0.7 multi-account: only the TARGET account's own saved record is
     // consulted — other signed-in accounts never block a new login.
@@ -370,6 +383,15 @@ void RustSdkMatrixClient::login(const QString &homeserver,
 
 bool RustSdkMatrixClient::detachSession()
 {
+    // A real sign-out is in flight: its completion event is the ONLY path
+    // that deletes this account's persisted token, record, and store.
+    // Invalidating the lifecycle now would discard that completion and
+    // silently downgrade the sign-out to a local detach — refuse instead;
+    // the caller reports "try again in a moment".
+    if (m_lifecycle.signingOut()) {
+        qCWarning(lcRust) << "detach refused: sign-out still in flight";
+        return false;
+    }
     // v0.7 account switch: end the local session without a server logout.
     // The account's SDK store, SecretStore token, and account record are
     // deliberately untouched — restoreSession() reactivates it later.

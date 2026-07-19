@@ -345,6 +345,41 @@ private Q_SLOTS:
         }
     }
 
+    void collidingSlugIdentitiesCannotAliasARecord()
+    {
+        // The slug substitution is not injective: these two DISTINCT valid
+        // identities flatten to the same "jane_doe_matrix.org" slug. The
+        // second one must be refused instead of clobbering the first
+        // account's record (and aliasing its on-disk SDK store).
+        const QString janeA = QStringLiteral("@jane_doe:matrix.org");
+        const QString janeB = QStringLiteral("@jane:doe_matrix.org");
+        QCOMPARE(matrix::app_data::safeUserSlug(janeA),
+                 matrix::app_data::safeUserSlug(janeB));
+
+        FakeSecretStore secrets;
+        SettingsManager settings;
+        settings.setSecretStore(&secrets);
+        settings.saveSession(QStringLiteral("https://matrix.org"), janeA,
+                             QStringLiteral("JANEADEV"),
+                             QStringLiteral("jane-a-token-fixture"));
+
+        QVERIFY(settings.accountSlugConflicts(janeB));
+        settings.saveSession(QStringLiteral("https://doe_matrix.org"), janeB,
+                             QStringLiteral("JANEBDEV"),
+                             QStringLiteral("jane-b-token-fixture"));
+
+        // The first account is untouched; the collider was never saved.
+        QCOMPARE(settings.savedAccountUserIds(), QStringList({janeA}));
+        QVERIFY(settings.hasSavedAccount(janeA));
+        QVERIFY(!settings.hasSavedAccount(janeB));
+        QVERIFY(settings.accessTokenFor(janeB).isEmpty());
+        QCOMPARE(settings.accountRecord(janeA).value("deviceId"),
+                 QStringLiteral("JANEADEV"));
+        QCOMPARE(settings.accessTokenFor(janeA),
+                 QStringLiteral("jane-a-token-fixture"));
+        QCOMPARE(settings.activeAccountUserId(), janeA);
+    }
+
     void accountManagerReflectsRegistry()
     {
         FakeSecretStore secrets;
