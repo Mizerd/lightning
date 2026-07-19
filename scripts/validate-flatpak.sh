@@ -76,10 +76,17 @@ fi
 # Leak audit inside the mounted app tree.
 appdir="$FLATPAK_USER_DIR/app/$APP_ID/current/active/files"
 test -d "$appdir" || die "installed app files missing"
-grep -RIl -e /nix/store -e /home/roksme -e /builds/ -e /run/build/ \
+grep -RIl -e /nix/store -e /home/roksme -e /builds/ \
     -e 'LIGHTNING_GIPHY_API_KEY=' -e 'LIGHTNING_KLIPY_API_KEY=' \
     -e 'PRIVATE-TOKEN:' -e 'recovery_key=' "$appdir" \
     && die "forbidden path or credential marker in app tree"
+# The exported build manifest (files/manifest.json) legitimately references
+# the flatpak-internal /run/build/<module> sandbox paths in its own build
+# options — every flatpak bundle carries them, and the credential/private
+# markers above still apply to it. Any OTHER file referencing /run/build
+# would mean RPATH/debug-path leakage and stays fatal.
+grep -RIl -e /run/build/ "$appdir" | grep -v '/manifest\.json$' | grep -q . \
+    && die "forbidden /run/build reference outside the exported manifest"
 find "$appdir" -name 'LightningGifBuildKeys.h' | grep -q . \
     && die "generated key header leaked into the app"
 find "$appdir" -perm -0002 \( -type f -o -type d \) | grep -q . \
