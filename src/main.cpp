@@ -12,6 +12,7 @@
 #include <QCoreApplication>
 #include <QDir>
 #include <QFileInfo>
+#include <QFontDatabase>
 #include <QGuiApplication>
 #include <QIcon>
 #include <QQmlApplicationEngine>
@@ -362,6 +363,13 @@ int main(int argc, char *argv[])
 
     QGuiApplication app(argc, argv);
     QGuiApplication::setWindowIcon(QIcon::fromTheme("network-server"));
+
+    // Bundled UI fonts (OFL). AppTheme's family lists put them first;
+    // failure to load only means the platform fallbacks apply.
+    QFontDatabase::addApplicationFont(
+        QStringLiteral(":/qt/qml/MatrixClient/data/fonts/Manrope[wght].ttf"));
+    QFontDatabase::addApplicationFont(
+        QStringLiteral(":/qt/qml/MatrixClient/data/fonts/JetBrainsMono[wght].ttf"));
 
     // Re-run through QCommandLineParser so --help / --version behave when a
     // user passes them alongside another Qt flag we do not know about, and

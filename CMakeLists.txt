@@ -278,7 +278,11 @@ function(lightning_configure_qml_app target)
         URI MatrixClient
         VERSION 1.0
         QML_FILES ${APP_QML_FILES}
-        RESOURCES data/emoji-catalog.tsv
+        RESOURCES
+            data/emoji-catalog.tsv
+            # Bundled UI fonts (OFL; licenses alongside). Loaded in main.cpp.
+            "data/fonts/Manrope[wght].ttf"
+            "data/fonts/JetBrainsMono[wght].ttf"
         RESOURCE_PREFIX /qt/qml
         # Every Qt-executable target that calls qt_add_qml_module registers
         # its own independent compiled copy of the same "MatrixClient" URI;

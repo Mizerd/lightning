@@ -186,7 +186,8 @@ void SettingsSessionTest::validThemeIdsRoundTripAndPersist()
             SettingsManager::DarkTheme,
             SettingsManager::GraphiteTheme, SettingsManager::MidnightBlueTheme,
             SettingsManager::NordTheme, SettingsManager::PurpleDuskTheme,
-            SettingsManager::WarmTheme,
+            SettingsManager::WarmTheme, SettingsManager::MossLightTheme,
+            SettingsManager::IndigoNightTheme, SettingsManager::DeepTealTheme,
         };
         for (const auto id : ids) {
             settings.setTheme(id);

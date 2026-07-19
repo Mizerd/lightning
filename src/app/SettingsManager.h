@@ -72,12 +72,15 @@ public:
         NordTheme = 5,          // Nordic
         PurpleDuskTheme = 6,
         WarmTheme = 7,
+        MossLightTheme = 8,     // design-handoff light
+        IndigoNightTheme = 9,   // design-handoff dark
+        DeepTealTheme = 10,     // design-handoff dark
     };
     Q_ENUM(Theme)
 
     // Highest valid Theme id; an out-of-range stored value falls back to
     // SystemTheme (see theme()).
-    static constexpr int kMaxThemeId = WarmTheme;
+    static constexpr int kMaxThemeId = DeepTealTheme;
 
     explicit SettingsManager(QObject *parent = nullptr);
 

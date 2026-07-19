@@ -326,6 +326,9 @@ Item {
                                     // Preset id values map to SettingsManager::Theme.
                                     model: [
                                         { label: qsTr("System"),          value: 0 },
+                                        { label: qsTr("Moss Light"),      value: 8 },
+                                        { label: qsTr("Indigo Night"),    value: 9 },
+                                        { label: qsTr("Deep Teal"),       value: 10 },
                                         { label: qsTr("Lightning Light"), value: 1 },
                                         { label: qsTr("Lightning Dark"),  value: 2 },
                                         { label: qsTr("Graphite"),        value: 3 },

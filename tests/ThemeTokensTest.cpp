@@ -153,7 +153,7 @@ private Q_SLOTS:
             // Danger buttons: white label on danger red.
             { "dangerText", "_accentDanger", 4.5 },
             // Controls/badges (large or bold UI text): ≥ 3:1.
-            { "accentText", "_accentBlue", 3.0 },
+            { "_onAccent", "_accentBlue", 3.0 },
             // Lightning Dark.
             { "_dkTextPrimary", "_dkBg", 4.5 },
             { "_dkTextSecondary", "_dkBg", 4.5 },
@@ -172,7 +172,7 @@ private Q_SLOTS:
             { "_warTextPrimary", "_warHover", 4.5 },
             { "ownBubbleText", "_warOwnBubble", 4.5 },
             { "onAccentMuted", "_warOwnBubble", 4.5 },
-            { "accentText", "_warAccent", 3.0 },
+            { "_onAccent", "_warAccent", 3.0 },
             // Graphite / Nordic / Purple Dusk core readability.
             { "_graTextPrimary", "_graBg", 4.5 },
             { "_graTextMuted", "_graBg", 4.5 },
@@ -190,6 +190,42 @@ private Q_SLOTS:
             { "ownBubbleText", "_graOwnBubble", 4.5 },
             { "ownBubbleText", "_norOwnBubble", 4.5 },
             { "ownBubbleText", "_purOwnBubble", 4.5 },
+            // Moss Light (design handoff).
+            { "_mosTextPrimary", "_mosBg", 4.5 },
+            { "_mosTextSecondary", "_mosBg", 4.5 },
+            { "_mosTextMuted", "_mosBg", 4.5 },
+            { "_mosTextMuted", "_mosSidebar", 4.5 },
+            { "_mosTextMuted", "_mosCard", 4.5 },
+            { "_mosSelectedText", "_mosSelected", 4.5 },
+            { "_mosSelectedText", "_mosSelectedHover", 4.5 },
+            { "_mosTextPrimary", "_mosHover", 4.5 },
+            { "ownBubbleText", "_mosOwnBubble", 4.5 },
+            { "onAccentMuted", "_mosOwnBubble", 4.5 },
+            { "_onAccent", "_mosAccent", 3.0 },
+            // Indigo Night (design handoff).
+            { "_indTextPrimary", "_indBg", 4.5 },
+            { "_indTextSecondary", "_indBg", 4.5 },
+            { "_indTextMuted", "_indBg", 4.5 },
+            { "_indTextMuted", "_indSidebar", 4.5 },
+            { "_indTextMuted", "_indCard", 4.5 },
+            { "_indSelectedText", "_indSelected", 4.5 },
+            { "_indSelectedText", "_indSelectedHover", 4.5 },
+            { "_indTextPrimary", "_indCardElevated", 4.5 },
+            { "ownBubbleText", "_indOwnBubble", 4.5 },
+            { "onAccentMuted", "_indOwnBubble", 4.5 },
+            { "_onAccent", "_indAccent", 3.0 },
+            // Deep Teal (design handoff; accent carries its own dark ink).
+            { "_teaTextPrimary", "_teaBg", 4.5 },
+            { "_teaTextSecondary", "_teaBg", 4.5 },
+            { "_teaTextMuted", "_teaBg", 4.5 },
+            { "_teaTextMuted", "_teaSidebar", 4.5 },
+            { "_teaTextMuted", "_teaCard", 4.5 },
+            { "_teaSelectedText", "_teaSelected", 4.5 },
+            { "_teaSelectedText", "_teaSelectedHover", 4.5 },
+            { "_teaTextPrimary", "_teaCardElevated", 4.5 },
+            { "ownBubbleText", "_teaOwnBubble", 4.5 },
+            { "onAccentMuted", "_teaOwnBubble", 4.5 },
+            { "_teaAccentText", "_teaAccent", 4.5 },
         };
         for (const Pair &pair : pairs) {
             const QString fg = c(pair.fg);
@@ -217,7 +253,8 @@ private Q_SLOTS:
             QStringLiteral("_light"), QStringLiteral("_dark"),
             QStringLiteral("_midnight"), QStringLiteral("_graphite"),
             QStringLiteral("_nord"), QStringLiteral("_purple"),
-            QStringLiteral("_warm"),
+            QStringLiteral("_warm"), QStringLiteral("_moss"),
+            QStringLiteral("_indigo"), QStringLiteral("_teal"),
         };
         const QStringList roles = {
             QStringLiteral("background"), QStringLiteral("sidebar"),
@@ -249,7 +286,7 @@ private Q_SLOTS:
                                         .arg(preset, role)));
             }
         }
-        for (int id = 1; id <= 7; ++id) {
+        for (int id = 1; id <= 10; ++id) {
             const QRegularExpression routed(
                 QStringLiteral("case\\s+%1\\s*:\\s*return\\s+_").arg(id));
             QVERIFY2(m_theme.contains(routed),

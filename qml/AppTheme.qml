@@ -11,7 +11,7 @@ import QtQuick
 //
 // v0.7 themes (SettingsManager::Theme):
 //   0 System          — follows the platform colour scheme
-//                       (Lightning Light or Lightning Dark)
+//                       (Moss Light or Indigo Night)
 //   1 Lightning Light
 //   2 Lightning Dark  (cool near-black; was a legacy alias of Midnight)
 //   3 Graphite        (neutral dark grey)
@@ -19,6 +19,9 @@ import QtQuick
 //   5 Nordic          (polar-night surfaces, frost accent)
 //   6 Purple Dusk     (deep violet surfaces)
 //   7 Warm            (light cream surfaces, amber accent)
+//   8 Moss Light      (design-handoff light: warm neutrals, moss accent)
+//   9 Indigo Night    (design-handoff dark: near-black, indigo accent)
+//  10 Deep Teal       (design-handoff dark: deep teal surfaces + accent)
 //
 // Every preset provides the full set of semantic values; components never
 // branch on the theme themselves. The raw `_xxxLight` / `_xxxDark` colour
@@ -34,14 +37,15 @@ QtObject {
     // pushed in from Main.qml via AppController.systemDarkMode.
     property bool systemDark: false
 
-    // Resolve System (0) to Lightning Light or Lightning Dark based on the
-    // platform colour scheme.
+    // Resolve System (0) to the flagship design pair — Moss Light or
+    // Indigo Night — based on the platform colour scheme.
     readonly property int effectiveTheme: mode === 0
-                                          ? (systemDark ? 2 : 1)
+                                          ? (systemDark ? 9 : 8)
                                           : mode
     // Any preset that is not one of the light surfaces is dark (used by
     // overlay chrome).
     readonly property bool dark: effectiveTheme !== 1 && effectiveTheme !== 7
+                                 && effectiveTheme !== 8
 
     // ---- Raw palette literals (retained; the token test reads these). ----
     readonly property color _bgLight:            "#EBF0F7"
@@ -195,6 +199,90 @@ QtObject {
     readonly property color _warOwnBubble:     "#8F420C"
     readonly property color _warOtherBubble:   "#EDE2CE"
 
+    // Moss Light — design-handoff light theme (option 1a).
+    readonly property color _mosBg:            "#F7F7F5"
+    readonly property color _mosRail:          "#ECEDED"
+    readonly property color _mosSidebar:       "#F2F3F1"
+    readonly property color _mosCard:          "#FFFFFF"
+    readonly property color _mosCardElevated:  "#FAFAF9"
+    readonly property color _mosHover:         "#E8E9E7"
+    readonly property color _mosSelected:      "#E2F4EE"
+    readonly property color _mosSelectedHover: "#D5EEE5"
+    readonly property color _mosSelectedText:  "#0D6E55"
+    readonly property color _mosTextPrimary:   "#1C1E21"
+    readonly property color _mosTextSecondary: "#5B6067"
+    readonly property color _mosTextMuted:     "#6A6F76"
+    readonly property color _mosTextDisabled:  "#9AA0A6"
+    readonly property color _mosBorder:        "#E4E6E4"
+    readonly property color _mosBorderStrong:  "#CFD3CF"
+    readonly property color _mosInputBg:       "#FFFFFF"
+    readonly property color _mosCodeBlock:     "#E8E9E7"
+    readonly property color _mosAccent:        "#12A67F"
+    readonly property color _mosAccentHover:   "#15B78C"
+    readonly property color _mosAccentPressed: "#0F8F6D"
+    readonly property color _mosAccentSoft:    "#E2F4EE"
+    readonly property color _mosAccentBorder:  "#BFE6DA"
+    readonly property color _mosOwnBubble:     "#0D6E55"
+    readonly property color _mosOtherBubble:   "#E8E9E7"
+
+    // Indigo Night — design-handoff dark theme (option 2a).
+    readonly property color _indBg:            "#101016"
+    readonly property color _indRail:          "#0E0E14"
+    readonly property color _indSidebar:       "#14141B"
+    readonly property color _indCard:          "#1B1B24"
+    readonly property color _indCardElevated:  "#2A2A36"
+    readonly property color _indHover:         "#1D1D26"
+    readonly property color _indSelected:      "#25253D"
+    readonly property color _indSelectedHover: "#2C2D4A"
+    readonly property color _indSelectedText:  "#C3C5FF"
+    readonly property color _indTextPrimary:   "#E8E8EF"
+    readonly property color _indTextSecondary: "#A4A6B8"
+    readonly property color _indTextMuted:     "#8D8FA0"
+    readonly property color _indTextDisabled:  "#6F7183"
+    readonly property color _indBorder:        "#23232D"
+    readonly property color _indBorderStrong:  "#33333F"
+    readonly property color _indInputBg:       "#1D1D26"
+    readonly property color _indCodeBlock:     "#0B0B10"
+    readonly property color _indAccent:        "#7C7FF2"
+    readonly property color _indAccentHover:   "#9295F5"
+    readonly property color _indAccentPressed: "#6568D6"
+    readonly property color _indAccentSoft:    "#25253D"
+    readonly property color _indAccentBorder:  "#383966"
+    readonly property color _indOwnBubble:     "#4A4CB8"
+    readonly property color _indOtherBubble:   "#2A2A36"
+
+    // Deep Teal — design-handoff dark theme (option 2b). Accent fills use
+    // dark ink (the accent itself is bright).
+    readonly property color _teaBg:            "#0E1416"
+    readonly property color _teaRail:          "#0A0F11"
+    readonly property color _teaSidebar:       "#111A1D"
+    readonly property color _teaCard:          "#132024"
+    readonly property color _teaCardElevated:  "#182428"
+    readonly property color _teaHover:         "#182428"
+    readonly property color _teaSelected:      "#152E2C"
+    readonly property color _teaSelectedHover: "#1D3B39"
+    readonly property color _teaSelectedText:  "#DEF5F0"
+    readonly property color _teaTextPrimary:   "#E6ECEC"
+    readonly property color _teaTextSecondary: "#B9C8C8"
+    readonly property color _teaTextMuted:     "#8FA5A8"
+    readonly property color _teaTextDisabled:  "#5F7A7E"
+    readonly property color _teaBorder:        "#1C2A2E"
+    readonly property color _teaBorderStrong:  "#234046"
+    readonly property color _teaInputBg:       "#182428"
+    readonly property color _teaCodeBlock:     "#0A1113"
+    readonly property color _teaAccent:        "#27C2AD"
+    readonly property color _teaAccentHover:   "#3FD2BE"
+    readonly property color _teaAccentPressed: "#1EA593"
+    readonly property color _teaAccentSoft:    "#112928"
+    readonly property color _teaAccentBorder:  "#1F4A44"
+    readonly property color _teaAccentText:    "#062A25"
+    readonly property color _teaOwnBubble:     "#1C4A43"
+    readonly property color _teaOtherBubble:   "#182428"
+
+    // Ink used on top of accent fills for every palette without its own
+    // accentText (the contrast test reads this literal by name).
+    readonly property color _onAccent:         "#FFFFFF"
+
     // ---- Resolved palette object for the effective theme. ----
     readonly property var _light: ({
         background: _bgLight, sidebar: _sidebarLight, surface: _cardLight,
@@ -280,6 +368,46 @@ QtObject {
         accentHover: _warAccentHover, accentPressed: _warAccentPressed,
         ownBubble: _warOwnBubble, otherBubble: _warOtherBubble
     })
+    readonly property var _moss: ({
+        background: _mosBg, rail: _mosRail, sidebar: _mosSidebar,
+        surface: _mosCard, cardElevated: _mosCardElevated, hover: _mosHover,
+        selected: _mosSelected, selectedHover: _mosSelectedHover,
+        selectedText: _mosSelectedText, inputBg: _mosInputBg,
+        codeBlock: _mosCodeBlock, textPrimary: _mosTextPrimary,
+        textSecondary: _mosTextSecondary, textMuted: _mosTextMuted,
+        textDisabled: _mosTextDisabled, border: _mosBorder,
+        borderStrong: _mosBorderStrong, accent: _mosAccent,
+        accentHover: _mosAccentHover, accentPressed: _mosAccentPressed,
+        accentSoft: _mosAccentSoft, accentBorder: _mosAccentBorder,
+        ownBubble: _mosOwnBubble, otherBubble: _mosOtherBubble
+    })
+    readonly property var _indigo: ({
+        background: _indBg, rail: _indRail, sidebar: _indSidebar,
+        surface: _indCard, cardElevated: _indCardElevated, hover: _indHover,
+        selected: _indSelected, selectedHover: _indSelectedHover,
+        selectedText: _indSelectedText, inputBg: _indInputBg,
+        codeBlock: _indCodeBlock, textPrimary: _indTextPrimary,
+        textSecondary: _indTextSecondary, textMuted: _indTextMuted,
+        textDisabled: _indTextDisabled, border: _indBorder,
+        borderStrong: _indBorderStrong, accent: _indAccent,
+        accentHover: _indAccentHover, accentPressed: _indAccentPressed,
+        accentSoft: _indAccentSoft, accentBorder: _indAccentBorder,
+        ownBubble: _indOwnBubble, otherBubble: _indOtherBubble
+    })
+    readonly property var _teal: ({
+        background: _teaBg, rail: _teaRail, sidebar: _teaSidebar,
+        surface: _teaCard, cardElevated: _teaCardElevated, hover: _teaHover,
+        selected: _teaSelected, selectedHover: _teaSelectedHover,
+        selectedText: _teaSelectedText, inputBg: _teaInputBg,
+        codeBlock: _teaCodeBlock, textPrimary: _teaTextPrimary,
+        textSecondary: _teaTextSecondary, textMuted: _teaTextMuted,
+        textDisabled: _teaTextDisabled, border: _teaBorder,
+        borderStrong: _teaBorderStrong, accent: _teaAccent,
+        accentHover: _teaAccentHover, accentPressed: _teaAccentPressed,
+        accentSoft: _teaAccentSoft, accentBorder: _teaAccentBorder,
+        accentText: _teaAccentText,
+        ownBubble: _teaOwnBubble, otherBubble: _teaOtherBubble
+    })
     readonly property var _p: {
         switch (effectiveTheme) {
         case 1:  return _light
@@ -289,6 +417,9 @@ QtObject {
         case 5:  return _nord
         case 6:  return _purple
         case 7:  return _warm
+        case 8:  return _moss
+        case 9:  return _indigo
+        case 10: return _teal
         default: return _light
         }
     }
@@ -299,6 +430,10 @@ QtObject {
     readonly property color sidebar:             _p.sidebar
     readonly property color navBackground:       sidebar
     readonly property color panelBackground:     sidebar
+    // Spaces-rail surface; palettes without a dedicated rail tone reuse the
+    // sidebar so the shell stays coherent.
+    readonly property color rail:                _p.rail !== undefined
+                                                 ? _p.rail : _p.sidebar
     readonly property color surface:             _p.surface
     readonly property color card:                surface
     readonly property color cardElevated:        _p.cardElevated
@@ -310,7 +445,18 @@ QtObject {
     readonly property color accent:              _p.accent
     readonly property color accentHover:         _p.accentHover
     readonly property color accentPressed:       _p.accentPressed
-    readonly property color accentText:          "#FFFFFF"
+    // Ink on accent fills. Bright accents (Deep Teal) supply their own dark
+    // ink; everything else uses white.
+    readonly property color accentText:          _p.accentText !== undefined
+                                                 ? _p.accentText : _onAccent
+    // Soft accent tint + its border — selection chips, active icon chips,
+    // own-reaction pills (design-handoff themes carry exact values; older
+    // palettes fall back to their selection tones).
+    readonly property color accentSoft:          _p.accentSoft !== undefined
+                                                 ? _p.accentSoft : _p.selected
+    readonly property color accentBorder:        _p.accentBorder !== undefined
+                                                 ? _p.accentBorder
+                                                 : _p.borderStrong
     readonly property color success:             _accentGreen
     readonly property color warning:             _accentWarning
     readonly property color danger:              _accentDanger
@@ -355,6 +501,9 @@ QtObject {
     readonly property color pressedSurface:      selectedHover
     readonly property color messageHighlight:    selected
     readonly property color threadHighlight:     accent
+    // Presence dots (design: online = accent-family green, away = yellow).
+    readonly property color presenceOnline:      success
+    readonly property color presenceAway:        "#C9B23A"
 
     // ---- Legacy aliases retained for existing QML. ----
     readonly property color surfaceAlt:          cardElevated
@@ -406,8 +555,11 @@ QtObject {
     readonly property int fontMono:          fontSizeS
 
     // ---- Font families. ----
-    readonly property string uiFont:          "Inter"
+    // Manrope ships with Lightning (data/fonts, loaded in main.cpp); the
+    // rest are graceful fallbacks for stripped-down builds.
+    readonly property string uiFont:          "Manrope"
     readonly property var    uiFontFamilies:  [
+        "Manrope",
         "Inter",
         "SF Pro Display",
         "Segoe UI Variable",
