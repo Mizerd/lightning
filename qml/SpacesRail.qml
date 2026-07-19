@@ -1,6 +1,5 @@
 import QtQuick
 import QtQuick.Controls
-import QtQuick.Effects
 import QtQuick.Layouts
 import MatrixClient
 
@@ -94,44 +93,34 @@ Rectangle {
                     }
 
                     // Real Space avatar via the shared media bridge; shown
-                    // only once fully decoded, masked to the tile shape.
+                    // only once fully decoded. The tile shape is baked into
+                    // the bitmap by MediaImageProvider ("|shape:" suffix) —
+                    // no per-item MultiEffect mask passes.
                     Image {
                         id: spaceImage
                         anchors.fill: parent
-                        visible: false
                         fillMode: Image.PreserveAspectCrop
                         asynchronous: true
                         cache: true
                         property string mxc: spaceItem.isPseudo
                                              ? "" : (model.avatarUrl || "")
-                        source: mxc.length > 0 && app.mediaBridge.supported
+                        property string base:
+                            mxc.length > 0 && app.mediaBridge.supported
                                 ? app.mediaBridge.avatarSource(mxc, 80) : ""
+                        readonly property string shapeSuffix:
+                            "|shape:rsq:" + Math.max(1, Math.min(500,
+                                Math.round(spaceTile.radius * 1000
+                                           / Math.max(1, spaceTile.width))))
+                        source: base === "" ? "" : base + shapeSuffix
+                        visible: status === Image.Ready
                         Connections {
                             target: app.mediaBridge
                             enabled: spaceImage.mxc.length > 0
                             function onMediaCached(cacheKey) {
-                                spaceImage.source = app.mediaBridge.avatarSource(
+                                spaceImage.base = app.mediaBridge.avatarSource(
                                     spaceImage.mxc, 80)
                             }
                         }
-                    }
-                    Item {
-                        id: spaceMask
-                        anchors.fill: parent
-                        visible: false
-                        layer.enabled: true
-                        Rectangle {
-                            anchors.fill: parent
-                            radius: spaceTile.radius
-                            color: "black"
-                        }
-                    }
-                    MultiEffect {
-                        anchors.fill: parent
-                        source: spaceImage
-                        maskEnabled: true
-                        maskSource: spaceMask
-                        visible: spaceImage.status === Image.Ready
                     }
 
                     // Unread count badge (rail-coloured ring per design).

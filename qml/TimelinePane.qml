@@ -366,8 +366,14 @@ Rectangle {
                 // Fast-scroll: keep roughly one extra screen of message
                 // delegates alive above and below the viewport so flicks
                 // reuse them instead of re-instantiating mid-motion.
-                // (reuseItems is deliberately NOT enabled here — message
-                // delegates carry per-row interactive state.)
+                // reuseItems is deliberately NOT enabled: message delegates
+                // carry per-row interactive state that a pooled delegate
+                // would leak across rows (open edit fields, reaction and
+                // context popovers, hover/GIF-autoplay state, thread-summary
+                // expansion, in-flight decrypt retries). The scroll-perf
+                // work instead removed the per-avatar MultiEffect mask
+                // passes (shapes are baked into the cached bitmaps by
+                // MediaImageProvider) and keeps this cacheBuffer.
                 cacheBuffer: 800
                 // Delegates own sender-group spacing: group leaders receive
                 // a compact break while continuations stay visually glued

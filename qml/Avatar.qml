@@ -1,6 +1,5 @@
 import QtQuick
 import QtQuick.Controls
-import QtQuick.Effects
 import MatrixClient
 
 // v0.5.11: shared avatar element used across the whole UI (room list, Space
@@ -12,9 +11,11 @@ import MatrixClient
 // placeholder until — and unless — a real bitmap is available. The bitmap is
 // only shown once fully loaded, so a broken-image icon never appears and a
 // stale avatar never flashes when the mxc changes (delegate reuse, account
-// switch, logout, avatar-URL change). The bitmap is masked to the avatar
-// shape with a MultiEffect (a Rectangle's `clip` ignores `radius`, which would
-// otherwise leave square corners).
+// switch, logout, avatar-URL change). The avatar shape (circle for people,
+// rounded square for rooms/Spaces) is baked into the decoded bitmap by
+// MediaImageProvider via the "|shape:" source suffix — once per cached
+// image — instead of a per-item MultiEffect mask, which cost two extra
+// render passes per avatar on every scroll frame.
 Rectangle {
     id: root
 
@@ -69,31 +70,16 @@ Rectangle {
     Image {
         id: img
         anchors.fill: parent
-        source: root.src
+        // The provider bakes the mask into the bitmap; the suffix selects
+        // circle or rounded-square (radius as a permille of the edge).
+        source: root.src === "" ? ""
+                : root.src + (root.circle
+                    ? "|shape:circle"
+                    : "|shape:rsq:" + Math.max(1, Math.min(500,
+                          Math.round(root.radius * 1000 / Math.max(1, root.size)))))
         fillMode: Image.PreserveAspectCrop
         asynchronous: true
         cache: true
-        visible: false // shown via the masked MultiEffect below
-    }
-
-    // Rounded mask matching the avatar shape.
-    Item {
-        id: maskShape
-        anchors.fill: parent
-        visible: false
-        layer.enabled: true
-        Rectangle {
-            anchors.fill: parent
-            radius: root.radius
-            color: "black"
-        }
-    }
-
-    MultiEffect {
-        anchors.fill: parent
-        source: img
-        maskEnabled: true
-        maskSource: maskShape
         // Only shown once fully decoded — no broken-image glyph, no flash.
         visible: img.status === Image.Ready
     }

@@ -285,6 +285,17 @@ were never backed up or shared.
   header and Ctrl-K hint, timeline with members/threads side panel, card
   composer; bundled Manrope/JetBrains Mono fonts; application icon and
   desktop entry installed by CMake (see data/ and scripts/generate-icons.sh)
+- The design-1d Settings screen: 260 px left navigation (Settings title;
+  Account, Appearance, Notifications, Privacy & security, Sessions, Labs;
+  About pinned bottom; soft-accent active rows), theme preview cards drawn
+  from each theme's own palette (AppTheme.themeList/paletteForTheme), a
+  match-system toggle, and an honestly-unavailable message-layout control
+  (the timeline backend renders one layout; no dead controls). All prior
+  security/session/recovery controls are preserved under Privacy & security
+  and Sessions. Avatar shapes are baked into the cached bitmap by
+  MediaImageProvider ("|shape:" suffix) instead of per-item MultiEffect
+  masks. Headless/offscreen runs force stderr logging in main.cpp because
+  Qt otherwise routes category logs to the journal when stderr is no TTY.
 - Room-activity visibility, link/GIF preview policy, notification privacy and
   sound, per-room notification mode, and wheel-speed settings
 - Unicode emoji picker with search, tones, and bounded local recents
@@ -621,9 +632,13 @@ Keep this list grounded in source and recent history:
   icon association included).
 - Deliberate follow-ups from the design handoff: markdown-formatted sending
   (composer toolbar deferred — sends are text_plain end-to-end today),
-  message layout modes (Modern/Bubbles/Compact), thread participant
-  facepiles (needs participant data in the thread-summary bridge payload),
-  voice messages, and Matrix presence.
+  message layout modes (Modern/Bubbles/Compact — the Settings 1d screen
+  shows them as unavailable until the timeline backend supports them),
+  text-size scaling (omitted from Settings until a font-scale backend
+  exists), thread participant facepiles (needs participant data in the
+  thread-summary bridge payload), voice messages, and Matrix presence.
+- Live-validate the redesigned Settings screen and the baked-mask avatar
+  rendering interactively on a real desktop (automated suites cover both).
 - Plan any post-0.6.1 work only through explicitly requested checkpoints.
 
 Do not list the implemented GIF browser, favorites/recents, download/send path,
