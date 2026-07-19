@@ -26,8 +26,24 @@ gitlab_api_init() {
     else
         die "CI_JOB_TOKEN is unavailable and LIGHTNING_PUBLISH_TOKEN is not configured"
     fi
-    API_ROOT="${CI_API_V4_URL%/}/projects/${TARGET_PROJECT_ID}"
+    # Canonical (public) API root: the durable URLs recorded in the manifest
+    # and release links are always built from CI_API_V4_URL so consumers get
+    # the public host.
+    CANONICAL_API_ROOT="${CI_API_V4_URL%/}/projects/${TARGET_PROJECT_ID}"
+    # Request base: PUBLISH_API_BASE lets CI route the publish-chain's own
+    # requests through the internal GitLab endpoint (the runner fleet's
+    # existing convention), bypassing the public proxy path and its
+    # request-body limits. Credentials stay in request headers either way.
+    API_ROOT="${PUBLISH_API_BASE:-$CI_API_V4_URL}"
+    API_ROOT="${API_ROOT%/}/projects/${TARGET_PROJECT_ID}"
     PACKAGE_NAME="${PACKAGE_NAME:-lightning}"
+}
+
+# Map a canonical (public) URL from the manifest onto the request base.
+# Leaves the URL unchanged when it is not under the canonical root.
+api_request_url() {
+    local url="$1"
+    printf '%s' "${url/#"$CANONICAL_API_ROOT"/$API_ROOT}"
 }
 
 api_request() {

@@ -53,7 +53,7 @@ while IFS= read -r row; do
     [[ "$actual_sha" == "$expected_sha" ]] || \
         die "manifest checksum mismatch for $filename (validated bytes differ)"
     remote="$tmp_dir/remote-$filename"
-    status="$(api_request --output "$remote" --write-out '%{http_code}' "$url")" || \
+    status="$(api_request --output "$remote" --write-out '%{http_code}' "$(api_request_url "$url")")" || \
         die "package preflight request failed for $filename"
     case "$status" in
         200)
@@ -76,7 +76,7 @@ for i in "${!entry_files[@]}"; do
     [[ "${entry_states[$i]}" == missing ]] || continue
     file="${entry_files[$i]}"; url="${entry_urls[$i]}"; name="${entry_names[$i]}"
     if ! status="$(api_request --request PUT --upload-file "$file" \
-        --output "$tmp_dir/upload-$name.json" --write-out '%{http_code}' "$url")"; then
+        --output "$tmp_dir/upload-$name.json" --write-out '%{http_code}' "$(api_request_url "$url")")"; then
         rollback
         die "upload request failed for $name; newly uploaded files were rolled back"
     fi

@@ -52,7 +52,7 @@ EOF
     export MOCK_SOURCE_SHA="$SHA" MOCK_RELEASE_VERSION="$VER" MOCK_JQ="$JQ"
     unset CI MOCK_TAG_EXISTS MOCK_RELEASE_EXISTS MOCK_TAG_SHA MOCK_CONFLICT_FILE \
           MOCK_FAIL_UPLOAD MOCK_PRESEED_LINKS MOCK_CREATE_LINKS MOCK_COMMIT_REACHABLE \
-          RELEASE_NOTES_B64 SOURCE_REF
+          RELEASE_NOTES_B64 SOURCE_REF PUBLISH_API_BASE
 }
 no_leak() { grep -q 'mock-secret-value' "$1" && bad "credential leaked in $1" || true; }
 run() { "$@" >"$TR/out.log" 2>&1; local rc=$?; no_leak "$TR/out.log"; return $rc; }
@@ -92,6 +92,20 @@ run "$ROOT/scripts/write-manifest.sh" && run "$ROOT/scripts/publish-packages.sh"
 [[ "$($JQ '.entries|length' "$TR/dist/publication.json")" == 5 ]] && note "publication.json" || bad "publication.json"
 # only the five package files are ever PUT (no logs/metadata)
 [[ "$(grep -c '^PUT ' "$MLOG")" == 5 ]] && note "only manifest files uploaded" || bad "extra uploads"
+
+printf '== internal API base override (PUBLISH_API_BASE) ==\n'
+setup; export RELEASE_ACTION=attach-existing SOURCE_REF=v$VER
+export PUBLISH_API_BASE=https://internal.example/api/v4
+run "$ROOT/scripts/write-manifest.sh" && run "$ROOT/scripts/publish-packages.sh" || bad "publish with API base override failed"
+MO="$TR/dist/manifest.json"
+[[ "$($JQ -r '[.entries[].registry_url] | all(startswith("https://gitlab.example/api/v4/"))' "$MO")" == true ]] \
+    && note "manifest registry URLs stay canonical/public" || bad "manifest URLs not canonical"
+[[ "$(grep -c '^PUT https://internal.example/api/v4/' "$MLOG")" == 5 ]] \
+    && note "uploads routed through the internal API base" || bad "uploads not routed internally"
+[[ "$(grep -c '^PUT https://gitlab.example/' "$MLOG")" == 0 ]] \
+    && note "no upload used the public host" || bad "upload leaked to the public host"
+run "$ROOT/scripts/verify-published-packages.sh" && note "verify works via internal base" || bad "verify failed via internal base"
+unset PUBLISH_API_BASE
 
 printf '== idempotent retry (identical) ==\n'
 # reuse state: run publish twice in same MOCK_STATE_DIR

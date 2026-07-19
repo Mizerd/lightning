@@ -17,7 +17,9 @@ ROOT="$(project_dir)"
 gitlab_api_init
 release_contract_env
 
-registry_base="${API_ROOT}/packages/generic/${PACKAGE_NAME}/${PACKAGE_VERSION}"
+# Durable registry URLs are always canonical/public (release links point
+# here); the upload/verify requests map them onto API_ROOT separately.
+registry_base="${CANONICAL_API_ROOT}/packages/generic/${PACKAGE_NAME}/${PACKAGE_VERSION}"
 
 # Declared package files for this release. Append future formats here only.
 declare -a formats=(deb rpm flatpak appimage snap)

@@ -70,7 +70,7 @@ while IFS= read -r row; do
 
     # Download the file and confirm the bytes and checksum end to end.
     dl="$tmp_dir/dl-$filename"
-    status="$(api_request --output "$dl" --write-out '%{http_code}' "$url")" || \
+    status="$(api_request --output "$dl" --write-out '%{http_code}' "$(api_request_url "$url")")" || \
         die "download request failed for $filename"
     [[ "$status" == 200 ]] || die "download of $filename returned HTTP $status"
     actual_sha="$(sha256sum "$dl" | cut -d' ' -f1)"
