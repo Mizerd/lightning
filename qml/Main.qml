@@ -57,29 +57,8 @@ ApplicationWindow {
         value: app.systemDarkMode
     }
 
-    header: ToolBar {
-        background: Rectangle { color: AppTheme.surface; border.width: 0 }
-        RowLayout {
-            anchors.fill: parent
-            anchors.leftMargin: AppTheme.spacingM
-            anchors.rightMargin: AppTheme.spacingM
-
-            Label {
-                text: qsTr("Lightning")
-                color: AppTheme.textPrimary
-                font.pixelSize: 15
-                font.weight: Font.DemiBold
-            }
-            Label {
-                visible: app.syncModeLabel !== ""
-                text: app.syncModeLabel
-                color: AppTheme.textMuted
-                font.pixelSize: AppTheme.fontSizeXS
-            }
-
-            Item { Layout.fillWidth: true }
-        }
-    }
+    // v0.7 design shell: no global header bar — the shell columns carry
+    // their own headers (room-list workspace header, room header).
 
     Loader {
         id: pageLoader
@@ -117,9 +96,16 @@ ApplicationWindow {
     Component { id: mainComponent;     MainScreen {} }
     Component { id: settingsComponent; SettingsScreen {} }
 
+    // Slim status strip: shown only while something needs attention
+    // (connecting, offline, error) or on the login screen; the steady
+    // "Connected" state stays quiet per the design's low-noise shell.
     footer: Rectangle {
         color: AppTheme.surface
-        implicitHeight: statusRow.implicitHeight + AppTheme.spacingS * 2
+        visible: app.currentScreen !== 1
+                 || app.connectionStatus !== qsTr("Connected")
+                 || statusBar.lastError !== ""
+        implicitHeight: visible
+                        ? statusRow.implicitHeight + AppTheme.spacingS * 2 : 0
         RowLayout {
             id: statusRow
             anchors.fill: parent

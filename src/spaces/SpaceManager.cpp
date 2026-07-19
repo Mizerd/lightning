@@ -128,6 +128,17 @@ QStringList SpaceManager::roomsInSpace(const QString &spaceId) const
     return QStringList(it->constBegin(), it->constEnd());
 }
 
+QString SpaceManager::spaceName(const QString &spaceId) const
+{
+    if (spaceId == allRoomsId() || spaceId == orphansId())
+        return {};
+    for (const SpaceEntry &entry : m_spaces) {
+        if (entry.info.id == spaceId)
+            return entry.info.name;
+    }
+    return {};
+}
+
 bool SpaceManager::includesRoom(const QString &spaceId, const QString &roomId) const
 {
     if (spaceId == allRoomsId())

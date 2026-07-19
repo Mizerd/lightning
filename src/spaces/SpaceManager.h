@@ -67,6 +67,8 @@ public:
     // rooms not referenced by any Space.
     Q_INVOKABLE QStringList roomsInSpace(const QString &spaceId) const;
     Q_INVOKABLE bool includesRoom(const QString &spaceId, const QString &roomId) const;
+    // v0.7 design shell: display name for the room-list workspace header.
+    Q_INVOKABLE QString spaceName(const QString &spaceId) const;
 
 Q_SIGNALS:
     void activeSpaceIdChanged();

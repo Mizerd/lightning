@@ -3,10 +3,9 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// v0.5.4: Rooms column with DM / Room sections and a user footer.
-// Section grouping uses RoomListModel's "category" role ("dm" | "room");
-// the C++ refresh() sorts DMs before groups so section headers appear in order.
-// The user footer (avatar + userId + ⚙ + ↪) replaces the old sidebar gear.
+// v0.7 design shell: the room-list column. Workspace header (active Space
+// name), search with a ⌘K hint, DM / Room sections, room rows. The account
+// entry point lives on the SpacesRail; this column has no footer.
 Rectangle {
     id: root
     color: AppTheme.sidebar
@@ -14,6 +13,37 @@ Rectangle {
     ColumnLayout {
         anchors.fill: parent
         spacing: 0
+
+        // ── Workspace header ─────────────────────────────────────────────
+        Rectangle {
+            Layout.fillWidth: true
+            color: AppTheme.sidebar
+            implicitHeight: workspaceLabel.implicitHeight + AppTheme.spacing12 * 2
+
+            Label {
+                id: workspaceLabel
+                anchors {
+                    left: parent.left; right: parent.right
+                    verticalCenter: parent.verticalCenter
+                    leftMargin: AppTheme.spacing12
+                    rightMargin: AppTheme.spacing12
+                }
+                text: {
+                    if (!app.spaces)
+                        return qsTr("Lightning")
+                    var id = app.spaces.activeSpaceId
+                    if (id === "" || id === undefined)
+                        return qsTr("Lightning")
+                    if (id === "@orphans")
+                        return qsTr("Other rooms")
+                    return app.spaces.spaceName(id) || qsTr("Lightning")
+                }
+                color: AppTheme.textPrimary
+                font.pixelSize: AppTheme.fontRoomTitle
+                font.weight: Font.ExtraBold
+                elide: Label.ElideRight
+            }
+        }
 
         // ── Search bar + new-conversation button ─────────────────────────
         Rectangle {
@@ -33,14 +63,37 @@ Rectangle {
                 TextField {
                     id: roomSearch
                     Layout.fillWidth: true
-                    placeholderText: qsTr("Search rooms…")
+                    placeholderText: qsTr("Search")
                     onTextChanged: app.roomList.searchQuery = text
                     font.pixelSize: AppTheme.fontSizeS
+                    rightPadding: kbdHint.width + AppTheme.spacing12
                     background: Rectangle {
-                        color: AppTheme.inputBackground
-                        border.color: roomSearch.activeFocus ? AppTheme.focusRing : AppTheme.inputBorder
+                        color: AppTheme.hover
+                        border.color: roomSearch.activeFocus ? AppTheme.focusRing : "transparent"
                         border.width: roomSearch.activeFocus ? 2 : 1
+                        radius: AppTheme.radiusMd
+                    }
+
+                    // ⌘K-style keycap hint for the quick switcher.
+                    Rectangle {
+                        id: kbdHint
+                        anchors.right: parent.right
+                        anchors.rightMargin: AppTheme.spacing6
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: kbdLabel.implicitWidth + AppTheme.spacing8
+                        height: kbdLabel.implicitHeight + AppTheme.spacing4
                         radius: AppTheme.radiusSm
+                        color: AppTheme.sidebar
+                        border.color: AppTheme.border
+                        visible: !roomSearch.activeFocus
+                        Label {
+                            id: kbdLabel
+                            anchors.centerIn: parent
+                            text: qsTr("Ctrl K")
+                            font.family: AppTheme.monoFont
+                            font.pixelSize: AppTheme.fontCaption
+                            color: AppTheme.textMuted
+                        }
                     }
                 }
 
@@ -107,11 +160,11 @@ Rectangle {
                         leftMargin: AppTheme.spacing12
                     }
                     text: section === "invite" ? qsTr("INVITES")
-                          : section === "dm" ? qsTr("DIRECT MESSAGES") : qsTr("ROOMS")
+                          : section === "dm" ? qsTr("PEOPLE") : qsTr("ROOMS")
                     color: AppTheme.textMuted
                     font.pixelSize: AppTheme.fontSizeXS
-                    font.weight: Font.DemiBold
-                    font.letterSpacing: 1.0
+                    font.weight: Font.ExtraBold
+                    font.letterSpacing: 1.2
                 }
             }
 
@@ -147,117 +200,7 @@ Rectangle {
             }
         }
 
-        // ── Account footer ───────────────────────────────────────────────
-        // v0.5.9: one compact account button (avatar, clean name,
-        // abbreviated MXID, connection dot). Clicking opens the account
-        // menu — Settings, Security & Recovery, About, and the only Sign
-        // out in the app (danger-styled, confirmed). Hidden when signed out.
-        Rectangle {
-            id: accountFooter
-            Layout.fillWidth: true
-            implicitHeight: footerRow.implicitHeight + AppTheme.spacing8 * 2
-            color: footerHover.hovered ? AppTheme.hover : AppTheme.sidebar
-            visible: app.loggedIn
-            Accessible.role: Accessible.Button
-            Accessible.name: qsTr("Account menu for %1")
-                             .arg(app.accounts ? app.accounts.activeUserId : "")
-
-            readonly property string userId:
-                app.accounts ? (app.accounts.activeUserId || "") : ""
-            readonly property string localpart: {
-                var uid = userId
-                if (uid.startsWith("@")) uid = uid.slice(1)
-                var colon = uid.indexOf(":")
-                return colon > 0 ? uid.slice(0, colon) : uid
-            }
-            readonly property string server: {
-                var colon = userId.indexOf(":")
-                return colon > 0 ? userId.slice(colon + 1) : ""
-            }
-
-            // Top separator line
-            Rectangle {
-                anchors.top: parent.top
-                anchors.left: parent.left
-                anchors.right: parent.right
-                height: 1
-                color: AppTheme.separator
-            }
-
-            HoverHandler { id: footerHover }
-            TapHandler { onTapped: accountMenu.open() }
-
-            RowLayout {
-                id: footerRow
-                anchors {
-                    fill: parent
-                    topMargin: AppTheme.spacing8 + 1   // +1 for separator
-                    bottomMargin: AppTheme.spacing8
-                    leftMargin: AppTheme.spacing8
-                    rightMargin: AppTheme.spacing8
-                }
-                spacing: AppTheme.spacing8
-
-                // Avatar circle with connection indicator.
-                Item {
-                    width: 32; height: 32
-                    Rectangle {
-                        anchors.fill: parent
-                        radius: AppTheme.radiusPill
-                        color: AppTheme.accent
-                        Label {
-                            anchors.centerIn: parent
-                            text: accountFooter.localpart.length > 0
-                                  ? accountFooter.localpart[0].toUpperCase() : "?"
-                            font.pixelSize: AppTheme.fontBody
-                            font.weight: Font.DemiBold
-                            color: AppTheme.accentText
-                        }
-                    }
-                    Rectangle {
-                        anchors.right: parent.right
-                        anchors.bottom: parent.bottom
-                        width: 10; height: 10; radius: 5
-                        border.color: AppTheme.sidebar
-                        border.width: 2
-                        color: app.connectionStatus === qsTr("Connected")
-                               ? AppTheme.success : AppTheme.warning
-                    }
-                }
-
-                ColumnLayout {
-                    Layout.fillWidth: true
-                    spacing: 0
-                    Label {
-                        Layout.fillWidth: true
-                        text: accountFooter.localpart
-                        color: AppTheme.textPrimary
-                        font.pixelSize: AppTheme.fontSecondary
-                        font.weight: Font.DemiBold
-                        elide: Label.ElideRight
-                    }
-                    Label {
-                        Layout.fillWidth: true
-                        text: accountFooter.server
-                        color: AppTheme.textMuted
-                        font.pixelSize: AppTheme.fontCaption
-                        elide: Label.ElideRight
-                    }
-                }
-
-                Label {
-                    text: "⋯"
-                    color: AppTheme.textMuted
-                    font.pixelSize: AppTheme.fontRoomTitle
-                }
-            }
-
-            AccountMenu {
-                id: accountMenu
-                // Anchor above the footer, inside the window.
-                x: 0
-                y: -implicitHeight - AppTheme.spacing4
-            }
-        }
+        // The account entry point lives on the SpacesRail (design shell);
+        // this column intentionally has no footer.
     }
 }

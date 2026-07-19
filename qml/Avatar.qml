@@ -29,7 +29,7 @@ Rectangle {
     implicitHeight: size
     width: size
     height: size
-    radius: circle ? size / 2 : AppTheme.radiusSm
+    radius: circle ? size / 2 : AppTheme.radiusMd
     color: AppTheme.cardElevated
 
     readonly property bool hasImage:

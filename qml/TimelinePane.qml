@@ -33,6 +33,20 @@ Rectangle {
         infoOpen = true
     }
 
+    // v0.7 design shell: the header's members button opens the same side
+    // panel directly on the People section.
+    function toggleMemberPanel() {
+        if (app.currentRoomId === "" || !app.roomInfo.supported)
+            return
+        if (infoOpen && infoPanel.section === "people") {
+            infoOpen = false
+            return
+        }
+        infoPanel.openForRoom(app.currentRoomId)
+        infoPanel.section = "people"
+        infoOpen = true
+    }
+
     Connections {
         target: app
         function onCurrentRoomIdChanged() {
@@ -190,8 +204,8 @@ Rectangle {
                                      ? qsTr("No room selected")
                                      : app.currentRoomId)
                             color: AppTheme.text
-                            font.pixelSize: 14
-                            font.weight: Font.DemiBold
+                            font.pixelSize: 15
+                            font.weight: Font.ExtraBold
                         }
                         Label {
                             visible: root.currentRoom.encrypted === true
@@ -235,10 +249,22 @@ Rectangle {
                     }
                 }
                 ToolButton {
+                    objectName: "memberPanelButton"
+                    visible: app.currentRoomId !== "" && app.roomInfo.supported
+                    text: "👥"
+                    font.pixelSize: 14
+                    checked: root.infoOpen && infoPanel.section === "people"
+                    Accessible.name: qsTr("Members")
+                    ToolTip.text: qsTr("Room members")
+                    ToolTip.visible: hovered
+                    ToolTip.delay: 500
+                    onClicked: root.toggleMemberPanel()
+                }
+                ToolButton {
                     visible: app.currentRoomId !== "" && app.roomInfo.supported
                     text: "ⓘ"
                     font.pixelSize: 16
-                    checked: root.infoOpen
+                    checked: root.infoOpen && infoPanel.section !== "people"
                     Accessible.name: qsTr("Room information")
                     ToolTip.text: qsTr("Room information")
                     ToolTip.visible: hovered

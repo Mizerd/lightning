@@ -5,7 +5,7 @@ import MatrixClient
 
 Item {
     id: root
-    implicitHeight: content.implicitHeight + AppTheme.spacingM * 2
+    implicitHeight: content.implicitHeight + AppTheme.spacing6 * 2
     Accessible.role: Accessible.ListItem
     Accessible.name: model.membership === "invited"
                      ? qsTr("Invitation to %1").arg(model.name)
@@ -34,15 +34,19 @@ Item {
     RowLayout {
         id: content
         anchors.fill: parent
-        anchors.margins: AppTheme.spacingM
-        spacing: AppTheme.spacingM
+        anchors.leftMargin: AppTheme.spacing8
+        anchors.rightMargin: AppTheme.spacing8
+        anchors.topMargin: AppTheme.spacing6
+        anchors.bottomMargin: AppTheme.spacing6
+        spacing: AppTheme.spacing8
 
         Avatar {
-            size: 40
+            size: 32
             name: model.name || ""
             mxc: model.avatarUrl || ""
-            // Spaces render as rounded squares, rooms as circles.
-            circle: !(model.isSpace === true)
+            // Design shell: people are circles, rooms and Spaces are
+            // rounded squares.
+            circle: model.isDirect === true
         }
 
         ColumnLayout {
@@ -151,12 +155,6 @@ Item {
         MenuItem { text: qsTr("Mark as unread"); onTriggered: root.markUnread() }
     }
 
-    Rectangle {
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.bottom: parent.bottom
-        height: 1
-        color: AppTheme.border
-        opacity: 0.5
-    }
+    // Design shell: no per-row hairline — rows separate through spacing
+    // and hover/selection tints only.
 }

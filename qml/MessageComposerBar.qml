@@ -12,7 +12,7 @@ import MatrixClient
 Rectangle {
     id: root
     color: AppTheme.surface
-    implicitHeight: composerCol.implicitHeight + AppTheme.spacingS
+    implicitHeight: composerCol.implicitHeight + AppTheme.spacing12
 
     // Transient validation feedback ("folder rejected", "too large", …).
     property string attachmentNotice: ""
@@ -150,7 +150,10 @@ Rectangle {
     ColumnLayout {
         id: composerCol
         anchors.fill: parent
-        anchors.margins: AppTheme.spacingXS
+        anchors.leftMargin: AppTheme.spacing12
+        anchors.rightMargin: AppTheme.spacing12
+        anchors.topMargin: AppTheme.spacing4
+        anchors.bottomMargin: AppTheme.spacing8
         spacing: 2
 
         // Reply / Edit / Thread banner
@@ -283,102 +286,163 @@ Rectangle {
             }
         }
 
-        RowLayout {
+        // ── Composer card (design shell): one bordered rounded card
+        //    holding attach · input · emoji · GIF · send. ─────────────────
+        Rectangle {
+            id: composerCard
             Layout.fillWidth: true
-            spacing: AppTheme.spacingS
+            implicitHeight: composerRow.implicitHeight + AppTheme.spacing8
+            radius: AppTheme.radiusLg
+            color: AppTheme.inputBackground
+            border.color: input.activeFocus ? AppTheme.focusRing
+                                            : AppTheme.border
+            border.width: 1
 
-            ToolButton {
-                text: "＋"
-                font.pixelSize: 18
-                enabled: app.currentRoomId !== ""
-                Accessible.name: qsTr("Attach files")
-                onClicked: {
-                    if (app.composer.attachmentsSupported)
-                        pickAttachmentsDialog.open()
-                    else
-                        legacyAttachMenu.popup()
+            RowLayout {
+                id: composerRow
+                anchors {
+                    left: parent.left; right: parent.right
+                    verticalCenter: parent.verticalCenter
+                    leftMargin: AppTheme.spacing6
+                    rightMargin: AppTheme.spacing6
                 }
-                ToolTip.text: qsTr("Attach")
-                ToolTip.visible: hovered
-                ToolTip.delay: 500
-            }
+                spacing: AppTheme.spacing4
 
-            ToolButton {
-                id: emojiButton
-                text: "☺"
-                font.pixelSize: 18
-                enabled: app.currentRoomId !== ""
-                Accessible.name: qsTr("Insert emoji")
-                ToolTip.text: qsTr("Emoji")
-                ToolTip.visible: hovered
-                ToolTip.delay: 500
-                onClicked: root.openEmojiPicker()
-            }
-
-            ToolButton {
-                id: gifButton
-                text: "GIF"
-                font.pixelSize: 12
-                font.bold: true
-                enabled: app.currentRoomId !== "" && app.gif.available
-                Accessible.name: qsTr("Insert a GIF")
-                ToolTip.text: app.gif.available ? qsTr("GIF")
-                    : qsTr("GIFs are unavailable on this backend")
-                ToolTip.visible: hovered
-                ToolTip.delay: 500
-                onClicked: root.openGifPicker()
-            }
-
-            TextArea {
-                id: input
-                objectName: "composerInput"
-                Layout.fillWidth: true
-                // Grows with content up to ~6 lines, then scrolls.
-                Layout.maximumHeight: 140
-                placeholderText: app.currentRoomId === ""
-                                 ? qsTr("Select a room to start typing")
-                                 : (app.composer.isEditing ? qsTr("Edit message…")
-                                                           : qsTr("Write a message…"))
-                wrapMode: TextArea.Wrap
-                enabled: app.currentRoomId !== ""
-                text: app.composer.text
-                onTextChanged: if (app.composer.text !== text) app.composer.text = text
-                Keys.onReturnPressed: (event) => {
-                    if (event.modifiers & Qt.ShiftModifier) {
-                        event.accepted = false
-                        return
+                ToolButton {
+                    text: "＋"
+                    font.pixelSize: 18
+                    enabled: app.currentRoomId !== ""
+                    Accessible.name: qsTr("Attach files")
+                    onClicked: {
+                        if (app.composer.attachmentsSupported)
+                            pickAttachmentsDialog.open()
+                        else
+                            legacyAttachMenu.popup()
                     }
-                    event.accepted = true
-                    app.composer.send()
-                    input.forceActiveFocus()
+                    ToolTip.text: qsTr("Attach")
+                    ToolTip.visible: hovered
+                    ToolTip.delay: 500
                 }
-                Keys.onPressed: (event) => {
-                    // Clipboard images / file URLs become attachments;
-                    // ordinary text pastes normally.
-                    if (event.matches(StandardKey.Paste)
-                            && app.composer.pasteFromClipboard()) {
+
+                TextArea {
+                    id: input
+                    objectName: "composerInput"
+                    Layout.fillWidth: true
+                    // Grows with content up to ~6 lines, then scrolls.
+                    Layout.maximumHeight: 140
+                    placeholderText: app.currentRoomId === ""
+                                     ? qsTr("Select a room to start typing")
+                                     : (app.composer.isEditing
+                                        ? qsTr("Edit message…")
+                                        : qsTr("Message %1").arg(
+                                              root.roomDisplayName()))
+                    wrapMode: TextArea.Wrap
+                    enabled: app.currentRoomId !== ""
+                    text: app.composer.text
+                    onTextChanged: if (app.composer.text !== text) app.composer.text = text
+                    Keys.onReturnPressed: (event) => {
+                        if (event.modifiers & Qt.ShiftModifier) {
+                            event.accepted = false
+                            return
+                        }
                         event.accepted = true
+                        app.composer.send()
+                        input.forceActiveFocus()
                     }
+                    Keys.onPressed: (event) => {
+                        // Clipboard images / file URLs become attachments;
+                        // ordinary text pastes normally.
+                        if (event.matches(StandardKey.Paste)
+                                && app.composer.pasteFromClipboard()) {
+                            event.accepted = true
+                        }
+                    }
+                    // The card carries the chrome; the field itself is bare.
+                    background: Rectangle { color: "transparent" }
                 }
-                background: Rectangle {
-                    color: AppTheme.inputBackground
-                    border.color: input.activeFocus ? AppTheme.focusRing
-                                                    : AppTheme.inputBorder
-                    border.width: input.activeFocus ? 2 : 1
-                    radius: AppTheme.radius
-                }
-            }
 
-            Button {
-                text: app.composer.isEditing ? qsTr("Save") : qsTr("Send")
-                highlighted: true
-                enabled: app.composer.canSend
-                onClicked: {
-                    app.composer.send()
-                    input.forceActiveFocus()
+                ToolButton {
+                    id: emojiButton
+                    text: "☺"
+                    font.pixelSize: 18
+                    enabled: app.currentRoomId !== ""
+                    Accessible.name: qsTr("Insert emoji")
+                    ToolTip.text: qsTr("Emoji")
+                    ToolTip.visible: hovered
+                    ToolTip.delay: 500
+                    onClicked: root.openEmojiPicker()
+                }
+
+                // GIF keycap chip (design: mono, 1.5px border, radius 5).
+                ToolButton {
+                    id: gifButton
+                    enabled: app.currentRoomId !== "" && app.gif.available
+                    Accessible.name: qsTr("Insert a GIF")
+                    ToolTip.text: app.gif.available ? qsTr("GIF")
+                        : qsTr("GIFs are unavailable on this backend")
+                    ToolTip.visible: hovered
+                    ToolTip.delay: 500
+                    implicitWidth: gifCap.implicitWidth + AppTheme.spacing12
+                    implicitHeight: 26
+                    contentItem: Label {
+                        id: gifCap
+                        text: qsTr("GIF")
+                        font.family: AppTheme.monoFont
+                        font.pixelSize: AppTheme.fontCaption
+                        font.weight: Font.Bold
+                        color: gifButton.enabled ? AppTheme.textSecondary
+                                                 : AppTheme.textDisabled
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                    background: Rectangle {
+                        radius: 5
+                        color: gifButton.hovered ? AppTheme.hover : "transparent"
+                        border.color: AppTheme.borderStrong
+                        border.width: 1
+                    }
+                    onClicked: root.openGifPicker()
+                }
+
+                // Accent send button (34 px, radius 9).
+                Button {
+                    id: sendButton
+                    enabled: app.composer.canSend
+                    Accessible.name: app.composer.isEditing
+                                     ? qsTr("Save edit") : qsTr("Send message")
+                    implicitWidth: 34
+                    implicitHeight: 34
+                    ToolTip.text: app.composer.isEditing ? qsTr("Save") : qsTr("Send")
+                    ToolTip.visible: hovered
+                    ToolTip.delay: 500
+                    contentItem: Label {
+                        text: app.composer.isEditing ? "✓" : "➤"
+                        color: sendButton.enabled ? AppTheme.accentText
+                                                  : AppTheme.textDisabled
+                        font.pixelSize: 15
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                    background: Rectangle {
+                        radius: 9
+                        color: !sendButton.enabled ? AppTheme.cardElevated
+                               : sendButton.down ? AppTheme.accentPressed
+                               : sendButton.hovered ? AppTheme.accentHover
+                               : AppTheme.accent
+                    }
+                    onClicked: {
+                        app.composer.send()
+                        input.forceActiveFocus()
+                    }
                 }
             }
         }
+    }
+
+    // Room display name for the "Message #room" placeholder.
+    function roomDisplayName() {
+        var room = app.roomList.findRoom(app.currentRoomId)
+        return room && room.name ? room.name : qsTr("this room")
     }
 
     Connections {
