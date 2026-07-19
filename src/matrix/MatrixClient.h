@@ -39,6 +39,13 @@ public:
                        const QString &password) = 0;
     virtual void logout() = 0;
     virtual bool restoreSession() = 0;
+    // v0.7 account switching: end the LOCAL session only — stop sync, tear
+    // down subscriptions, drop in-memory state, and emit loggedOut() so every
+    // account-scoped model clears — but do NOT log out on the server and do
+    // NOT delete the account's persisted store, tokens, or metadata. After a
+    // detach, restoreSession() activates whichever account the settings now
+    // select. Returns false when the backend cannot detach.
+    virtual bool detachSession() { return false; }
     virtual bool isLoggedIn() const = 0;
     virtual QString currentUserId() const = 0;
     virtual QString homeserverUrl() const = 0;

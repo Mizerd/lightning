@@ -86,22 +86,24 @@ void RustSessionLifecycleTest::passwordLoginStorePolicy()
     const auto target = identity(QStringLiteral("alice"));
     using Reason = matrix::rust_session::StoreBlockReason;
 
+    // The saved-session inputs are the TARGET account's own record —
+    // other signed-in accounts never influence a login decision.
     QCOMPARE(matrix::rust_session::passwordLoginBlockReason(
-                 target, false, false, {}, {}, {}),
+                 target, false, false, {}),
+             Reason::None);
+    // A fresh login for one account is allowed even when the target has no
+    // record — regardless of what other accounts exist.
+    QCOMPARE(matrix::rust_session::passwordLoginBlockReason(
+                 target, false, true, QStringLiteral("DEVICE")),
              Reason::None);
     QCOMPARE(matrix::rust_session::passwordLoginBlockReason(
-                 target, true, false, {}, {}, {}),
+                 target, true, false, {}),
              Reason::MissingSessionMetadata);
     QCOMPARE(matrix::rust_session::passwordLoginBlockReason(
-                 target, true, true, target.homeserver, target.userId, {}),
+                 target, true, true, {}),
              Reason::MissingDeviceId);
     QCOMPARE(matrix::rust_session::passwordLoginBlockReason(
-                 target, true, true, QStringLiteral("https://matrix.example"),
-                 QStringLiteral("@bob:matrix.example"), QStringLiteral("DEVICE")),
-             Reason::DifferentAccount);
-    QCOMPARE(matrix::rust_session::passwordLoginBlockReason(
-                 target, true, true, target.homeserver, target.userId,
-                 QStringLiteral("DEVICE")),
+                 target, true, true, QStringLiteral("DEVICE")),
              Reason::ExistingStoreNeedsRestore);
 }
 

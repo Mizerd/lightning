@@ -158,6 +158,7 @@ public:
                const QString &password) override;
     void logout() override;
     bool restoreSession() override;
+    bool detachSession() override;
     bool isLoggedIn() const override { return m_loggedIn; }
     QString currentUserId() const override { return m_userId; }
     QString homeserverUrl() const override { return m_homeserver; }

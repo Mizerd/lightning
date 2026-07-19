@@ -67,6 +67,10 @@ public:
     void setSearchQuery(const QString &query);
     quint64 filterGeneration() const { return m_filterGeneration; }
 
+    // v0.7 account switching: drop DM profile lookups resolved under the
+    // previous account's authority, then rebuild from the client.
+    void clearProfileCaches();
+
     void resetRooms(const QList<RoomInfo> &rooms);
     bool appendRooms(const QList<RoomInfo> &rooms);
     bool prependRooms(const QList<RoomInfo> &rooms);

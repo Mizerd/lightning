@@ -43,13 +43,16 @@ void RoomListModel::setClient(MatrixClient *client)
         connect(m_client, &MatrixClient::userProfileFinished,
                 this, &RoomListModel::onUserProfileFinished);
         connect(m_client, &MatrixClient::loggedOut,
-                this, [this] {
-                    m_profileAvatars.clear();
-                    m_profileOps.clear();
-                    m_profilePending.clear();
-                    refresh();
-                });
+                this, &RoomListModel::clearProfileCaches);
     }
+    refresh();
+}
+
+void RoomListModel::clearProfileCaches()
+{
+    m_profileAvatars.clear();
+    m_profileOps.clear();
+    m_profilePending.clear();
     refresh();
 }
 

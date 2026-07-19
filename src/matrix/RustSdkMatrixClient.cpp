@@ -300,13 +300,27 @@ void RustSdkMatrixClient::login(const QString &homeserver,
     }
 
     const bool storeExists = pathExistsOrIsLink(identity.rustStorePath);
+    // v0.7 multi-account: only the TARGET account's own saved record is
+    // consulted — other signed-in accounts never block a new login.
+    const bool targetHasSavedSession = m_settings
+        && m_settings->hasSavedAccount(identity.userId)
+        && !m_settings->accessTokenFor(identity.userId).isEmpty();
+    const QString targetSavedDeviceId = m_settings
+        ? m_settings->accountRecord(identity.userId)
+              .value(QStringLiteral("deviceId")).toString()
+        : QString{};
     const auto block = matrix::rust_session::passwordLoginBlockReason(
-        identity,
-        storeExists,
-        m_settings && m_settings->hasSession(),
-        m_settings ? m_settings->homeserverUrl() : QString{},
-        m_settings ? m_settings->userId() : QString{},
-        m_settings ? m_settings->deviceId() : QString{});
+        identity, storeExists, targetHasSavedSession, targetSavedDeviceId);
+    if (block == matrix::rust_session::StoreBlockReason::ExistingStoreNeedsRestore
+        && targetHasSavedSession) {
+        // Not an error state: the account is already usable on this device.
+        qCInfo(lcRust) << "login redirected to switch"
+                       << "slug=" << identity.slug;
+        Q_EMIT loginFailed(tr(
+            "This account is already signed in on this device. Switch to it "
+            "from the account menu instead of signing in again."));
+        return;
+    }
     if (block != matrix::rust_session::StoreBlockReason::None) {
         qCWarning(lcRust) << "login blocked reason=local_store_session_mismatch"
                           << "detail=" << matrix::rust_session::diagnosticName(block)
@@ -352,6 +366,23 @@ void RustSdkMatrixClient::login(const QString &homeserver,
                            ? result.mid(7)
                            : result);
     }
+}
+
+bool RustSdkMatrixClient::detachSession()
+{
+    // v0.7 account switch: end the local session without a server logout.
+    // The account's SDK store, SecretStore token, and account record are
+    // deliberately untouched — restoreSession() reactivates it later.
+    qCInfo(lcRust) << "detaching local session"
+                   << "slug=" << matrix::app_data::safeUserSlug(m_userId);
+    // Stale callbacks from this session become unobservable immediately;
+    // releaseRustHandle() then cancels/joins every managed task before the
+    // handle is destroyed.
+    m_lifecycle.invalidate();
+    releaseRustHandle();
+    clearLocalState();
+    Q_EMIT loggedOut();
+    return true;
 }
 
 bool RustSdkMatrixClient::restoreSession()

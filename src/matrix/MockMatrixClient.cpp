@@ -1,5 +1,6 @@
 #include "matrix/MockMatrixClient.h"
 
+#include "app/SettingsManager.h"
 #include "matrix/MediaHelpers.h"
 
 #include <QDateTime>
@@ -47,7 +48,33 @@ void MockMatrixClient::logout()
 
 bool MockMatrixClient::restoreSession()
 {
-    return false;
+    // v0.7: restore the active account from the persisted registry so the
+    // account-switch lifecycle is exercisable without a network backend.
+    if (!m_settings)
+        return false;
+    const QString uid = m_settings->userId();
+    if (uid.isEmpty())
+        return false;
+    setState(Connecting);
+    m_homeserver = m_settings->homeserverUrl();
+    m_userId = uid;
+    QTimer::singleShot(0, this, [this] {
+        m_loggedIn = true;
+        Q_EMIT loginSucceeded(m_userId);
+        setState(Disconnected);
+    });
+    return true;
+}
+
+bool MockMatrixClient::detachSession()
+{
+    stopSync();
+    closeThread();
+    m_loggedIn = false;
+    m_userId.clear();
+    m_homeserver.clear();
+    Q_EMIT loggedOut();
+    return true;
 }
 
 void MockMatrixClient::startSync()

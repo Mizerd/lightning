@@ -54,6 +54,11 @@ class AppController : public QObject
     Q_PROPERTY(bool initialSyncDone READ initialSyncDone NOTIFY initialSyncDoneChanged)
     Q_PROPERTY(bool localRustResetRequired READ localRustResetRequired
                NOTIFY localRustResetRequiredChanged)
+    // v0.7: true while an account switch is in flight. QML disables sending
+    // and shows the switching state; the previous account's session is
+    // already detached, so nothing can route through it.
+    Q_PROPERTY(bool accountSwitching READ accountSwitching
+               NOTIFY accountSwitchingChanged)
 
     // v0.5.0-prep+10: redacted Rust SDK device id (e.g. "GAOT...GBSK")
     // so Settings can show which Lightning session is running without
@@ -168,6 +173,7 @@ public:
     bool initialSyncDone() const;
     QString rustDeviceIdRedacted() const;
     bool localRustResetRequired() const { return m_localRustResetRequired; }
+    bool accountSwitching() const { return m_accountSwitching; }
 
     SettingsManager *settings() const;
     AuthManager *auth() const;
@@ -209,6 +215,19 @@ public Q_SLOTS:
     void showMain();
     void showSettings();
     void openRoom(const QString &roomId);
+
+    // v0.7 multi-account. Switch the whole Matrix context (client session,
+    // stores, crypto, models, notifications) to another saved account
+    // without a login form. The previous account stays signed in — its
+    // session, store, and token are untouched; only its local runtime is
+    // detached. No-op when already switching or the target is unusable.
+    Q_INVOKABLE void switchToAccount(const QString &userId);
+
+    // v0.7. Fully remove one saved account from this device: if it is the
+    // active account this performs a real (server) logout, otherwise it
+    // deletes the account's local store, token, and record without touching
+    // the active session. Other accounts are never affected.
+    Q_INVOKABLE void removeAccount(const QString &userId);
 
     // v0.5.9: open Settings on a specific category (account menu entries
     // "Settings" vs "Security & Recovery"). The section name is consumed
@@ -286,6 +305,7 @@ public Q_SLOTS:
 Q_SIGNALS:
     void currentScreenChanged();
     void initialSyncDoneChanged();
+    void accountSwitchingChanged();
     void currentRoomIdChanged();
     void loggedInChanged();
     void connectionStatusChanged();
@@ -338,6 +358,15 @@ private:
     void onLoginSucceeded();
     void onLoggedOut();
     void setLocalRustResetRequired(bool required);
+    void setAccountSwitching(bool switching);
+    // Failure path of switchToAccount: falls back to the previous account
+    // once; if that is impossible, lands on the login screen.
+    void failAccountSwitch(const QString &message);
+    // Clears every cache that must not leak across accounts (media bytes,
+    // pending notifications, invite memory, verification/security state,
+    // session devices, room-list profile lookups). Used on account change;
+    // a real logout clears the same state through loggedOut connections.
+    void clearCrossAccountCaches();
 
     static std::unique_ptr<MatrixClient> makeClient(Backend backend,
                                                     SettingsManager *settings,
@@ -350,6 +379,14 @@ private:
     QString m_connectionStatus;
     bool m_localRustResetRequired = false;
     bool m_resetResultPending = false;
+    // v0.7 account switching.
+    bool m_accountSwitching = false;
+    // The account to fall back to if activating the switch target fails.
+    // Consumed by the loginFailed handler; empty = no fallback pending.
+    QString m_switchFallbackUserId;
+    // The account whose session most recently succeeded — used to detect a
+    // cross-account transition in onLoginSucceeded.
+    QString m_lastSessionUserId;
 
     // Order matters: SecretStore is constructed first so SettingsManager can
     // be wired to it before any code touches accessToken() / hasSession().

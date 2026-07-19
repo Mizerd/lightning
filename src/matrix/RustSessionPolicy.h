@@ -15,13 +15,16 @@ enum class StoreBlockReason {
     MissingStoreForSavedSession,
 };
 
+// v0.7 multi-account: the saved-session inputs describe the TARGET account's
+// own record (several accounts may be signed in at once), not a global
+// single session. Password login is blocked when the target's SDK store
+// already exists — an existing store may only be opened by restoring the
+// exact saved device, never by attaching a fresh password-login device.
 StoreBlockReason passwordLoginBlockReason(
     const app_data::AccountIdentity &target,
     bool storeExists,
-    bool savedSessionExists,
-    const QString &savedHomeserver,
-    const QString &savedUserId,
-    const QString &savedDeviceId);
+    bool targetHasSavedSession,
+    const QString &targetSavedDeviceId);
 
 StoreBlockReason restoreBlockReason(
     const app_data::AccountIdentity &target,

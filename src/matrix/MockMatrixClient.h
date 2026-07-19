@@ -6,6 +6,8 @@
 #include <QList>
 #include <QSet>
 
+class SettingsManager;
+
 // Deterministic in-memory backend used by the `--mock` CLI flag. Emits
 // signals via QTimer::singleShot for realism where async matters. Zero
 // network activity.
@@ -20,6 +22,11 @@ public:
                const QString &password) override;
     void logout() override;
     bool restoreSession() override;
+    bool detachSession() override;
+
+    // v0.7: lets the mock restore/switch sessions from the persisted
+    // account registry so account-switch lifecycle tests can run offline.
+    void setSettings(SettingsManager *settings) { m_settings = settings; }
     bool isLoggedIn() const override { return m_loggedIn; }
     QString currentUserId() const override { return m_userId; }
     QString homeserverUrl() const override { return m_homeserver; }
@@ -134,6 +141,7 @@ private:
     TimelineEvent *findEvent(const QString &roomId, const QString &eventId);
     void ackAfter(int ms, const QString &roomId, const QString &eventId);
 
+    SettingsManager *m_settings = nullptr; // not owned; may stay null
     bool m_loggedIn = false;
     ConnectionState m_state = Disconnected;
     QString m_userId;

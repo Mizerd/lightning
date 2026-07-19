@@ -329,6 +329,21 @@ void CppHttpMatrixClient::logout()
     });
 }
 
+bool CppHttpMatrixClient::detachSession()
+{
+    // v0.7 account switch: end the local session without a server logout.
+    // Persisted session metadata, tokens, and the per-account cache file
+    // stay intact; only the in-memory state (and the open cache handle)
+    // are released so restoreSession() can activate another account.
+    if (m_cache) {
+        m_cache->close();
+        m_cache.reset();
+    }
+    clearLocalSession(false);
+    Q_EMIT loggedOut();
+    return true;
+}
+
 void CppHttpMatrixClient::clearLocalSession(bool clearPersisted)
 {
     stopSync();

@@ -572,6 +572,9 @@ if(BUILD_TESTING)
         src/matrix/MockMatrixClient.cpp
         src/matrix/MediaHelpers.h
         src/matrix/MediaHelpers.cpp
+        # MockMatrixClient's registry-backed restore needs these:
+        src/app/SettingsManager.cpp
+        src/storage/AppDataPaths.cpp
     )
     target_include_directories(gif-send-controller-test PRIVATE src)
     target_link_libraries(gif-send-controller-test PRIVATE
@@ -604,6 +607,19 @@ if(BUILD_TESTING)
     target_link_libraries(timeline-pane-qml-test PRIVATE Qt6::Test)
     add_test(NAME timeline-pane-qml COMMAND timeline-pane-qml-test)
     set_tests_properties(timeline-pane-qml PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    # v0.7: full account-switch lifecycle on a real AppController (mock
+    # backend): activation, switching state, room-target clearing, logout
+    # fallback to a remaining account, scoped background-account removal.
+    qt_add_executable(account-switch-test
+        tests/AccountSwitchTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_app(account-switch-test)
+    target_link_libraries(account-switch-test PRIVATE Qt6::Test)
+    add_test(NAME account-switch COMMAND account-switch-test)
+    set_tests_properties(account-switch PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     # v0.5.7: live-timeline diff translation + generation tracking. Pure
@@ -716,6 +732,9 @@ if(BUILD_TESTING)
         src/matrix/MockMatrixClient.cpp
         src/matrix/MediaHelpers.h
         src/matrix/MediaHelpers.cpp
+        # MockMatrixClient's registry-backed restore needs these:
+        src/app/SettingsManager.cpp
+        src/storage/AppDataPaths.cpp
     )
     target_include_directories(thread-controller-test PRIVATE src)
     target_link_libraries(thread-controller-test PRIVATE
@@ -870,6 +889,9 @@ if(BUILD_TESTING)
         src/matrix/MockMatrixClient.cpp
         src/matrix/MediaHelpers.h
         src/matrix/MediaHelpers.cpp
+        # MockMatrixClient's registry-backed restore needs these:
+        src/app/SettingsManager.cpp
+        src/storage/AppDataPaths.cpp
     )
     target_include_directories(quick-switcher-test PRIVATE src)
     target_link_libraries(quick-switcher-test PRIVATE

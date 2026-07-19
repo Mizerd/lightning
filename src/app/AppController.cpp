@@ -26,6 +26,7 @@
 #include "matrix/MatrixClient.h"
 #include "storage/AppDataPaths.h"
 
+#include <QDir>
 #include <QGuiApplication>
 #include <QStyleHints>
 #include <QLoggingCategory>
@@ -53,8 +54,11 @@ std::unique_ptr<MatrixClient> AppController::makeClient(Backend backend,
                                                         QObject *parent)
 {
     switch (backend) {
-    case MockBackend:
-        return std::make_unique<MockMatrixClient>(parent);
+    case MockBackend: {
+        auto mock = std::make_unique<MockMatrixClient>(parent);
+        mock->setSettings(settings);
+        return mock;
+    }
     case RustBackend:
 #ifdef ENABLE_RUST_SDK_BACKEND
         return std::make_unique<RustSdkMatrixClient>(settings, parent);
@@ -285,6 +289,31 @@ AppController::AppController(Backend backend, QObject *parent)
             this, &AppController::onLoginSucceeded);
     connect(m_auth.get(), &AuthManager::loggedOut,
             this, &AppController::onLoggedOut);
+    // v0.7: a failed account-switch activation falls back to the previous
+    // account once; with no fallback it lands on the login screen.
+    connect(m_auth.get(), &AuthManager::loginFailed, this,
+            [this](const QString &) {
+        if (!m_accountSwitching)
+            return;
+        if (!m_switchFallbackUserId.isEmpty()) {
+            failAccountSwitch(tr("Could not switch accounts — returning to "
+                                 "the previous account."));
+        } else {
+            setAccountSwitching(false);
+            setCurrentScreen(LoginScreen);
+            Q_EMIT loggedInChanged();
+        }
+    });
+    // v0.7: cache the signed-in account's own profile (display name and
+    // avatar) in its account record for the switcher UI.
+    connect(m_client.get(), &MatrixClient::userProfileFinished, this,
+            [this](quint64, bool ok, const QString &userId,
+                   const QString &displayName, const QString &avatarUrl,
+                   const QString &) {
+        if (!ok || userId.isEmpty() || userId != m_client->currentUserId())
+            return;
+        m_accounts->updateProfile(userId, displayName, avatarUrl);
+    });
     connect(m_client.get(), &MatrixClient::errorOccurred,
             this, &AppController::errorReported);
     auto refreshConnectionStatus = [this]() {
@@ -1120,11 +1149,23 @@ void AppController::onLoginSucceeded()
     const QString uid = m_auth->currentUserId();
     qCInfo(lcApp) << "login succeeded slug="
                   << matrix::app_data::safeUserSlug(uid)
+                  << "switching=" << m_accountSwitching
                   << "— switching to main + starting sync";
+    // An add-account login while another account was active is a
+    // cross-account transition too — clear caches exactly like a switch.
+    const bool accountChanged =
+        !m_lastSessionUserId.isEmpty() && m_lastSessionUserId != uid;
+    m_lastSessionUserId = uid;
+    if (accountChanged)
+        clearCrossAccountCaches();
     m_accounts->setActiveUser(uid);
     setLocalRustResetRequired(false);
+    m_switchFallbackUserId.clear();
+    setAccountSwitching(false);
     Q_EMIT errorReported(QString{});
     m_client->startSync();
+    // Cache the account's own display name / avatar for the switcher UI.
+    m_client->fetchUserProfile(uid);
     setCurrentScreen(MainScreen);
     Q_EMIT loggedInChanged();
 }
@@ -1133,8 +1174,172 @@ void AppController::onLoggedOut()
 {
     m_currentRoomId.clear();
     Q_EMIT currentRoomIdChanged();
+    if (m_accountSwitching) {
+        // The old session was detached locally as part of a switch; stay on
+        // the main screen while the target account activates.
+        return;
+    }
     m_accounts->clearActiveUser();
+    m_lastSessionUserId.clear();
     Q_EMIT errorReported(QString{});
+    // v0.7: when other accounts remain signed in, continue with the most
+    // recently added one instead of dropping to the login screen.
+    const QStringList remaining = m_settings->savedAccountUserIds();
+    for (auto it = remaining.crbegin(); it != remaining.crend(); ++it) {
+        if (m_backend == MockBackend
+            || !m_settings->accessTokenFor(*it).isEmpty()) {
+            switchToAccount(*it);
+            return;
+        }
+    }
     setCurrentScreen(LoginScreen);
     Q_EMIT loggedInChanged();
+}
+
+void AppController::setAccountSwitching(bool switching)
+{
+    if (m_accountSwitching == switching)
+        return;
+    m_accountSwitching = switching;
+    Q_EMIT accountSwitchingChanged();
+}
+
+void AppController::clearCrossAccountCaches()
+{
+    m_mediaBridge->clear();
+    m_notifications->clearPending();
+    m_knownInvites.clear();
+    m_sessionDevices.clear();
+    m_sessionDevicesLoading = false;
+    m_sessionDevicesFailed = false;
+    Q_EMIT sessionDevicesChanged();
+    m_verificationFlowId.clear();
+    m_verificationOtherUser.clear();
+    m_verificationOtherDevice.clear();
+    m_verificationIsSelf = false;
+    m_verificationState.clear();
+    m_verificationEmojis.clear();
+    m_verificationDecimals.clear();
+    Q_EMIT verificationStateChanged();
+    m_sessionTrustState = QStringLiteral("Unknown");
+    m_sessionDeviceId.clear();
+    m_ownIdentityAvailable = false;
+    m_crossSigningAvailable = false;
+    m_roomKeyImportState.clear();
+    m_roomKeyImportImported = 0;
+    m_roomKeyImportTotal = 0;
+    m_roomKeyImportAffected = 0;
+    m_roomKeyImportMessage.clear();
+    m_roomKeyImportRunning = false;
+    m_roomKeyImportAffectedRoomIds.clear();
+    Q_EMIT securityStateChanged();
+    Q_EMIT roomKeyImportStateChanged();
+    // Drop DM profile lookups resolved under the previous account's
+    // authority.
+    m_roomList->clearProfileCaches();
+}
+
+void AppController::switchToAccount(const QString &userId)
+{
+    const QString target = userId.trimmed();
+    if (m_accountSwitching || target.isEmpty())
+        return;
+    if (target == m_settings->activeAccountUserId() && m_client->isLoggedIn())
+        return;
+    if (!m_settings->hasSavedAccount(target)) {
+        Q_EMIT errorReported(tr("That account is not signed in on this device."));
+        return;
+    }
+    if (m_backend != MockBackend
+        && m_settings->accessTokenFor(target).isEmpty()) {
+        Q_EMIT errorReported(
+            tr("That account's sign-in has expired. Sign in to it again."));
+        return;
+    }
+
+    qCInfo(lcApp) << "account switch begin"
+                  << "from=" << matrix::app_data::safeUserSlug(
+                         m_settings->activeAccountUserId())
+                  << "to=" << matrix::app_data::safeUserSlug(target);
+    setAccountSwitching(true);
+    m_switchFallbackUserId =
+        m_client->isLoggedIn() ? m_settings->activeAccountUserId() : QString{};
+
+    // Leave the room and thread before detaching so no composer target,
+    // pending send, or open thread survives into the next account.
+    setCurrentRoomId(QString{});
+    m_roomInfo->setRoomId(QString{});
+
+    if (m_client->isLoggedIn() && !m_client->detachSession()) {
+        m_switchFallbackUserId.clear();
+        setAccountSwitching(false);
+        Q_EMIT errorReported(tr("This backend cannot switch accounts."));
+        return;
+    }
+
+    m_settings->setActiveAccountUserId(target);
+    clearCrossAccountCaches();
+    if (!m_client->restoreSession()) {
+        qCWarning(lcApp) << "account switch restore failed"
+                         << "slug=" << matrix::app_data::safeUserSlug(target);
+        failAccountSwitch(tr("Could not activate the selected account."));
+        return;
+    }
+    // Outcome arrives asynchronously: loginSucceeded clears the switching
+    // state; loginFailed falls back through failAccountSwitch.
+}
+
+void AppController::failAccountSwitch(const QString &message)
+{
+    const QString fallback = m_switchFallbackUserId;
+    m_switchFallbackUserId.clear();
+    if (!message.isEmpty())
+        Q_EMIT errorReported(message);
+    if (!fallback.isEmpty() && m_settings->hasSavedAccount(fallback)) {
+        qCInfo(lcApp) << "account switch falling back"
+                      << "slug=" << matrix::app_data::safeUserSlug(fallback);
+        m_settings->setActiveAccountUserId(fallback);
+        clearCrossAccountCaches();
+        if (m_client->restoreSession())
+            return; // completion (or a second failure) arrives async
+    }
+    setAccountSwitching(false);
+    setCurrentScreen(LoginScreen);
+    Q_EMIT loggedInChanged();
+}
+
+void AppController::removeAccount(const QString &userId)
+{
+    const QString target = userId.trimmed();
+    if (target.isEmpty() || m_accountSwitching)
+        return;
+    if (!m_settings->hasSavedAccount(target))
+        return;
+
+    const bool isActive = target == m_settings->activeAccountUserId();
+    if (isActive && m_client->isLoggedIn()) {
+        // Real (server) logout. Local store/record cleanup and switching to
+        // a remaining account follow from the logout flow.
+        m_auth->logout();
+        return;
+    }
+
+    // Background (or signed-out) account: delete its local state without
+    // touching the active session.
+    const QString hs = m_settings->accountRecord(target)
+                           .value(QStringLiteral("homeserver")).toString();
+    matrix::app_data::AccountIdentity identity;
+    if (matrix::app_data::resolveAccountIdentity(hs, target, &identity)) {
+        const auto removed = matrix::app_data::removeAccountRustState(identity);
+        QDir accountDir(identity.accountRoot);
+        if (accountDir.exists())
+            accountDir.removeRecursively();
+        qCInfo(lcApp) << "removed account local state"
+                      << "slug=" << identity.slug
+                      << "rust_deleted=" << removed.deleted
+                      << "failed=" << removed.failed;
+    }
+    m_accounts->removeAccount(target); // record + secrets
+    if (isActive)
+        m_lastSessionUserId.clear();
 }

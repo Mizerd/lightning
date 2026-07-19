@@ -5,28 +5,22 @@ namespace matrix::rust_session {
 StoreBlockReason passwordLoginBlockReason(
     const app_data::AccountIdentity &target,
     bool storeExists,
-    bool savedSessionExists,
-    const QString &savedHomeserver,
-    const QString &savedUserId,
-    const QString &savedDeviceId)
+    bool targetHasSavedSession,
+    const QString &targetSavedDeviceId)
 {
+    Q_UNUSED(target);
     if (!storeExists)
         return StoreBlockReason::None;
-    if (!savedSessionExists)
+    if (!targetHasSavedSession)
         return StoreBlockReason::MissingSessionMetadata;
-
-    app_data::AccountIdentity saved;
-    if (!app_data::resolveAccountIdentity(savedHomeserver, savedUserId, &saved)
-        || saved.userId != target.userId || saved.slug != target.slug) {
-        return StoreBlockReason::DifferentAccount;
-    }
-    if (savedDeviceId.trimmed().isEmpty())
+    if (targetSavedDeviceId.trimmed().isEmpty())
         return StoreBlockReason::MissingDeviceId;
 
     // Password login asks the homeserver for a new device. An existing SDK
     // store can only be safely opened by restoring the exact saved device;
     // attaching the new device to it is precisely the ownership bug fixed in
-    // v0.5.5.
+    // v0.5.5. With multi-account this account should be activated from the
+    // account switcher instead of logged in again.
     return StoreBlockReason::ExistingStoreNeedsRestore;
 }
 
