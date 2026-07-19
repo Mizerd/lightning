@@ -193,6 +193,46 @@ private Q_SLOTS:
         QCOMPARE(app.currentScreen(), AppController::MainScreen);
     }
 
+    void failedAddAccountRestoresPreviousAccount()
+    {
+        AppController app(AppController::MockBackend);
+        FakeSecretStore secrets;
+        app.settings()->setSecretStore(&secrets);
+        app.settings()->saveSession(kHsOne, kAlice,
+                                    QStringLiteral("ALICEDEV"),
+                                    QStringLiteral("alice-token-fixture"));
+        app.switchToAccount(kAlice);
+        QTRY_VERIFY(!app.accountSwitching());
+        QTRY_COMPARE(app.auth()->currentUserId(), kAlice);
+        QCOMPARE(app.currentScreen(), AppController::MainScreen);
+
+        // Enter add-account mode and fail the attempt (mock magic password).
+        app.showLogin();
+        QCOMPARE(app.currentScreen(), AppController::LoginScreen);
+        app.auth()->login(kHsTwo, QStringLiteral("bob"),
+                          QStringLiteral("mock-fail"));
+
+        // The previous account's session is restored in the background; the
+        // login screen stays up so the user can read the error and retry.
+        QTRY_COMPARE(app.auth()->currentUserId(), kAlice);
+        QTRY_VERIFY(app.auth()->isLoggedIn());
+        QCOMPARE(app.currentScreen(), AppController::LoginScreen);
+        QCOMPARE(app.settings()->activeAccountUserId(), kAlice);
+
+        // Back returns to a healthy shell — no stale error, live session.
+        app.showMain();
+        QCOMPARE(app.currentScreen(), AppController::MainScreen);
+        QVERIFY(app.auth()->isLoggedIn());
+
+        // A retry that succeeds lands in the shell as the new account.
+        app.showLogin();
+        app.auth()->login(kHsTwo, QStringLiteral("bob"),
+                          QStringLiteral("pw"));
+        QTRY_COMPARE(app.currentScreen(), AppController::MainScreen);
+        QCOMPARE(app.auth()->currentUserId(),
+                 QStringLiteral("@bob:two.example"));
+    }
+
     void removingBackgroundAccountKeepsActiveSession()
     {
         AppController app(AppController::MockBackend);

@@ -290,18 +290,33 @@ AppController::AppController(Backend backend, QObject *parent)
     connect(m_auth.get(), &AuthManager::loggedOut,
             this, &AppController::onLoggedOut);
     // v0.7: a failed account-switch activation falls back to the previous
-    // account once; with no fallback it lands on the login screen.
+    // account once; with no fallback it lands on the login screen. A failed
+    // ADD-ACCOUNT login restores the previous account in the background —
+    // the shared client's session was released when the attempt started, so
+    // without this the footer shows a false "Error/disconnected" state even
+    // though the active account is fine.
     connect(m_auth.get(), &AuthManager::loginFailed, this,
             [this](const QString &) {
-        if (!m_accountSwitching)
+        if (m_accountSwitching) {
+            if (!m_switchFallbackUserId.isEmpty()) {
+                failAccountSwitch(tr("Could not switch accounts — returning "
+                                     "to the previous account."));
+            } else {
+                setAccountSwitching(false);
+                setCurrentScreen(LoginScreen);
+                Q_EMIT loggedInChanged();
+            }
             return;
-        if (!m_switchFallbackUserId.isEmpty()) {
-            failAccountSwitch(tr("Could not switch accounts — returning to "
-                                 "the previous account."));
-        } else {
-            setAccountSwitching(false);
-            setCurrentScreen(LoginScreen);
-            Q_EMIT loggedInChanged();
+        }
+        if (!m_addAccountReturnTo.isEmpty() && !m_client->isLoggedIn()
+            && m_settings->hasSavedAccount(m_addAccountReturnTo)) {
+            qCInfo(lcApp) << "add-account attempt failed — restoring"
+                          << "slug=" << matrix::app_data::safeUserSlug(
+                                 m_addAccountReturnTo);
+            m_backgroundRestore = true;
+            m_settings->setActiveAccountUserId(m_addAccountReturnTo);
+            if (!m_client->restoreSession())
+                m_backgroundRestore = false;
         }
     });
     // v0.7: cache the signed-in account's own profile (display name and
@@ -813,11 +828,30 @@ void AppController::setCurrentRoomId(const QString &roomId)
 
 void AppController::showLogin()
 {
+    // Entering the login screen while a session is active is the
+    // add-account flow; remember where to return so a failed attempt or
+    // Back never strands the user on a dead client.
+    if (m_client->isLoggedIn())
+        m_addAccountReturnTo = m_settings->activeAccountUserId();
     m_composer->setRoomId({});
     setCurrentScreen(LoginScreen);
 }
 void AppController::showMain()
 {
+    // Self-heal on return from add-account: a failed attempt released the
+    // shared client's session, so restore the active account and clear the
+    // spurious error before showing the shell again.
+    if (!m_client->isLoggedIn() && !m_accountSwitching) {
+        if (!m_addAccountReturnTo.isEmpty()
+            && m_settings->hasSavedAccount(m_addAccountReturnTo)) {
+            m_settings->setActiveAccountUserId(m_addAccountReturnTo);
+        }
+        if (m_settings->hasSession())
+            m_client->restoreSession();
+    }
+    m_addAccountReturnTo.clear();
+    m_backgroundRestore = false;
+    Q_EMIT errorReported(QString{});
     m_composer->setRoomId(m_currentRoomId);
     setCurrentScreen(MainScreen);
 }
@@ -1162,10 +1196,20 @@ void AppController::onLoginSucceeded()
     setLocalRustResetRequired(false);
     m_switchFallbackUserId.clear();
     setAccountSwitching(false);
-    Q_EMIT errorReported(QString{});
     m_client->startSync();
     // Cache the account's own display name / avatar for the switcher UI.
     m_client->fetchUserProfile(uid);
+    // The background restore after a failed add-account attempt must not
+    // yank the user off the login screen: the footer regains the real
+    // connection state while the error/retry form stays visible.
+    if (m_backgroundRestore && uid == m_addAccountReturnTo) {
+        m_backgroundRestore = false;
+        Q_EMIT loggedInChanged();
+        return;
+    }
+    m_backgroundRestore = false;
+    m_addAccountReturnTo.clear();
+    Q_EMIT errorReported(QString{});
     setCurrentScreen(MainScreen);
     Q_EMIT loggedInChanged();
 }
@@ -1181,6 +1225,8 @@ void AppController::onLoggedOut()
     }
     m_accounts->clearActiveUser();
     m_lastSessionUserId.clear();
+    m_addAccountReturnTo.clear();
+    m_backgroundRestore = false;
     Q_EMIT errorReported(QString{});
     // v0.7: when other accounts remain signed in, continue with the most
     // recently added one instead of dropping to the login screen.

@@ -45,10 +45,13 @@ Item {
 
             // v0.7 add-account flow: reached from the account switcher while
             // another account stays signed in — offer a way back that does
-            // not touch the existing session.
+            // not touch the existing session. Bound to the persisted active
+            // account (NOT app.loggedIn): a failed add-account attempt
+            // releases the shared client's session, and the Back button must
+            // survive that so the user can return; showMain() self-heals.
             Button {
                 id: backToAppButton
-                visible: app.loggedIn
+                visible: app.accounts && app.accounts.hasActiveAccount
                 Accessible.name: qsTr("Back to the app")
                 text: qsTr("← Back")
                 flat: true
@@ -56,8 +59,9 @@ Item {
             }
 
             Label {
-                text: app.loggedIn ? qsTr("Add another account")
-                                   : qsTr("Sign in to Lightning")
+                text: (app.accounts && app.accounts.hasActiveAccount)
+                      ? qsTr("Add another account")
+                      : qsTr("Sign in to Lightning")
                 color: AppTheme.text
                 font.pixelSize: 22
                 font.weight: Font.DemiBold

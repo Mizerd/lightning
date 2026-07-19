@@ -21,15 +21,29 @@ void MockMatrixClient::login(const QString &homeserver,
                              const QString &password)
 {
     setState(Connecting);
+    // Mimic the Rust backend: starting a login releases the previous
+    // session's runtime, so the client is not logged in while the attempt
+    // is in flight (this is what the add-account resilience tests exercise).
+    m_loggedIn = false;
     m_homeserver = homeserver.isEmpty()
         ? QStringLiteral("https://mock.local") : homeserver;
     const QString localpart = user.isEmpty() ? QStringLiteral("alice") : user;
     QString host = QUrl(m_homeserver).host();
     if (host.isEmpty())
         host = QStringLiteral("mock.local");
-    m_userId = QStringLiteral("@%1:%2").arg(localpart, host);
-    Q_UNUSED(password);
 
+    // Deterministic failure hook for lifecycle tests: the magic password
+    // "mock-fail" rejects the attempt like a wrong-password server reply.
+    if (password == QLatin1String("mock-fail")) {
+        m_userId.clear();
+        QTimer::singleShot(60, this, [this] {
+            setState(Error);
+            Q_EMIT loginFailed(QStringLiteral("mock: invalid credentials"));
+        });
+        return;
+    }
+
+    m_userId = QStringLiteral("@%1:%2").arg(localpart, host);
     QTimer::singleShot(120, this, [this] {
         m_loggedIn = true;
         Q_EMIT loginSucceeded(m_userId);

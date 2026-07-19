@@ -387,6 +387,14 @@ private:
     // The account whose session most recently succeeded — used to detect a
     // cross-account transition in onLoginSucceeded.
     QString m_lastSessionUserId;
+    // v0.7 add-account mode: the account to return to when an add-account
+    // login fails or the user presses Back. Entering the login screen while
+    // a session is active sets it; success with a new account clears it.
+    QString m_addAccountReturnTo;
+    // True while the previous account is being restored in the background
+    // after a failed add-account attempt: the restore's loginSucceeded must
+    // not yank the user off the login screen.
+    bool m_backgroundRestore = false;
 
     // Order matters: SecretStore is constructed first so SettingsManager can
     // be wired to it before any code touches accessToken() / hasSession().

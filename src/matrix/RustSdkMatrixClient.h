@@ -433,6 +433,10 @@ private:
     void *m_rustHandle = nullptr;
     QString m_storePath;
     QString m_storePathOverride;
+    // Identity of an in-flight password login whose store did not exist
+    // before the attempt; a failure removes that fresh store so it cannot
+    // poison later logins. Cleared on login_ok.
+    matrix::app_data::AccountIdentity m_freshLoginIdentity;
     QString m_sessionFilePath;
     QString m_homeserver;
     QString m_userId;

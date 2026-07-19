@@ -312,12 +312,38 @@ void RustSdkMatrixClient::login(const QString &homeserver,
         return;
     }
 
-    const bool storeExists = pathExistsOrIsLink(identity.rustStorePath);
+    bool storeExists = pathExistsOrIsLink(identity.rustStorePath);
     // v0.7 multi-account: only the TARGET account's own saved record is
     // consulted — other signed-in accounts never block a new login.
     const bool targetHasSavedSession = m_settings
         && m_settings->hasSavedAccount(identity.userId)
         && !m_settings->accessTokenFor(identity.userId).isEmpty();
+
+    // An orphaned store — the directory exists but there is no saved
+    // session/token that could ever restore it — is unusable by definition.
+    // The classic source is an earlier failed or cancelled login attempt
+    // (the store directory is created before the server accepts the
+    // password). Clean it up instead of dead-ending the user on the
+    // "belongs to a different session or device" reset prompt.
+    if (storeExists && !targetHasSavedSession) {
+        const auto removed = matrix::app_data::removeAccountRustState(identity);
+        qCInfo(lcRust) << "removed orphaned store before login"
+                       << "slug=" << identity.slug
+                       << "deleted=" << removed.deleted
+                       << "failed=" << removed.failed;
+        storeExists = pathExistsOrIsLink(identity.rustStorePath);
+        if (storeExists) {
+            setState(Error);
+            Q_EMIT loginFailed(tr(
+                "An unusable local store for this account could not be "
+                "removed. Check filesystem permissions and try again."));
+            return;
+        }
+    }
+    // Remember fresh-store attempts so a failure can clean up after
+    // itself instead of poisoning the next attempt.
+    m_freshLoginIdentity = storeExists ? matrix::app_data::AccountIdentity{}
+                                       : identity;
     const QString targetSavedDeviceId = m_settings
         ? m_settings->accountRecord(identity.userId)
               .value(QStringLiteral("deviceId")).toString()
@@ -1665,6 +1691,7 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
     }
 
     if (type == QLatin1String("login_ok")) {
+        m_freshLoginIdentity = {};
         // SENSITIVE: this event object carries `access_token`. Never pass
         // `event` or the extracted `accessToken` to a log stream. The token
         // must flow only into SecretStore-backed SettingsManager::saveSession
@@ -1695,6 +1722,21 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
     if (type == QLatin1String("login_failed")) {
         m_loggedIn = false;
         setState(Error);
+        // A failed fresh-store login must not leave a half-initialised
+        // store directory behind — that is exactly what used to poison
+        // every later attempt for this account. Release the handle first
+        // so no SDK task still owns the store files.
+        if (m_freshLoginIdentity.isValid()) {
+            const auto identity = m_freshLoginIdentity;
+            m_freshLoginIdentity = {};
+            releaseRustHandle();
+            const auto removed =
+                matrix::app_data::removeAccountRustState(identity);
+            qCInfo(lcRust) << "cleaned fresh store after failed login"
+                           << "slug=" << identity.slug
+                           << "deleted=" << removed.deleted
+                           << "failed=" << removed.failed;
+        }
         const QString message = event.value(QStringLiteral("message")).toString(
             tr("Rust SDK login failed."));
         if (matrix::rust_session::isStoreOwnershipMismatch(message)) {
