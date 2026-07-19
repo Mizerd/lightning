@@ -31,6 +31,9 @@ variables:
     value: "false"
     options: ["false", "true"]
     description: "Safe default false. Set true to publish packages to project 6 and finalize the release."
+  BUILD_FORMATS:
+    value: "all"
+    description: "Build-only format selection: 'all' or a comma list from deb,rpm,flatpak,appimage,snap (snap also requires appimage in the list). Publishing pipelines always build every format."
   RELEASE_NOTES_B64:
     value: ""
     description: "create only: base64-encoded Markdown notes. Otherwise a tracked docs/releases/vX.Y.Z.md is used."
@@ -135,6 +138,13 @@ resolve-source:
       dotenv: dist/resolved.env
 
 build-deb:
+  # Build-only pipelines may select formats via BUILD_FORMATS;
+  # publishing pipelines always include every format.
+  rules:
+    - if: '$PUBLISH_PACKAGES == "true"'
+    - if: '$BUILD_FORMATS == "all"'
+    - if: '$BUILD_FORMATS =~ /(^|,)deb(,|$)/'
+    - when: never
   extends: .build-base
   image: debian:13.6-slim
   tags: [apt, deb, package]
@@ -164,6 +174,13 @@ build-deb:
     - ./scripts/write-build-info.sh deb
 
 build-rpm:
+  # Build-only pipelines may select formats via BUILD_FORMATS;
+  # publishing pipelines always include every format.
+  rules:
+    - if: '$PUBLISH_PACKAGES == "true"'
+    - if: '$BUILD_FORMATS == "all"'
+    - if: '$BUILD_FORMATS =~ /(^|,)rpm(,|$)/'
+    - when: never
   extends: .build-base
   image: fedora:44
   tags: [dnf, rpm, package]
@@ -185,6 +202,13 @@ build-rpm:
     - ./scripts/write-build-info.sh rpm
 
 build-flatpak:
+  # Build-only pipelines may select formats via BUILD_FORMATS;
+  # publishing pipelines always include every format.
+  rules:
+    - if: '$PUBLISH_PACKAGES == "true"'
+    - if: '$BUILD_FORMATS == "all"'
+    - if: '$BUILD_FORMATS =~ /(^|,)flatpak(,|$)/'
+    - when: never
   extends: .build-base
   image: debian:13.6-slim
   tags: [flatpak, package]
@@ -206,6 +230,13 @@ build-flatpak:
     - ./scripts/build-flatpak.sh
 
 build-appimage:
+  # Build-only pipelines may select formats via BUILD_FORMATS;
+  # publishing pipelines always include every format.
+  rules:
+    - if: '$PUBLISH_PACKAGES == "true"'
+    - if: '$BUILD_FORMATS == "all"'
+    - if: '$BUILD_FORMATS =~ /(^|,)appimage(,|$)/'
+    - when: never
   extends: .build-base
   image: debian:13.6-slim
   tags: [appimage, package]
@@ -236,6 +267,13 @@ build-appimage:
     - ./scripts/build-appimage.sh
 
 build-snap:
+  # Build-only pipelines may select formats via BUILD_FORMATS;
+  # publishing pipelines always include every format.
+  rules:
+    - if: '$PUBLISH_PACKAGES == "true"'
+    - if: '$BUILD_FORMATS == "all"'
+    - if: '$BUILD_FORMATS =~ /(^|,)snap(,|$)/ && $BUILD_FORMATS =~ /(^|,)appimage(,|$)/'
+    - when: never
   extends: .build-base
   image: ubuntu:24.04
   tags: [snap, package]
@@ -258,6 +296,13 @@ build-snap:
     - ./scripts/build-snap.sh
 
 validate-deb:
+  # Build-only pipelines may select formats via BUILD_FORMATS;
+  # publishing pipelines always include every format.
+  rules:
+    - if: '$PUBLISH_PACKAGES == "true"'
+    - if: '$BUILD_FORMATS == "all"'
+    - if: '$BUILD_FORMATS =~ /(^|,)deb(,|$)/'
+    - when: never
   extends: .trusted-pipeline
   stage: validate
   image: debian:13.6-slim
@@ -289,6 +334,13 @@ validate-deb:
       - dist/version.json
 
 validate-rpm:
+  # Build-only pipelines may select formats via BUILD_FORMATS;
+  # publishing pipelines always include every format.
+  rules:
+    - if: '$PUBLISH_PACKAGES == "true"'
+    - if: '$BUILD_FORMATS == "all"'
+    - if: '$BUILD_FORMATS =~ /(^|,)rpm(,|$)/'
+    - when: never
   extends: .trusted-pipeline
   stage: validate
   image: fedora:44
@@ -316,6 +368,13 @@ validate-rpm:
       - dist/version.json
 
 validate-flatpak:
+  # Build-only pipelines may select formats via BUILD_FORMATS;
+  # publishing pipelines always include every format.
+  rules:
+    - if: '$PUBLISH_PACKAGES == "true"'
+    - if: '$BUILD_FORMATS == "all"'
+    - if: '$BUILD_FORMATS =~ /(^|,)flatpak(,|$)/'
+    - when: never
   extends: .trusted-pipeline
   stage: validate
   image: debian:13.6-slim
@@ -348,6 +407,13 @@ validate-flatpak:
       - dist/version.json
 
 validate-appimage:
+  # Build-only pipelines may select formats via BUILD_FORMATS;
+  # publishing pipelines always include every format.
+  rules:
+    - if: '$PUBLISH_PACKAGES == "true"'
+    - if: '$BUILD_FORMATS == "all"'
+    - if: '$BUILD_FORMATS =~ /(^|,)appimage(,|$)/'
+    - when: never
   extends: .trusted-pipeline
   stage: validate
   image: debian:13.6-slim
@@ -387,6 +453,13 @@ validate-appimage:
       - dist/version.json
 
 validate-snap:
+  # Build-only pipelines may select formats via BUILD_FORMATS;
+  # publishing pipelines always include every format.
+  rules:
+    - if: '$PUBLISH_PACKAGES == "true"'
+    - if: '$BUILD_FORMATS == "all"'
+    - if: '$BUILD_FORMATS =~ /(^|,)snap(,|$)/ && $BUILD_FORMATS =~ /(^|,)appimage(,|$)/'
+    - when: never
   extends: .trusted-pipeline
   stage: validate
   image: ubuntu:24.04

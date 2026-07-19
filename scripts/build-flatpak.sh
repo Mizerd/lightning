@@ -68,10 +68,14 @@ trap cleanup_keys EXIT
 rm -rf "$FLATPAK_WORK"
 mkdir -p "$FLATPAK_WORK" dist
 
-# Substitute the placeholders. sed with '|' is safe: paths contain no '|'.
+# Substitute the placeholders. Source paths are RELATIVE to the manifest
+# location (work/flatpak/): flatpak-builder exports the manifest into the
+# bundle as /app/manifest.json, and an absolute path would leak the
+# ephemeral CI workspace path into the payload (the clean-bundle audit
+# rejects /builds/).
 sed -e "s|@REQUIRE_GIF_KEYS@|$REQUIRE_GIF_KEYS|" \
-    -e "s|@SOURCE_DIR@|$SOURCE_DIR|" \
-    -e "s|@METAINFO_PATH@|$ROOT/packaging/common/lightning.metainfo.xml|" \
+    -e "s|@SOURCE_DIR@|../lightning|" \
+    -e "s|@METAINFO_PATH@|../../packaging/common/lightning.metainfo.xml|" \
     "$MANIFEST_TEMPLATE" > "$MANIFEST"
 grep -Eq '@(REQUIRE_GIF_KEYS|SOURCE_DIR|METAINFO_PATH)@' "$MANIFEST" \
     && die "unsubstituted placeholder in manifest"

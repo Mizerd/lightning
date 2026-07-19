@@ -127,6 +127,13 @@ and in release links are always built from the canonical public
 
 ### Build-only (default, non-publishing)
 
+`BUILD_FORMATS` selects which formats a build-only pipeline runs: `all`
+(default) or a comma list from `deb,rpm,flatpak,appimage,snap` — e.g.
+`BUILD_FORMATS=flatpak` iterates on one format without rebuilding the rest.
+`snap` additionally requires `appimage` in the list (it repackages the
+AppImage job's AppDir). Publishing pipelines ignore the selection and always
+build every format.
+
 ```text
 PUBLISH_PACKAGES=false
 SOURCE_REF=main          # or any branch / tag / SHA

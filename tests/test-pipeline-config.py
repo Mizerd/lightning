@@ -209,6 +209,11 @@ def eval_expr(expr, v):
             return v.get(tok[1:], "")
         return tok.strip('"')
     for clause in re.split(r"&&", expr):
+        m = re.match(r"\s*(\S+)\s*=~\s*/(.+)/\s*$", clause)
+        if m:
+            if not re.search(m.group(2), sub(m.group(1))):
+                return False
+            continue
         m = re.match(r"\s*(\S+)\s*(==|!=)\s*(\S+)\s*", clause)
         if not m:
             return False
@@ -230,6 +235,35 @@ check(not evaluate(gate, v), "publish jobs excluded for build-only (PUBLISH_PACK
 v = dict(PUBLISH_PACKAGES="true", RELEASE_ACTION="create",
          CI_COMMIT_BRANCH="feature", CI_DEFAULT_BRANCH="main")
 check(not evaluate(gate, v), "publish jobs excluded off the default branch")
+
+# --- BUILD_FORMATS selection: build-only pipelines may run a subset, while
+# --- publishing pipelines always include every format ---
+def build_included(fmt, variables):
+    return evaluate(doc["build-" + fmt]["rules"], variables)
+
+all_fmts = list(FORMAT_SELECTOR)
+v = {"PUBLISH_PACKAGES": "false", "BUILD_FORMATS": "all"}
+check(all(build_included(f, v) for f in all_fmts),
+      "BUILD_FORMATS=all includes every build job")
+v = {"PUBLISH_PACKAGES": "false", "BUILD_FORMATS": "deb"}
+check(build_included("deb", v) and not build_included("rpm", v)
+      and not build_included("flatpak", v),
+      "BUILD_FORMATS=deb builds only the deb")
+v = {"PUBLISH_PACKAGES": "false", "BUILD_FORMATS": "flatpak"}
+check(build_included("flatpak", v) and not build_included("deb", v),
+      "BUILD_FORMATS=flatpak builds only the flatpak")
+v = {"PUBLISH_PACKAGES": "false", "BUILD_FORMATS": "snap"}
+check(not build_included("snap", v),
+      "snap alone is excluded (needs the appimage AppDir)")
+v = {"PUBLISH_PACKAGES": "false", "BUILD_FORMATS": "appimage,snap"}
+check(build_included("snap", v) and build_included("appimage", v),
+      "snap runs when appimage is also selected")
+v = {"PUBLISH_PACKAGES": "true", "BUILD_FORMATS": "deb"}
+check(all(build_included(f, v) for f in all_fmts),
+      "publishing pipelines build every format regardless of BUILD_FORMATS")
+for fmt in all_fmts:
+    check(doc["validate-" + fmt].get("rules") == doc["build-" + fmt].get("rules"),
+          f"validate-{fmt} carries the same selection rules as its build")
 
 if errors:
     print(f"\nPipeline config tests FAILED ({len(errors)})", file=sys.stderr)
