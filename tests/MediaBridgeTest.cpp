@@ -238,15 +238,36 @@ private Q_SLOTS:
         MediaBridge bridge;
         bridge.setClient(&client);
 
-        for (int i = 0; i < 6; ++i)
+        for (int i = 0; i < 10; ++i)
             bridge.mediaSource(QStringLiteral("$ev%1").arg(i),
                                QStringLiteral("thumb"));
-        QCOMPARE(client.fetches.size(), 4); // kMaxConcurrent
+        QCOMPARE(client.fetches.size(), 8); // kMaxConcurrent
 
         client.succeed(client.fetches.first().opId, QByteArray("x"));
-        QCOMPARE(client.fetches.size(), 5); // one queued request pumped
+        QCOMPARE(client.fetches.size(), 9); // one queued request pumped
         client.fail(client.fetches.at(1).opId, QStringLiteral("network"));
-        QCOMPARE(client.fetches.size(), 6);
+        QCOMPARE(client.fetches.size(), 10);
+    }
+
+    void transientFailureExpiresAndRedispatches()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        bridge.setFailureRetryMsForTest(0); // expire immediately
+
+        bridge.avatarSource(kMxc, 64);
+        client.fail(client.fetches.first().opId, QStringLiteral("network"));
+        QCOMPARE(client.fetches.size(), 1);
+
+        // The expired transient mark allows exactly one new dispatch.
+        bridge.avatarSource(kMxc, 64);
+        QCOMPARE(client.fetches.size(), 2);
+
+        // A validation failure stays blocked regardless of the interval.
+        client.fail(client.fetches.at(1).opId, QStringLiteral("rejected"));
+        bridge.avatarSource(kMxc, 64);
+        QCOMPARE(client.fetches.size(), 2);
     }
 
     void rejectedDispatchReportsFailure()

@@ -42,6 +42,7 @@ bool previewBytesMatchMime(const QByteArray &bytes, const QString &mimetype)
 MediaBridge::MediaBridge(QObject *parent)
     : QObject(parent)
 {
+    m_failureClock.start();
     m_animatedDir = std::make_unique<QTemporaryDir>(
         QDir::tempPath() + QStringLiteral("/lightning-animated-XXXXXX"));
 }
@@ -138,12 +139,30 @@ bool MediaBridge::alreadyPending(const QString &cacheKey) const
 
 QString MediaBridge::failureCategory(const QString &cacheKey) const
 {
-    return m_failed.value(cacheKey);
+    return m_failed.value(cacheKey).category;
 }
 
 void MediaBridge::retry(const QString &cacheKey)
 {
     m_failed.remove(cacheKey);
+}
+
+bool MediaBridge::failureBlocks(const QString &cacheKey)
+{
+    const auto it = m_failed.find(cacheKey);
+    if (it == m_failed.end())
+        return false;
+    // Validation failures never fix themselves; only an explicit retry()
+    // may re-dispatch them.
+    const bool permanent = it->category == QLatin1String("rejected")
+        || it->category == QLatin1String("invalid_gif");
+    if (permanent)
+        return true;
+    if (m_failureClock.elapsed() - it->markedAtMs >= m_failureRetryMs) {
+        m_failed.erase(it);
+        return false;
+    }
+    return true;
 }
 
 QString MediaBridge::mediaSource(const QString &mediaKey, const QString &kind)
@@ -155,9 +174,10 @@ QString MediaBridge::mediaSource(const QString &mediaKey, const QString &kind)
     const QString cached = cachedSource(cacheKey);
     if (!cached.isEmpty())
         return cached;
-    // A marked failure needs an explicit retry() first — QML repolling a
-    // broken source must not turn into a request loop.
-    if (m_failed.contains(cacheKey))
+    // A marked failure blocks re-dispatch (transient marks expire; see
+    // failureBlocks) — QML repolling a broken source must not turn into a
+    // request loop.
+    if (failureBlocks(cacheKey))
         return {};
     if (!alreadyPending(cacheKey)) {
         Pending request;
@@ -182,7 +202,7 @@ QString MediaBridge::animatedSource(const QString &mediaKey)
         return QUrl::fromLocalFile(path).toString();
     }
     m_animatedWanted.insert(cacheKey);
-    if (m_failed.contains(cacheKey))
+    if (failureBlocks(cacheKey))
         return {};
     const QByteArray cached = cachedBytes(cacheKey);
     if (!cached.isEmpty()) {
@@ -255,7 +275,7 @@ QString MediaBridge::avatarSource(const QString &mxcUri, int size)
     const QString cached = cachedSource(cacheKey);
     if (!cached.isEmpty())
         return cached;
-    if (m_failed.contains(cacheKey))
+    if (failureBlocks(cacheKey))
         return {};
     if (!alreadyPending(cacheKey)) {
         Pending request;
@@ -368,7 +388,8 @@ void MediaBridge::markFailed(const Pending &request, const QString &category)
         return; // Save As reports through saveFinished, not source state.
     if (m_failed.size() >= kMaxFailureMarks)
         m_failed.clear(); // defensive bound; never realistically reached
-    m_failed.insert(request.cacheKey, category);
+    m_failed.insert(request.cacheKey,
+                    {category, m_failureClock.elapsed()});
 }
 
 void MediaBridge::onMediaFailed(quint64 opId, const QString &mediaKey, int kind,

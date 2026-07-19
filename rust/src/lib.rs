@@ -37,8 +37,8 @@ use matrix_sdk::{
             },
             typing::SyncTypingEvent,
         },
-        uint, EventId, OwnedDeviceId, OwnedEventId, OwnedTransactionId, OwnedUserId, RoomId,
-        UInt, UserId,
+        uint, EventId, OwnedDeviceId, OwnedEventId, OwnedRoomId, OwnedTransactionId,
+        OwnedUserId, RoomId, UInt, UserId,
     },
     room::Receipts,
     store::RoomLoadSettings,
@@ -3581,6 +3581,9 @@ async fn run_modern_sync(
         let space_service = SpaceService::new(client.clone()).await;
         let mut unified_state = service.state();
         let mut list_state = room_list_service.state();
+        // Bounded latest-event registration state for this sync session.
+        let latest_events = client.latest_events().await;
+        let mut watched_latest: BTreeSet<OwnedRoomId> = BTreeSet::new();
 
         set_sync_mode(&sync_mode, &events, SyncMode::SlidingSync, None);
         enqueue(&events, json!({ "type": "room_list_sync_state", "state": "starting" }));
@@ -3594,7 +3597,8 @@ async fn run_modern_sync(
                 }
                 batch = entries.next() => {
                     let Some(batch) = batch else { break; };
-                    forward_room_list_diffs(&events, batch).await;
+                    forward_room_list_diffs(&events, batch, latest_events,
+                                            &mut watched_latest).await;
                     enqueue_spaces(&events, &space_service, &client).await;
                 }
                 state = list_state.next() => {
@@ -3705,34 +3709,53 @@ async fn run_classic_sync(
 async fn forward_room_list_diffs(
     events: &Arc<Mutex<VecDeque<String>>>,
     batches: Vec<VectorDiff<RoomListItem>>,
+    latest_events: &matrix_sdk::latest_events::LatestEvents,
+    watched: &mut BTreeSet<OwnedRoomId>,
 ) {
+    // Serialize the room AND register it with the lazy Latest Events API so
+    // its preview/activity keep updating without the room ever being opened.
+    async fn payload(
+        room: Room,
+        latest_events: &matrix_sdk::latest_events::LatestEvents,
+        watched: &mut BTreeSet<OwnedRoomId>,
+    ) -> serde_json::Value {
+        watch_latest_event(latest_events, watched, room.room_id()).await;
+        room_payload(&room).await
+    }
+
     for diff in batches {
         let value = match diff {
             VectorDiff::Reset { values } => {
                 let mut rooms = Vec::with_capacity(values.len());
-                for item in values { rooms.push(room_payload(&item.into_inner()).await); }
+                for item in values {
+                    rooms.push(payload(item.into_inner(), latest_events, watched).await);
+                }
                 json!({ "type": "room_list_reset", "rooms": rooms })
             }
             VectorDiff::Append { values } => {
                 let mut rooms = Vec::with_capacity(values.len());
-                for item in values { rooms.push(room_payload(&item.into_inner()).await); }
+                for item in values {
+                    rooms.push(payload(item.into_inner(), latest_events, watched).await);
+                }
                 json!({ "type": "room_list_append", "rooms": rooms })
             }
             VectorDiff::PushFront { value } => json!({
-                "type": "room_list_push_front", "room": room_payload(&value.into_inner()).await
+                "type": "room_list_push_front",
+                "room": payload(value.into_inner(), latest_events, watched).await
             }),
             VectorDiff::PushBack { value } => json!({
-                "type": "room_list_push_back", "room": room_payload(&value.into_inner()).await
+                "type": "room_list_push_back",
+                "room": payload(value.into_inner(), latest_events, watched).await
             }),
             VectorDiff::PopFront => json!({ "type": "room_list_pop_front" }),
             VectorDiff::PopBack => json!({ "type": "room_list_pop_back" }),
             VectorDiff::Insert { index, value } => json!({
                 "type": "room_list_insert", "index": index,
-                "room": room_payload(&value.into_inner()).await
+                "room": payload(value.into_inner(), latest_events, watched).await
             }),
             VectorDiff::Set { index, value } => json!({
                 "type": "room_list_set", "index": index,
-                "room": room_payload(&value.into_inner()).await
+                "room": payload(value.into_inner(), latest_events, watched).await
             }),
             VectorDiff::Remove { index } => json!({ "type": "room_list_remove", "index": index }),
             VectorDiff::Truncate { length } => json!({
@@ -3843,7 +3866,7 @@ async fn room_payload(room: &Room) -> serde_json::Value {
         "canonical_alias": room.canonical_alias().map(|alias| alias.to_string()).unwrap_or_default(),
         "topic": room.topic().unwrap_or_default(),
         "avatar_url": room.avatar_url().map(|url| url.to_string()).unwrap_or_default(),
-        "last_message_preview": "",
+        "last_message_preview": latest_event_preview_text(&room.latest_event()),
         "last_activity_ms": room.latest_event_timestamp().map(|ts| u64::from(ts.get())).unwrap_or(0),
         "unread_count": room.num_unread_notifications().max(notifications.notification_count),
         "highlight_count": room.num_unread_mentions().max(notifications.highlight_count),
@@ -3871,6 +3894,80 @@ async fn enqueue_rooms(events: &Arc<Mutex<VecDeque<String>>>, client: &Client) {
         }
     }
     enqueue(events, json!({ "type": "room_list_reset", "rooms": out }));
+}
+
+/// Presentation-safe room-list preview text for a room's cached latest
+/// event. Pure so it is unit-testable.
+///
+/// Text-family messages surface their body (for decrypted events this is the
+/// decrypted body — it travels in memory only; the C++ room list never
+/// persists encrypted-room previews). Media messages surface their
+/// filename-style body, matching the C++ open-room preview. Anything else —
+/// still-encrypted events, state events, invites, unsent local echoes —
+/// yields an empty string so the C++ side keeps its placeholder behaviour.
+pub(crate) fn latest_event_preview_text(
+    value: &matrix_sdk_base::latest_event::LatestEventValue,
+) -> String {
+    use matrix_sdk::ruma::events::{
+        AnySyncMessageLikeEvent, AnySyncTimelineEvent, SyncMessageLikeEvent,
+    };
+    use matrix_sdk_base::latest_event::LatestEventValue;
+
+    fn body_or(body: String, fallback: &str) -> String {
+        if body.is_empty() { fallback.to_owned() } else { body }
+    }
+
+    let LatestEventValue::Remote(event) = value else {
+        return String::new();
+    };
+    let Ok(deserialized) = event.raw().deserialize() else {
+        return String::new();
+    };
+    let AnySyncTimelineEvent::MessageLike(message_like) = deserialized else {
+        return String::new();
+    };
+    match message_like {
+        AnySyncMessageLikeEvent::RoomMessage(SyncMessageLikeEvent::Original(message)) => {
+            match message.content.msgtype {
+                MessageType::Text(content) => content.body,
+                MessageType::Notice(content) => content.body,
+                MessageType::Emote(content) => content.body,
+                MessageType::Image(content) => body_or(content.body, "Image"),
+                MessageType::File(content) => body_or(content.body, "File"),
+                MessageType::Video(content) => body_or(content.body, "Video"),
+                MessageType::Audio(content) => body_or(content.body, "Audio"),
+                _ => String::new(),
+            }
+        }
+        AnySyncMessageLikeEvent::Sticker(SyncMessageLikeEvent::Original(_)) => {
+            "Sticker".to_owned()
+        }
+        _ => String::new(),
+    }
+}
+
+/// Rooms whose latest event the SDK actively computes. The Latest Events API
+/// is lazy — without `listen_to_room` a room's latest event (and therefore
+/// its room-list preview and fresh activity timestamp) is never populated;
+/// this was exactly the "room information only appears after opening the
+/// room" behaviour. Watching is bounded so an account with thousands of
+/// rooms cannot trigger unbounded computation; the room list is
+/// recency-sorted, so the first rooms delivered are the ones on screen.
+const LATEST_EVENT_WATCH_CAP: usize = 200;
+
+async fn watch_latest_event(
+    latest_events: &matrix_sdk::latest_events::LatestEvents,
+    watched: &mut BTreeSet<OwnedRoomId>,
+    room_id: &RoomId,
+) {
+    if watched.contains(room_id) || watched.len() >= LATEST_EVENT_WATCH_CAP {
+        return;
+    }
+    // Failure is non-fatal: the room simply keeps an empty preview until a
+    // live event or an explicit open provides one.
+    if latest_events.listen_to_room(room_id).await.unwrap_or(false) {
+        watched.insert(room_id.to_owned());
+    }
 }
 
 async fn room_name(room: &Room) -> String {
@@ -4046,5 +4143,96 @@ mod tests {
     #[test]
     fn other_errors_default_to_import_failed() {
         assert_eq!(classify_import_error("crypto store unavailable"), "import_failed");
+    }
+}
+
+#[cfg(test)]
+mod latest_event_preview_tests {
+    use matrix_sdk::ruma::serde::Raw;
+    use matrix_sdk_base::latest_event::{LatestEventValue, RemoteLatestEventValue};
+    use serde_json::json;
+
+    use super::latest_event_preview_text;
+
+    fn remote(content: serde_json::Value, event_type: &str) -> LatestEventValue {
+        LatestEventValue::Remote(RemoteLatestEventValue::from_plaintext(
+            Raw::from_json_string(
+                json!({
+                    "content": content,
+                    "type": event_type,
+                    "event_id": "$preview0",
+                    "origin_server_ts": 42,
+                    "sender": "@alice:example.org",
+                })
+                .to_string(),
+            )
+            .expect("valid fixture event"),
+        ))
+    }
+
+    #[test]
+    fn none_value_yields_empty_preview() {
+        assert_eq!(latest_event_preview_text(&LatestEventValue::None), "");
+    }
+
+    #[test]
+    fn text_message_surfaces_body() {
+        let value = remote(
+            json!({ "msgtype": "m.text", "body": "hello rooms" }),
+            "m.room.message",
+        );
+        assert_eq!(latest_event_preview_text(&value), "hello rooms");
+    }
+
+    #[test]
+    fn media_messages_surface_filename_or_kind() {
+        let named = remote(
+            json!({ "msgtype": "m.image", "body": "cat.png",
+                    "url": "mxc://example.org/cat" }),
+            "m.room.message",
+        );
+        assert_eq!(latest_event_preview_text(&named), "cat.png");
+        let unnamed = remote(
+            json!({ "msgtype": "m.file", "body": "",
+                    "url": "mxc://example.org/blob" }),
+            "m.room.message",
+        );
+        assert_eq!(latest_event_preview_text(&unnamed), "File");
+    }
+
+    #[test]
+    fn still_encrypted_event_yields_empty_preview() {
+        // An undecryptable latest event must never leak ciphertext or
+        // invent a body; the C++ side renders its own placeholder.
+        let value = remote(
+            json!({
+                "algorithm": "m.megolm.v1.aes-sha2",
+                "ciphertext": "opaque",
+                "device_id": "DEV",
+                "sender_key": "key",
+                "session_id": "session",
+            }),
+            "m.room.encrypted",
+        );
+        assert_eq!(latest_event_preview_text(&value), "");
+    }
+
+    #[test]
+    fn state_event_yields_empty_preview() {
+        let value = LatestEventValue::Remote(RemoteLatestEventValue::from_plaintext(
+            Raw::from_json_string(
+                json!({
+                    "content": { "name": "Renamed room" },
+                    "type": "m.room.name",
+                    "state_key": "",
+                    "event_id": "$preview1",
+                    "origin_server_ts": 42,
+                    "sender": "@alice:example.org",
+                })
+                .to_string(),
+            )
+            .expect("valid fixture event"),
+        ));
+        assert_eq!(latest_event_preview_text(&value), "");
     }
 }

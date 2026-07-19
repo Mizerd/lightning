@@ -2127,8 +2127,17 @@ RoomInfo RustSdkMatrixClient::roomInfoFromJson(const QJsonObject &obj) const
     room.topic = obj.value(QStringLiteral("topic")).toString(room.topic);
     room.canonicalAlias = obj.value(QStringLiteral("canonical_alias")).toString(room.canonicalAlias);
     room.avatarUrl = obj.value(QStringLiteral("avatar_url")).toString(room.avatarUrl);
-    room.lastMessagePreview = obj.value(QStringLiteral("last_message_preview"))
-                                  .toString(room.lastMessagePreview);
+    // A present-but-empty preview must not clobber one we already learned
+    // from the open timeline or a live event: Rust legitimately sends ""
+    // whenever the SDK has no latest event for the room yet, and room-list
+    // set/insert diffs arrive on every unread/order change — pre-0.7 this
+    // raced previews back to empty until the room was reopened.
+    {
+        const QString incomingPreview =
+            obj.value(QStringLiteral("last_message_preview")).toString();
+        if (!incomingPreview.isEmpty())
+            room.lastMessagePreview = incomingPreview;
+    }
     const auto activity = timestampFromMs(static_cast<qint64>(
         obj.value(QStringLiteral("last_activity_ms")).toDouble(0)));
     if (activity.isValid()) room.lastActivity = activity;

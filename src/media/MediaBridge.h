@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QByteArray>
+#include <QElapsedTimer>
 #include <QHash>
 #include <QMutex>
 #include <QObject>
@@ -55,8 +56,15 @@ public:
     // repolling cannot hammer the backend; retry() clears the mark so the
     // next mediaSource/avatarSource call dispatches again. failureCategory
     // returns the coarse category ("network", "rejected", ...) or "".
+    //
+    // v0.7: transient categories (network and similar) expire after a
+    // bounded interval, so an avatar that failed once — e.g. during a flaky
+    // startup — recovers on its own with at most one re-dispatch per
+    // interval. Validation failures ("rejected", "invalid_gif") stay
+    // permanent until an explicit retry().
     Q_INVOKABLE QString failureCategory(const QString &cacheKey) const;
     Q_INVOKABLE void retry(const QString &cacheKey);
+    void setFailureRetryMsForTest(qint64 ms) { m_failureRetryMs = ms; }
 
     // Explicit Save As: fetches the full payload (cache or network) and
     // writes it atomically to the user-chosen destination. Never executes
@@ -101,6 +109,9 @@ private:
     void insertCache(const QString &cacheKey, const QByteArray &bytes);
     void touch(const QString &cacheKey) const;
     void markFailed(const Pending &request, const QString &category);
+    // True while the key's failure mark still blocks a new dispatch;
+    // expires transient marks as a side effect.
+    bool failureBlocks(const QString &cacheKey);
     void dispatch(const Pending &request);
     void pump();
     bool alreadyPending(const QString &cacheKey) const;
@@ -120,13 +131,24 @@ private:
     QQueue<Pending> m_queue;
     // v0.5.11: cache keys whose last fetch failed, with the coarse
     // category. Bounded; cleared on sign-out and per key via retry().
-    QHash<QString, QString> m_failed;
+    // v0.7: transient marks also carry the monotonic time they were set so
+    // they expire (see failureBlocks()).
+    struct FailureMark {
+        QString category;
+        qint64 markedAtMs = 0;
+    };
+    QHash<QString, FailureMark> m_failed;
+    QElapsedTimer m_failureClock;
+    qint64 m_failureRetryMs = 60 * 1000;
     std::unique_ptr<QTemporaryDir> m_animatedDir;
     QHash<QString, QString> m_animatedFiles;
     QHash<QString, qint64> m_animatedSizes;
     QList<QString> m_animatedLru;
     QSet<QString> m_animatedWanted;
-    static constexpr int kMaxConcurrent = 4;
+    // v0.7: raised from 4 — a cold room list fetches its visible avatars in
+    // one or two bursts instead of a long 4-at-a-time trickle. Still a hard
+    // bound; excess requests queue and pump as fetches complete.
+    static constexpr int kMaxConcurrent = 8;
     static constexpr int kMaxFailureMarks = 512;
     static constexpr qint64 kAnimatedCacheBytes = 64 * 1024 * 1024;
     static constexpr int kAnimatedCacheEntries = 64;

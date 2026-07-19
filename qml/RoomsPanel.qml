@@ -84,6 +84,10 @@ Rectangle {
             model: app.roomList
             currentIndex: -1
             spacing: 0
+            // Instantiate delegates a little past the viewport so their
+            // avatars start fetching before the row scrolls into view.
+            // Bounded prefetch: roughly one extra screen of rows.
+            cacheBuffer: 600
 
             ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
 

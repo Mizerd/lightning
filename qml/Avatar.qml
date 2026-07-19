@@ -47,7 +47,13 @@ Rectangle {
     Connections {
         target: app.mediaBridge
         enabled: root.hasImage
-        function onMediaCached(cacheKey) { root.refresh() }
+        function onMediaCached(cacheKey) {
+            // Cache keys end with the mxc URI ("mxc:<edge>:<uri>") — only
+            // this avatar's own completion needs a refresh, not every
+            // media byte fetched anywhere in the app.
+            if (cacheKey.endsWith(":" + root.mxc))
+                root.refresh()
+        }
     }
 
     Label {
