@@ -92,3 +92,9 @@ modules:
         fi; done
       - install -Dm0644 lightning.metainfo.xml
         /app/share/metainfo/net.smetonis.Lightning.metainfo.xml
+      # The shared metainfo's launchable points at the plain desktop-id used
+      # by deb/rpm; inside the flatpak the desktop file is app-id-named, and
+      # appstream compose drops the component (gui-app-without-icon) if the
+      # launchable cannot be resolved.
+      - sed -i 's|>lightning.desktop<|>net.smetonis.Lightning.desktop<|'
+        /app/share/metainfo/net.smetonis.Lightning.metainfo.xml
