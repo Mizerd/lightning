@@ -357,21 +357,39 @@ URLs, parsing, rating mapping, pagination, errors, and attribution belong in
 provider code; lifecycle, stale-response rejection, and result state remain
 provider-neutral.
 
-Rokas's local development key file is:
+Provider keys resolve in one authoritative path (see `gif::resolveProviderKey`):
+
+1. a runtime override — `LIGHTNING_GIPHY_API_KEY` / `LIGHTNING_KLIPY_API_KEY`;
+2. an application key compiled into an official release build;
+3. otherwise unconfigured (the existing missing-key state).
+
+The runtime override always wins, so a source build (which has no embedded key)
+works as soon as those variables are set. Rokas's local from-source workflow
+sources his own private env file to set them:
 
 ```text
-/home/roksme/Documents/API/lightning-gif.env
+/home/roksme/Documents/API/lightning-gif.env   # optional local dev convenience
 ```
 
-It is local configuration, never a repository file. The supported environment
-variables are:
+It exports `LIGHTNING_GIPHY_API_KEY` / `LIGHTNING_KLIPY_API_KEY`; it is local
+configuration, never a repository file, and must never be read, printed, or
+committed by tooling. It is an optional developer convenience, not a build or
+release requirement — official packages do not depend on it.
 
-```text
-LIGHTNING_GIPHY_API_KEY
-LIGHTNING_KLIPY_API_KEY
-```
+Official release packages embed the keys at build time. The values come from the
+project 7 (lightning-deploy) protected+masked CI variables `GIPHY_API_KEY` and
+`KLIPY_API_KEY`, mapped into the build-only `LIGHTNING_BUILD_GIPHY_API_KEY` /
+`LIGHTNING_BUILD_KLIPY_API_KEY` that a CMake generator writes into a build-tree
+header (`<build>/generated/LightningGifBuildKeys.h`). That header is never
+tracked, installed, packaged, logged, or emitted on a compiler command line;
+enable `-DLIGHTNING_REQUIRE_GIF_KEYS=ON` to require both in official builds.
+Clean-package validation runs `matrix-client --gif-status` (booleans only) and
+`--gif-selftest` (bounded live request) with every key variable unset to prove
+the embedded keys work.
 
-Never print, log, commit, embed, or pass key values through QML. These are
+Never print, log, commit, embed in tracked source, or pass key values through
+QML, `--version`, settings, or diagnostics. A key compiled into a distributed
+desktop binary is ultimately extractable; do not claim otherwise. These are
 application/provider keys, not Matrix keys. Send only the user's GIF search
 term to the explicitly selected external provider; never send Matrix IDs,
 room IDs, event IDs, user IDs, message bodies, homeserver credentials, or

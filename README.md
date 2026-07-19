@@ -106,19 +106,33 @@ browser is actively developed but is now feature-complete for everyday use.
   sends always land as true `m.thread` replies, and encrypted rooms use the SDK
   media-encryption path exactly like other attachments
 
-Provider access is configured through:
+Provider access resolves in this order:
 
-- `LIGHTNING_GIPHY_API_KEY`
-- `LIGHTNING_KLIPY_API_KEY`
+1. a runtime override — `LIGHTNING_GIPHY_API_KEY` / `LIGHTNING_KLIPY_API_KEY`;
+2. an application key embedded into an official release build;
+3. otherwise the provider shows the unconfigured (missing-key) state.
+
+**For users:** official Lightning packages include application-level GIF-provider
+configuration, so the GIF browser works immediately after install — you do not
+need to create provider keys or set any environment variable. GIF searches are
+sent to the selected external provider; provider availability and rate limits
+remain that provider's dependency.
+
+**For developers:** a build from source has no embedded key and shows the
+missing-key state until you supply a runtime override
+(`LIGHTNING_GIPHY_API_KEY` / `LIGHTNING_KLIPY_API_KEY`); these are read at
+runtime, so exporting them — for example from a local env file — enables the
+browser without rebuilding. Official-package keys are injected by protected CI at
+build time. An application key compiled into a distributed desktop binary is
+ultimately extractable and is not a Matrix credential; treat it accordingly.
 
 When provider integration is enabled, only the user's search term is sent to the
 explicitly selected provider — Matrix room, event, thread, and user identifiers
-are never sent. Provider keys are application configuration, not Matrix
-credentials. Downloaded provider media is fetched over HTTPS only, with
+are never sent. Downloaded provider media is fetched over HTTPS only, with
 revalidated redirects, a bounded download size, and GIF magic and dimension
 validation before it is uploaded through Matrix rather than sent as a bare
-provider URL. API keys must be supplied by the user and must never be committed
-to the repository.
+provider URL. Keys are never logged, exposed to QML, or committed to the
+repository.
 
 ## Screenshots
 
