@@ -36,9 +36,8 @@ variables:
     description: "create only: base64-encoded Markdown notes. Otherwise a tracked docs/releases/vX.Y.Z.md is used."
   BUILD_TYPE: "Release"
   # Per-build parallelism. configure-build.sh derives CMAKE_BUILD_PARALLEL_LEVEL
-  # and CARGO_BUILD_JOBS from this. Jobs on the 6-CPU package runners override
-  # it to 6; the remote 4-vCPU build lane uses 4. Builds themselves stay
-  # serialized through the shared lightning-package-build resource group.
+  # and CARGO_BUILD_JOBS from this; 4 matches the job-container CPU cap on
+  # both runner hosts.
   BUILD_JOBS: "4"
   # Publication target is fixed to Lightning project 6 and enforced in-script.
   TARGET_PROJECT_ID: "6"
@@ -67,10 +66,17 @@ variables:
       when: on_success
     - when: never
 
+# Build concurrency is bounded, not free: the build jobs are split across two
+# resource groups (a: deb/flatpak/snap, b: rpm/appimage), so at most TWO
+# package builds run at once anywhere. Each format's selector tag matches a
+# runner on BOTH hosts (the GitLab VM fleet and the mirrored fleet on
+# 10.195.35.6), so whichever matching runner is free takes the job. Per-host
+# overload is prevented by the hosts themselves: the remote VM runs one job
+# globally (concurrent=1), and the GitLab VM job containers are capped at
+# 4 CPU / 6 GiB so even two co-located builds leave GitLab EE headroom.
 .build-base:
   extends: .trusted-pipeline
   stage: build
-  resource_group: lightning-package-build
   interruptible: true
   timeout: 2h
   needs:
@@ -132,12 +138,12 @@ build-deb:
   extends: .build-base
   image: debian:13.6-slim
   tags: [apt, deb, package]
+  resource_group: lightning-package-build-a
   variables:
     FORMAT: "deb"
     BASE_IMAGE: "debian:13.6-slim"
     DEBIAN_FRONTEND: "noninteractive"
     RUST_TOOLCHAIN: "1.93.0"
-    BUILD_JOBS: "6"
   before_script:
     - apt-get update
     - >-
@@ -161,10 +167,10 @@ build-rpm:
   extends: .build-base
   image: fedora:44
   tags: [dnf, rpm, package]
+  resource_group: lightning-package-build-b
   variables:
     FORMAT: "rpm"
     BASE_IMAGE: "fedora:44"
-    BUILD_JOBS: "6"
   before_script:
     - >-
       dnf install -y
@@ -182,6 +188,7 @@ build-flatpak:
   extends: .build-base
   image: debian:13.6-slim
   tags: [flatpak, package]
+  resource_group: lightning-package-build-a
   variables:
     FORMAT: "flatpak"
     BASE_IMAGE: "debian:13.6-slim"
@@ -198,17 +205,13 @@ build-flatpak:
 build-appimage:
   extends: .build-base
   image: debian:13.6-slim
-  # Runs on the dedicated remote build lane (package-runner-remote on
-  # 10.195.35.6 / xcp-ng-1) so this heavy build executes off the GitLab VM.
-  # The shared resource_group in .build-base keeps the whole pool serialized:
-  # having a second host adds capacity headroom, not concurrency.
-  tags: [remote, package]
+  tags: [appimage, package]
+  resource_group: lightning-package-build-b
   variables:
     FORMAT: "appimage"
     BASE_IMAGE: "debian:13.6-slim"
     DEBIAN_FRONTEND: "noninteractive"
     RUST_TOOLCHAIN: "1.93.0"
-    BUILD_JOBS: "4"
   before_script:
     - apt-get update
     - >-
@@ -233,6 +236,7 @@ build-snap:
   extends: .build-base
   image: ubuntu:24.04
   tags: [snap, package]
+  resource_group: lightning-package-build-a
   variables:
     FORMAT: "snap"
     BASE_IMAGE: "ubuntu:24.04"
@@ -361,7 +365,8 @@ validate-appimage:
     - >-
       apt-get install -y --no-install-recommends
       binutils ca-certificates file libegl1 libfontconfig1 libfreetype6
-      libgl1 libglib2.0-0 libx11-6 libxcb1 libxext6 libxkbcommon0 zstd
+      libgl1 libglib2.0-0 libopengl0 libx11-6 libxcb1 libxext6
+      libxkbcommon0 zstd
   script: [./scripts/validate-appimage.sh]
   artifacts:
     when: always
@@ -397,8 +402,8 @@ validate-snap:
     - >-
       apt-get install -y --no-install-recommends
       binutils ca-certificates file libegl1 libfontconfig1 libfreetype6
-      libgl1 libglib2.0-0 libx11-6 libxcb1 libxext6 libxkbcommon0
-      python3 python3-yaml squashfs-tools zstd
+      libgl1 libglib2.0-0 libopengl0 libx11-6 libxcb1 libxext6
+      libxkbcommon0 python3 python3-yaml squashfs-tools zstd
   script: [./scripts/validate-snap.sh]
   artifacts:
     when: always

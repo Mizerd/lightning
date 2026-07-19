@@ -54,7 +54,7 @@ Only manually created `web` and `api` pipelines are accepted.
 | build | `build-deb` | Debian 13.6 build |
 | build | `build-rpm` | Fedora 44 build |
 | build | `build-flatpak` | KDE-runtime sandbox build → single-file bundle |
-| build | `build-appimage` | Debian staged build → self-contained AppImage (remote build lane) |
+| build | `build-appimage` | Debian staged build → self-contained AppImage |
 | build | `build-snap` | Snap packed from the AppImage job's AppDir |
 | validate | `validate-deb` | Clean Debian install/run/uninstall audit |
 | validate | `validate-rpm` | Clean Fedora install/run/uninstall audit |
@@ -76,20 +76,27 @@ AppDir artifact instead of compiling a third time). A shared build
 `resource_group` keeps the memory-heavy builds sequential; a second
 `resource_group` serializes all project-6 registry/release writes.
 
-Each format builds and validates on its own dedicated runner via one unique
-selector tag: `apt`, `dnf`, `flatpak`, `appimage`, `snap`, plus `remote` for
-the off-host build lane (see the "GitLab Package Build Runners" infrastructure
-note). `build-appimage` runs on `package-runner-remote` (a dedicated VM on
-xcp-ng-1) so its heavy compile executes off the GitLab VM; `validate-appimage`
-stays on the local `appimage` runner. The remote lane adds capacity headroom,
-**not** concurrency: every build job still shares the
-`lightning-package-build` resource group and every runner keeps
-`concurrent = 1`, so at most one package build runs at a time across all
-hosts. The flatpak runner is the one deliberate confinement exception: its job
-containers run unprivileged but with relaxed seccomp/apparmor **and unmasked
-system paths** (`systempaths=unconfined`) — flatpak-builder's bwrap must mount
-a fresh procfs inside its user namespace, which Docker's default masked /proc
-forbids. Windows exe/msi formats are blocked and documented in
+Each format builds and validates via one unique selector tag: `apt`, `dnf`,
+`flatpak`, `appimage`, `snap`. Two runner fleets carry those tags — the
+original one on the GitLab VM and a mirrored fleet on a dedicated VM
+(10.195.35.6, xcp-ng-1) — so whichever matching runner is free takes a job
+(see the "GitLab Package Build Runners" infrastructure note). Build
+concurrency is **bounded, not free**: the build jobs are split across exactly
+two resource groups (`lightning-package-build-a`: deb/flatpak/snap,
+`lightning-package-build-b`: rpm/appimage), so at most two package builds run
+at once anywhere — typically one per host. The remote VM additionally runs at
+most one job globally (`concurrent = 1`), and the GitLab VM's job containers
+are capped at 4 CPU / 6 GiB so even two co-located builds leave GitLab EE
+headroom. Do not add a third resource group or raise the caps without
+revisiting host capacity.
+
+The flatpak runners (on both hosts) are the one deliberate confinement
+exception: their job containers run **privileged**. flatpak-builder's bwrap
+must mount a fresh procfs inside its user namespace, which Docker's default
+masked /proc forbids; the Docker daemon rejects a raw
+`systempaths=unconfined` security-opt (it is a CLI-only alias), and GitLab
+Runner exposes no masked-paths knob, so privileged is the only available
+mechanism. Windows exe/msi formats are blocked and documented in
 `docs/windows-packaging.md` — no fake Windows jobs are wired.
 
 ### Build caching

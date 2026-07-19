@@ -47,27 +47,22 @@ required_jobs = [
 for job in required_jobs:
     check(job in doc, f"job {job} is defined")
 
-# --- one dedicated runner per job: every build/validate job selects exactly
-# --- one unique selector tag. build-appimage deliberately runs on the remote
-# --- build lane (package-runner-remote on 10.195.35.6); its validation stays
-# --- on the local appimage runner.
-UNIQUE_SELECTORS = {"apt", "dnf", "nix", "flatpak", "appimage", "snap", "remote"}
-BUILD_SELECTOR = {
-    "deb": "apt", "rpm": "dnf",
-    "flatpak": "flatpak", "appimage": "remote", "snap": "snap",
-}
-VALIDATE_SELECTOR = {
+# --- one dedicated runner pool per format: every build/validate job selects
+# --- exactly one unique selector tag. Each selector matches a runner on both
+# --- the GitLab VM fleet and the mirrored fleet on 10.195.35.6, so whichever
+# --- matching runner is free takes the job.
+UNIQUE_SELECTORS = {"apt", "dnf", "nix", "flatpak", "appimage", "snap"}
+FORMAT_SELECTOR = {
     "deb": "apt", "rpm": "dnf",
     "flatpak": "flatpak", "appimage": "appimage", "snap": "snap",
 }
-for fmt, selector in BUILD_SELECTOR.items():
-    tags = set(doc["build-" + fmt].get("tags", []))
-    check(tags & UNIQUE_SELECTORS == {selector},
-          f"build-{fmt} selects exactly its own runner tag [{selector}]")
-for fmt, selector in VALIDATE_SELECTOR.items():
-    tags = set(doc["validate-" + fmt].get("tags", []))
-    check(tags & UNIQUE_SELECTORS == {selector},
-          f"validate-{fmt} selects exactly its own runner tag [{selector}]")
+for fmt, selector in FORMAT_SELECTOR.items():
+    for prefix in ("build-", "validate-"):
+        job = prefix + fmt
+        tags = set(doc[job].get("tags", []))
+        selectors = tags & UNIQUE_SELECTORS
+        check(selectors == {selector},
+              f"{job} selects exactly its own runner tag [{selector}]")
 
 
 
@@ -98,13 +93,23 @@ def resolve_extends_dict(d):
     return merged
 
 
-# --- serialization invariant: every build job shares one resource group so
-# --- at most one package build runs at a time across ALL hosts (including
-# --- the remote lane). Adding runners must never enable concurrent builds.
-for fmt in BUILD_SELECTOR:
+# --- bounded-concurrency invariant: build jobs are split across exactly two
+# --- resource groups, so at most TWO package builds run at once anywhere
+# --- (one per group). Worst-case co-location on one host is sized for in the
+# --- runner caps; do not add a third group without revisiting host capacity.
+BUILD_GROUP = {
+    "deb": "lightning-package-build-a",
+    "flatpak": "lightning-package-build-a",
+    "snap": "lightning-package-build-a",
+    "rpm": "lightning-package-build-b",
+    "appimage": "lightning-package-build-b",
+}
+for fmt, group in BUILD_GROUP.items():
     merged = resolve_extends("build-" + fmt)
-    check(merged.get("resource_group") == "lightning-package-build",
-          f"build-{fmt} is serialized via the lightning-package-build resource group")
+    check(merged.get("resource_group") == group,
+          f"build-{fmt} is bounded by resource group {group}")
+check(len(set(BUILD_GROUP.values())) == 2,
+      "build jobs use exactly two resource groups (bounded 2-way concurrency)")
 
 # --- publish-chain jobs route API requests through the internal endpoint
 # --- (the public host is Cloudflare-proxied with a request-body cap that
@@ -120,7 +125,7 @@ for job in ["publish-packages", "verify-published-packages", "finalize-release"]
 default_jobs = str(doc.get("variables", {}).get("BUILD_JOBS", ""))
 check(default_jobs.isdigit() and 1 <= int(default_jobs) <= 8,
       "default BUILD_JOBS is within 1-8")
-for fmt in BUILD_SELECTOR:
+for fmt in FORMAT_SELECTOR:
     jobs = str((doc["build-" + fmt].get("variables") or {}).get("BUILD_JOBS", default_jobs))
     check(jobs.isdigit() and 1 <= int(jobs) <= 8,
           f"build-{fmt} BUILD_JOBS is within 1-8")
