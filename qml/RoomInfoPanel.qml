@@ -90,7 +90,7 @@ Rectangle {
                     font.weight: Font.DemiBold
                 }
                 ToolButton {
-                    text: "✕"
+                    contentItem: Icon { name: "close"; size: 15 }
                     Accessible.name: qsTr("Close room information")
                     onClicked: root.closeRequested()
                 }
@@ -191,7 +191,7 @@ Rectangle {
                             size: 56
                             name: root.roomData.name || ""
                             mxc: root.roomData.avatarUrl || ""
-                            circle: !(root.roomData.isSpace === true)
+                            circle: root.roomData.isDirect === true
                         }
                         ColumnLayout {
                             Layout.fillWidth: true
@@ -558,9 +558,9 @@ Rectangle {
                     }
                     contentItem: RowLayout {
                         spacing: AppTheme.spacing8
-                        Label {
-                            text: modelData.isImage ? "🖼" : "📎"
-                            font.pixelSize: AppTheme.fontRoomTitle
+                        Icon {
+                            name: modelData.isImage ? "image" : "attach_file"
+                            size: 16
                         }
                         ColumnLayout {
                             Layout.fillWidth: true

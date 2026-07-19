@@ -137,7 +137,7 @@ Dialog {
                         }
                         ToolButton {
                             implicitWidth: 18; implicitHeight: 18
-                            text: "✕"
+                            contentItem: Icon { name: "close"; size: 14 }
                             Accessible.name: qsTr("Remove %1").arg(modelData)
                             onClicked: {
                                 var next = root.selectedUsers.slice()

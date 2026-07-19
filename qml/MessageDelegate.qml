@@ -631,7 +631,7 @@ Item {
                         enabled: !model.redacted
                                  && root.timelineModel.messagePermalink(
                                      root.eventIdForActions()).length > 0
-                        text: "\u{1F60A}"
+                        contentItem: Icon { name: "mood"; size: 16 }
                         Accessible.name: qsTr("React to message")
                         ToolTip.text: qsTr("React")
                         ToolTip.visible: hovered
@@ -648,7 +648,7 @@ Item {
                         }
                     }
                     ToolButton {
-                        text: "↰"
+                        contentItem: Icon { name: "reply"; size: 16 }
                         enabled: !model.redacted
                                  && root.timelineModel.messagePermalink(
                                      root.eventIdForActions()).length > 0
@@ -661,7 +661,7 @@ Item {
                         }
                     }
                     ToolButton {
-                        text: "…"
+                        contentItem: Icon { name: "more_horiz"; size: 16 }
                         Accessible.name: qsTr("More message actions")
                         ToolTip.text: qsTr("More")
                         ToolTip.visible: hovered
@@ -1420,9 +1420,9 @@ Item {
                 anchors.fill: parent
                 anchors.margins: 6
                 spacing: 8
-                Label {
-                    text: "📎"
-                    font.pixelSize: 20
+                Icon {
+                    name: "attach_file"
+                    size: 20
                     color: AppTheme.text
                 }
                 ColumnLayout {

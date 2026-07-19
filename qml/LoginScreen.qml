@@ -120,7 +120,11 @@ Item {
                 ToolButton {
                     id: passReveal
                     checkable: true
-                    text: checked ? "🙈" : "👁"
+                    contentItem: Icon {
+                        name: passReveal.checked ? "visibility_off"
+                                                 : "visibility"
+                        size: 16
+                    }
                     Accessible.name: checked ? qsTr("Hide password")
                                              : qsTr("Show password")
                     ToolTip.text: Accessible.name

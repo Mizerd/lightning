@@ -103,15 +103,14 @@ Rectangle {
                 ToolButton {
                     objectName: "threadBackToListButton"
                     visible: app.thread.active && app.thread.listOpen
-                    text: "‹"
-                    font.pixelSize: 14
+                    contentItem: Icon { name: "arrow_back"; size: 16 }
                     Accessible.name: qsTr("Back to threads")
                     onClicked: app.thread.close()
                 }
                 // Design: accent thread glyph + ExtraBold title.
-                Label {
-                    text: "🧵"
-                    font.pixelSize: 13
+                Icon {
+                    name: "forum"
+                    size: 16
                     color: AppTheme.accent
                 }
                 Label {
@@ -146,8 +145,7 @@ Rectangle {
                 }
                 ToolButton {
                     objectName: "threadCloseButton"
-                    text: "✕"
-                    font.pixelSize: 13
+                    contentItem: Icon { name: "close"; size: 15 }
                     Accessible.name: qsTr("Close thread")
                     ToolTip.text: qsTr("Close thread")
                     ToolTip.visible: hovered
@@ -327,10 +325,10 @@ Rectangle {
                         color: AppTheme.textMuted
                         font.pixelSize: 10
                     }
-                    Label {
+                    Icon {
                         visible: panel.rootData.isEncrypted === true
-                        text: "\u{1F512}"
-                        font.pixelSize: 10
+                        name: "lock"
+                        size: 12
                         color: AppTheme.textMuted
                     }
                     Item { Layout.fillWidth: true }
@@ -616,7 +614,7 @@ Rectangle {
                 }
                 ToolButton {
                     objectName: "threadReplyCancelButton"
-                    text: "✕"
+                    contentItem: Icon { name: "close"; size: 13 }
                     font.pixelSize: 10
                     Accessible.name: qsTr("Cancel reply")
                     onClicked: app.thread.cancelReply()
@@ -696,9 +694,9 @@ Rectangle {
                                 id: threadChipRow
                                 anchors.centerIn: parent
                                 spacing: AppTheme.spacingXS
-                                Label {
-                                    text: model.isImage ? "🖼" : "📎"
-                                    font.pixelSize: 14
+                                Icon {
+                                    name: model.isImage ? "image" : "attach_file"
+                                    size: 15
                                 }
                                 ColumnLayout {
                                     spacing: 0
@@ -726,7 +724,7 @@ Rectangle {
                                 ToolButton {
                                     visible: model.state === "failed"
                                     implicitWidth: 20; implicitHeight: 20
-                                    text: "↻"
+                                    contentItem: Icon { name: "refresh"; size: 14 }
                                     Accessible.name:
                                         qsTr("Retry sending %1").arg(model.fileName)
                                     onClicked: {
@@ -737,7 +735,7 @@ Rectangle {
                                 ToolButton {
                                     enabled: model.state !== "dispatching"
                                     implicitWidth: 20; implicitHeight: 20
-                                    text: "✕"
+                                    contentItem: Icon { name: "close"; size: 13 }
                                     Accessible.name:
                                         qsTr("Remove attachment %1").arg(model.fileName)
                                     onClicked: app.thread.attachments.removeAt(index)
@@ -753,7 +751,7 @@ Rectangle {
                     spacing: AppTheme.spacingS
                     ToolButton {
                         objectName: "threadAttachButton"
-                        text: "＋"
+                        contentItem: Icon { name: "add_circle"; size: 17 }
                         font.pixelSize: 15
                         enabled: app.thread.attachmentsSupported
                         Accessible.name: qsTr("Attach files")
@@ -763,7 +761,7 @@ Rectangle {
                         onClicked: threadAttachDialog.open()
                     }
                     ToolButton {
-                        text: "🙂"
+                        contentItem: Icon { name: "mood"; size: 17 }
                         font.pixelSize: 13
                         enabled: app.thread.state === ThreadController.Ready
                         Accessible.name: qsTr("Insert emoji")

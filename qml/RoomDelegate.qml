@@ -64,10 +64,10 @@ Item {
                     elide: Label.ElideRight
                     Layout.fillWidth: true
                 }
-                Label {
+                Icon {
                     visible: model.encrypted === true
-                    text: "\u{1F512}"
-                    font.pixelSize: AppTheme.fontMessageSender
+                    name: "lock"
+                    size: 12
                     color: selected ? AppTheme.selectedText : AppTheme.textMuted
                 }
                 Label {

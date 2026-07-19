@@ -190,7 +190,9 @@ Rectangle {
                     size: 36
                     name: root.currentRoom.name || app.currentRoomId
                     mxc: root.currentRoom.avatarUrl || ""
-                    circle: !(root.currentRoom.isSpace === true)
+                    // Shape rule: people/DMs are circles; rooms and Spaces
+                    // are rounded squares.
+                    circle: root.currentRoom.isDirect === true
                 }
                 ColumnLayout {
                     spacing: 2
@@ -207,11 +209,11 @@ Rectangle {
                             font.pixelSize: 15
                             font.weight: Font.ExtraBold
                         }
-                        Label {
+                        Icon {
                             visible: root.currentRoom.encrypted === true
-                            text: "\u{1F512}"
+                            name: "lock"
+                            size: 13
                             color: AppTheme.textMuted
-                            font.pixelSize: 12
                         }
                     }
                     Label {
@@ -232,8 +234,12 @@ Rectangle {
                 ToolButton {
                     objectName: "threadsViewButton"
                     visible: app.currentRoomId !== "" && app.thread.supported
-                    text: "🧵"
-                    font.pixelSize: 14
+                    contentItem: Icon {
+                        name: "forum"
+                        size: 17
+                        color: parent.checked ? AppTheme.accent
+                                              : AppTheme.textSecondary
+                    }
                     checked: app.thread.listOpen
                     Accessible.name: qsTr("Threads")
                     ToolTip.text: qsTr("Threads in this room")
@@ -251,8 +257,12 @@ Rectangle {
                 ToolButton {
                     objectName: "memberPanelButton"
                     visible: app.currentRoomId !== "" && app.roomInfo.supported
-                    text: "👥"
-                    font.pixelSize: 14
+                    contentItem: Icon {
+                        name: "group"
+                        size: 17
+                        color: parent.checked ? AppTheme.accent
+                                              : AppTheme.textSecondary
+                    }
                     checked: root.infoOpen && infoPanel.section === "people"
                     Accessible.name: qsTr("Members")
                     ToolTip.text: qsTr("Room members")
@@ -262,8 +272,12 @@ Rectangle {
                 }
                 ToolButton {
                     visible: app.currentRoomId !== "" && app.roomInfo.supported
-                    text: "ⓘ"
-                    font.pixelSize: 16
+                    contentItem: Icon {
+                        name: "info"
+                        size: 17
+                        color: parent.checked ? AppTheme.accent
+                                              : AppTheme.textSecondary
+                    }
                     checked: root.infoOpen && infoPanel.section !== "people"
                     Accessible.name: qsTr("Room information")
                     ToolTip.text: qsTr("Room information")
@@ -320,19 +334,19 @@ Rectangle {
                     font.pixelSize: 12
                 }
                 ToolButton {
-                    text: "▲"
+                    contentItem: Icon { name: "expand_less"; size: 16 }
                     enabled: app.timeline.searchResultCount > 0
                     Accessible.name: qsTr("Previous match")
                     onClicked: app.timeline.searchPrev()
                 }
                 ToolButton {
-                    text: "▼"
+                    contentItem: Icon { name: "expand_more"; size: 16 }
                     enabled: app.timeline.searchResultCount > 0
                     Accessible.name: qsTr("Next match")
                     onClicked: app.timeline.searchNext()
                 }
                 ToolButton {
-                    text: "✕"
+                    contentItem: Icon { name: "close"; size: 15 }
                     Accessible.name: qsTr("Close find")
                     onClicked: root.closeFind()
                 }
@@ -349,6 +363,12 @@ Rectangle {
                 objectName: "timelineListView"
                 anchors.fill: parent
                 clip: true
+                // Fast-scroll: keep roughly one extra screen of message
+                // delegates alive above and below the viewport so flicks
+                // reuse them instead of re-instantiating mid-motion.
+                // (reuseItems is deliberately NOT enabled here — message
+                // delegates carry per-row interactive state.)
+                cacheBuffer: 800
                 // Delegates own sender-group spacing: group leaders receive
                 // a compact break while continuations stay visually glued
                 // together. A global gap made every continuation look like

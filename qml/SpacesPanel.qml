@@ -157,14 +157,14 @@ Rectangle {
                     // "All rooms" icon
                     Label {
                         visible: model.spaceId === ""
-                        text: "⊞"
+                        text: ""
                         font.pixelSize: 14
                         color: isSelected ? AppTheme.accent : AppTheme.textMuted
                     }
                     // "Other rooms" icon
                     Label {
                         visible: model.spaceId === "@orphans"
-                        text: "◦"
+                        text: "•"
                         font.pixelSize: 14
                         color: isSelected ? AppTheme.accent : AppTheme.textMuted
                     }

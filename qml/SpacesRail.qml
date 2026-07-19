@@ -25,14 +25,17 @@ Rectangle {
             Layout.fillHeight: true
             model: app.spaces
             clip: true
-            spacing: AppTheme.spacing12
+            spacing: AppTheme.spacing4
 
             ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
 
             delegate: Item {
                 id: spaceItem
                 width: list.width
-                height: 40
+                // 48 = 40px tile + 4px on each side so the active accent
+                // outline (drawn at -4px margins) is never clipped by the
+                // list bounds — this was the Home-icon clipping defect.
+                height: 48
 
                 property bool isActive: app.spaces
                                         && app.spaces.activeSpaceId === model.spaceId
@@ -68,21 +71,26 @@ Rectangle {
 
                     Behavior on color { ColorAnimation { duration: 120 } }
 
-                    // Symbol or first letter.
-                    Label {
+                    // Pseudo rows use monochrome icons; real Spaces show
+                    // their initial until the avatar loads.
+                    Icon {
                         anchors.centerIn: parent
-                        visible: spaceImage.status !== Image.Ready
-                        text: spaceItem.isHome
-                              ? "⌂"
-                              : model.spaceId === "@orphans"
-                                ? "◦"
-                                : (model.name && model.name.length > 0
-                                   ? model.name[0].toUpperCase() : "#")
-                        font.pixelSize: spaceItem.isHome ? 20
-                                        : spaceItem.isPseudo ? 20 : 15
-                        font.weight: Font.Bold
+                        visible: spaceItem.isPseudo
+                                 && spaceImage.status !== Image.Ready
+                        name: spaceItem.isHome ? "home" : "workspaces"
+                        size: 20
                         color: spaceItem.isHome && spaceItem.isActive
                                ? AppTheme.accentText : AppTheme.textSecondary
+                    }
+                    Label {
+                        anchors.centerIn: parent
+                        visible: !spaceItem.isPseudo
+                                 && spaceImage.status !== Image.Ready
+                        text: model.name && model.name.length > 0
+                              ? model.name[0].toUpperCase() : "#"
+                        font.pixelSize: 15
+                        font.weight: Font.Bold
+                        color: AppTheme.textSecondary
                     }
 
                     // Real Space avatar via the shared media bridge; shown
@@ -196,12 +204,10 @@ Rectangle {
             ToolTip.text: qsTr("Settings")
             ToolTip.visible: hovered
             ToolTip.delay: 500
-            contentItem: Label {
-                text: "⚙"
-                font.pixelSize: 18
+            contentItem: Icon {
+                name: "settings"
+                size: 19
                 color: AppTheme.textSecondary
-                horizontalAlignment: Text.AlignHCenter
-                verticalAlignment: Text.AlignVCenter
             }
             background: Rectangle {
                 radius: AppTheme.radiusLg

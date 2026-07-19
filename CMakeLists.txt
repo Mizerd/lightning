@@ -227,6 +227,7 @@ list(REMOVE_ITEM APP_LIB_SOURCES src/main.cpp)
 
 set(APP_QML_FILES
     qml/Main.qml
+    qml/Icon.qml
     qml/LoginScreen.qml
     qml/SettingsScreen.qml
     qml/MainScreen.qml
@@ -283,6 +284,9 @@ function(lightning_configure_qml_app target)
             # Bundled UI fonts (OFL; licenses alongside). Loaded in main.cpp.
             "data/fonts/Manrope[wght].ttf"
             "data/fonts/JetBrainsMono[wght].ttf"
+            # Icon glyphs for interface chrome (Apache-2.0 subset; see
+            # scripts/generate-icon-font.sh and qml/Icon.qml).
+            data/fonts/MaterialSymbolsRounded-subset.ttf
             # Window icon for source runs (installed builds also get the
             # hicolor theme icon).
             data/icons/hicolor/192x192/apps/lightning.png
@@ -915,6 +919,17 @@ if(BUILD_TESTING)
     target_include_directories(e2ee-diagnostics-test PRIVATE src)
     target_link_libraries(e2ee-diagnostics-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME e2ee-diagnostics COMMAND e2ee-diagnostics-test)
+
+    # v0.7 design shell: interface-chrome icon hygiene (no emoji as chrome,
+    # every Icon name mapped, subset font shipped).
+    qt_add_executable(icon-chrome-test
+        tests/IconChromeTest.cpp
+    )
+    target_compile_definitions(icon-chrome-test PRIVATE
+        QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml"
+        SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+    target_link_libraries(icon-chrome-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME icon-chrome COMMAND icon-chrome-test)
 
     # v0.7: desktop-integration contract (launcher entry, hicolor icons,
     # install rules, Qt identity wiring).

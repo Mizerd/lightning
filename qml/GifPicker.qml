@@ -103,7 +103,7 @@ Popup {
                     readonly property bool ok:
                         picker.gif.providerConfigured(modelData)
                     text: picker.gif.providerDisplayName(modelData)
-                          + (ok ? "" : " ⚠")
+                          + (ok ? "" : qsTr(" (off)"))
                     enabled: ok
                     checked: isActive
                     Accessible.name: picker.gif.providerDisplayName(modelData)
@@ -154,7 +154,7 @@ Popup {
             }
 
             ToolButton {
-                text: "✕"
+                contentItem: Icon { name: "close"; size: 14 }
                 Accessible.name: qsTr("Close GIF picker")
                 onClicked: picker.close()
             }
@@ -311,19 +311,17 @@ Popup {
                         anchors.top: parent.top
                         anchors.right: parent.right
                         width: 24; height: 24
-                        text: tile.favorite ? "★" : "☆"
-                        font.pixelSize: 14
+                        contentItem: Icon {
+                            name: "star"
+                            size: 15
+                            color: tile.favorite ? AppTheme.warning
+                                                 : AppTheme.accentText
+                        }
                         opacity: tile.favorite || tileHover.hovered ? 1 : 0
                         Accessible.name: tile.favorite
                             ? qsTr("Remove from favorites")
                             : qsTr("Add to favorites")
                         onClicked: picker.toggleFavorite(tile.index)
-                        contentItem: Label {
-                            text: parent.text
-                            color: AppTheme.warning
-                            font: parent.font
-                            horizontalAlignment: Text.AlignHCenter
-                        }
                         background: Rectangle {
                             radius: 12
                             color: Qt.rgba(0, 0, 0, 0.35)

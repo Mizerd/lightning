@@ -377,6 +377,14 @@ int main(int argc, char *argv[])
         QStringLiteral(":/qt/qml/MatrixClient/data/fonts/Manrope[wght].ttf"));
     QFontDatabase::addApplicationFont(
         QStringLiteral(":/qt/qml/MatrixClient/data/fonts/JetBrainsMono[wght].ttf"));
+    QFontDatabase::addApplicationFont(
+        QStringLiteral(":/qt/qml/MatrixClient/data/fonts/"
+                       "MaterialSymbolsRounded-subset.ttf"));
+    // Handoff typography everywhere, including native control chrome
+    // (menus, popups) that never reads AppTheme's font tokens.
+    QFont uiFont(QStringLiteral("Manrope"));
+    uiFont.setPixelSize(14);
+    QGuiApplication::setFont(uiFont);
 
     // Re-run through QCommandLineParser so --help / --version behave when a
     // user passes them alongside another Qt flag we do not know about, and

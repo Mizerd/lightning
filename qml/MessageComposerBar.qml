@@ -185,7 +185,7 @@ Rectangle {
                     Layout.fillWidth: true
                 }
                 ToolButton {
-                    text: "✕"
+                    contentItem: Icon { name: "close"; size: 13 }
                     onClicked: app.composer.cancelReplyOrEdit()
                     ToolTip.text: qsTr("Cancel")
                     ToolTip.visible: hovered
@@ -235,10 +235,10 @@ Rectangle {
                             width: 32; height: 32
                             asynchronous: true
                         }
-                        Label {
+                        Icon {
                             visible: !model.isImage || model.localUrl.toString().length === 0
-                            text: model.isImage ? "🖼" : "📎"
-                            font.pixelSize: 16
+                            name: model.isImage ? "image" : "attach_file"
+                            size: 16
                         }
                         ColumnLayout {
                             spacing: 0
@@ -267,7 +267,7 @@ Rectangle {
                         ToolButton {
                             visible: model.state === "failed"
                             implicitWidth: 20; implicitHeight: 20
-                            text: "↻"
+                            contentItem: Icon { name: "refresh"; size: 14 }
                             Accessible.name: qsTr("Retry sending %1").arg(model.fileName)
                             onClicked: {
                                 app.composer.attachments.retryAt(index)
@@ -277,7 +277,7 @@ Rectangle {
                         ToolButton {
                             enabled: model.state !== "dispatching"
                             implicitWidth: 20; implicitHeight: 20
-                            text: "✕"
+                            contentItem: Icon { name: "close"; size: 13 }
                             Accessible.name: qsTr("Remove attachment %1").arg(model.fileName)
                             onClicked: app.composer.attachments.removeAt(index)
                         }
@@ -309,8 +309,12 @@ Rectangle {
                 spacing: AppTheme.spacing4
 
                 ToolButton {
-                    text: "＋"
-                    font.pixelSize: 18
+                    contentItem: Icon {
+                        name: "add_circle"
+                        size: 19
+                        color: parent.enabled ? AppTheme.textSecondary
+                                              : AppTheme.textDisabled
+                    }
                     enabled: app.currentRoomId !== ""
                     Accessible.name: qsTr("Attach files")
                     onClicked: {
@@ -363,8 +367,13 @@ Rectangle {
 
                 ToolButton {
                     id: emojiButton
-                    text: "☺"
-                    font.pixelSize: 18
+                    Layout.alignment: Qt.AlignVCenter
+                    contentItem: Icon {
+                        name: "mood"
+                        size: 19
+                        color: emojiButton.enabled ? AppTheme.textSecondary
+                                                   : AppTheme.textDisabled
+                    }
                     enabled: app.currentRoomId !== ""
                     Accessible.name: qsTr("Insert emoji")
                     ToolTip.text: qsTr("Emoji")
@@ -415,13 +424,11 @@ Rectangle {
                     ToolTip.text: app.composer.isEditing ? qsTr("Save") : qsTr("Send")
                     ToolTip.visible: hovered
                     ToolTip.delay: 500
-                    contentItem: Label {
-                        text: app.composer.isEditing ? "✓" : "➤"
+                    contentItem: Icon {
+                        name: app.composer.isEditing ? "check" : "send"
+                        size: 17
                         color: sendButton.enabled ? AppTheme.accentText
                                                   : AppTheme.textDisabled
-                        font.pixelSize: 15
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
                     }
                     background: Rectangle {
                         radius: 9

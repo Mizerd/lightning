@@ -159,12 +159,11 @@ Popup {
                             elide: Label.ElideMiddle
                         }
                     }
-                    Label {
+                    Icon {
                         visible: accountRow.modelData.isActive === true
-                        text: "✓"
+                        name: "check"
+                        size: 16
                         color: AppTheme.accent
-                        font.pixelSize: AppTheme.fontBody
-                        font.weight: Font.Bold
                     }
                     // Scoped removal of a non-active account (confirmed).
                     ToolButton {
@@ -177,12 +176,10 @@ Popup {
                         ToolTip.text: qsTr("Remove from this device")
                         ToolTip.visible: hovered
                         ToolTip.delay: 500
-                        contentItem: Label {
-                            text: "×"
+                        contentItem: Icon {
+                            name: "close"
+                            size: 14
                             color: AppTheme.danger
-                            font.pixelSize: AppTheme.fontBody
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
                         }
                         background: Rectangle {
                             radius: AppTheme.radiusSm
@@ -216,11 +213,10 @@ Popup {
                     radius: AppTheme.radiusPill
                     color: "transparent"
                     border.color: AppTheme.borderStrong
-                    Label {
+                    Icon {
                         anchors.centerIn: parent
-                        text: "＋"
-                        color: AppTheme.textSecondary
-                        font.pixelSize: AppTheme.fontSecondary
+                        name: "person_add"
+                        size: 15
                     }
                 }
                 Label {

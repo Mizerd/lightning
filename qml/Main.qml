@@ -15,6 +15,38 @@ ApplicationWindow {
 
     color: AppTheme.background
 
+    // Theme correctness for every native Qt Quick Controls surface: the
+    // Fusion style paints ComboBox popups, Menus, ToolTips, ScrollBars,
+    // and button chrome from the control palette, not from our tokens.
+    // Binding the window palette to the tokens propagates the active theme
+    // into all of them (including popups) and makes switching instant —
+    // this is what previously left dropdowns black/wrong after a change.
+    palette {
+        window: AppTheme.background
+        windowText: AppTheme.textPrimary
+        base: AppTheme.inputBackground
+        alternateBase: AppTheme.cardElevated
+        text: AppTheme.textPrimary
+        button: AppTheme.cardElevated
+        buttonText: AppTheme.textPrimary
+        highlight: AppTheme.selected
+        highlightedText: AppTheme.selectedText
+        placeholderText: AppTheme.textMuted
+        toolTipBase: AppTheme.cardElevated
+        toolTipText: AppTheme.textPrimary
+        light: AppTheme.hover
+        midlight: AppTheme.border
+        mid: AppTheme.borderStrong
+        dark: AppTheme.textSecondary
+        brightText: AppTheme.accentText
+        link: AppTheme.link
+        disabled {
+            text: AppTheme.textDisabled
+            buttonText: AppTheme.textDisabled
+            windowText: AppTheme.textDisabled
+        }
+    }
+
     Component.onCompleted: {
         if (app.settings && app.settings.startMinimized)
             window.visibility = Window.Minimized

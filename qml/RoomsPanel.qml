@@ -103,12 +103,10 @@ Rectangle {
                     id: newConversationBtn
                     visible: app.loggedIn && app.conversations.supported
                     implicitWidth: 30; implicitHeight: 30
-                    contentItem: Label {
-                        text: "＋"
-                        font.pixelSize: 18
+                    contentItem: Icon {
+                        name: "add"
+                        size: 18
                         color: AppTheme.textSecondary
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
                     }
                     background: Rectangle {
                         radius: AppTheme.radiusSm
@@ -141,6 +139,10 @@ Rectangle {
             // avatars start fetching before the row scrolls into view.
             // Bounded prefetch: roughly one extra screen of rows.
             cacheBuffer: 600
+            // Fast-scroll: recycle row delegates instead of re-creating
+            // them (RoomDelegate keeps no per-instance state that could
+            // leak across model rows).
+            reuseItems: true
 
             ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
 
