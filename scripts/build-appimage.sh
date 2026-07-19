@@ -63,10 +63,16 @@ export APPIMAGE_EXTRACT_AND_RUN=1
 command -v qmake6 >/dev/null || die "qmake6 missing in build image"
 export QMAKE=$(command -v qmake6)
 
+# linuxdeploy's excludelist keeps libgpg-error on the host but bundles
+# libgcrypt, and the two are version-locked (trixie's libgcrypt needs
+# gpgrt_* symbols older distros lack — seen live on Ubuntu 24.04 in
+# validate-snap). Ship the exact libgpg-error the bundled libgcrypt was
+# built against.
 "$TOOLS/linuxdeploy" --appdir "$APPDIR" \
     --desktop-file "$APPDIR/usr/share/applications/lightning.desktop" \
     --icon-file "$APPDIR/usr/share/icons/hicolor/192x192/apps/lightning.png" \
     --executable "$APPDIR/usr/bin/matrix-client" \
+    --library /lib/x86_64-linux-gnu/libgpg-error.so.0 \
     --plugin qt \
     --output appimage
 
