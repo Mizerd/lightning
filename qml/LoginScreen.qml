@@ -43,8 +43,21 @@ Item {
             width: parent.availableWidth
             spacing: AppTheme.spacingM
 
+            // v0.7 add-account flow: reached from the account switcher while
+            // another account stays signed in — offer a way back that does
+            // not touch the existing session.
+            Button {
+                id: backToAppButton
+                visible: app.loggedIn
+                Accessible.name: qsTr("Back to the app")
+                text: qsTr("← Back")
+                flat: true
+                onClicked: app.showMain()
+            }
+
             Label {
-                text: qsTr("Sign in to Lightning")
+                text: app.loggedIn ? qsTr("Add another account")
+                                   : qsTr("Sign in to Lightning")
                 color: AppTheme.text
                 font.pixelSize: 22
                 font.weight: Font.DemiBold
