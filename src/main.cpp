@@ -362,7 +362,14 @@ int main(int argc, char *argv[])
     QCoreApplication::setApplicationVersion(APP_VERSION);
 
     QGuiApplication app(argc, argv);
-    QGuiApplication::setWindowIcon(QIcon::fromTheme("network-server"));
+    // Wayland compositors match the window to its launcher entry through
+    // the desktop-file name (app_id "lightning" ↔ lightning.desktop); X11
+    // matches WM_CLASS ("matrix-client") through StartupWMClass.
+    QGuiApplication::setDesktopFileName(QStringLiteral("lightning"));
+    QGuiApplication::setWindowIcon(QIcon::fromTheme(
+        QStringLiteral("lightning"),
+        QIcon(QStringLiteral(
+            ":/qt/qml/MatrixClient/data/icons/hicolor/192x192/apps/lightning.png"))));
 
     // Bundled UI fonts (OFL). AppTheme's family lists put them first;
     // failure to load only means the platform fallbacks apply.

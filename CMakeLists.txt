@@ -283,6 +283,9 @@ function(lightning_configure_qml_app target)
             # Bundled UI fonts (OFL; licenses alongside). Loaded in main.cpp.
             "data/fonts/Manrope[wght].ttf"
             "data/fonts/JetBrainsMono[wght].ttf"
+            # Window icon for source runs (installed builds also get the
+            # hicolor theme icon).
+            data/icons/hicolor/192x192/apps/lightning.png
         RESOURCE_PREFIX /qt/qml
         # Every Qt-executable target that calls qt_add_qml_module registers
         # its own independent compiled copy of the same "MatrixClient" URI;
@@ -912,9 +915,33 @@ if(BUILD_TESTING)
     target_include_directories(e2ee-diagnostics-test PRIVATE src)
     target_link_libraries(e2ee-diagnostics-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME e2ee-diagnostics COMMAND e2ee-diagnostics-test)
+
+    # v0.7: desktop-integration contract (launcher entry, hicolor icons,
+    # install rules, Qt identity wiring).
+    qt_add_executable(desktop-integration-test
+        tests/DesktopIntegrationTest.cpp
+    )
+    target_compile_definitions(desktop-integration-test PRIVATE
+        SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+    target_link_libraries(desktop-integration-test PRIVATE
+        Qt6::Core Qt6::Gui Qt6::Test)
+    add_test(NAME desktop-integration COMMAND desktop-integration-test)
 endif()
 
 install(TARGETS matrix-client
     BUNDLE  DESTINATION .
     RUNTIME DESTINATION bin
 )
+
+# Desktop integration: launcher entry + hicolor application icons. The icon
+# name "lightning" matches the desktop file's Icon= key; the generated sizes
+# come from scripts/generate-icons.sh (source artwork in data/icons/).
+include(GNUInstallDirs)
+install(FILES data/lightning.desktop
+    DESTINATION "${CMAKE_INSTALL_DATADIR}/applications")
+foreach(_icon_size 16 32 48 64 128 192)
+    install(FILES
+        "data/icons/hicolor/${_icon_size}x${_icon_size}/apps/lightning.png"
+        DESTINATION
+        "${CMAKE_INSTALL_DATADIR}/icons/hicolor/${_icon_size}x${_icon_size}/apps")
+endforeach()
