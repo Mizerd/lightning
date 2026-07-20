@@ -59,6 +59,10 @@ public:
     // fields the UI actually needs (name, topic, encrypted). Returns an
     // empty map if the room is not present.
     Q_INVOKABLE QVariantMap findRoom(const QString &roomId) const;
+    // v0.7.1: the most recent joined conversations (Spaces excluded) for the
+    // Home surface, as a bounded list of {roomId,name,avatarUrl,isDirect,
+    // hasUnread,unreadCount} maps, reusing the model's activity ordering.
+    Q_INVOKABLE QVariantList recentRooms(int max = 6) const;
     Q_INVOKABLE void acceptInvite(const QString &roomId);
     Q_INVOKABLE void rejectInvite(const QString &roomId);
     Q_INVOKABLE void markRoomRead(const QString &roomId);

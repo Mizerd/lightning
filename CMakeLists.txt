@@ -242,6 +242,7 @@ set(APP_QML_FILES
     qml/LoginScreen.qml
     qml/SettingsScreen.qml
     qml/MainScreen.qml
+    qml/HomePane.qml
     qml/SpacesRail.qml
     qml/RoomsPanel.qml
     qml/TimelinePane.qml

@@ -30,10 +30,15 @@ Dialog {
     // Room invite selection state.
     property var roomInvites: []
 
-    function openDialog() {
+    // startMode ("dm" | "room") lets callers (e.g. the Home surface) open
+    // straight into the room tab; defaults to a DM search.
+    function openDialog(startMode) {
         resetAll()
+        if (startMode === "room" || startMode === "dm")
+            mode = startMode
         open()
-        dmPicker.focusSearch()
+        if (mode === "dm")
+            dmPicker.focusSearch()
     }
 
     function resetAll() {

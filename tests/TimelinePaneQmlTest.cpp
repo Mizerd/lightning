@@ -190,6 +190,50 @@ private Q_SLOTS:
         QCOMPARE(header->height(), 0.0);
     }
 
+    // v0.7.1: with no room selected the Home surface replaces the bare
+    // "select a room" placeholder and the composer is hidden; selecting a
+    // room hides Home and restores the composer.
+    void homeSurfaceShownWithNoRoomAndComposerHidden()
+    {
+        AppController controller(AppController::MockBackend);
+        const QString roomId = loginAndRoomIdAt(controller, /*row=*/0);
+        QVERIFY(!roomId.isEmpty());
+        controller.setCurrentRoomId(QString()); // no room selected
+
+        QQmlApplicationEngine engine;
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this,
+                [&warnings](const QList<QQmlError> &errors) {
+                    for (const auto &e : errors)
+                        warnings << e.toString();
+                });
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("TimelinePane"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(root != nullptr);
+        QCOMPARE(warnings, QStringList{});
+
+        auto *home = root->findChild<QQuickItem *>(QStringLiteral("homePane"));
+        auto *composer =
+            root->findChild<QQuickItem *>(QStringLiteral("composerCard"));
+        QVERIFY(home != nullptr);
+        QVERIFY(composer != nullptr);
+        QVERIFY(home->isVisible());       // Home replaces the empty state
+        QVERIFY(!composer->isVisible());  // composer hidden with no room
+
+        // Selecting a room flips both.
+        controller.setCurrentRoomId(roomId);
+        QCoreApplication::processEvents();
+        QVERIFY(!home->isVisible());
+        QVERIFY(composer->isVisible());
+        QCOMPARE(warnings, QStringList{});
+    }
+
     // Defect A: loading presentation state must render the header visibly,
     // and it must collapse again once the batch completes — proven through
     // the real object graph, not the isolated controller unit test.

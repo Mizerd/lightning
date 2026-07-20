@@ -10,6 +10,13 @@ Rectangle {
     id: root
     color: AppTheme.sidebar
 
+    // v0.7.1: entry point for the Home surface's create actions, routed here
+    // by MainScreen so they reuse this column's shared new-conversation
+    // dialog. mode is "dm" or "room".
+    function startConversation(mode) {
+        newConversationDialog.openDialog(mode)
+    }
+
     ColumnLayout {
         anchors.fill: parent
         spacing: 0

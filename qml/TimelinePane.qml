@@ -8,6 +8,10 @@ Rectangle {
     id: root
     color: AppTheme.background
 
+    // v0.7.1: the Home surface routes create actions to the room list's
+    // shared new-conversation dialog (MainScreen wires this to RoomsPanel).
+    signal newConversationRequested(string mode)
+
     property var currentRoom: ({})
     // v0.5.9: Room Information side panel (Phases 6/10 surface).
     property bool infoOpen: false
@@ -281,7 +285,7 @@ Rectangle {
                             text: root.currentRoom.name
                                   ? root.currentRoom.name
                                   : (app.currentRoomId === ""
-                                     ? qsTr("No room selected")
+                                     ? qsTr("Home")
                                      : app.currentRoomId)
                             color: AppTheme.text
                             font.pixelSize: 15
@@ -1235,12 +1239,25 @@ Rectangle {
 
                 Label {
                     anchors.centerIn: parent
-                    visible: timeline.count === 0 && timeline.presentationReady
-                    text: app.currentRoomId === ""
-                          ? qsTr("Select a room from the left")
-                          : qsTr("No messages yet")
+                    // The no-room state is now the Home surface below; this
+                    // label only covers an empty selected room.
+                    visible: app.currentRoomId !== ""
+                             && timeline.count === 0 && timeline.presentationReady
+                    text: qsTr("No messages yet")
                     color: AppTheme.textMuted
                 }
+            }
+
+            // v0.7.1: Home surface — replaces the bare "select a room"
+            // placeholder when nothing is selected. Sits over the (empty,
+            // hidden) timeline; the ListView stays present for tests and to
+            // resume the selected room instantly.
+            HomePane {
+                objectName: "homePane"
+                anchors.fill: parent
+                visible: app.currentRoomId === ""
+                onNewMessageRequested: root.newConversationRequested("dm")
+                onCreateRoomRequested: root.newConversationRequested("room")
             }
 
             // v0.7: room-loading surface shown while the presentation gate
@@ -1345,7 +1362,12 @@ Rectangle {
             }
         }
 
-        MessageComposerBar { Layout.fillWidth: true }
+        // The composer has no target when no room is selected — the Home
+        // surface is shown instead. visible:false collapses its space.
+        MessageComposerBar {
+            Layout.fillWidth: true
+            visible: app.currentRoomId !== ""
+        }
     }
 
     // ── Thread side panel ────────────────────────────────────────────────

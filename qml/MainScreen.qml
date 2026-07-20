@@ -35,6 +35,7 @@ Item {
 
         // ── Rooms column ──────────────────────────────────────────────────
         RoomsPanel {
+            id: roomsPanel
             objectName: "roomsPanel"
             SplitView.preferredWidth: 300
             SplitView.minimumWidth:   240
@@ -49,6 +50,8 @@ Item {
             objectName: "timelinePane"
             SplitView.fillWidth:  true
             SplitView.minimumWidth: 320
+            // Home surface create actions reuse the room list's dialog.
+            onNewConversationRequested: (mode) => roomsPanel.startConversation(mode)
         }
     }
 

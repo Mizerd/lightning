@@ -171,6 +171,28 @@ QVariantMap RoomListModel::findRoom(const QString &roomId) const
     return {};
 }
 
+QVariantList RoomListModel::recentRooms(int max) const
+{
+    QVariantList out;
+    for (const auto &r : m_rooms) {
+        if (out.size() >= max)
+            break;
+        // Spaces render on the rail, not as conversations; invites and left
+        // rooms are not somewhere to "jump back in".
+        if (r.isSpace || r.membership != RoomInfo::Joined)
+            continue;
+        out.append(QVariantMap{
+            { QStringLiteral("roomId"),      r.id },
+            { QStringLiteral("name"),        r.name },
+            { QStringLiteral("avatarUrl"),   effectiveAvatarUrl(r) },
+            { QStringLiteral("isDirect"),    r.isDirect },
+            { QStringLiteral("hasUnread"),   r.hasUnreadMessages },
+            { QStringLiteral("unreadCount"), r.unreadCount },
+        });
+    }
+    return out;
+}
+
 QString RoomListModel::effectiveAvatarUrl(const RoomInfo &room) const
 {
     // Matrix room state always wins. An explicit room NAME must never
