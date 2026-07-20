@@ -733,6 +733,88 @@ Item {
                                        + "and icons keep their size.")
                         }
 
+                        // ── v0.7: UI font (bundled OFL families) ────────
+                        Label {
+                            Layout.topMargin: AppTheme.spacing8
+                            text: qsTr("FONT")
+                            color: AppTheme.textMuted
+                            font.pixelSize: AppTheme.fontCaption
+                            font.weight: Font.ExtraBold
+                            font.letterSpacing: 1
+                        }
+                        ColumnLayout {
+                            objectName: "uiFontSelector"
+                            Layout.fillWidth: true
+                            spacing: AppTheme.spacing4
+                            Repeater {
+                                model: app.settings.uiFontChoices()
+                                ItemDelegate {
+                                    id: fontRow
+                                    required property string modelData
+                                    readonly property bool selected:
+                                        app.settings.uiFont === modelData
+                                    Layout.fillWidth: true
+                                    Layout.maximumWidth: 420
+                                    implicitHeight: 56
+                                    Accessible.name:
+                                        qsTr("Use the %1 font").arg(modelData)
+                                    onClicked:
+                                        app.settings.uiFont = modelData
+                                    background: Rectangle {
+                                        radius: AppTheme.radiusMd
+                                        color: fontRow.selected
+                                               ? AppTheme.accentSoft
+                                               : fontRow.hovered
+                                                 ? AppTheme.hover
+                                                 : AppTheme.card
+                                        border.width: 1
+                                        border.color: fontRow.selected
+                                                      ? AppTheme.accentBorder
+                                                      : fontRow.visualFocus
+                                                        ? AppTheme.focusRing
+                                                        : AppTheme.border
+                                    }
+                                    contentItem: RowLayout {
+                                        spacing: AppTheme.spacing12
+                                        ColumnLayout {
+                                            Layout.fillWidth: true
+                                            spacing: 0
+                                            Label {
+                                                text: fontRow.modelData
+                                                font.family: fontRow.modelData
+                                                font.pixelSize: AppTheme.fontBody
+                                                font.weight: Font.DemiBold
+                                                color: AppTheme.textPrimary
+                                            }
+                                            // The sample previews the actual
+                                            // family being offered.
+                                            Label {
+                                                text: qsTr("Messages, rooms and settings")
+                                                font.family: fontRow.modelData
+                                                font.pixelSize: AppTheme.fontSecondary
+                                                color: AppTheme.textMuted
+                                            }
+                                        }
+                                        Icon {
+                                            visible: fontRow.selected
+                                            name: "check"
+                                            size: 16
+                                            color: AppTheme.accent
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        Label {
+                            Layout.fillWidth: true
+                            Layout.leftMargin: AppTheme.spacing4
+                            wrapMode: Text.WordWrap
+                            color: AppTheme.textMuted
+                            font.pixelSize: AppTheme.fontCaption
+                            text: qsTr("Applies to the whole interface. Code, Matrix "
+                                       + "IDs, icons, and emoji keep their own fonts.")
+                        }
+
                         SettingsCard {
                             ColumnLayout {
                                 width: parent.width
@@ -2092,6 +2174,12 @@ Item {
                                     title: qsTr("Reset local Lightning session?")
                                     standardButtons: Dialog.Ok | Dialog.Cancel
                                     modal: true
+                                    // Explicit bounded width: sizing this
+                                    // dialog from its fixed-width content
+                                    // fed implicitWidth back into itself
+                                    // (a latent loop the runtime font
+                                    // re-polish exposed).
+                                    width: 420
                                     Label {
                                         width: 380
                                         wrapMode: Text.WordWrap

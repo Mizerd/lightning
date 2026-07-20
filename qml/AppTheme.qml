@@ -642,9 +642,12 @@ QtObject {
     readonly property int fontMono:          fontSizeS
 
     // ---- Font families. ----
-    // Manrope ships with Lightning (data/fonts, loaded in main.cpp); the
-    // rest are graceful fallbacks for stripped-down builds.
-    readonly property string uiFont:          "Manrope"
+    // The selectable bundled UI families ship with Lightning (data/fonts,
+    // loaded in main.cpp); Main.qml pushes the persisted per-account
+    // selection in here, and the family lists below stay as graceful
+    // fallbacks for stripped-down builds. Mono, icon, and emoji roles are
+    // deliberately not affected by the UI font selection.
+    property string uiFont:          "Manrope"
     readonly property var    uiFontFamilies:  [
         "Manrope",
         "Inter",

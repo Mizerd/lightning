@@ -83,6 +83,7 @@ private Q_SLOTS:
     void gifPolicyDefaultsPersistAndClamp();
     void messageLayoutAndTextScalePersistAndClamp();
     void appearanceIsPerAccountWithGlobalFallback();
+    void uiFontPersistsPerAccountAndValidates();
 
 private:
     QTemporaryDir m_configHome;
@@ -422,6 +423,58 @@ void SettingsSessionTest::appearanceIsPerAccountWithGlobalFallback()
     QCOMPARE(settings.theme(), SettingsManager::DeepTealTheme);
     QCOMPARE(settings.messageLayout(), 2);
     QCOMPARE(settings.textScale(), 140);
+}
+
+void SettingsSessionTest::uiFontPersistsPerAccountAndValidates()
+{
+    FakeSecretStore secrets;
+    SettingsManager settings;
+    settings.setSecretStore(&secrets);
+    const QString alice = QStringLiteral("@alice:matrix.example");
+    const QString bob = QStringLiteral("@bob:matrix.example");
+    settings.saveSession(QStringLiteral("https://matrix.example"), alice,
+                         QStringLiteral("ALICEDEVICE"),
+                         QStringLiteral("alice-token-fixture"));
+    settings.saveSession(QStringLiteral("https://matrix.example"), bob,
+                         QStringLiteral("BOBDEVICE"),
+                         QStringLiteral("bob-token-fixture"));
+
+    // Manrope is the default; the curated list carries the bundled set.
+    QCOMPARE(settings.uiFont(), QStringLiteral("Manrope"));
+    const QStringList choices = SettingsManager::uiFontChoices();
+    QVERIFY(choices.contains(QStringLiteral("Inter")));
+    QVERIFY(choices.contains(QStringLiteral("IBM Plex Sans")));
+    QVERIFY(choices.contains(QStringLiteral("Source Sans 3")));
+    QVERIFY(choices.contains(QStringLiteral("Plus Jakarta Sans")));
+
+    settings.setActiveAccountUserId(alice);
+    QSignalSpy fontSpy(&settings, &SettingsManager::uiFontChanged);
+    settings.setUiFont(QStringLiteral("Inter"));
+    QCOMPARE(settings.uiFont(), QStringLiteral("Inter"));
+    QCOMPARE(fontSpy.count(), 1);
+
+    // An unknown family never persists — the default applies instead.
+    settings.setUiFont(QStringLiteral("Comic Sans MS"));
+    QCOMPARE(settings.uiFont(), QStringLiteral("Manrope"));
+
+    settings.setUiFont(QStringLiteral("Plus Jakarta Sans"));
+
+    // Per-account: Bob keeps his own selection; switching re-announces so
+    // the UI re-reads, and Alice's choice survives the round trip.
+    settings.setActiveAccountUserId(bob);
+    settings.setUiFont(QStringLiteral("IBM Plex Sans"));
+    QCOMPARE(settings.uiFont(), QStringLiteral("IBM Plex Sans"));
+    fontSpy.clear();
+    settings.setActiveAccountUserId(alice);
+    QVERIFY(fontSpy.count() >= 1);
+    QCOMPARE(settings.uiFont(), QStringLiteral("Plus Jakarta Sans"));
+    settings.setActiveAccountUserId(bob);
+    QCOMPARE(settings.uiFont(), QStringLiteral("IBM Plex Sans"));
+
+    // Restart: the persisted per-account value restores.
+    SettingsManager reopened;
+    reopened.setSecretStore(&secrets);
+    QCOMPARE(reopened.uiFont(), QStringLiteral("IBM Plex Sans"));
 }
 
 QTEST_MAIN(SettingsSessionTest)

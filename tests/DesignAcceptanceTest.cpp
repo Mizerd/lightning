@@ -145,11 +145,31 @@ private slots:
         QSettings().clear();
 
         // The bundled UI fonts, exactly as main.cpp registers them, so the
-        // snapshots render production type.
-        QFontDatabase::addApplicationFont(QStringLiteral(
-            ":/qt/qml/MatrixClient/data/fonts/Manrope[wght].ttf"));
-        QFontDatabase::addApplicationFont(QStringLiteral(
-            ":/qt/qml/MatrixClient/data/fonts/JetBrainsMono[wght].ttf"));
+        // snapshots render production type — including the v0.7 selectable
+        // families. Every registration must succeed and announce the exact
+        // family Settings offers, or the font option would silently fall
+        // back on user machines.
+        const QList<QPair<QString, QString>> bundled = {
+            { QStringLiteral("Manrope[wght].ttf"), QStringLiteral("Manrope") },
+            { QStringLiteral("JetBrainsMono[wght].ttf"),
+              QStringLiteral("JetBrains Mono") },
+            { QStringLiteral("Inter[wght].ttf"), QStringLiteral("Inter") },
+            { QStringLiteral("IBMPlexSans[wght].ttf"),
+              QStringLiteral("IBM Plex Sans") },
+            { QStringLiteral("SourceSans3[wght].ttf"),
+              QStringLiteral("Source Sans 3") },
+            { QStringLiteral("PlusJakartaSans[wght].ttf"),
+              QStringLiteral("Plus Jakarta Sans") },
+        };
+        for (const auto &font : bundled) {
+            const int id = QFontDatabase::addApplicationFont(
+                QStringLiteral(":/qt/qml/MatrixClient/data/fonts/")
+                + font.first);
+            QVERIFY2(id >= 0, qPrintable(font.first));
+            QVERIFY2(QFontDatabase::applicationFontFamilies(id)
+                         .contains(font.second),
+                     qPrintable(font.second));
+        }
         QFontDatabase::addApplicationFont(QStringLiteral(
             ":/qt/qml/MatrixClient/data/fonts/MaterialSymbolsRounded-subset.ttf"));
 

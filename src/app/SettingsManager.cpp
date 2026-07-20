@@ -15,6 +15,7 @@ constexpr auto kHomeserver          = "homeserver/url";
 constexpr auto kTheme               = "ui/theme";
 constexpr auto kMessageLayout       = "ui/messageLayout";
 constexpr auto kTextScale           = "ui/textScale";
+constexpr auto kUiFont              = "ui/uiFont";
 constexpr auto kLanguage            = "ui/language";
 constexpr auto kStartMinimized      = "ui/startMinimized";
 constexpr auto kNotifications       = "notifications/enabled";
@@ -272,6 +273,7 @@ void SettingsManager::setActiveAccountUserId(const QString &userId)
     Q_EMIT themeChanged();
     Q_EMIT messageLayoutChanged();
     Q_EMIT textScaleChanged();
+    Q_EMIT uiFontChanged();
 }
 
 void SettingsManager::updateAccountProfile(const QString &userId,
@@ -392,6 +394,36 @@ void SettingsManager::setTheme(Theme t)
         return;
     setAppearanceValue(kTheme, static_cast<int>(t));
     Q_EMIT themeChanged();
+}
+
+QStringList SettingsManager::uiFontChoices()
+{
+    // The curated bundled UI families (all OFL, all shipped as variable
+    // fonts in data/fonts). Manrope stays the default; JetBrains Mono,
+    // Material Symbols, and emoji fallback are never selectable here.
+    return { QStringLiteral("Manrope"), QStringLiteral("Inter"),
+             QStringLiteral("IBM Plex Sans"), QStringLiteral("Source Sans 3"),
+             QStringLiteral("Plus Jakarta Sans") };
+}
+
+QString SettingsManager::uiFont() const
+{
+    const QString stored =
+        appearanceValue(kUiFont, QStringLiteral("Manrope")).toString();
+    // An unknown stored family (newer build, corruption) falls back to the
+    // default instead of asking the platform for an arbitrary font.
+    return uiFontChoices().contains(stored) ? stored
+                                            : QStringLiteral("Manrope");
+}
+
+void SettingsManager::setUiFont(const QString &family)
+{
+    const QString next = uiFontChoices().contains(family)
+        ? family : QStringLiteral("Manrope");
+    if (uiFont() == next)
+        return;
+    setAppearanceValue(kUiFont, next);
+    Q_EMIT uiFontChanged();
 }
 
 int SettingsManager::messageLayout() const

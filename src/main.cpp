@@ -389,16 +389,23 @@ int main(int argc, char *argv[])
             ":/qt/qml/MatrixClient/data/icons/hicolor/192x192/apps/lightning.png"))));
 
     // Bundled UI fonts (OFL). AppTheme's family lists put them first;
-    // failure to load only means the platform fallbacks apply.
-    QFontDatabase::addApplicationFont(
-        QStringLiteral(":/qt/qml/MatrixClient/data/fonts/Manrope[wght].ttf"));
-    QFontDatabase::addApplicationFont(
-        QStringLiteral(":/qt/qml/MatrixClient/data/fonts/JetBrainsMono[wght].ttf"));
-    QFontDatabase::addApplicationFont(
-        QStringLiteral(":/qt/qml/MatrixClient/data/fonts/"
-                       "MaterialSymbolsRounded-subset.ttf"));
+    // failure to load only means the platform fallbacks apply. The v0.7
+    // selectable families load alongside the default so Settings →
+    // Appearance → Font switches instantly with no disk access.
+    for (const char *font : { "Manrope[wght].ttf", "JetBrainsMono[wght].ttf",
+                              "Inter[wght].ttf", "IBMPlexSans[wght].ttf",
+                              "SourceSans3[wght].ttf",
+                              "PlusJakartaSans[wght].ttf",
+                              "MaterialSymbolsRounded-subset.ttf" }) {
+        QFontDatabase::addApplicationFont(
+            QStringLiteral(":/qt/qml/MatrixClient/data/fonts/")
+            + QLatin1String(font));
+    }
     // Handoff typography everywhere, including native control chrome
-    // (menus, popups) that never reads AppTheme's font tokens.
+    // (menus, popups) that never reads AppTheme's font tokens. The
+    // persisted per-account family is applied after the controller exists
+    // (before the QML engine loads), so the first rendered frame already
+    // uses the selected font.
     QFont uiFont(QStringLiteral("Manrope"));
     uiFont.setPixelSize(14);
     QGuiApplication::setFont(uiFont);
@@ -435,6 +442,20 @@ int main(int argc, char *argv[])
     QQuickStyle::setStyle("Basic");
 
     AppController controller(pf.backend);
+
+    // v0.7: the selected UI font applies before the first frame and follows
+    // the setting live (font choices are validated inside SettingsManager;
+    // mono/icon/emoji font roles are never affected).
+    const auto applyUiFont = [](const QString &family) {
+        QFont font(family);
+        font.setPixelSize(14);
+        QGuiApplication::setFont(font);
+    };
+    applyUiFont(controller.settings()->uiFont());
+    QObject::connect(controller.settings(), &SettingsManager::uiFontChanged,
+                     &app, [&controller, applyUiFont] {
+                         applyUiFont(controller.settings()->uiFont());
+                     });
 
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty("app", &controller);

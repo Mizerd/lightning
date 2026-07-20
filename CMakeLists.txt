@@ -299,6 +299,11 @@ function(lightning_configure_qml_app target)
             # Bundled UI fonts (OFL; licenses alongside). Loaded in main.cpp.
             "data/fonts/Manrope[wght].ttf"
             "data/fonts/JetBrainsMono[wght].ttf"
+            # v0.7 selectable UI families (Settings → Appearance → Font).
+            "data/fonts/Inter[wght].ttf"
+            "data/fonts/IBMPlexSans[wght].ttf"
+            "data/fonts/SourceSans3[wght].ttf"
+            "data/fonts/PlusJakartaSans[wght].ttf"
             # Icon glyphs for interface chrome (Apache-2.0 subset; see
             # scripts/generate-icon-font.sh and qml/Icon.qml).
             data/fonts/MaterialSymbolsRounded-subset.ttf

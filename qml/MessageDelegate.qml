@@ -545,6 +545,9 @@ Item {
                                ? AppTheme.muted
                                : root.bubbleMode && model.isOwn === true
                                  ? AppTheme.ownBubbleText : AppTheme.text
+                        // TextEdit does not inherit the Controls font; the
+                        // message body must follow the selected UI family.
+                        font.family: AppTheme.uiFont
                         font.pixelSize: AppTheme.scaled(
                             root.compactMode || root.inThreadPanel
                             ? 13 : AppTheme.fontSizeM)

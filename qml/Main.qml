@@ -127,6 +127,16 @@ ApplicationWindow {
         property: "textScale"
         value: app.settings ? app.settings.textScale / 100 : 1
     }
+    // v0.7: the selected UI font follows the per-account Appearance
+    // setting. Controls inherit through the window font; explicit
+    // AppTheme.uiFont bindings cover non-inheriting text items.
+    Binding {
+        target: AppTheme
+        property: "uiFont"
+        value: app.settings && app.settings.uiFont.length > 0
+               ? app.settings.uiFont : "Manrope"
+    }
+    font.family: AppTheme.uiFont
 
     // v0.7 design shell: no global header bar — the shell columns carry
     // their own headers (room-list workspace header, room header).

@@ -22,6 +22,10 @@ class SettingsManager : public QObject
                    NOTIFY messageLayoutChanged)
     Q_PROPERTY(int textScale READ textScale WRITE setTextScale
                    NOTIFY textScaleChanged)
+    // v0.7: bundled UI font family (per-account with global fallback, like
+    // the rest of Appearance). Values are clamped to uiFontChoices().
+    Q_PROPERTY(QString uiFont READ uiFont WRITE setUiFont
+                   NOTIFY uiFontChanged)
     Q_PROPERTY(QString language READ language WRITE setLanguage NOTIFY languageChanged)
     Q_PROPERTY(bool startMinimized READ startMinimized WRITE setStartMinimized NOTIFY startMinimizedChanged)
     Q_PROPERTY(bool notificationsEnabled READ notificationsEnabled WRITE setNotificationsEnabled NOTIFY notificationsEnabledChanged)
@@ -116,6 +120,10 @@ public:
     static constexpr int kMinTextScale = 90;
     static constexpr int kMaxTextScale = 140;
     int textScale() const;
+    QString uiFont() const;
+    void setUiFont(const QString &family);
+    // The curated selectable UI families (bundled, OFL).
+    Q_INVOKABLE static QStringList uiFontChoices();
     void setTextScale(int percent);
 
     QString language() const;
@@ -236,6 +244,7 @@ Q_SIGNALS:
     void themeChanged();
     void messageLayoutChanged();
     void textScaleChanged();
+    void uiFontChanged();
     void languageChanged();
     void startMinimizedChanged();
     void notificationsEnabledChanged();
