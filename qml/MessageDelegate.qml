@@ -243,8 +243,9 @@ Item {
         width: root.width + AppTheme.spacingXS * 2
         height: layout.height
         color: app.pagination.highlightedEventId === (model.eventId || "")
-               ? AppTheme.selected : AppTheme.bubbleOverlaySubtle
-        // Design shell: message-row hover highlight is an 8px chip.
+               ? AppTheme.selected : AppTheme.hover
+        // Design shell: message-row hover highlight is the soft theme tint
+        // at an 8px radius — no border, no elevation.
         radius: AppTheme.radiusMd
         z: 0
     }
@@ -375,6 +376,11 @@ Item {
                         visible: root.showsIdentity
                                  && !(root.bubbleMode && model.isOwn === true)
                         spacing: 6
+                        // Nested layouts default to fillWidth; the header
+                        // line hugs its content so the timestamp sits 8px
+                        // beside the sender name (design §3), not at the
+                        // row's far edge.
+                        Layout.fillWidth: false
                         Layout.maximumWidth: Math.max(1, bubble.width - 112)
                         Label {
                             id: nameLabel

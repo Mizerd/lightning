@@ -429,7 +429,9 @@ Rectangle {
                 color: AppTheme.border
             }
             Label {
-                text: qsTr("%n reply(s)", "", app.thread.model.count - 1)
+                readonly property int replies: app.thread.model.count - 1
+                text: replies === 1 ? qsTr("1 reply")
+                                    : qsTr("%1 replies").arg(replies)
                 color: AppTheme.textMuted
                 font.pixelSize: 11
                 font.weight: Font.Bold

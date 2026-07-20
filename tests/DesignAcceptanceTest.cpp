@@ -1,0 +1,387 @@
+// Offscreen acceptance walkthrough for the design-fidelity pass: renders the
+// REAL MainScreen (rail + room list + timeline + composer, mock backend,
+// bundled fonts) in a real window at the reference and narrower sizes, saves
+// PNG snapshots as artifacts, and asserts rendered geometry and sampled
+// pixels: the composer card tracks each design theme's raised surface, the
+// open thread panel is exactly 340px beside the visible timeline, Settings
+// swaps only the center region, and an increased text scale renders without
+// breaking the shell. Complements the focused suites (button-system,
+// composer-qml, settings-shell-qml, timeline-pane-qml) with whole-shell
+// proof in a window where layouts really polish.
+
+#include <QtTest/QtTest>
+
+#include <QDir>
+#include <QFontDatabase>
+#include <QGuiApplication>
+#include <QImage>
+#include <QQmlComponent>
+#include <QQmlContext>
+#include <QQmlEngine>
+#include <QQuickItem>
+#include <QQuickWindow>
+#include <QSignalSpy>
+
+#include "app/AppController.h"
+#include "app/SettingsManager.h"
+#include "auth/AuthManager.h"
+#include "models/TimelineModel.h"
+#include "threads/ThreadController.h"
+
+namespace {
+
+constexpr int kSignalTimeoutMs = 5000;
+constexpr int kTolerance = 8;
+
+QColor sampleAvg(const QImage &img, const QRect &r)
+{
+    qint64 red = 0, green = 0, blue = 0, n = 0;
+    for (int y = r.top(); y <= r.bottom(); ++y) {
+        for (int x = r.left(); x <= r.right(); ++x) {
+            if (x < 0 || y < 0 || x >= img.width() || y >= img.height())
+                continue;
+            const QColor c = img.pixelColor(x, y);
+            red += c.red();
+            green += c.green();
+            blue += c.blue();
+            ++n;
+        }
+    }
+    return n ? QColor(int(red / n), int(green / n), int(blue / n)) : QColor();
+}
+
+int channelDelta(const QColor &a, const QColor &b)
+{
+    return qMax(qMax(qAbs(a.red() - b.red()), qAbs(a.green() - b.green())),
+                qAbs(a.blue() - b.blue()));
+}
+
+QString snapshotDir()
+{
+    const QByteArray env = qgetenv("LIGHTNING_SNAPSHOT_DIR");
+    const QString dir = env.isEmpty()
+        ? QDir::temp().filePath(QStringLiteral("lightning-design-snapshots"))
+        : QString::fromLocal8Bit(env);
+    QDir().mkpath(dir);
+    return dir;
+}
+
+const char *kScene = R"QML(
+import QtQuick
+import QtQuick.Controls
+import MatrixClient
+
+ApplicationWindow {
+    id: win
+    width: 1600
+    height: 1000
+    visible: true
+    color: AppTheme.background
+
+    // Mirror Main.qml's production bindings.
+    Binding {
+        target: AppTheme
+        property: "mode"
+        value: app.settings ? app.settings.theme : 0
+    }
+    Binding {
+        target: AppTheme
+        property: "textScale"
+        value: app.settings ? app.settings.textScale / 100 : 1
+    }
+
+    Rectangle { objectName: "tokBackground"; visible: false; color: AppTheme.background }
+    Rectangle { objectName: "tokSurface"; visible: false; color: AppTheme.surface }
+    Rectangle { objectName: "tokSidebar"; visible: false; color: AppTheme.sidebar }
+    Rectangle { objectName: "tokRail"; visible: false; color: AppTheme.rail }
+
+    MainScreen {
+        objectName: "mainScreen"
+        anchors.fill: parent
+    }
+}
+)QML";
+
+} // namespace
+
+class DesignAcceptanceTest : public QObject
+{
+    Q_OBJECT
+
+private:
+    QTemporaryDir m_configHome;
+    AppController *m_controller = nullptr;
+    QQmlEngine *m_engine = nullptr;
+    QObject *m_root = nullptr;
+    QQuickWindow *m_window = nullptr;
+    QStringList m_warnings;
+
+    static QQuickItem *findItem(QQuickItem *parent, const QString &name)
+    {
+        if (!parent)
+            return nullptr;
+        if (parent->objectName() == name)
+            return parent;
+        const auto children = parent->childItems();
+        for (QQuickItem *child : children) {
+            if (QQuickItem *hit = findItem(child, name))
+                return hit;
+        }
+        return nullptr;
+    }
+
+    QQuickItem *item(const char *name) const
+    {
+        if (auto *hit = m_root->findChild<QQuickItem *>(QLatin1String(name)))
+            return hit;
+        return findItem(m_window->contentItem(), QLatin1String(name));
+    }
+
+    QColor token(const char *name) const
+    {
+        auto *it = m_root->findChild<QQuickItem *>(QLatin1String(name));
+        return it ? it->property("color").value<QColor>() : QColor();
+    }
+
+    QImage grabAndSave(const QString &name)
+    {
+        QCoreApplication::processEvents();
+        const QImage img = m_window->grabWindow();
+        if (!img.isNull())
+            img.save(QDir(snapshotDir()).filePath(name + QStringLiteral(".png")));
+        return img;
+    }
+
+    QString fixtureThreadRootId() const
+    {
+        auto *timeline = m_controller->timeline();
+        for (int row = 0; row < timeline->rowCount(); ++row) {
+            const QString rootId = timeline
+                ->data(timeline->index(row, 0),
+                       TimelineModel::ThreadRootIdRole)
+                .toString();
+            if (!rootId.isEmpty())
+                return rootId;
+        }
+        return {};
+    }
+
+private slots:
+    void initTestCase()
+    {
+        QVERIFY(m_configHome.isValid());
+        qputenv("XDG_CONFIG_HOME", m_configHome.path().toUtf8());
+        QCoreApplication::setOrganizationName(
+            QStringLiteral("MatrixClientTests"));
+        QCoreApplication::setApplicationName(
+            QStringLiteral("design-acceptance-test"));
+        QSettings().clear();
+
+        // The bundled UI fonts, exactly as main.cpp registers them, so the
+        // snapshots render production type.
+        QFontDatabase::addApplicationFont(QStringLiteral(
+            ":/qt/qml/MatrixClient/data/fonts/Manrope[wght].ttf"));
+        QFontDatabase::addApplicationFont(QStringLiteral(
+            ":/qt/qml/MatrixClient/data/fonts/JetBrainsMono[wght].ttf"));
+        QFontDatabase::addApplicationFont(QStringLiteral(
+            ":/qt/qml/MatrixClient/data/fonts/MaterialSymbolsRounded-subset.ttf"));
+
+        m_controller = new AppController(AppController::MockBackend);
+        m_engine = new QQmlEngine(this);
+        connect(m_engine, &QQmlEngine::warnings, this,
+                [this](const QList<QQmlError> &warnings) {
+                    for (const auto &w : warnings) {
+                        // The mock backend seeds media rows with URLs on the
+                        // fake mock.local host; the resulting offline DNS
+                        // failure from QQuickImage is mock-data noise, not a
+                        // QML defect. Everything else fails the run.
+                        if (w.toString().contains(
+                                QLatin1String("Host mock.local not found")))
+                            continue;
+                        m_warnings.append(w.toString());
+                    }
+                });
+        m_engine->rootContext()->setContextProperty(QStringLiteral("app"),
+                                                    m_controller);
+        QQmlComponent component(m_engine);
+        component.setData(QByteArray(kScene),
+                          QUrl(QStringLiteral("designacceptance.qml")));
+        m_root = component.create();
+        QVERIFY2(m_root, qPrintable(component.errorString()));
+        component.setParent(m_root);
+        m_window = qobject_cast<QQuickWindow *>(m_root);
+        QVERIFY(m_window);
+        QVERIFY(QTest::qWaitForWindowExposed(m_window));
+
+        QSignalSpy loginSpy(m_controller->auth(), &AuthManager::loginSucceeded);
+        m_controller->auth()->login(QStringLiteral("https://mock.local"),
+                                    QStringLiteral("alice"),
+                                    QStringLiteral("mock-password-fixture"));
+        QVERIFY(loginSpy.wait(kSignalTimeoutMs));
+        QTRY_VERIFY(m_controller->loggedIn());
+        m_controller->setCurrentRoomId(QStringLiteral("!general:mock.local"));
+        QCoreApplication::processEvents();
+    }
+
+    void cleanupTestCase()
+    {
+        delete m_root;
+        delete m_controller;
+    }
+
+    void mainChatRendersAcrossDesignThemes()
+    {
+        struct Case { int theme; const char *name; };
+        const Case cases[] = {
+            { 8, "design-main-moss-light" },
+            { 9, "design-main-indigo-night" },
+            { 10, "design-main-deep-teal" },
+        };
+        for (const auto &c : cases) {
+            m_controller->settings()->setTheme(
+                static_cast<SettingsManager::Theme>(c.theme));
+            const QImage img = grabAndSave(QLatin1String(c.name));
+            QVERIFY(!img.isNull());
+            // Composer card: sample the toolbar row's empty right side —
+            // the theme's raised surface.
+            auto *card = item("composerCard");
+            auto *toolbar = item("composerToolbarRow");
+            QVERIFY(card && toolbar);
+            const QPointF p = toolbar->mapToScene(
+                QPointF(toolbar->width() - 24, toolbar->height() / 2));
+            QVERIFY2(channelDelta(sampleAvg(img, QRect(int(p.x()), int(p.y()) - 1, 3, 3)),
+                                  token("tokSurface")) <= kTolerance,
+                     c.name);
+            // Rail tier on the far left.
+            QVERIFY2(channelDelta(sampleAvg(img, QRect(4, 300, 3, 3)),
+                                  token("tokRail")) <= kTolerance,
+                     c.name);
+        }
+        m_controller->settings()->setTheme(SettingsManager::IndigoNightTheme);
+        QCoreApplication::processEvents();
+    }
+
+    void threadPanelRenders340BesideVisibleTimeline()
+    {
+        const QString rootId = fixtureThreadRootId();
+        QVERIFY(!rootId.isEmpty());
+        m_controller->thread()->openThread(
+            QStringLiteral("!general:mock.local"), rootId);
+        QTRY_COMPARE_WITH_TIMEOUT(m_controller->thread()->state(),
+                                  ThreadController::Ready, kSignalTimeoutMs);
+        QCoreApplication::processEvents();
+
+        auto *panel = item("threadPanel");
+        auto *roomColumn = item("roomColumn");
+        auto *composer = item("composerCard");
+        QVERIFY(panel && roomColumn && composer);
+        QTRY_COMPARE_WITH_TIMEOUT(panel->isVisible(), true, kSignalTimeoutMs);
+        // The rendered panel is exactly 340px; the timeline and composer
+        // stay visible and interactive beside it.
+        QTRY_COMPARE_WITH_TIMEOUT(panel->width(), 340.0, kSignalTimeoutMs);
+        QVERIFY(roomColumn->isVisible());
+        QVERIFY(composer->isVisible());
+        // Mini composer and send button render inside the panel.
+        auto *miniComposer = item("threadMiniComposer");
+        auto *threadSend = item("threadSendButton");
+        QVERIFY(miniComposer && threadSend);
+        QCOMPARE(qobject_cast<QQuickItem *>(threadSend)->width(), 28.0);
+
+        const QImage img = grabAndSave(QStringLiteral("design-thread-panel"));
+        QVERIFY(!img.isNull());
+        // Panel surface: sample below the header, left edge of the panel.
+        const QPointF p = panel->mapToScene(QPointF(8, 70));
+        QVERIFY(channelDelta(sampleAvg(img, QRect(int(p.x()), int(p.y()), 3, 3)),
+                             token("tokSidebar")) <= kTolerance);
+
+        m_controller->thread()->close();
+        QTRY_COMPARE_WITH_TIMEOUT(m_controller->thread()->state(),
+                                  ThreadController::Closed, kSignalTimeoutMs);
+    }
+
+    void settingsSwapsOnlyTheCenterRegion()
+    {
+        m_controller->showSettings();
+        QCoreApplication::processEvents();
+        auto *rail = item("spacesRail");
+        auto *rooms = item("roomsPanel");
+        auto *timeline = item("timelinePane");
+        QVERIFY(rail && rooms && timeline);
+        QVERIFY(rail->isVisible());
+        QVERIFY(rooms->isVisible());
+        QVERIFY(!timeline->isVisible());
+        QVERIFY(item("settingsHeaderTitle"));
+        const QImage img = grabAndSave(QStringLiteral("design-settings"));
+        QVERIFY(!img.isNull());
+
+        // Increased text scale renders the same shell without breaking it.
+        m_controller->settings()->setTextScale(140);
+        QCoreApplication::processEvents();
+        const QImage scaled = grabAndSave(
+            QStringLiteral("design-settings-scale140"));
+        QVERIFY(!scaled.isNull());
+        auto *slider = item("textScaleSlider");
+        QVERIFY(slider);
+        QCOMPARE(slider->property("value").toInt(), 140);
+        m_controller->settings()->setTextScale(100);
+
+        m_controller->showMain();
+        QCoreApplication::processEvents();
+        QTRY_VERIFY(timeline->isVisible());
+    }
+
+    void narrowerSupportedSizesKeepTheShellCoherent()
+    {
+        m_window->setWidth(1280);
+        m_window->setHeight(800);
+        QCoreApplication::processEvents();
+        const QString rootId = fixtureThreadRootId();
+        QVERIFY(!rootId.isEmpty());
+        m_controller->thread()->openThread(
+            QStringLiteral("!general:mock.local"), rootId);
+        QTRY_COMPARE_WITH_TIMEOUT(m_controller->thread()->state(),
+                                  ThreadController::Ready, kSignalTimeoutMs);
+        QCoreApplication::processEvents();
+        auto *panel = item("threadPanel");
+        auto *roomColumn = item("roomColumn");
+        QVERIFY(panel && roomColumn);
+        // 1280 wide leaves the pane comfortably over the 660px boundary:
+        // the thread stays a 340px side panel, the timeline stays visible.
+        QTRY_COMPARE_WITH_TIMEOUT(panel->width(), 340.0, kSignalTimeoutMs);
+        QVERIFY(roomColumn->isVisible());
+        QVERIFY(!grabAndSave(QStringLiteral("design-1280-thread")).isNull());
+        m_controller->thread()->close();
+        QTRY_COMPARE_WITH_TIMEOUT(m_controller->thread()->state(),
+                                  ThreadController::Closed, kSignalTimeoutMs);
+
+        // 960×600: composer still inside the timeline, send visible.
+        m_window->setWidth(960);
+        m_window->setHeight(600);
+        QCoreApplication::processEvents();
+        auto *send = item("composerSendButton");
+        auto *card = item("composerCard");
+        QVERIFY(send && card);
+        QVERIFY(send->isVisible());
+        const QPointF sendRight = send->mapToScene(QPointF(send->width(), 0));
+        QVERIFY(sendRight.x() <= 960.0);
+        QVERIFY(!grabAndSave(QStringLiteral("design-960-chat")).isNull());
+
+        m_window->setWidth(1600);
+        m_window->setHeight(1000);
+        QCoreApplication::processEvents();
+    }
+
+    void noQmlWarningsAcrossTheWalkthrough()
+    {
+        QCOMPARE(m_warnings, QStringList{});
+    }
+};
+
+int main(int argc, char *argv[])
+{
+    QGuiApplication app(argc, argv);
+    DesignAcceptanceTest test;
+    return QTest::qExec(&test, argc, argv);
+}
+
+#include "DesignAcceptanceTest.moc"

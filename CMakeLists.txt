@@ -963,6 +963,21 @@ if(BUILD_TESTING)
     set_tests_properties(theme-snapshot PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen;LIGHTNING_SNAPSHOT_DIR=${CMAKE_CURRENT_BINARY_DIR}/snapshots")
 
+    # Whole-shell design acceptance: renders the real MainScreen in a window
+    # (mock backend, bundled fonts) across the three design themes and
+    # representative sizes, saves PNG snapshots, and asserts rendered
+    # geometry (340px thread panel, composer placement) and token-sampled
+    # pixels.
+    qt_add_executable(design-acceptance-test
+        tests/DesignAcceptanceTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_app(design-acceptance-test)
+    target_link_libraries(design-acceptance-test PRIVATE Qt6::Test)
+    add_test(NAME design-acceptance COMMAND design-acceptance-test)
+    set_tests_properties(design-acceptance PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen;LIGHTNING_SNAPSHOT_DIR=${CMAKE_CURRENT_BINARY_DIR}/snapshots")
+
     # In-shell Settings (correction spec §3): rail/room list stay, timeline
     # region swaps, header + gear chip states, featured theme cards with
     # fixed palettes, instant theme switching, functional layout/text-size

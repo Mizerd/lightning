@@ -36,6 +36,12 @@ The state verified on 2026-07-19 is:
   Deep Teal themes, bundled Manrope + JetBrains Mono), persistent
   multi-account support with safe in-app switching, the eager room-preview /
   avatar-readiness fixes, and the real application icon + desktop entry.
+  The 2026-07-20 design-fidelity checkpoints consolidated the three-style
+  button system (IconButton), rebuilt the composer to the correction spec
+  (one card, formatting toolbar + markdown sending through the SDK), moved
+  Settings inside the shell with a completed Appearance page (featured theme
+  cards, functional message-layout modes, text-size scaling — all
+  per-account), and rebuilt threads as the exclusive 340px right-side panel.
   The application version stays 0.6.1 until an explicitly requested release.
 - `matrix-sdk`, `matrix-sdk-ui`, and `matrix-sdk-base` resolve to **0.18.0** in
   `rust/Cargo.lock`; UI and base are exact-pinned in `rust/Cargo.toml`
@@ -285,14 +291,18 @@ were never backed up or shared.
   header and Ctrl-K hint, timeline with members/threads side panel, card
   composer; bundled Manrope/JetBrains Mono fonts; application icon and
   desktop entry installed by CMake (see data/ and scripts/generate-icons.sh)
-- The design-1d Settings screen: 260 px left navigation (Settings title;
-  Account, Appearance, Notifications, Privacy & security, Sessions, Labs;
-  About pinned bottom; soft-accent active rows), theme preview cards drawn
-  from each theme's own palette (AppTheme.themeList/paletteForTheme), a
-  match-system toggle, and an honestly-unavailable message-layout control
-  (the timeline backend renders one layout; no dead controls). All prior
-  security/session/recovery controls are preserved under Privacy & security
-  and Sessions. Avatar shapes are baked into the cached bitmap by
+- The in-shell Settings pane (correction spec): opens in place of the
+  timeline while the rail and room list stay; 60px header
+  ("Settings — <section>", accent section icon, bare close X) above the
+  260 px navigation (Account, Appearance, Notifications, Privacy &
+  security, Sessions, Labs; About pinned bottom; soft-accent active rows).
+  Appearance carries the three featured design theme cards with fixed
+  preview palettes plus a secondary row for the other presets, a custom
+  match-system switch, a FUNCTIONAL message-layout selector (Modern /
+  Bubbles for DMs / Compact) and a text-size slider (90-140%) — theme,
+  layout and text scale persist per account with a global fallback. All
+  prior security/session/recovery controls are preserved under Privacy &
+  security and Sessions. Avatar shapes are baked into the cached bitmap by
   MediaImageProvider ("|shape:" suffix) instead of per-item MultiEffect
   masks. Headless/offscreen runs force stderr logging in main.cpp because
   Qt otherwise routes category logs to the journal when stderr is no TTY.
@@ -505,8 +515,10 @@ Use the category that matches the evidence:
 - **Unit tests:** focused pure C++/Qt behavior.
 - **Rust tests:** SDK bridge, parser, timeline, recovery, and Rust behavior.
 - **CTest:** registered C++/Qt/QML/controller/bridge tests. The current CMake
-  registers 36 tests in each configured build tree (including the
-  account-registry, account-switch, and desktop-integration suites).
+  registers 43 tests in each configured build tree (including the
+  account-registry, account-switch, desktop-integration, button-system,
+  composer-qml, settings-shell-qml, markdown-format, and design-acceptance
+  suites).
 - **QML tests:** contract scans and real offscreen module/component loading.
 - **Bridge/controller tests:** generation isolation, diff ingestion, media,
   thread, notification, and application policy.
@@ -630,13 +642,13 @@ Keep this list grounded in source and recent history:
   real account (the lazy Latest-Events registration landed with the 0.7 UI
   checkpoints), and the design shell on a real desktop (KDE Wayland taskbar
   icon association included).
-- Deliberate follow-ups from the design handoff: markdown-formatted sending
-  (composer toolbar deferred — sends are text_plain end-to-end today),
-  message layout modes (Modern/Bubbles/Compact — the Settings 1d screen
-  shows them as unavailable until the timeline backend supports them),
-  text-size scaling (omitted from Settings until a font-scale backend
-  exists), thread participant facepiles (needs participant data in the
-  thread-summary bridge payload), voice messages, and Matrix presence.
+- Deliberate follow-ups from the design handoff: thread participant
+  facepiles (needs participant data in the thread-summary bridge payload),
+  voice messages (the composer keeps the designed mic slot in the honest
+  unavailable state), and Matrix presence. Markdown sending (formatting
+  toolbar + SDK text_markdown on interactive sends), message layout modes,
+  and text-size scaling landed with the 2026-07-20 checkpoints; their live
+  Element interoperability (formatted-body rendering) is still user-pending.
 - Live-validate the redesigned Settings screen and the baked-mask avatar
   rendering interactively on a real desktop (automated suites cover both).
 - Plan any post-0.6.1 work only through explicitly requested checkpoints.
