@@ -6,14 +6,40 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QCryptographicHash>
+#include <QLoggingCategory>
 #include <QMutexLocker>
 #include <QSaveFile>
+
+// v0.7: media/avatar pipeline diagnostics. Enabled with
+//   QT_LOGGING_RULES="lightning.media.debug=true"
+// (offscreen/smoke runs force these to stderr — see main.cpp). The category
+// logs request reasons, cache hit/miss, stale-generation suppression,
+// resolution timing, and fetch results. It NEVER logs decrypted bytes,
+// bodies, authenticated download URLs, tokens, or provider keys — only the
+// sanitized cache-key tag below, byte counts, coarse MIME, and timings.
+Q_LOGGING_CATEGORY(lcMedia, "lightning.media")
 
 namespace {
 QString mediaCacheKey(const QString &mediaKey, int kind)
 {
     return (kind == 1 ? QStringLiteral("thumb:") : QStringLiteral("full:"))
         + mediaKey;
+}
+
+// A log-safe, stable tag for a cache key. mxc:// URIs are public content
+// identifiers, but SDK media keys can embed room/event structure, so the
+// opaque tail of every key is reduced to a short SHA-256 prefix. The reason
+// prefix (avatar/thumb/full/…) and, for avatars, the mxc server name are
+// kept because they are the useful, non-sensitive parts for debugging.
+QString keyTag(const QString &cacheKey)
+{
+    const qsizetype colon = cacheKey.indexOf(QLatin1Char(':'));
+    const QString scope = colon > 0 ? cacheKey.left(colon) : cacheKey;
+    const QString shortHash = QString::fromLatin1(
+        QCryptographicHash::hash(cacheKey.toUtf8(), QCryptographicHash::Sha256)
+            .toHex()
+            .left(10));
+    return scope + QLatin1Char('#') + shortHash;
 }
 
 QString mxcCacheKey(const QString &mxc, int size)
@@ -172,18 +198,26 @@ QString MediaBridge::mediaSource(const QString &mediaKey, const QString &kind)
     const int kindValue = kind == QLatin1String("thumb") ? 1 : 0;
     const QString cacheKey = mediaCacheKey(mediaKey, kindValue);
     const QString cached = cachedSource(cacheKey);
-    if (!cached.isEmpty())
+    if (!cached.isEmpty()) {
+        qCDebug(lcMedia, "media %s cache=hit", qUtf8Printable(keyTag(cacheKey)));
         return cached;
+    }
     // A marked failure blocks re-dispatch (transient marks expire; see
     // failureBlocks) — QML repolling a broken source must not turn into a
     // request loop.
-    if (failureBlocks(cacheKey))
+    if (failureBlocks(cacheKey)) {
+        qCDebug(lcMedia, "media %s suppressed=failure-mark(%s)",
+                qUtf8Printable(keyTag(cacheKey)),
+                qUtf8Printable(failureCategory(cacheKey)));
         return {};
+    }
     if (!alreadyPending(cacheKey)) {
         Pending request;
         request.cacheKey = cacheKey;
         request.mediaKey = mediaKey;
         request.kind = kindValue;
+        qCDebug(lcMedia, "media %s cache=miss dispatching",
+                qUtf8Printable(keyTag(cacheKey)));
         dispatch(request);
     }
     return {};
@@ -273,10 +307,17 @@ QString MediaBridge::avatarSource(const QString &mxcUri, int size)
     const int edge = qBound(16, size, 512);
     const QString cacheKey = mxcCacheKey(mxcUri, edge);
     const QString cached = cachedSource(cacheKey);
-    if (!cached.isEmpty())
+    if (!cached.isEmpty()) {
+        qCDebug(lcMedia, "avatar %s edge=%d cache=hit",
+                qUtf8Printable(keyTag(cacheKey)), edge);
         return cached;
-    if (failureBlocks(cacheKey))
+    }
+    if (failureBlocks(cacheKey)) {
+        qCDebug(lcMedia, "avatar %s edge=%d suppressed=failure-mark(%s)",
+                qUtf8Printable(keyTag(cacheKey)), edge,
+                qUtf8Printable(failureCategory(cacheKey)));
         return {};
+    }
     if (!alreadyPending(cacheKey)) {
         Pending request;
         request.cacheKey = cacheKey;
@@ -284,7 +325,12 @@ QString MediaBridge::avatarSource(const QString &mxcUri, int size)
         request.mediaKey = mxcUri;
         request.kind = 2;
         request.size = edge;
+        qCDebug(lcMedia, "avatar %s edge=%d cache=miss dispatching",
+                qUtf8Printable(keyTag(cacheKey)), edge);
         dispatch(request);
+    } else {
+        qCDebug(lcMedia, "avatar %s edge=%d cache=miss already-pending",
+                qUtf8Printable(keyTag(cacheKey)), edge);
     }
     return {};
 }
@@ -293,22 +339,34 @@ void MediaBridge::dispatch(const Pending &request)
 {
     if (m_inflight.size() >= kMaxConcurrent) {
         m_queue.enqueue(request);
+        qCDebug(lcMedia, "queue %s (inflight=%lld queued=%lld)",
+                qUtf8Printable(keyTag(request.cacheKey)),
+                static_cast<long long>(m_inflight.size()),
+                static_cast<long long>(m_queue.size()));
         return;
     }
+    Pending tracked = request;
+    tracked.dispatchedAtMs = m_failureClock.elapsed();
     quint64 opId = 0;
-    if (request.isMxc)
-        opId = m_client->fetchMxcThumbnail(request.mediaKey, request.size,
-                                           request.size);
+    if (tracked.isMxc)
+        opId = m_client->fetchMxcThumbnail(tracked.mediaKey, tracked.size,
+                                           tracked.size);
     else
-        opId = m_client->fetchMedia(request.mediaKey, request.kind);
+        opId = m_client->fetchMedia(tracked.mediaKey, tracked.kind);
     if (opId == 0) {
-        markFailed(request, QStringLiteral("rejected"));
-        Q_EMIT mediaFetchFailed(request.cacheKey, QStringLiteral("rejected"));
-        if (request.saveRequest)
+        qCWarning(lcMedia, "fetch %s rejected by backend (opId=0)",
+                  qUtf8Printable(keyTag(tracked.cacheKey)));
+        markFailed(tracked, QStringLiteral("rejected"));
+        Q_EMIT mediaFetchFailed(tracked.cacheKey, QStringLiteral("rejected"));
+        if (tracked.saveRequest)
             Q_EMIT saveFinished(false, tr("The file could not be downloaded."));
         return;
     }
-    m_inflight.insert(opId, request);
+    qCDebug(lcMedia, "fetch %s opId=%llu inflight=%lld",
+            qUtf8Printable(keyTag(tracked.cacheKey)),
+            static_cast<unsigned long long>(opId),
+            static_cast<long long>(m_inflight.size() + 1));
+    m_inflight.insert(opId, tracked);
 }
 
 void MediaBridge::pump()
@@ -325,11 +383,19 @@ void MediaBridge::onMediaReady(quint64 opId, const QString &mediaKey, int kind,
     Q_UNUSED(kind);
     Q_UNUSED(filename);
     const auto it = m_inflight.find(opId);
-    if (it == m_inflight.end())
-        return; // stale (cleared on sign-out) or foreign op
+    if (it == m_inflight.end()) {
+        // stale (cleared on sign-out) or foreign op — suppressed so a late
+        // completion can never repopulate the next account's cache.
+        qCDebug(lcMedia, "ready opId=%llu suppressed=stale/foreign",
+                static_cast<unsigned long long>(opId));
+        return;
+    }
     const Pending request = it.value();
     m_inflight.erase(it);
     pump();
+
+    const qint64 elapsedMs = request.dispatchedAtMs > 0
+        ? m_failureClock.elapsed() - request.dispatchedAtMs : -1;
 
     if (request.saveRequest) {
         writeSaveFile(request.saveDestination, bytes);
@@ -337,6 +403,11 @@ void MediaBridge::onMediaReady(quint64 opId, const QString &mediaKey, int kind,
     }
     m_failed.remove(request.cacheKey);
     insertCache(request.cacheKey, bytes);
+    qCDebug(lcMedia, "ready %s bytes=%lld mime=%s in=%lldms -> mediaCached",
+            qUtf8Printable(keyTag(request.cacheKey)),
+            static_cast<long long>(bytes.size()),
+            qUtf8Printable(mimetype.section(QLatin1Char(';'), 0, 0)),
+            static_cast<long long>(elapsedMs));
     if (m_animatedWanted.remove(request.cacheKey)) {
         if (!writeAnimatedFile(request.cacheKey, bytes, mimetype).isEmpty())
             Q_EMIT animatedMediaReady(request.cacheKey);
@@ -398,8 +469,11 @@ void MediaBridge::onMediaFailed(quint64 opId, const QString &mediaKey, int kind,
     Q_UNUSED(mediaKey);
     Q_UNUSED(kind);
     const auto it = m_inflight.find(opId);
-    if (it == m_inflight.end())
+    if (it == m_inflight.end()) {
+        qCDebug(lcMedia, "failed opId=%llu suppressed=stale/foreign",
+                static_cast<unsigned long long>(opId));
         return;
+    }
     const Pending request = it.value();
     m_inflight.erase(it);
     pump();
@@ -407,6 +481,9 @@ void MediaBridge::onMediaFailed(quint64 opId, const QString &mediaKey, int kind,
         Q_EMIT saveFinished(false, tr("The file could not be downloaded."));
         return;
     }
+    qCWarning(lcMedia, "failed %s category=%s",
+              qUtf8Printable(keyTag(request.cacheKey)),
+              qUtf8Printable(category));
     markFailed(request, category);
     Q_EMIT mediaFetchFailed(request.cacheKey, category);
 }
@@ -464,6 +541,9 @@ void MediaBridge::clear()
 {
     {
         QMutexLocker lock(&m_cacheMutex);
+        qCDebug(lcMedia, "clear: dropping %lld cached entries, %lld inflight",
+                static_cast<long long>(m_cache.size()),
+                static_cast<long long>(m_inflight.size()));
         m_cache.clear();
         m_lru.clear();
     }

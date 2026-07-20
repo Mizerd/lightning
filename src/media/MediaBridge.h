@@ -104,6 +104,9 @@ private:
         int size = 0;     // mxc thumbnail edge
         bool saveRequest = false;
         QUrl saveDestination;
+        // Monotonic dispatch time (m_failureClock ms) for resolution timing
+        // in the logs; 0 until dispatched.
+        qint64 dispatchedAtMs = 0;
     };
 
     void insertCache(const QString &cacheKey, const QByteArray &bytes);
