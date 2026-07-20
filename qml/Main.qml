@@ -156,6 +156,10 @@ ApplicationWindow {
             // full-view Settings loader below covers the entire content
             // area.
             if (s === 1 || s === 2) return mainComponent
+            // 3 = BootScreen: a saved session is restoring. The login form
+            // is never instantiated in this state — a valid-session launch
+            // goes Boot -> Main without the form ever existing.
+            if (s === 3) return bootComponent
             return loginComponent                  // 0 = LoginScreen
         }
         sourceComponent: pickComponent()
@@ -173,6 +177,38 @@ ApplicationWindow {
 
     Component { id: loginComponent;    LoginScreen {} }
     Component { id: mainComponent;     MainScreen {} }
+    // Minimal branded restoration surface: theme background, wordmark, one
+    // quiet spinner. No credentials fields, no stale room content, and the
+    // saved theme already resolved (AppTheme.mode binds before load).
+    Component {
+        id: bootComponent
+        Rectangle {
+            objectName: "startupRestoreSurface"
+            color: AppTheme.background
+            Column {
+                anchors.centerIn: parent
+                spacing: AppTheme.spacingM
+                Label {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    text: qsTr("Lightning")
+                    color: AppTheme.text
+                    font.pixelSize: 26
+                    font.weight: Font.ExtraBold
+                }
+                BusyIndicator {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    width: 26; height: 26
+                    running: app.currentScreen === 3
+                }
+                Label {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    text: qsTr("Restoring your session…")
+                    color: AppTheme.textMuted
+                    font.pixelSize: 13
+                }
+            }
+        }
+    }
 
     // Full application-view Settings: occupies the entire content area
     // below the window title bar. The spaces rail, room list, timeline,

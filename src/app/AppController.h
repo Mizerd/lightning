@@ -147,6 +147,11 @@ public:
         LoginScreen = 0,
         MainScreen = 1,
         SettingsScreen = 2,
+        // v0.7: explicit session-restoration state so an authenticated
+        // launch never instantiates (or flashes) the login form while the
+        // saved session restores. Appended so 0/1/2 stay stable for the
+        // integer-based QML routing.
+        BootScreen = 3,
     };
     Q_ENUM(Screen)
 

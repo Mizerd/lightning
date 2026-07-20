@@ -686,6 +686,19 @@ if(BUILD_TESTING)
     set_tests_properties(avatar-pipeline-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+    # v0.7: authenticated startup lifecycle — the Boot/RestoringSession
+    # state, the never-instantiate-login guarantee for valid sessions, the
+    # genuine no-account and failed-restore login states.
+    qt_add_executable(startup-session-test
+        tests/StartupSessionTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_app(startup-session-test)
+    target_link_libraries(startup-session-test PRIVATE Qt6::Test)
+    add_test(NAME startup-session COMMAND startup-session-test)
+    set_tests_properties(startup-session PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
     # v0.7: full account-switch lifecycle on a real AppController (mock
     # backend): activation, switching state, room-target clearing, logout
     # fallback to a remaining account, scoped background-account removal.

@@ -5,6 +5,9 @@ import MatrixClient
 
 Item {
     id: root
+    // Located by the startup-state suite: the login form must never be
+    // instantiated during a valid-session launch.
+    objectName: "loginScreen"
 
     Rectangle {
         anchors.fill: parent

@@ -13,6 +13,16 @@
 MockMatrixClient::MockMatrixClient(QObject *parent)
     : MatrixClient(parent)
 {
+    // v0.7 startup-lifecycle env hooks (test/demo backend only): the
+    // AppController constructor may restore the saved session before a
+    // test can reach this instance, so the hooks must pre-exist.
+    bool ok = false;
+    const int delay = qEnvironmentVariableIntValue(
+        "LIGHTNING_MOCK_RESTORE_DELAY_MS", &ok);
+    if (ok && delay >= 0)
+        m_restoreDelayMs = delay;
+    if (qEnvironmentVariableIsSet("LIGHTNING_MOCK_FAIL_RESTORE"))
+        m_failNextRestore = true;
     seedMockData();
 }
 
@@ -70,9 +80,17 @@ bool MockMatrixClient::restoreSession()
     if (uid.isEmpty())
         return false;
     setState(Connecting);
+    if (m_failNextRestore) {
+        m_failNextRestore = false;
+        QTimer::singleShot(m_restoreDelayMs, this, [this] {
+            setState(Error);
+            Q_EMIT loginFailed(QStringLiteral("mock: restore rejected"));
+        });
+        return true;
+    }
     m_homeserver = m_settings->homeserverUrl();
     m_userId = uid;
-    QTimer::singleShot(0, this, [this] {
+    QTimer::singleShot(m_restoreDelayMs, this, [this] {
         m_loggedIn = true;
         Q_EMIT loginSucceeded(m_userId);
         setState(Disconnected);

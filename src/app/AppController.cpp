@@ -320,6 +320,13 @@ AppController::AppController(Backend backend, QObject *parent)
             if (!m_client->restoreSession())
                 m_backgroundRestore = false;
         }
+        // v0.7: a failed STARTUP restoration is the genuine
+        // unauthenticated state — only now may the login form appear.
+        if (m_currentScreen == BootScreen) {
+            qCInfo(lcApp) << "startup restore failed — showing login";
+            setCurrentScreen(LoginScreen);
+            Q_EMIT loggedInChanged();
+        }
     });
     // v0.7: cache the signed-in account's own profile (display name and
     // avatar) in its account record for the switcher UI.
@@ -718,11 +725,21 @@ AppController::AppController(Backend backend, QObject *parent)
     }
 #endif
 
-    // Session restore is only meaningful for backends that can actually talk
-    // to a homeserver. The mock backend synthesizes its own state.
-    if ((m_backend == HttpBackend || m_backend == RustBackend)
-        && m_settings->hasSession()) {
-        m_client->restoreSession();
+    // v0.7: startup with a saved account is an explicit restoration state,
+    // never an unauthenticated one — the login form must not render (or
+    // even instantiate) while the outcome is still unknown. Restore
+    // success lands on MainScreen via loginSucceeded; every restore
+    // failure path funnels through loginFailed, which routes BootScreen to
+    // the genuine login form. The mock backend restores from its account
+    // registry (it has no real tokens), so the startup lifecycle is the
+    // same on every backend and testable end to end.
+    const bool hasRestorableSession = m_settings->hasSession()
+        || (m_backend == MockBackend
+            && !m_settings->activeAccountUserId().isEmpty());
+    if (hasRestorableSession) {
+        setCurrentScreen(BootScreen);
+        if (!m_client->restoreSession())
+            setCurrentScreen(LoginScreen);
         Q_EMIT rustDeviceIdChanged();
     }
 }

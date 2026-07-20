@@ -146,6 +146,11 @@ public:
     void setPaginationDelayForTest(int ms) { m_paginationDelayMs = ms; }
     void setPaginationChunkForTest(const QList<TimelineEvent> &chunk)
     { m_paginationChunkOverride = chunk; }
+    // v0.7 startup-lifecycle hooks: hold the restoration state open long
+    // enough to assert on it, or reject the next restore like an expired
+    // session would.
+    void setRestoreDelayForTest(int ms) { m_restoreDelayMs = ms; }
+    void failNextRestoreForTest() { m_failNextRestore = true; }
 
 private:
     void seedMockData();
@@ -171,6 +176,8 @@ private:
     bool m_nextPaginationFailureTransient = false;
     int m_paginationDelayMs = 300;
     QList<TimelineEvent> m_paginationChunkOverride;
+    int m_restoreDelayMs = 0;
+    bool m_failNextRestore = false;
 
     quint64 m_eventCounter = 0;
     quint64 m_txnCounter = 0;
