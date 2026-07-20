@@ -491,8 +491,10 @@ private Q_SLOTS:
         QVERIFY(delegate.contains(QStringLiteral("TextEdit {\n                        id: bodyLabel")));
         QVERIFY(delegate.contains(QStringLiteral("readOnly: true")));
         QVERIFY(delegate.contains(QStringLiteral("selectByMouse: true")));
-        QVERIFY(delegate.contains(QStringLiteral(
-            "onLinkActivated: function(link) { app.media.openWebUrl(link) }")));
+        // Links stay interactive through the controlled web-open path;
+        // mention links route to the member profile instead.
+        QVERIFY(delegate.contains(QStringLiteral("app.media.openWebUrl(link)")));
+        QVERIFY(delegate.contains(QStringLiteral("mention:")));
         QVERIFY(delegate.contains(QStringLiteral("id: replyBox")));
         QVERIFY(delegate.contains(QStringLiteral("id: actionBar")));
         QVERIFY(delegate.contains(QStringLiteral("id: previewLoader")));
