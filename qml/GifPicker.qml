@@ -51,10 +51,20 @@ Popup {
             : Math.max(AppTheme.spacingS, anchorPoint.y - height - AppTheme.spacingXS)
     }
 
+    // Send the clicked tile of the model the user is actually LOOKING AT.
+    // This must read activeModel: reading gif.results here sent the first
+    // Trending item when a favorite was clicked (the Favorites grid shows
+    // gif.favorites while gif.results still holds the browse content).
+    // The row resolves synchronously against the visible model and the
+    // result carries its own provider-qualified identity and send URL —
+    // never a cross-model index, never an index-zero substitute.
     function choose(row) {
-        if (row < 0 || row >= gif.results.count)
+        if (row < 0 || row >= activeModel.count)
             return
-        picker.gifChosen(gif.results.get(row))
+        var result = activeModel.get(row)
+        if (!result || !result.provider || !result.gifId)
+            return
+        picker.gifChosen(result)
         close()
     }
 

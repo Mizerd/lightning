@@ -110,6 +110,17 @@ private Q_SLOTS:
         QVERIFY(picker.contains(QStringLiteral("model: picker.activeModel")));
         QVERIFY(picker.contains(QStringLiteral("gif.favorites")));
         QVERIFY(picker.contains(QStringLiteral("gif.recent")));
+        // v0.7 regression (live bug): SENDING must resolve the clicked row
+        // against the model the user is looking at. Reading gif.results in
+        // choose() sent the first Trending item when a favorite was
+        // clicked. The chosen record must carry its own provider-qualified
+        // identity; an unidentifiable row is dropped, never substituted.
+        QVERIFY(picker.contains(
+            QStringLiteral("var result = activeModel.get(row)")));
+        QVERIFY(picker.contains(QStringLiteral(
+            "if (!result || !result.provider || !result.gifId)")));
+        QVERIFY(!picker.contains(
+            QStringLiteral("picker.gifChosen(gif.results.get(row))")));
         // Favorite toggles without sending; recents are handed off in Phase 7.
         QVERIFY(picker.contains(QStringLiteral("gif.toggleFavorite(")));
         // Previews animate only while visible (offscreen/hidden → paused).

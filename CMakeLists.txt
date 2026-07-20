@@ -686,6 +686,20 @@ if(BUILD_TESTING)
     set_tests_properties(avatar-pipeline-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+    # v0.7 regression: clicking a favorite GIF must choose the exact
+    # provider-qualified favorite from the visible model — never the first
+    # Trending item, never an index-zero substitute.
+    qt_add_executable(gif-picker-selection-qml-test
+        tests/GifPickerSelectionQmlTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_app(gif-picker-selection-qml-test)
+    target_link_libraries(gif-picker-selection-qml-test PRIVATE Qt6::Test)
+    add_test(NAME gif-picker-selection-qml
+             COMMAND gif-picker-selection-qml-test)
+    set_tests_properties(gif-picker-selection-qml PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
     # v0.7: authenticated startup lifecycle — the Boot/RestoringSession
     # state, the never-instantiate-login guarantee for valid sessions, the
     # genuine no-account and failed-restore login states.
