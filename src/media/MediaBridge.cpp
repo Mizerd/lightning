@@ -71,6 +71,16 @@ MediaBridge::MediaBridge(QObject *parent)
     m_failureClock.start();
     m_animatedDir = std::make_unique<QTemporaryDir>(
         QDir::tempPath() + QStringLiteral("/lightning-animated-XXXXXX"));
+    // The watchdog reclaims concurrency slots pinned by ops the backend never
+    // completes; without it a handful of orphaned fetches permanently stalls
+    // the pipeline. A 5s cadence bounds the extra latency to reclaim a stuck
+    // slot; the timeout itself (m_inflightTimeoutMs) is what a healthy fetch
+    // never reaches.
+    m_watchdog.setInterval(5000);
+    m_watchdog.setTimerType(Qt::CoarseTimer);
+    connect(&m_watchdog, &QTimer::timeout,
+            this, &MediaBridge::checkInflightTimeouts);
+    m_watchdog.start();
 }
 
 void MediaBridge::setClient(MatrixClient *client)
@@ -199,6 +209,7 @@ QString MediaBridge::mediaSource(const QString &mediaKey, const QString &kind)
     const QString cacheKey = mediaCacheKey(mediaKey, kindValue);
     const QString cached = cachedSource(cacheKey);
     if (!cached.isEmpty()) {
+        ++m_statCacheHit;
         qCDebug(lcMedia, "media %s cache=hit", qUtf8Printable(keyTag(cacheKey)));
         return cached;
     }
@@ -212,6 +223,7 @@ QString MediaBridge::mediaSource(const QString &mediaKey, const QString &kind)
         return {};
     }
     if (!alreadyPending(cacheKey)) {
+        ++m_statCacheMiss;
         Pending request;
         request.cacheKey = cacheKey;
         request.mediaKey = mediaKey;
@@ -308,6 +320,7 @@ QString MediaBridge::avatarSource(const QString &mxcUri, int size)
     const QString cacheKey = mxcCacheKey(mxcUri, edge);
     const QString cached = cachedSource(cacheKey);
     if (!cached.isEmpty()) {
+        ++m_statCacheHit;
         qCDebug(lcMedia, "avatar %s edge=%d cache=hit",
                 qUtf8Printable(keyTag(cacheKey)), edge);
         return cached;
@@ -319,6 +332,7 @@ QString MediaBridge::avatarSource(const QString &mxcUri, int size)
         return {};
     }
     if (!alreadyPending(cacheKey)) {
+        ++m_statCacheMiss;
         Pending request;
         request.cacheKey = cacheKey;
         request.isMxc = true;
@@ -354,6 +368,7 @@ void MediaBridge::dispatch(const Pending &request)
     else
         opId = m_client->fetchMedia(tracked.mediaKey, tracked.kind);
     if (opId == 0) {
+        ++m_statFailed;
         qCWarning(lcMedia, "fetch %s rejected by backend (opId=0)",
                   qUtf8Printable(keyTag(tracked.cacheKey)));
         markFailed(tracked, QStringLiteral("rejected"));
@@ -375,6 +390,72 @@ void MediaBridge::pump()
         dispatch(m_queue.dequeue());
 }
 
+void MediaBridge::checkInflightTimeouts()
+{
+    if (m_inflight.isEmpty())
+        return;
+    const qint64 now = m_failureClock.elapsed();
+    // Collect first: reclaiming mutates m_inflight and pump() may re-enter it.
+    QList<quint64> expired;
+    for (auto it = m_inflight.constBegin(); it != m_inflight.constEnd(); ++it) {
+        const Pending &p = it.value();
+        const qint64 limit = p.saveRequest ? m_saveTimeoutMs : m_inflightTimeoutMs;
+        if (p.dispatchedAtMs >= 0 && now - p.dispatchedAtMs >= limit)
+            expired.append(it.key());
+    }
+    if (expired.isEmpty())
+        return;
+    for (const quint64 opId : std::as_const(expired)) {
+        const auto it = m_inflight.find(opId);
+        if (it == m_inflight.end())
+            continue;
+        const Pending request = it.value();
+        m_inflight.erase(it);
+        ++m_statTimedOut;
+        qCWarning(lcMedia, "timeout %s reclaiming slot (inflight now %lld)",
+                  qUtf8Printable(keyTag(request.cacheKey)),
+                  static_cast<long long>(m_inflight.size()));
+        if (request.saveRequest) {
+            Q_EMIT saveFinished(false, tr("The download timed out."));
+        } else {
+            // Transient category: expires like a network failure, so QML
+            // surfaces a fallback immediately and re-dispatches once the
+            // interval elapses — never an indefinite loading state. A late
+            // real completion for this op is now a stale/foreign no-op.
+            markFailed(request, QStringLiteral("timeout"));
+            Q_EMIT mediaFetchFailed(request.cacheKey, QStringLiteral("timeout"));
+        }
+    }
+    // Reclaimed slots let queued work proceed — the essential recovery.
+    pump();
+}
+
+QVariantMap MediaBridge::healthSnapshot() const
+{
+    QVariantMap out;
+    out.insert(QStringLiteral("inflight"),
+               static_cast<qint64>(m_inflight.size()));
+    out.insert(QStringLiteral("queued"),
+               static_cast<qint64>(m_queue.size()));
+    qint64 oldest = 0;
+    const qint64 now = m_failureClock.elapsed();
+    for (const Pending &p : m_inflight) {
+        if (p.dispatchedAtMs >= 0)
+            oldest = qMax(oldest, now - p.dispatchedAtMs);
+    }
+    out.insert(QStringLiteral("oldestInflightMs"), oldest);
+    out.insert(QStringLiteral("completed"), m_statCompleted);
+    out.insert(QStringLiteral("failed"), m_statFailed);
+    out.insert(QStringLiteral("timedOut"), m_statTimedOut);
+    out.insert(QStringLiteral("droppedStale"), m_statDroppedStale);
+    out.insert(QStringLiteral("cacheHits"), m_statCacheHit);
+    out.insert(QStringLiteral("cacheMisses"), m_statCacheMiss);
+    out.insert(QStringLiteral("failureMarks"),
+               static_cast<qint64>(m_failed.size()));
+    out.insert(QStringLiteral("cacheBytes"), cacheBytesUsed());
+    return out;
+}
+
 void MediaBridge::onMediaReady(quint64 opId, const QString &mediaKey, int kind,
                                const QByteArray &bytes, const QString &mimetype,
                                const QString &filename)
@@ -384,8 +465,11 @@ void MediaBridge::onMediaReady(quint64 opId, const QString &mediaKey, int kind,
     Q_UNUSED(filename);
     const auto it = m_inflight.find(opId);
     if (it == m_inflight.end()) {
-        // stale (cleared on sign-out) or foreign op — suppressed so a late
-        // completion can never repopulate the next account's cache.
+        // stale (cleared on sign-out, or reclaimed by the watchdog) or a
+        // foreign op — suppressed so a late completion can never repopulate
+        // the next account's cache. QML re-dispatches once the transient
+        // timeout mark expires.
+        ++m_statDroppedStale;
         qCDebug(lcMedia, "ready opId=%llu suppressed=stale/foreign",
                 static_cast<unsigned long long>(opId));
         return;
@@ -401,6 +485,7 @@ void MediaBridge::onMediaReady(quint64 opId, const QString &mediaKey, int kind,
         writeSaveFile(request.saveDestination, bytes);
         return;
     }
+    ++m_statCompleted;
     m_failed.remove(request.cacheKey);
     insertCache(request.cacheKey, bytes);
     qCDebug(lcMedia, "ready %s bytes=%lld mime=%s in=%lldms -> mediaCached",
@@ -470,6 +555,7 @@ void MediaBridge::onMediaFailed(quint64 opId, const QString &mediaKey, int kind,
     Q_UNUSED(kind);
     const auto it = m_inflight.find(opId);
     if (it == m_inflight.end()) {
+        ++m_statDroppedStale;
         qCDebug(lcMedia, "failed opId=%llu suppressed=stale/foreign",
                 static_cast<unsigned long long>(opId));
         return;
@@ -481,6 +567,7 @@ void MediaBridge::onMediaFailed(quint64 opId, const QString &mediaKey, int kind,
         Q_EMIT saveFinished(false, tr("The file could not be downloaded."));
         return;
     }
+    ++m_statFailed;
     qCWarning(lcMedia, "failed %s category=%s",
               qUtf8Printable(keyTag(request.cacheKey)),
               qUtf8Printable(category));

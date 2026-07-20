@@ -283,6 +283,111 @@ private Q_SLOTS:
         QCOMPARE(failed.first().at(1).toString(), QStringLiteral("rejected"));
     }
 
+    // v0.7.1 regression: an op the backend never completes must not pin its
+    // concurrency slot forever. Before the watchdog, kMaxConcurrent such
+    // orphans stalled the whole pipeline ("avatars/images stop loading after
+    // a few minutes"). This is the test that would have caught that leak.
+    void stuckRequestTimesOutAndReclaimsSlot()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        QSignalSpy failed(&bridge, &MediaBridge::mediaFetchFailed);
+
+        // Saturate every slot with ops that will never be answered.
+        for (int i = 0; i < 8; ++i)
+            bridge.mediaSource(QStringLiteral("$stuck%1").arg(i),
+                               QStringLiteral("thumb"));
+        QCOMPARE(client.fetches.size(), 8);          // kMaxConcurrent dispatched
+        QCOMPARE(bridge.inflightCountForTest(), 8);
+
+        // A fresh request cannot dispatch while the slots are (leaked) held.
+        bridge.mediaSource(QStringLiteral("$fresh"), QStringLiteral("thumb"));
+        QCOMPARE(client.fetches.size(), 8);
+        QCOMPARE(bridge.queuedCountForTest(), 1);
+
+        // The watchdog reclaims every stuck slot and pumps the queue.
+        bridge.setInflightTimeoutMsForTest(0);
+        bridge.checkInflightTimeouts();
+
+        QCOMPARE(failed.count(), 8);
+        QCOMPARE(failed.first().at(1).toString(), QStringLiteral("timeout"));
+        QCOMPARE(bridge.inflightCountForTest(), 1); // the queued $fresh pumped in
+        QCOMPARE(bridge.queuedCountForTest(), 0);
+        QCOMPARE(client.fetches.size(), 9);
+        QCOMPARE(bridge.healthSnapshot().value(QStringLiteral("timedOut"))
+                     .toLongLong(),
+                 8);
+    }
+
+    void timedOutRequestRedispatchesAfterTransientExpiry()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        bridge.setInflightTimeoutMsForTest(0);
+        bridge.setFailureRetryMsForTest(0); // transient mark expires at once
+
+        bridge.avatarSource(kMxc, 64);
+        QCOMPARE(client.fetches.size(), 1);
+        bridge.checkInflightTimeouts();
+        QCOMPARE(bridge.inflightCountForTest(), 0);
+
+        // A "timeout" mark is transient, so the next poll re-dispatches once
+        // — never a permanent Loading state.
+        bridge.avatarSource(kMxc, 64);
+        QCOMPARE(client.fetches.size(), 2);
+    }
+
+    // Soak: under sustained saturation with a mixed success/failure outcome,
+    // every terminal path must release its slot and the queue must fully
+    // drain — in-flight and queued both return to zero, and memory stays
+    // bounded.
+    void saturationDrainsToZeroWithBoundedMemory()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        bridge.setCacheLimitBytes(64); // force LRU eviction under load
+
+        constexpr int kN = 200;
+        for (int i = 0; i < kN; ++i)
+            bridge.mediaSource(QStringLiteral("$soak%1").arg(i),
+                               QStringLiteral("thumb"));
+        QCOMPARE(bridge.inflightCountForTest(), 8);
+        QCOMPARE(bridge.queuedCountForTest(), kN - 8);
+
+        // Resolve every dispatched op in order with a deterministic mix; each
+        // completion pumps one queued request into the freed slot, so the
+        // fetch list grows to exactly kN (one op per distinct key).
+        int resolved = 0;
+        int guard = 0;
+        while (resolved < client.fetches.size() && guard++ < kN * 8) {
+            const quint64 op = client.fetches.at(resolved).opId;
+            if (resolved % 5 == 0)
+                client.fail(op, QStringLiteral("network"));
+            else
+                client.succeed(op, QByteArray("x"));
+            QVERIFY(bridge.inflightCountForTest() <= 8); // never over-committed
+            QVERIFY(bridge.cacheBytesUsed() <= 64);      // bounded throughout
+            ++resolved;
+        }
+
+        QCOMPARE(client.fetches.size(), kN);      // deduped: one op per key
+        QCOMPARE(bridge.inflightCountForTest(), 0);
+        QCOMPARE(bridge.queuedCountForTest(), 0);
+        const QVariantMap snap = bridge.healthSnapshot();
+        QCOMPARE(snap.value(QStringLiteral("completed")).toLongLong()
+                     + snap.value(QStringLiteral("failed")).toLongLong(),
+                 static_cast<qint64>(kN));
+        QVERIFY(bridge.cacheBytesUsed() <= 64);
+
+        // A brand-new request after the storm still dispatches immediately —
+        // no leaked slot, no manual intervention, no click required.
+        bridge.mediaSource(QStringLiteral("$after"), QStringLiteral("thumb"));
+        QCOMPARE(bridge.inflightCountForTest(), 1);
+    }
+
     void animatedGifUsesValidatedLocalFileAndCleansOnLogout()
     {
         FakeClient client;
