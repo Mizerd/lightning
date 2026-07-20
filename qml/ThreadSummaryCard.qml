@@ -100,11 +100,14 @@ Item {
         id: surface
         anchors.fill: parent
         radius: AppTheme.radiusMd
-        color: mouse.containsMouse || card.activeFocus
-               ? AppTheme.hover : AppTheme.surfaceElevated
+        // Design thread chip: panel-tier background, 1px border that warms
+        // toward the accent on hover; keyboard focus gets the accent stroke.
+        color: AppTheme.sidebar
         border.width: card.activeFocus ? 2 : 1
-        border.color: card.activeFocus ? AppTheme.accent : AppTheme.border
-        Behavior on color { ColorAnimation { duration: 90 } }
+        border.color: card.activeFocus ? AppTheme.accent
+                      : mouse.containsMouse ? AppTheme.accentBorder
+                                            : AppTheme.border
+        Behavior on border.color { ColorAnimation { duration: 90 } }
 
         RowLayout {
             id: content
@@ -138,7 +141,7 @@ Item {
             Label {
                 text: card.countLabel()
                 color: AppTheme.accent
-                font.pixelSize: 11
+                font.pixelSize: 12
                 font.bold: true
                 Layout.alignment: Qt.AlignVCenter
             }
@@ -162,7 +165,7 @@ Item {
                 text: card.timeLabel()
                 visible: text.length > 0
                 color: AppTheme.textMuted
-                font.pixelSize: 10
+                font.pixelSize: 12
                 Layout.alignment: Qt.AlignVCenter
             }
 

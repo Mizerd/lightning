@@ -22,6 +22,24 @@ Rectangle {
                       : app.roomList.findRoom(app.currentRoomId)
     }
 
+    // The right-side region is mutually exclusive: member/info panel OR
+    // thread panel, never both layered. Exclusion lives on the two state
+    // properties themselves so every open path — buttons, chips,
+    // notifications, tests — flows through the same mechanism.
+    onThreadSurfaceOpenChanged: {
+        if (threadSurfaceOpen)
+            infoOpen = false
+    }
+    onInfoOpenChanged: {
+        if (infoOpen)
+            closeThreadSurface()
+    }
+    function closeThreadSurface() {
+        if (app.thread.active)
+            app.thread.close()
+        app.thread.closeList()
+    }
+
     function toggleRoomInfo() {
         if (app.currentRoomId === "" || !app.roomInfo.supported)
             return
@@ -178,10 +196,12 @@ Rectangle {
 
     ColumnLayout {
         objectName: "roomColumn"
-        // v0.6.0: on narrow windows the open thread surface takes the whole
-        // pane (the room and its state stay alive underneath and return
-        // when the panel closes or the window widens).
-        visible: !(root.threadSurfaceOpen && root.width < 900)
+        // Deliberate narrow fallback: below 660px pane width the 340px
+        // panel plus the 320px timeline minimum cannot coexist, so the open
+        // thread surface takes the pane (the room and its state stay alive
+        // underneath and return when the panel closes or the window
+        // widens). From 660px up, threads are ALWAYS a side panel.
+        visible: !(root.threadSurfaceOpen && root.width < 660)
         Layout.fillWidth: true
         Layout.fillHeight: true
         Layout.minimumWidth: 320
@@ -1064,23 +1084,27 @@ Rectangle {
 
     // ── Thread side panel ────────────────────────────────────────────────
     Rectangle {
-        visible: root.threadSurfaceOpen && root.width >= 900
+        visible: root.threadSurfaceOpen && root.width >= 660
         Layout.fillHeight: true
         implicitWidth: 1
-        color: AppTheme.border
+        color: AppTheme.borderStrong
     }
     ThreadPanel {
         id: threadPanel
         objectName: "threadPanel"
         visible: root.threadSurfaceOpen
         Layout.fillHeight: true
-        Layout.preferredWidth: root.width >= 900 ? 360 : root.width
-        Layout.fillWidth: root.threadSurfaceOpen && root.width < 900
+        // Correction spec §4: the thread panel is exactly 340px wide.
+        Layout.preferredWidth: root.width >= 660 ? 340 : root.width
+        Layout.fillWidth: root.threadSurfaceOpen && root.width < 660
         onCloseRequested: {
-            if (app.thread.active)
-                app.thread.close()
-            else
-                app.thread.closeList()
+            root.closeThreadSurface()
+            // Closing the thread panel restores the member panel (§4).
+            if (app.currentRoomId !== "" && app.roomInfo.supported) {
+                infoPanel.openForRoom(app.currentRoomId)
+                infoPanel.section = "people"
+                root.infoOpen = true
+            }
         }
         openImage: function(mediaKey, httpUrl) {
             imageViewer.openFor(mediaKey || "", httpUrl)
@@ -1102,6 +1126,7 @@ Rectangle {
     }
     RoomInfoPanel {
         id: infoPanel
+        objectName: "roomInfoPanel"
         Layout.fillHeight: true
         Layout.preferredWidth: root.infoOpen ? 320 : 0
         // Collapse cleanly at narrow widths instead of crushing the chat.

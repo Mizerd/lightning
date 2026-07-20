@@ -4,15 +4,17 @@ import QtQuick.Dialogs
 import QtQuick.Layouts
 import MatrixClient
 
-// v0.6.0: the thread side panel. Backed entirely by app.thread
-// (ThreadController): the pinned root header renders rootInfo(), the reply
-// list is an ordinary ListView over app.thread.model (the SDK thread
-// timeline under its composite id) reusing MessageDelegate, and the
-// composer sends through the SDK thread path only. No Matrix protocol
-// logic lives here.
+// The thread side panel (correction spec §4): a 340px right-side surface
+// that replaces the member panel — never the room timeline. 58px header
+// (accent forum glyph, "Thread", room name, bare close X), the root event
+// in a raised bordered card, an "N replies" hairline divider, plain reply
+// rows, and a single-row mini composer pinned at the bottom. Backed
+// entirely by app.thread (ThreadController): the reply list is the SDK
+// thread timeline reusing MessageDelegate, and the composer sends through
+// the SDK thread path only. No Matrix protocol logic lives here.
 Rectangle {
     id: panel
-    color: AppTheme.background
+    color: AppTheme.sidebar
 
     signal closeRequested()
     // Media entry points supplied by TimelinePane (shared image viewer and
@@ -22,6 +24,13 @@ Rectangle {
 
     property var rootData: ({})
     function refreshRoot() { rootData = app.thread.rootInfo() }
+
+    readonly property string panelRoomId:
+        app.thread.active ? app.thread.roomId : app.currentRoomId
+    readonly property string panelRoomName: {
+        var room = app.roomList.findRoom(panelRoomId)
+        return room && room.name ? room.name : ""
+    }
 
     // v0.6.0 checkpoint 5: per-thread scroll restoration (session-local).
     // Positions are keyed by the composite thread timeline id and saved when
@@ -89,28 +98,32 @@ Rectangle {
         anchors.fill: parent
         spacing: 0
 
-        // ── Header ───────────────────────────────────────────────────────
+        // ── Header (58px): forum glyph · Thread · room name · close ──────
         Rectangle {
             Layout.fillWidth: true
-            implicitHeight: threadHeader.implicitHeight + AppTheme.spacingM * 2
-            color: AppTheme.surface
+            implicitHeight: 58
+            color: panel.color
             RowLayout {
                 id: threadHeader
                 anchors.fill: parent
-                anchors.margins: AppTheme.spacingM
-                spacing: AppTheme.spacingS
-                // Back to the Threads list when the panel was entered from it.
-                ToolButton {
+                anchors.leftMargin: AppTheme.spacing16
+                anchors.rightMargin: AppTheme.spacing16
+                spacing: AppTheme.spacing8
+                // Back to the Threads list when the panel was entered from it
+                // (panel-internal navigation, not a route).
+                IconButton {
                     objectName: "threadBackToListButton"
                     visible: app.thread.active && app.thread.listOpen
-                    contentItem: Icon { name: "arrow_back"; size: 16 }
+                    implicitWidth: 28; implicitHeight: 28
+                    radius: 6
+                    iconName: "arrow_back"
+                    iconSize: 16
                     Accessible.name: qsTr("Back to threads")
                     onClicked: app.thread.close()
                 }
-                // Design: accent thread glyph + ExtraBold title.
                 Icon {
                     name: "forum"
-                    size: 16
+                    size: 20
                     color: AppTheme.accent
                 }
                 Label {
@@ -121,31 +134,53 @@ Rectangle {
                 }
                 Label {
                     Layout.fillWidth: true
-                    text: app.thread.active && app.thread.model.count > 1
-                          ? qsTr("%n reply(s)", "", app.thread.model.count - 1)
-                          : ""
+                    text: panel.panelRoomName
                     color: AppTheme.textMuted
-                    font.pixelSize: 11
+                    font.pixelSize: 12
                     elide: Label.ElideRight
                 }
                 // v0.6.0 checkpoint 5: MSC4306 follow state. Hidden until the
                 // homeserver confirms support — never a pretend toggle.
-                ToolButton {
+                AbstractButton {
+                    id: followButton
                     objectName: "threadFollowButton"
                     visible: app.thread.active && app.thread.followSupported
                     enabled: !app.thread.followBusy
-                    text: app.thread.followed ? qsTr("Unfollow") : qsTr("Follow")
-                    font.pixelSize: 11
+                    hoverEnabled: true
+                    focusPolicy: Qt.TabFocus
+                    implicitWidth: followLabel.implicitWidth + 12
+                    implicitHeight: 24
+                    Accessible.role: Accessible.Button
+                    Accessible.name: followLabel.text
                     ToolTip.text: app.thread.followed
                                   ? qsTr("Stop following this thread")
                                   : qsTr("Follow this thread")
                     ToolTip.visible: hovered
                     ToolTip.delay: 500
                     onClicked: app.thread.setFollowed(!app.thread.followed)
+                    contentItem: Label {
+                        id: followLabel
+                        text: app.thread.followed ? qsTr("Unfollow")
+                                                  : qsTr("Follow")
+                        color: followButton.enabled ? AppTheme.accent
+                                                    : AppTheme.textDisabled
+                        font.pixelSize: 11
+                        font.weight: Font.Bold
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                    background: Rectangle {
+                        radius: 6
+                        color: followButton.hovered ? AppTheme.hover
+                                                    : "transparent"
+                    }
                 }
-                ToolButton {
+                IconButton {
                     objectName: "threadCloseButton"
-                    contentItem: Icon { name: "close"; size: 15 }
+                    implicitWidth: 30; implicitHeight: 30
+                    radius: 7
+                    iconName: "close"
+                    iconSize: 20
                     Accessible.name: qsTr("Close thread")
                     ToolTip.text: qsTr("Close thread")
                     ToolTip.visible: hovered
@@ -196,7 +231,8 @@ Rectangle {
                 spacing: 1
                 delegate: Rectangle {
                     width: threadListView.width
-                    color: rowHover.hovered ? AppTheme.surface : "transparent"
+                    color: rowHover.hovered ? AppTheme.hover : "transparent"
+                    radius: AppTheme.radiusMd
                     implicitHeight: listEntry.implicitHeight
                                     + AppTheme.spacingS * 2
                     HoverHandler { id: rowHover }
@@ -279,43 +315,42 @@ Rectangle {
             }
         }
 
-        // ── Pinned root ──────────────────────────────────────────────────
-        // Design: the root message sits in a raised, bordered card.
+        // ── Pinned root: raised, bordered card (12px pad, radius 10) ─────
         Rectangle {
             objectName: "threadRootHeader"
             Layout.fillWidth: true
-            Layout.leftMargin: AppTheme.spacing8
-            Layout.rightMargin: AppTheme.spacing8
-            Layout.topMargin: AppTheme.spacing8
+            Layout.leftMargin: AppTheme.spacing12
+            Layout.rightMargin: AppTheme.spacing12
+            Layout.topMargin: AppTheme.spacing12
             visible: app.thread.active
                      && app.thread.state !== ThreadController.Failed
             implicitHeight: Math.min(rootColumn.implicitHeight
-                                     + AppTheme.spacingM * 2, 180)
+                                     + AppTheme.spacing12 * 2, 190)
             clip: true
-            radius: AppTheme.radiusMd + 2
+            radius: 10
             border.color: AppTheme.border
             border.width: 1
-            color: AppTheme.surfaceElevated
+            color: AppTheme.surface
             ColumnLayout {
                 id: rootColumn
                 anchors.left: parent.left
                 anchors.right: parent.right
                 anchors.top: parent.top
-                anchors.margins: AppTheme.spacingM
+                anchors.margins: AppTheme.spacing12
                 spacing: 4
                 RowLayout {
                     spacing: AppTheme.spacingS
                     visible: panel.rootData.loaded === true
                     Avatar {
-                        size: 24
+                        size: 32
                         name: panel.rootData.senderDisplayName || ""
                         mxc: panel.rootData.senderAvatarMxc || ""
                     }
                     Label {
                         text: panel.rootData.senderDisplayName || ""
                         color: AppTheme.text
-                        font.pixelSize: 12
-                        font.weight: Font.DemiBold
+                        font.pixelSize: AppTheme.scaled(13)
+                        font.weight: Font.ExtraBold
                     }
                     Label {
                         text: panel.rootData.timestamp
@@ -323,7 +358,7 @@ Rectangle {
                                                   "d MMM hh:mm")
                               : ""
                         color: AppTheme.textMuted
-                        font.pixelSize: 10
+                        font.pixelSize: 11
                     }
                     Icon {
                         visible: panel.rootData.isEncrypted === true
@@ -360,7 +395,8 @@ Rectangle {
                     color: (panel.rootData.redacted === true
                             || panel.rootData.undecryptable === true)
                            ? AppTheme.textMuted : AppTheme.text
-                    font.pixelSize: 12
+                    font.pixelSize: AppTheme.scaled(13)
+                    lineHeight: 1.4
                     wrapMode: Text.Wrap
                     maximumLineCount: 6
                     elide: Text.ElideRight
@@ -369,14 +405,43 @@ Rectangle {
                     visible: panel.rootData.loaded !== true
                     text: qsTr("The original message is unavailable.")
                     color: AppTheme.textMuted
-                    font.pixelSize: 12
+                    font.pixelSize: AppTheme.scaled(12)
                     font.italic: true
                 }
             }
         }
-        Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: AppTheme.border }
 
-        // ── Body states + reply list ─────────────────────────────────────
+        // ── "N replies" divider: hairline · label · hairline ─────────────
+        RowLayout {
+            objectName: "threadReplyDivider"
+            Layout.fillWidth: true
+            Layout.leftMargin: AppTheme.spacing16
+            Layout.rightMargin: AppTheme.spacing16
+            Layout.topMargin: AppTheme.spacing8
+            Layout.bottomMargin: AppTheme.spacing4
+            visible: app.thread.active
+                     && app.thread.state === ThreadController.Ready
+                     && app.thread.model.count > 1
+            spacing: AppTheme.spacing8
+            Rectangle {
+                Layout.fillWidth: true
+                implicitHeight: 1
+                color: AppTheme.border
+            }
+            Label {
+                text: qsTr("%n reply(s)", "", app.thread.model.count - 1)
+                color: AppTheme.textMuted
+                font.pixelSize: 11
+                font.weight: Font.Bold
+            }
+            Rectangle {
+                Layout.fillWidth: true
+                implicitHeight: 1
+                color: AppTheme.border
+            }
+        }
+
+        // ── Body states + reply list (plain rows) ────────────────────────
         Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
@@ -449,8 +514,8 @@ Rectangle {
                 model: app.thread.model
                 topMargin: AppTheme.spacingS
                 bottomMargin: AppTheme.spacingS
-                leftMargin: AppTheme.spacingS
-                rightMargin: AppTheme.spacingS
+                leftMargin: AppTheme.spacing12
+                rightMargin: AppTheme.spacing12
 
                 // MessageDelegate view contract (shared with the room
                 // timeline ListView in TimelinePane.qml).
@@ -553,8 +618,8 @@ Rectangle {
                     width: {
                         var available = ListView.view
                                       ? ListView.view.width
-                                        - AppTheme.spacingS * 2 : 0
-                        return available > 0 ? available : 320
+                                        - AppTheme.spacing12 * 2 : 0
+                        return available > 0 ? available : 316
                     }
                 }
 
@@ -583,54 +648,44 @@ Rectangle {
             }
         }
 
-        Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: AppTheme.border }
-
         // Reply-within-thread banner (checkpoint 4): shows the active reply
         // target; ✕ or Escape cancels it without closing the panel.
-        Rectangle {
+        RowLayout {
             objectName: "threadReplyBanner"
-            Layout.fillWidth: true
             visible: app.thread.inReply
-            color: AppTheme.surface
-            implicitHeight: visible
-                            ? replyBannerRow.implicitHeight + AppTheme.spacingS
-                            : 0
-            RowLayout {
-                id: replyBannerRow
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.verticalCenter: parent.verticalCenter
-                anchors.leftMargin: AppTheme.spacingM
-                anchors.rightMargin: AppTheme.spacingS
-                spacing: AppTheme.spacingS
-                Label {
-                    Layout.fillWidth: true
-                    text: qsTr("Replying to %1: %2")
-                          .arg(app.thread.replyToSender)
-                          .arg(app.thread.replyToPreview)
-                    color: AppTheme.textMuted
-                    font.pixelSize: 10
-                    elide: Label.ElideRight
-                }
-                ToolButton {
-                    objectName: "threadReplyCancelButton"
-                    contentItem: Icon { name: "close"; size: 13 }
-                    font.pixelSize: 10
-                    Accessible.name: qsTr("Cancel reply")
-                    onClicked: app.thread.cancelReply()
-                }
+            Layout.fillWidth: true
+            Layout.leftMargin: AppTheme.spacing12 + 4
+            Layout.rightMargin: AppTheme.spacing12
+            spacing: AppTheme.spacingS
+            Label {
+                Layout.fillWidth: true
+                text: qsTr("Replying to %1: %2")
+                      .arg(app.thread.replyToSender)
+                      .arg(app.thread.replyToPreview)
+                color: AppTheme.textMuted
+                font.pixelSize: 10
+                elide: Label.ElideRight
+            }
+            IconButton {
+                objectName: "threadReplyCancelButton"
+                implicitWidth: 20; implicitHeight: 20
+                radius: 5
+                iconName: "close"
+                iconSize: 13
+                Accessible.name: qsTr("Cancel reply")
+                onClicked: app.thread.cancelReply()
             }
         }
 
-        // ── Thread composer ──────────────────────────────────────────────
+        // ── Mini composer: ONE row in a raised card, pinned at the bottom.
         // Sends ONLY through ThreadController.sendText → the backend's SDK
-        // m.thread path (text and attachments). The main room composer is
-        // untouched.
-        Rectangle {
+        // m.thread path (text and attachments). The main room composer and
+        // its draft are untouched. ─────────────────────────────────────────
+        Item {
             Layout.fillWidth: true
             visible: app.thread.active
-            color: AppTheme.surface
-            implicitHeight: composerCol.implicitHeight + AppTheme.spacingS * 2
+            implicitHeight: threadComposerCol.implicitHeight
+                            + AppTheme.spacing12
 
             // Files dropped over the thread composer are queued for the OPEN
             // thread — never rerouted to the room composer.
@@ -657,9 +712,13 @@ Rectangle {
             }
 
             ColumnLayout {
-                id: composerCol
-                anchors.fill: parent
-                anchors.margins: AppTheme.spacingS
+                id: threadComposerCol
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                anchors.leftMargin: AppTheme.spacing12
+                anchors.rightMargin: AppTheme.spacing12
+                anchors.bottomMargin: AppTheme.spacing12
                 spacing: AppTheme.spacingXS
 
                 // Attachment validation notice.
@@ -721,10 +780,12 @@ Rectangle {
                                         Layout.maximumWidth: 120
                                     }
                                 }
-                                ToolButton {
+                                IconButton {
                                     visible: model.state === "failed"
                                     implicitWidth: 20; implicitHeight: 20
-                                    contentItem: Icon { name: "refresh"; size: 14 }
+                                    radius: 5
+                                    iconName: "refresh"
+                                    iconSize: 14
                                     Accessible.name:
                                         qsTr("Retry sending %1").arg(model.fileName)
                                     onClicked: {
@@ -732,10 +793,12 @@ Rectangle {
                                         app.thread.sendText("")
                                     }
                                 }
-                                ToolButton {
+                                IconButton {
                                     enabled: model.state !== "dispatching"
                                     implicitWidth: 20; implicitHeight: 20
-                                    contentItem: Icon { name: "close"; size: 13 }
+                                    radius: 5
+                                    iconName: "close"
+                                    iconSize: 13
                                     Accessible.name:
                                         qsTr("Remove attachment %1").arg(model.fileName)
                                     onClicked: app.thread.attachments.removeAt(index)
@@ -745,93 +808,158 @@ Rectangle {
                     }
                 }
 
-                RowLayout {
-                    id: composerRow
+                Rectangle {
+                    objectName: "threadMiniComposer"
                     Layout.fillWidth: true
-                    spacing: AppTheme.spacingS
-                    ToolButton {
-                        objectName: "threadAttachButton"
-                        contentItem: Icon { name: "add_circle"; size: 17 }
-                        font.pixelSize: 15
-                        enabled: app.thread.attachmentsSupported
-                        Accessible.name: qsTr("Attach files")
-                        ToolTip.text: qsTr("Attach")
-                        ToolTip.visible: hovered
-                        ToolTip.delay: 500
-                        onClicked: threadAttachDialog.open()
-                    }
-                    ToolButton {
-                        contentItem: Icon { name: "mood"; size: 17 }
-                        font.pixelSize: 13
-                        enabled: app.thread.state === ThreadController.Ready
-                        Accessible.name: qsTr("Insert emoji")
-                        onClicked: {
-                            var p = mapToItem(panel, 0, 0)
-                            threadEmojiPicker.anchorPoint = Qt.point(p.x, p.y)
-                            threadEmojiPicker.open()
+                    implicitHeight: composerRow.implicitHeight
+                                    + AppTheme.spacing8 * 2
+                    radius: 10
+                    color: AppTheme.surface
+                    border.color: AppTheme.border
+                    border.width: 1
+
+                    RowLayout {
+                        id: composerRow
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.leftMargin: AppTheme.spacing12
+                        anchors.rightMargin: AppTheme.spacing8
+                        spacing: AppTheme.spacing8
+
+                        IconButton {
+                            objectName: "threadAttachButton"
+                            implicitWidth: 24; implicitHeight: 24
+                            radius: 6
+                            iconName: "add_circle"
+                            iconSize: 18
+                            enabled: app.thread.attachmentsSupported
+                            Accessible.name: qsTr("Attach files")
+                            ToolTip.text: qsTr("Attach")
+                            ToolTip.visible: hovered
+                            ToolTip.delay: 500
+                            onClicked: threadAttachDialog.open()
                         }
-                    }
-                    ToolButton {
-                        id: threadGifButton
-                        objectName: "threadGifButton"
-                        text: "GIF"
-                        font.pixelSize: 11
-                        font.bold: true
-                        enabled: app.thread.state === ThreadController.Ready
-                                 && app.gif.available
-                        Accessible.name: qsTr("Insert a GIF")
-                        ToolTip.text: app.gif.available ? qsTr("GIF")
-                            : qsTr("GIFs are unavailable on this backend")
-                        ToolTip.visible: hovered
-                        ToolTip.delay: 500
-                        onClicked: {
-                            threadEmojiPicker.close()
-                            var p = threadGifButton.mapToItem(Overlay.overlay,
-                                                              threadGifButton.width / 2, 0)
-                            threadGifPicker.anchorPoint = p
-                            threadGifPicker.open()
-                        }
-                    }
-                    TextArea {
-                        id: threadComposerInput
-                        objectName: "threadComposerInput"
-                        Layout.fillWidth: true
-                        placeholderText: qsTr("Reply in thread…")
-                        wrapMode: TextArea.Wrap
-                        enabled: app.thread.state === ThreadController.Ready
-                        background: Rectangle {
-                            color: AppTheme.background
-                            border.color: threadComposerInput.activeFocus
-                                          ? AppTheme.accent : AppTheme.border
-                            radius: AppTheme.radiusSm
-                        }
-                        color: AppTheme.text
-                        font.pixelSize: 12
-                        Keys.onPressed: (event) => {
-                            if ((event.key === Qt.Key_Return
-                                 || event.key === Qt.Key_Enter)
-                                && !(event.modifiers & Qt.ShiftModifier)) {
-                                panel.sendComposerText()
-                                event.accepted = true
-                            } else if (event.key === Qt.Key_Escape) {
-                                if (app.thread.inReply)
-                                    app.thread.cancelReply()
-                                else
-                                    panel.closeRequested()
-                                event.accepted = true
-                            } else if (event.matches(StandardKey.Paste)
-                                       && app.thread.pasteFromClipboard()) {
-                                event.accepted = true
+                        TextArea {
+                            id: threadComposerInput
+                            objectName: "threadComposerInput"
+                            Layout.fillWidth: true
+                            Layout.maximumHeight: 110
+                            placeholderText: qsTr("Reply in thread")
+                            placeholderTextColor: AppTheme.textMuted
+                            wrapMode: TextArea.Wrap
+                            enabled: app.thread.state === ThreadController.Ready
+                            // The card carries the chrome; the field itself
+                            // is bare (no inner frame).
+                            background: Rectangle { color: "transparent" }
+                            color: AppTheme.text
+                            font.pixelSize: AppTheme.scaled(13)
+                            Keys.onPressed: (event) => {
+                                if ((event.key === Qt.Key_Return
+                                     || event.key === Qt.Key_Enter)
+                                    && !(event.modifiers & Qt.ShiftModifier)) {
+                                    panel.sendComposerText()
+                                    event.accepted = true
+                                } else if (event.key === Qt.Key_Escape) {
+                                    if (app.thread.inReply)
+                                        app.thread.cancelReply()
+                                    else
+                                        panel.closeRequested()
+                                    event.accepted = true
+                                } else if (event.matches(StandardKey.Paste)
+                                           && app.thread.pasteFromClipboard()) {
+                                    event.accepted = true
+                                }
                             }
                         }
-                    }
-                    Button {
-                        objectName: "threadSendButton"
-                        text: qsTr("Send")
-                        enabled: app.thread.state === ThreadController.Ready
-                                 && (threadComposerInput.text.trim().length > 0
-                                     || app.thread.hasAttachments)
-                        onClicked: panel.sendComposerText()
+                        IconButton {
+                            objectName: "threadEmojiButton"
+                            implicitWidth: 24; implicitHeight: 24
+                            radius: 6
+                            iconName: "mood"
+                            iconSize: 20
+                            enabled: app.thread.state === ThreadController.Ready
+                            Accessible.name: qsTr("Insert emoji")
+                            onClicked: {
+                                var p = mapToItem(panel, 0, 0)
+                                threadEmojiPicker.anchorPoint = Qt.point(p.x, p.y)
+                                threadEmojiPicker.open()
+                            }
+                        }
+                        // GIF keycap (kept: thread GIF sending is a real
+                        // feature; mono text chip per the design language).
+                        AbstractButton {
+                            id: threadGifButton
+                            objectName: "threadGifButton"
+                            implicitWidth: threadGifCap.implicitWidth + 8
+                            implicitHeight: 24
+                            hoverEnabled: true
+                            focusPolicy: Qt.TabFocus
+                            Accessible.role: Accessible.Button
+                            enabled: app.thread.state === ThreadController.Ready
+                                     && app.gif.available
+                            Accessible.name: qsTr("Insert a GIF")
+                            ToolTip.text: app.gif.available ? qsTr("GIF")
+                                : qsTr("GIFs are unavailable on this backend")
+                            ToolTip.visible: hovered
+                            ToolTip.delay: 500
+                            contentItem: Item {
+                                implicitWidth: threadGifCap.implicitWidth
+                                implicitHeight: 24
+                                Label {
+                                    id: threadGifCap
+                                    anchors.centerIn: parent
+                                    text: qsTr("GIF")
+                                    font.family: AppTheme.monoFont
+                                    font.pixelSize: 10
+                                    font.weight: Font.Bold
+                                    leftPadding: 4
+                                    rightPadding: 4
+                                    topPadding: 2
+                                    bottomPadding: 2
+                                    color: threadGifButton.enabled
+                                           ? AppTheme.icon
+                                           : AppTheme.textDisabled
+                                }
+                            }
+                            background: Item {
+                                Rectangle {
+                                    anchors.centerIn: parent
+                                    width: threadGifCap.implicitWidth
+                                    height: threadGifCap.implicitHeight
+                                    radius: 5
+                                    color: threadGifButton.hovered
+                                           ? AppTheme.hover : "transparent"
+                                    border.color: AppTheme.borderStrong
+                                    border.width: 1.5
+                                }
+                            }
+                            onClicked: {
+                                threadEmojiPicker.close()
+                                var p = threadGifButton.mapToItem(
+                                    Overlay.overlay,
+                                    threadGifButton.width / 2, 0)
+                                threadGifPicker.anchorPoint = p
+                                threadGifPicker.open()
+                            }
+                        }
+                        // Accent-fill thread send: 28×28, radius 7, 16px icon.
+                        IconButton {
+                            objectName: "threadSendButton"
+                            implicitWidth: 28; implicitHeight: 28
+                            radius: 7
+                            fill: true
+                            iconName: "send"
+                            iconSize: 16
+                            enabled: app.thread.state === ThreadController.Ready
+                                     && (threadComposerInput.text.trim().length > 0
+                                         || app.thread.hasAttachments)
+                            Accessible.name: qsTr("Send thread reply")
+                            ToolTip.text: qsTr("Send")
+                            ToolTip.visible: hovered
+                            ToolTip.delay: 500
+                            onClicked: panel.sendComposerText()
+                        }
                     }
                 }
             }

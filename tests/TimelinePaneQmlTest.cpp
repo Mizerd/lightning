@@ -1586,8 +1586,10 @@ private Q_SLOTS:
         QCOMPARE(warnings, QStringList{});
     }
 
-    // Narrow window (< 900): the open panel takes the whole pane and the
-    // room column hides — and returns when the panel closes.
+    // Deliberate narrow fallback (< 660 pane width): the open panel takes
+    // the whole pane and the room column hides — and returns when the panel
+    // closes or the pane widens. From 660 up the thread is ALWAYS a 340px
+    // side panel next to the visible timeline.
     void narrowWindowThreadPanelReplacesRoomColumn()
     {
         AppController controller(AppController::MockBackend);
@@ -1629,11 +1631,26 @@ private Q_SLOTS:
         QTRY_COMPARE_WITH_TIMEOUT(roomColumn->property("visible").toBool(),
                                   false, kSignalTimeoutMs);
 
-        // Wide again: both are visible side by side.
-        root->setWidth(1200);
+        // Wide again: both are visible side by side, panel at exactly
+        // 340px (correction spec §4). 800px sits inside the range the old
+        // 900px breakpoint wrongly turned into a full-pane takeover.
+        root->setWidth(800);
         QTRY_COMPARE_WITH_TIMEOUT(roomColumn->property("visible").toBool(),
                                   true, kSignalTimeoutMs);
         QCOMPARE(panel->property("visible").toBool(), true);
+        auto *panelItem = qobject_cast<QQuickItem *>(panel);
+        QVERIFY(panelItem);
+        // Offscreen root items get no layout polish, so read the attached
+        // preferred width the RowLayout applies in a real window; the
+        // windowed acceptance snapshot asserts the rendered 340px too.
+        QQmlExpression widthAt800(qmlContext(panelItem), panelItem,
+                                  QStringLiteral("Layout.preferredWidth"));
+        QCOMPARE(widthAt800.evaluate().toReal(), 340.0);
+        root->setWidth(1200);
+        QQmlExpression widthAt1200(qmlContext(panelItem), panelItem,
+                                   QStringLiteral("Layout.preferredWidth"));
+        QCOMPARE(widthAt1200.evaluate().toReal(), 340.0);
+        QCOMPARE(roomColumn->property("visible").toBool(), true);
 
         controller.thread()->close();
         QTRY_COMPARE_WITH_TIMEOUT(panel->property("visible").toBool(), false,
@@ -1645,6 +1662,110 @@ private Q_SLOTS:
     // The thread panel has its OWN wheel engine: separate instance, both
     // track the persisted speed, motion on one never engages the other,
     // and closing the thread cancels the panel's in-flight motion.
+    // Correction spec §4: the right side is member panel XOR thread panel.
+    // The exclusion lives on TimelinePane's two state properties, so it is
+    // exercised here directly; the member panel's content is a Rust-backend
+    // surface (roomInfo.supported is false on mock), so the close-restores-
+    // members branch is guard-checked and its live behavior is validated on
+    // the real backend.
+    void threadPanelIsExclusiveWithMemberPanel()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        controller.setCurrentRoomId(QStringLiteral("!general:mock.local"));
+
+        QQmlApplicationEngine engine;
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this,
+                [&warnings](const QList<QQmlError> &errors) {
+                    for (const auto &e : errors) warnings << e.toString();
+                });
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("TimelinePane"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(root != nullptr);
+        root->setWidth(1200);
+        root->setHeight(700);
+
+        QObject *forumButton = root->findChild<QObject *>(
+            QStringLiteral("threadsViewButton"));
+        QObject *infoPanel = root->findChild<QObject *>(
+            QStringLiteral("roomInfoPanel"));
+        QVERIFY(forumButton && infoPanel);
+
+        // Member panel showing (simulated at the state level).
+        QVERIFY(infoPanel->setProperty("section", QStringLiteral("people")));
+        QVERIFY(root->setProperty("infoOpen", true));
+        QCOMPARE(root->property("infoOpen").toBool(), true);
+        QObject *groupButton = root->findChild<QObject *>(
+            QStringLiteral("memberPanelButton"));
+        QVERIFY(groupButton);
+        QCOMPARE(groupButton->property("active").toBool(), true);
+        QCOMPARE(forumButton->property("active").toBool(), false);
+
+        // Opening a thread replaces it (never layers over it) and flips the
+        // header chips.
+        const QString rootId = fixtureThreadRootId(controller);
+        controller.thread()->openThread(QStringLiteral("!general:mock.local"),
+                                        rootId);
+        QTRY_COMPARE_WITH_TIMEOUT(controller.thread()->state(),
+                                  ThreadController::Ready, kSignalTimeoutMs);
+        QTRY_COMPARE_WITH_TIMEOUT(root->property("infoOpen").toBool(), false,
+                                  kSignalTimeoutMs);
+        QCOMPARE(forumButton->property("active").toBool(), true);
+        QCOMPARE(groupButton->property("active").toBool(), false);
+        // The room timeline stays instantiated and visible next to it.
+        QObject *roomColumn = root->findChild<QObject *>(
+            QStringLiteral("roomColumn"));
+        QVERIFY(roomColumn);
+        QCOMPARE(roomColumn->property("visible").toBool(), true);
+
+        // Thread and main drafts are isolated.
+        QObject *threadInput = root->findChild<QObject *>(
+            QStringLiteral("threadComposerInput"));
+        QVERIFY(threadInput);
+        controller.composer()->setText(QStringLiteral("main draft"));
+        QVERIFY(threadInput->setProperty("text",
+                                         QStringLiteral("thread draft")));
+        QCOMPARE(controller.composer()->text(), QStringLiteral("main draft"));
+        QCOMPARE(threadInput->property("text").toString(),
+                 QStringLiteral("thread draft"));
+        controller.composer()->setText(QString{});
+
+        // Reopening the member panel while the thread shows switches
+        // directly — the same property mechanism closes the thread.
+        QVERIFY(root->setProperty("infoOpen", true));
+        QTRY_COMPARE_WITH_TIMEOUT(controller.thread()->state(),
+                                  ThreadController::Closed, kSignalTimeoutMs);
+        QCOMPARE(root->property("infoOpen").toBool(), true);
+        QCOMPARE(groupButton->property("active").toBool(), true);
+        QCOMPARE(forumButton->property("active").toBool(), false);
+
+        // Reopen the thread and close with X. On the mock backend the
+        // member panel cannot be re-opened (roomInfo unsupported), so the
+        // restore is a guarded no-op; the thread must still fully close.
+        controller.thread()->openThread(QStringLiteral("!general:mock.local"),
+                                        rootId);
+        QTRY_COMPARE_WITH_TIMEOUT(controller.thread()->state(),
+                                  ThreadController::Ready, kSignalTimeoutMs);
+        QTRY_COMPARE_WITH_TIMEOUT(root->property("infoOpen").toBool(), false,
+                                  kSignalTimeoutMs);
+        QObject *closeButton = root->findChild<QObject *>(
+            QStringLiteral("threadCloseButton"));
+        QVERIFY(closeButton);
+        QVERIFY(QMetaObject::invokeMethod(closeButton, "click"));
+        QTRY_COMPARE_WITH_TIMEOUT(controller.thread()->state(),
+                                  ThreadController::Closed, kSignalTimeoutMs);
+        QCOMPARE(root->property("infoOpen").toBool(),
+                 controller.roomInfo()->supported());
+        QCOMPARE(warnings, QStringList{});
+    }
+
     // Settings → Appearance → Message layout: Compact tightens the row and
     // drops the avatar gutter; Bubbles colors DM rows only (never ordinary
     // rooms) and right-aligns own messages; the text-size setting scales the

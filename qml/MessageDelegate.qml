@@ -382,7 +382,8 @@ Item {
                             text: model.senderDisplayName || model.sender
                             color: AppTheme.text
                             font.pixelSize: AppTheme.scaled(
-                                root.compactMode ? 13 : AppTheme.fontSizeM)
+                                root.compactMode || root.inThreadPanel
+                                ? 13 : AppTheme.fontSizeM)
                             font.weight: Font.DemiBold
                             elide: Label.ElideRight
                             Layout.maximumWidth: 320
@@ -500,7 +501,8 @@ Item {
                                : root.bubbleMode && model.isOwn === true
                                  ? AppTheme.ownBubbleText : AppTheme.text
                         font.pixelSize: AppTheme.scaled(
-                            root.compactMode ? 13 : AppTheme.fontSizeM)
+                            root.compactMode || root.inThreadPanel
+                            ? 13 : AppTheme.fontSizeM)
                         font.italic: model.redacted || model.undecryptable === true
                         wrapMode: Text.Wrap
                         readOnly: true
