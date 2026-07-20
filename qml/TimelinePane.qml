@@ -1412,6 +1412,7 @@ Rectangle {
         // The composer has no target when no room is selected — the Home
         // surface is shown instead. visible:false collapses its space.
         MessageComposerBar {
+            objectName: "messageComposer"
             Layout.fillWidth: true
             visible: app.currentRoomId !== ""
         }

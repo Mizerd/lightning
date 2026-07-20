@@ -18,6 +18,12 @@ Item {
     implicitHeight: composerCol.implicitHeight + AppTheme.spacing16
                     + AppTheme.spacing4
 
+    // v0.7.1: the formatting toolbar collapses by default and rises above the
+    // input row when the format toggle is pressed, so the compact composer
+    // does not permanently spend a row on formatting controls. Format
+    // keyboard shortcuts still apply regardless of visibility.
+    property bool toolbarExpanded: false
+
     // Transient validation feedback ("folder rejected", "too large", …).
     property string attachmentNotice: ""
     property int emojiSelectionStart: 0
@@ -359,10 +365,12 @@ Item {
                     color: AppTheme.border
                 }
 
-                // Formatting toolbar row — exact order per spec §2.
+                // Formatting toolbar row — exact order per spec §2. Collapsed
+                // by default; the input-row toggle raises it above the input.
                 RowLayout {
                     id: toolbarRow
                     objectName: "composerToolbarRow"
+                    visible: root.toolbarExpanded
                     Layout.fillWidth: true
                     Layout.leftMargin: AppTheme.spacing8 + 2
                     Layout.rightMargin: AppTheme.spacing8 + 2
@@ -431,9 +439,11 @@ Item {
                     Item { Layout.fillWidth: true }
                 }
 
-                // 1px divider between the two rows.
+                // 1px divider between the two rows (only when the toolbar is
+                // open — otherwise the compact composer is a single row).
                 Rectangle {
                     objectName: "composerRowDivider"
+                    visible: root.toolbarExpanded
                     Layout.fillWidth: true
                     Layout.leftMargin: 1
                     Layout.rightMargin: 1
@@ -470,6 +480,28 @@ Item {
                         ToolTip.text: qsTr("Attach")
                         ToolTip.visible: hovered
                         ToolTip.delay: 500
+                    }
+
+                    // Format toggle — raises/closes the formatting toolbar.
+                    IconButton {
+                        objectName: "composerFormatToggleButton"
+                        Layout.alignment: Qt.AlignVCenter
+                        implicitWidth: 28; implicitHeight: 28
+                        radius: 6
+                        iconName: "edit_square"
+                        iconSize: 20
+                        // Pure presentation toggle — usable regardless of the
+                        // room state (the whole composer is hidden with no
+                        // room anyway); the format buttons it reveals stay
+                        // room-gated.
+                        active: root.toolbarExpanded
+                        Accessible.name: qsTr("Formatting")
+                        ToolTip.text: root.toolbarExpanded
+                                      ? qsTr("Hide formatting")
+                                      : qsTr("Show formatting")
+                        ToolTip.visible: hovered
+                        ToolTip.delay: 500
+                        onClicked: root.toolbarExpanded = !root.toolbarExpanded
                     }
 
                     TextArea {

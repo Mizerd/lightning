@@ -221,6 +221,11 @@ private slots:
 
     void mainChatRendersAcrossDesignThemes()
     {
+        // The formatting toolbar is collapsible; open it so its raised
+        // surface is sampled below.
+        if (auto *composer = item("messageComposer"))
+            composer->setProperty("toolbarExpanded", true);
+        QCoreApplication::processEvents();
         struct Case { int theme; const char *name; };
         const Case cases[] = {
             { 8, "design-main-moss-light" },

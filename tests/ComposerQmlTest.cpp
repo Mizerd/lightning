@@ -151,6 +151,10 @@ private slots:
 
     void oneCardWithToolbarAboveDividerAboveInput()
     {
+        // The toolbar is collapsible; open it (and let the layout polish)
+        // before asserting its geometry.
+        item("composerBar")->setProperty("toolbarExpanded", true);
+        QTest::qWait(50);
         auto *card = item("composerCard");
         auto *toolbar = item("composerToolbarRow");
         auto *divider = item("composerRowDivider");
@@ -178,6 +182,8 @@ private slots:
 
     void toolbarHasExactControlOrder()
     {
+        item("composerBar")->setProperty("toolbarExpanded", true);
+        QTest::qWait(50);
         const char *order[] = {
             "composerFormat_bold", "composerFormat_italic",
             "composerFormat_strike", "composerFormat_code",
@@ -206,7 +212,8 @@ private slots:
     void inputRowHasExactControlOrder()
     {
         const char *order[] = {
-            "composerAttachButton", "composerInput", "composerEmojiButton",
+            "composerAttachButton", "composerFormatToggleButton",
+            "composerInput", "composerEmojiButton",
             "composerGifButton", "composerMicButton", "composerSendButton",
         };
         qreal lastX = -1;
@@ -217,6 +224,35 @@ private slots:
             QVERIFY2(x > lastX, name);
             lastX = x;
         }
+    }
+
+    void formatToggleCollapsesAndExpandsToolbar()
+    {
+        auto *bar = item("composerBar");
+        auto *toggle = item("composerFormatToggleButton");
+        auto *toolbar = item("composerToolbarRow");
+        QVERIFY(bar && toggle && toolbar);
+
+        // Collapsed compact composer by default: the toolbar takes no space.
+        bar->setProperty("toolbarExpanded", false);
+        QTest::qWait(30);
+        QVERIFY(!toolbar->isVisible());
+
+        // Activating the toggle raises the toolbar above the input row.
+        QMetaObject::invokeMethod(toggle, "click");
+        QTest::qWait(50);
+        QVERIFY(bar->property("toolbarExpanded").toBool());
+        QVERIFY(toolbar->isVisible());
+        QVERIFY(toggle->property("active").toBool());
+        auto *inputRow = item("composerInputRow");
+        QVERIFY(toolbar->mapToScene(QPointF(0, 0)).y()
+                < inputRow->mapToScene(QPointF(0, 0)).y());
+
+        // Toggling again returns the compact composer.
+        QMetaObject::invokeMethod(toggle, "click");
+        QTest::qWait(30);
+        QVERIFY(!bar->property("toolbarExpanded").toBool());
+        QVERIFY(!toolbar->isVisible());
     }
 
     void sendButtonIsAccentFillRoundedSquare()
@@ -286,6 +322,9 @@ private slots:
         auto *card = item("composerCard");
         auto *toolbar = item("composerToolbarRow");
         QVERIFY(card && toolbar);
+        // Open the collapsible toolbar so its raised surface is on screen.
+        item("composerBar")->setProperty("toolbarExpanded", true);
+        QTest::qWait(50);
         const int themes[] = { 9, 8, 10 }; // Indigo Night, Moss Light, Deep Teal
         for (int mode : themes) {
             m_root->setProperty("themeMode", mode);
