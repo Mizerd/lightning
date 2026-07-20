@@ -25,6 +25,12 @@ TimelineEvent::Type messageType(const QString &msgtype)
         return TimelineEvent::Image;
     if (msgtype == QLatin1String("file"))
         return TimelineEvent::File;
+    if (msgtype == QLatin1String("video"))
+        return TimelineEvent::Video;
+    if (msgtype == QLatin1String("audio"))
+        return TimelineEvent::Audio;
+    if (msgtype == QLatin1String("sticker"))
+        return TimelineEvent::Sticker;
     if (msgtype == QLatin1String("state"))
         return TimelineEvent::StateChange;
     if (msgtype == QLatin1String("text"))
@@ -130,6 +136,9 @@ TimelineEvent eventFromItemJson(const QJsonObject &item, const QString &roomId)
         item.value(QStringLiteral("media_size")).toDouble(0));
     e.mediaWidth = item.value(QStringLiteral("media_width")).toInt(0);
     e.mediaHeight = item.value(QStringLiteral("media_height")).toInt(0);
+    e.mediaDurationMs = static_cast<qint64>(
+        item.value(QStringLiteral("media_duration_ms")).toDouble(0));
+    e.mediaIsVoice = item.value(QStringLiteral("media_voice")).toBool(false);
 
     // v0.5.9: media-bridge retrieval key + availability flags (set for both
     // plain and encrypted sources; the source itself stays inside Rust).

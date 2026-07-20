@@ -655,7 +655,11 @@ Rectangle {
                 // coalesces repeated requests into a single deferred call and
                 // re-checks state at fire time, so it never runs mid-reset.
                 function scrollToEndDeferred() {
-                    if (count > 0 && stickToBottom)
+                    // Never fight an in-flight wheel motion: the motion owns
+                    // contentY and its own settle pass recomputes follow-
+                    // latest (a deferred re-pin interleaving with a fresh
+                    // keyboard/wheel motion could settle it instantly).
+                    if (count > 0 && stickToBottom && !wheelAnimating)
                         positionViewAtEnd()
                 }
 

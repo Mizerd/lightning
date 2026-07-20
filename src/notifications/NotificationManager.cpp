@@ -82,12 +82,22 @@ NotificationManager::decide(const TimelineEvent &event, const Context &context)
             // Never ciphertext, never raw JSON — a generic placeholder.
             decision.body = QCoreApplication::translate(
                 "Notifications", "Encrypted message");
-        } else if (event.type == TimelineEvent::Image) {
+        } else if (event.type == TimelineEvent::Image
+                   || event.type == TimelineEvent::Sticker) {
             decision.body = QCoreApplication::translate(
                 "Notifications", "Sent an image");
         } else if (event.type == TimelineEvent::File) {
             decision.body = QCoreApplication::translate(
                 "Notifications", "Sent a file");
+        } else if (event.type == TimelineEvent::Video) {
+            decision.body = QCoreApplication::translate(
+                "Notifications", "Sent a video");
+        } else if (event.type == TimelineEvent::Audio) {
+            decision.body = event.mediaIsVoice
+                ? QCoreApplication::translate("Notifications",
+                                              "Sent a voice message")
+                : QCoreApplication::translate("Notifications",
+                                              "Sent an audio file");
         } else {
             decision.body = event.body.left(160);
         }

@@ -418,6 +418,11 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
     case MediaHeightRole:        return e.mediaHeight;
     case IsImageRole:            return e.type == TimelineEvent::Image;
     case IsFileRole:             return e.type == TimelineEvent::File;
+    case IsVideoRole:            return e.type == TimelineEvent::Video;
+    case IsAudioRole:            return e.type == TimelineEvent::Audio;
+    case IsStickerRole:          return e.type == TimelineEvent::Sticker;
+    case MediaDurationMsRole:    return static_cast<qint64>(e.mediaDurationMs);
+    case MediaIsVoiceRole:       return e.mediaIsVoice;
     case ReactionsRole:          return reactionsVariant(e);
     case ThreadRootIdRole:       return e.threadRootId;
     case IsThreadRootRole: {
@@ -573,6 +578,11 @@ QHash<int, QByteArray> TimelineModel::roleNames() const
         { EndsSenderGroupRole,      "endsSenderGroup" },
         { ShowSenderIdentityRole,   "showSenderIdentity" },
         { StableEventIdRole,        "stableEventId" },
+        { IsVideoRole,              "isVideo" },
+        { IsAudioRole,              "isAudio" },
+        { IsStickerRole,            "isSticker" },
+        { MediaDurationMsRole,      "mediaDurationMs" },
+        { MediaIsVoiceRole,         "mediaIsVoice" },
     };
 }
 
@@ -592,8 +602,12 @@ QVariantList TimelineModel::mediaEntries() const
     QVariantList out;
     for (int row = 0; row < m_events.size(); ++row) {
         const TimelineEvent &e = m_events.at(row);
-        if ((e.type != TimelineEvent::Image && e.type != TimelineEvent::File)
-            || e.redacted)
+        const bool isMedia = e.type == TimelineEvent::Image
+            || e.type == TimelineEvent::File
+            || e.type == TimelineEvent::Video
+            || e.type == TimelineEvent::Audio
+            || e.type == TimelineEvent::Sticker;
+        if (!isMedia || e.redacted)
             continue;
         // Usable when the media bridge can fetch it (Rust) or an HTTP
         // download URL exists (HTTP backend).
@@ -610,7 +624,10 @@ QVariantList TimelineModel::mediaEntries() const
         entry.insert(QStringLiteral("timestamp"), e.timestamp);
         entry.insert(QStringLiteral("mime"), e.mediaMimetype);
         entry.insert(QStringLiteral("httpUrl"), httpUrl);
-        entry.insert(QStringLiteral("isImage"), e.type == TimelineEvent::Image);
+        // Stickers navigate through the image viewer like images.
+        entry.insert(QStringLiteral("isImage"),
+                     e.type == TimelineEvent::Image
+                         || e.type == TimelineEvent::Sticker);
         entry.insert(QStringLiteral("size"), static_cast<qint64>(e.mediaSize));
         out.append(entry);
     }
@@ -1014,6 +1031,9 @@ QVariantMap TimelineModel::messageDetails(const QString &eventId) const
     case TimelineEvent::Notice:      type = QStringLiteral("m.room.message (notice)"); break;
     case TimelineEvent::Image:       type = QStringLiteral("m.room.message (image)"); break;
     case TimelineEvent::File:        type = QStringLiteral("m.room.message (file)"); break;
+    case TimelineEvent::Video:       type = QStringLiteral("m.room.message (video)"); break;
+    case TimelineEvent::Audio:       type = QStringLiteral("m.room.message (audio)"); break;
+    case TimelineEvent::Sticker:     type = QStringLiteral("m.sticker"); break;
     case TimelineEvent::Unknown:     type = QStringLiteral("Unknown message"); break;
     default:                         return {};
     }

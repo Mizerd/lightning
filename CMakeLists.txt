@@ -260,6 +260,7 @@ set(APP_QML_FILES
     qml/AccountMenu.qml
     qml/MemberProfilePopover.qml
     qml/Avatar.qml
+    qml/Skeleton.qml
     qml/AppTheme.qml
 )
 
@@ -654,6 +655,19 @@ if(BUILD_TESTING)
     target_link_libraries(timeline-hydration-qml-test PRIVATE Qt6::Test)
     add_test(NAME timeline-hydration-qml COMMAND timeline-hydration-qml-test)
     set_tests_properties(timeline-hydration-qml PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    # v0.7: type-specific media placeholders — reserved aspect geometry for
+    # image/video/sticker, compact audio/voice rows, the decrypting text
+    # skeleton, and the shared Skeleton primitive's animation eligibility.
+    qt_add_executable(media-placeholder-qml-test
+        tests/MediaPlaceholderQmlTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_app(media-placeholder-qml-test)
+    target_link_libraries(media-placeholder-qml-test PRIVATE Qt6::Test)
+    add_test(NAME media-placeholder-qml COMMAND media-placeholder-qml-test)
+    set_tests_properties(media-placeholder-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     # v0.7: full account-switch lifecycle on a real AppController (mock

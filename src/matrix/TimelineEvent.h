@@ -27,6 +27,11 @@ struct TimelineEvent {
         DateDivider,
         ReadMarker,
         TimelineStart,
+        // v0.7: typed media rows (previously collapsed into File/Unknown).
+        // Appended last so persisted integer values stay stable.
+        Video,
+        Audio,
+        Sticker,
     };
 
     enum Status {
@@ -78,7 +83,8 @@ struct TimelineEvent {
     bool mentionsMe = false;
     bool mentionsRoom = false;
 
-    // Media (v0.3). Non-empty only for Image/File events.
+    // Media (v0.3). Non-empty only for media events (Image/File and the
+    // v0.7 typed Video/Audio/Sticker rows).
     QString mediaMxcUrl;
     QString mediaMimetype;
     QString mediaFilename;
@@ -86,6 +92,11 @@ struct TimelineEvent {
     int     mediaWidth = 0;
     int     mediaHeight = 0;
     QString mediaThumbnailMxcUrl;
+    // v0.7: duration (audio/video) and the MSC3245 voice-message marker,
+    // straight from Matrix `info` metadata — the UI reserves type-correct
+    // geometry before any bytes arrive.
+    qint64  mediaDurationMs = 0;
+    bool    mediaIsVoice = false;
 
     // Media bridge (v0.5.9, Rust backend only). `mediaKey` identifies the
     // item's media for MatrixClient::fetchMedia; the actual source (which

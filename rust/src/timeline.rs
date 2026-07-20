@@ -2039,9 +2039,51 @@ fn event_item_to_json(
                     out["body"] = "".into();
                     out["error_kind"] = utd_category(encrypted).into();
                 }
-                MsgLikeKind::Sticker(_) => {
-                    out["msgtype"] = "unsupported".into();
-                    out["body"] = "[sticker]".into();
+                MsgLikeKind::Sticker(sticker) => {
+                    // v0.7: stickers render through the image path with a
+                    // transparency-preserving presentation. Only safe
+                    // metadata crosses the FFI; bytes flow through the same
+                    // validated media bridge as image attachments.
+                    let content = sticker.content();
+                    out["msgtype"] = "sticker".into();
+                    out["body"] = content.body.clone().into();
+                    out["media_filename"] = content.body.clone().into();
+                    let source: MediaSource = content.source.clone().into();
+                    if let MediaSource::Plain(mxc) = &source {
+                        out["media_mxc"] = mxc.to_string().into();
+                    }
+                    let info = &content.info;
+                    let mut mimetype = None;
+                    if let Some(mime) = &info.mimetype {
+                        out["media_mimetype"] = mime.clone().into();
+                        mimetype = Some(mime.clone());
+                    }
+                    if let Some(size) = info.size {
+                        out["media_size"] = u64::from(size).into();
+                    }
+                    if let Some(width) = info.width {
+                        out["media_width"] = u64::from(width).into();
+                    }
+                    if let Some(height) = info.height {
+                        out["media_height"] = u64::from(height).into();
+                    }
+                    let media = StoredMedia {
+                        source,
+                        thumbnail: info.thumbnail_source.clone(),
+                        filename: content.body.clone(),
+                        mimetype,
+                    };
+                    let key: String = match out["event_id"].as_str() {
+                        Some(event_id) if !event_id.is_empty() => {
+                            event_id.to_owned()
+                        }
+                        _ => unique_id.to_owned(),
+                    };
+                    out["media_key"] = key.clone().into();
+                    out["media_source_available"] = true.into();
+                    out["media_thumb_available"] =
+                        media.thumbnail.is_some().into();
+                    registry.remember_media(key, media);
                 }
                 MsgLikeKind::Poll(_) => {
                     out["msgtype"] = "unsupported".into();
@@ -2208,16 +2250,32 @@ fn fill_message_content(
             })
         }
         MessageType::Audio(content) => {
-            out["msgtype"] = "file".into();
+            // v0.7: audio gets its own semantic type so the UI can reserve
+            // a compact audio row (with duration and the MSC3245 voice
+            // marker) instead of a generic file card. Bytes still flow
+            // through the same safe media path.
+            out["msgtype"] = "audio".into();
             out["body"] = content.body.clone().into();
             out["media_filename"] = content.body.clone().into();
             if let MediaSource::Plain(mxc) = &content.source {
                 out["media_mxc"] = mxc.to_string().into();
             }
-            let mimetype =
-                content.info.as_ref().and_then(|info| info.mimetype.clone());
-            if let Some(mime) = &mimetype {
-                out["media_mimetype"] = mime.clone().into();
+            if content.voice.is_some() {
+                out["media_voice"] = true.into();
+            }
+            let mut mimetype = None;
+            if let Some(info) = &content.info {
+                if let Some(mime) = &info.mimetype {
+                    out["media_mimetype"] = mime.clone().into();
+                    mimetype = Some(mime.clone());
+                }
+                if let Some(size) = info.size {
+                    out["media_size"] = u64::from(size).into();
+                }
+                if let Some(duration) = info.duration {
+                    out["media_duration_ms"] =
+                        (duration.as_millis() as u64).into();
+                }
             }
             Some(StoredMedia {
                 source: content.source.clone(),
@@ -2227,7 +2285,10 @@ fn fill_message_content(
             })
         }
         MessageType::Video(content) => {
-            out["msgtype"] = "file".into();
+            // v0.7: videos reserve their thumbnail geometry (Matrix info
+            // width/height/duration) and render a type-specific placeholder
+            // instead of a generic file card.
+            out["msgtype"] = "video".into();
             out["body"] = content.body.clone().into();
             out["media_filename"] = content.body.clone().into();
             if let MediaSource::Plain(mxc) = &content.source {
@@ -2242,6 +2303,16 @@ fn fill_message_content(
                 }
                 if let Some(size) = info.size {
                     out["media_size"] = u64::from(size).into();
+                }
+                if let Some(width) = info.width {
+                    out["media_width"] = u64::from(width).into();
+                }
+                if let Some(height) = info.height {
+                    out["media_height"] = u64::from(height).into();
+                }
+                if let Some(duration) = info.duration {
+                    out["media_duration_ms"] =
+                        (duration.as_millis() as u64).into();
                 }
                 thumbnail = info.thumbnail_source.clone();
             }

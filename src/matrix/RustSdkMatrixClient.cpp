@@ -63,6 +63,15 @@ QString previewFor(const TimelineEvent &event)
         return event.mediaFilename.isEmpty() ? QStringLiteral("Image") : event.mediaFilename;
     if (event.type == TimelineEvent::File)
         return event.mediaFilename.isEmpty() ? QStringLiteral("File") : event.mediaFilename;
+    if (event.type == TimelineEvent::Video)
+        return event.mediaFilename.isEmpty() ? QStringLiteral("Video") : event.mediaFilename;
+    if (event.type == TimelineEvent::Audio)
+        return event.mediaIsVoice ? QStringLiteral("Voice message")
+                                  : (event.mediaFilename.isEmpty()
+                                         ? QStringLiteral("Audio")
+                                         : event.mediaFilename);
+    if (event.type == TimelineEvent::Sticker)
+        return QStringLiteral("Sticker");
     return event.body;
 }
 

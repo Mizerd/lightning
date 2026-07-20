@@ -47,6 +47,14 @@ Item {
                                                : (compactMode ? 0 : 1)
     readonly property real avatarGutterWidth: compactMode ? 8
                                               : (bubbleMode ? 44 : 40)
+
+    // v0.7: shared on-screen check for skeleton shimmer and GIF playback —
+    // rows pooled in the cache buffer are `visible` but not on screen, and
+    // must not burn animation work.
+    readonly property bool rowOnScreen:
+        ListView.view
+        && (y + height) > ListView.view.contentY
+        && y < (ListView.view.contentY + ListView.view.height)
     visible: roomActivityVisible && !suppressedAsThreadRoot
     implicitHeight: (!roomActivityVisible || suppressedAsThreadRoot) ? 0
                     : isVirtualRow ? virtualRow.implicitHeight
@@ -135,6 +143,18 @@ Item {
         if (!ListView.view || actionKey === "") return
         ListView.view.pinnedActionsKey =
             actionsPinned ? "" : actionKey
+    }
+
+    // v0.7: recoverable unable-to-decrypt rows show a shimmering text
+    // skeleton (keys can still arrive and replace the row in place);
+    // deterministic failures (sent before join, sender requires
+    // verification, withheld) keep their honest static explanation.
+    readonly property bool showsDecryptingSkeleton: {
+        if (model.undecryptable !== true || model.redacted)
+            return false
+        var kind = model.errorKind || ""
+        return kind !== "membership" && kind !== "device_trust"
+               && kind !== "withheld"
     }
 
     // v0.5.11: link-preview state for this row, resolved by
@@ -464,10 +484,15 @@ Item {
                         }
                     }
 
-                    // Media block (image or file)
+                    // Media block (image, sticker, video, audio, or file).
+                    // Every class reserves its own type-correct geometry
+                    // before bytes arrive, so hydration never reflows rows.
                     Item {
                         id: mediaBox
                         visible: model.isImage || model.isFile
+                                 || model.isVideo === true
+                                 || model.isAudio === true
+                                 || model.isSticker === true
                         Layout.alignment: Qt.AlignLeft
                         Layout.preferredWidth: Math.min(bubble.width,
                                                         implicitWidth)
@@ -486,20 +511,34 @@ Item {
                             width: Math.min(bubble.width,
                                             item ? item.implicitWidth : 0)
                             sourceComponent: model.isImage ? imageComponent
+                                            : model.isSticker === true
+                                              ? stickerComponent
+                                            : model.isVideo === true
+                                              ? videoComponent
+                                            : model.isAudio === true
+                                              ? audioComponent
                                             : model.isFile  ? fileComponent
                                             : null
                         }
                     }
 
-                    // Body text (hidden for image-only messages when body == filename)
+                    // Body text (hidden for media messages whose body is just
+                    // the filename already shown in the media block, and for
+                    // recoverable undecryptable rows, which show the
+                    // decrypting skeleton instead).
                     TextEdit {
                         id: bodyLabel
                         objectName: "messageBody"
-                        visible: text.length > 0
+                        visible: text.length > 0 && !root.showsDecryptingSkeleton
                         text: app.linkPreviews.linkifiedBody((function() {
                             if (model.redacted) return qsTr("[message deleted]")
-                            // For images, skip re-showing the filename we already show in mediaBox.
-                            if (model.isImage && model.body === model.mediaFilename) return ""
+                            // Media rows already show the filename in their
+                            // media block; skip duplicating it as the body.
+                            var mediaRow = model.isImage
+                                           || model.isSticker === true
+                                           || model.isVideo === true
+                                           || model.isAudio === true
+                            if (mediaRow && model.body === model.mediaFilename) return ""
                             return model.body || ""
                         })())
                         color: model.undecryptable === true
@@ -541,6 +580,32 @@ Item {
                                 "Missing room key. Restore your recovery key " +
                                 "in Settings, or wait for another verified " +
                                 "device to share the key.")
+                        }
+                    }
+
+                    // v0.7: decrypting-text skeleton for recoverable rows.
+                    // Two bounded line bars reserve stable text geometry; the
+                    // in-place decryption update replaces them with the real
+                    // body without moving the scroll anchor.
+                    ColumnLayout {
+                        objectName: "decryptingSkeleton"
+                        visible: root.showsDecryptingSkeleton
+                        spacing: 5
+                        Layout.fillWidth: true
+                        Layout.topMargin: 2
+                        Skeleton {
+                            active: root.rowOnScreen
+                                    && root.showsDecryptingSkeleton
+                            Layout.preferredWidth: Math.min(
+                                420, Math.max(120, bubble.width * 0.55))
+                            Layout.preferredHeight: AppTheme.scaled(13)
+                        }
+                        Skeleton {
+                            active: root.rowOnScreen
+                                    && root.showsDecryptingSkeleton
+                            Layout.preferredWidth: Math.min(
+                                300, Math.max(80, bubble.width * 0.35))
+                            Layout.preferredHeight: AppTheme.scaled(13)
                         }
                     }
 
@@ -1165,18 +1230,34 @@ Item {
                     }
                 }
 
-                // Loading.
-                RowLayout {
+                // Loading: separate title/description/domain region
+                // skeletons at a stable card height, replaced in place as
+                // the validated preview fields arrive — the card never
+                // collapses to a spinner row and re-expands.
+                ColumnLayout {
+                    objectName: "linkPreviewSkeleton"
                     visible: card.st === "loading"
-                    spacing: AppTheme.spacingS
-                    BusyIndicator {
-                        width: 16; height: 16
-                        running: card.st === "loading"
+                    Layout.fillWidth: true
+                    spacing: 5
+                    Skeleton {
+                        active: root.rowOnScreen && card.st === "loading"
+                        Layout.preferredWidth: Math.min(240, card.width * 0.6)
+                        Layout.preferredHeight: 12
                     }
-                    Label {
-                        text: qsTr("Loading preview…")
-                        color: AppTheme.textMuted
-                        font.pixelSize: 11
+                    Skeleton {
+                        active: root.rowOnScreen && card.st === "loading"
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 10
+                    }
+                    Skeleton {
+                        active: root.rowOnScreen && card.st === "loading"
+                        Layout.preferredWidth: Math.min(300, card.width * 0.8)
+                        Layout.preferredHeight: 10
+                    }
+                    Skeleton {
+                        active: root.rowOnScreen && card.st === "loading"
+                        Layout.preferredWidth: Math.min(140, card.width * 0.35)
+                        Layout.preferredHeight: 9
                     }
                 }
 
@@ -1356,8 +1437,8 @@ Item {
                 (model.mediaMimetype || "").toLowerCase() === "image/gif"
             readonly property bool pendingMedia:
                 (model.eventId || "").startsWith("local:")
-                || (model.mediaUrl && model.mediaUrl.toString()
-                    .indexOf("send-queue.localhost") >= 0)
+                || (model.mediaUrl ? model.mediaUrl.toString()
+                        .indexOf("send-queue.localhost") >= 0 : false)
             property string animatedSource: ""
             // v0.6.1: autoplay policy — 0 Always, 1 OnHover, 2 Never.
             readonly property int gifMode: app.settings.gifAutoplay
@@ -1426,16 +1507,45 @@ Item {
                 usesBridge ? bridgeSource
                            : (model.mediaThumbUrl
                               && model.mediaThumbUrl.toString().length > 0
-                              ? model.mediaThumbUrl : model.mediaUrl)
+                              ? model.mediaThumbUrl
+                              : (model.mediaUrl || ""))
 
-            // Placeholder frame keeps a stable size while loading/failed so
-            // the timeline does not jump when the bitmap arrives.
-            Rectangle {
+            // v0.7: image skeleton keeps the exact reserved rectangle while
+            // bytes download/decrypt, and is replaced in place — no zero-size
+            // flash, no reflow when the bitmap arrives. Shimmer runs only
+            // while the row is on screen; a fetch failure keeps the static
+            // surface (geometry never collapses).
+            Skeleton {
+                objectName: "imageSkeleton"
                 anchors.fill: parent
                 radius: AppTheme.radiusSm
-                color: AppTheme.cardElevated
                 visible: img.status !== Image.Ready
                          && animatedImg.status !== AnimatedImage.Ready
+                active: root.rowOnScreen && !imageBox.bridgeFailed
+                        && img.status !== Image.Error
+            }
+            // GIFs announce themselves on the placeholder too, so the
+            // reserved box reads as "an animation is coming".
+            Rectangle {
+                visible: imageBox.isGif
+                         && img.status !== Image.Ready
+                         && animatedImg.status !== AnimatedImage.Ready
+                         && !imageBox.bridgeFailed
+                anchors.left: parent.left
+                anchors.bottom: parent.bottom
+                anchors.margins: 5
+                radius: 3
+                color: AppTheme.overlayScrim
+                width: placeholderGifLabel.implicitWidth + 8
+                height: placeholderGifLabel.implicitHeight + 4
+                Label {
+                    id: placeholderGifLabel
+                    anchors.centerIn: parent
+                    text: "GIF"
+                    color: AppTheme.accentText
+                    font.pixelSize: 9
+                    font.weight: Font.Bold
+                }
             }
 
             // Static path (default; also the frame for non-animated GIFs).
@@ -1461,11 +1571,7 @@ Item {
                 source: imageBox.animateGif ? imageBox.animatedSource : ""
                 asynchronous: true
                 cache: true
-                playing: imageBox.animateGif
-                         && root.ListView.view
-                         && (root.y + root.height) > root.ListView.view.contentY
-                         && root.y < (root.ListView.view.contentY
-                                      + root.ListView.view.height)
+                playing: imageBox.animateGif && root.rowOnScreen
             }
 
             MouseArea {
@@ -1484,16 +1590,6 @@ Item {
                 }
             }
 
-            BusyIndicator {
-                anchors.centerIn: parent
-                running: imageBox.animateGif
-                         ? animatedImg.status === AnimatedImage.Loading
-                         : (img.status === Image.Loading
-                            || (imageBox.usesBridge
-                                && imageBox.bridgeSource === ""
-                                && !imageBox.bridgeFailed))
-                visible: running
-            }
             Label {
                 anchors.centerIn: parent
                 width: parent.width - 12
@@ -1505,6 +1601,328 @@ Item {
                 color: AppTheme.textMuted
                 font.pixelSize: 11
                 visible: img.status === Image.Error || imageBox.bridgeFailed
+            }
+        }
+    }
+
+    // ---- sticker ----
+    // Stickers keep their transparency intent: the reserved aspect box has
+    // no opaque backing card once the bitmap is ready — transparent pixels
+    // reveal the timeline surface. The skeleton only exists while loading.
+    Component {
+        id: stickerComponent
+        Item {
+            id: stickerBox
+            objectName: "stickerMedia"
+            readonly property real maxEdge: 180
+            readonly property real natW: model.mediaWidth > 0 ? model.mediaWidth : 0
+            readonly property real natH: model.mediaHeight > 0 ? model.mediaHeight : 0
+            readonly property real ratio: (natW > 0 && natH > 0)
+                                          ? (natH / natW) : 1.0
+            readonly property real dispW: {
+                var w = natW > 0 ? Math.min(natW, maxEdge) : maxEdge * 0.85
+                if (w * ratio > maxEdge) w = maxEdge / ratio
+                return Math.max(1, w)
+            }
+            implicitWidth: dispW
+            implicitHeight: Math.max(1, dispW * ratio)
+
+            readonly property bool usesBridge:
+                model.mediaSourceAvailable === true && app.mediaBridge.supported
+            readonly property string bridgeCacheKey:
+                (model.mediaThumbAvailable ? "thumb:" : "full:")
+                + (model.mediaKey || "")
+            property string bridgeSource: ""
+            property bool bridgeFailed: false
+            function refreshBridgeSource() {
+                if (!usesBridge || !model.mediaKey) return
+                if (bridgeFailed)
+                    app.mediaBridge.retry(bridgeCacheKey)
+                bridgeFailed = false
+                bridgeSource = app.mediaBridge.mediaSource(
+                    model.mediaKey,
+                    model.mediaThumbAvailable ? "thumb" : "full")
+            }
+            Component.onCompleted: refreshBridgeSource()
+            Connections {
+                target: app.mediaBridge
+                enabled: stickerBox.usesBridge
+                function onMediaCached(cacheKey) {
+                    if (cacheKey === stickerBox.bridgeCacheKey)
+                        stickerBox.bridgeSource =
+                            app.mediaBridge.cachedSource(cacheKey)
+                }
+                function onMediaFetchFailed(cacheKey, category) {
+                    if (cacheKey === stickerBox.bridgeCacheKey)
+                        stickerBox.bridgeFailed = true
+                }
+            }
+            readonly property string resolvedSource:
+                usesBridge ? bridgeSource
+                           : (model.mediaThumbUrl
+                              && model.mediaThumbUrl.toString().length > 0
+                              ? model.mediaThumbUrl
+                              : (model.mediaUrl || ""))
+
+            Skeleton {
+                anchors.fill: parent
+                visible: stickerImg.status !== Image.Ready
+                active: root.rowOnScreen && !stickerBox.bridgeFailed
+                        && stickerImg.status !== Image.Error
+            }
+            Image {
+                id: stickerImg
+                anchors.fill: parent
+                fillMode: Image.PreserveAspectFit
+                source: stickerBox.resolvedSource
+                sourceSize.width: 360
+                asynchronous: true
+                cache: true
+            }
+            HoverHandler { id: stickerHover }
+            ToolTip.text: model.body || ""
+            ToolTip.visible: stickerHover.hovered && (model.body || "").length > 0
+            ToolTip.delay: 400
+            TapHandler {
+                onTapped: {
+                    if (stickerBox.bridgeFailed) {
+                        stickerBox.refreshBridgeSource()
+                        return
+                    }
+                    if (root.ListView.view && root.ListView.view.openImage)
+                        root.ListView.view.openImage(model.mediaKey || "",
+                                                     model.mediaUrl)
+                }
+            }
+            Label {
+                anchors.centerIn: parent
+                width: parent.width - 12
+                horizontalAlignment: Text.AlignHCenter
+                wrapMode: Text.WordWrap
+                text: qsTr("Sticker failed to load — click to retry")
+                color: AppTheme.textMuted
+                font.pixelSize: 11
+                visible: stickerImg.status === Image.Error
+                         || stickerBox.bridgeFailed
+            }
+        }
+    }
+
+    // ---- video ----
+    // Reserves the thumbnail geometry from Matrix info metadata (bounded
+    // 16:9 fallback), shows the media skeleton plus a play badge and the
+    // duration, and swaps the real thumbnail in place. Playback stays an
+    // explicit Save/External action — Lightning has no embedded player yet.
+    Component {
+        id: videoComponent
+        Item {
+            id: videoBox
+            objectName: "videoMedia"
+            readonly property real maxW: Math.min(360, bubble.width)
+            readonly property real maxH: 320
+            readonly property real natW: model.mediaWidth > 0 ? model.mediaWidth : 0
+            readonly property real natH: model.mediaHeight > 0 ? model.mediaHeight : 0
+            readonly property real ratio: (natW > 0 && natH > 0)
+                                          ? (natH / natW) : 0.5625
+            readonly property real dispW: {
+                var w = natW > 0 ? Math.min(natW, maxW) : maxW
+                if (w * ratio > maxH) w = maxH / ratio
+                return Math.max(1, Math.min(w, maxW))
+            }
+            implicitWidth: dispW
+            implicitHeight: Math.max(1, dispW * ratio)
+
+            readonly property bool usesBridge:
+                model.mediaSourceAvailable === true && app.mediaBridge.supported
+                && model.mediaThumbAvailable === true
+            readonly property string bridgeCacheKey:
+                "thumb:" + (model.mediaKey || "")
+            property string bridgeSource: ""
+            property bool bridgeFailed: false
+            function refreshBridgeSource() {
+                if (!usesBridge || !model.mediaKey) return
+                if (bridgeFailed)
+                    app.mediaBridge.retry(bridgeCacheKey)
+                bridgeFailed = false
+                bridgeSource = app.mediaBridge.mediaSource(model.mediaKey,
+                                                           "thumb")
+            }
+            Component.onCompleted: refreshBridgeSource()
+            Connections {
+                target: app.mediaBridge
+                enabled: videoBox.usesBridge
+                function onMediaCached(cacheKey) {
+                    if (cacheKey === videoBox.bridgeCacheKey)
+                        videoBox.bridgeSource =
+                            app.mediaBridge.cachedSource(cacheKey)
+                }
+                function onMediaFetchFailed(cacheKey, category) {
+                    if (cacheKey === videoBox.bridgeCacheKey)
+                        videoBox.bridgeFailed = true
+                }
+            }
+
+            function formatDuration(ms) {
+                if (!ms || ms <= 0) return ""
+                var total = Math.round(ms / 1000)
+                var m = Math.floor(total / 60)
+                var s = total % 60
+                return m + ":" + (s < 10 ? "0" : "") + s
+            }
+
+            Skeleton {
+                anchors.fill: parent
+                radius: AppTheme.radiusSm
+                visible: thumbImg.status !== Image.Ready
+                active: root.rowOnScreen && videoBox.usesBridge
+                        && !videoBox.bridgeFailed
+            }
+            Image {
+                id: thumbImg
+                anchors.fill: parent
+                fillMode: Image.PreserveAspectCrop
+                source: videoBox.usesBridge ? videoBox.bridgeSource : ""
+                sourceSize.width: 640
+                asynchronous: true
+                cache: true
+                visible: status === Image.Ready
+            }
+            // Play affordance + type identity, over thumbnail or skeleton.
+            Rectangle {
+                anchors.centerIn: parent
+                width: 44; height: 44; radius: 22
+                color: AppTheme.overlayScrim
+                Icon {
+                    anchors.centerIn: parent
+                    name: "play_arrow"
+                    size: 26
+                    color: AppTheme.accentText
+                }
+            }
+            Rectangle {
+                anchors.left: parent.left
+                anchors.bottom: parent.bottom
+                anchors.margins: 5
+                radius: 3
+                color: AppTheme.overlayScrim
+                width: videoChipRow.implicitWidth + 10
+                height: videoChipRow.implicitHeight + 4
+                Row {
+                    id: videoChipRow
+                    anchors.centerIn: parent
+                    spacing: 4
+                    Icon {
+                        anchors.verticalCenter: parent.verticalCenter
+                        name: "videocam"
+                        size: 11
+                        color: AppTheme.accentText
+                    }
+                    Label {
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: videoBox.formatDuration(model.mediaDurationMs)
+                              || qsTr("Video")
+                        color: AppTheme.accentText
+                        font.pixelSize: 9
+                        font.weight: Font.Bold
+                    }
+                }
+            }
+            TapHandler {
+                onTapped: {
+                    if (videoBox.bridgeFailed) {
+                        videoBox.refreshBridgeSource()
+                        return
+                    }
+                    if (model.mediaSourceAvailable === true
+                        && app.mediaBridge.supported
+                        && root.ListView.view && root.ListView.view.saveMedia)
+                        root.ListView.view.saveMedia(model.mediaKey || "",
+                                                     model.mediaFilename
+                                                     || "video")
+                    else if (model.mediaUrl
+                             && model.mediaUrl.toString().length > 0)
+                        app.media.openExternal(model.mediaUrl)
+                }
+            }
+        }
+    }
+
+    // ---- audio / voice ----
+    // A stable compact audio row: leading type icon, filename, duration and
+    // an explicit Save action. Fixed minimum height — audio never reserves
+    // image-sized geometry and never reflows when metadata resolves.
+    Component {
+        id: audioComponent
+        Rectangle {
+            objectName: "audioMedia"
+            implicitWidth: Math.min(320, bubble.width)
+            implicitHeight: Math.max(44, audioRow.implicitHeight + 10)
+            color: AppTheme.surfaceElevated
+            radius: AppTheme.radiusSm
+            border.color: AppTheme.border
+            border.width: 1
+            RowLayout {
+                id: audioRow
+                anchors.fill: parent
+                anchors.margins: 6
+                spacing: 8
+                Rectangle {
+                    width: 30; height: 30; radius: 15
+                    color: AppTheme.accentSoft
+                    Icon {
+                        anchors.centerIn: parent
+                        name: model.mediaIsVoice === true ? "mic" : "play_arrow"
+                        size: 17
+                        color: AppTheme.accent
+                    }
+                }
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: 1
+                    Label {
+                        text: model.mediaIsVoice === true
+                              ? qsTr("Voice message")
+                              : (model.mediaFilename || model.body || qsTr("Audio"))
+                        color: AppTheme.text
+                        font.pixelSize: 12
+                        font.weight: Font.Medium
+                        elide: Label.ElideMiddle
+                        Layout.fillWidth: true
+                    }
+                    Label {
+                        text: {
+                            var ms = model.mediaDurationMs
+                            if (!ms || ms <= 0) return qsTr("Audio")
+                            var total = Math.round(ms / 1000)
+                            var m = Math.floor(total / 60)
+                            var s = total % 60
+                            return m + ":" + (s < 10 ? "0" : "") + s
+                        }
+                        color: AppTheme.textMuted
+                        font.pixelSize: 10
+                    }
+                }
+                ToolButton {
+                    visible: model.mediaSourceAvailable === true
+                             && app.mediaBridge.supported
+                    text: qsTr("Save")
+                    Accessible.name: qsTr("Save %1 as…")
+                        .arg(model.mediaFilename || qsTr("audio"))
+                    onClicked: {
+                        if (root.ListView.view && root.ListView.view.saveMedia)
+                            root.ListView.view.saveMedia(model.mediaKey || "",
+                                                         model.mediaFilename
+                                                         || "audio")
+                    }
+                }
+                ToolButton {
+                    visible: !(model.mediaSourceAvailable === true)
+                             && (model.mediaUrl
+                                 ? model.mediaUrl.toString().length > 0
+                                 : false)
+                    text: qsTr("Open")
+                    onClicked: app.media.openExternal(model.mediaUrl)
+                }
             }
         }
     }
@@ -1570,8 +1988,9 @@ Item {
                 // HTTP backend keeps its external-open path (plain media).
                 ToolButton {
                     visible: !(model.mediaSourceAvailable === true)
-                             && model.mediaUrl
-                             && model.mediaUrl.toString().length > 0
+                             && (model.mediaUrl
+                                 ? model.mediaUrl.toString().length > 0
+                                 : false)
                     text: qsTr("Open")
                     onClicked: app.media.openExternal(model.mediaUrl)
                 }

@@ -63,13 +63,20 @@ private Q_SLOTS:
             "height: paginationHeader.visible ? paginationHeader.implicitHeight")));
     }
 
-    void animatedGifSpinnerUsesActiveRendererState()
+    // v0.7: the loading presentation is the shared Skeleton, and it keys off
+    // BOTH renderers' actual status (static Image and AnimatedImage), so a
+    // ready GIF frame can never sit behind a lingering placeholder. Delegate
+    // reuse still resets media identity.
+    void animatedGifSkeletonUsesActiveRendererState()
     {
         const QString delegate = read(QStringLiteral("MessageDelegate.qml"));
+        QVERIFY(delegate.contains(QStringLiteral("objectName: \"imageSkeleton\"")));
         QVERIFY(delegate.contains(QStringLiteral(
-            "running: imageBox.animateGif")));
+            "visible: img.status !== Image.Ready")));
         QVERIFY(delegate.contains(QStringLiteral(
-            "animatedImg.status === AnimatedImage.Loading")));
+            "animatedImg.status !== AnimatedImage.Ready")));
+        QVERIFY(delegate.contains(QStringLiteral(
+            "playing: imageBox.animateGif && root.rowOnScreen")));
         QVERIFY(delegate.contains(QStringLiteral("onMediaIdentityChanged")));
     }
 

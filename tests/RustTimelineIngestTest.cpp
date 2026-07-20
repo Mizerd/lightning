@@ -72,6 +72,8 @@ private Q_SLOTS:
     void threadSummaryAbsentKeepsFallbackContract();
     void threadPanelIngestPreservesReplies();
     void parsesTypedStateActivity();
+    // v0.7: typed media rows with type-correct reserved-geometry metadata.
+    void parsesTypedMediaItems();
 
     // ── Diff application: every VectorDiff variant ──────────────────
     void appendAppends();
@@ -175,6 +177,57 @@ void RustTimelineIngestTest::parsesUndecryptableItem()
     QCOMPARE(e.errorKind, QStringLiteral("no_key"));
     // Honest placeholder, never an empty bubble, never ciphertext.
     QVERIFY(!e.body.isEmpty());
+}
+
+void RustTimelineIngestTest::parsesTypedMediaItems()
+{
+    // Video: aspect dimensions + duration reserve the thumbnail geometry.
+    QJsonObject video = itemJson(QStringLiteral("uidV"), QStringLiteral("$v"),
+                                 QStringLiteral("clip.mp4"));
+    video.insert(QStringLiteral("msgtype"), QStringLiteral("video"));
+    video.insert(QStringLiteral("media_filename"), QStringLiteral("clip.mp4"));
+    video.insert(QStringLiteral("media_width"), 1280);
+    video.insert(QStringLiteral("media_height"), 720);
+    video.insert(QStringLiteral("media_duration_ms"), 83000);
+    video.insert(QStringLiteral("media_key"), QStringLiteral("$v"));
+    video.insert(QStringLiteral("media_source_available"), true);
+    video.insert(QStringLiteral("media_thumb_available"), true);
+    const TimelineEvent v = eventFromItemJson(video, kRoom);
+    QCOMPARE(v.type, TimelineEvent::Video);
+    QCOMPARE(v.mediaWidth, 1280);
+    QCOMPARE(v.mediaHeight, 720);
+    QCOMPARE(v.mediaDurationMs, qint64(83000));
+    QVERIFY(v.mediaThumbAvailable);
+
+    // Audio: duration; plain audio is not a voice message.
+    QJsonObject audio = itemJson(QStringLiteral("uidA"), QStringLiteral("$a"),
+                                 QStringLiteral("song.ogg"));
+    audio.insert(QStringLiteral("msgtype"), QStringLiteral("audio"));
+    audio.insert(QStringLiteral("media_duration_ms"), 4000);
+    const TimelineEvent a = eventFromItemJson(audio, kRoom);
+    QCOMPARE(a.type, TimelineEvent::Audio);
+    QCOMPARE(a.mediaDurationMs, qint64(4000));
+    QVERIFY(!a.mediaIsVoice);
+
+    // Voice: the MSC3245 marker flows through.
+    QJsonObject voice = audio;
+    voice.insert(QStringLiteral("media_voice"), true);
+    const TimelineEvent vo = eventFromItemJson(voice, kRoom);
+    QCOMPARE(vo.type, TimelineEvent::Audio);
+    QVERIFY(vo.mediaIsVoice);
+
+    // Sticker: image-shaped metadata with its own semantic type.
+    QJsonObject sticker = itemJson(QStringLiteral("uidS"), QStringLiteral("$s"),
+                                   QStringLiteral("party"));
+    sticker.insert(QStringLiteral("msgtype"), QStringLiteral("sticker"));
+    sticker.insert(QStringLiteral("media_width"), 512);
+    sticker.insert(QStringLiteral("media_height"), 512);
+    sticker.insert(QStringLiteral("media_key"), QStringLiteral("$s"));
+    sticker.insert(QStringLiteral("media_source_available"), true);
+    const TimelineEvent s = eventFromItemJson(sticker, kRoom);
+    QCOMPARE(s.type, TimelineEvent::Sticker);
+    QCOMPARE(s.mediaWidth, 512);
+    QVERIFY(s.mediaSourceAvailable);
 }
 
 void RustTimelineIngestTest::parsesLocalEchoStates()

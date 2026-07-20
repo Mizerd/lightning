@@ -107,6 +107,13 @@ public:
         EndsSenderGroupRole,
         ShowSenderIdentityRole,
         StableEventIdRole,
+        // v0.7: typed media presentation (video/audio/voice/sticker rows
+        // reserve type-correct geometry before any bytes arrive).
+        IsVideoRole,
+        IsAudioRole,
+        IsStickerRole,
+        MediaDurationMsRole,
+        MediaIsVoiceRole,
     };
 
     explicit TimelineModel(QObject *parent = nullptr);

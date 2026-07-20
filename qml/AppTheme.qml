@@ -41,6 +41,10 @@ QtObject {
     // System dark-mode hint from the platform (QStyleHints::colorScheme),
     // pushed in from Main.qml via AppController.systemDarkMode.
     property bool systemDark: false
+    // v0.7: app-wide reduced-motion hint consumed by loading skeletons and
+    // other decorative animation. False by default; a future accessibility
+    // setting or platform hint can drive it without touching consumers.
+    property bool reducedMotion: false
 
     // Resolve System (0) to the flagship design pair — Moss Light or
     // Indigo Night — based on the platform colour scheme.
