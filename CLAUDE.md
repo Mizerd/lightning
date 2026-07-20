@@ -24,14 +24,34 @@ frontend.
 
 ## 2. Current release and development state
 
-The state verified on 2026-07-19 is:
+The state verified on 2026-07-20 is:
 
-- Latest published release: **Lightning 0.6.1**
-- Published tag: `v0.6.1`, cut from the release commit on `main`
-- Previous release: `v0.6.0` -> `2157194` (immutable, unchanged)
-- Application version: **0.6.1** in `CMakeLists.txt`, `rust/Cargo.toml`, and
+- Latest published release: **Lightning 0.6.2**
+- Published tag: `v0.6.2` -> `fe3b85f` (created by the project-7 packaging
+  pipeline after all five packages published and verified; pipeline 63)
+- Previous releases: `v0.6.1` -> `86d30b4` and `v0.6.0` -> `2157194`
+  (immutable, unchanged)
+- Application version: **0.6.2** in `CMakeLists.txt`, `rust/Cargo.toml`, and
   the Rust/HTTP user agent
-- `main` is past the 0.6.1 release commit: the 2026-07-19 checkpoints added
+- The 2026-07-20 stability checkpoints (`790a75b`..`fe3b85f`) delivered:
+  the initial-timeline presentation gate + persistent scroll anchoring
+  (bottom-pinned and scrolled-up) with row-scoped Set-diff application;
+  the shared Skeleton primitive with typed media placeholders and real
+  video/audio/voice/sticker timeline rows; room-member profile hydration
+  through `Timeline::fetch_members` with the localpart display-name
+  fallback (never a bare MXID label) and explicit avatar states (a loaded
+  transparent avatar never sits on the fallback colour); the
+  verified-session Megolm bootstrap (`BackupDownloadStrategy::OneShot`, a
+  sanitized per-session crypto-bootstrap observer, CryptoBootstrapModel
+  status in Settings); the repeated account-switch fix (active-account
+  changes re-notify the accounts list); the BootScreen startup state (the
+  login form is never instantiated while a saved session restores); the
+  favorite-GIF identity fix (choose() resolves the visible model);
+  Lightning-styled AppMenu/AppMenuItem popovers for message/room/composer
+  actions with ONE shared reaction picker + profile popover per view;
+  emoji category buckets and a single shared tone popup; and five
+  selectable bundled OFL UI fonts (per-account, Settings → Appearance).
+- Older context: the 2026-07-19 checkpoints added
   the design-handoff UI shell (four-pane layout, Moss Light / Indigo Night /
   Deep Teal themes, bundled Manrope + JetBrains Mono), persistent
   multi-account support with safe in-app switching, the eager room-preview /
@@ -50,7 +70,7 @@ The state verified on 2026-07-19 is:
   view (rail/room list/timeline/composer hidden while open), and gave the
   right panel one authoritative state where closing a thread collapses to
   None — never back to Room Information. The application version stays
-  0.6.1 until an explicitly requested release.
+  0.6.2 until an explicitly requested release.
 - `matrix-sdk`, `matrix-sdk-ui`, and `matrix-sdk-base` resolve to **0.18.0** in
   `rust/Cargo.lock`; UI and base are exact-pinned in `rust/Cargo.toml`
 - Dependencies remain lock-file controlled. Do not update them incidentally.
@@ -76,8 +96,11 @@ Important checkpoints leading into 0.6.1, newest first:
 - `98d0bf0` through `cc2414f` hardened notification cold starts/click routing,
   stale thread failures, scrolling, and real room IDs in thread links/details.
 
-Do not describe these systems as future-only work. Keep the version at 0.6.1
-until an explicitly requested release checkpoint changes it.
+Do not describe these systems as future-only work. Keep the version at 0.6.2
+until an explicitly requested release checkpoint changes it. Live validation
+still pending on a real desktop: verified-session Element interoperability of
+the key bootstrap, repeated account switching, favorite-GIF sends, startup
+restoration, message-action popovers, and the font options.
 
 ## 3. User and response preferences
 
