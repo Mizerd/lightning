@@ -53,6 +53,27 @@ Item {
             && ListView.view.pinnedActionsKey === actionKey
     property string menuEventId: ""
     property string reactionEventId: ""
+
+    // v0.7: pooled-delegate reuse. The ListView recycles this delegate for a
+    // different row; model-bound state re-derives through its change handlers
+    // (onActionKeyChanged -> refreshPreview, onMediaIdentityChanged -> media
+    // reset), but transient non-model state — the write-before-use popup
+    // targets and the details payload — must be scrubbed so a stale event id
+    // or dialog body can never carry across rows. Any popup opened on the old
+    // row lives in the Overlay and is closed here defensively. objectName is
+    // read by the reuse-safety test.
+    objectName: "messageDelegateRoot"
+    function resetForReuse() {
+        menuEventId = ""
+        reactionEventId = ""
+        messageDetailsDialog.details = ({})
+        if (moreMenu.visible) moreMenu.close()
+        if (messageDetailsDialog.visible) messageDetailsDialog.close()
+        if (reactionPicker.opened) reactionPicker.close()
+        refreshPreview()
+    }
+    ListView.onReused: resetForReuse()
+
     function openContextMenu(x, y) {
         var eventId = root.eventIdForActions()
         if (eventId === "" || root.isVirtualRow || root.isStateActivity)

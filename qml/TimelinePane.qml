@@ -363,17 +363,18 @@ Rectangle {
                 objectName: "timelineListView"
                 anchors.fill: parent
                 clip: true
-                // Fast-scroll: keep roughly one extra screen of message
-                // delegates alive above and below the viewport so flicks
-                // reuse them instead of re-instantiating mid-motion.
-                // reuseItems is deliberately NOT enabled: message delegates
-                // carry per-row interactive state that a pooled delegate
-                // would leak across rows (open edit fields, reaction and
-                // context popovers, hover/GIF-autoplay state, thread-summary
-                // expansion, in-flight decrypt retries). The scroll-perf
-                // work instead removed the per-avatar MultiEffect mask
-                // passes (shapes are baked into the cached bitmaps by
-                // MediaImageProvider) and keeps this cacheBuffer.
+                // Fast-scroll: pool delegates instead of re-instantiating
+                // them mid-flick. This is safe because every per-row field is
+                // either model-bound with a reset-on-change handler (preview
+                // via onActionKeyChanged; media/GIF via onMediaIdentityChanged
+                // inside a Loader), backend-owned (decryption retry is bounded
+                // in the model, not per delegate), rendered in the Overlay
+                // (context/reaction popups, details dialog — not pooled with
+                // the row), or a write-before-use popup target. MessageDelegate
+                // additionally scrubs the last group defensively in
+                // ListView.onReused -> resetForReuse(). cacheBuffer keeps a
+                // screen of pooled delegates warm above/below the viewport.
+                reuseItems: true
                 cacheBuffer: 800
                 // Delegates own sender-group spacing: group leaders receive
                 // a compact break while continuations stay visually glued

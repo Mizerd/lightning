@@ -591,6 +591,72 @@ private Q_SLOTS:
         QCOMPARE(warnings, QStringList{});
     }
 
+    // v0.7: the timeline ListView pools MessageDelegates (reuseItems). This
+    // guards the reuse contract: resetForReuse() (wired to ListView.onReused)
+    // must scrub every transient, non-model-bound field so a pooled row can
+    // never carry a stale popup target or dialog body onto the next message.
+    void pooledDelegateReuseScrubsTransientState()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        controller.setCurrentRoomId(QStringLiteral("!devs:mock.local"));
+
+        int messageRow = -1;
+        for (int row = 0; row < controller.timeline()->rowCount(); ++row) {
+            const QModelIndex idx = controller.timeline()->index(row);
+            if (!controller.timeline()->data(idx, TimelineModel::IsVirtualRole).toBool()
+                && !controller.timeline()->data(
+                       idx, TimelineModel::IsStateActivityRole).toBool()) {
+                messageRow = row;
+                break;
+            }
+        }
+        QVERIFY(messageRow >= 0);
+        QVariantMap fixture;
+        const auto roles = controller.timeline()->roleNames();
+        for (auto it = roles.cbegin(); it != roles.cend(); ++it) {
+            fixture.insert(QString::fromUtf8(it.value()),
+                           controller.timeline()->data(
+                               controller.timeline()->index(messageRow), it.key()));
+        }
+
+        QQmlApplicationEngine engine;
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this,
+                [&warnings](const QList<QQmlError> &errors) {
+                    for (const auto &e : errors)
+                        warnings << e.toString();
+                });
+        engine.rootContext()->setContextProperty("app", &controller);
+        engine.rootContext()->setContextProperty("model", fixture);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("MessageDelegate"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(root != nullptr);
+
+        // Stale the transient state as if the previous row had an open
+        // context menu / reaction picker and an inspected details payload.
+        QVERIFY(root->setProperty("menuEventId",
+                                  QStringLiteral("$stale-menu:mock.local")));
+        QVERIFY(root->setProperty("reactionEventId",
+                                  QStringLiteral("$stale-react:mock.local")));
+        QCOMPARE(root->property("menuEventId").toString(),
+                 QStringLiteral("$stale-menu:mock.local"));
+
+        // Simulate the pool handing this delegate to a new row.
+        QVERIFY(QMetaObject::invokeMethod(root, "resetForReuse"));
+
+        QCOMPARE(root->property("menuEventId").toString(), QString{});
+        QCOMPARE(root->property("reactionEventId").toString(), QString{});
+        // No engine warnings means resetForReuse() resolved every id it
+        // touches (details dialog, popups, preview refresh) cleanly.
+        QCOMPARE(warnings, QStringList{});
+    }
+
     void roomActivitySettingCollapsesOnlyActivityDelegates()
     {
         AppController controller(AppController::MockBackend);
