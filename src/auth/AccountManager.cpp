@@ -11,6 +11,14 @@ AccountManager::AccountManager(SettingsManager *settings, QObject *parent)
                 this, &AccountManager::accountsChanged);
         connect(m_settings, &SettingsManager::sessionChanged,
                 this, &AccountManager::activeUserIdChanged);
+        // The accounts list derives each row's isActive flag from the
+        // active account, so an active-account change must also refresh
+        // the LIST. Without this, the switcher kept pre-switch flags: the
+        // previously active account's row still claimed isActive and its
+        // click guard silently returned — the "cannot switch back to
+        // account A" trap.
+        connect(m_settings, &SettingsManager::sessionChanged,
+                this, &AccountManager::accountsChanged);
     }
 }
 

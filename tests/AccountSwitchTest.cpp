@@ -7,6 +7,7 @@
 
 #include "app/AppController.h"
 #include "app/SettingsManager.h"
+#include "auth/AccountManager.h"
 #include "auth/AuthManager.h"
 #include "storage/AppDataPaths.h"
 #include "storage/SecretStore.h"
@@ -140,6 +141,87 @@ private Q_SLOTS:
         QVERIFY(!sawLoginScreen);
 
         // Both accounts keep their credentials.
+        QCOMPARE(app.settings()->accessTokenFor(kAlice),
+                 QStringLiteral("alice-token-fixture"));
+        QCOMPARE(app.settings()->accessTokenFor(kBob),
+                 QStringLiteral("bob-token-fixture"));
+    }
+
+    // The live regression: after A -> B, the switcher popover kept the
+    // pre-switch isActive flags because the accounts LIST property never
+    // re-notified on an active-account change — clicking A hit the
+    // "already active" guard and silently did nothing, trapping the user
+    // on B. Drive A -> B -> A -> B -> A through the same decision inputs
+    // the QML rows use and assert the list refreshes on every hop.
+    void repeatedSwitchingKeepsEveryRowSelectable()
+    {
+        AppController app(AppController::MockBackend);
+        FakeSecretStore secrets;
+        app.settings()->setSecretStore(&secrets);
+        app.settings()->saveSession(kHsOne, kAlice,
+                                    QStringLiteral("ALICEDEV"),
+                                    QStringLiteral("alice-token-fixture"));
+        app.settings()->saveSession(kHsTwo, kBob,
+                                    QStringLiteral("BOBDEV"),
+                                    QStringLiteral("bob-token-fixture"));
+
+        app.switchToAccount(kAlice);
+        QTRY_VERIFY(!app.accountSwitching());
+        QCOMPARE(app.accounts()->activeUserId(), kAlice);
+
+        const auto rowState = [&app](const QString &userId) -> QVariantMap {
+            const QVariantList rows = app.accounts()->accounts();
+            for (const QVariant &row : rows) {
+                const QVariantMap record = row.toMap();
+                if (record.value(QStringLiteral("userId")).toString()
+                    == userId)
+                    return record;
+            }
+            return {};
+        };
+
+        const QStringList hops = { kBob, kAlice, kBob, kAlice };
+        for (const QString &target : hops) {
+            // The switcher's model refresh contract: the list property must
+            // have re-notified since the last switch, so the QML Repeater
+            // is looking at CURRENT flags, not the previous account's.
+            QSignalSpy listRefreshed(app.accounts(),
+                                     &AccountManager::accountsChanged);
+            QSignalSpy activeChanged(app.accounts(),
+                                     &AccountManager::activeUserIdChanged);
+
+            // The QML row's click guard inputs (live state, fresh list):
+            // the target row must NOT present as active, so the click
+            // reaches switchToAccount.
+            const QVariantMap targetRow = rowState(target);
+            QVERIFY(!targetRow.isEmpty());
+            QCOMPARE(targetRow.value(QStringLiteral("isActive")).toBool(),
+                     false);
+            QVERIFY(target != app.accounts()->activeUserId());
+
+            app.switchToAccount(target);
+            QTRY_VERIFY(!app.accountSwitching());
+            QCOMPARE(app.auth()->currentUserId(), target);
+            QCOMPARE(app.accounts()->activeUserId(), target);
+            QCOMPARE(app.currentScreen(), AppController::MainScreen);
+
+            // Both notify chains fired, so a bound switcher re-reads rows.
+            QVERIFY(listRefreshed.count() > 0);
+            QVERIFY(activeChanged.count() > 0);
+
+            // The fresh list marks exactly the new account active.
+            QCOMPARE(rowState(target).value(QStringLiteral("isActive"))
+                         .toBool(),
+                     true);
+            const QString other = target == kAlice ? kBob : kAlice;
+            QCOMPARE(rowState(other).value(QStringLiteral("isActive"))
+                         .toBool(),
+                     false);
+        }
+
+        // Five hops later both credentials are intact and nothing is stuck
+        // in the switching state.
+        QVERIFY(!app.accountSwitching());
         QCOMPARE(app.settings()->accessTokenFor(kAlice),
                  QStringLiteral("alice-token-fixture"));
         QCOMPARE(app.settings()->accessTokenFor(kBob),

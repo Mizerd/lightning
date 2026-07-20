@@ -194,7 +194,11 @@ Popup {
                     }
                 }
                 onClicked: {
-                    if (modelData.isActive === true)
+                    // Compare against the LIVE active account, never the
+                    // row snapshot: a stale delegate must not be able to
+                    // swallow a legitimate switch request.
+                    if ((modelData.userId || "")
+                            === (app.accounts ? app.accounts.activeUserId : ""))
                         return
                     root.close()
                     app.switchToAccount(modelData.userId)
