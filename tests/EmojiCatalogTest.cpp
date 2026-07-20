@@ -31,6 +31,40 @@ private Q_SLOTS:
         QCoreApplication::setApplicationName(QStringLiteral("catalogue"));
     }
 
+    // v0.7: category switching swaps a precomputed bucket — it must stay a
+    // constant-time list swap, never an O(catalogue) rescan per tab click.
+    // The bound is deliberately generous (no flaky micro-benchmark): 200
+    // switches across every category must finish far inside a second, and
+    // each switch must land on a populated, category-consistent bucket.
+    void categorySwitchingIsBucketSwapFast()
+    {
+        EmojiCatalog catalog(nullptr);
+        const QStringList categories = catalog.categories();
+        QVERIFY(categories.size() >= 5);
+        QElapsedTimer timer;
+        timer.start();
+        int switches = 0;
+        for (int loop = 0; loop < 25 && switches < 200; ++loop) {
+            for (const QString &category : categories) {
+                if (category == QLatin1String("Recently Used"))
+                    continue;
+                catalog.setCategory(category);
+                QVERIFY(catalog.rowCount() > 0);
+                const QString firstCategory =
+                    catalog.data(catalog.index(0, 0),
+                                 EmojiCatalog::CategoryRole).toString();
+                QCOMPARE(firstCategory, category);
+                ++switches;
+            }
+        }
+        const qint64 elapsed = timer.elapsed();
+        QVERIFY(switches >= 150);
+        QVERIFY2(elapsed < 1000,
+                 qPrintable(QStringLiteral("%1 category switches took %2 ms")
+                                .arg(switches).arg(elapsed)));
+    }
+
+
     void completeAndUnique()
     {
         SettingsManager settings;

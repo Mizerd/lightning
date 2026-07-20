@@ -78,6 +78,9 @@ private:
     SettingsManager *m_settings = nullptr;
     QList<Entry> m_entries;
     QHash<QString, int> m_byEmoji;
+    // v0.7: base-emoji indices per category, built once at load so a
+    // category switch is a bucket swap, never a full-catalogue rescan.
+    QHash<QString, QList<int>> m_categoryBuckets;
     QHash<QString, QList<int>> m_variants;
     QList<int> m_visible;
     QString m_searchText;

@@ -70,6 +70,14 @@ void EmojiCatalog::load()
                 m_entries[index].hasSkinTones = true;
         }
     }
+    // v0.7: per-category index buckets, computed exactly once. Category
+    // switches swap the visible list from the bucket instead of rescanning
+    // the whole catalogue, so tab changes are a constant-time list swap.
+    for (int i = 0; i < m_entries.size(); ++i) {
+        const Entry &entry = m_entries.at(i);
+        if (entry.emoji == entry.baseEmoji)
+            m_categoryBuckets[entry.category].append(i);
+    }
     qCInfo(lcEmoji) << "loaded local" << dataVersion() << "catalogue:"
                     << m_entries.size() << "sequences; duplicates ignored:"
                     << duplicates.size();
@@ -139,6 +147,10 @@ void EmojiCatalog::rebuild()
                     m_visible.append(index);
             }
         }
+    } else if (query.isEmpty()) {
+        // v0.7: category switches swap the precomputed bucket built once at
+        // load — no per-switch scan over the whole catalogue.
+        m_visible = m_categoryBuckets.value(m_category);
     } else {
         for (int i = 0; i < m_entries.size(); ++i) {
             const Entry &entry = m_entries[i];
@@ -146,18 +158,14 @@ void EmojiCatalog::rebuild()
             // variants are exposed by variantsFor().
             if (entry.emoji != entry.baseEmoji)
                 continue;
-            if (query.isEmpty() && entry.category != m_category)
-                continue;
-            if (!query.isEmpty()) {
-                bool matches = true;
-                const QStringList words = query.split(QLatin1Char(' '), Qt::SkipEmptyParts);
-                for (const QString &word : words) {
-                    if (!entry.searchKey.contains(word)) { matches = false; break; }
-                }
-                if (!matches) continue;
+            bool matches = true;
+            const QStringList words = query.split(QLatin1Char(' '), Qt::SkipEmptyParts);
+            for (const QString &word : words) {
+                if (!entry.searchKey.contains(word)) { matches = false; break; }
             }
+            if (!matches) continue;
             m_visible.append(i);
-            if (!query.isEmpty() && m_visible.size() >= kMaximumSearchResults)
+            if (m_visible.size() >= kMaximumSearchResults)
                 break;
         }
     }

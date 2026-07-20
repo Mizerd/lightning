@@ -27,6 +27,22 @@ Popup {
         if (closeAfterSelection) close()
     }
 
+    // v0.7: the single shared skin-tone popup (one per picker, positioned
+    // at the requesting cell on demand — never one per grid cell).
+    function openTonePopupFor(cellItem, baseEmoji) {
+        tonePopup.variants = app.emojiCatalog.variantsFor(baseEmoji)
+        if (tonePopup.variants.length === 0)
+            return
+        var p = cellItem.mapToItem(picker.contentItem, 0, cellItem.height)
+        tonePopup.x = Math.max(0, Math.min(p.x,
+                                           picker.contentItem.width
+                                           - tonePopup.width))
+        tonePopup.y = Math.max(0, Math.min(p.y,
+                                           picker.contentItem.height
+                                           - tonePopup.height))
+        tonePopup.open()
+    }
+
     function placeInsideWindow() {
         if (!parent) return
         x = Math.max(AppTheme.spacingS,
@@ -175,9 +191,13 @@ Popup {
                                 picker.choose(cell.emoji)
                         }
                     }
+                    // v0.7: variants open the picker's ONE shared tone
+                    // popup. The previous per-cell Popup built ~70–100
+                    // popup subtrees synchronously every time the grid
+                    // (re)populated — the dominant "picker feels slow"
+                    // cost.
                     function openVariants() {
-                        tonePopup.variants = app.emojiCatalog.variantsFor(baseEmoji)
-                        tonePopup.open()
+                        picker.openTonePopupFor(cell, baseEmoji)
                     }
                     Keys.onReturnPressed: picker.choose(emoji)
                     Keys.onEnterPressed: picker.choose(emoji)
@@ -188,45 +208,6 @@ Popup {
                                 && hasSkinTones) {
                             openVariants()
                             event.accepted = true
-                        }
-                    }
-
-                    Popup {
-                        id: tonePopup
-                        property var variants: []
-                        parent: picker.contentItem
-                        x: Math.max(0, Math.min(cell.mapToItem(picker.contentItem, 0, 0).x,
-                                                picker.contentItem.width - width))
-                        y: Math.max(0, Math.min(cell.mapToItem(picker.contentItem, 0, cell.height).y,
-                                                picker.contentItem.height - height))
-                        width: Math.min(variants.length, 6) * 42 + 8
-                        height: Math.ceil(variants.length / 6) * 42 + 8
-                        padding: 4
-                        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
-                        background: Rectangle {
-                            color: AppTheme.surfaceElevated
-                            border.color: AppTheme.borderStrong
-                            radius: AppTheme.radiusSm
-                        }
-                        Grid {
-                            columns: 6
-                            Repeater {
-                                model: tonePopup.variants
-                                ToolButton {
-                                    required property var modelData
-                                    width: 42; height: 42
-                                    text: modelData.emoji
-                                    font.pixelSize: 22
-                                    Accessible.name: modelData.name
-                                    ToolTip.text: modelData.name
-                                    ToolTip.visible: hovered
-                                    onClicked: {
-                                        app.emojiCatalog.preferredTone = modelData.tone
-                                        tonePopup.close()
-                                        picker.choose(modelData.emoji)
-                                    }
-                                }
-                            }
                         }
                     }
                 }
@@ -248,6 +229,41 @@ Popup {
             color: AppTheme.textMuted
             font.pixelSize: AppTheme.fontCaption
             horizontalAlignment: Text.AlignHCenter
+        }
+    }
+
+    Popup {
+        id: tonePopup
+        property var variants: []
+        parent: picker.contentItem
+        width: Math.min(Math.max(variants.length, 1), 6) * 42 + 8
+        height: Math.ceil(Math.max(variants.length, 1) / 6) * 42 + 8
+        padding: 4
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        background: Rectangle {
+            color: AppTheme.surfaceElevated
+            border.color: AppTheme.borderStrong
+            radius: AppTheme.radiusSm
+        }
+        Grid {
+            columns: 6
+            Repeater {
+                model: tonePopup.variants
+                ToolButton {
+                    required property var modelData
+                    width: 42; height: 42
+                    text: modelData.emoji
+                    font.pixelSize: 22
+                    Accessible.name: modelData.name
+                    ToolTip.text: modelData.name
+                    ToolTip.visible: hovered
+                    onClicked: {
+                        app.emojiCatalog.preferredTone = modelData.tone
+                        tonePopup.close()
+                        picker.choose(modelData.emoji)
+                    }
+                }
+            }
         }
     }
 }
