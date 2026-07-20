@@ -1662,12 +1662,9 @@ private Q_SLOTS:
     // The thread panel has its OWN wheel engine: separate instance, both
     // track the persisted speed, motion on one never engages the other,
     // and closing the thread cancels the panel's in-flight motion.
-    // Correction spec §4: the right side is member panel XOR thread panel.
-    // The exclusion lives on TimelinePane's two state properties, so it is
-    // exercised here directly; the member panel's content is a Rust-backend
-    // surface (roomInfo.supported is false on mock), so the close-restores-
-    // members branch is guard-checked and its live behavior is validated on
-    // the real backend.
+    // The right side is member panel XOR thread panel, owned by one derived
+    // state (rightPanelState). Closing the thread with X collapses the right
+    // side to "none" — it never restores Room Information or People.
     void threadPanelIsExclusiveWithMemberPanel()
     {
         AppController controller(AppController::MockBackend);
@@ -1746,9 +1743,9 @@ private Q_SLOTS:
         QCOMPARE(groupButton->property("active").toBool(), true);
         QCOMPARE(forumButton->property("active").toBool(), false);
 
-        // Reopen the thread and close with X. On the mock backend the
-        // member panel cannot be re-opened (roomInfo unsupported), so the
-        // restore is a guarded no-op; the thread must still fully close.
+        // Reopen the thread and close with X: the right side collapses to
+        // NONE — Room Information / People are never restored implicitly,
+        // and both header chips go inactive.
         controller.thread()->openThread(QStringLiteral("!general:mock.local"),
                                         rootId);
         QTRY_COMPARE_WITH_TIMEOUT(controller.thread()->state(),
@@ -1761,8 +1758,15 @@ private Q_SLOTS:
         QVERIFY(QMetaObject::invokeMethod(closeButton, "click"));
         QTRY_COMPARE_WITH_TIMEOUT(controller.thread()->state(),
                                   ThreadController::Closed, kSignalTimeoutMs);
-        QCOMPARE(root->property("infoOpen").toBool(),
-                 controller.roomInfo()->supported());
+        QCOMPARE(root->property("rightPanelState").toString(),
+                 QStringLiteral("none"));
+        QCOMPARE(root->property("infoOpen").toBool(), false);
+        QObject *panelObject = root->findChild<QObject *>(
+            QStringLiteral("threadPanel"));
+        QVERIFY(panelObject);
+        QCOMPARE(panelObject->property("visible").toBool(), false);
+        QCOMPARE(forumButton->property("active").toBool(), false);
+        QCOMPARE(groupButton->property("active").toBool(), false);
         QCOMPARE(warnings, QStringList{});
     }
 

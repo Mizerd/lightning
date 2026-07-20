@@ -1,25 +1,29 @@
-// In-shell Settings proof (correction spec §3): opening Settings replaces
-// ONLY the timeline region — the spaces rail and room list stay visible and
-// instantiated, the rail gear shows the accent-chip state, the header reads
-// "Settings — Appearance" with a bare close X, the three featured theme
-// cards paint their fixed preview palettes regardless of the active theme,
-// clicking a card switches the theme instantly, the match-system row and
-// message-layout chips drive the real settings backend, and closing restores
-// the chat view. Loads the production MainScreen against the mock backend
-// with a zero-QML-warning contract.
+// Full-view Settings proof against the production Main window: opening
+// Settings hides the ENTIRE chat shell (spaces rail, room list, timeline,
+// composer) and any right-side panel, and fills the application content
+// area; entering it from an open Room Information / People / Thread state
+// clears that state; closing restores the chat shell and the selected room
+// with the right panel remaining None. The Appearance controls (featured
+// theme cards with fixed palettes, instant switching, match-system,
+// message-layout, text-size) are exercised inside the real full-view
+// settings, including the 1374x944 no-horizontal-clipping contract.
 
 #include <QtTest/QtTest>
 
 #include <QGuiApplication>
 #include <QImage>
-#include <QQmlComponent>
+#include <QQmlApplicationEngine>
 #include <QQmlContext>
-#include <QQmlEngine>
+#include <QQmlExpression>
 #include <QQuickItem>
 #include <QQuickWindow>
+#include <QSignalSpy>
 
 #include "app/AppController.h"
 #include "app/SettingsManager.h"
+#include "auth/AuthManager.h"
+#include "models/TimelineModel.h"
+#include "threads/ThreadController.h"
 
 namespace {
 
@@ -28,6 +32,8 @@ QColor sampleAvg(const QImage &img, const QRect &r)
     qint64 red = 0, green = 0, blue = 0, n = 0;
     for (int y = r.top(); y <= r.bottom(); ++y) {
         for (int x = r.left(); x <= r.right(); ++x) {
+            if (x < 0 || y < 0 || x >= img.width() || y >= img.height())
+                continue;
             const QColor c = img.pixelColor(x, y);
             red += c.red();
             green += c.green();
@@ -45,41 +51,7 @@ int channelDelta(const QColor &a, const QColor &b)
 }
 
 constexpr int kTolerance = 8;
-
-const char *kScene = R"QML(
-import QtQuick
-import QtQuick.Controls
-import MatrixClient
-
-ApplicationWindow {
-    id: win
-    width: 1280
-    height: 800
-    visible: true
-    color: AppTheme.background
-
-    // Mirror Main.qml's production bindings: the selected theme and text
-    // scale drive the AppTheme singleton.
-    Binding {
-        target: AppTheme
-        property: "mode"
-        value: app.settings ? app.settings.theme : 0
-    }
-    Binding {
-        target: AppTheme
-        property: "textScale"
-        value: app.settings ? app.settings.textScale / 100 : 1
-    }
-
-    Rectangle { objectName: "tokAccentSoft"; visible: false; color: AppTheme.accentSoft }
-    Rectangle { objectName: "tokAccent"; visible: false; color: AppTheme.accent }
-
-    MainScreen {
-        objectName: "mainScreen"
-        anchors.fill: parent
-    }
-}
-)QML";
+constexpr int kSignalTimeoutMs = 5000;
 
 } // namespace
 
@@ -90,8 +62,7 @@ class SettingsShellQmlTest : public QObject
 private:
     QTemporaryDir m_configHome;
     AppController *m_controller = nullptr;
-    QQmlEngine *m_engine = nullptr;
-    QObject *m_root = nullptr;
+    QQmlApplicationEngine *m_engine = nullptr;
     QQuickWindow *m_window = nullptr;
     QStringList m_warnings;
 
@@ -111,15 +82,18 @@ private:
 
     QQuickItem *item(const char *name) const
     {
-        if (auto *hit = m_root->findChild<QQuickItem *>(QLatin1String(name)))
+        if (auto *hit = m_window->findChild<QQuickItem *>(QLatin1String(name)))
             return hit;
         return findItem(m_window->contentItem(), QLatin1String(name));
     }
 
-    QColor token(const char *name) const
+    QColor themeColor(const char *token) const
     {
-        auto *it = m_root->findChild<QQuickItem *>(QLatin1String(name));
-        return it ? it->property("color").value<QColor>() : QColor();
+        QQmlExpression expr(qmlContext(m_window),
+                            m_window,
+                            QStringLiteral("AppTheme.%1")
+                                .arg(QLatin1String(token)));
+        return expr.evaluate().value<QColor>();
     }
 
     void clickItem(QQuickItem *target)
@@ -129,6 +103,22 @@ private:
         QTest::mouseClick(m_window, Qt::LeftButton, Qt::NoModifier,
                           center.toPoint());
         QCoreApplication::processEvents();
+    }
+
+    QQuickItem *timelinePane() const { return item("timelinePane"); }
+
+    QString fixtureThreadRootId() const
+    {
+        auto *timeline = m_controller->timeline();
+        for (int row = 0; row < timeline->rowCount(); ++row) {
+            const QString rootId = timeline
+                ->data(timeline->index(row, 0),
+                       TimelineModel::ThreadRootIdRole)
+                .toString();
+            if (!rootId.isEmpty())
+                return rootId;
+        }
+        return {};
     }
 
 private slots:
@@ -143,7 +133,7 @@ private slots:
         QSettings().clear();
 
         m_controller = new AppController(AppController::MockBackend);
-        m_engine = new QQmlEngine(this);
+        m_engine = new QQmlApplicationEngine;
         connect(m_engine, &QQmlEngine::warnings, this,
                 [this](const QList<QQmlError> &warnings) {
                     for (const auto &w : warnings)
@@ -151,75 +141,91 @@ private slots:
                 });
         m_engine->rootContext()->setContextProperty(QStringLiteral("app"),
                                                     m_controller);
-        QQmlComponent component(m_engine);
-        component.setData(QByteArray(kScene),
-                          QUrl(QStringLiteral("settingsshell.qml")));
-        m_root = component.create();
-        QVERIFY2(m_root, qPrintable(component.errorString()));
-        component.setParent(m_root);
-        m_window = qobject_cast<QQuickWindow *>(m_root);
+        QSignalSpy createdSpy(m_engine,
+                              &QQmlApplicationEngine::objectCreated);
+        m_engine->loadFromModule(QStringLiteral("MatrixClient"),
+                                 QStringLiteral("Main"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        m_window = qobject_cast<QQuickWindow *>(
+            createdSpy.at(0).at(0).value<QObject *>());
         QVERIFY(m_window);
+        // The screenshot geometry from the runtime evidence.
+        m_window->setWidth(1374);
+        m_window->setHeight(944);
         QVERIFY(QTest::qWaitForWindowExposed(m_window));
-        QCoreApplication::processEvents();
 
-        // Sign the mock account in so the shell behaves as in production
-        // (the rail gear and Settings are logged-in surfaces).
+        QSignalSpy loginSpy(m_controller->auth(), &AuthManager::loginSucceeded);
         m_controller->auth()->login(QStringLiteral("https://mock.local"),
                                     QStringLiteral("alice"),
                                     QStringLiteral("mock-password-fixture"));
+        QVERIFY(loginSpy.wait(kSignalTimeoutMs));
         QTRY_VERIFY(m_controller->loggedIn());
+        m_controller->setCurrentRoomId(QStringLiteral("!general:mock.local"));
         QCoreApplication::processEvents();
     }
 
     void cleanupTestCase()
     {
-        delete m_root;
+        delete m_engine;
         delete m_controller;
     }
 
-    void settingsOpensInsideShellNotOverIt()
+    void settingsTakesOverTheFullContentArea()
     {
-        auto *timeline = item("timelinePane");
-        auto *loader = m_root->findChild<QQuickItem *>(
-            QStringLiteral("settingsPaneLoader"));
-        QVERIFY(timeline && loader);
+        auto *rail = item("spacesRail");
+        auto *rooms = item("roomsPanel");
+        auto *timeline = timelinePane();
+        QVERIFY(rail && rooms && timeline);
+        QVERIFY(rail->isVisible());
+        QVERIFY(rooms->isVisible());
         QVERIFY(timeline->isVisible());
-        QVERIFY(!loader->property("active").toBool());
 
         m_controller->showSettings();
         QCoreApplication::processEvents();
 
-        // Rail and room list survive; only the timeline region swaps.
-        QVERIFY(item("spacesRail"));
-        QVERIFY(item("spacesRail")->isVisible());
-        QVERIFY(item("roomsPanel"));
-        QVERIFY(item("roomsPanel")->isVisible());
+        // The entire chat shell disappears — rail, room list, timeline,
+        // composer — and Settings fills the content area.
+        QVERIFY(!rail->isVisible());
+        QVERIFY(!rooms->isVisible());
         QVERIFY(!timeline->isVisible());
-        QVERIFY(loader->property("active").toBool());
-        // The timeline stays instantiated so closing restores it exactly.
-        QVERIFY(timeline);
+        auto *composer = item("composerCard");
+        QVERIFY(!composer || !composer->isVisible());
+        auto *settingsLoader = m_window->findChild<QQuickItem *>(
+            QStringLiteral("settingsViewLoader"));
+        QVERIFY(settingsLoader);
+        QVERIFY(settingsLoader->isVisible());
+        QCOMPARE(settingsLoader->width(),
+                 m_window->contentItem()->width());
+        QVERIFY(settingsLoader->height()
+                >= m_window->contentItem()->height() - 40);
+        QVERIFY(item("settingsHeaderTitle"));
     }
 
-    void headerReadsSettingsAppearanceWithBareClose()
+    void settingsHasNoHorizontalClippingAt1374()
     {
-        auto *title = item("settingsHeaderTitle");
-        QVERIFY(title);
-        QCOMPARE(title->property("text").toString(),
-                 QStringLiteral("Settings — Appearance"));
-        auto *close = item("settingsCloseButton");
-        QVERIFY(close);
-        QCOMPARE(close->width(), 34.0);
-        QCOMPARE(close->height(), 34.0);
-        QCOMPARE(close->property("radius").toInt(), 8);
-        QCOMPARE(close->property("fill").toBool(), false);
-        QCOMPARE(close->property("active").toBool(), false);
-    }
-
-    void railGearShowsAccentChipWhileOpen()
-    {
-        auto *gear = item("railSettingsButton");
-        QVERIFY(gear);
-        QVERIFY(gear->property("active").toBool());
+        // All three featured theme cards are fully inside the content
+        // area, and the appearance column never overflows horizontally.
+        const qreal windowWidth = m_window->contentItem()->width();
+        for (int id : { 8, 9, 10 }) {
+            auto *card = item(qPrintable(
+                QStringLiteral("featuredThemeCard_%1").arg(id)));
+            QVERIFY2(card, qPrintable(QString::number(id)));
+            QVERIFY(card->isVisible());
+            const QPointF right =
+                card->mapToScene(QPointF(card->width(), 0));
+            QVERIFY2(right.x() <= windowWidth + 0.5,
+                     qPrintable(QStringLiteral("card %1 clipped: %2 > %3")
+                                    .arg(id)
+                                    .arg(right.x())
+                                    .arg(windowWidth)));
+        }
+        // The text-size slider row stays inside the viewport too.
+        auto *slider = item("textScaleSlider");
+        QVERIFY(slider);
+        const QPointF sliderRight =
+            slider->mapToScene(QPointF(slider->width(), 0));
+        QVERIFY(sliderRight.x() <= windowWidth + 0.5);
     }
 
     void featuredThemeCardsPaintFixedPalettes()
@@ -243,7 +249,6 @@ private slots:
         for (const auto &e : expected) {
             auto *preview = item(e.preview);
             QVERIFY2(preview, e.preview);
-            // Sample below the mini bars, inside the frame area.
             const QPointF framePoint = preview->mapToScene(
                 QPointF(preview->width() - 14, preview->height() - 8));
             QVERIFY2(channelDelta(sampleAvg(img,
@@ -253,30 +258,28 @@ private slots:
             QVERIFY2(accentBar, e.accentBar);
             const QPointF accentPoint = accentBar->mapToScene(
                 QPointF(accentBar->width() / 2, accentBar->height() / 2));
-            const QColor sampled = sampleAvg(img,
-                QRect(int(accentPoint.x()), int(accentPoint.y()) - 1, 2, 2));
-            QVERIFY2(channelDelta(sampled, e.accent) <= kTolerance,
-                     qPrintable(QStringLiteral("%1 w=%2 sampled=%3 expected=%4")
-                                    .arg(QLatin1String(e.accentBar))
-                                    .arg(accentBar->width())
-                                    .arg(sampled.name(), e.accent.name())));
+            QVERIFY2(channelDelta(sampleAvg(img,
+                          QRect(int(accentPoint.x()), int(accentPoint.y()) - 1,
+                                2, 2)),
+                          e.accent) <= kTolerance, e.accentBar);
         }
     }
 
     void clickingThemeCardSwitchesInstantly()
     {
-        const QColor before = token("tokAccent");
+        const QColor before = themeColor("accent");
         auto *tealCard = item("featuredThemeCard_10");
         QVERIFY(tealCard);
         clickItem(tealCard);
         QCOMPARE(int(m_controller->settings()->theme()), 10);
-        // The AppTheme singleton follows immediately — no apply button.
-        QTRY_VERIFY(token("tokAccent") != before);
+        QTRY_VERIFY(themeColor("accent") != before);
 
         auto *mossCard = item("featuredThemeCard_8");
         QVERIFY(mossCard);
         clickItem(mossCard);
         QCOMPARE(int(m_controller->settings()->theme()), 8);
+        m_controller->settings()->setTheme(SettingsManager::IndigoNightTheme);
+        QCoreApplication::processEvents();
     }
 
     void matchSystemRowTogglesSystemTheme()
@@ -291,7 +294,7 @@ private slots:
         QCoreApplication::processEvents();
     }
 
-    void messageLayoutChipsDriveTheBackend()
+    void messageLayoutSegmentsDriveTheBackend()
     {
         auto *compact = item("messageLayoutControl_2");
         QVERIFY(compact);
@@ -303,7 +306,7 @@ private slots:
         QCOMPARE(m_controller->settings()->messageLayout(), 0);
     }
 
-    void textScaleSliderTracksAndScalesText()
+    void textScaleSliderTracksTheBackend()
     {
         auto *slider = item("textScaleSlider");
         QVERIFY(slider);
@@ -317,26 +320,68 @@ private slots:
         QCOMPARE(slider->property("value").toInt(), 100);
     }
 
-    void closeRestoresChatAndGearDeactivates()
+    void closingSettingsRestoresChatWithNoRightPanel()
     {
         auto *close = item("settingsCloseButton");
         QVERIFY(close);
         clickItem(close);
         QCOMPARE(int(m_controller->currentScreen()),
                  int(AppController::MainScreen));
-        auto *timeline = item("timelinePane");
+        QTRY_VERIFY(item("spacesRail")->isVisible());
+        QVERIFY(item("roomsPanel")->isVisible());
+        auto *timeline = timelinePane();
         QVERIFY(timeline);
         QTRY_VERIFY(timeline->isVisible());
-        auto *gear = item("railSettingsButton");
-        QVERIFY(gear);
-        QVERIFY(!gear->property("active").toBool());
-        // Clicking the gear again reopens; a second click returns to chat.
-        clickItem(gear);
-        QCOMPARE(int(m_controller->currentScreen()),
-                 int(AppController::SettingsScreen));
-        clickItem(gear);
-        QCOMPARE(int(m_controller->currentScreen()),
-                 int(AppController::MainScreen));
+        QCOMPARE(m_controller->currentRoomId(),
+                 QStringLiteral("!general:mock.local"));
+        QCOMPARE(timeline->property("rightPanelState").toString(),
+                 QStringLiteral("none"));
+    }
+
+    void openSettingsFromRoomInfoClearsThePanel()
+    {
+        auto *timeline = timelinePane();
+        QVERIFY(timeline);
+        // Simulate the member/info panel at the state level (its content is
+        // a Rust-backend surface; the state machine is what matters here).
+        QVERIFY(timeline->setProperty("infoOpen", true));
+        QCOMPARE(timeline->property("rightPanelState").toString(),
+                 QStringLiteral("info"));
+
+        m_controller->showSettings();
+        QCoreApplication::processEvents();
+        QCOMPARE(timeline->property("infoOpen").toBool(), false);
+
+        m_controller->showMain();
+        QCoreApplication::processEvents();
+        // Exiting Settings does NOT restore the panel.
+        QCOMPARE(timeline->property("rightPanelState").toString(),
+                 QStringLiteral("none"));
+    }
+
+    void openSettingsFromThreadClearsTheThread()
+    {
+        const QString rootId = fixtureThreadRootId();
+        QVERIFY(!rootId.isEmpty());
+        m_controller->thread()->openThread(
+            QStringLiteral("!general:mock.local"), rootId);
+        QTRY_COMPARE_WITH_TIMEOUT(m_controller->thread()->state(),
+                                  ThreadController::Ready, kSignalTimeoutMs);
+        auto *timeline = timelinePane();
+        QVERIFY(timeline);
+        QTRY_COMPARE_WITH_TIMEOUT(
+            timeline->property("rightPanelState").toString(),
+            QStringLiteral("thread"), kSignalTimeoutMs);
+
+        m_controller->showSettings();
+        QCoreApplication::processEvents();
+        QTRY_COMPARE_WITH_TIMEOUT(m_controller->thread()->state(),
+                                  ThreadController::Closed, kSignalTimeoutMs);
+
+        m_controller->showMain();
+        QCoreApplication::processEvents();
+        QCOMPARE(timeline->property("rightPanelState").toString(),
+                 QStringLiteral("none"));
     }
 
     void noQmlWarnings()

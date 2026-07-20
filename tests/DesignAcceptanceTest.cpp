@@ -1,13 +1,11 @@
-// Offscreen acceptance walkthrough for the design-fidelity pass: renders the
-// REAL MainScreen (rail + room list + timeline + composer, mock backend,
-// bundled fonts) in a real window at the reference and narrower sizes, saves
-// PNG snapshots as artifacts, and asserts rendered geometry and sampled
-// pixels: the composer card tracks each design theme's raised surface, the
-// open thread panel is exactly 340px beside the visible timeline, Settings
-// swaps only the center region, and an increased text scale renders without
-// breaking the shell. Complements the focused suites (button-system,
-// composer-qml, settings-shell-qml, timeline-pane-qml) with whole-shell
-// proof in a window where layouts really polish.
+// Offscreen acceptance walkthrough for the runtime-correction pass: drives
+// the PRODUCTION Main window (mock backend, bundled fonts) at the reference
+// and narrower sizes, saves PNG snapshots as artifacts, and asserts rendered
+// geometry and sampled pixels: the composer card tracks each design theme's
+// raised surface, the open thread panel is exactly 340px beside the visible
+// timeline and closing it collapses the right side to none, Settings is a
+// FULL application view (rail, room list, timeline, composer all hidden),
+// and an increased text scale renders without breaking the shell.
 
 #include <QtTest/QtTest>
 
@@ -15,9 +13,10 @@
 #include <QFontDatabase>
 #include <QGuiApplication>
 #include <QImage>
-#include <QQmlComponent>
+#include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQmlEngine>
+#include <QQmlExpression>
 #include <QQuickItem>
 #include <QQuickWindow>
 #include <QSignalSpy>
@@ -66,41 +65,8 @@ QString snapshotDir()
     return dir;
 }
 
-const char *kScene = R"QML(
-import QtQuick
-import QtQuick.Controls
-import MatrixClient
-
-ApplicationWindow {
-    id: win
-    width: 1600
-    height: 1000
-    visible: true
-    color: AppTheme.background
-
-    // Mirror Main.qml's production bindings.
-    Binding {
-        target: AppTheme
-        property: "mode"
-        value: app.settings ? app.settings.theme : 0
-    }
-    Binding {
-        target: AppTheme
-        property: "textScale"
-        value: app.settings ? app.settings.textScale / 100 : 1
-    }
-
-    Rectangle { objectName: "tokBackground"; visible: false; color: AppTheme.background }
-    Rectangle { objectName: "tokSurface"; visible: false; color: AppTheme.surface }
-    Rectangle { objectName: "tokSidebar"; visible: false; color: AppTheme.sidebar }
-    Rectangle { objectName: "tokRail"; visible: false; color: AppTheme.rail }
-
-    MainScreen {
-        objectName: "mainScreen"
-        anchors.fill: parent
-    }
-}
-)QML";
+// The production Main window is loaded directly — its own bindings drive
+// AppTheme from the settings backend exactly as in the shipped app.
 
 } // namespace
 
@@ -111,8 +77,7 @@ class DesignAcceptanceTest : public QObject
 private:
     QTemporaryDir m_configHome;
     AppController *m_controller = nullptr;
-    QQmlEngine *m_engine = nullptr;
-    QObject *m_root = nullptr;
+    QQmlApplicationEngine *m_engine = nullptr;
     QQuickWindow *m_window = nullptr;
     QStringList m_warnings;
 
@@ -132,15 +97,17 @@ private:
 
     QQuickItem *item(const char *name) const
     {
-        if (auto *hit = m_root->findChild<QQuickItem *>(QLatin1String(name)))
+        if (auto *hit = m_window->findChild<QQuickItem *>(QLatin1String(name)))
             return hit;
         return findItem(m_window->contentItem(), QLatin1String(name));
     }
 
     QColor token(const char *name) const
     {
-        auto *it = m_root->findChild<QQuickItem *>(QLatin1String(name));
-        return it ? it->property("color").value<QColor>() : QColor();
+        QQmlExpression expr(qmlContext(m_window), m_window,
+                            QStringLiteral("AppTheme.%1")
+                                .arg(QLatin1String(name)));
+        return expr.evaluate().value<QColor>();
     }
 
     QImage grabAndSave(const QString &name)
@@ -187,7 +154,7 @@ private slots:
             ":/qt/qml/MatrixClient/data/fonts/MaterialSymbolsRounded-subset.ttf"));
 
         m_controller = new AppController(AppController::MockBackend);
-        m_engine = new QQmlEngine(this);
+        m_engine = new QQmlApplicationEngine;
         connect(m_engine, &QQmlEngine::warnings, this,
                 [this](const QList<QQmlError> &warnings) {
                     for (const auto &w : warnings) {
@@ -203,14 +170,17 @@ private slots:
                 });
         m_engine->rootContext()->setContextProperty(QStringLiteral("app"),
                                                     m_controller);
-        QQmlComponent component(m_engine);
-        component.setData(QByteArray(kScene),
-                          QUrl(QStringLiteral("designacceptance.qml")));
-        m_root = component.create();
-        QVERIFY2(m_root, qPrintable(component.errorString()));
-        component.setParent(m_root);
-        m_window = qobject_cast<QQuickWindow *>(m_root);
+        QSignalSpy createdSpy(m_engine,
+                              &QQmlApplicationEngine::objectCreated);
+        m_engine->loadFromModule(QStringLiteral("MatrixClient"),
+                                 QStringLiteral("Main"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        m_window = qobject_cast<QQuickWindow *>(
+            createdSpy.at(0).at(0).value<QObject *>());
         QVERIFY(m_window);
+        m_window->setWidth(1600);
+        m_window->setHeight(1000);
         QVERIFY(QTest::qWaitForWindowExposed(m_window));
 
         QSignalSpy loginSpy(m_controller->auth(), &AuthManager::loginSucceeded);
@@ -225,7 +195,7 @@ private slots:
 
     void cleanupTestCase()
     {
-        delete m_root;
+        delete m_engine;
         delete m_controller;
     }
 
@@ -250,11 +220,11 @@ private slots:
             const QPointF p = toolbar->mapToScene(
                 QPointF(toolbar->width() - 24, toolbar->height() / 2));
             QVERIFY2(channelDelta(sampleAvg(img, QRect(int(p.x()), int(p.y()) - 1, 3, 3)),
-                                  token("tokSurface")) <= kTolerance,
+                                  token("surface")) <= kTolerance,
                      c.name);
             // Rail tier on the far left.
             QVERIFY2(channelDelta(sampleAvg(img, QRect(4, 300, 3, 3)),
-                                  token("tokRail")) <= kTolerance,
+                                  token("rail")) <= kTolerance,
                      c.name);
         }
         m_controller->settings()->setTheme(SettingsManager::IndigoNightTheme);
@@ -292,14 +262,30 @@ private slots:
         // Panel surface: sample below the header, left edge of the panel.
         const QPointF p = panel->mapToScene(QPointF(8, 70));
         QVERIFY(channelDelta(sampleAvg(img, QRect(int(p.x()), int(p.y()), 3, 3)),
-                             token("tokSidebar")) <= kTolerance);
+                             token("sidebar")) <= kTolerance);
 
-        m_controller->thread()->close();
+        // Closing with the panel's X collapses the right side completely:
+        // no Room Information, no member panel, timeline expands.
+        auto *closeButton = item("threadCloseButton");
+        QVERIFY(closeButton);
+        QMetaObject::invokeMethod(closeButton, "click");
         QTRY_COMPARE_WITH_TIMEOUT(m_controller->thread()->state(),
                                   ThreadController::Closed, kSignalTimeoutMs);
+        QQuickItem *pane = item("timelinePane");
+        QVERIFY(pane);
+        QTRY_COMPARE_WITH_TIMEOUT(
+            pane->property("rightPanelState").toString(),
+            QStringLiteral("none"), kSignalTimeoutMs);
+        QTRY_VERIFY(!panel->isVisible());
+        QVERIFY(roomColumn->isVisible());
+        // Geometry, not just booleans: the released 340px goes back to the
+        // timeline column.
+        auto *roomColumnItem = qobject_cast<QQuickItem *>(roomColumn);
+        QVERIFY(roomColumnItem);
+        QTRY_VERIFY(roomColumnItem->width() >= pane->width() - 1.0);
     }
 
-    void settingsSwapsOnlyTheCenterRegion()
+    void settingsIsAFullApplicationView()
     {
         m_controller->showSettings();
         QCoreApplication::processEvents();
@@ -307,10 +293,15 @@ private slots:
         auto *rooms = item("roomsPanel");
         auto *timeline = item("timelinePane");
         QVERIFY(rail && rooms && timeline);
-        QVERIFY(rail->isVisible());
-        QVERIFY(rooms->isVisible());
+        // Full application view: the whole chat shell is hidden.
+        QVERIFY(!rail->isVisible());
+        QVERIFY(!rooms->isVisible());
         QVERIFY(!timeline->isVisible());
         QVERIFY(item("settingsHeaderTitle"));
+        auto *settingsLoader = m_window->findChild<QQuickItem *>(
+            QStringLiteral("settingsViewLoader"));
+        QVERIFY(settingsLoader);
+        QCOMPARE(settingsLoader->width(), m_window->contentItem()->width());
         const QImage img = grabAndSave(QStringLiteral("design-settings"));
         QVERIFY(!img.isNull());
 

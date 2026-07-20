@@ -15,6 +15,12 @@ Rectangle {
     // room's Threads list view is showing.
     readonly property bool threadSurfaceOpen: app.thread.active
                                               || app.thread.listOpen
+    // The authoritative right-panel state. Exactly one of three values:
+    // the thread surface (controller-owned state) wins, then the info/member
+    // panel, else none. All open/close paths flow through the two underlying
+    // states and their exclusivity handlers below.
+    readonly property string rightPanelState:
+        threadSurfaceOpen ? "thread" : (infoOpen ? "info" : "none")
 
     function refreshCurrentRoom() {
         currentRoom = app.currentRoomId === ""
@@ -79,6 +85,12 @@ Rectangle {
 
     Connections {
         target: app
+        // Full-view Settings clears every right-side surface; exiting
+        // Settings must not restore any of them.
+        function onCurrentScreenChanged() {
+            if (app.currentScreen === 2)
+                root.infoOpen = false
+        }
         function onCurrentRoomIdChanged() {
             refreshCurrentRoom()
             // A find session belongs to the room it was opened in.
@@ -94,13 +106,10 @@ Rectangle {
             timeline.anchorStableId = ""
             timeline.anchorOffset = 0
             timeline.anchorContentHeight = 0
-            // The info panel follows the open room; no room closes it.
-            if (root.infoOpen) {
-                if (app.currentRoomId === "")
-                    root.infoOpen = false
-                else
-                    infoPanel.openForRoom(app.currentRoomId)
-            }
+            // A room switch collapses the right side: no panel from the
+            // previous room may remain (reopen it deliberately in the new
+            // room if wanted).
+            root.infoOpen = false
         }
     }
 
@@ -1098,13 +1107,10 @@ Rectangle {
         Layout.preferredWidth: root.width >= 660 ? 340 : root.width
         Layout.fillWidth: root.threadSurfaceOpen && root.width < 660
         onCloseRequested: {
+            // Closing the thread collapses the right side completely: the
+            // panel state becomes "none" — Room Information / People are
+            // never restored implicitly.
             root.closeThreadSurface()
-            // Closing the thread panel restores the member panel (§4).
-            if (app.currentRoomId !== "" && app.roomInfo.supported) {
-                infoPanel.openForRoom(app.currentRoomId)
-                infoPanel.section = "people"
-                root.infoOpen = true
-            }
         }
         openImage: function(mediaKey, httpUrl) {
             imageViewer.openFor(mediaKey || "", httpUrl)

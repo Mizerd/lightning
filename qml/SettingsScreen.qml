@@ -274,7 +274,7 @@ Item {
                     id: contentColumn
                     x: AppTheme.spacing24
                     y: AppTheme.spacing24
-                    width: Math.min(640, contentFlick.width - AppTheme.spacing24 * 2)
+                    width: Math.min(860, contentFlick.width - AppTheme.spacing24 * 2)
                     spacing: AppTheme.spacing16
 
                     // ════════════ Appearance (design 1d) ════════════
@@ -310,7 +310,8 @@ Item {
                         // palettes (the one place the design allows
                         // hard-coded colors — each card always paints its
                         // own theme regardless of the active one).
-                        RowLayout {
+                        Flow {
+                            Layout.fillWidth: true
                             spacing: 14
                             Repeater {
                                 model: [

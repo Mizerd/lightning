@@ -41,26 +41,14 @@ Item {
             SplitView.maximumWidth:   360
         }
 
-        // ── Chat area / in-shell Settings ─────────────────────────────────
-        // Settings (correction spec §3) replaces ONLY this center region:
-        // the rail and room list stay. The timeline underneath remains
-        // instantiated so closing Settings restores the room exactly.
-        Item {
+        // ── Chat area ─────────────────────────────────────────────────────
+        // Settings is a FULL application view hosted by Main.qml: it hides
+        // this whole shell (rail, room list, timeline, composer) instead of
+        // swapping only the center region.
+        TimelinePane {
+            objectName: "timelinePane"
             SplitView.fillWidth:  true
             SplitView.minimumWidth: 320
-
-            TimelinePane {
-                objectName: "timelinePane"
-                anchors.fill: parent
-                visible: app.currentScreen !== 2
-            }
-            Loader {
-                objectName: "settingsPaneLoader"
-                anchors.fill: parent
-                active: app.currentScreen === 2
-                visible: active
-                sourceComponent: SettingsScreen {}
-            }
         }
     }
 

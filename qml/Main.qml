@@ -134,6 +134,11 @@ ApplicationWindow {
     Loader {
         id: pageLoader
         anchors.fill: parent
+        // Hidden (not unloaded) while the full-view Settings covers the
+        // content area: chat state survives without being visible,
+        // interactive, or part of active layout.
+        visible: app.currentScreen !== 2
+        enabled: visible
 
         // AppController::Screen enum ordering — kept in sync with
         // src/app/AppController.h. We hard-code the integers here
@@ -146,9 +151,10 @@ ApplicationWindow {
         // `app.currentScreen` property are unambiguous.
         function pickComponent() {
             var s = app.currentScreen
-            // Settings (2) opens INSIDE the main shell — MainScreen swaps
-            // its timeline area for the settings pane while the rail and
-            // room list stay (correction spec §3).
+            // Settings (2) keeps MainScreen LOADED (so the selected room,
+            // timeline position, and drafts survive) but hidden — the
+            // full-view Settings loader below covers the entire content
+            // area.
             if (s === 1 || s === 2) return mainComponent
             return loginComponent                  // 0 = LoginScreen
         }
@@ -167,6 +173,19 @@ ApplicationWindow {
 
     Component { id: loginComponent;    LoginScreen {} }
     Component { id: mainComponent;     MainScreen {} }
+
+    // Full application-view Settings: occupies the entire content area
+    // below the window title bar. The spaces rail, room list, timeline,
+    // composer, and any right-side panel are hidden while it is open.
+    Loader {
+        objectName: "settingsViewLoader"
+        anchors.fill: parent
+        active: app.currentScreen === 2
+        visible: active
+        z: 5
+        sourceComponent: SettingsScreen {}
+        onLoaded: item.forceActiveFocus()
+    }
 
     // Slim status strip: shown only while something needs attention
     // (connecting, offline, error) or on the login screen; the steady

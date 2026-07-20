@@ -859,6 +859,14 @@ void AppController::showMain()
 void AppController::showSettings()
 {
     m_composer->setRoomId({});
+    // The full-view Settings screen owns the whole content area: every
+    // transient room-side surface (thread, thread list — and the QML-side
+    // info/member panel, which reacts to the screen change) closes now and
+    // is NOT restored when Settings exits.
+    if (m_thread) {
+        m_thread->close();
+        m_thread->closeList();
+    }
     setCurrentScreen(SettingsScreen);
 }
 
