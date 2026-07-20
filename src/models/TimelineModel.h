@@ -41,6 +41,7 @@ public:
         SenderRole,
         SenderDisplayNameRole,
         BodyRole,
+        FormattedBodyRole, // sanitized Matrix HTML (empty when plaintext)
         TimestampRole,
         TypeRole,
         StatusRole,

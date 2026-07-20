@@ -1,6 +1,7 @@
 #include "models/TimelineModel.h"
 
 #include "matrix/MatrixClient.h"
+#include "models/MessageHtml.h"
 #include "models/UserLookup.h"
 
 #include <QRegularExpression>
@@ -398,6 +399,21 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
         if (e.redacted) return QStringLiteral("[message deleted]");
         return e.body;
     }
+    case FormattedBodyRole: {
+        // Untrusted sender HTML — never expose it to QML raw. Sanitize to the
+        // safe RichText subset and rewrite mentions to resolved display names.
+        if (e.redacted || e.formattedBody.isEmpty())
+            return QString();
+        const QString roomId = m_roomId;
+        MatrixClient *client = m_client;
+        return MessageHtml::sanitize(
+            e.formattedBody,
+            [client, roomId](const QString &userId) {
+                return client ? client->displayNameFor(roomId, userId)
+                              : QString();
+            },
+            m_selfUserId);
+    }
     case TimestampRole:          return e.timestamp;
     case TypeRole:               return static_cast<int>(e.type);
     case StatusRole:             return static_cast<int>(e.status);
@@ -526,6 +542,7 @@ QHash<int, QByteArray> TimelineModel::roleNames() const
         { SenderRole,              "sender" },
         { SenderDisplayNameRole,   "senderDisplayName" },
         { BodyRole,                "body" },
+        { FormattedBodyRole,       "formattedBody" },
         { TimestampRole,           "timestamp" },
         { TypeRole,                "eventType" },
         { StatusRole,              "status" },
@@ -702,7 +719,8 @@ void TimelineModel::onEventEdited(const QString &roomId, const QString &eventId)
             if (row < 0) return;
             m_events[row] = e;
             const auto idx = index(row);
-            Q_EMIT dataChanged(idx, idx, { BodyRole, EditedRole });
+            Q_EMIT dataChanged(idx, idx,
+                               { BodyRole, FormattedBodyRole, EditedRole });
             return;
         }
     }

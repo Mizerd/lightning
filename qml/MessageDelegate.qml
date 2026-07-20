@@ -534,7 +534,7 @@ Item {
                         id: bodyLabel
                         objectName: "messageBody"
                         visible: text.length > 0 && !root.showsDecryptingSkeleton
-                        text: app.linkPreviews.linkifiedBody((function() {
+                        text: {
                             if (model.redacted) return qsTr("[message deleted]")
                             // Media rows already show the filename in their
                             // media block; skip duplicating it as the body.
@@ -549,8 +549,14 @@ Item {
                                            || model.isAudio === true
                                            || model.isFile === true
                             if (mediaRow && model.body === model.mediaFilename) return ""
-                            return model.body || ""
-                        })())
+                            // Formatted messages (mentions, rich text) render
+                            // their sanitized HTML directly — it is already a
+                            // safe RichText subset from MessageHtml::sanitize,
+                            // so it must NOT be re-escaped through linkifiedBody.
+                            if (model.formattedBody && model.formattedBody.length > 0)
+                                return model.formattedBody
+                            return app.linkPreviews.linkifiedBody(model.body || "")
+                        }
                         color: model.undecryptable === true
                                ? AppTheme.muted
                                : root.bubbleMode && model.isOwn === true
@@ -577,7 +583,23 @@ Item {
                         textFormat: Text.RichText
                         selectByMouse: true
                         Accessible.name: model.body || ""
-                        onLinkActivated: function(link) { app.media.openWebUrl(link) }
+                        // Mentions carry an internal "mention:<user-id>" link
+                        // (rewritten by the sanitizer); open the member
+                        // profile. Everything else is a validated http(s) URL.
+                        onLinkActivated: function(link) {
+                            if (link.indexOf("mention:") === 0) {
+                                if (root.ListView.view
+                                    && root.ListView.view.openSenderProfile) {
+                                    root.ListView.view.openSenderProfile({
+                                        userId: link.substring(8),
+                                        displayName: "",
+                                        avatarUrl: ""
+                                    })
+                                }
+                                return
+                            }
+                            app.media.openWebUrl(link)
+                        }
 
                         // v0.5.0-prep+12: hover tooltip for undecryptable rows
                         // so the user knows why the body is a placeholder.

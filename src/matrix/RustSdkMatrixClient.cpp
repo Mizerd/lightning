@@ -2392,6 +2392,10 @@ void RustSdkMatrixClient::handleTimelineEvent(const QJsonObject &event)
     timelineEvent.sender = obj.value(QStringLiteral("sender")).toString();
     timelineEvent.senderDisplayName = displayNameFor(roomId, timelineEvent.sender);
     timelineEvent.body = obj.value(QStringLiteral("body")).toString();
+    // Untrusted sender HTML — carried through as-is; TimelineModel sanitizes
+    // it before QML ever sees it.
+    timelineEvent.formattedBody =
+        obj.value(QStringLiteral("formatted_body")).toString();
     timelineEvent.timestamp = timestampFromMs(static_cast<qint64>(
         obj.value(QStringLiteral("timestamp_ms")).toDouble(0)));
     if (!timelineEvent.timestamp.isValid())

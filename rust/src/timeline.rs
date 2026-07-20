@@ -27,7 +27,8 @@ use matrix_sdk::{
         events::{
             room::{
                 message::{
-                    MessageType, RoomMessageEventContent,
+                    FormattedBody, MessageFormat, MessageType,
+                    RoomMessageEventContent,
                     RoomMessageEventContentWithoutRelation, TextMessageEventContent,
                 },
                 MediaSource,
@@ -2206,6 +2207,19 @@ fn event_item_to_json(
 /// Rust). The serialized payload still carries only safe metadata — a plain
 /// mxc string for unencrypted media (HTTP-backend parity), sizes, and
 /// dimensions. Encrypted source material never crosses the FFI.
+/// Forward the sender's `org.matrix.custom.html` formatted body verbatim. It
+/// is untrusted HTML; the C++ side sanitizes it to a safe RichText subset
+/// (see MessageHtml::sanitize) before it ever reaches QML. Only the HTML
+/// format is forwarded — an unknown format is ignored so the plain body is
+/// used instead.
+fn set_formatted_body(out: &mut serde_json::Value, formatted: Option<&FormattedBody>) {
+    if let Some(fb) = formatted {
+        if fb.format == MessageFormat::Html {
+            out["formatted_body"] = fb.body.clone().into();
+        }
+    }
+}
+
 fn fill_message_content(
     out: &mut serde_json::Value,
     msgtype: &MessageType,
@@ -2214,16 +2228,19 @@ fn fill_message_content(
         MessageType::Text(content) => {
             out["msgtype"] = "text".into();
             out["body"] = content.body.clone().into();
+            set_formatted_body(out, content.formatted.as_ref());
             None
         }
         MessageType::Notice(content) => {
             out["msgtype"] = "notice".into();
             out["body"] = content.body.clone().into();
+            set_formatted_body(out, content.formatted.as_ref());
             None
         }
         MessageType::Emote(content) => {
             out["msgtype"] = "emote".into();
             out["body"] = content.body.clone().into();
+            set_formatted_body(out, content.formatted.as_ref());
             None
         }
         MessageType::Image(content) => {

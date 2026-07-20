@@ -144,6 +144,8 @@ set(APP_SOURCES
     src/models/QuickSwitcherModel.cpp
     src/models/TimelineModel.h
     src/models/TimelineModel.cpp
+    src/models/MessageHtml.h
+    src/models/MessageHtml.cpp
     src/models/TimelineScrollController.h
     src/models/TimelineScrollController.cpp
     src/models/MessageComposer.h
@@ -751,6 +753,8 @@ if(BUILD_TESTING)
         tests/TimelineModelDiffTest.cpp
         src/models/TimelineModel.h
         src/models/TimelineModel.cpp
+        src/models/MessageHtml.h
+        src/models/MessageHtml.cpp
         src/models/UserLookup.h
         src/models/UserLookup.cpp
         src/matrix/MatrixClient.h
@@ -767,6 +771,8 @@ if(BUILD_TESTING)
         tests/StateActivityGroupingTest.cpp
         src/models/TimelineModel.h
         src/models/TimelineModel.cpp
+        src/models/MessageHtml.h
+        src/models/MessageHtml.cpp
         src/models/UserLookup.h
         src/models/UserLookup.cpp
         src/matrix/MatrixClient.h
@@ -843,6 +849,8 @@ if(BUILD_TESTING)
         src/threads/ThreadController.cpp
         src/models/TimelineModel.h
         src/models/TimelineModel.cpp
+        src/models/MessageHtml.h
+        src/models/MessageHtml.cpp
         src/models/UserLookup.h
         src/models/UserLookup.cpp
         src/models/AttachmentQueueModel.h
@@ -965,6 +973,8 @@ if(BUILD_TESTING)
         src/models/PaginationController.cpp
         src/models/TimelineModel.h
         src/models/TimelineModel.cpp
+        src/models/MessageHtml.h
+        src/models/MessageHtml.cpp
         src/models/UserLookup.h
         src/models/UserLookup.cpp
         src/matrix/MatrixClient.h
@@ -995,6 +1005,8 @@ if(BUILD_TESTING)
         src/models/ReadReceiptCoordinator.cpp
         src/models/TimelineModel.h
         src/models/TimelineModel.cpp
+        src/models/MessageHtml.h
+        src/models/MessageHtml.cpp
         src/models/UserLookup.h
         src/models/UserLookup.cpp
         src/matrix/MatrixClient.h
@@ -1139,6 +1151,17 @@ if(BUILD_TESTING)
     target_include_directories(markdown-format-test PRIVATE src)
     target_link_libraries(markdown-format-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME markdown-format COMMAND markdown-format-test)
+
+    # Incoming formatted-body sanitizer: allowlist tags, drop dangerous
+    # markup/content, validate hrefs, and rewrite matrix.to mentions.
+    qt_add_executable(message-html-test
+        tests/MessageHtmlTest.cpp
+        src/models/MessageHtml.h
+        src/models/MessageHtml.cpp
+    )
+    target_include_directories(message-html-test PRIVATE src)
+    target_link_libraries(message-html-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME message-html COMMAND message-html-test)
 
     # Shared control system: rendered proof that AppButton kinds,
     # SegmentedControl, AppTextField, and the AppComboBox popup are flat,

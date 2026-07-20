@@ -310,6 +310,35 @@ private Q_SLOTS:
         QCOMPARE(c.warnings, QStringList{});
     }
 
+    // A message that carries a sanitized formatted body renders the rich
+    // content — not the raw markdown that leaks through the plain body (the
+    // "[@user:server](matrix.to/…)" mention bug).
+    void formattedBodyRendersInsteadOfRawMarkdown()
+    {
+        AppController controller(AppController::MockBackend);
+        QVariantMap fixture = baseFixture(controller);
+        fixture.insert(QStringLiteral("body"),
+                       QStringLiteral(
+                           "[@bob:example.org](https://matrix.to/#/@bob:example.org) hi"));
+        fixture.insert(QStringLiteral("formattedBody"),
+                       QStringLiteral(
+                           "<a href=\"mention:@bob:example.org\">@bob</a> hi"));
+
+        Delegate d;
+        QVERIFY(createDelegate(controller, fixture, d));
+        auto *body = d.root->findChild<QQuickItem *>(
+            QStringLiteral("messageBody"));
+        QVERIFY(body != nullptr);
+        // TextEdit round-trips RichText into a normalized document, so assert
+        // on content: the mention link and display name are present, and the
+        // raw markdown from the plain body is not.
+        const QString shown = body->property("text").toString();
+        QVERIFY(shown.contains(QStringLiteral("@bob")));
+        QVERIFY(shown.contains(QStringLiteral("mention:@bob:example.org")));
+        QVERIFY(!shown.contains(QStringLiteral("](")));   // not the raw markdown
+        QCOMPARE(d.warnings, QStringList{});
+    }
+
     // Recoverable undecryptable rows show the decrypting skeleton (keys can
     // still arrive); deterministic failures keep the static explanation.
     void decryptingSkeletonOnlyForRecoverableFailures()
