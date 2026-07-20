@@ -1284,7 +1284,10 @@ Rectangle {
                 }
             }
 
-            Button {
+            // Floating Lightning pill: a compact accent-fill chevron with an
+            // optional new-message count. Stays an AbstractButton so click()
+            // and visible drive the existing scroll tests.
+            AbstractButton {
                 id: jumpToLatestButton
                 objectName: "jumpToLatestButton"
                 anchors.right: parent.right
@@ -1292,16 +1295,60 @@ Rectangle {
                 anchors.rightMargin: AppTheme.spacingM + 12
                 anchors.bottomMargin: AppTheme.spacingM + 8
                 visible: app.currentRoomId !== "" && !timeline.stickToBottom
-                text: qsTr("Jump to latest")
                 z: 20
                 focusPolicy: Qt.StrongFocus
-                Accessible.name: text
+                hoverEnabled: true
+                implicitHeight: 34
+                implicitWidth: jumpRow.implicitWidth + 24
+                readonly property int newCount:
+                    (root.currentRoom && root.currentRoom.unreadCount)
+                        ? root.currentRoom.unreadCount : 0
+                Accessible.role: Accessible.Button
+                Accessible.name: qsTr("Jump to latest")
                 ToolTip.text: qsTr("Return to the newest message")
                 ToolTip.visible: hovered
                 ToolTip.delay: 500
                 // Shares goToLatest() with the End key — both cancel any wheel
                 // animation, resume follow-latest, and re-evaluate read state.
                 onClicked: timeline.goToLatest()
+
+                Rectangle {
+                    anchors.fill: parent
+                    radius: height / 2
+                    color: jumpToLatestButton.down ? AppTheme.accentPressed
+                         : jumpToLatestButton.hovered ? AppTheme.accentHover
+                         : AppTheme.accent
+                }
+                Row {
+                    id: jumpRow
+                    anchors.centerIn: parent
+                    spacing: AppTheme.spacingXS
+                    Icon {
+                        anchors.verticalCenter: parent.verticalCenter
+                        name: "expand_more"
+                        size: 20
+                        color: AppTheme.accentText
+                    }
+                    Label {
+                        anchors.verticalCenter: parent.verticalCenter
+                        visible: jumpToLatestButton.newCount > 0
+                        text: jumpToLatestButton.newCount > 99
+                              ? "99+" : jumpToLatestButton.newCount
+                        color: AppTheme.accentText
+                        font.family: AppTheme.uiFont
+                        font.pixelSize: 12
+                        font.weight: Font.ExtraBold
+                    }
+                }
+                Rectangle {
+                    anchors.fill: parent
+                    anchors.margins: -3
+                    radius: (parent.height + 6) / 2
+                    color: "transparent"
+                    border.color: AppTheme.focusRing
+                    border.width: 2
+                    visible: jumpToLatestButton.visualFocus
+                }
             }
 
             Label {
