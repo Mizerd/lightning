@@ -3378,7 +3378,7 @@ async fn build_client(homeserver: &str, store_path: &Path) -> Result<Client, Str
     Client::builder()
         .homeserver_url(homeserver)
         .sqlite_store(store_path, None)
-        .user_agent("Lightning/0.6.1")
+        .user_agent("Lightning/0.6.2")
         .with_encryption_settings(encryption_settings)
         .with_threading_support(ThreadingSupport::Enabled { with_subscriptions: false })
         .build()
