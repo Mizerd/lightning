@@ -1258,6 +1258,7 @@ Rectangle {
                 visible: app.currentRoomId === ""
                 onNewMessageRequested: root.newConversationRequested("dm")
                 onCreateRoomRequested: root.newConversationRequested("room")
+                onCreateSpaceRequested: root.newConversationRequested("space")
             }
 
             // v0.7: room-loading surface shown while the presentation gate

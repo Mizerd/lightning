@@ -17,6 +17,7 @@ Item {
     // Routed to the room list's new-conversation dialog by MainScreen.
     signal newMessageRequested()
     signal createRoomRequested()
+    signal createSpaceRequested()
 
     readonly property string activeUserId: app.accounts ? app.accounts.activeUserId : ""
     readonly property var activeAccount: app.accounts && activeUserId.length > 0
@@ -125,6 +126,12 @@ Item {
                     text: qsTr("Create room")
                     visible: app.conversations && app.conversations.supported
                     onClicked: root.createRoomRequested()
+                }
+                AppButton {
+                    objectName: "homeCreateSpaceButton"
+                    text: qsTr("Create Space")
+                    visible: app.conversations && app.conversations.supported
+                    onClicked: root.createSpaceRequested()
                 }
                 AppButton {
                     objectName: "homeSettingsButton"
