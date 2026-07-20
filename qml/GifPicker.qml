@@ -58,7 +58,17 @@ Popup {
         close()
     }
 
+    // Availability re-resolves every time the picker opens, so a picker
+    // first shown before configuration finished (or a newly created env
+    // file) never sticks at "off". providerConfigurationChanged bumps
+    // cfgRevision, which re-evaluates the providerConfigured() bindings.
+    property int cfgRevision: 0
+    Connections {
+        target: picker.gif
+        function onProviderConfigurationChanged() { picker.cfgRevision++ }
+    }
     onAboutToShow: {
+        gif.refreshProviderKeys()
         placeInsideWindow()
         section = "browse"
         if (gif.results.count === 0)
@@ -101,7 +111,8 @@ Popup {
                     readonly property bool isActive:
                         picker.gif.providerId === modelData
                     readonly property bool ok:
-                        picker.gif.providerConfigured(modelData)
+                        picker.cfgRevision >= 0
+                        && picker.gif.providerConfigured(modelData)
                     text: picker.gif.providerDisplayName(modelData)
                           + (ok ? "" : qsTr(" (off)"))
                     enabled: ok

@@ -1,6 +1,7 @@
 #include "gif/GifProviderSelfTest.h"
 
 #include "gif/GifBuildKeys.h"
+#include "gif/GifKeyConfig.h"
 #include "gif/GifProvider.h"
 #include "gif/GifResponseParser.h"
 
@@ -22,13 +23,9 @@ namespace {
 constexpr qint64 kMaxBytes = 2 * 1024 * 1024;
 constexpr int kTimeoutMs = 15000;
 
-QString resolvedKey(const QString &providerId)
+ResolvedKey resolvedKey(const QString &providerId)
 {
-    const QString envName = providerId == QLatin1String("giphy")
-        ? QStringLiteral("LIGHTNING_GIPHY_API_KEY")
-        : QStringLiteral("LIGHTNING_KLIPY_API_KEY");
-    return resolveProviderKey(qEnvironmentVariable(envName.toUtf8().constData()),
-                              buildKeyFor(providerId));
+    return resolveProviderKeyDetailed(providerId);
 }
 
 // Perform one bounded trending request. On success sets *count and returns
@@ -114,10 +111,14 @@ bool trendingProbe(const QString &providerId, const QString &key, int *count,
 
 int printProviderStatus()
 {
+    // Booleans first (the packaging validation greps these exact lines),
+    // then the sanitized source class — never a key, prefix, or suffix.
     QTextStream out(stdout);
     for (const QString &id : {QStringLiteral("giphy"), QStringLiteral("klipy")}) {
-        const bool configured = !resolvedKey(id).isEmpty();
-        out << id.toUpper() << " configured: " << (configured ? "yes" : "no")
+        const ResolvedKey resolved = resolvedKey(id);
+        out << id.toUpper() << " configured: "
+            << (resolved.configured() ? "yes" : "no") << '\n';
+        out << id.toUpper() << " source: " << keySourceName(resolved.source)
             << '\n';
     }
     return 0;
@@ -128,9 +129,12 @@ int runProviderSelfTest()
     QTextStream out(stdout);
     bool allOk = true;
     for (const QString &id : {QStringLiteral("giphy"), QStringLiteral("klipy")}) {
-        const QString key = resolvedKey(id);
-        const bool configured = !key.isEmpty();
+        const ResolvedKey resolved = resolvedKey(id);
+        const QString key = resolved.key;
+        const bool configured = resolved.configured();
         out << id.toUpper() << " configured: " << (configured ? "yes" : "no")
+            << '\n';
+        out << id.toUpper() << " source: " << keySourceName(resolved.source)
             << '\n';
         if (!configured) {
             out << id.toUpper() << " request: skipped (not configured)\n";

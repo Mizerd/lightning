@@ -172,6 +172,8 @@ set(APP_SOURCES
     src/gif/GifProvider.cpp
     src/gif/GifBuildKeys.h
     src/gif/GifBuildKeys.cpp
+    src/gif/GifKeyConfig.h
+    src/gif/GifKeyConfig.cpp
     src/gif/GifResultModel.h
     src/gif/GifResultModel.cpp
     src/gif/GifStoredModel.h
@@ -512,6 +514,8 @@ if(BUILD_TESTING)
         src/gif/GifProvider.cpp
         src/gif/GifBuildKeys.h
         src/gif/GifBuildKeys.cpp
+        src/gif/GifKeyConfig.h
+        src/gif/GifKeyConfig.cpp
         src/gif/GifResultModel.h
         src/gif/GifResultModel.cpp
         src/gif/GifStoredModel.h
@@ -530,6 +534,17 @@ if(BUILD_TESTING)
         ${GIF_CORE_SOURCES}
     )
     target_include_directories(gif-search-controller-test PRIVATE src "${LIGHTNING_GENERATED_DIR}")
+
+    # GIF key configuration source of truth: safe env-file parsing, source
+    # precedence (environment > env file > build key), empty-value fallback,
+    # and controller refresh signaling.
+    qt_add_executable(gif-key-config-test
+        tests/GifKeyConfigTest.cpp
+        ${GIF_CORE_SOURCES}
+    )
+    target_include_directories(gif-key-config-test PRIVATE src "${LIGHTNING_GENERATED_DIR}")
+    target_link_libraries(gif-key-config-test PRIVATE Qt6::Core Qt6::Qml Qt6::Test)
+    add_test(NAME gif-key-config COMMAND gif-key-config-test)
 
     # Provider-key resolution unit test (build-key fallback + precedence).
     qt_add_executable(gif-build-keys-test

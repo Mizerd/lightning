@@ -1,6 +1,7 @@
 #include "gif/GifSearchController.h"
 
 #include "gif/GifBuildKeys.h"
+#include "gif/GifKeyConfig.h"
 #include "gif/GifTransport.h"
 
 GifSearchController::GifSearchController(QObject *parent)
@@ -10,18 +11,12 @@ GifSearchController::GifSearchController(QObject *parent)
     , m_favorites(std::make_unique<GifFavoritesModel>(m_settings.get(), this))
     , m_recent(std::make_unique<GifRecentModel>(m_settings.get(), this))
 {
-    // Resolve provider keys once: a non-empty runtime environment override wins,
-    // otherwise the key compiled into an official release build, otherwise empty
-    // (unconfigured). Values are never logged; a test seam (setApiKey) may
-    // override later.
-    m_apiKeys.insert(
-        QStringLiteral("giphy"),
-        gif::resolveProviderKey(qEnvironmentVariable("LIGHTNING_GIPHY_API_KEY"),
-                                gif::buildKeyFor(QStringLiteral("giphy"))));
-    m_apiKeys.insert(
-        QStringLiteral("klipy"),
-        gif::resolveProviderKey(qEnvironmentVariable("LIGHTNING_KLIPY_API_KEY"),
-                                gif::buildKeyFor(QStringLiteral("klipy"))));
+    // Resolve provider keys through the shared source of truth (process
+    // environment > local env file > compiled build key > unconfigured).
+    // Values are never logged; a test seam (setApiKey) may override later,
+    // and refreshProviderKeys() re-resolves at runtime (e.g. when the picker
+    // opens) so a launch that raced configuration never sticks at "off".
+    refreshProviderKeys();
 
     // The grid's star reflects live favorite state; a toggle refreshes only the
     // affected tile, never the whole grid.
@@ -60,8 +55,29 @@ void GifSearchController::setTransport(GifTransport *transport)
     Q_EMIT availableChanged();
 }
 
+void GifSearchController::refreshProviderKeys()
+{
+    bool changed = false;
+    for (const QString &id :
+         { QStringLiteral("giphy"), QStringLiteral("klipy") }) {
+        // The test seam owns any explicitly injected key.
+        if (m_apiKeyOverrides.contains(id))
+            continue;
+        const QString resolved = gif::resolveProviderKeyDetailed(id).key;
+        if (m_apiKeys.value(id) != resolved) {
+            m_apiKeys.insert(id, resolved);
+            changed = true;
+        }
+    }
+    if (changed) {
+        Q_EMIT providerConfigurationChanged();
+        Q_EMIT providerChanged();
+    }
+}
+
 void GifSearchController::setApiKey(const QString &providerId, const QString &key)
 {
+    m_apiKeyOverrides.insert(providerId);
     m_apiKeys.insert(providerId, key);
     if (providerId == m_activeProviderId)
         Q_EMIT providerChanged();

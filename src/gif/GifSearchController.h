@@ -6,6 +6,7 @@
 #include "gif/GifRecentModel.h"
 
 #include <QHash>
+#include <QSet>
 #include <QObject>
 #include <QQmlEngine>
 #include <QSettings>
@@ -27,7 +28,8 @@ class GifTransport;
 // LIGHTNING_KLIPY_API_KEY) -> key compiled into an official release build ->
 // unconfigured. Keys are never logged or exposed to QML; a provider with no key
 // is reported as unconfigured (MissingKey) and its picker section is disabled,
-// while the rest of messaging is unaffected. See gif::resolveProviderKey.
+// while the rest of messaging is unaffected. See gif::resolveProviderKeyDetailed
+// (process environment > local env file > build key > unconfigured).
 class GifSearchController : public QObject
 {
     Q_OBJECT
@@ -67,7 +69,13 @@ public:
     // Owned externally (AppController). Reconnecting is allowed (logout/login).
     void setTransport(GifTransport *transport);
     // Test / settings seam: override the environment key for a provider.
+    // Overridden providers are pinned — refreshProviderKeys() skips them.
     void setApiKey(const QString &providerId, const QString &key);
+    // Re-resolve provider keys through the configuration source of truth
+    // (environment > local env file > build key). Invoked when the picker
+    // opens, so availability never sticks at "off" because the controller
+    // was constructed before the environment was ready.
+    Q_INVOKABLE void refreshProviderKeys();
     // Debounce window (ms). Exposed for deterministic tests.
     void setDebounceMs(int ms) { m_debounceMs = ms; }
 
@@ -108,6 +116,9 @@ public:
     Q_INVOKABLE void recordSent(const QVariantMap &resultMap);
 
 Q_SIGNALS:
+    // Provider key availability was re-resolved (labels and enabled states
+    // must re-read providerConfigured()).
+    void providerConfigurationChanged();
     void availableChanged();
     void providerChanged();
     void stateChanged();
@@ -137,6 +148,7 @@ private:
     QString m_activeProviderId = QStringLiteral("giphy");
     std::unique_ptr<gif::GifProvider> m_provider;
     QHash<QString, QString> m_apiKeys; // provider id -> key (never logged)
+    QSet<QString> m_apiKeyOverrides;   // providers pinned via setApiKey()
 
     RequestState m_state = RequestState::Idle;
     Mode m_mode = Trending;
