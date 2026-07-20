@@ -645,7 +645,7 @@ impl TimelineRegistry {
                     match reply_to {
                         Some(reply_to) => timeline
                             .send_reply(
-                                RoomMessageEventContentWithoutRelation::text_plain(
+                                RoomMessageEventContentWithoutRelation::text_markdown(
                                     body,
                                 ),
                                 reply_to,
@@ -654,7 +654,7 @@ impl TimelineRegistry {
                             .is_ok(),
                         None => timeline
                             .send(AnyMessageLikeEventContent::RoomMessage(
-                                RoomMessageEventContent::text_plain(body),
+                                RoomMessageEventContent::text_markdown(body),
                             ))
                             .await
                             .is_ok(),
@@ -818,8 +818,10 @@ impl TimelineRegistry {
         Ok(())
     }
 
-    /// Send a plain text message through the SDK timeline (send queue +
-    /// SDK-owned local echo). Encryption is transparent for encrypted rooms.
+    /// Send a text message through the SDK timeline (send queue + SDK-owned
+    /// local echo). The body is parsed as markdown by the SDK (formatting
+    /// toolbar); plain text without markdown stays a plain m.text event.
+    /// Encryption is transparent for encrypted rooms.
     pub fn send_text(
         self: &Arc<Self>,
         runtime: &tokio::runtime::Runtime,
@@ -833,7 +835,7 @@ impl TimelineRegistry {
         let events = Arc::clone(&self.events);
         runtime.spawn(async move {
             let content = AnyMessageLikeEventContent::RoomMessage(
-                RoomMessageEventContent::text_plain(body),
+                RoomMessageEventContent::text_markdown(body),
             );
             if timeline.send(content).await.is_err()
                 && registry.is_current(room_gen, lifecycle)
@@ -932,7 +934,7 @@ impl TimelineRegistry {
         let registry = Arc::clone(self);
         let events = Arc::clone(&self.events);
         runtime.spawn(async move {
-            let content = RoomMessageEventContentWithoutRelation::text_plain(body);
+            let content = RoomMessageEventContentWithoutRelation::text_markdown(body);
             if timeline.send_reply(content, reply_to).await.is_err()
                 && registry.is_current(room_gen, lifecycle)
             {
@@ -1048,7 +1050,7 @@ impl TimelineRegistry {
         runtime.spawn(async move {
             let item_id = TimelineEventItemId::EventId(event_id);
             let content = EditedContent::RoomMessage(
-                RoomMessageEventContentWithoutRelation::text_plain(new_body),
+                RoomMessageEventContentWithoutRelation::text_markdown(new_body),
             );
             if timeline.edit(&item_id, content).await.is_err()
                 && registry.is_current(room_gen, lifecycle)
@@ -2405,5 +2407,41 @@ mod tests {
     fn empty_import_result_maps_to_empty() {
         let keys = BTreeMap::new();
         assert!(sessions_by_room_from_import(&keys).is_empty());
+    }
+
+    // The interactive send paths construct message content through the
+    // SDK's markdown constructors. These prove the pinned SDK converts the
+    // toolbar's syntax into a formatted body and leaves ordinary text as a
+    // plain m.text event (no formatted_body).
+    #[test]
+    fn markdown_body_produces_formatted_content() {
+        use matrix_sdk::ruma::events::room::message::{
+            MessageType, RoomMessageEventContent,
+        };
+        let content = RoomMessageEventContent::text_markdown("**bold** _it_");
+        match content.msgtype {
+            MessageType::Text(text) => {
+                let formatted = text.formatted.expect("formatted body");
+                assert!(formatted.body.contains("<strong>bold</strong>"));
+                assert!(formatted.body.contains("<em>it</em>"));
+                assert_eq!(text.body, "**bold** _it_");
+            }
+            other => panic!("unexpected msgtype: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn plain_body_stays_plain() {
+        use matrix_sdk::ruma::events::room::message::{
+            MessageType, RoomMessageEventContent,
+        };
+        let content = RoomMessageEventContent::text_markdown("hello world");
+        match content.msgtype {
+            MessageType::Text(text) => {
+                assert!(text.formatted.is_none());
+                assert_eq!(text.body, "hello world");
+            }
+            other => panic!("unexpected msgtype: {other:?}"),
+        }
     }
 }

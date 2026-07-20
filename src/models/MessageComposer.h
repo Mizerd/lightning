@@ -84,6 +84,17 @@ public:
     // like a path is never treated as a file.
     Q_INVOKABLE bool pasteFromClipboard();
 
+    // Formatting toolbar (design shell): markdown wrap/unwrap over the
+    // editor's selection, and the active-state flags for the toolbar chips.
+    // Pure text transforms — see MarkdownFormat.
+    Q_INVOKABLE QVariantMap toggleFormat(const QString &format,
+                                         const QString &text,
+                                         int selectionStart,
+                                         int selectionEnd) const;
+    Q_INVOKABLE QVariantMap formatState(const QString &text,
+                                        int selectionStart,
+                                        int selectionEnd) const;
+
 Q_SIGNALS:
     void textChanged();
     void roomIdChanged();

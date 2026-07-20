@@ -148,6 +148,8 @@ set(APP_SOURCES
     src/models/TimelineScrollController.cpp
     src/models/MessageComposer.h
     src/models/MessageComposer.cpp
+    src/models/MarkdownFormat.h
+    src/models/MarkdownFormat.cpp
     src/models/EmojiCatalog.h
     src/models/EmojiCatalog.cpp
     src/models/AttachmentQueueModel.h
@@ -700,6 +702,8 @@ if(BUILD_TESTING)
         tests/AttachmentQueueTest.cpp
         src/models/MessageComposer.h
         src/models/MessageComposer.cpp
+        src/models/MarkdownFormat.h
+        src/models/MarkdownFormat.cpp
         src/models/AttachmentQueueModel.h
         src/models/AttachmentQueueModel.cpp
         src/matrix/MatrixClient.h
@@ -958,6 +962,30 @@ if(BUILD_TESTING)
     add_test(NAME theme-snapshot COMMAND theme-snapshot-test)
     set_tests_properties(theme-snapshot PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen;LIGHTNING_SNAPSHOT_DIR=${CMAKE_CURRENT_BINARY_DIR}/snapshots")
+
+    # Rebuilt main composer (SPEC §2): one card, toolbar row over input row,
+    # exact control order/geometry, borderless input, markdown round-trip,
+    # theme-tracked card pixels, zero QML warnings.
+    qt_add_executable(composer-qml-test
+        tests/ComposerQmlTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_app(composer-qml-test)
+    target_link_libraries(composer-qml-test PRIVATE Qt6::Test)
+    add_test(NAME composer-qml COMMAND composer-qml-test)
+    set_tests_properties(composer-qml PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    # Composer formatting toolbar: markdown wrap/unwrap, line prefixes, link
+    # scaffold, selection integrity, and active-state detection.
+    qt_add_executable(markdown-format-test
+        tests/MarkdownFormatTest.cpp
+        src/models/MarkdownFormat.h
+        src/models/MarkdownFormat.cpp
+    )
+    target_include_directories(markdown-format-test PRIVATE src)
+    target_link_libraries(markdown-format-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME markdown-format COMMAND markdown-format-test)
 
     # Design button system (SPEC §1): offscreen pixel proof that Style A is
     # bare at rest with a soft hover tint, Style B is the accent-soft chip,

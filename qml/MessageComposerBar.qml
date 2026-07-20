@@ -1,24 +1,47 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Dialogs
+import QtQuick.Effects
 import QtQuick.Layouts
 import MatrixClient
 
-// v0.5.9: unified composer bar — attach button, expanding multiline editor,
-// Send — with an attachment tray (file picker, drag-and-drop, clipboard
-// image paste) feeding the SDK send queue on the Rust backend. The HTTP
-// backend keeps its legacy immediate image/file send menu. Enter sends,
+// The main message composer (SPEC-composer-settings-buttons §2): ONE card at
+// the bottom of the timeline — a formatting toolbar row above the input row,
+// separated by a 1px divider. The card floats on the timeline background
+// (20px side padding, 16px bottom) and carries one of the app's four
+// permitted shadows. The toolbar edits real markdown over the selection via
+// MessageComposer.toggleFormat; the Rust send path parses it at send time.
+// Attach / emoji / GIF / send keep their existing integrations; Enter sends,
 // Shift+Enter inserts a newline; typing notifications are unchanged.
-Rectangle {
+Item {
     id: root
-    color: AppTheme.surface
-    implicitHeight: composerCol.implicitHeight + AppTheme.spacing12
+    implicitHeight: composerCol.implicitHeight + AppTheme.spacing16
+                    + AppTheme.spacing4
 
     // Transient validation feedback ("folder rejected", "too large", …).
     property string attachmentNotice: ""
     property int emojiSelectionStart: 0
     property int emojiSelectionEnd: 0
     property int emojiCursorPosition: 0
+
+    // Active-state flags for the toolbar chips, recomputed from the live
+    // selection (MarkdownFormat::state on the C++ side).
+    property var formatFlags: ({})
+    function refreshFormatState() {
+        formatFlags = app.composer.formatState(input.text,
+                                               input.selectionStart,
+                                               input.selectionEnd)
+    }
+    function applyFormat(format) {
+        var result = app.composer.toggleFormat(format, input.text,
+                                               input.selectionStart,
+                                               input.selectionEnd)
+        input.text = result.text
+        app.composer.text = result.text
+        input.select(result.selectionStart, result.selectionEnd)
+        input.forceActiveFocus()
+        refreshFormatState()
+    }
 
     function openEmojiPicker() {
         emojiSelectionStart = input.selectionStart
@@ -149,49 +172,13 @@ Rectangle {
 
     ColumnLayout {
         id: composerCol
-        anchors.fill: parent
-        anchors.leftMargin: AppTheme.spacing12
-        anchors.rightMargin: AppTheme.spacing12
-        anchors.topMargin: AppTheme.spacing4
-        anchors.bottomMargin: AppTheme.spacing8
-        spacing: 2
-
-        // Reply / Edit / Thread banner
-        Rectangle {
-            id: contextBar
-            visible: app.composer.isReplying || app.composer.isEditing || app.composer.inThread
-            Layout.fillWidth: true
-            implicitHeight: contextRow.implicitHeight + 6
-            color: AppTheme.cardElevated
-            radius: 4
-            RowLayout {
-                id: contextRow
-                anchors.fill: parent
-                anchors.margins: 4
-                spacing: 6
-                Label {
-                    text: {
-                        if (app.composer.isEditing)
-                            return qsTr("Editing message")
-                        if (app.composer.inThread)
-                            return qsTr("Replying in thread: %1").arg(app.composer.threadPreview || "")
-                        return qsTr("Replying to %1: %2")
-                                    .arg(app.composer.replyingToSender || qsTr("someone"))
-                                    .arg(app.composer.replyingToPreview || "")
-                    }
-                    color: AppTheme.textMuted
-                    font.pixelSize: 11
-                    elide: Label.ElideRight
-                    Layout.fillWidth: true
-                }
-                ToolButton {
-                    contentItem: Icon { name: "close"; size: 13 }
-                    onClicked: app.composer.cancelReplyOrEdit()
-                    ToolTip.text: qsTr("Cancel")
-                    ToolTip.visible: hovered
-                }
-            }
+        anchors {
+            left: parent.left; right: parent.right; bottom: parent.bottom
+            leftMargin: AppTheme.spacing20
+            rightMargin: AppTheme.spacing20
+            bottomMargin: AppTheme.spacing16
         }
+        spacing: AppTheme.spacing6
 
         // Attachment validation notice.
         Label {
@@ -264,20 +251,24 @@ Rectangle {
                                 Layout.maximumWidth: 140
                             }
                         }
-                        ToolButton {
+                        IconButton {
                             visible: model.state === "failed"
                             implicitWidth: 20; implicitHeight: 20
-                            contentItem: Icon { name: "refresh"; size: 14 }
+                            radius: 5
+                            iconName: "refresh"
+                            iconSize: 14
                             Accessible.name: qsTr("Retry sending %1").arg(model.fileName)
                             onClicked: {
                                 app.composer.attachments.retryAt(index)
                                 app.composer.send()
                             }
                         }
-                        ToolButton {
+                        IconButton {
                             enabled: model.state !== "dispatching"
                             implicitWidth: 20; implicitHeight: 20
-                            contentItem: Icon { name: "close"; size: 13 }
+                            radius: 5
+                            iconName: "close"
+                            iconSize: 13
                             Accessible.name: qsTr("Remove attachment %1").arg(model.fileName)
                             onClicked: app.composer.attachments.removeAt(index)
                         }
@@ -286,175 +277,372 @@ Rectangle {
             }
         }
 
-        // ── Composer card (design shell): one bordered rounded card
-        //    holding attach · input · emoji · GIF · send. ─────────────────
-        Rectangle {
-            id: composerCard
+        // ── The composer card: toolbar row / divider / input row ─────────
+        Item {
             Layout.fillWidth: true
-            implicitHeight: composerRow.implicitHeight + AppTheme.spacing8
-            radius: AppTheme.radiusLg
-            // Design shell: the composer is a raised card on the surface
-            // tier, not an inset input field.
-            color: AppTheme.surface
-            border.color: input.activeFocus ? AppTheme.focusRing
-                                            : AppTheme.border
-            border.width: 1
+            implicitHeight: composerCard.implicitHeight
 
-            RowLayout {
-                id: composerRow
-                anchors {
-                    left: parent.left; right: parent.right
-                    verticalCenter: parent.verticalCenter
-                    leftMargin: AppTheme.spacing6
-                    rightMargin: AppTheme.spacing6
-                }
-                spacing: AppTheme.spacing4
+            // Composer shadow — one of the four shadows the design budget
+            // allows (composer card, quick-switcher modal, account popover,
+            // slider thumb).
+            MultiEffect {
+                source: composerCard
+                anchors.fill: composerCard
+                z: -1
+                shadowEnabled: true
+                shadowColor: AppTheme.shadow
+                shadowBlur: 0.6
+                shadowVerticalOffset: 2
+                shadowHorizontalOffset: 0
+            }
 
-                ToolButton {
-                    Layout.alignment: Qt.AlignVCenter
-                    contentItem: Icon {
-                        name: "add_circle"
-                        size: 22
-                        color: parent.enabled ? AppTheme.textSecondary
-                                              : AppTheme.textDisabled
-                    }
-                    enabled: app.currentRoomId !== ""
-                    Accessible.name: qsTr("Attach files")
-                    onClicked: {
-                        if (app.composer.attachmentsSupported)
-                            pickAttachmentsDialog.open()
-                        else
-                            legacyAttachMenu.popup()
-                    }
-                    ToolTip.text: qsTr("Attach")
-                    ToolTip.visible: hovered
-                    ToolTip.delay: 500
-                }
+            Rectangle {
+                id: composerCard
+                objectName: "composerCard"
+                anchors.fill: parent
+                implicitHeight: cardColumn.implicitHeight
+                radius: AppTheme.radiusLg
+                color: AppTheme.surface
+                border.color: AppTheme.border
+                border.width: 1
 
-                TextArea {
-                    id: input
-                    objectName: "composerInput"
+            ColumnLayout {
+                id: cardColumn
+                anchors.left: parent.left
+                anchors.right: parent.right
+                spacing: 0
+
+                // Reply / Edit / Thread banner (top row when active; keeps
+                // the toolbar+input hierarchy intact below it).
+                RowLayout {
+                    id: contextRow
+                    objectName: "composerContextBanner"
+                    visible: app.composer.isReplying || app.composer.isEditing
+                             || app.composer.inThread
                     Layout.fillWidth: true
-                    // Grows with content up to ~6 lines, then scrolls.
-                    Layout.maximumHeight: 140
-                    placeholderText: app.currentRoomId === ""
-                                     ? qsTr("Select a room to start typing")
-                                     : (app.composer.isEditing
-                                        ? qsTr("Edit message…")
-                                        : qsTr("Message %1").arg(
-                                              root.roomDisplayName()))
-                    wrapMode: TextArea.Wrap
-                    enabled: app.currentRoomId !== ""
-                    text: app.composer.text
-                    onTextChanged: if (app.composer.text !== text) app.composer.text = text
-                    Keys.onReturnPressed: (event) => {
-                        if (event.modifiers & Qt.ShiftModifier) {
-                            event.accepted = false
-                            return
+                    Layout.leftMargin: AppTheme.spacing12 + 2
+                    Layout.rightMargin: AppTheme.spacing8
+                    Layout.topMargin: AppTheme.spacing4
+                    spacing: AppTheme.spacing6
+                    Label {
+                        text: {
+                            if (app.composer.isEditing)
+                                return qsTr("Editing message")
+                            if (app.composer.inThread)
+                                return qsTr("Replying in thread: %1").arg(app.composer.threadPreview || "")
+                            return qsTr("Replying to %1: %2")
+                                        .arg(app.composer.replyingToSender || qsTr("someone"))
+                                        .arg(app.composer.replyingToPreview || "")
                         }
-                        event.accepted = true
-                        app.composer.send()
-                        input.forceActiveFocus()
+                        color: AppTheme.textMuted
+                        font.pixelSize: 11
+                        elide: Label.ElideRight
+                        Layout.fillWidth: true
                     }
-                    Keys.onPressed: (event) => {
-                        // Clipboard images / file URLs become attachments;
-                        // ordinary text pastes normally.
-                        if (event.matches(StandardKey.Paste)
-                                && app.composer.pasteFromClipboard()) {
-                            event.accepted = true
-                        }
-                    }
-                    // The card carries the chrome; the field itself is bare.
-                    background: Rectangle { color: "transparent" }
-                }
-
-                ToolButton {
-                    id: emojiButton
-                    Layout.alignment: Qt.AlignVCenter
-                    contentItem: Icon {
-                        name: "mood"
-                        size: 22
-                        color: emojiButton.enabled ? AppTheme.textSecondary
-                                                   : AppTheme.textDisabled
-                    }
-                    enabled: app.currentRoomId !== ""
-                    Accessible.name: qsTr("Insert emoji")
-                    ToolTip.text: qsTr("Emoji")
-                    ToolTip.visible: hovered
-                    ToolTip.delay: 500
-                    onClicked: root.openEmojiPicker()
-                }
-
-                // GIF keycap chip (design: mono, 1.5px border, radius 5).
-                ToolButton {
-                    id: gifButton
-                    Layout.alignment: Qt.AlignVCenter
-                    enabled: app.currentRoomId !== "" && app.gif.available
-                    Accessible.name: qsTr("Insert a GIF")
-                    ToolTip.text: app.gif.available ? qsTr("GIF")
-                        : qsTr("GIFs are unavailable on this backend")
-                    ToolTip.visible: hovered
-                    ToolTip.delay: 500
-                    implicitWidth: gifCap.implicitWidth + AppTheme.spacing12
-                    implicitHeight: 26
-                    contentItem: Label {
-                        id: gifCap
-                        text: qsTr("GIF")
-                        font.family: AppTheme.monoFont
-                        font.pixelSize: AppTheme.fontCaption
-                        font.weight: Font.Bold
-                        color: gifButton.enabled ? AppTheme.textSecondary
-                                                 : AppTheme.textDisabled
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                    }
-                    background: Rectangle {
+                    IconButton {
+                        implicitWidth: 22; implicitHeight: 22
                         radius: 5
-                        color: gifButton.hovered ? AppTheme.hover : "transparent"
-                        border.color: AppTheme.borderStrong
-                        border.width: 1
+                        iconName: "close"
+                        iconSize: 14
+                        Accessible.name: qsTr("Cancel")
+                        onClicked: app.composer.cancelReplyOrEdit()
                     }
-                    onClicked: root.openGifPicker()
+                }
+                Rectangle {
+                    visible: contextRow.visible
+                    Layout.fillWidth: true
+                    Layout.leftMargin: 1
+                    Layout.rightMargin: 1
+                    implicitHeight: 1
+                    color: AppTheme.border
                 }
 
-                // Accent send button (34 px, radius 9).
-                Button {
-                    id: sendButton
-                    Layout.alignment: Qt.AlignVCenter
-                    enabled: app.composer.canSend
-                    Accessible.name: app.composer.isEditing
-                                     ? qsTr("Save edit") : qsTr("Send message")
-                    implicitWidth: 34
-                    implicitHeight: 34
-                    ToolTip.text: app.composer.isEditing ? qsTr("Save") : qsTr("Send")
-                    ToolTip.visible: hovered
-                    ToolTip.delay: 500
-                    contentItem: Icon {
-                        name: app.composer.isEditing ? "check" : "send"
-                        size: 19
-                        color: sendButton.enabled ? AppTheme.accentText
-                                                  : AppTheme.textDisabled
+                // Formatting toolbar row — exact order per spec §2.
+                RowLayout {
+                    id: toolbarRow
+                    objectName: "composerToolbarRow"
+                    Layout.fillWidth: true
+                    Layout.leftMargin: AppTheme.spacing8 + 2
+                    Layout.rightMargin: AppTheme.spacing8 + 2
+                    Layout.topMargin: AppTheme.spacing8
+                    Layout.bottomMargin: AppTheme.spacing8
+                    spacing: 2
+
+                    Repeater {
+                        model: [
+                            { key: "bold",   icon: "format_bold",
+                              label: qsTr("Bold") },
+                            { key: "italic", icon: "format_italic",
+                              label: qsTr("Italic") },
+                            { key: "strike", icon: "strikethrough_s",
+                              label: qsTr("Strikethrough") },
+                            { key: "code",   icon: "code",
+                              label: qsTr("Inline code") },
+                        ]
+                        IconButton {
+                            objectName: "composerFormat_" + modelData.key
+                            implicitWidth: 28; implicitHeight: 28
+                            radius: 6
+                            iconName: modelData.icon
+                            iconSize: 18
+                            enabled: app.currentRoomId !== ""
+                            active: root.formatFlags[modelData.key] === true
+                            Accessible.name: modelData.label
+                            ToolTip.text: modelData.label
+                            ToolTip.visible: hovered
+                            ToolTip.delay: 500
+                            onClicked: root.applyFormat(modelData.key)
+                        }
                     }
-                    background: Rectangle {
+                    Rectangle {
+                        objectName: "composerToolbarDivider"
+                        implicitWidth: 1
+                        implicitHeight: 16
+                        Layout.leftMargin: 4
+                        Layout.rightMargin: 4
+                        color: AppTheme.border
+                    }
+                    Repeater {
+                        model: [
+                            { key: "link",  icon: "link",
+                              label: qsTr("Link") },
+                            { key: "list",  icon: "format_list_bulleted",
+                              label: qsTr("Bulleted list") },
+                            { key: "quote", icon: "format_quote",
+                              label: qsTr("Quote") },
+                        ]
+                        IconButton {
+                            objectName: "composerFormat_" + modelData.key
+                            implicitWidth: 28; implicitHeight: 28
+                            radius: 6
+                            iconName: modelData.icon
+                            iconSize: 18
+                            enabled: app.currentRoomId !== ""
+                            active: root.formatFlags[modelData.key] === true
+                            Accessible.name: modelData.label
+                            ToolTip.text: modelData.label
+                            ToolTip.visible: hovered
+                            ToolTip.delay: 500
+                            onClicked: root.applyFormat(modelData.key)
+                        }
+                    }
+                    Item { Layout.fillWidth: true }
+                }
+
+                // 1px divider between the two rows.
+                Rectangle {
+                    objectName: "composerRowDivider"
+                    Layout.fillWidth: true
+                    Layout.leftMargin: 1
+                    Layout.rightMargin: 1
+                    implicitHeight: 1
+                    color: AppTheme.border
+                }
+
+                // Input row — attach · input · emoji · GIF · mic · send.
+                RowLayout {
+                    id: inputRow
+                    objectName: "composerInputRow"
+                    Layout.fillWidth: true
+                    Layout.leftMargin: AppTheme.spacing12 + 2
+                    Layout.rightMargin: AppTheme.spacing12 + 2
+                    Layout.topMargin: AppTheme.spacing8 + 2
+                    Layout.bottomMargin: AppTheme.spacing8 + 2
+                    spacing: AppTheme.spacing8 + 2
+
+                    IconButton {
+                        objectName: "composerAttachButton"
+                        Layout.alignment: Qt.AlignVCenter
+                        implicitWidth: 28; implicitHeight: 28
+                        radius: 6
+                        iconName: "add_circle"
+                        iconSize: 22
+                        enabled: app.currentRoomId !== ""
+                        Accessible.name: qsTr("Attach files")
+                        onClicked: {
+                            if (app.composer.attachmentsSupported)
+                                pickAttachmentsDialog.open()
+                            else
+                                legacyAttachMenu.popup()
+                        }
+                        ToolTip.text: qsTr("Attach")
+                        ToolTip.visible: hovered
+                        ToolTip.delay: 500
+                    }
+
+                    TextArea {
+                        id: input
+                        objectName: "composerInput"
+                        Layout.fillWidth: true
+                        Layout.alignment: Qt.AlignVCenter
+                        // Grows with content up to ~6 lines, then scrolls.
+                        Layout.maximumHeight: 140
+                        placeholderText: {
+                            if (app.currentRoomId === "")
+                                return qsTr("Select a room to start typing")
+                            if (app.composer.isEditing)
+                                return qsTr("Edit message…")
+                            return qsTr("Message %1").arg(root.roomDisplayName())
+                        }
+                        placeholderTextColor: AppTheme.textMuted
+                        font.pixelSize: 14
+                        wrapMode: TextArea.Wrap
+                        enabled: app.currentRoomId !== ""
+                        text: app.composer.text
+                        onTextChanged: {
+                            if (app.composer.text !== text) app.composer.text = text
+                            root.refreshFormatState()
+                        }
+                        onSelectionStartChanged: root.refreshFormatState()
+                        onSelectionEndChanged: root.refreshFormatState()
+                        onCursorPositionChanged: root.refreshFormatState()
+                        Keys.onReturnPressed: (event) => {
+                            if (event.modifiers & Qt.ShiftModifier) {
+                                event.accepted = false
+                                return
+                            }
+                            event.accepted = true
+                            app.composer.send()
+                            input.forceActiveFocus()
+                        }
+                        Keys.onPressed: (event) => {
+                            // Clipboard images / file URLs become attachments;
+                            // ordinary text pastes normally.
+                            if (event.matches(StandardKey.Paste)
+                                    && app.composer.pasteFromClipboard()) {
+                                event.accepted = true
+                            }
+                        }
+                        // The card is the visual container: the field itself
+                        // is borderless and transparent — no inner pill.
+                        background: Rectangle { color: "transparent" }
+                    }
+
+                    IconButton {
+                        id: emojiButton
+                        objectName: "composerEmojiButton"
+                        Layout.alignment: Qt.AlignVCenter
+                        implicitWidth: 28; implicitHeight: 28
+                        radius: 6
+                        iconName: "mood"
+                        iconSize: 22
+                        enabled: app.currentRoomId !== ""
+                        Accessible.name: qsTr("Insert emoji")
+                        ToolTip.text: qsTr("Emoji")
+                        ToolTip.visible: hovered
+                        ToolTip.delay: 500
+                        onClicked: root.openEmojiPicker()
+                    }
+
+                    // GIF keycap (design: mono 11/700, 1.5px border, radius 5
+                    // — a bordered text chip, not an icon).
+                    AbstractButton {
+                        id: gifButton
+                        objectName: "composerGifButton"
+                        Layout.alignment: Qt.AlignVCenter
+                        implicitWidth: gifCap.implicitWidth + AppTheme.spacing8
+                        implicitHeight: 28
+                        hoverEnabled: true
+                        focusPolicy: Qt.TabFocus
+                        Accessible.role: Accessible.Button
+                        enabled: app.currentRoomId !== "" && app.gif.available
+                        Accessible.name: qsTr("Insert a GIF")
+                        ToolTip.text: app.gif.available ? qsTr("GIF")
+                            : qsTr("GIFs are unavailable on this backend")
+                        ToolTip.visible: hovered
+                        ToolTip.delay: 500
+                        contentItem: Item {
+                            implicitWidth: gifCap.implicitWidth
+                            implicitHeight: 28
+                            Label {
+                                id: gifCap
+                                anchors.centerIn: parent
+                                text: qsTr("GIF")
+                                font.family: AppTheme.monoFont
+                                font.pixelSize: 11
+                                font.weight: Font.Bold
+                                leftPadding: 4
+                                rightPadding: 4
+                                topPadding: 2
+                                bottomPadding: 2
+                                color: gifButton.enabled ? AppTheme.icon
+                                                         : AppTheme.textDisabled
+                            }
+                        }
+                        background: Item {
+                            Rectangle {
+                                objectName: "composerGifKeycap"
+                                anchors.centerIn: parent
+                                width: gifCap.implicitWidth
+                                height: gifCap.implicitHeight
+                                radius: 5
+                                color: gifButton.hovered ? AppTheme.hover
+                                                         : "transparent"
+                                border.color: AppTheme.borderStrong
+                                border.width: 1.5
+                            }
+                        }
+                        Rectangle {
+                            anchors.fill: parent
+                            anchors.margins: -3
+                            radius: 8
+                            color: "transparent"
+                            border.color: AppTheme.focusRing
+                            border.width: 2
+                            visible: gifButton.visualFocus
+                        }
+                        onClicked: root.openGifPicker()
+                    }
+
+                    // Voice capture has no backend yet: the control keeps the
+                    // designed slot with the app's honest unavailable state.
+                    IconButton {
+                        objectName: "composerMicButton"
+                        Layout.alignment: Qt.AlignVCenter
+                        implicitWidth: 28; implicitHeight: 28
+                        radius: 6
+                        iconName: "mic"
+                        iconSize: 22
+                        enabled: false
+                        Accessible.name: qsTr("Voice messages are not available yet")
+                        ToolTip.text: qsTr("Voice messages are not available yet")
+                        ToolTip.visible: hovered
+                        ToolTip.delay: 500
+                    }
+
+                    // Accent-fill send (34px, radius 9 — a rounded square).
+                    IconButton {
+                        id: sendButton
+                        objectName: "composerSendButton"
+                        Layout.alignment: Qt.AlignVCenter
+                        implicitWidth: 34; implicitHeight: 34
                         radius: 9
-                        color: !sendButton.enabled ? AppTheme.cardElevated
-                               : sendButton.down ? AppTheme.accentPressed
-                               : sendButton.hovered ? AppTheme.accentHover
-                               : AppTheme.accent
-                    }
-                    onClicked: {
-                        app.composer.send()
-                        input.forceActiveFocus()
+                        fill: true
+                        iconName: app.composer.isEditing ? "check" : "send"
+                        iconSize: 19
+                        enabled: app.composer.canSend
+                        Accessible.name: app.composer.isEditing
+                                         ? qsTr("Save edit") : qsTr("Send message")
+                        ToolTip.text: app.composer.isEditing ? qsTr("Save") : qsTr("Send")
+                        ToolTip.visible: hovered
+                        ToolTip.delay: 500
+                        onClicked: {
+                            app.composer.send()
+                            input.forceActiveFocus()
+                        }
                     }
                 }
+            }
             }
         }
     }
 
-    // Room display name for the "Message #room" placeholder.
+    // Room display name for the "Message #room" placeholder (rooms get the
+    // design's # prefix; people keep their plain name).
     function roomDisplayName() {
         var room = app.roomList.findRoom(app.currentRoomId)
-        return room && room.name ? room.name : qsTr("this room")
+        var name = room && room.name ? room.name : qsTr("this room")
+        return room && room.isDirect === true ? name : "#" + name
     }
 
     Connections {

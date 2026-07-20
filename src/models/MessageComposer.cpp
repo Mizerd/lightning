@@ -1,6 +1,7 @@
 #include "models/MessageComposer.h"
 
 #include "matrix/MatrixClient.h"
+#include "models/MarkdownFormat.h"
 
 #include <QBuffer>
 #include <QClipboard>
@@ -365,4 +366,25 @@ void MessageComposer::stopTyping()
         m_client->sendTyping(m_roomId, false, 0);
     }
     m_typingActive = false;
+}
+
+QVariantMap MessageComposer::toggleFormat(const QString &format,
+                                          const QString &text,
+                                          int selectionStart,
+                                          int selectionEnd) const
+{
+    const auto result = MarkdownFormat::toggle(format, text,
+                                               selectionStart, selectionEnd);
+    return {
+        { QStringLiteral("text"), result.text },
+        { QStringLiteral("selectionStart"), result.selectionStart },
+        { QStringLiteral("selectionEnd"), result.selectionEnd },
+    };
+}
+
+QVariantMap MessageComposer::formatState(const QString &text,
+                                         int selectionStart,
+                                         int selectionEnd) const
+{
+    return MarkdownFormat::state(text, selectionStart, selectionEnd);
 }

@@ -1022,7 +1022,7 @@ Rectangle {
             Layout.fillWidth: true
             visible: app.timeline.typingText && app.timeline.typingText.length > 0
             implicitHeight: typingLabel.implicitHeight + 6
-            color: AppTheme.surface
+            color: AppTheme.background
             Label {
                 id: typingLabel
                 anchors.left: parent.left
@@ -1040,7 +1040,7 @@ Rectangle {
             Layout.fillWidth: true
             visible: saveResult.text.length > 0
             implicitHeight: saveResult.implicitHeight + 6
-            color: AppTheme.surface
+            color: AppTheme.background
             Label {
                 id: saveResult
                 property bool ok: true
@@ -1056,8 +1056,6 @@ Rectangle {
                 }
             }
         }
-
-        Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: AppTheme.border }
 
         MessageComposerBar { Layout.fillWidth: true }
     }

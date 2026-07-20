@@ -13,7 +13,7 @@ name = "matrix_client_rust"
 crate-type = ["staticlib"]
 
 [dependencies]
-matrix-sdk = { version = "0.18", default-features = false, features = ["e2e-encryption", "sqlite"] }
+matrix-sdk = { version = "0.18", default-features = false, features = ["e2e-encryption", "sqlite", "markdown"] }
 # Same release train as the pinned matrix-sdk. Provides the persistent
 # Timeline (initial items + VectorDiff subscription, retry decryption,
 # pagination, local echoes) used by the live timeline registry.

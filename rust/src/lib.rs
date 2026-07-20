@@ -1033,7 +1033,7 @@ pub unsafe extern "C" fn mx_rust_send_text(
                 // error that flows back through send_failed. The C++
                 // side still refuses when CryptoManager::supportsE2ee()
                 // is false — see RustSdkMatrixClient::sendTextMessage.
-                let content = RoomMessageEventContent::text_plain(body);
+                let content = RoomMessageEventContent::text_markdown(body);
                 let txn: OwnedTransactionId = transaction_id.clone().into();
                 match room.send(content).with_transaction_id(txn).await {
                     Ok(result) => enqueue(
