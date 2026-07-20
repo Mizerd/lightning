@@ -101,8 +101,10 @@ private Q_SLOTS:
         QVERIFY(mapped.size() >= 40);
 
         QDir qmlDir(QStringLiteral(QML_DIR));
+        // Icon { name: "x" } and IconButton { iconName: "x" } must both
+        // resolve in the codepoint map.
         const QRegularExpression use(
-            QStringLiteral("name: \"([a-z0-9_]+)\""));
+            QStringLiteral("(?:icon[nN]ame|name): \"([a-z0-9_]+)\""));
         const auto entries =
             qmlDir.entryList({QStringLiteral("*.qml")}, QDir::Files);
         for (const QString &name : entries) {

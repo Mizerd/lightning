@@ -111,19 +111,13 @@ Rectangle {
 
                 // v0.5.9: start a DM or create a room (Rust backend only —
                 // the controller reports unsupported backends itself).
-                ToolButton {
+                IconButton {
                     id: newConversationBtn
                     visible: app.loggedIn && app.conversations.supported
                     implicitWidth: 30; implicitHeight: 30
-                    contentItem: Icon {
-                        name: "add"
-                        size: 18
-                        color: AppTheme.textSecondary
-                    }
-                    background: Rectangle {
-                        radius: AppTheme.radiusSm
-                        color: newConversationBtn.hovered ? AppTheme.hover : "transparent"
-                    }
+                    radius: AppTheme.radiusMd
+                    iconName: "add"
+                    iconSize: 18
                     Accessible.name: qsTr("Start a new conversation")
                     ToolTip.text: qsTr("New conversation")
                     ToolTip.visible: hovered

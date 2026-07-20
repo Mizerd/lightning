@@ -648,19 +648,22 @@ Item {
                     id: actionRow
                     anchors.centerIn: parent
                     spacing: 2
-                    ToolButton {
+                    IconButton {
                         id: reactButton
+                        implicitWidth: 28; implicitHeight: 28
+                        radius: 6
+                        iconName: "add_reaction"
+                        iconSize: 18
                         enabled: !model.redacted
                                  && root.timelineModel.messagePermalink(
                                      root.eventIdForActions()).length > 0
-                        contentItem: Icon { name: "add_reaction"; size: 16 }
                         Accessible.name: qsTr("React to message")
                         ToolTip.text: qsTr("React")
                         ToolTip.visible: hovered
                         ToolTip.delay: 500
                         onClicked: {
-                            if (ListView.view)
-                                ListView.view.pinnedActionsKey = root.actionKey
+                            if (root.ListView.view)
+                                root.ListView.view.pinnedActionsKey = root.actionKey
                             root.reactionEventId = root.eventIdForActions()
                             var p = reactButton.mapToItem(Overlay.overlay,
                                                           reactButton.width / 2,
@@ -669,8 +672,11 @@ Item {
                             reactionPicker.open()
                         }
                     }
-                    ToolButton {
-                        contentItem: Icon { name: "reply"; size: 16 }
+                    IconButton {
+                        implicitWidth: 28; implicitHeight: 28
+                        radius: 6
+                        iconName: "reply"
+                        iconSize: 18
                         enabled: !model.redacted
                                  && root.timelineModel.messagePermalink(
                                      root.eventIdForActions()).length > 0
@@ -682,8 +688,32 @@ Item {
                             root.beginReply(root.eventIdForActions())
                         }
                     }
-                    ToolButton {
-                        contentItem: Icon { name: "more_vert"; size: 16 }
+                    IconButton {
+                        implicitWidth: 28; implicitHeight: 28
+                        radius: 6
+                        iconName: "forum"
+                        iconSize: 18
+                        visible: !root.inThreadPanel
+                        enabled: !model.redacted
+                                 && root.timelineModel.messagePermalink(
+                                     root.eventIdForActions()).length > 0
+                        Accessible.name: qsTr("Reply in thread")
+                        ToolTip.text: qsTr("Reply in thread")
+                        ToolTip.visible: hovered
+                        ToolTip.delay: 500
+                        onClicked: {
+                            var eventId = root.eventIdForActions()
+                            var details = root.timelineModel.messageDetails(eventId)
+                            var rootId = (details.threadRootId || "").length > 0
+                                         ? details.threadRootId : eventId
+                            app.thread.openThread(app.currentRoomId, rootId)
+                        }
+                    }
+                    IconButton {
+                        implicitWidth: 28; implicitHeight: 28
+                        radius: 6
+                        iconName: "more_vert"
+                        iconSize: 18
                         Accessible.name: qsTr("More message actions")
                         ToolTip.text: qsTr("More")
                         ToolTip.visible: hovered

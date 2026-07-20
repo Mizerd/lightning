@@ -532,6 +532,14 @@ QtObject {
     readonly property color inputBackground:     _p.inputBg
     readonly property color inputBorder:         border
     readonly property color focusRing:           _p.accent
+    // Design --icon token: bare interface icons at rest (handoff themes map
+    // it to their muted tone; older palettes follow the same rule).
+    readonly property color icon:                textMuted
+    // The design's shadow budget allows exactly four shadows (composer card,
+    // quick-switcher modal, account popover, slider thumb); this is their
+    // per-theme tint.
+    readonly property color shadow:              dark ? "#59000000"
+                                                      : "#0A000000"
     readonly property color overlayScrim:        "#80000000"
     readonly property color codeBlock:           _p.codeBlock
     // Link colour — accent by default, readable on every surface.

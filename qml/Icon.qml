@@ -78,6 +78,13 @@ Text {
         "warning": "\uf083",
         "error": "\uf8b6",
         "schedule": "\uefd6",
+        "format_bold": "\ue238",
+        "format_italic": "\ue23f",
+        "strikethrough_s": "\ue257",
+        "code": "\ue86f",
+        "link": "\ue250",
+        "format_list_bulleted": "\ue241",
+        "format_quote": "\ue244",
     })
 
     text: _codepoints[name] !== undefined ? _codepoints[name] : ""

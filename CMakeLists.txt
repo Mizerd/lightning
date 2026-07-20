@@ -228,6 +228,7 @@ list(REMOVE_ITEM APP_LIB_SOURCES src/main.cpp)
 set(APP_QML_FILES
     qml/Main.qml
     qml/Icon.qml
+    qml/IconButton.qml
     qml/LoginScreen.qml
     qml/SettingsScreen.qml
     qml/MainScreen.qml
@@ -957,6 +958,19 @@ if(BUILD_TESTING)
     add_test(NAME theme-snapshot COMMAND theme-snapshot-test)
     set_tests_properties(theme-snapshot PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen;LIGHTNING_SNAPSHOT_DIR=${CMAKE_CURRENT_BINARY_DIR}/snapshots")
+
+    # Design button system (SPEC §1): offscreen pixel proof that Style A is
+    # bare at rest with a soft hover tint, Style B is the accent-soft chip,
+    # Style C is the accent fill, and keyboard focus draws the accent ring.
+    qt_add_executable(button-system-test
+        tests/ButtonSystemTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_app(button-system-test)
+    target_link_libraries(button-system-test PRIVATE Qt6::Test)
+    add_test(NAME button-system COMMAND button-system-test)
+    set_tests_properties(button-system PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endif()
 
 install(TARGETS matrix-client

@@ -172,25 +172,24 @@ Rectangle {
 
         Item { implicitHeight: AppTheme.spacing12; visible: app.loggedIn }
 
-        ToolButton {
+        IconButton {
             id: railSettingsButton
+            objectName: "railSettingsButton"
             Layout.alignment: Qt.AlignHCenter
             implicitWidth: 40; implicitHeight: 40
+            radius: AppTheme.radiusLg
+            iconName: "settings"
+            iconSize: 22
+            // Accent chip while the in-shell Settings view is open;
+            // clicking again returns to chat.
+            active: app.currentScreen === 2
             visible: app.loggedIn
             Accessible.name: qsTr("Settings")
             ToolTip.text: qsTr("Settings")
             ToolTip.visible: hovered
             ToolTip.delay: 500
-            contentItem: Icon {
-                name: "settings"
-                size: 22
-                color: AppTheme.textMuted
-            }
-            background: Rectangle {
-                radius: AppTheme.radiusLg
-                color: railSettingsButton.hovered ? AppTheme.hover : "transparent"
-            }
-            onClicked: app.showSettings()
+            onClicked: app.currentScreen === 2 ? app.showMain()
+                                               : app.showSettings()
         }
 
         Item { implicitHeight: AppTheme.spacing8; visible: app.loggedIn }

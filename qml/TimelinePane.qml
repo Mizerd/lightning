@@ -33,6 +33,18 @@ Rectangle {
         infoOpen = true
     }
 
+    // Header forum toggle: opens the room's thread surface (list, or the
+    // open thread), closes it when it is already showing.
+    function toggleThreadSurface() {
+        if (threadSurfaceOpen) {
+            if (app.thread.active)
+                app.thread.close()
+            app.thread.closeList()
+        } else {
+            app.thread.openList(app.currentRoomId)
+        }
+    }
+
     // v0.7 design shell: the header's members button opens the same side
     // panel directly on the People section.
     function toggleMemberPanel() {
@@ -175,19 +187,23 @@ Rectangle {
         Layout.minimumWidth: 320
         spacing: 0
 
-        // Room header
+        // Room header — design: 60px, 0 20px padding, 34px room avatar,
+        // bare 34×34/radius-8 icon buttons; the open right panel's toggle
+        // shows the accent-chip state.
         Rectangle {
             Layout.fillWidth: true
-            implicitHeight: header.implicitHeight + AppTheme.spacingM * 2
+            implicitHeight: 60
             color: AppTheme.surface
             RowLayout {
                 id: header
                 anchors.fill: parent
-                anchors.margins: AppTheme.spacingM
-                spacing: AppTheme.spacingS
+                anchors.leftMargin: AppTheme.spacing20
+                anchors.rightMargin: AppTheme.spacing20
+                spacing: AppTheme.spacing12
                 Avatar {
                     visible: app.currentRoomId !== ""
-                    size: 36
+                    size: 34
+                    squareRadius: 9
                     name: root.currentRoom.name || app.currentRoomId
                     mxc: root.currentRoom.avatarUrl || ""
                     // Shape rule: people/DMs are circles; rooms and Spaces
@@ -231,59 +247,53 @@ Rectangle {
                     }
                 }
                 Item { Layout.fillWidth: true }
-                ToolButton {
-                    objectName: "threadsViewButton"
-                    visible: app.currentRoomId !== "" && app.thread.supported
-                    contentItem: Icon {
-                        name: "forum"
-                        size: 17
-                        color: parent.checked ? AppTheme.accent
-                                              : AppTheme.textSecondary
+                RowLayout {
+                    spacing: AppTheme.spacing6
+                    IconButton {
+                        objectName: "threadsViewButton"
+                        visible: app.currentRoomId !== "" && app.thread.supported
+                        iconName: "forum"
+                        active: root.threadSurfaceOpen
+                        Accessible.name: qsTr("Threads")
+                        ToolTip.text: qsTr("Threads in this room")
+                        ToolTip.visible: hovered
+                        ToolTip.delay: 500
+                        onClicked: root.toggleThreadSurface()
                     }
-                    checked: app.thread.listOpen
-                    Accessible.name: qsTr("Threads")
-                    ToolTip.text: qsTr("Threads in this room")
-                    ToolTip.visible: hovered
-                    ToolTip.delay: 500
-                    onClicked: {
-                        if (app.thread.listOpen && !app.thread.active) {
-                            app.thread.closeList()
-                        } else {
-                            app.thread.close()
-                            app.thread.openList(app.currentRoomId)
-                        }
+                    IconButton {
+                        objectName: "timelineSearchButton"
+                        visible: app.currentRoomId !== ""
+                        iconName: "search"
+                        active: root.findOpen
+                        Accessible.name: qsTr("Find in loaded messages")
+                        ToolTip.text: qsTr("Find in loaded messages")
+                        ToolTip.visible: hovered
+                        ToolTip.delay: 500
+                        onClicked: root.findOpen ? root.closeFind()
+                                                 : root.openFind()
                     }
-                }
-                ToolButton {
-                    objectName: "memberPanelButton"
-                    visible: app.currentRoomId !== "" && app.roomInfo.supported
-                    contentItem: Icon {
-                        name: "group"
-                        size: 17
-                        color: parent.checked ? AppTheme.accent
-                                              : AppTheme.textSecondary
+                    IconButton {
+                        objectName: "memberPanelButton"
+                        visible: app.currentRoomId !== "" && app.roomInfo.supported
+                        iconName: "group"
+                        active: root.infoOpen && infoPanel.section === "people"
+                        Accessible.name: qsTr("Members")
+                        ToolTip.text: qsTr("Room members")
+                        ToolTip.visible: hovered
+                        ToolTip.delay: 500
+                        onClicked: root.toggleMemberPanel()
                     }
-                    checked: root.infoOpen && infoPanel.section === "people"
-                    Accessible.name: qsTr("Members")
-                    ToolTip.text: qsTr("Room members")
-                    ToolTip.visible: hovered
-                    ToolTip.delay: 500
-                    onClicked: root.toggleMemberPanel()
-                }
-                ToolButton {
-                    visible: app.currentRoomId !== "" && app.roomInfo.supported
-                    contentItem: Icon {
-                        name: "info"
-                        size: 17
-                        color: parent.checked ? AppTheme.accent
-                                              : AppTheme.textSecondary
+                    IconButton {
+                        objectName: "roomInfoButton"
+                        visible: app.currentRoomId !== "" && app.roomInfo.supported
+                        iconName: "info"
+                        active: root.infoOpen && infoPanel.section !== "people"
+                        Accessible.name: qsTr("Room information")
+                        ToolTip.text: qsTr("Room information")
+                        ToolTip.visible: hovered
+                        ToolTip.delay: 500
+                        onClicked: root.toggleRoomInfo()
                     }
-                    checked: root.infoOpen && infoPanel.section !== "people"
-                    Accessible.name: qsTr("Room information")
-                    ToolTip.text: qsTr("Room information")
-                    ToolTip.visible: hovered
-                    ToolTip.delay: 500
-                    onClicked: root.toggleRoomInfo()
                 }
             }
         }
@@ -333,20 +343,29 @@ Rectangle {
                     color: AppTheme.textMuted
                     font.pixelSize: 12
                 }
-                ToolButton {
-                    contentItem: Icon { name: "expand_less"; size: 16 }
+                IconButton {
+                    implicitWidth: 28; implicitHeight: 28
+                    radius: 6
+                    iconName: "expand_less"
+                    iconSize: 16
                     enabled: app.timeline.searchResultCount > 0
                     Accessible.name: qsTr("Previous match")
                     onClicked: app.timeline.searchPrev()
                 }
-                ToolButton {
-                    contentItem: Icon { name: "expand_more"; size: 16 }
+                IconButton {
+                    implicitWidth: 28; implicitHeight: 28
+                    radius: 6
+                    iconName: "expand_more"
+                    iconSize: 16
                     enabled: app.timeline.searchResultCount > 0
                     Accessible.name: qsTr("Next match")
                     onClicked: app.timeline.searchNext()
                 }
-                ToolButton {
-                    contentItem: Icon { name: "close"; size: 15 }
+                IconButton {
+                    implicitWidth: 28; implicitHeight: 28
+                    radius: 6
+                    iconName: "close"
+                    iconSize: 16
                     Accessible.name: qsTr("Close find")
                     onClicked: root.closeFind()
                 }
