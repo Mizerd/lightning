@@ -8,7 +8,7 @@
 # Requires fonttools (e.g. nix shell nixpkgs#python3Packages.fonttools).
 set -euo pipefail
 cd "$(dirname "$0")/.."
-ICONS="home search add add_circle settings group groups person person_add \
+ICONS="home search add add_circle add_reaction settings group groups person person_add \
 forum chat_bubble info call videocam push_pin notifications notifications_off \
 mood mic send close check check_circle done_all lock lock_open verified_user \
 palette devices science expand_more expand_less alternate_email edit_square \

@@ -66,12 +66,24 @@ Rectangle {
                     placeholderText: qsTr("Search")
                     onTextChanged: app.roomList.searchQuery = text
                     font.pixelSize: AppTheme.fontSizeS
+                    leftPadding: searchIcon.width + AppTheme.spacing12
                     rightPadding: kbdHint.width + AppTheme.spacing12
                     background: Rectangle {
                         color: AppTheme.hover
                         border.color: roomSearch.activeFocus ? AppTheme.focusRing : "transparent"
                         border.width: roomSearch.activeFocus ? 2 : 1
                         radius: AppTheme.radiusMd
+                    }
+
+                    // Leading search glyph (handoff §2 search field).
+                    Icon {
+                        id: searchIcon
+                        anchors.left: parent.left
+                        anchors.leftMargin: AppTheme.spacing8
+                        anchors.verticalCenter: parent.verticalCenter
+                        name: "search"
+                        size: 18
+                        color: AppTheme.textMuted
                     }
 
                     // ⌘K-style keycap hint for the quick switcher.

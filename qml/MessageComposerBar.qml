@@ -293,7 +293,9 @@ Rectangle {
             Layout.fillWidth: true
             implicitHeight: composerRow.implicitHeight + AppTheme.spacing8
             radius: AppTheme.radiusLg
-            color: AppTheme.inputBackground
+            // Design shell: the composer is a raised card on the surface
+            // tier, not an inset input field.
+            color: AppTheme.surface
             border.color: input.activeFocus ? AppTheme.focusRing
                                             : AppTheme.border
             border.width: 1
@@ -309,9 +311,10 @@ Rectangle {
                 spacing: AppTheme.spacing4
 
                 ToolButton {
+                    Layout.alignment: Qt.AlignVCenter
                     contentItem: Icon {
                         name: "add_circle"
-                        size: 19
+                        size: 22
                         color: parent.enabled ? AppTheme.textSecondary
                                               : AppTheme.textDisabled
                     }
@@ -370,7 +373,7 @@ Rectangle {
                     Layout.alignment: Qt.AlignVCenter
                     contentItem: Icon {
                         name: "mood"
-                        size: 19
+                        size: 22
                         color: emojiButton.enabled ? AppTheme.textSecondary
                                                    : AppTheme.textDisabled
                     }
@@ -385,6 +388,7 @@ Rectangle {
                 // GIF keycap chip (design: mono, 1.5px border, radius 5).
                 ToolButton {
                     id: gifButton
+                    Layout.alignment: Qt.AlignVCenter
                     enabled: app.currentRoomId !== "" && app.gif.available
                     Accessible.name: qsTr("Insert a GIF")
                     ToolTip.text: app.gif.available ? qsTr("GIF")
@@ -416,6 +420,7 @@ Rectangle {
                 // Accent send button (34 px, radius 9).
                 Button {
                     id: sendButton
+                    Layout.alignment: Qt.AlignVCenter
                     enabled: app.composer.canSend
                     Accessible.name: app.composer.isEditing
                                      ? qsTr("Save edit") : qsTr("Send message")
@@ -426,7 +431,7 @@ Rectangle {
                     ToolTip.delay: 500
                     contentItem: Icon {
                         name: app.composer.isEditing ? "check" : "send"
-                        size: 17
+                        size: 19
                         color: sendButton.enabled ? AppTheme.accentText
                                                   : AppTheme.textDisabled
                     }

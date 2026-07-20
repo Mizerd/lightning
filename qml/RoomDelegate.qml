@@ -20,10 +20,19 @@ Item {
     signal markRead()
     signal markUnread()
 
+    // Read rows are dimmed and lighter-weight; unread/selected rows carry
+    // full ink (design handoff §2 room-row states).
+    readonly property bool isUnread: model.hasUnread || model.markedUnread
+
     Rectangle {
         anchors.fill: parent
+        anchors.leftMargin: AppTheme.spacing4
+        anchors.rightMargin: AppTheme.spacing4
         // v0.5.9: softer selected state from the semantic tokens — the
         // selected row keeps readable primary/secondary ink in both themes.
+        // Design shell: row highlight is an 8px rounded chip, not a full-
+        // bleed square.
+        radius: AppTheme.radiusMd
         color: selected ? (hover.hovered ? AppTheme.selectedHover : AppTheme.selected)
              : hover.hovered ? AppTheme.hover
              : "transparent"
@@ -41,12 +50,14 @@ Item {
         spacing: AppTheme.spacing8
 
         Avatar {
-            size: 32
+            size: 30
             name: model.name || ""
             mxc: model.avatarUrl || ""
+            colorKey: model.roomId || ""
             // Design shell: people are circles, rooms and Spaces are
-            // rounded squares.
+            // rounded squares that show a "#" glyph until the avatar loads.
             circle: model.isDirect === true
+            roomGlyph: model.isDirect !== true
         }
 
         ColumnLayout {
@@ -57,9 +68,13 @@ Item {
                 Layout.fillWidth: true
                 Label {
                     text: model.name
-                    color: selected ? AppTheme.selectedText : AppTheme.textPrimary
+                    // Read rows dim to secondary ink; unread/selected keep
+                    // full primary ink (handoff §2).
+                    color: selected ? AppTheme.selectedText
+                         : root.isUnread ? AppTheme.textPrimary
+                                         : AppTheme.textSecondary
                     font.pixelSize: AppTheme.fontBody
-                    font.weight: model.hasUnread || model.markedUnread
+                    font.weight: (root.isUnread || selected)
                                  ? Font.Bold : Font.Medium
                     elide: Label.ElideRight
                     Layout.fillWidth: true
@@ -79,14 +94,19 @@ Item {
                 Label {
                     visible: model.unreadCount > 0 || model.highlightCount > 0
                     text: model.highlightCount > 0 ? model.highlightCount : model.unreadCount
-                    color: AppTheme.accentText
+                    // Mention pills use white ink on the red badge; plain
+                    // unread pills invert to the row background colour on the
+                    // accent fill (handoff §2 count pill).
+                    color: model.highlightCount > 0 ? AppTheme.dangerText
+                                                    : AppTheme.accentText
                     background: Rectangle {
                         color: model.highlightCount > 0 ? AppTheme.mentionBadge
                                                         : AppTheme.unreadBadge
-                        radius: 8
+                        radius: AppTheme.radiusPill
                     }
-                    leftPadding: 6; rightPadding: 6; topPadding: 1; bottomPadding: 1
+                    leftPadding: 7; rightPadding: 7; topPadding: 1; bottomPadding: 1
                     font.pixelSize: AppTheme.fontCaption
+                    font.weight: Font.ExtraBold
                 }
             }
             Label {

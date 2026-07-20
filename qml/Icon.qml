@@ -19,6 +19,7 @@ Text {
         "search": "\uef7a",
         "add": "\ue145",
         "add_circle": "\ue990",
+        "add_reaction": "\ue1d3",
         "settings": "\ue8b8",
         "group": "\uea21",
         "groups": "\uf233",

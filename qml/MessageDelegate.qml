@@ -208,7 +208,8 @@ Item {
         height: layout.height
         color: app.pagination.highlightedEventId === (model.eventId || "")
                ? AppTheme.selected : AppTheme.bubbleOverlaySubtle
-        radius: AppTheme.radiusSm
+        // Design shell: message-row hover highlight is an 8px chip.
+        radius: AppTheme.radiusMd
         z: 0
     }
 
@@ -615,9 +616,9 @@ Item {
                 visible: rowHover.hovered || root.actionsPinned
                          || reactionPicker.opened || moreMenu.opened
                 z: 3
-                radius: AppTheme.radiusSm
+                radius: AppTheme.radiusMd
                 color: AppTheme.surface
-                border.color: AppTheme.border
+                border.color: AppTheme.cardElevated
                 border.width: 1
                 implicitWidth: actionRow.implicitWidth + 8
                 implicitHeight: actionRow.implicitHeight + 6
@@ -631,7 +632,7 @@ Item {
                         enabled: !model.redacted
                                  && root.timelineModel.messagePermalink(
                                      root.eventIdForActions()).length > 0
-                        contentItem: Icon { name: "mood"; size: 16 }
+                        contentItem: Icon { name: "add_reaction"; size: 16 }
                         Accessible.name: qsTr("React to message")
                         ToolTip.text: qsTr("React")
                         ToolTip.visible: hovered
@@ -661,7 +662,7 @@ Item {
                         }
                     }
                     ToolButton {
-                        contentItem: Icon { name: "more_horiz"; size: 16 }
+                        contentItem: Icon { name: "more_vert"; size: 16 }
                         Accessible.name: qsTr("More message actions")
                         ToolTip.text: qsTr("More")
                         ToolTip.visible: hovered
@@ -776,24 +777,27 @@ Item {
             Repeater {
                 model: root.reactionsList()
                 Rectangle {
-                    color: modelData.byMe ? AppTheme.reactionSelectedBackground : AppTheme.reactionBackground
-                    radius: 10
-                    border.color: AppTheme.border
+                    // Design §3: own reaction = accent-soft fill + accent
+                    // border + accent-text; others = neutral chip. Pill radius.
+                    color: modelData.byMe ? AppTheme.accentSoft : AppTheme.reactionBackground
+                    radius: AppTheme.radiusPill
+                    border.color: modelData.byMe ? AppTheme.accentBorder : AppTheme.border
                     border.width: 1
-                    implicitWidth: reactionRow.implicitWidth + 8
+                    implicitWidth: reactionRow.implicitWidth + 18
                     implicitHeight: reactionRow.implicitHeight + 4
                     Row {
                         id: reactionRow
                         anchors.centerIn: parent
-                        spacing: 3
+                        spacing: 5
                         Label {
                             text: modelData.key
                             font.pixelSize: 12
                         }
                         Label {
                             text: modelData.count
-                            color: modelData.byMe ? AppTheme.selectedText : AppTheme.textMuted
-                            font.pixelSize: 11
+                            color: modelData.byMe ? AppTheme.selectedText : AppTheme.textSecondary
+                            font.pixelSize: 12
+                            font.weight: Font.Bold
                         }
                     }
                     MouseArea {

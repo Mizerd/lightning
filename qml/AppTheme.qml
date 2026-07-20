@@ -224,6 +224,7 @@ QtObject {
     readonly property color _mosAccentBorder:  "#BFE6DA"
     readonly property color _mosOwnBubble:     "#0D6E55"
     readonly property color _mosOtherBubble:   "#E8E9E7"
+    readonly property color _mosMention:       "#E04848"
 
     // Indigo Night — design-handoff dark theme (option 2a).
     readonly property color _indBg:            "#101016"
@@ -250,6 +251,8 @@ QtObject {
     readonly property color _indAccentBorder:  "#383966"
     readonly property color _indOwnBubble:     "#4A4CB8"
     readonly property color _indOtherBubble:   "#2A2A36"
+    readonly property color _indMention:       "#E5677A"
+    readonly property color _indOnline:        "#63D6A3"
 
     // Deep Teal — design-handoff dark theme (option 2b). Accent fills use
     // dark ink (the accent itself is bright).
@@ -278,6 +281,7 @@ QtObject {
     readonly property color _teaAccentText:    "#062A25"
     readonly property color _teaOwnBubble:     "#1C4A43"
     readonly property color _teaOtherBubble:   "#182428"
+    readonly property color _teaMention:       "#E5677A"
 
     // Ink used on top of accent fills for every palette without its own
     // accentText (the contrast test reads this literal by name).
@@ -379,7 +383,8 @@ QtObject {
         borderStrong: _mosBorderStrong, accent: _mosAccent,
         accentHover: _mosAccentHover, accentPressed: _mosAccentPressed,
         accentSoft: _mosAccentSoft, accentBorder: _mosAccentBorder,
-        ownBubble: _mosOwnBubble, otherBubble: _mosOtherBubble
+        ownBubble: _mosOwnBubble, otherBubble: _mosOtherBubble,
+        mention: _mosMention, online: _mosAccent
     })
     readonly property var _indigo: ({
         background: _indBg, rail: _indRail, sidebar: _indSidebar,
@@ -392,7 +397,8 @@ QtObject {
         borderStrong: _indBorderStrong, accent: _indAccent,
         accentHover: _indAccentHover, accentPressed: _indAccentPressed,
         accentSoft: _indAccentSoft, accentBorder: _indAccentBorder,
-        ownBubble: _indOwnBubble, otherBubble: _indOtherBubble
+        ownBubble: _indOwnBubble, otherBubble: _indOtherBubble,
+        mention: _indMention, online: _indOnline
     })
     readonly property var _teal: ({
         background: _teaBg, rail: _teaRail, sidebar: _teaSidebar,
@@ -406,7 +412,8 @@ QtObject {
         accentHover: _teaAccentHover, accentPressed: _teaAccentPressed,
         accentSoft: _teaAccentSoft, accentBorder: _teaAccentBorder,
         accentText: _teaAccentText,
-        ownBubble: _teaOwnBubble, otherBubble: _teaOtherBubble
+        ownBubble: _teaOwnBubble, otherBubble: _teaOtherBubble,
+        mention: _teaMention, online: _teaAccent
     })
     // Selectable theme presets for the Settings theme picker, design order
     // (handoff themes first). System (0) is a resolution mode, not a palette,
@@ -547,15 +554,26 @@ QtObject {
     readonly property color reactionSelectedBackground: selected
     readonly property color reactionHighlight:   selected
     readonly property color unreadBadge:         accent
-    readonly property color mentionBadge:        danger
+    // Mention red — the design themes carry their exact handoff hue; older
+    // palettes fall back to the shared danger red.
+    readonly property color mentionBadge:        _p.mention !== undefined
+                                                 ? _p.mention : danger
     readonly property color undecryptableText:   textMuted
     // Highlight semantics (jumped-to message rows, active thread affordances).
     readonly property color pressedSurface:      selectedHover
     readonly property color messageHighlight:    selected
     readonly property color threadHighlight:     accent
     // Presence dots (design: online = accent-family green, away = yellow).
-    readonly property color presenceOnline:      success
+    readonly property color presenceOnline:      _p.online !== undefined
+                                                 ? _p.online : success
     readonly property color presenceAway:        "#C9B23A"
+
+    // Deterministic initials-avatar palette from the design handoff; shared
+    // by every theme so a user or room keeps one colour everywhere.
+    readonly property var avatarPalette: [
+        "#2F8F5B", "#A3542F", "#6D5BD0", "#3A6EA5", "#B04A7E",
+        "#C9662A", "#4A8F6D", "#B3823A", "#A05A92"
+    ]
 
     // ---- Legacy aliases retained for existing QML. ----
     readonly property color surfaceAlt:          cardElevated

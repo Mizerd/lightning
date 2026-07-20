@@ -115,38 +115,13 @@ Item {
             anchors.bottomMargin: card.vPad
             spacing: AppTheme.spacing8
 
-            // Speech-bubble icon (self-contained vector, theme-aware).
-            Canvas {
-                id: bubble
-                Layout.preferredWidth: 16
-                Layout.preferredHeight: 16
+            // Thread indicator glyph — Material Symbols "forum" per the
+            // handoff (interface chrome never draws inline vector icons).
+            Icon {
                 Layout.alignment: Qt.AlignVCenter
-                readonly property color glyph: card.unread ? AppTheme.accent
-                                                           : AppTheme.textMuted
-                onGlyphChanged: requestPaint()
-                onPaint: {
-                    var ctx = getContext("2d")
-                    ctx.reset()
-                    ctx.strokeStyle = glyph
-                    ctx.lineWidth = 1.5
-                    ctx.lineJoin = "round"
-                    var x = 1.5, y = 1.5, w = 13, h = 9, r = 2.5
-                    ctx.beginPath()
-                    ctx.moveTo(x + r, y)
-                    ctx.lineTo(x + w - r, y)
-                    ctx.quadraticCurveTo(x + w, y, x + w, y + r)
-                    ctx.lineTo(x + w, y + h - r)
-                    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h)
-                    ctx.lineTo(x + 5, y + h)
-                    ctx.lineTo(x + 3, y + h + 3)      // little tail
-                    ctx.lineTo(x + 3, y + h)
-                    ctx.lineTo(x + r, y + h)
-                    ctx.quadraticCurveTo(x, y + h, x, y + h - r)
-                    ctx.lineTo(x, y + r)
-                    ctx.quadraticCurveTo(x, y, x + r, y)
-                    ctx.closePath()
-                    ctx.stroke()
-                }
+                name: "forum"
+                size: 17
+                color: card.unread ? AppTheme.accent : AppTheme.textMuted
             }
 
             // Latest reply sender avatar (existing safe avatar path).

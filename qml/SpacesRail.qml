@@ -34,7 +34,8 @@ Rectangle {
                 // 48 = 40px tile + 4px on each side so the active accent
                 // outline (drawn at -4px margins) is never clipped by the
                 // list bounds — this was the Home-icon clipping defect.
-                height: 48
+                // Home carries the handoff divider (32×2) below its tile.
+                height: isHome ? 58 : 48
 
                 property bool isActive: app.spaces
                                         && app.spaces.activeSpaceId === model.spaceId
@@ -58,69 +59,55 @@ Rectangle {
                     visible: spaceItem.isActive
                 }
 
+                // Handoff divider between Home and the Space tiles (32×2).
+                Rectangle {
+                    visible: spaceItem.isHome
+                    width: 32; height: 2; radius: 2
+                    color: AppTheme.border
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    anchors.bottom: parent.bottom
+                    anchors.bottomMargin: 2
+                }
+
                 Rectangle {
                     id: spaceTile
                     width: 40; height: 40
-                    anchors.centerIn: parent
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    y: 4
                     radius: AppTheme.radiusLg
-                    color: spaceItem.isHome
-                           ? (spaceItem.isActive ? AppTheme.accent
-                                                 : AppTheme.cardElevated)
-                           : AppTheme.cardElevated
+                    // Home is a persistent accent tile per the handoff; the
+                    // pseudo "other rooms" tile stays neutral; real Spaces
+                    // paint through the shared Avatar below.
+                    color: spaceItem.isHome ? AppTheme.accent
+                           : spaceItem.isPseudo ? AppTheme.cardElevated
+                                                : "transparent"
 
                     Behavior on color { ColorAnimation { duration: 120 } }
 
                     // Pseudo rows use monochrome icons; real Spaces show
-                    // their initial until the avatar loads.
+                    // palette initials until the avatar loads.
                     Icon {
                         anchors.centerIn: parent
                         visible: spaceItem.isPseudo
-                                 && spaceImage.status !== Image.Ready
                         name: spaceItem.isHome ? "home" : "workspaces"
-                        size: 20
-                        color: spaceItem.isHome && spaceItem.isActive
-                               ? AppTheme.accentText : AppTheme.textSecondary
-                    }
-                    Label {
-                        anchors.centerIn: parent
-                        visible: !spaceItem.isPseudo
-                                 && spaceImage.status !== Image.Ready
-                        text: model.name && model.name.length > 0
-                              ? model.name[0].toUpperCase() : "#"
-                        font.pixelSize: 15
-                        font.weight: Font.Bold
-                        color: AppTheme.textSecondary
+                        size: spaceItem.isHome ? 22 : 20
+                        color: spaceItem.isHome ? AppTheme.accentText
+                                                : AppTheme.textSecondary
                     }
 
-                    // Real Space avatar via the shared media bridge; shown
-                    // only once fully decoded. The tile shape is baked into
-                    // the bitmap by MediaImageProvider ("|shape:" suffix) —
-                    // no per-item MultiEffect mask passes.
-                    Image {
-                        id: spaceImage
+                    // Real Space avatar (palette initials fallback) via the
+                    // shared Avatar element — mediaCached wiring and the
+                    // baked "|shape:" mask both live there.
+                    Avatar {
                         anchors.fill: parent
-                        fillMode: Image.PreserveAspectCrop
-                        asynchronous: true
-                        cache: true
-                        property string mxc: spaceItem.isPseudo
-                                             ? "" : (model.avatarUrl || "")
-                        property string base:
-                            mxc.length > 0 && app.mediaBridge.supported
-                                ? app.mediaBridge.avatarSource(mxc, 80) : ""
-                        readonly property string shapeSuffix:
-                            "|shape:rsq:" + Math.max(1, Math.min(500,
-                                Math.round(spaceTile.radius * 1000
-                                           / Math.max(1, spaceTile.width))))
-                        source: base === "" ? "" : base + shapeSuffix
-                        visible: status === Image.Ready
-                        Connections {
-                            target: app.mediaBridge
-                            enabled: spaceImage.mxc.length > 0
-                            function onMediaCached(cacheKey) {
-                                spaceImage.base = app.mediaBridge.avatarSource(
-                                    spaceImage.mxc, 80)
-                            }
-                        }
+                        visible: !spaceItem.isPseudo
+                        size: 40
+                        circle: false
+                        squareRadius: AppTheme.radiusLg
+                        labelSize: 15
+                        name: spaceItem.isPseudo ? "" : (model.name || "")
+                        colorKey: spaceItem.isPseudo ? "" : (model.spaceId || "")
+                        mxc: spaceItem.isPseudo ? "" : (model.avatarUrl || "")
                     }
 
                     // Unread count badge (rail-coloured ring per design).
@@ -144,8 +131,9 @@ Rectangle {
                             text: model.unreadTotal > 99
                                   ? "99+" : model.unreadTotal.toString()
                             font.pixelSize: 10
-                            font.weight: Font.DemiBold
-                            color: AppTheme.accentText
+                            font.weight: Font.ExtraBold
+                            color: model.highlightTotal > 0 ? AppTheme.dangerText
+                                                            : AppTheme.accentText
                         }
                     }
                 }
@@ -195,8 +183,8 @@ Rectangle {
             ToolTip.delay: 500
             contentItem: Icon {
                 name: "settings"
-                size: 19
-                color: AppTheme.textSecondary
+                size: 22
+                color: AppTheme.textMuted
             }
             background: Rectangle {
                 radius: AppTheme.radiusLg

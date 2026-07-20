@@ -179,12 +179,15 @@ private Q_SLOTS:
         QVERIFY(!delegate.contains(QStringLiteral("reply(s) in thread")));
         QVERIFY(!delegate.contains(QStringLiteral("· in thread")));
 
-        // The card renders a bubble icon, elides its preview, never plays a
+        // The card renders a thread icon, elides its preview, never plays a
         // full GIF (still label only), and is keyboard-activable + accessible.
         const QString cardQml = read(QStringLiteral("ThreadSummaryCard.qml"));
         QVERIFY(!cardQml.isEmpty());
         QVERIFY(cardQml.contains(QStringLiteral("signal activated()")));
-        QVERIFY(cardQml.contains(QStringLiteral("Canvas {")));       // vector icon
+        // Design shell: interface chrome uses a Material Symbols glyph, never
+        // an inline Canvas/SVG vector path.
+        QVERIFY(cardQml.contains(QStringLiteral("name: \"forum\"")));
+        QVERIFY(!cardQml.contains(QStringLiteral("Canvas {")));
         QVERIFY(cardQml.contains(QStringLiteral("elide: Text.ElideRight")));
         QVERIFY(cardQml.contains(QStringLiteral("maximumLineCount: 1")));
         QVERIFY(cardQml.contains(QStringLiteral("Keys.onReturnPressed")));
