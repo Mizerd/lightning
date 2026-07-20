@@ -15,12 +15,44 @@ ApplicationWindow {
 
     color: AppTheme.background
 
-    // Theme correctness for every native Qt Quick Controls surface: the
-    // Fusion style paints ComboBox popups, Menus, ToolTips, ScrollBars,
-    // and button chrome from the control palette, not from our tokens.
-    // Binding the window palette to the tokens propagates the active theme
-    // into all of them (including popups) and makes switching instant —
-    // this is what previously left dropdowns black/wrong after a change.
+    // Theme correctness for every native Qt Quick Controls surface. The
+    // window item palette below covers in-window chrome (buttons, fields),
+    // but Fusion resolves POPUPS (ComboBox dropdowns, Menus, ToolTips,
+    // ScrollBars, Dialogs) from the *application* palette, which an item
+    // palette never reaches — that is what left dropdowns the default light
+    // colour on a dark theme. syncControlPalette() pushes the same tokens
+    // onto QGuiApplication so popups follow the theme too; it runs on load
+    // and on every theme change.
+    function syncControlPalette() {
+        app.applyControlPalette({
+            "window": AppTheme.background,
+            "windowText": AppTheme.textPrimary,
+            "base": AppTheme.inputBackground,
+            "alternateBase": AppTheme.cardElevated,
+            "text": AppTheme.textPrimary,
+            "button": AppTheme.cardElevated,
+            "buttonText": AppTheme.textPrimary,
+            "highlight": AppTheme.selected,
+            "highlightedText": AppTheme.selectedText,
+            "placeholderText": AppTheme.textMuted,
+            "toolTipBase": AppTheme.cardElevated,
+            "toolTipText": AppTheme.textPrimary,
+            "light": AppTheme.hover,
+            "midlight": AppTheme.border,
+            "mid": AppTheme.borderStrong,
+            "dark": AppTheme.textSecondary,
+            "brightText": AppTheme.accentText,
+            "link": AppTheme.link,
+            "disabledText": AppTheme.textDisabled,
+            "disabledButtonText": AppTheme.textDisabled,
+            "disabledWindowText": AppTheme.textDisabled
+        })
+    }
+    Connections {
+        target: AppTheme
+        function onEffectiveThemeChanged() { window.syncControlPalette() }
+    }
+
     palette {
         window: AppTheme.background
         windowText: AppTheme.textPrimary
@@ -48,6 +80,7 @@ ApplicationWindow {
     }
 
     Component.onCompleted: {
+        syncControlPalette()
         if (app.settings && app.settings.startMinimized)
             window.visibility = Window.Minimized
     }

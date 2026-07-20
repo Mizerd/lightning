@@ -941,6 +941,22 @@ if(BUILD_TESTING)
     target_link_libraries(desktop-integration-test PRIVATE
         Qt6::Core Qt6::Gui Qt6::Test)
     add_test(NAME desktop-integration COMMAND desktop-integration-test)
+
+    # v0.7: offscreen visual-verification suite. Renders each design theme on
+    # a representative Fusion-styled surface set (swatches + Button + TextField
+    # + open ComboBox popup + initials avatar), grabs deterministic PNG
+    # snapshots as artifacts, and asserts sampled pixels match each theme's own
+    # tokens — proving themes switch cleanly and popups inherit the themed
+    # palette (the dropdown-goes-wrong-colour regression) without a display.
+    qt_add_executable(theme-snapshot-test
+        tests/ThemeSnapshotTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_app(theme-snapshot-test)
+    target_link_libraries(theme-snapshot-test PRIVATE Qt6::Test)
+    add_test(NAME theme-snapshot COMMAND theme-snapshot-test)
+    set_tests_properties(theme-snapshot PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen;LIGHTNING_SNAPSHOT_DIR=${CMAKE_CURRENT_BINARY_DIR}/snapshots")
 endif()
 
 install(TARGETS matrix-client

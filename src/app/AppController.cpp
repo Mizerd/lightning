@@ -28,6 +28,7 @@
 
 #include <QDir>
 #include <QGuiApplication>
+#include <QPalette>
 #include <QStyleHints>
 #include <QLoggingCategory>
 
@@ -872,6 +873,43 @@ QString AppController::takeRequestedSettingsSection()
     const QString section = m_requestedSettingsSection;
     m_requestedSettingsSection.clear();
     return section;
+}
+
+void AppController::applyControlPalette(const QVariantMap &roles)
+{
+    QPalette pal = QGuiApplication::palette();
+    const auto set = [&](QPalette::ColorRole role, const char *key) {
+        const QVariant v = roles.value(QString::fromLatin1(key));
+        if (v.isValid())
+            pal.setColor(role, v.value<QColor>());
+    };
+    const auto setDisabled = [&](QPalette::ColorRole role, const char *key) {
+        const QVariant v = roles.value(QString::fromLatin1(key));
+        if (v.isValid())
+            pal.setColor(QPalette::Disabled, role, v.value<QColor>());
+    };
+    set(QPalette::Window, "window");
+    set(QPalette::WindowText, "windowText");
+    set(QPalette::Base, "base");
+    set(QPalette::AlternateBase, "alternateBase");
+    set(QPalette::Text, "text");
+    set(QPalette::Button, "button");
+    set(QPalette::ButtonText, "buttonText");
+    set(QPalette::Highlight, "highlight");
+    set(QPalette::HighlightedText, "highlightedText");
+    set(QPalette::PlaceholderText, "placeholderText");
+    set(QPalette::ToolTipBase, "toolTipBase");
+    set(QPalette::ToolTipText, "toolTipText");
+    set(QPalette::Light, "light");
+    set(QPalette::Midlight, "midlight");
+    set(QPalette::Mid, "mid");
+    set(QPalette::Dark, "dark");
+    set(QPalette::BrightText, "brightText");
+    set(QPalette::Link, "link");
+    setDisabled(QPalette::Text, "disabledText");
+    setDisabled(QPalette::ButtonText, "disabledButtonText");
+    setDisabled(QPalette::WindowText, "disabledWindowText");
+    QGuiApplication::setPalette(pal);
 }
 
 void AppController::openRoom(const QString &roomId)

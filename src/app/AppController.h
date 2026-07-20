@@ -235,6 +235,18 @@ public Q_SLOTS:
     Q_INVOKABLE void showSettingsSection(const QString &section);
     Q_INVOKABLE QString takeRequestedSettingsSection();
 
+    // v0.7: apply the active theme to the QGuiApplication palette. Fusion
+    // paints ComboBox popups, Menus, ToolTips, ScrollBars and Dialogs from
+    // the *application* palette — an ApplicationWindow item palette does not
+    // reach popups, so a dark theme otherwise left them the default light
+    // colour. Main.qml calls this with the resolved AppTheme tokens whenever
+    // the theme changes; the map is keyed by palette role name ("window",
+    // "windowText", "base", "text", "button", "buttonText", "highlight",
+    // "highlightedText", "toolTipBase", "toolTipText", "placeholderText",
+    // "light", "midlight", "mid", "dark", "brightText", "link", and the
+    // disabled-prefixed "disabledText"/"disabledButtonText"/…).
+    Q_INVOKABLE void applyControlPalette(const QVariantMap &roles);
+
     // v0.5.0-prep+10: GUI recovery-key restore. The QML Settings panel
     // calls this from a password-style TextField and never keeps the
     // key in a QML property beyond the invocation. The recovery key is
