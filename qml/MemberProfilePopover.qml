@@ -17,13 +17,23 @@ Popup {
     property string displayName: ""
     property string membership: ""
     property string role: ""
+    property string avatarMxc: ""
     property bool isOwn: false
+
+    // The same room-member profile the list row shows — one resolution
+    // path, no popover-local reinvention.
+    readonly property string visibleName:
+        displayName.length > 0
+        ? displayName
+        : (userId.length > 1
+           ? userId.slice(1).split(":")[0] : userId)
 
     function openFor(member) {
         userId = member.userId || ""
         displayName = member.displayName || ""
         membership = member.membership || ""
         role = member.role || ""
+        avatarMxc = member.avatarUrl || ""
         isOwn = member.isOwn === true
         open()
     }
@@ -52,30 +62,20 @@ Popup {
 
         RowLayout {
             spacing: AppTheme.spacing12
-            Rectangle {
-                width: 48; height: 48
-                radius: AppTheme.radiusPill
-                color: AppTheme.cardElevated
-                Label {
-                    anchors.centerIn: parent
-                    text: {
-                        var n = root.displayName.length > 0
-                                ? root.displayName
-                                : (root.userId.length > 1 ? root.userId.slice(1) : "?")
-                        return n.length > 0 ? n[0].toUpperCase() : "?"
-                    }
-                    color: AppTheme.textSecondary
-                    font.pixelSize: AppTheme.fontSectionTitle
-                    font.weight: Font.DemiBold
-                }
+            // The shared avatar pipeline: real image when the member has
+            // one, deterministic per-user initials fallback otherwise.
+            Avatar {
+                size: 48
+                mxc: root.avatarMxc
+                name: root.visibleName
+                colorKey: root.userId
             }
             ColumnLayout {
                 Layout.fillWidth: true
                 spacing: 0
                 Label {
                     Layout.fillWidth: true
-                    text: root.displayName.length > 0 ? root.displayName
-                                                      : root.userId
+                    text: root.visibleName
                     color: AppTheme.textPrimary
                     font.pixelSize: AppTheme.fontBody
                     font.weight: Font.DemiBold
@@ -83,7 +83,6 @@ Popup {
                 }
                 Label {
                     Layout.fillWidth: true
-                    visible: root.displayName.length > 0
                     text: root.userId
                     color: AppTheme.textMuted
                     font.pixelSize: AppTheme.fontCaption

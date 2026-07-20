@@ -314,6 +314,9 @@ Item {
                     size: 32
                     mxc: model.senderAvatarMxc || ""
                     name: model.senderDisplayName || model.senderInitials
+                    // Stable fallback colour per user id — resolving the
+                    // display name later must not recolour the person.
+                    colorKey: model.sender || ""
                     Accessible.name: qsTr("Avatar for %1").arg(
                                          model.senderDisplayName || model.sender)
                 }
@@ -726,6 +729,7 @@ Item {
                             replyCount: model.threadReplyCount !== undefined
                                         ? model.threadReplyCount : -1
                             latestSender: model.threadLatestSenderDisplayName || ""
+                            latestSenderId: model.threadLatestSender || ""
                             latestPreview: model.threadLatestPreview || ""
                             latestKind: model.threadLatestKind || "text"
                             latestAvatarMxc: model.threadLatestSenderAvatarMxc || ""

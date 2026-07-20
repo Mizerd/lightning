@@ -1382,14 +1382,35 @@ async fn open_room_task(
         }),
     );
 
-    while let Some(diffs) = stream.next().await {
-        if !registry.is_current(room_gen, lifecycle) {
-            break;
-        }
-        for diff in diffs {
-            let value =
-                diff_to_json(&room_id, room_gen, lifecycle, &diff, &own_user, &registry);
-            enqueue(&events, value);
+    // v0.7: hydrate room-member sender profiles. With lazy-loaded membership
+    // the SDK only knows senders whose member events happened to sync, so
+    // historical rows showed raw MXIDs and initials while the room list knew
+    // the same person's name. `Timeline::fetch_members` runs the (idempotent,
+    // SDK-deduplicated) member sync and then fills every missing sender
+    // profile in place, which reaches C++ as ordinary Set diffs. It runs
+    // concurrently with — never ahead of — live diff forwarding, and dies
+    // with this task when the room/generation is superseded.
+    let fetch_timeline = Arc::clone(&timeline);
+    let fetch_members = async move { fetch_timeline.fetch_members().await };
+    tokio::pin!(fetch_members);
+    let mut members_fetched = false;
+    loop {
+        tokio::select! {
+            _ = &mut fetch_members, if !members_fetched => {
+                members_fetched = true;
+            }
+            maybe_diffs = stream.next() => {
+                let Some(diffs) = maybe_diffs else { break };
+                if !registry.is_current(room_gen, lifecycle) {
+                    break;
+                }
+                for diff in diffs {
+                    let value = diff_to_json(
+                        &room_id, room_gen, lifecycle, &diff, &own_user, &registry,
+                    );
+                    enqueue(&events, value);
+                }
+            }
         }
     }
 }
@@ -1565,20 +1586,36 @@ async fn open_thread_task(
         }
     }
 
-    while let Some(diffs) = stream.next().await {
-        if !registry.thread_current(thread_gen, lifecycle) {
-            break;
-        }
-        for diff in diffs {
-            let base = json!({
-                "type": "thread_diff",
-                "room_id": room_id,
-                "thread_root_id": root_event_id,
-                "thread_generation": thread_gen,
-                "lifecycle": lifecycle,
-            });
-            let value = fill_diff_json(base, &diff, &own_user, &registry);
-            enqueue(&events, value);
+    // v0.7: same member-profile hydration as the room timeline — the thread
+    // panel's rows resolve sender names/avatars through the identical SDK
+    // path (the member sync itself is deduplicated inside the SDK, so a
+    // room + thread pair costs one /members request at most).
+    let fetch_timeline = Arc::clone(&timeline);
+    let fetch_members = async move { fetch_timeline.fetch_members().await };
+    tokio::pin!(fetch_members);
+    let mut members_fetched = false;
+    loop {
+        tokio::select! {
+            _ = &mut fetch_members, if !members_fetched => {
+                members_fetched = true;
+            }
+            maybe_diffs = stream.next() => {
+                let Some(diffs) = maybe_diffs else { break };
+                if !registry.thread_current(thread_gen, lifecycle) {
+                    break;
+                }
+                for diff in diffs {
+                    let base = json!({
+                        "type": "thread_diff",
+                        "room_id": room_id,
+                        "thread_root_id": root_event_id,
+                        "thread_generation": thread_gen,
+                        "lifecycle": lifecycle,
+                    });
+                    let value = fill_diff_json(base, &diff, &own_user, &registry);
+                    enqueue(&events, value);
+                }
+            }
         }
     }
 }

@@ -346,6 +346,53 @@ private Q_SLOTS:
         QCOMPARE(changed.at(0).at(0).toModelIndex().row(), 3);
         QCOMPARE(changed.at(0).at(1).toModelIndex().row(), 3);
     }
+
+    // The visible sender label never falls back to the complete Matrix ID
+    // when a safer representation exists: unresolved profiles show the
+    // localpart, and a late profile resolution replaces it in place on the
+    // same row (the live "@matas:matrix.smetonis.net" regression).
+    void displayNameFallsBackToLocalpartThenResolvesInPlace()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(login(controller));
+        auto *mock = controller.findChild<MockMatrixClient *>();
+        QVERIFY(mock != nullptr);
+        controller.setCurrentRoomId(kRoom);
+
+        TimelineEvent unresolved =
+            makeText(QStringLiteral("@matas:matrix.smetonis.net"),
+                     QStringLiteral("labas"), 60);
+        unresolved.senderDisplayName.clear(); // profile not yet available
+        mock->resetTimelineForTest(kRoom, { unresolved }, 0);
+
+        auto *model = controller.timeline();
+        QCOMPARE(model->rowCount(), 1);
+        const QModelIndex idx = model->index(0);
+        QCOMPARE(model->data(idx, TimelineModel::SenderDisplayNameRole)
+                     .toString(),
+                 QStringLiteral("matas"));
+        QCOMPARE(model->data(idx, TimelineModel::SenderInitialsRole)
+                     .toString(),
+                 QStringLiteral("M"));
+        // Full MXID stays available on the identity role for tooltips.
+        QCOMPARE(model->data(idx, TimelineModel::SenderRole).toString(),
+                 QStringLiteral("@matas:matrix.smetonis.net"));
+
+        // Late member-profile resolution (an SDK Set diff) updates the same
+        // row in place.
+        TimelineEvent resolved = unresolved;
+        resolved.eventId = model->data(idx, TimelineModel::EventIdRole)
+                               .toString();
+        resolved.senderDisplayName = QStringLiteral("Matas");
+        resolved.senderAvatarUrl = QStringLiteral("mxc://x/matas");
+        mock->changeEventAtForTest(kRoom, 0, resolved);
+        QCOMPARE(model->data(idx, TimelineModel::SenderDisplayNameRole)
+                     .toString(),
+                 QStringLiteral("Matas"));
+        QCOMPARE(model->data(idx, TimelineModel::SenderAvatarMxcRole)
+                     .toString(),
+                 QStringLiteral("mxc://x/matas"));
+    }
 };
 
 QTEST_MAIN(TimelineHydrationQmlTest)

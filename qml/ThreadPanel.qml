@@ -345,6 +345,7 @@ Rectangle {
                         size: 32
                         name: panel.rootData.senderDisplayName || ""
                         mxc: panel.rootData.senderAvatarMxc || ""
+                        colorKey: panel.rootData.sender || ""
                     }
                     Label {
                         text: panel.rootData.senderDisplayName || ""

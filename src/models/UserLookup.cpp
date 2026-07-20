@@ -4,6 +4,14 @@
 
 namespace matrix::user_lookup {
 
+QString localpartOrUserId(const QString &userId)
+{
+    if (!userId.startsWith(QLatin1Char('@')))
+        return userId;
+    const QString localpart = userId.mid(1).section(QLatin1Char(':'), 0, 0);
+    return localpart.isEmpty() ? userId : localpart;
+}
+
 QString serverNameFromUserId(const QString &userId)
 {
     const int colon = userId.indexOf(QLatin1Char(':'));

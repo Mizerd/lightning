@@ -40,4 +40,10 @@ QString exactCandidate(const QString &rawQuery, const QString &ownServerName);
 // bare-localpart guess against the user's own homeserver.
 bool queryNamesServer(const QString &rawQuery);
 
+// v0.7: the shared visible-name fallback for a user with no resolved
+// display name anywhere: the localpart of the Matrix id ("@matas:server"
+// -> "matas"). The complete MXID is returned only when no localpart can be
+// derived; it stays available separately for tooltips/disambiguation.
+QString localpartOrUserId(const QString &userId);
+
 } // namespace matrix::user_lookup

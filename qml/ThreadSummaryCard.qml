@@ -18,6 +18,7 @@ Item {
     // ── Inputs (bound from the delegate's model roles) ───────────────
     property int replyCount: -1                 // SDK num_replies, -1 unknown
     property string latestSender: ""            // already-resolved display name
+    property string latestSenderId: ""          // MXID for the stable fallback colour
     property string latestPreview: ""           // sanitized latest-reply preview
     property string latestKind: "text"          // semantic kind for the label
     property string latestAvatarMxc: ""         // mxc:// via the safe avatar path
@@ -135,6 +136,7 @@ Item {
                 size: 18
                 mxc: card.latestAvatarMxc
                 name: card.latestSender
+                colorKey: card.latestSenderId
                 visible: card.latestSender.length > 0
             }
 

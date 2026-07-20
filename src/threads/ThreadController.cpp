@@ -1,6 +1,7 @@
 #include "threads/ThreadController.h"
 
 #include "matrix/MatrixClient.h"
+#include "models/UserLookup.h"
 
 #include <QBuffer>
 #include <QClipboard>
@@ -436,7 +437,8 @@ QVariantMap ThreadController::rootInfo() const
             info.insert(QStringLiteral("sender"), event.sender);
             info.insert(QStringLiteral("senderDisplayName"),
                         event.senderDisplayName.isEmpty()
-                            ? event.sender
+                            ? matrix::user_lookup::localpartOrUserId(
+                                  event.sender)
                             : event.senderDisplayName);
             info.insert(QStringLiteral("senderAvatarMxc"),
                         event.senderAvatarUrl);

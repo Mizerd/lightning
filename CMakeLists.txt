@@ -670,6 +670,20 @@ if(BUILD_TESTING)
     set_tests_properties(media-placeholder-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+    # v0.7: avatar pipeline — explicit loading/ready/missing/failed states
+    # through the real MediaBridge + MediaImageProvider, pixel-proven
+    # transparency (no fallback fill beneath a decoded avatar), stable
+    # identity-keyed fallback colours, and clean URL-change resets.
+    qt_add_executable(avatar-pipeline-qml-test
+        tests/AvatarPipelineQmlTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_app(avatar-pipeline-qml-test)
+    target_link_libraries(avatar-pipeline-qml-test PRIVATE Qt6::Test)
+    add_test(NAME avatar-pipeline-qml COMMAND avatar-pipeline-qml-test)
+    set_tests_properties(avatar-pipeline-qml PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
     # v0.7: full account-switch lifecycle on a real AppController (mock
     # backend): activation, switching state, room-target clearing, logout
     # fallback to a remaining account, scoped background-account removal.
@@ -699,6 +713,8 @@ if(BUILD_TESTING)
         tests/TimelineModelDiffTest.cpp
         src/models/TimelineModel.h
         src/models/TimelineModel.cpp
+        src/models/UserLookup.h
+        src/models/UserLookup.cpp
         src/matrix/MatrixClient.h
         src/matrix/MatrixClient.cpp
     )
@@ -713,6 +729,8 @@ if(BUILD_TESTING)
         tests/StateActivityGroupingTest.cpp
         src/models/TimelineModel.h
         src/models/TimelineModel.cpp
+        src/models/UserLookup.h
+        src/models/UserLookup.cpp
         src/matrix/MatrixClient.h
         src/matrix/MatrixClient.cpp
     )
@@ -787,6 +805,8 @@ if(BUILD_TESTING)
         src/threads/ThreadController.cpp
         src/models/TimelineModel.h
         src/models/TimelineModel.cpp
+        src/models/UserLookup.h
+        src/models/UserLookup.cpp
         src/models/AttachmentQueueModel.h
         src/models/AttachmentQueueModel.cpp
         src/matrix/MatrixClient.h
@@ -824,6 +844,8 @@ if(BUILD_TESTING)
         tests/NotificationManagerTest.cpp
         src/notifications/NotificationManager.h
         src/notifications/NotificationManager.cpp
+        src/models/UserLookup.h
+        src/models/UserLookup.cpp
     )
     target_include_directories(notification-manager-test PRIVATE src)
     target_link_libraries(notification-manager-test PRIVATE
@@ -892,6 +914,8 @@ if(BUILD_TESTING)
         src/models/PaginationController.cpp
         src/models/TimelineModel.h
         src/models/TimelineModel.cpp
+        src/models/UserLookup.h
+        src/models/UserLookup.cpp
         src/matrix/MatrixClient.h
         src/matrix/MatrixClient.cpp
     )
@@ -920,6 +944,8 @@ if(BUILD_TESTING)
         src/models/ReadReceiptCoordinator.cpp
         src/models/TimelineModel.h
         src/models/TimelineModel.cpp
+        src/models/UserLookup.h
+        src/models/UserLookup.cpp
         src/matrix/MatrixClient.h
         src/matrix/MatrixClient.cpp
     )

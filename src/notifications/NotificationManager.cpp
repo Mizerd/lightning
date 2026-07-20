@@ -1,6 +1,7 @@
 #include "notifications/NotificationManager.h"
 
 #include "matrix/TimelineEvent.h"
+#include "models/UserLookup.h"
 
 #include <QCoreApplication>
 #include <QDateTime>
@@ -65,7 +66,7 @@ NotificationManager::decide(const TimelineEvent &event, const Context &context)
         return decision;
 
     const QString sender = event.senderDisplayName.isEmpty()
-        ? event.sender
+        ? matrix::user_lookup::localpartOrUserId(event.sender)
         : event.senderDisplayName;
     const QString room = context.roomName.isEmpty()
         ? QCoreApplication::translate("Notifications", "Matrix room")

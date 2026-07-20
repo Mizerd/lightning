@@ -444,6 +444,7 @@ Rectangle {
                             name: modelData.displayName.length > 0
                                   ? modelData.displayName : modelData.userId
                             mxc: modelData.avatarUrl || ""
+                            colorKey: modelData.userId || ""
                         }
                         ColumnLayout {
                             Layout.fillWidth: true

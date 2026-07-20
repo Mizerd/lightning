@@ -43,6 +43,24 @@ Rectangle {
     height: size
     radius: circle ? size / 2 : squareRadius
 
+    // v0.7: explicit avatar result states.
+    //   missing — no avatar to load: deterministic initials fallback.
+    //   loading — bytes/decode in flight: circular/rounded skeleton (no
+    //             initials flash, no random colour flash).
+    //   ready   — ONLY the decoded bitmap. The fallback fill must never
+    //             remain beneath a successfully loaded avatar: transparent
+    //             pixels reveal the surrounding surface, not the palette
+    //             colour (the shape mask is baked into the bitmap with its
+    //             alpha preserved).
+    //   failed  — fetch/decode failed: initials fallback (a later cache
+    //             completion still promotes to ready).
+    property bool fetchFailed: false
+    readonly property string presentationState:
+        !hasImage ? "missing"
+        : img.status === Image.Ready ? "ready"
+        : (fetchFailed || img.status === Image.Error) ? "failed"
+        : "loading"
+
     // Deterministic per-identity colour from the shared handoff palette;
     // neutral surface only when there is nothing to derive a colour from.
     readonly property string _paletteKey: colorKey.length > 0 ? colorKey : name
@@ -53,8 +71,10 @@ Rectangle {
         var palette = AppTheme.avatarPalette
         return palette[Math.abs(h) % palette.length]
     }
-    color: _paletteKey.length > 0 ? _paletteColor(_paletteKey)
-                                  : AppTheme.cardElevated
+    color: presentationState === "missing" || presentationState === "failed"
+           ? (_paletteKey.length > 0 ? _paletteColor(_paletteKey)
+                                     : AppTheme.cardElevated)
+           : "transparent"
 
     // Up to two initials: first letters of the first two words, with
     // Matrix sigils stripped ("@user:hs" → "U").
@@ -76,7 +96,13 @@ Rectangle {
         src = hasImage ? app.mediaBridge.avatarSource(mxc, Math.max(32, size * 2))
                        : ""
     }
-    onMxcChanged: refresh()
+    onMxcChanged: {
+        // A new identity is a new load attempt; the old failure (and any
+        // stale bitmap via the source change below) must not leak across
+        // delegate reuse.
+        fetchFailed = false
+        refresh()
+    }
     onSizeChanged: refresh()
     Component.onCompleted: refresh()
 
@@ -90,11 +116,27 @@ Rectangle {
             if (cacheKey.endsWith(":" + root.mxc))
                 root.refresh()
         }
+        function onMediaFetchFailed(cacheKey, category) {
+            if (cacheKey.endsWith(":" + root.mxc))
+                root.fetchFailed = true
+        }
+    }
+
+    // Loading: quiet shape-matched skeleton — never a random palette flash
+    // that a decoded bitmap then replaces.
+    Skeleton {
+        objectName: "avatarSkeleton"
+        anchors.fill: parent
+        visible: root.presentationState === "loading"
+        circle: root.circle
+        radius: root.circle ? Math.min(width, height) / 2 : root.squareRadius
     }
 
     Label {
+        objectName: "avatarInitials"
         anchors.centerIn: parent
-        visible: img.status !== Image.Ready
+        visible: root.presentationState === "missing"
+                 || root.presentationState === "failed"
         text: root.roomGlyph ? "#" : root._initials(root.name)
         // White 800-weight glyph on the palette colour per the handoff;
         // neutral ink only on the colourless fallback surface.
@@ -108,6 +150,7 @@ Rectangle {
 
     Image {
         id: img
+        objectName: "avatarImage"
         anchors.fill: parent
         // The provider bakes the mask into the bitmap; the suffix selects
         // circle or rounded-square (radius as a permille of the edge).

@@ -5,6 +5,7 @@
 #include "matrix/MediaHelpers.h"
 #include "matrix/RustSessionPolicy.h"
 #include "matrix_rust.h"
+#include "models/UserLookup.h"
 #include "storage/AppDataPaths.h"
 
 #include <QDateTime>
@@ -1354,7 +1355,9 @@ void RustSdkMatrixClient::handleThreadListReset(const QJsonObject &event)
                      obj.value(QStringLiteral("root_sender")).toString());
         entry.insert(QStringLiteral("rootSenderName"),
                      obj.value(QStringLiteral("root_sender_name")).toString(
-                         obj.value(QStringLiteral("root_sender")).toString()));
+                         matrix::user_lookup::localpartOrUserId(
+                             obj.value(QStringLiteral("root_sender"))
+                                 .toString())));
         entry.insert(QStringLiteral("rootPreview"),
                      obj.value(QStringLiteral("root_preview")).toString());
         entry.insert(QStringLiteral("rootTimestamp"),
@@ -1367,7 +1370,9 @@ void RustSdkMatrixClient::handleThreadListReset(const QJsonObject &event)
                      obj.value(QStringLiteral("latest_sender")).toString());
         entry.insert(QStringLiteral("latestSenderName"),
                      obj.value(QStringLiteral("latest_sender_name")).toString(
-                         obj.value(QStringLiteral("latest_sender")).toString()));
+                         matrix::user_lookup::localpartOrUserId(
+                             obj.value(QStringLiteral("latest_sender"))
+                                 .toString())));
         entry.insert(QStringLiteral("latestPreview"),
                      obj.value(QStringLiteral("latest_preview")).toString());
         entry.insert(QStringLiteral("latestTimestamp"),

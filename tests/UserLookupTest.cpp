@@ -125,6 +125,22 @@ class UserLookupTest : public QObject
     Q_OBJECT
 
 private Q_SLOTS:
+    // v0.7: shared visible-name fallback — localpart before the full MXID.
+    void localpartFallbackDerivation()
+    {
+        using namespace matrix::user_lookup;
+        QCOMPARE(localpartOrUserId(QStringLiteral("@matas:matrix.smetonis.net")),
+                 QStringLiteral("matas"));
+        QCOMPARE(localpartOrUserId(QStringLiteral("@a:x:8448")),
+                 QStringLiteral("a"));
+        // No localpart derivable → the original value is returned verbatim.
+        QCOMPARE(localpartOrUserId(QStringLiteral("@:server")),
+                 QStringLiteral("@:server"));
+        QCOMPARE(localpartOrUserId(QStringLiteral("plain-name")),
+                 QStringLiteral("plain-name"));
+        QCOMPARE(localpartOrUserId(QString()), QString());
+    }
+
     void candidateDerivation()
     {
         using namespace matrix::user_lookup;

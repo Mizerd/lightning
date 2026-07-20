@@ -1,6 +1,7 @@
 #include "models/TimelineModel.h"
 
 #include "matrix/MatrixClient.h"
+#include "models/UserLookup.h"
 
 #include <QRegularExpression>
 #include <QUrl>
@@ -36,14 +37,20 @@ TimelineModel::TimelineModel(QObject *parent)
 
 QString TimelineModel::senderDisplayName(const TimelineEvent &event) const
 {
+    // Fallback order: room-specific member name carried on the event (SDK
+    // sender profile), backend member lookup, then the user id LOCALPART.
+    // The complete MXID is never the ordinary visible label — it stays
+    // available for tooltips, details, and ambiguity disambiguation.
     if (!event.senderDisplayName.isEmpty())
         return event.senderDisplayName;
     if (m_client) {
         const QString display = m_client->displayNameFor(event.roomId, event.sender);
-        if (!display.isEmpty())
+        // Backends return the raw user id when nothing is known — that is
+        // "unresolved", not a display name.
+        if (!display.isEmpty() && display != event.sender)
             return display;
     }
-    return event.sender;
+    return matrix::user_lookup::localpartOrUserId(event.sender);
 }
 
 QString TimelineModel::senderInitials(const TimelineEvent &event) const
@@ -349,12 +356,8 @@ QVariantList TimelineModel::stateGroupEntriesFrom(int leaderRow) const
             entry.insert(QStringLiteral("eventId"), e.eventId);
             entry.insert(QStringLiteral("eventKind"), e.stateKind);
             entry.insert(QStringLiteral("actorUserId"), e.sender);
-            QString actor = e.senderDisplayName;
-            if (actor.isEmpty() && m_client)
-                actor = m_client->displayNameFor(e.roomId, e.sender);
-            if (actor.isEmpty())
-                actor = e.sender;
-            entry.insert(QStringLiteral("actorDisplayName"), actor);
+            entry.insert(QStringLiteral("actorDisplayName"),
+                         senderDisplayName(e));
             entry.insert(QStringLiteral("affectedMemberDisplayName"), e.stateTarget);
             entry.insert(QStringLiteral("description"), e.body);
             entry.insert(QStringLiteral("timestamp"), e.timestamp);
@@ -402,7 +405,10 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
     case EditedRole:             return e.edited;
     case RedactedRole:           return e.redacted;
     case ReplyToEventIdRole:     return e.replyToEventId;
-    case ReplyToSenderRole:      return e.replyToSender;
+    // The SDK embeds the replied-to sender as a raw MXID; show its
+    // localpart rather than the full id in the reply header.
+    case ReplyToSenderRole:
+        return matrix::user_lookup::localpartOrUserId(e.replyToSender);
     case ReplyToPreviewRole:     return e.replyToPreview;
     case MediaMxcUrlRole:        return e.mediaMxcUrl;
     case MediaHttpUrlRole:       return mediaHttp(e.mediaMxcUrl);
@@ -449,7 +455,7 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
     case ThreadLatestSenderRole:    return e.threadLatestSender;
     case ThreadLatestSenderDisplayNameRole:
         return e.threadLatestSenderDisplayName.isEmpty()
-            ? e.threadLatestSender
+            ? matrix::user_lookup::localpartOrUserId(e.threadLatestSender)
             : e.threadLatestSenderDisplayName;
     case ThreadLatestSenderAvatarMxcRole:
         return e.threadLatestSenderAvatarUrl;
@@ -618,9 +624,7 @@ QVariantList TimelineModel::mediaEntries() const
         entry.insert(QStringLiteral("row"), row);
         entry.insert(QStringLiteral("mediaKey"), e.mediaKey);
         entry.insert(QStringLiteral("filename"), e.mediaFilename);
-        entry.insert(QStringLiteral("sender"),
-                     e.senderDisplayName.isEmpty() ? e.sender
-                                                   : e.senderDisplayName);
+        entry.insert(QStringLiteral("sender"), senderDisplayName(e));
         entry.insert(QStringLiteral("timestamp"), e.timestamp);
         entry.insert(QStringLiteral("mime"), e.mediaMimetype);
         entry.insert(QStringLiteral("httpUrl"), httpUrl);
