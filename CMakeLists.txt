@@ -642,6 +642,20 @@ if(BUILD_TESTING)
     set_tests_properties(timeline-pane-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+    # v0.7 timeline-stability suite: the initial-hydration presentation gate,
+    # bottom-pinned stability under asynchronous row growth, scrolled-up
+    # anchor preservation, and row-scoped Set-diff model updates — the live
+    # room-open jump regressions, staged deterministically on the mock.
+    qt_add_executable(timeline-hydration-qml-test
+        tests/TimelineHydrationQmlTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_app(timeline-hydration-qml-test)
+    target_link_libraries(timeline-hydration-qml-test PRIVATE Qt6::Test)
+    add_test(NAME timeline-hydration-qml COMMAND timeline-hydration-qml-test)
+    set_tests_properties(timeline-hydration-qml PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
     # v0.7: full account-switch lifecycle on a real AppController (mock
     # backend): activation, switching state, room-target clearing, logout
     # fallback to a remaining account, scoped background-account removal.

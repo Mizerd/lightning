@@ -702,7 +702,7 @@ void MockMatrixClient::loadOlderMessages(const QString &roomId)
     m_paginating.insert(roomId);
     Q_EMIT paginationStateChanged(roomId);
 
-    QTimer::singleShot(300, this, [this, roomId] {
+    QTimer::singleShot(m_paginationDelayMs, this, [this, roomId] {
         m_paginating.remove(roomId);
         int &remaining = m_paginationRemaining[roomId];
         if (remaining <= 0) {
@@ -711,25 +711,35 @@ void MockMatrixClient::loadOlderMessages(const QString &roomId)
             Q_EMIT paginationStateChanged(roomId);
             return;
         }
-        // Prepend a small chunk of synthetic older events.
+        // Prepend a small chunk of synthetic older events (or the staged
+        // test chunk, so hydration tests control exactly what arrives).
         const auto &existing = m_timelines[roomId];
         QDateTime start = existing.isEmpty()
             ? QDateTime::currentDateTimeUtc().addSecs(-3600)
             : existing.first().timestamp.addSecs(-60);
 
         QList<TimelineEvent> chunk;
-        for (int i = 0; i < 3; ++i) {
-            TimelineEvent e;
-            e.eventId           = nextEventId();
-            e.roomId            = roomId;
-            e.sender            = QStringLiteral("@history-bot:mock.local");
-            e.senderDisplayName = QStringLiteral("History Bot");
-            e.body              = tr("Older message #%1 (page %2)")
-                                      .arg(3 - i).arg(remaining);
-            e.timestamp         = start.addSecs(-i * 60);
-            e.type              = TimelineEvent::TextMessage;
-            e.status            = TimelineEvent::Sent;
-            chunk.prepend(e);
+        if (!m_paginationChunkOverride.isEmpty()) {
+            chunk = m_paginationChunkOverride;
+            for (auto &e : chunk) {
+                if (e.eventId.isEmpty())
+                    e.eventId = nextEventId();
+                e.roomId = roomId;
+            }
+        } else {
+            for (int i = 0; i < 3; ++i) {
+                TimelineEvent e;
+                e.eventId           = nextEventId();
+                e.roomId            = roomId;
+                e.sender            = QStringLiteral("@history-bot:mock.local");
+                e.senderDisplayName = QStringLiteral("History Bot");
+                e.body              = tr("Older message #%1 (page %2)")
+                                          .arg(3 - i).arg(remaining);
+                e.timestamp         = start.addSecs(-i * 60);
+                e.type              = TimelineEvent::TextMessage;
+                e.status            = TimelineEvent::Sent;
+                chunk.prepend(e);
+            }
         }
         auto &tl = m_timelines[roomId];
         for (int i = chunk.size() - 1; i >= 0; --i)
@@ -1049,4 +1059,49 @@ QString MockMatrixClient::nextEventId()
 QString MockMatrixClient::nextTxnId()
 {
     return QStringLiteral("mock-txn-%1").arg(++m_txnCounter);
+}
+
+// ── v0.7 timeline-hydration test hooks ──────────────────────────────────
+
+void MockMatrixClient::resetTimelineForTest(const QString &roomId,
+                                            const QList<TimelineEvent> &events,
+                                            int paginationPages)
+{
+    QList<TimelineEvent> stamped = events;
+    for (auto &e : stamped) {
+        if (e.eventId.isEmpty())
+            e.eventId = nextEventId();
+        e.roomId = roomId;
+    }
+    m_timelines[roomId] = stamped;
+    m_paginationRemaining[roomId] = paginationPages;
+    for (auto &r : m_rooms) {
+        if (r.id == roomId)
+            r.paginationExhausted = paginationPages <= 0;
+    }
+    Q_EMIT timelineReset(roomId);
+    Q_EMIT paginationStateChanged(roomId);
+}
+
+void MockMatrixClient::changeEventAtForTest(const QString &roomId, int index,
+                                            const TimelineEvent &event)
+{
+    auto it = m_timelines.find(roomId);
+    if (it == m_timelines.end() || index < 0 || index >= it->size())
+        return;
+    TimelineEvent stamped = event;
+    stamped.roomId = roomId;
+    (*it)[index] = stamped;
+    Q_EMIT eventChangedAt(roomId, index, stamped);
+}
+
+void MockMatrixClient::appendEventForTest(const QString &roomId,
+                                          const TimelineEvent &event)
+{
+    TimelineEvent stamped = event;
+    if (stamped.eventId.isEmpty())
+        stamped.eventId = nextEventId();
+    stamped.roomId = roomId;
+    m_timelines[roomId].append(stamped);
+    Q_EMIT eventAppended(roomId, stamped);
 }

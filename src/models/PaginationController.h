@@ -53,6 +53,13 @@ class PaginationController : public QObject
     // True once automatic viewport filling stopped itself (budget spent or
     // no progress). User-driven NearTop requests remain available.
     Q_PROPERTY(bool fillStopped READ fillStopped NOTIFY stateChanged)
+    // v0.7 initial-hydration gate: true once the automatic initial history
+    // fill for the open room cannot add more content on its own — a fill
+    // batch landed, filling stopped itself, the start of history is loaded,
+    // or the fill failed and awaits a user Retry. QML combines this with
+    // its own viewport geometry to decide when the room is presentable.
+    Q_PROPERTY(bool initialContentSettled READ initialContentSettled
+                   NOTIFY stateChanged)
     Q_PROPERTY(QString highlightedEventId READ highlightedEventId NOTIFY navigationChanged)
     Q_PROPERTY(QString navigationMessage READ navigationMessage NOTIFY navigationChanged)
 
@@ -83,6 +90,7 @@ public:
     PresentationState presentationState() const;
     InitialHistoryState initialHistoryState() const;
     bool fillStopped() const { return m_fillStopped; }
+    bool initialContentSettled() const;
     QString highlightedEventId() const { return m_highlightedEventId; }
     QString navigationMessage() const { return m_navigationMessage; }
 

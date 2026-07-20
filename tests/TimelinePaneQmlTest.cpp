@@ -282,8 +282,17 @@ private Q_SLOTS:
         QStringList warnings;
         connect(&engine, &QQmlEngine::warnings, this,
                 [&warnings](const QList<QQmlError> &errors) {
-                    for (const auto &e : errors)
+                    for (const auto &e : errors) {
+                        // The offscreen test host has no resolver for the
+                        // mock media origin; the bottom-anchored view now
+                        // legitimately instantiates the image fixture row,
+                        // whose fetch attempt reports this environmental
+                        // (non-QML) warning.
+                        if (e.toString().contains(
+                                QLatin1String("Host mock.local not found")))
+                            continue;
                         warnings << e.toString();
+                    }
                 });
         engine.rootContext()->setContextProperty("app", &controller);
         QSignalSpy stateSpy(controller.pagination(),

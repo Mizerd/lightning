@@ -92,6 +92,19 @@ int TimelineModel::nextMessageRowForGrouping(int row) const
     return -1;
 }
 
+bool TimelineModel::groupingInputsDiffer(const TimelineEvent &before,
+                                         const TimelineEvent &after) const
+{
+    // The only per-event inputs the sender-grouping and state-grouping
+    // computations read. Profile, body, media, reaction, and decryption
+    // updates deliberately do not force a neighbourhood grouping refresh.
+    return before.sender != after.sender
+        || before.timestamp != after.timestamp
+        || before.type != after.type
+        || before.redacted != after.redacted
+        || before.stateKind != after.stateKind;
+}
+
 bool TimelineModel::continuesSenderGroup(int row) const
 {
     if (row < 0 || row >= m_events.size())
@@ -634,8 +647,12 @@ void TimelineModel::onEventReplaced(const QString &roomId,
     const int row = rowForEventId(oldEventId);
     if (row < 0)
         return;
+    const bool groupingChanged = groupingInputsDiffer(m_events.at(row), newEvent);
     m_events[row] = newEvent;
-    Q_EMIT dataChanged(index(0), index(m_events.size() - 1));
+    const auto idx = index(row);
+    Q_EMIT dataChanged(idx, idx);
+    if (groupingChanged)
+        emitPresentationGroupingChanged();
 }
 
 void TimelineModel::onEventStatusChanged(const QString &roomId,
@@ -749,8 +766,17 @@ void TimelineModel::onEventChangedAt(const QString &roomId, int index,
         reload();
         return;
     }
+    // An in-place SDK Set touches exactly one row. Re-read every role of
+    // that row, but never the whole model: the previous full-range
+    // dataChanged forced every delegate to re-bind and re-measure on each
+    // profile resolution, decryption, reaction, or send-state update, which
+    // multiplied one item update into a whole-timeline relayout.
+    const bool groupingChanged = groupingInputsDiffer(m_events.at(index), event);
     m_events[index] = event;
-    Q_EMIT dataChanged(this->index(0), this->index(m_events.size() - 1));
+    const auto idx = this->index(index);
+    Q_EMIT dataChanged(idx, idx);
+    if (groupingChanged)
+        emitPresentationGroupingChanged();
 }
 
 void TimelineModel::onEventRemovedAt(const QString &roomId, int index)

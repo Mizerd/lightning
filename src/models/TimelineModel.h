@@ -247,6 +247,11 @@ private:
     int previousMessageRowForGrouping(int row) const;
     int nextMessageRowForGrouping(int row) const;
     bool continuesSenderGroup(int row) const;
+    // True when an in-place event update changed a field the presentation
+    // grouping actually reads, so a Set diff only refreshes neighbours when
+    // it must (profile/body/media updates never force a grouping sweep).
+    bool groupingInputsDiffer(const TimelineEvent &before,
+                              const TimelineEvent &after) const;
     QUrl mediaHttp(const QString &mxc) const;
     QUrl mediaThumbHttp(const QString &mxc, int w, int h) const;
 

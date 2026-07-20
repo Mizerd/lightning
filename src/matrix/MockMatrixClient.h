@@ -133,6 +133,20 @@ public:
     void failNextPaginationForTest(bool transient = false)
     { m_failNextPagination = true; m_nextPaginationFailureTransient = transient; }
 
+    // v0.7 timeline-hydration test hooks — the mock mirror of the Rust SDK
+    // diff surface so the QML gate/anchor tests can stage the exact live
+    // sequence (small snapshot → async fill batches → in-place Set updates)
+    // deterministically. Test/demo-only; no network I/O.
+    void resetTimelineForTest(const QString &roomId,
+                              const QList<TimelineEvent> &events,
+                              int paginationPages);
+    void changeEventAtForTest(const QString &roomId, int index,
+                              const TimelineEvent &event);
+    void appendEventForTest(const QString &roomId, const TimelineEvent &event);
+    void setPaginationDelayForTest(int ms) { m_paginationDelayMs = ms; }
+    void setPaginationChunkForTest(const QList<TimelineEvent> &chunk)
+    { m_paginationChunkOverride = chunk; }
+
 private:
     void seedMockData();
     void setState(ConnectionState s);
@@ -155,6 +169,8 @@ private:
     QSet<QString> m_transientPaginationFailures;
     bool m_failNextPagination = false;
     bool m_nextPaginationFailureTransient = false;
+    int m_paginationDelayMs = 300;
+    QList<TimelineEvent> m_paginationChunkOverride;
 
     quint64 m_eventCounter = 0;
     quint64 m_txnCounter = 0;

@@ -106,6 +106,8 @@ Rectangle {
             timeline.anchorStableId = ""
             timeline.anchorOffset = 0
             timeline.anchorContentHeight = 0
+            timeline.viewAnchorId = ""
+            timeline.viewAnchorOffset = 0
             // A room switch collapses the right side: no panel from the
             // previous room may remain (reopen it deliberately in the new
             // room if wanted).
@@ -411,6 +413,10 @@ Rectangle {
                 objectName: "timelineListView"
                 anchors.fill: parent
                 clip: true
+                // The presentation gate covers the view (it keeps laying out
+                // underneath so viewport-fill pagination and positioning run
+                // against real geometry); the loading surface sits on top.
+                opacity: presentationReady ? 1 : 0
                 // Fast-scroll: pool delegates instead of re-instantiating
                 // them mid-flick. This is safe because every per-row field is
                 // either model-bound with a reset-on-change handler (preview
@@ -453,6 +459,130 @@ Rectangle {
 
                 // Auto-scroll to end on new events when already near the bottom.
                 property bool stickToBottom: true
+
+                // ── v0.7: initial-hydration presentation gate ────────────
+                // A freshly opened room must not present a one-item partial
+                // snapshot that visibly rebuilds while the SDK event cache
+                // and the automatic viewport fill catch up. The timeline
+                // stays covered by the loading surface until the room is
+                // coherently presentable:
+                //   * the loaded content already fills the viewport, or
+                //   * the backend reports the initial automatic fill settled
+                //     (batch landed / start of history / stopped / failed).
+                // A bounded guard timer is a last-resort safety valve for a
+                // hung backend, never the primary mechanism. The gate is
+                // monotonic per room generation: once presented, later diffs
+                // apply normally with anchor preservation.
+                property bool presentationReady: app.currentRoomId === ""
+                function recomputePresentationReady() {
+                    if (presentationReady)
+                        return
+                    if (app.currentRoomId === "") {
+                        presentationReady = true
+                        presentationGuard.stop()
+                        return
+                    }
+                    var fillsViewport = count > 0
+                                        && contentHeight >= height - 1
+                    if (fillsViewport || app.pagination.initialContentSettled) {
+                        presentationReady = true
+                        presentationGuard.stop()
+                        // Present at the intended position: one deliberate
+                        // deferred end-anchor when following the latest
+                        // message (anchor restoration positioned any saved
+                        // reading spot while the gate was still closed).
+                        if (stickToBottom)
+                            Qt.callLater(scrollToEndDeferred)
+                    }
+                }
+                Timer {
+                    id: presentationGuard
+                    interval: 2500
+                    onTriggered: {
+                        if (!timeline.presentationReady) {
+                            timeline.presentationReady = true
+                            if (timeline.stickToBottom)
+                                Qt.callLater(timeline.scrollToEndDeferred)
+                        }
+                    }
+                }
+                Connections {
+                    target: app.pagination
+                    function onStateChanged() {
+                        timeline.recomputePresentationReady()
+                    }
+                }
+
+                // ── v0.7: persistent viewport anchor ─────────────────────
+                // While the user is reading older history, asynchronous row
+                // growth (media hydration, late decryption, link previews,
+                // profile resolution) above the viewport must not move the
+                // message under the cursor. The anchor is the first visible
+                // stable item id plus its pixel offset; every coalesced
+                // content-height change re-aligns to it. Bottom-pinned and
+                // in-motion states are owned by their own mechanisms; the
+                // backward-pagination prepend keeps its dedicated capture/
+                // restore pair (which can re-locate rows that left the
+                // instantiated range).
+                property string viewAnchorId: ""
+                property real viewAnchorOffset: 0
+                function captureViewAnchor() {
+                    if (stickToBottom || count === 0) {
+                        viewAnchorId = ""
+                        return
+                    }
+                    var row = indexAt(width / 2, contentY + topMargin + 1)
+                    if (row < 0) {
+                        viewAnchorId = ""
+                        return
+                    }
+                    var it = itemAtIndex(row)
+                    for (var probe = row; probe < count; ++probe) {
+                        var candidate = itemAtIndex(probe)
+                        if (!candidate)
+                            break
+                        if (!candidate.isStateActivity) {
+                            row = probe
+                            it = candidate
+                            break
+                        }
+                    }
+                    viewAnchorId = app.timeline.stableIdAt(row)
+                    viewAnchorOffset = it ? (contentY - it.y) : 0
+                }
+                property bool viewAnchorScheduled: false
+                function maintainViewAnchorCoalesced() {
+                    if (viewAnchorScheduled)
+                        return
+                    viewAnchorScheduled = true
+                    Qt.callLater(function() {
+                        viewAnchorScheduled = false
+                        timeline.maintainViewAnchor()
+                    })
+                }
+                function maintainViewAnchor() {
+                    if (viewAnchorId === "" || stickToBottom)
+                        return
+                    // User-driven motion owns contentY; recapture happens on
+                    // settle. The pagination prepend path owns re-anchoring
+                    // while its own capture is pending.
+                    if (moving || wheelAnimating)
+                        return
+                    if (app.pagination.busy || anchorStableId !== "")
+                        return
+                    var row = app.timeline.rowForStableId(viewAnchorId)
+                    if (row < 0)
+                        return
+                    var it = itemAtIndex(row)
+                    if (!it)
+                        return
+                    var desired = it.y + viewAnchorOffset
+                    var lo = wheelMinY()
+                    var hi = wheelMaxY()
+                    desired = desired < lo ? lo : (desired > hi ? hi : desired)
+                    if (Math.abs(contentY - desired) > 0.5)
+                        contentY = desired
+                }
 
                 // v0.6.0: MessageDelegate view contract — the room timeline
                 // resolves stable-id actions against app.timeline and never
@@ -674,6 +804,7 @@ Rectangle {
                     onTriggered: {
                         timeline.updateStickAndPaginate()
                         timeline.saveRoomPosition()
+                        timeline.captureViewAnchor()
                     }
                 }
 
@@ -722,7 +853,8 @@ Rectangle {
                 Binding {
                     target: app.readReceipts
                     property: "timelineVisible"
-                    value: timeline.visible && app.currentRoomId !== ""
+                    value: timeline.visible && timeline.presentationReady
+                           && app.currentRoomId !== ""
                 }
                 Binding {
                     target: app.readReceipts
@@ -735,7 +867,8 @@ Rectangle {
                 Binding {
                     target: app
                     property: "activeRoomAtLatest"
-                    value: timeline.visible && timeline.Window.active === true
+                    value: timeline.visible && timeline.presentationReady
+                           && timeline.Window.active === true
                            && timeline.stickToBottom
                 }
 
@@ -760,8 +893,34 @@ Rectangle {
                             app.pagination.requestViewportFill()
                     })
                 }
-                onContentHeightChanged: maybeFillViewport()
-                onHeightChanged: maybeFillViewport()
+                // Content height changes whenever any delegate's height
+                // settles (text measurement, media hydration, link preview,
+                // decryption replacement). One coalesced reaction per batch:
+                // keep the newest event pinned while following the bottom,
+                // otherwise hold the reader's anchor steady.
+                onContentHeightChanged: {
+                    maybeFillViewport()
+                    recomputePresentationReady()
+                    if (stickToBottom) {
+                        if (!moving && !wheelAnimating && count > 0)
+                            Qt.callLater(scrollToEndDeferred)
+                    } else {
+                        maintainViewAnchorCoalesced()
+                    }
+                }
+                onHeightChanged: {
+                    maybeFillViewport()
+                    recomputePresentationReady()
+                    // Viewport resizes (window, right panel, find bar) keep
+                    // the same reading position: pinned stays pinned, an
+                    // anchored reader keeps the anchored message.
+                    if (stickToBottom) {
+                        if (count > 0)
+                            Qt.callLater(scrollToEndDeferred)
+                    } else {
+                        maintainViewAnchorCoalesced()
+                    }
+                }
 
                 // v0.5.11: scroll-anchor preservation across a backward
                 // prepend. When older events are inserted at the top, a fixed
@@ -810,6 +969,9 @@ Rectangle {
                     var it = itemAtIndex(newRow)
                     if (it) contentY = it.y + anchorOffset
                     anchorStableId = ""
+                    // The prepend moved every row; the persistent viewport
+                    // anchor must re-derive from the restored position.
+                    captureViewAnchor()
                     return true
                 }
                 function restoreAnchor(inserted) {
@@ -822,6 +984,7 @@ Rectangle {
                         var delta = contentHeight - anchorContentHeight
                         if (delta > 0) contentY += delta
                         anchorStableId = ""
+                        captureViewAnchor()
                         return
                     }
                     restoreCapturedAnchor()
@@ -859,6 +1022,7 @@ Rectangle {
                                 if (item) timeline.contentY = item.y + pixelOffset
                             }
                             timeline.saveRoomPosition()
+                            timeline.captureViewAnchor()
                         })
                     }
                     function onRestoreLatestRequested() {
@@ -896,6 +1060,7 @@ Rectangle {
                 onCountChanged: {
                     // A new event arrived (or the timeline reset). Follow the
                     // bottom.
+                    recomputePresentationReady()
                     if (stickToBottom) Qt.callLater(scrollToEndDeferred)
                 }
                 onMovementEnded: {
@@ -905,10 +1070,17 @@ Rectangle {
                     stickToBottom = atYEnd
                                     || (contentY + height >= contentHeight - 40)
                     saveRoomPosition()
+                    captureViewAnchor()
                 }
                 Component.onCompleted: {
                     Qt.callLater(scrollToEndDeferred)
                     maybeFillViewport()
+                    // The pane may be (re)created while a room is already
+                    // loaded; evaluate the gate against current state instead
+                    // of waiting for the next model reset.
+                    if (app.currentRoomId !== "" && count > 0)
+                        presentationGuard.restart()
+                    recomputePresentationReady()
                 }
                 // A room switch / fresh timeline snapshot opens at the bottom:
                 // reset stickToBottom (it may have been left false after
@@ -925,11 +1097,24 @@ Rectangle {
                         timeline.anchorStableId = ""
                         timeline.anchorOffset = 0
                         timeline.anchorContentHeight = 0
+                        timeline.viewAnchorId = ""
+                        timeline.viewAnchorOffset = 0
                         timeline.expandedStateGroups = ({})
+                        // Re-engage the presentation gate for the fresh
+                        // snapshot. Recompute only after this whole signal
+                        // dispatch settles: the pagination controller's own
+                        // reset slot may run after this handler, and reading
+                        // its previous room's settled state here could open
+                        // the gate on a one-item partial snapshot. A warm
+                        // cache that already fills the viewport re-opens the
+                        // gate on the same deferred turn (sub-frame).
+                        timeline.presentationReady = false
+                        presentationGuard.restart()
                         Qt.callLater(function() {
                             app.pagination.restoreScrollAnchor(app.currentRoomId)
                         })
                         Qt.callLater(timeline.maybeFillViewport)
+                        Qt.callLater(timeline.recomputePresentationReady)
                     }
                 }
 
@@ -1002,11 +1187,35 @@ Rectangle {
 
                 Label {
                     anchors.centerIn: parent
-                    visible: timeline.count === 0
+                    visible: timeline.count === 0 && timeline.presentationReady
                     text: app.currentRoomId === ""
                           ? qsTr("Select a room from the left")
                           : qsTr("No messages yet")
                     color: AppTheme.textMuted
+                }
+            }
+
+            // v0.7: room-loading surface shown while the presentation gate
+            // holds the timeline back. Deliberately calm: no partial rows,
+            // no progressive rebuild, one quiet loading row.
+            Item {
+                objectName: "timelineLoadingSurface"
+                anchors.fill: parent
+                visible: !timeline.presentationReady
+                Row {
+                    anchors.centerIn: parent
+                    spacing: AppTheme.spacingS
+                    BusyIndicator {
+                        width: 18; height: 18
+                        anchors.verticalCenter: parent.verticalCenter
+                        running: !timeline.presentationReady
+                    }
+                    Label {
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: qsTr("Loading conversation…")
+                        color: AppTheme.textMuted
+                        font.pixelSize: 12
+                    }
                 }
             }
 

@@ -147,6 +147,18 @@ PaginationController::InitialHistoryState PaginationController::initialHistorySt
     return InitialHistorySettled;
 }
 
+bool PaginationController::initialContentSettled() const
+{
+    if (m_roomId.isEmpty() || !m_initialHistoryRequested)
+        return false;
+    // Not settled while the timeline is still being built or while an
+    // automatic fill/retry can still add content without user input.
+    if (m_deferredFill && m_client && !m_client->paginationReady(m_roomId))
+        return false;
+    return m_initialHistoryHasSucceeded || m_fillStopped || reachedStart()
+        || failed();
+}
+
 const char *PaginationController::reasonName(Reason reason)
 {
     switch (reason) {
