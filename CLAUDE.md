@@ -38,11 +38,19 @@ The state verified on 2026-07-19 is:
   avatar-readiness fixes, and the real application icon + desktop entry.
   The 2026-07-20 design-fidelity checkpoints consolidated the three-style
   button system (IconButton), rebuilt the composer to the correction spec
-  (one card, formatting toolbar + markdown sending through the SDK), moved
-  Settings inside the shell with a completed Appearance page (featured theme
-  cards, functional message-layout modes, text-size scaling — all
-  per-account), and rebuilt threads as the exclusive 340px right-side panel.
-  The application version stays 0.6.1 until an explicitly requested release.
+  (one card, formatting toolbar + markdown sending through the SDK),
+  completed the Appearance page (featured theme cards, functional
+  message-layout modes, text-size scaling — all per-account), and rebuilt
+  threads as the exclusive 340px right-side panel. The same-day runtime
+  correction pass then fixed GIF key discovery (the app itself reads
+  lightning-gif.env: environment > env file > build key), switched the app
+  to the flat Basic style with shared themed controls (AppButton,
+  SegmentedControl, AppComboBox, AppTextField) across Room Information,
+  Settings, the GIF picker, and invites, made Settings a FULL application
+  view (rail/room list/timeline/composer hidden while open), and gave the
+  right panel one authoritative state where closing a thread collapses to
+  None — never back to Room Information. The application version stays
+  0.6.1 until an explicitly requested release.
 - `matrix-sdk`, `matrix-sdk-ui`, and `matrix-sdk-base` resolve to **0.18.0** in
   `rust/Cargo.lock`; UI and base are exact-pinned in `rust/Cargo.toml`
 - Dependencies remain lock-file controlled. Do not update them incidentally.
@@ -291,11 +299,14 @@ were never backed up or shared.
   header and Ctrl-K hint, timeline with members/threads side panel, card
   composer; bundled Manrope/JetBrains Mono fonts; application icon and
   desktop entry installed by CMake (see data/ and scripts/generate-icons.sh)
-- The in-shell Settings pane (correction spec): opens in place of the
-  timeline while the rail and room list stay; 60px header
+- The full-view Settings screen: covers the entire application content
+  area (the chat shell stays loaded but hidden — no rail, room list,
+  timeline, composer, or right panel while open; closing restores the
+  selected room with the right panel remaining None). 60px header
   ("Settings — <section>", accent section icon, bare close X) above the
-  260 px navigation (Account, Appearance, Notifications, Privacy &
-  security, Sessions, Labs; About pinned bottom; soft-accent active rows).
+  260 px internal navigation (Account, Appearance, Notifications, Privacy
+  & security, Sessions, Labs; About pinned bottom; soft-accent active
+  rows).
   Appearance carries the three featured design theme cards with fixed
   preview palettes plus a secondary row for the other presets, a custom
   match-system switch, a FUNCTIONAL message-layout selector (Modern /
@@ -402,11 +413,19 @@ URLs, parsing, rating mapping, pagination, errors, and attribution belong in
 provider code; lifecycle, stale-response rejection, and result state remain
 provider-neutral.
 
-Provider keys resolve in one authoritative path (see `gif::resolveProviderKey`):
+Provider keys resolve in one authoritative path
+(see `gif::resolveProviderKeyDetailed` in `src/gif/GifKeyConfig.*`):
 
 1. a runtime override — `LIGHTNING_GIPHY_API_KEY` / `LIGHTNING_KLIPY_API_KEY`;
-2. an application key compiled into an official release build;
-3. otherwise unconfigured (the existing missing-key state).
+2. the local development env file, parsed safely by the app itself
+   (`LIGHTNING_GIF_ENV_FILE` override, else `./lightning-gif.env` in the
+   working directory) — so a direct binary launch works without the
+   `run-dev.sh` wrapper;
+3. an application key compiled into an official release build;
+4. otherwise unconfigured (the existing missing-key state).
+
+An empty value never overrides a valid lower-precedence source, and the
+picker re-resolves on every open (`refreshProviderKeys`).
 
 The runtime override always wins, so a source build (which has no embedded key)
 works as soon as those variables are set. Rokas's local from-source workflow
@@ -515,10 +534,10 @@ Use the category that matches the evidence:
 - **Unit tests:** focused pure C++/Qt behavior.
 - **Rust tests:** SDK bridge, parser, timeline, recovery, and Rust behavior.
 - **CTest:** registered C++/Qt/QML/controller/bridge tests. The current CMake
-  registers 43 tests in each configured build tree (including the
+  registers 45 tests in each configured build tree (including the
   account-registry, account-switch, desktop-integration, button-system,
-  composer-qml, settings-shell-qml, markdown-format, and design-acceptance
-  suites).
+  composer-qml, settings-shell-qml, markdown-format, gif-key-config,
+  control-system, and design-acceptance suites).
 - **QML tests:** contract scans and real offscreen module/component loading.
 - **Bridge/controller tests:** generation isolation, diff ingestion, media,
   thread, notification, and application policy.
