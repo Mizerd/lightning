@@ -293,11 +293,11 @@ private slots:
 
     void messageLayoutChipsDriveTheBackend()
     {
-        auto *compact = item("messageLayoutChip_2");
+        auto *compact = item("messageLayoutControl_2");
         QVERIFY(compact);
         clickItem(compact);
         QCOMPARE(m_controller->settings()->messageLayout(), 2);
-        auto *modern = item("messageLayoutChip_0");
+        auto *modern = item("messageLayoutControl_0");
         QVERIFY(modern);
         clickItem(modern);
         QCOMPARE(m_controller->settings()->messageLayout(), 0);

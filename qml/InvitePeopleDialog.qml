@@ -135,9 +135,11 @@ Dialog {
                             color: AppTheme.textPrimary
                             font.pixelSize: AppTheme.fontSizeS
                         }
-                        ToolButton {
+                        IconButton {
                             implicitWidth: 18; implicitHeight: 18
-                            contentItem: Icon { name: "close"; size: 14 }
+                            radius: 5
+                            iconName: "close"
+                            iconSize: 14
                             Accessible.name: qsTr("Remove %1").arg(modelData)
                             onClicked: {
                                 var next = root.selectedUsers.slice()
@@ -197,14 +199,14 @@ Dialog {
                 implicitWidth: 20; implicitHeight: 20
             }
             Item { Layout.fillWidth: true }
-            Button {
+            AppButton {
                 visible: !root.batchDone
                 text: qsTr("Cancel")
                 onClicked: root.close()
             }
-            Button {
+            AppButton {
+                kind: "primary"
                 visible: !root.batchDone
-                highlighted: true
                 enabled: root.selectedUsers.length > 0 && !app.conversations.busy
                 text: root.selectedUsers.length > 1
                       ? qsTr("Invite %n people", "", root.selectedUsers.length)
@@ -212,9 +214,9 @@ Dialog {
                 onClicked: app.conversations.inviteUsers(root.roomId,
                                                          root.selectedUsers)
             }
-            Button {
+            AppButton {
+                kind: "primary"
                 visible: root.batchDone
-                highlighted: true
                 text: qsTr("Done")
                 onClicked: root.close()
             }

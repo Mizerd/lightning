@@ -104,50 +104,37 @@ Popup {
             Layout.fillWidth: true
             spacing: AppTheme.spacingXS
 
-            Repeater {
-                model: picker.gif.providerIds
-                delegate: TabButton {
-                    required property string modelData
-                    readonly property bool isActive:
-                        picker.gif.providerId === modelData
-                    readonly property bool ok:
-                        picker.cfgRevision >= 0
-                        && picker.gif.providerConfigured(modelData)
-                    text: picker.gif.providerDisplayName(modelData)
-                          + (ok ? "" : qsTr(" (off)"))
-                    enabled: ok
-                    checked: isActive
-                    Accessible.name: picker.gif.providerDisplayName(modelData)
-                        + (ok ? "" : qsTr(" (not configured)"))
-                    implicitHeight: 30
-                    font.pixelSize: 12
-                    onClicked: picker.gif.setActiveProvider(modelData)
-                    ToolTip.text: ok ? "" : qsTr("Set an API key to enable this provider")
-                    ToolTip.visible: hovered && !ok
-                    ToolTip.delay: 400
-                    contentItem: Label {
-                        text: parent.text
-                        color: parent.isActive ? AppTheme.accent
-                             : parent.enabled ? AppTheme.textPrimary
-                             : AppTheme.textDisabled
-                        font: parent.font
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                    }
-                    background: Rectangle {
-                        color: parent.isActive ? AppTheme.hover : "transparent"
-                        radius: AppTheme.radiusSm
-                    }
+            SegmentedControl {
+                id: providerTabs
+                objectName: "gifProviderTabs"
+                // cfgRevision re-evaluates enabled/tip after a key refresh;
+                // unavailable providers are disabled with an explanation —
+                // never a bare "(off)" suffix.
+                model: {
+                    var rev = picker.cfgRevision
+                    return picker.gif.providerIds.map(function(id) {
+                        var ok = picker.gif.providerConfigured(id)
+                        return {
+                            label: picker.gif.providerDisplayName(id),
+                            value: id,
+                            enabled: ok,
+                            tip: ok ? "" : qsTr("Not configured — set an API "
+                                                + "key to enable this provider"),
+                        }
+                    })
                 }
+                current: picker.gif.providerId
+                onActivated: (value) => picker.gif.setActiveProvider(value)
             }
 
-            TextField {
+            AppTextField {
                 id: searchField
                 Layout.fillWidth: true
+                searchIcon: true
+                clearButton: true
                 placeholderText: qsTr("Search %1").arg(picker.gif.providerName)
                 Accessible.name: qsTr("Search GIFs")
                 selectByMouse: true
-                font.pixelSize: 13
                 onTextChanged: {
                     if (text.length > 0)
                         picker.section = "browse"
@@ -164,47 +151,30 @@ Popup {
                 }
             }
 
-            ToolButton {
-                contentItem: Icon { name: "close"; size: 14 }
+            IconButton {
+                implicitWidth: 28; implicitHeight: 28
+                radius: 6
+                iconName: "close"
+                iconSize: 16
                 Accessible.name: qsTr("Close GIF picker")
                 onClicked: picker.close()
             }
         }
 
         // ── Section nav: Trending / Favorites / Recent ──────────────
-        RowLayout {
-            Layout.fillWidth: true
-            spacing: AppTheme.spacingXS
-            Repeater {
-                model: [
-                    { key: "browse", label: qsTr("Trending") },
-                    { key: "favorites", label: qsTr("Favorites") },
-                    { key: "recent", label: qsTr("Recent") },
-                ]
-                delegate: Button {
-                    required property var modelData
-                    text: modelData.label
-                    font.pixelSize: 11
-                    implicitHeight: 26
-                    checkable: true
-                    checked: picker.section === modelData.key
-                    Accessible.name: modelData.label
-                    onClicked: {
-                        picker.section = modelData.key
-                        if (modelData.key === "browse"
-                            && picker.gif.results.count === 0)
-                            picker.gif.showTrending()
-                    }
-                    background: Rectangle {
-                        color: picker.section === modelData.key
-                               ? AppTheme.hover : "transparent"
-                        radius: AppTheme.radiusSm
-                        border.color: picker.section === modelData.key
-                                      ? AppTheme.accent : "transparent"
-                    }
-                }
+        SegmentedControl {
+            objectName: "gifSectionTabs"
+            model: [
+                { label: qsTr("Trending"), value: "browse" },
+                { label: qsTr("Favorites"), value: "favorites" },
+                { label: qsTr("Recent"), value: "recent" },
+            ]
+            current: picker.section
+            onActivated: (value) => {
+                picker.section = value
+                if (value === "browse" && picker.gif.results.count === 0)
+                    picker.gif.showTrending()
             }
-            Item { Layout.fillWidth: true }
         }
 
         // ── Category chips (client-side search shortcuts) ───────────
@@ -215,17 +185,39 @@ Popup {
                      && searchField.text.length === 0 && picker.gif.configured
             Repeater {
                 model: picker.gif.categories
-                delegate: Button {
+                delegate: AbstractButton {
+                    id: categoryChip
                     required property string modelData
                     text: modelData
-                    font.pixelSize: 11
+                    implicitWidth: chipLabel.implicitWidth + 20
                     implicitHeight: 26
+                    hoverEnabled: true
+                    focusPolicy: Qt.TabFocus
+                    Accessible.role: Accessible.Button
                     Accessible.name: qsTr("Category %1").arg(modelData)
                     onClicked: picker.gif.openCategory(modelData)
+                    contentItem: Label {
+                        id: chipLabel
+                        text: categoryChip.text
+                        font.pixelSize: 11
+                        font.weight: Font.DemiBold
+                        color: AppTheme.textSecondary
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
                     background: Rectangle {
-                        color: hovered ? AppTheme.hover : AppTheme.cardElevated
+                        color: categoryChip.hovered ? AppTheme.hover
+                                                    : AppTheme.cardElevated
                         radius: AppTheme.radiusPill
-                        border.color: AppTheme.border
+                    }
+                    Rectangle {
+                        anchors.fill: parent
+                        anchors.margins: -3
+                        radius: AppTheme.radiusPill
+                        color: "transparent"
+                        border.color: AppTheme.focusRing
+                        border.width: 2
+                        visible: categoryChip.visualFocus
                     }
                 }
             }

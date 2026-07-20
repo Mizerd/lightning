@@ -128,13 +128,21 @@ Item {
                     color: AppTheme.textMuted
                     elide: Label.ElideRight
                 }
-                Button {
+                AppButton {
+                    kind: "primary"
+                    implicitHeight: 26
+                    leftPadding: 10
+                    rightPadding: 10
                     text: qsTr("Accept")
                     enabled: !model.invitePending
                     Accessible.name: qsTr("Accept room invitation")
                     onClicked: root.acceptInvite()
                 }
-                Button {
+                AppButton {
+                    kind: "danger"
+                    implicitHeight: 26
+                    leftPadding: 10
+                    rightPadding: 10
                     text: qsTr("Reject")
                     enabled: !model.invitePending
                     Accessible.name: qsTr("Reject room invitation")

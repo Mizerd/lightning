@@ -427,7 +427,12 @@ int main(int argc, char *argv[])
     parser.addOption(backendOpt);
     parser.process(app);
 
-    QQuickStyle::setStyle("Fusion");
+    // Basic style: flat, palette-driven controls with no native bevels or
+    // gradients. Lightning's shared controls (IconButton, AppButton,
+    // SegmentedControl, AppComboBox, AppTextField) own the chrome of every
+    // primary surface; Basic keeps any remaining stock control flat and
+    // themed instead of Fusion's beveled desktop look.
+    QQuickStyle::setStyle("Basic");
 
     AppController controller(pf.backend);
 

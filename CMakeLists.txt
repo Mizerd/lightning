@@ -233,6 +233,10 @@ set(APP_QML_FILES
     qml/Main.qml
     qml/Icon.qml
     qml/IconButton.qml
+    qml/AppButton.qml
+    qml/SegmentedControl.qml
+    qml/AppTextField.qml
+    qml/AppComboBox.qml
     qml/LoginScreen.qml
     qml/SettingsScreen.qml
     qml/MainScreen.qml
@@ -1030,6 +1034,19 @@ if(BUILD_TESTING)
     target_include_directories(markdown-format-test PRIVATE src)
     target_link_libraries(markdown-format-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME markdown-format COMMAND markdown-format-test)
+
+    # Shared control system: rendered proof that AppButton kinds,
+    # SegmentedControl, AppTextField, and the AppComboBox popup are flat,
+    # token-driven, and theme-tracking — no Fusion bevels or gradients.
+    qt_add_executable(control-system-test
+        tests/ControlSystemTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_app(control-system-test)
+    target_link_libraries(control-system-test PRIVATE Qt6::Test)
+    add_test(NAME control-system COMMAND control-system-test)
+    set_tests_properties(control-system PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     # Design button system (SPEC §1): offscreen pixel proof that Style A is
     # bare at rest with a soft hover tint, Style B is the accent-soft chip,

@@ -93,7 +93,7 @@ private Q_SLOTS:
         QVERIFY(!picker.isEmpty());
         // Provider tabs + attribution follow the ACTIVE provider.
         QVERIFY(picker.contains(QStringLiteral("picker.gif.providerIds")));
-        QVERIFY(picker.contains(QStringLiteral("setActiveProvider(modelData)")));
+        QVERIFY(picker.contains(QStringLiteral("setActiveProvider(value)")));
         QVERIFY(picker.contains(QStringLiteral("picker.gif.attribution")));
         // Debounced search + categories + pagination through the controller.
         QVERIFY(picker.contains(QStringLiteral("gif.setQueryText(text)")));

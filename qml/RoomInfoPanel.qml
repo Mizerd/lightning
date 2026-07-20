@@ -86,11 +86,14 @@ Rectangle {
                     Layout.fillWidth: true
                     text: qsTr("Room information")
                     color: AppTheme.textPrimary
-                    font.pixelSize: AppTheme.fontSizeRoom
-                    font.weight: Font.DemiBold
+                    font.pixelSize: 15
+                    font.weight: Font.ExtraBold
                 }
-                ToolButton {
-                    contentItem: Icon { name: "close"; size: 15 }
+                IconButton {
+                    implicitWidth: 30; implicitHeight: 30
+                    radius: 7
+                    iconName: "close"
+                    iconSize: 18
                     Accessible.name: qsTr("Close room information")
                     onClicked: root.closeRequested()
                 }
@@ -98,30 +101,17 @@ Rectangle {
         }
         Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: AppTheme.border }
 
-        // ── Section tabs ─────────────────────────────────────────────────
-        RowLayout {
-            Layout.fillWidth: true
+        // ── Section tabs: one coherent segmented row ─────────────────────
+        SegmentedControl {
+            objectName: "roomInfoTabs"
             Layout.margins: AppTheme.spacing8
-            spacing: AppTheme.spacing8
-            Button {
-                text: qsTr("Overview")
-                checkable: true
-                checked: root.section === "overview"
-                onClicked: root.section = "overview"
-            }
-            Button {
-                text: qsTr("People")
-                checkable: true
-                checked: root.section === "people"
-                onClicked: root.section = "people"
-            }
-            Button {
-                text: qsTr("Media")
-                checkable: true
-                checked: root.section === "media"
-                onClicked: root.section = "media"
-            }
-            Item { Layout.fillWidth: true }
+            model: [
+                { label: qsTr("Overview"), value: "overview" },
+                { label: qsTr("People"), value: "people" },
+                { label: qsTr("Media"), value: "media" },
+            ]
+            current: root.section
+            onActivated: (value) => root.section = value
         }
 
         // ── Overview ─────────────────────────────────────────────────────
@@ -151,7 +141,7 @@ Rectangle {
                         font.pixelSize: AppTheme.fontSecondary
                         font.weight: Font.DemiBold
                     }
-                    ComboBox {
+                    AppComboBox {
                         objectName: "roomNotificationModeCombo"
                         Layout.fillWidth: true
                         model: [
@@ -204,11 +194,20 @@ Rectangle {
                                 font.weight: Font.DemiBold
                                 wrapMode: Text.Wrap
                             }
-                            Label {
+                            RowLayout {
                                 visible: root.roomData.encrypted === true
-                                text: qsTr("🔒 End-to-end encrypted")
-                                color: AppTheme.success
-                                font.pixelSize: AppTheme.fontSizeS
+                                spacing: 4
+                                Icon {
+                                    name: "verified_user"
+                                    size: 14
+                                    color: AppTheme.accent
+                                }
+                                Label {
+                                    text: qsTr("End-to-end encrypted")
+                                    color: AppTheme.textSecondary
+                                    font.pixelSize: AppTheme.fontSizeS
+                                    font.weight: Font.DemiBold
+                                }
                             }
                             Label {
                                 visible: root.roomData.encrypted !== true
@@ -236,7 +235,7 @@ Rectangle {
                         font.pixelSize: AppTheme.fontSizeS
                     }
 
-                    Button {
+                    AppButton {
                         text: qsTr("Copy room ID")
                         onClicked: {
                             copyHelper.text = app.roomInfo.roomId
@@ -275,12 +274,13 @@ Rectangle {
                         visible: app.roomInfo.canEditAvatar
                         Layout.fillWidth: true
                         spacing: AppTheme.spacing8
-                        Button {
+                        AppButton {
                             text: qsTr("Change avatar…")
                             enabled: !app.roomInfo.editPending
                             onClicked: avatarDialog.open()
                         }
-                        Button {
+                        AppButton {
+                            kind: "danger"
                             text: qsTr("Remove avatar")
                             enabled: !app.roomInfo.editPending
                             onClicked: app.roomInfo.removeRoomAvatar()
@@ -291,14 +291,14 @@ Rectangle {
                         visible: app.roomInfo.canEditName
                         Layout.fillWidth: true
                         spacing: AppTheme.spacing8
-                        TextField {
+                        AppTextField {
                             id: editName
                             Layout.fillWidth: true
                             placeholderText: qsTr("Room name")
                             text: root.roomData.name || ""
-                            font.pixelSize: AppTheme.fontSizeM
                         }
-                        Button {
+                        AppButton {
+                            kind: "primary"
                             text: qsTr("Save")
                             enabled: !app.roomInfo.editPending
                                      && editName.text.trim().length > 0
@@ -310,14 +310,14 @@ Rectangle {
                         visible: app.roomInfo.canEditTopic
                         Layout.fillWidth: true
                         spacing: AppTheme.spacing8
-                        TextField {
+                        AppTextField {
                             id: editTopic
                             Layout.fillWidth: true
                             placeholderText: qsTr("Topic")
                             text: root.roomData.topic || ""
-                            font.pixelSize: AppTheme.fontSizeM
                         }
-                        Button {
+                        AppButton {
+                            kind: "primary"
                             text: qsTr("Save")
                             enabled: !app.roomInfo.editPending
                                      && editTopic.text !== (root.roomData.topic || "")
@@ -347,15 +347,11 @@ Rectangle {
                     Layout.margins: AppTheme.spacing12
                     spacing: AppTheme.spacing8
 
-                    Button {
+                    AppButton {
+                        kind: "danger"
                         text: qsTr("Leave room")
                         enabled: !app.roomInfo.leavePending
                         onClicked: leaveConfirm.open()
-                        contentItem: Label {
-                            text: parent.text
-                            color: AppTheme.danger
-                            horizontalAlignment: Text.AlignHCenter
-                        }
                     }
                     Label {
                         visible: app.roomInfo.leaveError.length > 0
@@ -381,17 +377,18 @@ Rectangle {
                 Layout.fillWidth: true
                 Layout.margins: AppTheme.spacing8
                 spacing: AppTheme.spacing8
-                TextField {
+                AppTextField {
                     id: memberSearch
                     Layout.fillWidth: true
+                    searchIcon: true
+                    clearButton: true
                     placeholderText: qsTr("Search members…")
-                    font.pixelSize: AppTheme.fontSizeS
                     onTextChanged: root.memberFilter = text
                 }
-                Button {
+                AppButton {
+                    kind: "primary"
                     visible: app.roomInfo.canInvite
                     text: qsTr("Invite")
-                    highlighted: true
                     Accessible.name: qsTr("Invite people to this room")
                     onClicked: inviteDialog.openFor(app.roomInfo.roomId)
                 }
@@ -583,9 +580,12 @@ Rectangle {
                                 elide: Label.ElideRight
                             }
                         }
-                        ToolButton {
+                        AppButton {
                             visible: (modelData.mediaKey || "").length > 0
                                      && app.mediaBridge.supported
+                            implicitHeight: 26
+                            leftPadding: 10
+                            rightPadding: 10
                             text: qsTr("Save")
                             Accessible.name: qsTr("Save %1 as…").arg(modelData.filename)
                             onClicked: root.saveMediaRequested(modelData.mediaKey,
@@ -629,18 +629,14 @@ Rectangle {
             RowLayout {
                 Layout.fillWidth: true
                 Item { Layout.fillWidth: true }
-                Button {
+                AppButton {
                     text: qsTr("Cancel")
                     focus: true
                     onClicked: leaveConfirm.close()
                 }
-                Button {
+                AppButton {
+                    kind: "danger"
                     text: qsTr("Leave room")
-                    contentItem: Label {
-                        text: parent.text
-                        color: AppTheme.danger
-                        horizontalAlignment: Text.AlignHCenter
-                    }
                     onClicked: {
                         leaveConfirm.close()
                         app.roomInfo.leaveRoom()

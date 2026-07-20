@@ -501,10 +501,10 @@ Item {
                                     implicitHeight: 34
                                     radius: 9
                                     color: selectedTheme ? AppTheme.accentSoft
-                                                         : "transparent"
-                                    border.width: 1.5
-                                    border.color: selectedTheme ? AppTheme.accent
-                                                                : AppTheme.border
+                                           : miniHover.hovered ? AppTheme.hover
+                                                               : AppTheme.cardElevated
+                                    border.width: selectedTheme ? 1.5 : 0
+                                    border.color: AppTheme.accent
                                     Accessible.role: Accessible.RadioButton
                                     Accessible.name: modelData.name
                                     Accessible.focusable: true
@@ -549,7 +549,10 @@ Item {
                                         onTapped: app.settings.theme =
                                             miniThemeCard.modelData.id
                                     }
-                                    HoverHandler { cursorShape: Qt.PointingHandCursor }
+                                    HoverHandler {
+                                        id: miniHover
+                                        cursorShape: Qt.PointingHandCursor
+                                    }
                                 }
                             }
                         }
@@ -625,62 +628,16 @@ Item {
                             font.weight: Font.ExtraBold
                             font.letterSpacing: 1
                         }
-                        RowLayout {
-                            spacing: 10
-                            Repeater {
-                                model: [
-                                    { label: qsTr("Modern"), value: 0 },
-                                    { label: qsTr("Bubbles"), value: 1 },
-                                    { label: qsTr("Compact / IRC"), value: 2 },
-                                ]
-                                delegate: AbstractButton {
-                                    id: layoutChip
-                                    required property var modelData
-                                    objectName: "messageLayoutChip_" + modelData.value
-                                    readonly property bool selectedMode:
-                                        app.settings.messageLayout === modelData.value
-                                    implicitWidth: layoutChipLabel.implicitWidth + 28
-                                    implicitHeight: layoutChipLabel.implicitHeight + 16
-                                    hoverEnabled: true
-                                    focusPolicy: Qt.TabFocus
-                                    Accessible.role: Accessible.RadioButton
-                                    Accessible.name: modelData.label
-                                    onClicked: app.settings.messageLayout =
-                                        modelData.value
-                                    contentItem: Item {
-                                        Label {
-                                            id: layoutChipLabel
-                                            anchors.centerIn: parent
-                                            text: layoutChip.modelData.label
-                                            color: layoutChip.selectedMode
-                                                ? AppTheme.accentText
-                                                : AppTheme.textSecondary
-                                            font.pixelSize: 13
-                                            font.weight: Font.Bold
-                                        }
-                                    }
-                                    background: Rectangle {
-                                        radius: 9
-                                        color: layoutChip.selectedMode
-                                               ? AppTheme.accentSoft
-                                               : layoutChip.hovered ? AppTheme.hover
-                                                                    : "transparent"
-                                        border.width: 1.5
-                                        border.color: layoutChip.selectedMode
-                                                      ? AppTheme.accent
-                                                      : AppTheme.border
-                                    }
-                                    Rectangle {
-                                        anchors.fill: parent
-                                        anchors.margins: -4
-                                        radius: 13
-                                        color: "transparent"
-                                        border.width: 2
-                                        border.color: AppTheme.focusRing
-                                        visible: layoutChip.visualFocus
-                                    }
-                                }
-                            }
+                        SegmentedControl {
+                            objectName: "messageLayoutControl"
+                            model: [
+                                { label: qsTr("Modern"), value: 0 },
+                                { label: qsTr("Bubbles"), value: 1 },
+                                { label: qsTr("Compact / IRC"), value: 2 },
+                            ]
+                            current: app.settings.messageLayout
+                            onActivated: (value) =>
+                                app.settings.messageLayout = value
                         }
                         Label {
                             Layout.fillWidth: true
@@ -809,7 +766,7 @@ Item {
                                     color: AppTheme.textSecondary
                                     font.pixelSize: AppTheme.fontSecondary
                                 }
-                                ComboBox {
+                                AppComboBox {
                                     id: wheelSpeedCombo
                                     objectName: "timelineWheelSpeedCombo"
                                     Layout.fillWidth: true
@@ -869,7 +826,7 @@ Item {
                                     color: AppTheme.textSecondary
                                     font.pixelSize: AppTheme.fontSecondary
                                 }
-                                ComboBox {
+                                AppComboBox {
                                     Layout.fillWidth: true
                                     model: ["en", "lt"]
                                     currentIndex: Math.max(0, model.indexOf(app.settings.language))
@@ -959,7 +916,7 @@ Item {
                                 }
 
                                 Label { text: qsTr("Autoplay GIFs"); color: AppTheme.textSecondary }
-                                ComboBox {
+                                AppComboBox {
                                     id: gifAutoplayCombo
                                     Layout.fillWidth: true
                                     textRole: "label"; valueRole: "value"
@@ -974,7 +931,7 @@ Item {
                                 }
 
                                 Label { text: qsTr("GIF safe search"); color: AppTheme.textSecondary }
-                                ComboBox {
+                                AppComboBox {
                                     id: gifRatingCombo
                                     Layout.fillWidth: true
                                     textRole: "label"; valueRole: "value"
@@ -991,7 +948,7 @@ Item {
                                 }
 
                                 Label { text: qsTr("Preferred GIF provider"); color: AppTheme.textSecondary }
-                                ComboBox {
+                                AppComboBox {
                                     id: gifProviderCombo
                                     Layout.fillWidth: true
                                     textRole: "label"; valueRole: "value"
@@ -1039,12 +996,14 @@ Item {
                                 RowLayout {
                                     Layout.fillWidth: true
                                     spacing: AppTheme.spacing8
-                                    Button {
+                                    AppButton {
+                                        kind: "danger"
                                         text: qsTr("Clear recent GIFs")
                                         enabled: app.gif.recent.count > 0
                                         onClicked: gifClearConfirm.open("recent")
                                     }
-                                    Button {
+                                    AppButton {
+                                        kind: "danger"
                                         text: qsTr("Clear GIF favorites")
                                         enabled: app.gif.favorites.count > 0
                                         onClicked: gifClearConfirm.open("favorites")
@@ -1082,7 +1041,7 @@ Item {
                                     font.pixelSize: AppTheme.fontSecondary
                                     font.weight: Font.DemiBold
                                 }
-                                ComboBox {
+                                AppComboBox {
                                     objectName: "notificationPreviewCombo"
                                     Layout.fillWidth: true
                                     enabled: app.settings.notificationsEnabled
@@ -1115,7 +1074,7 @@ Item {
                                     font.pixelSize: AppTheme.fontSecondary
                                     font.weight: Font.DemiBold
                                 }
-                                ComboBox {
+                                AppComboBox {
                                     objectName: "notificationSoundCombo"
                                     Layout.fillWidth: true
                                     enabled: app.settings.notificationsEnabled
@@ -1213,7 +1172,7 @@ Item {
                                         }
                                     }
                                 }
-                                Button {
+                                AppButton {
                                     text: qsTr("Open Privacy & security")
                                     onClicked: root.section = "privacy"
                                 }
@@ -1237,7 +1196,7 @@ Item {
                                     font.pixelSize: AppTheme.fontSecondary
                                     font.weight: Font.DemiBold
                                 }
-                                TextField {
+                                AppTextField {
                                     Layout.fillWidth: true
                                     text: app.settings.homeserverUrl
                                     placeholderText: "https://matrix.org"
@@ -1608,7 +1567,7 @@ Item {
                                     Layout.fillWidth: true
                                     spacing: AppTheme.spacing8
                                     visible: !app.verificationActive
-                                    Button {
+                                    AppButton {
                                         text: app.sessionTrustState === "Verified"
                                             ? qsTr("Verify again")
                                             : qsTr("Verify this session")
@@ -1711,24 +1670,24 @@ Item {
                                         Flow {
                                             Layout.fillWidth: true
                                             spacing: AppTheme.spacing8
-                                            Button {
+                                            AppButton {
                                                 text: qsTr("Accept")
                                                 visible: app.verificationState === "requested"
-                                                highlighted: true
+                                                kind: "primary"
                                                 onClicked: app.acceptVerification()
                                             }
-                                            Button {
+                                            AppButton {
                                                 text: qsTr("They match")
                                                 visible: app.verificationState === "sas_ready"
-                                                highlighted: true
+                                                kind: "primary"
                                                 onClicked: app.confirmVerification()
                                             }
-                                            Button {
+                                            AppButton {
                                                 text: qsTr("They do not match")
                                                 visible: app.verificationState === "sas_ready"
                                                 onClicked: app.mismatchVerification()
                                             }
-                                            Button {
+                                            AppButton {
                                                 text: qsTr("Cancel verification")
                                                 visible: app.verificationState === "requested"
                                                         || app.verificationState === "sas_ready"
@@ -1736,7 +1695,7 @@ Item {
                                                         || app.verificationState === "starting"
                                                 onClicked: app.cancelVerification()
                                             }
-                                            Button {
+                                            AppButton {
                                                 text: qsTr("Dismiss")
                                                 visible: app.verificationState === "done"
                                                         || app.verificationState === "cancelled"
@@ -1796,7 +1755,7 @@ Item {
                                     columnSpacing: AppTheme.spacing8
                                     rowSpacing: AppTheme.spacing8
                                     columns: width < 360 ? 1 : 2
-                                    TextField {
+                                    AppTextField {
                                         id: recoveryField
                                         Layout.fillWidth: true
                                         Layout.minimumWidth: 160
@@ -1807,7 +1766,7 @@ Item {
                                         placeholderText: qsTr("Recovery key or passphrase")
                                         enabled: !recoveryPanel.running
                                     }
-                                    Button {
+                                    AppButton {
                                         text: recoveryPanel.running
                                             ? qsTr("Restoring…")
                                             : qsTr("Restore keys")
@@ -1885,7 +1844,7 @@ Item {
                                 RowLayout {
                                     Layout.fillWidth: true
                                     spacing: AppTheme.spacing8
-                                    Button {
+                                    AppButton {
                                         text: qsTr("Choose key export")
                                         enabled: app.loggedIn && !importPanel.running
                                         onClicked: importFileDialog.open()
@@ -1904,7 +1863,7 @@ Item {
                                     Layout.fillWidth: true
                                     spacing: AppTheme.spacing8
                                     visible: importPanel.selectedFileUrl.toString() !== ""
-                                    TextField {
+                                    AppTextField {
                                         id: importPassphraseField
                                         Layout.fillWidth: true
                                         echoMode: TextInput.Password
@@ -1915,7 +1874,7 @@ Item {
                                                 importStartButton.clicked()
                                         }
                                     }
-                                    Button {
+                                    AppButton {
                                         id: importStartButton
                                         text: importPanel.running
                                             ? qsTr("Importing…")
@@ -1932,7 +1891,7 @@ Item {
                                             importPassphraseField.text = ""
                                         }
                                     }
-                                    Button {
+                                    AppButton {
                                         text: qsTr("Clear")
                                         enabled: !importPanel.running
                                         onClicked: {
@@ -2049,7 +2008,7 @@ Item {
                                         font.weight: Font.DemiBold
                                     }
                                     Item { Layout.fillWidth: true }
-                                    Button {
+                                    AppButton {
                                         text: dangerZone.expanded ? qsTr("Hide") : qsTr("Show")
                                         Accessible.name: qsTr("Toggle danger zone")
                                         onClicked: dangerZone.expanded = !dangerZone.expanded
@@ -2071,28 +2030,11 @@ Item {
                                             "server messages or Element data. You will need to sign " +
                                             "in again afterwards.")
                                     }
-                                    Button {
+                                    AppButton {
                                         id: resetDangerButton
+                                        kind: "danger"
                                         text: qsTr("Reset local Lightning session")
                                         onClicked: resetConfirmDialog.open()
-                                        contentItem: Label {
-                                            text: resetDangerButton.text
-                                            color: AppTheme.dangerText
-                                            horizontalAlignment: Text.AlignHCenter
-                                            verticalAlignment: Text.AlignVCenter
-                                            font.weight: Font.DemiBold
-                                            font.pixelSize: AppTheme.fontSecondary
-                                        }
-                                        background: Rectangle {
-                                            radius: AppTheme.radiusSm
-                                            color: resetDangerButton.pressed
-                                                    ? Qt.darker(AppTheme.danger, 1.2)
-                                                    : (resetDangerButton.hovered
-                                                        ? Qt.darker(AppTheme.danger, 1.1)
-                                                        : AppTheme.danger)
-                                            border.color: Qt.darker(AppTheme.danger, 1.3)
-                                            border.width: 1
-                                        }
                                     }
                                     Label {
                                         Layout.fillWidth: true
@@ -2178,7 +2120,7 @@ Item {
                                     color: AppTheme.textMuted
                                     text: qsTr("Connection: %1").arg(app.connectionStatus)
                                 }
-                                Button {
+                                AppButton {
                                     text: qsTr("Refresh current room")
                                     enabled: app.currentRoomId !== ""
                                     onClicked: app.reloadCurrentRoomTimeline(50)
