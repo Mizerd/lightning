@@ -13,6 +13,15 @@ class SettingsManager : public QObject
 
     Q_PROPERTY(QString homeserverUrl READ homeserverUrl WRITE setHomeserverUrl NOTIFY homeserverUrlChanged)
     Q_PROPERTY(Theme theme READ theme WRITE setTheme NOTIFY themeChanged)
+    // Design Appearance page: message layout (0 = Modern, 1 = Bubbles for
+    // direct-message timelines, 2 = Compact/IRC) and text scale (percent,
+    // 90–140, 100 = default). Both are per-account like the theme: the
+    // active account's value wins, the global value doubles as the
+    // logged-out default and the fallback for accounts without one.
+    Q_PROPERTY(int messageLayout READ messageLayout WRITE setMessageLayout
+                   NOTIFY messageLayoutChanged)
+    Q_PROPERTY(int textScale READ textScale WRITE setTextScale
+                   NOTIFY textScaleChanged)
     Q_PROPERTY(QString language READ language WRITE setLanguage NOTIFY languageChanged)
     Q_PROPERTY(bool startMinimized READ startMinimized WRITE setStartMinimized NOTIFY startMinimizedChanged)
     Q_PROPERTY(bool notificationsEnabled READ notificationsEnabled WRITE setNotificationsEnabled NOTIFY notificationsEnabledChanged)
@@ -96,6 +105,18 @@ public:
 
     Theme theme() const;
     void setTheme(Theme t);
+
+    // Message layout ids (see Q_PROPERTY note). Out-of-range values read
+    // back as Modern.
+    static constexpr int kMaxMessageLayout = 2;
+    int messageLayout() const;
+    void setMessageLayout(int layout);
+
+    // Text scale percent. Out-of-range values read back as 100.
+    static constexpr int kMinTextScale = 90;
+    static constexpr int kMaxTextScale = 140;
+    int textScale() const;
+    void setTextScale(int percent);
 
     QString language() const;
     void setLanguage(const QString &lang);
@@ -213,6 +234,8 @@ public:
 Q_SIGNALS:
     void homeserverUrlChanged();
     void themeChanged();
+    void messageLayoutChanged();
+    void textScaleChanged();
     void languageChanged();
     void startMinimizedChanged();
     void notificationsEnabledChanged();
@@ -236,6 +259,12 @@ Q_SIGNALS:
 private:
     void migratePlaintextTokenIfPresent();
     void migrateLegacySessionRecord();
+    // Per-account appearance storage: reads prefer the active account's
+    // value, writes update the account AND the global fallback (so the
+    // logged-out shell keeps the most recent selection).
+    QVariant appearanceValue(const char *globalKey,
+                             const QVariant &fallback) const;
+    void setAppearanceValue(const char *globalKey, const QVariant &value);
     QString accountKey(const QString &slug, const char *subKey) const;
     QString slugForSavedAccount(const QString &userId) const;
     bool upsertAccountRecord(const QString &userId,

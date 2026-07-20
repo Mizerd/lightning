@@ -16,6 +16,7 @@
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQmlEngine>
+#include <QQmlExpression>
 #include <QQuickItem>
 #include <QQuickWindow>
 #include <QSignalSpy>
@@ -1644,6 +1645,127 @@ private Q_SLOTS:
     // The thread panel has its OWN wheel engine: separate instance, both
     // track the persisted speed, motion on one never engages the other,
     // and closing the thread cancels the panel's in-flight motion.
+    // Settings → Appearance → Message layout: Compact tightens the row and
+    // drops the avatar gutter; Bubbles colors DM rows only (never ordinary
+    // rooms) and right-aligns own messages; the text-size setting scales the
+    // body font. All against the production delegate.
+    void messageLayoutModesReshapeTheDelegate()
+    {
+        AppController controller(AppController::MockBackend);
+        QVariantMap fixture;
+        const auto roles = controller.timeline()->roleNames();
+        for (auto it = roles.cbegin(); it != roles.cend(); ++it)
+            fixture.insert(QString::fromUtf8(it.value()), QVariant{});
+        fixture.insert(QStringLiteral("isVirtual"), false);
+        fixture.insert(QStringLiteral("isStateActivity"), false);
+        fixture.insert(QStringLiteral("stateGroupEntries"), QVariantList{});
+        fixture.insert(QStringLiteral("showSenderIdentity"), true);
+        fixture.insert(QStringLiteral("itemId"), QString{});
+        fixture.insert(QStringLiteral("eventId"), QString{});
+        fixture.insert(QStringLiteral("sender"),
+                       QStringLiteral("@fixture:mock.local"));
+        fixture.insert(QStringLiteral("senderDisplayName"),
+                       QStringLiteral("Fixture"));
+        fixture.insert(QStringLiteral("senderInitials"), QStringLiteral("F"));
+        fixture.insert(QStringLiteral("body"),
+                       QStringLiteral("Layout fixture body"));
+        fixture.insert(QStringLiteral("eventType"), 0);
+        fixture.insert(QStringLiteral("status"), 0);
+        fixture.insert(QStringLiteral("isOwn"), false);
+        fixture.insert(QStringLiteral("replyToEventId"), QString{});
+        fixture.insert(QStringLiteral("timestamp"),
+                       QDateTime::currentDateTimeUtc());
+        fixture.insert(QStringLiteral("undecryptable"), false);
+        fixture.insert(QStringLiteral("redacted"), false);
+        fixture.insert(QStringLiteral("isImage"), false);
+        fixture.insert(QStringLiteral("isFile"), false);
+        fixture.insert(QStringLiteral("reactions"), QVariantList{});
+
+        QQmlApplicationEngine engine;
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this,
+                [&warnings](const QList<QQmlError> &errors) {
+                    for (const auto &e : errors)
+                        warnings << e.toString();
+                });
+        engine.rootContext()->setContextProperty("app", &controller);
+        engine.rootContext()->setContextProperty("model", fixture);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("MessageDelegate"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(root != nullptr);
+        root->setWidth(640);
+        QCoreApplication::processEvents();
+
+        auto *content = root->findChild<QQuickItem *>(
+            QStringLiteral("messageContentColumn"));
+        auto *avatar = root->findChild<QQuickItem *>(
+            QStringLiteral("senderAvatar"));
+        auto *body = root->findChild<QQuickItem *>(
+            QStringLiteral("messageBody"));
+        QVERIFY(content && avatar && body);
+
+        // Modern: 40px gutter, visible avatar, transparent row.
+        QCOMPARE(controller.settings()->messageLayout(), 0);
+        QCOMPARE(root->property("avatarGutterWidth").toReal(), 40.0);
+        QVERIFY(avatar->isVisible());
+        QCOMPARE(content->property("color").value<QColor>().alpha(), 0);
+
+        // Compact: gutter collapses, avatar hides, body tightens.
+        controller.settings()->setMessageLayout(2);
+        QCoreApplication::processEvents();
+        QCOMPARE(root->property("avatarGutterWidth").toReal(), 8.0);
+        QVERIFY(!avatar->isVisible());
+        QCOMPARE(body->property("font").value<QFont>().pixelSize(), 13);
+
+        // Bubbles in an ordinary room: NO bubble background.
+        controller.settings()->setMessageLayout(1);
+        QCoreApplication::processEvents();
+        QVERIFY(!root->property("bubbleMode").toBool());
+        QCOMPARE(content->property("color").value<QColor>().alpha(), 0);
+
+        // Bubbles in a DM: incoming rows take the neutral bubble...
+        root->setProperty("isDirectRoom", true);
+        QCoreApplication::processEvents();
+        QVERIFY(root->property("bubbleMode").toBool());
+        QQmlExpression otherExpr(qmlContext(root), root,
+                                 QStringLiteral("AppTheme.otherBubble"));
+        QCOMPARE(content->property("color").value<QColor>(),
+                 otherExpr.evaluate().value<QColor>());
+        const qreal incomingX = content->x();
+
+        // ...and own rows right-align in the accent-dark bubble.
+        fixture.insert(QStringLiteral("isOwn"), true);
+        engine.rootContext()->setContextProperty("model", fixture);
+        QCoreApplication::processEvents();
+        QQmlExpression ownExpr(qmlContext(root), root,
+                               QStringLiteral("AppTheme.ownBubble"));
+        QCOMPARE(content->property("color").value<QColor>(),
+                 ownExpr.evaluate().value<QColor>());
+        QVERIFY(content->x() > incomingX);
+        QVERIFY(content->x() + content->width() <= 640.0 + 1.0);
+
+        // Text scale reaches the body font (Modern, 140%). Main.qml binds
+        // AppTheme.textScale to the setting in production; this scene drives
+        // the singleton directly.
+        controller.settings()->setMessageLayout(0);
+        QQmlExpression setScale(qmlContext(root), root,
+                                QStringLiteral("AppTheme.textScale = 1.4"));
+        setScale.evaluate();
+        QCoreApplication::processEvents();
+        QCOMPARE(body->property("font").value<QFont>().pixelSize(),
+                 qRound(14 * 1.4));
+        QQmlExpression resetScale(qmlContext(root), root,
+                                  QStringLiteral("AppTheme.textScale = 1.0"));
+        resetScale.evaluate();
+
+        QCOMPARE(warnings, QStringList{});
+    }
+
     void threadScrollMotionIsIsolatedFromRoomTimeline()
     {
         AppController controller(AppController::MockBackend);

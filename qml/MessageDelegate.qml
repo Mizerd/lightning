@@ -29,9 +29,24 @@ Item {
         && (model.eventId || "") === ListView.view.suppressRootEventId
     readonly property var stateActivityEntries: model.stateGroupEntries || []
     readonly property bool showsIdentity: model.showSenderIdentity === true
+
+    // Settings → Appearance → Message layout (0 Modern, 1 Bubbles, 2
+    // Compact). The thread panel always keeps the Modern rows; Bubbles
+    // applies only to direct-message timelines (never ordinary rooms).
+    readonly property int timelineLayout:
+        inThreadPanel ? 0 : app.settings.messageLayout
+    property bool isDirectRoom: ListView.view
+                                && ListView.view.isDirectRoom === true
+    readonly property bool bubbleMode: timelineLayout === 1 && isDirectRoom
+    readonly property bool compactMode: timelineLayout === 2
+    readonly property real bubblePad: bubbleMode ? 10 : 0
+
     readonly property real messageTopSpacing: showsIdentity
-                                               ? AppTheme.spacingS : 1
-    readonly property real avatarGutterWidth: 40
+                                               ? (compactMode ? 2
+                                                              : AppTheme.spacingS)
+                                               : (compactMode ? 0 : 1)
+    readonly property real avatarGutterWidth: compactMode ? 8
+                                              : (bubbleMode ? 44 : 40)
     visible: roomActivityVisible && !suppressedAsThreadRoot
     implicitHeight: (!roomActivityVisible || suppressedAsThreadRoot) ? 0
                     : isVirtualRow ? virtualRow.implicitHeight
@@ -273,7 +288,8 @@ Item {
                 Avatar {
                     objectName: "senderAvatar"
                     anchors.top: parent.top
-                    visible: root.showsIdentity
+                    visible: root.showsIdentity && !root.compactMode
+                             && !(root.bubbleMode && model.isOwn === true)
                     size: 32
                     mxc: model.senderAvatarMxc || ""
                     name: model.senderDisplayName || model.senderInitials
@@ -292,6 +308,7 @@ Item {
                     anchors.verticalCenter: parent.verticalCenter
                     anchors.rightMargin: 5
                     visible: !root.showsIdentity && rowHover.hovered
+                             && !root.compactMode
                     text: Qt.formatDateTime(model.timestamp, "hh:mm")
                     horizontalAlignment: Text.AlignRight
                     color: AppTheme.textMuted
@@ -305,19 +322,36 @@ Item {
             Rectangle {
                 id: bubble
                 objectName: "messageContentColumn"
-                x: root.avatarGutterWidth
-                width: Math.max(1, parent.width - x)
+                // Bubbles (DM only): content-sized, own messages right-
+                // aligned in the accent-dark bubble, incoming in the chip
+                // bubble. Modern/Compact keep the full-width row.
+                x: root.bubbleMode && model.isOwn === true
+                   ? Math.max(root.avatarGutterWidth, parent.width - width)
+                   : root.avatarGutterWidth
+                width: root.bubbleMode
+                       ? Math.min(bubbleContent.implicitWidth + root.bubblePad * 2,
+                                  Math.max(60, parent.width
+                                               - root.avatarGutterWidth - 40))
+                       : Math.max(1, parent.width - root.avatarGutterWidth)
                 height: implicitHeight
-                implicitHeight: bubbleContent.implicitHeight
+                implicitHeight: bubbleContent.implicitHeight + root.bubblePad * 2
                 // v0.6.0 checkpoint 11: mentions get a subtle accent tint —
                 // direct mentions stronger than room-wide @room.
-                color: model.mentionsMe === true
+                color: root.bubbleMode
+                       ? (model.isOwn === true ? AppTheme.ownBubble
+                                               : AppTheme.otherBubble)
+                       : model.mentionsMe === true
                        ? Qt.alpha(AppTheme.accent, 0.14)
                        : model.mentionsRoom === true
                          ? Qt.alpha(AppTheme.accent, 0.07)
                          : "transparent"
-                radius: model.mentionsMe === true || model.mentionsRoom === true
+                radius: root.bubbleMode ? 16
+                        : model.mentionsMe === true || model.mentionsRoom === true
                         ? AppTheme.radiusSm : 0
+                topLeftRadius: root.bubbleMode
+                               ? (model.isOwn === true ? 16 : 4) : radius
+                topRightRadius: root.bubbleMode
+                                ? (model.isOwn === true ? 4 : 16) : radius
                 opacity: model.redacted ? 0.65 : 1.0
 
                 // Click the message content to pin the action toolbar (click again
@@ -331,13 +365,15 @@ Item {
                 ColumnLayout {
                     id: bubbleContent
                     anchors.fill: parent
-                    anchors.margins: 0
+                    anchors.margins: root.bubblePad
                     spacing: 2
 
                     RowLayout {
                         id: identityHeader
                         objectName: "senderIdentityHeader"
+                        // Own DM bubbles need no self-identity line.
                         visible: root.showsIdentity
+                                 && !(root.bubbleMode && model.isOwn === true)
                         spacing: 6
                         Layout.maximumWidth: Math.max(1, bubble.width - 112)
                         Label {
@@ -345,7 +381,8 @@ Item {
                             objectName: "senderName"
                             text: model.senderDisplayName || model.sender
                             color: AppTheme.text
-                            font.pixelSize: AppTheme.fontSizeM
+                            font.pixelSize: AppTheme.scaled(
+                                root.compactMode ? 13 : AppTheme.fontSizeM)
                             font.weight: Font.DemiBold
                             elide: Label.ElideRight
                             Layout.maximumWidth: 320
@@ -372,7 +409,7 @@ Item {
                             objectName: "senderTimestamp"
                             text: Qt.formatDateTime(model.timestamp, "hh:mm")
                             color: AppTheme.textMuted
-                            font.pixelSize: 10
+                            font.pixelSize: AppTheme.scaled(10)
                             Accessible.name: qsTr("Sent at %1").arg(text)
                         }
                     }
@@ -459,8 +496,11 @@ Item {
                             return model.body || ""
                         })())
                         color: model.undecryptable === true
-                               ? AppTheme.muted : AppTheme.text
-                        font.pixelSize: AppTheme.fontSizeM
+                               ? AppTheme.muted
+                               : root.bubbleMode && model.isOwn === true
+                                 ? AppTheme.ownBubbleText : AppTheme.text
+                        font.pixelSize: AppTheme.scaled(
+                            root.compactMode ? 13 : AppTheme.fontSizeM)
                         font.italic: model.redacted || model.undecryptable === true
                         wrapMode: Text.Wrap
                         readOnly: true
@@ -581,8 +621,9 @@ Item {
                                 if (model.edited) return qsTr("edited")
                                 return ""
                             }
-                            color: AppTheme.textMuted
-                            font.pixelSize: 10
+                            color: root.bubbleMode && model.isOwn === true
+                                   ? AppTheme.onAccentMuted : AppTheme.textMuted
+                            font.pixelSize: AppTheme.scaled(10)
                             Accessible.name: text
                         }
                         // v0.5.7: retry action for failed local echoes. The

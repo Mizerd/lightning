@@ -33,6 +33,11 @@ QtObject {
 
     // Raw SettingsManager::Theme enum int, pushed in from Main.qml.
     property int mode: 0
+    // Content text scale (Settings → Appearance → Text size), pushed in from
+    // Main.qml as settings.textScale / 100. Applies to message/content text
+    // through scaled(); fixed chrome and icon sizes stay unscaled.
+    property real textScale: 1.0
+    function scaled(px) { return Math.round(px * textScale) }
     // System dark-mode hint from the platform (QStyleHints::colorScheme),
     // pushed in from Main.qml via AppController.systemDarkMode.
     property bool systemDark: false

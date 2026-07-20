@@ -325,9 +325,30 @@ private Q_SLOTS:
         const QRegularExpression hexColor(
             QStringLiteral("color\\s*:\\s*\"#[0-9A-Fa-f]{3,8}\""));
         const QRegularExpression rgba(QStringLiteral("Qt\\.rgba\\("));
+        // The ONE sanctioned hex exception (correction spec §3): the
+        // Settings theme-preview cards always paint their own theme's
+        // fixed palette, and the switch/slider thumbs are the spec's
+        // white circle with its permitted shadow tint.
+        const QStringList allowedSettingsLiterals = {
+            QStringLiteral("#f7f7f5"), QStringLiteral("#eceded"),
+            QStringLiteral("#dcdedc"), QStringLiteral("#e6e8e6"),
+            QStringLiteral("#12a67f"), QStringLiteral("#101016"),
+            QStringLiteral("#1d1d26"), QStringLiteral("#2a2a36"),
+            QStringLiteral("#23232d"), QStringLiteral("#7c7ff2"),
+            QStringLiteral("#0e1416"), QStringLiteral("#182428"),
+            QStringLiteral("#1d2b30"), QStringLiteral("#152023"),
+            QStringLiteral("#27c2ad"), QStringLiteral("#FFFFFF"),
+            QStringLiteral("#40000000"),
+        };
         for (const QString &path : files) {
-            const QString content = readAll(path);
+            QString content = readAll(path);
             QVERIFY2(!content.isEmpty(), qPrintable(path));
+            if (path.endsWith(QLatin1String("SettingsScreen.qml"))) {
+                for (const QString &allowed : allowedSettingsLiterals)
+                    content.replace(
+                        QStringLiteral("\"%1\"").arg(allowed),
+                        QStringLiteral("AppTheme.background"));
+            }
             QVERIFY2(!content.contains(hexColor),
                      qPrintable(QStringLiteral("hardcoded hex colour in %1")
                                     .arg(path)));

@@ -4,12 +4,15 @@ import QtQuick.Dialogs
 import QtQuick.Layouts
 import MatrixClient
 
-// Design-handoff screen 1d: 260px left navigation (Settings title; Account,
+// The in-shell Settings pane (correction spec §3): it replaces ONLY the
+// timeline region — MainScreen keeps the spaces rail and room list visible.
+// A 60px header ("Settings — <section>" with the section icon in accent and
+// a bare close X) sits above the 260px navigation column (Account,
 // Appearance, Notifications, Privacy & security, Sessions, Labs; About
-// pinned at the bottom) with soft-accent active rows, and per-category
-// panes. Appearance carries the theme preview cards, the match-system
-// toggle, and the (backend-gated, honestly-unavailable) message-layout
-// control. Every security control (SAS verification, recovery key,
+// pinned at the bottom) and the per-category panes. Appearance carries the
+// three featured design theme cards with their fixed preview palettes, the
+// match-system switch, the functional message-layout selector, and the text
+// size slider. Every security control (SAS verification, recovery key,
 // encrypted room-key import, local reset) is preserved under Privacy &
 // security / Sessions, with the destructive reset in a separated Danger
 // Zone. Sign out lives ONLY in the account menu.
@@ -68,8 +71,30 @@ Item {
     }
 
     // Design-1d sections: "account" | "appearance" | "notifications"
-    // | "privacy" | "sessions" | "labs" | "about"
-    property string section: "account"
+    // | "privacy" | "sessions" | "labs" | "about". The design opens on
+    // Appearance; deep links still land on their own section.
+    property string section: "appearance"
+
+    function sectionTitle(key) {
+        if (key === "account") return qsTr("Account")
+        if (key === "appearance") return qsTr("Appearance")
+        if (key === "notifications") return qsTr("Notifications")
+        if (key === "privacy") return qsTr("Privacy & security")
+        if (key === "sessions") return qsTr("Sessions")
+        if (key === "labs") return qsTr("Labs")
+        if (key === "about") return qsTr("About")
+        return key
+    }
+    function sectionIcon(key) {
+        if (key === "account") return "account_circle"
+        if (key === "appearance") return "palette"
+        if (key === "notifications") return "notifications"
+        if (key === "privacy") return "verified_user"
+        if (key === "sessions") return "devices"
+        if (key === "labs") return "science"
+        if (key === "about") return "info"
+        return "settings"
+    }
 
     // Deep links from older code paths (message rows jump to "security",
     // etc.) keep working through this mapping.
@@ -124,6 +149,45 @@ Item {
         anchors.fill: parent
         spacing: 0
 
+        // ── Settings header (correction spec §3): 60px, section icon in
+        // accent, "Settings — <section>", bare close X ────────────────────
+        Rectangle {
+            Layout.fillWidth: true
+            implicitHeight: 60
+            color: AppTheme.background
+            RowLayout {
+                anchors.fill: parent
+                anchors.leftMargin: AppTheme.spacing24
+                anchors.rightMargin: AppTheme.spacing24
+                spacing: AppTheme.spacing8 + 2
+                Icon {
+                    name: root.sectionIcon(root.section)
+                    size: 22
+                    color: AppTheme.accent
+                }
+                Label {
+                    objectName: "settingsHeaderTitle"
+                    text: qsTr("Settings — %1").arg(root.sectionTitle(root.section))
+                    color: AppTheme.textPrimary
+                    font.pixelSize: 15
+                    font.weight: Font.ExtraBold
+                    elide: Label.ElideRight
+                    Layout.fillWidth: true
+                }
+                IconButton {
+                    objectName: "settingsCloseButton"
+                    iconName: "close"
+                    iconSize: 20
+                    Accessible.name: qsTr("Close settings")
+                    ToolTip.text: qsTr("Close settings")
+                    ToolTip.visible: hovered
+                    ToolTip.delay: 500
+                    onClicked: root.goBack()
+                }
+            }
+        }
+        Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: AppTheme.border }
+
         RowLayout {
             Layout.fillWidth: true
             Layout.fillHeight: true
@@ -141,33 +205,6 @@ Item {
                     anchors.fill: parent
                     anchors.margins: AppTheme.spacing12
                     spacing: 2
-
-                    ItemDelegate {
-                        id: backRow
-                        Layout.fillWidth: true
-                        implicitHeight: 34
-                        Accessible.name: qsTr("Leave settings")
-                        onClicked: root.goBack()
-                        contentItem: RowLayout {
-                            spacing: AppTheme.spacing8
-                            Icon {
-                                name: "arrow_back"
-                                size: 18
-                                color: AppTheme.textSecondary
-                            }
-                            Label {
-                                text: qsTr("Back")
-                                Layout.fillWidth: true
-                                color: AppTheme.textSecondary
-                                font.pixelSize: AppTheme.fontSecondary
-                                font.weight: Font.Medium
-                            }
-                        }
-                        background: Rectangle {
-                            radius: 9
-                            color: backRow.hovered ? AppTheme.hover : "transparent"
-                        }
-                    }
 
                     Label {
                         text: qsTr("Settings")
@@ -249,13 +286,13 @@ Item {
                         Label {
                             text: qsTr("Appearance")
                             color: AppTheme.textPrimary
-                            font.pixelSize: AppTheme.fontSectionTitle
+                            font.pixelSize: 19
                             font.weight: Font.ExtraBold
                         }
                         Label {
                             Layout.fillWidth: true
-                            text: qsTr("Theme, message presentation, and language. "
-                                       + "Values persist across restarts.")
+                            Layout.topMargin: -AppTheme.spacing8
+                            text: qsTr("Theme, message layout and text size — per account.")
                             color: AppTheme.textMuted
                             font.pixelSize: AppTheme.fontSecondary
                             wrapMode: Text.WordWrap
@@ -269,175 +306,306 @@ Item {
                             font.weight: Font.ExtraBold
                             font.letterSpacing: 1
                         }
-                        Flow {
-                            Layout.fillWidth: true
-                            spacing: AppTheme.spacing12
+                        // Three featured design themes with FIXED preview
+                        // palettes (the one place the design allows
+                        // hard-coded colors — each card always paints its
+                        // own theme regardless of the active one).
+                        RowLayout {
+                            spacing: 14
                             Repeater {
-                                model: AppTheme.themeList
+                                model: [
+                                    { id: 8,  name: qsTr("Moss Light"),
+                                      frame: "#f7f7f5", rail: "#eceded",
+                                      bar1: "#dcdedc", bar2: "#e6e8e6",
+                                      accent: "#12a67f" },
+                                    { id: 9,  name: qsTr("Indigo Night"),
+                                      frame: "#101016", rail: "#1d1d26",
+                                      bar1: "#2a2a36", bar2: "#23232d",
+                                      accent: "#7c7ff2" },
+                                    { id: 10, name: qsTr("Deep Teal"),
+                                      frame: "#0e1416", rail: "#182428",
+                                      bar1: "#1d2b30", bar2: "#152023",
+                                      accent: "#27c2ad" },
+                                ]
                                 delegate: Rectangle {
                                     id: themeCard
                                     required property var modelData
-                                    readonly property var pal:
-                                        AppTheme.paletteForTheme(modelData.id)
+                                    objectName: "featuredThemeCard_" + modelData.id
                                     readonly property bool selectedTheme:
                                         app.settings.theme === modelData.id
-                                    width: 200
-                                    height: 146
+                                    implicitWidth: 200
+                                    implicitHeight: previewTop.height + cardFoot.height
                                     radius: 12
+                                    clip: true
                                     color: AppTheme.surface
-                                    border.width: selectedTheme ? 2 : 1
+                                    border.width: 1.5
                                     border.color: selectedTheme ? AppTheme.accent
                                                                 : AppTheme.border
                                     Accessible.role: Accessible.RadioButton
                                     Accessible.name: modelData.name
                                     Accessible.focusable: true
+                                    activeFocusOnTab: true
+                                    Keys.onReturnPressed: app.settings.theme = modelData.id
+                                    Keys.onSpacePressed: app.settings.theme = modelData.id
 
-                                    // Soft selection glow ring (design 1d).
+                                    // Selected affordance: 3px accent-soft
+                                    // glow ring outside the accent border.
                                     Rectangle {
                                         anchors.fill: parent
                                         anchors.margins: -3
                                         radius: parent.radius + 3
+                                        z: -1
                                         visible: themeCard.selectedTheme
                                         color: "transparent"
                                         border.width: 3
                                         border.color: AppTheme.accentSoft
                                     }
-
-                                    ColumnLayout {
+                                    // Keyboard focus ring (shared treatment).
+                                    Rectangle {
                                         anchors.fill: parent
-                                        anchors.margins: AppTheme.spacing8
-                                        spacing: AppTheme.spacing8
+                                        anchors.margins: -6
+                                        radius: parent.radius + 6
+                                        z: -1
+                                        visible: themeCard.activeFocus
+                                        color: "transparent"
+                                        border.width: 2
+                                        border.color: AppTheme.focusRing
+                                    }
 
-                                        // Mini rail/list/timeline mock drawn
-                                        // in the candidate theme's palette.
+                                    // Preview top: 96px painted in the
+                                    // previewed theme's exact colors.
+                                    Rectangle {
+                                        id: previewTop
+                                        objectName: "themeCardPreview_" + themeCard.modelData.id
+                                        anchors.top: parent.top
+                                        anchors.left: parent.left
+                                        anchors.right: parent.right
+                                        height: 96
+                                        color: themeCard.modelData.frame
+                                        // 10px padding, 26px mini rail, three
+                                        // rounded bars at 70/50/60% width —
+                                        // the last in the theme's accent.
                                         Rectangle {
-                                            Layout.fillWidth: true
-                                            Layout.fillHeight: true
-                                            radius: 8
-                                            color: themeCard.pal.background
-                                            border.color: themeCard.pal.border
-                                            clip: true
-                                            RowLayout {
-                                                anchors.fill: parent
-                                                anchors.margins: 6
-                                                spacing: 5
-                                                Rectangle {
-                                                    Layout.fillHeight: true
-                                                    Layout.preferredWidth: 12
-                                                    radius: 4
-                                                    color: themeCard.pal.rail
-                                                    Rectangle {
-                                                        width: 8; height: 8
-                                                        radius: 3
-                                                        anchors.horizontalCenter:
-                                                            parent.horizontalCenter
-                                                        y: 4
-                                                        color: themeCard.pal.accent
-                                                    }
-                                                }
-                                                Rectangle {
-                                                    Layout.fillHeight: true
-                                                    Layout.preferredWidth: 46
-                                                    radius: 4
-                                                    color: themeCard.pal.sidebar
-                                                    Column {
-                                                        anchors.left: parent.left
-                                                        anchors.right: parent.right
-                                                        anchors.top: parent.top
-                                                        anchors.margins: 5
-                                                        spacing: 4
-                                                        Rectangle {
-                                                            width: parent.width
-                                                            height: 7; radius: 3
-                                                            color: themeCard.pal.accentSoft
-                                                            border.color:
-                                                                themeCard.pal.accentBorder
-                                                        }
-                                                        Rectangle {
-                                                            width: parent.width * 0.85
-                                                            height: 5; radius: 2
-                                                            color: themeCard.pal.hover
-                                                        }
-                                                        Rectangle {
-                                                            width: parent.width * 0.7
-                                                            height: 5; radius: 2
-                                                            color: themeCard.pal.hover
-                                                        }
-                                                    }
-                                                }
-                                                Rectangle {
-                                                    Layout.fillHeight: true
-                                                    Layout.fillWidth: true
-                                                    radius: 4
-                                                    color: themeCard.pal.surface
-                                                    border.color: themeCard.pal.border
-                                                    Column {
-                                                        anchors.left: parent.left
-                                                        anchors.right: parent.right
-                                                        anchors.top: parent.top
-                                                        anchors.margins: 5
-                                                        spacing: 4
-                                                        Rectangle {
-                                                            width: parent.width * 0.7
-                                                            height: 5; radius: 2
-                                                            opacity: 0.5
-                                                            color: themeCard.pal.textMuted
-                                                        }
-                                                        Rectangle {
-                                                            width: parent.width * 0.5
-                                                            height: 5; radius: 2
-                                                            opacity: 0.35
-                                                            color: themeCard.pal.textMuted
-                                                        }
-                                                        Rectangle {
-                                                            width: 26; height: 8
-                                                            radius: 4
-                                                            color: themeCard.pal.accent
-                                                        }
-                                                    }
-                                                }
+                                            x: 10; y: 10
+                                            width: 26
+                                            height: parent.height - 20
+                                            radius: 6
+                                            color: themeCard.modelData.rail
+                                        }
+                                        Column {
+                                            id: previewBars
+                                            x: 10 + 26 + 6
+                                            y: 10
+                                            spacing: 6
+                                            readonly property real barSpan:
+                                                previewTop.width - x - 10
+                                            Rectangle {
+                                                width: previewBars.barSpan * 0.7
+                                                height: 8
+                                                radius: 4
+                                                color: themeCard.modelData.bar1
+                                            }
+                                            Rectangle {
+                                                width: previewBars.barSpan * 0.5
+                                                height: 8
+                                                radius: 4
+                                                color: themeCard.modelData.bar2
+                                            }
+                                            Rectangle {
+                                                objectName: "themeCardAccentBar_" + themeCard.modelData.id
+                                                width: previewBars.barSpan * 0.6
+                                                height: 8
+                                                radius: 4
+                                                color: themeCard.modelData.accent
                                             }
                                         }
+                                    }
 
+                                    // Card bottom: raised background, radio,
+                                    // theme name.
+                                    Rectangle {
+                                        id: cardFoot
+                                        anchors.top: previewTop.bottom
+                                        anchors.left: parent.left
+                                        anchors.right: parent.right
+                                        height: footRow.implicitHeight + 20
+                                        color: AppTheme.surface
                                         RowLayout {
-                                            Layout.fillWidth: true
-                                            spacing: AppTheme.spacing8
+                                            id: footRow
+                                            anchors.fill: parent
+                                            anchors.leftMargin: 12
+                                            anchors.rightMargin: 12
+                                            spacing: 8
                                             Rectangle {
-                                                implicitWidth: 15
-                                                implicitHeight: 15
-                                                radius: 8
-                                                color: "transparent"
-                                                border.width:
-                                                    themeCard.selectedTheme ? 5 : 2
-                                                border.color:
-                                                    themeCard.selectedTheme
-                                                        ? AppTheme.accent
-                                                        : AppTheme.borderStrong
+                                                implicitWidth: 14
+                                                implicitHeight: 14
+                                                radius: 7
+                                                color: themeCard.selectedTheme
+                                                       ? AppTheme.accent : "transparent"
+                                                border.width: 2
+                                                border.color: themeCard.selectedTheme
+                                                              ? AppTheme.accent
+                                                              : AppTheme.textDisabled
+                                                Rectangle {
+                                                    anchors.centerIn: parent
+                                                    width: 5; height: 5; radius: 2.5
+                                                    visible: themeCard.selectedTheme
+                                                    color: AppTheme.accentText
+                                                }
                                             }
                                             Label {
                                                 text: themeCard.modelData.name
                                                 color: AppTheme.textPrimary
-                                                font.pixelSize: AppTheme.fontSecondary
+                                                font.pixelSize: 13
                                                 font.weight: Font.Bold
                                                 elide: Label.ElideRight
                                                 Layout.fillWidth: true
                                             }
                                         }
                                     }
+
                                     TapHandler {
                                         onTapped: app.settings.theme =
                                             themeCard.modelData.id
                                     }
+                                    HoverHandler { cursorShape: Qt.PointingHandCursor }
                                 }
                             }
                         }
 
-                        Switch {
+                        // Secondary access to the remaining presets — a
+                        // compact row that never disturbs the featured
+                        // composition above.
+                        Label {
+                            Layout.topMargin: AppTheme.spacing8
+                            text: qsTr("MORE THEMES")
+                            color: AppTheme.textMuted
+                            font.pixelSize: AppTheme.fontCaption
+                            font.weight: Font.ExtraBold
+                            font.letterSpacing: 1
+                        }
+                        Flow {
+                            Layout.fillWidth: true
+                            spacing: AppTheme.spacing8
+                            Repeater {
+                                model: AppTheme.themeList.filter(
+                                    (t) => t.id !== 8 && t.id !== 9 && t.id !== 10)
+                                delegate: Rectangle {
+                                    id: miniThemeCard
+                                    required property var modelData
+                                    readonly property var pal:
+                                        AppTheme.paletteForTheme(modelData.id)
+                                    readonly property bool selectedTheme:
+                                        app.settings.theme === modelData.id
+                                    implicitWidth: miniRow.implicitWidth + 24
+                                    implicitHeight: 34
+                                    radius: 9
+                                    color: selectedTheme ? AppTheme.accentSoft
+                                                         : "transparent"
+                                    border.width: 1.5
+                                    border.color: selectedTheme ? AppTheme.accent
+                                                                : AppTheme.border
+                                    Accessible.role: Accessible.RadioButton
+                                    Accessible.name: modelData.name
+                                    Accessible.focusable: true
+                                    activeFocusOnTab: true
+                                    Keys.onReturnPressed: app.settings.theme = modelData.id
+                                    Keys.onSpacePressed: app.settings.theme = modelData.id
+                                    Rectangle {
+                                        anchors.fill: parent
+                                        anchors.margins: -3
+                                        radius: parent.radius + 3
+                                        visible: miniThemeCard.activeFocus
+                                        color: "transparent"
+                                        border.width: 2
+                                        border.color: AppTheme.focusRing
+                                    }
+                                    RowLayout {
+                                        id: miniRow
+                                        anchors.centerIn: parent
+                                        spacing: 6
+                                        Rectangle {
+                                            implicitWidth: 12; implicitHeight: 12
+                                            radius: 4
+                                            color: miniThemeCard.pal.background
+                                            border.color: miniThemeCard.pal.border
+                                            Rectangle {
+                                                anchors.right: parent.right
+                                                anchors.bottom: parent.bottom
+                                                width: 5; height: 5; radius: 2
+                                                color: miniThemeCard.pal.accent
+                                            }
+                                        }
+                                        Label {
+                                            text: miniThemeCard.modelData.name
+                                            color: miniThemeCard.selectedTheme
+                                                   ? AppTheme.accentText
+                                                   : AppTheme.textSecondary
+                                            font.pixelSize: 12
+                                            font.weight: Font.Bold
+                                        }
+                                    }
+                                    TapHandler {
+                                        onTapped: app.settings.theme =
+                                            miniThemeCard.modelData.id
+                                    }
+                                    HoverHandler { cursorShape: Qt.PointingHandCursor }
+                                }
+                            }
+                        }
+
+                        // Match-system row (spec: 36×20 switch, 16px white
+                        // thumb, 150ms travel; the WHOLE row is clickable).
+                        AbstractButton {
+                            id: matchSystemSwitch
                             objectName: "matchSystemSwitch"
-                            text: qsTr("Match system light/dark")
+                            Layout.topMargin: AppTheme.spacing8
+                            implicitWidth: matchRow.implicitWidth
+                            implicitHeight: 24
+                            hoverEnabled: true
+                            focusPolicy: Qt.TabFocus
+                            checkable: true
                             checked: app.settings.theme === 0
-                            onToggled: app.settings.theme =
-                                checked ? 0 : AppTheme.effectiveTheme
+                            Accessible.role: Accessible.CheckBox
+                            Accessible.name: qsTr("Match system light/dark")
+                            onClicked: app.settings.theme =
+                                app.settings.theme === 0 ? AppTheme.effectiveTheme : 0
+                            contentItem: RowLayout {
+                                id: matchRow
+                                spacing: 10
+                                Rectangle {
+                                    objectName: "matchSystemTrack"
+                                    implicitWidth: 36
+                                    implicitHeight: 20
+                                    radius: 99
+                                    color: app.settings.theme === 0
+                                           ? AppTheme.accent : AppTheme.textDisabled
+                                    Rectangle {
+                                        width: 16; height: 16; radius: 8
+                                        color: "#FFFFFF"
+                                        y: 2
+                                        x: app.settings.theme === 0 ? 18 : 2
+                                        Behavior on x {
+                                            NumberAnimation { duration: 150 }
+                                        }
+                                    }
+                                }
+                                Label {
+                                    text: qsTr("Match system light/dark")
+                                    color: AppTheme.textSecondary
+                                    font.pixelSize: 13
+                                }
+                            }
+                            background: Item {}
+                            Rectangle {
+                                anchors.fill: parent
+                                anchors.margins: -4
+                                radius: 8
+                                color: "transparent"
+                                border.width: 2
+                                border.color: AppTheme.focusRing
+                                visible: matchSystemSwitch.visualFocus
+                            }
                         }
                         Label {
                             Layout.fillWidth: true
@@ -458,36 +626,58 @@ Item {
                             font.letterSpacing: 1
                         }
                         RowLayout {
-                            spacing: AppTheme.spacing8
+                            spacing: 10
                             Repeater {
-                                // The timeline backend renders one layout today;
-                                // the design's Bubbles/Compact modes are shown
-                                // as honestly unavailable, never as dead
-                                // controls that silently do nothing.
-                                model: [ qsTr("Modern"), qsTr("Bubbles"), qsTr("Compact") ]
-                                delegate: Rectangle {
+                                model: [
+                                    { label: qsTr("Modern"), value: 0 },
+                                    { label: qsTr("Bubbles"), value: 1 },
+                                    { label: qsTr("Compact / IRC"), value: 2 },
+                                ]
+                                delegate: AbstractButton {
                                     id: layoutChip
-                                    required property string modelData
-                                    required property int index
-                                    readonly property bool activeMode: index === 0
-                                    implicitWidth: layoutChipLabel.implicitWidth
-                                                   + AppTheme.spacing16 * 2
-                                    implicitHeight: 30
-                                    radius: 8
-                                    color: activeMode ? AppTheme.accentSoft
-                                                      : AppTheme.surface
-                                    border.color: activeMode ? AppTheme.accentBorder
-                                                             : AppTheme.border
-                                    opacity: activeMode ? 1 : 0.55
-                                    Label {
-                                        id: layoutChipLabel
-                                        anchors.centerIn: parent
-                                        text: layoutChip.modelData
-                                        color: layoutChip.activeMode
-                                            ? AppTheme.accentText
-                                            : AppTheme.textMuted
-                                        font.pixelSize: AppTheme.fontSecondary
-                                        font.weight: Font.Bold
+                                    required property var modelData
+                                    objectName: "messageLayoutChip_" + modelData.value
+                                    readonly property bool selectedMode:
+                                        app.settings.messageLayout === modelData.value
+                                    implicitWidth: layoutChipLabel.implicitWidth + 28
+                                    implicitHeight: layoutChipLabel.implicitHeight + 16
+                                    hoverEnabled: true
+                                    focusPolicy: Qt.TabFocus
+                                    Accessible.role: Accessible.RadioButton
+                                    Accessible.name: modelData.label
+                                    onClicked: app.settings.messageLayout =
+                                        modelData.value
+                                    contentItem: Item {
+                                        Label {
+                                            id: layoutChipLabel
+                                            anchors.centerIn: parent
+                                            text: layoutChip.modelData.label
+                                            color: layoutChip.selectedMode
+                                                ? AppTheme.accentText
+                                                : AppTheme.textSecondary
+                                            font.pixelSize: 13
+                                            font.weight: Font.Bold
+                                        }
+                                    }
+                                    background: Rectangle {
+                                        radius: 9
+                                        color: layoutChip.selectedMode
+                                               ? AppTheme.accentSoft
+                                               : layoutChip.hovered ? AppTheme.hover
+                                                                    : "transparent"
+                                        border.width: 1.5
+                                        border.color: layoutChip.selectedMode
+                                                      ? AppTheme.accent
+                                                      : AppTheme.border
+                                    }
+                                    Rectangle {
+                                        anchors.fill: parent
+                                        anchors.margins: -4
+                                        radius: 13
+                                        color: "transparent"
+                                        border.width: 2
+                                        border.color: AppTheme.focusRing
+                                        visible: layoutChip.visualFocus
                                     }
                                 }
                             }
@@ -498,8 +688,91 @@ Item {
                             wrapMode: Text.WordWrap
                             color: AppTheme.textMuted
                             font.pixelSize: AppTheme.fontCaption
-                            text: qsTr("Message layout modes are not available yet — "
-                                       + "messages always use the Modern layout.")
+                            text: qsTr("Bubbles applies to direct messages; rooms keep "
+                                       + "the Modern rows. Compact tightens every timeline.")
+                        }
+
+                        Label {
+                            Layout.topMargin: AppTheme.spacing8
+                            text: qsTr("TEXT SIZE")
+                            color: AppTheme.textMuted
+                            font.pixelSize: AppTheme.fontCaption
+                            font.weight: Font.ExtraBold
+                            font.letterSpacing: 1
+                        }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: AppTheme.spacing12
+                            Label {
+                                text: "A"
+                                color: AppTheme.textMuted
+                                font.pixelSize: 12
+                            }
+                            Slider {
+                                id: textScaleSlider
+                                objectName: "textScaleSlider"
+                                Layout.fillWidth: true
+                                Layout.maximumWidth: 320
+                                from: 90
+                                to: 140
+                                stepSize: 5
+                                snapMode: Slider.SnapAlways
+                                value: app.settings.textScale
+                                onMoved: app.settings.textScale = Math.round(value)
+                                Accessible.name: qsTr("Message text size")
+                                background: Rectangle {
+                                    x: textScaleSlider.leftPadding
+                                    y: textScaleSlider.topPadding
+                                       + textScaleSlider.availableHeight / 2 - 2
+                                    width: textScaleSlider.availableWidth
+                                    height: 4
+                                    radius: 99
+                                    color: AppTheme.cardElevated
+                                    Rectangle {
+                                        width: textScaleSlider.visualPosition
+                                               * parent.width
+                                        height: parent.height
+                                        radius: 99
+                                        color: AppTheme.accent
+                                    }
+                                }
+                                handle: Rectangle {
+                                    x: textScaleSlider.leftPadding
+                                       + textScaleSlider.visualPosition
+                                         * (textScaleSlider.availableWidth - width)
+                                    y: textScaleSlider.topPadding
+                                       + textScaleSlider.availableHeight / 2
+                                       - height / 2
+                                    width: 16; height: 16; radius: 8
+                                    color: "#FFFFFF"
+                                    // The slider thumb's shadow is one of the
+                                    // four the design budget allows.
+                                    Rectangle {
+                                        anchors.fill: parent
+                                        anchors.topMargin: 1
+                                        anchors.bottomMargin: -1
+                                        radius: 8
+                                        z: -1
+                                        color: "#40000000"
+                                    }
+                                    border.width: textScaleSlider.visualFocus ? 2 : 0
+                                    border.color: AppTheme.focusRing
+                                }
+                            }
+                            Label {
+                                text: "A"
+                                color: AppTheme.textMuted
+                                font.pixelSize: 18
+                            }
+                        }
+                        Label {
+                            Layout.fillWidth: true
+                            Layout.leftMargin: AppTheme.spacing4
+                            wrapMode: Text.WordWrap
+                            color: AppTheme.textMuted
+                            font.pixelSize: AppTheme.fontCaption
+                            text: qsTr("Scales message and list text. Interface chrome "
+                                       + "and icons keep their size.")
                         }
 
                         SettingsCard {

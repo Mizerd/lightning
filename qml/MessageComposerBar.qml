@@ -485,7 +485,7 @@ Item {
                             return qsTr("Message %1").arg(root.roomDisplayName())
                         }
                         placeholderTextColor: AppTheme.textMuted
-                        font.pixelSize: 14
+                        font.pixelSize: AppTheme.scaled(14)
                         wrapMode: TextArea.Wrap
                         enabled: app.currentRoomId !== ""
                         text: app.composer.text

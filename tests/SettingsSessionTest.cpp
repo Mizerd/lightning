@@ -81,6 +81,8 @@ private Q_SLOTS:
     void roomActivityDefaultsEnabledAndPersists();
     void wheelSpeedDefaultsToFastPersistsAndFallsBack();
     void gifPolicyDefaultsPersistAndClamp();
+    void messageLayoutAndTextScalePersistAndClamp();
+    void appearanceIsPerAccountWithGlobalFallback();
 
 private:
     QTemporaryDir m_configHome;
@@ -350,6 +352,76 @@ void SettingsSessionTest::gifPolicyDefaultsPersistAndClamp()
         QCOMPARE(s.gifSafeSearch(), 2);
         QCOMPARE(s.gifPreferredProvider(), QStringLiteral("giphy"));
     }
+}
+
+void SettingsSessionTest::messageLayoutAndTextScalePersistAndClamp()
+{
+    {
+        SettingsManager settings;
+        QCOMPARE(settings.messageLayout(), 0);
+        QCOMPARE(settings.textScale(), 100);
+        QSignalSpy layoutSpy(&settings, &SettingsManager::messageLayoutChanged);
+        QSignalSpy scaleSpy(&settings, &SettingsManager::textScaleChanged);
+        settings.setMessageLayout(2);
+        QCOMPARE(settings.messageLayout(), 2);
+        QCOMPARE(layoutSpy.count(), 1);
+        // Out-of-range writes clamp to Modern instead of persisting junk.
+        settings.setMessageLayout(99);
+        QCOMPARE(settings.messageLayout(), 0);
+        settings.setMessageLayout(1);
+        settings.setTextScale(120);
+        QCOMPARE(settings.textScale(), 120);
+        QCOMPARE(scaleSpy.count(), 1);
+        settings.setTextScale(400);
+        QCOMPARE(settings.textScale(), SettingsManager::kMaxTextScale);
+        settings.setTextScale(10);
+        QCOMPARE(settings.textScale(), SettingsManager::kMinTextScale);
+        settings.setTextScale(130);
+    }
+    SettingsManager reopened;
+    QCOMPARE(reopened.messageLayout(), 1);
+    QCOMPARE(reopened.textScale(), 130);
+}
+
+void SettingsSessionTest::appearanceIsPerAccountWithGlobalFallback()
+{
+    FakeSecretStore secrets;
+    SettingsManager settings;
+    settings.setSecretStore(&secrets);
+    const QString alice = QStringLiteral("@alice:matrix.example");
+    const QString bob = QStringLiteral("@bob:matrix.example");
+    settings.saveSession(QStringLiteral("https://matrix.example"), alice,
+                         QStringLiteral("ALICEDEVICE"),
+                         QStringLiteral("alice-token-fixture"));
+    settings.saveSession(QStringLiteral("https://matrix.example"), bob,
+                         QStringLiteral("BOBDEVICE"),
+                         QStringLiteral("bob-token-fixture"));
+
+    settings.setActiveAccountUserId(alice);
+    settings.setTheme(SettingsManager::MossLightTheme);
+    settings.setMessageLayout(1);
+    settings.setTextScale(110);
+
+    // Switching accounts re-announces appearance so the UI re-reads it.
+    QSignalSpy themeSpy(&settings, &SettingsManager::themeChanged);
+    settings.setActiveAccountUserId(bob);
+    QVERIFY(themeSpy.count() >= 1);
+    // Bob has no explicit choice yet: he inherits the global fallback
+    // (the most recent selection), not a stale per-account value.
+    QCOMPARE(settings.theme(), SettingsManager::MossLightTheme);
+
+    // Bob's own choices must not leak back into Alice's account.
+    settings.setTheme(SettingsManager::DeepTealTheme);
+    settings.setMessageLayout(2);
+    settings.setTextScale(140);
+    settings.setActiveAccountUserId(alice);
+    QCOMPARE(settings.theme(), SettingsManager::MossLightTheme);
+    QCOMPARE(settings.messageLayout(), 1);
+    QCOMPARE(settings.textScale(), 110);
+    settings.setActiveAccountUserId(bob);
+    QCOMPARE(settings.theme(), SettingsManager::DeepTealTheme);
+    QCOMPARE(settings.messageLayout(), 2);
+    QCOMPARE(settings.textScale(), 140);
 }
 
 QTEST_MAIN(SettingsSessionTest)

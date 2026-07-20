@@ -963,6 +963,20 @@ if(BUILD_TESTING)
     set_tests_properties(theme-snapshot PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen;LIGHTNING_SNAPSHOT_DIR=${CMAKE_CURRENT_BINARY_DIR}/snapshots")
 
+    # In-shell Settings (correction spec §3): rail/room list stay, timeline
+    # region swaps, header + gear chip states, featured theme cards with
+    # fixed palettes, instant theme switching, functional layout/text-size
+    # controls, close restores chat.
+    qt_add_executable(settings-shell-qml-test
+        tests/SettingsShellQmlTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_app(settings-shell-qml-test)
+    target_link_libraries(settings-shell-qml-test PRIVATE Qt6::Test)
+    add_test(NAME settings-shell-qml COMMAND settings-shell-qml-test)
+    set_tests_properties(settings-shell-qml PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
     # Rebuilt main composer (SPEC §2): one card, toolbar row over input row,
     # exact control order/geometry, borderless input, markdown round-trip,
     # theme-tracked card pixels, zero QML warnings.

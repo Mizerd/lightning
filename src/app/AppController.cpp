@@ -921,6 +921,11 @@ void AppController::openRoom(const QString &roomId)
     // still goes through reloadCurrentRoomTimeline().
     const bool alreadyOpen = (m_currentRoomId == roomId);
     setCurrentRoomId(roomId);
+    // Opening a room from anywhere (room list, quick switcher, links) while
+    // the in-shell Settings view is showing returns to the chat view — the
+    // user asked for a room, not for Settings over it.
+    if (m_currentScreen == SettingsScreen)
+        setCurrentScreen(MainScreen);
     // v0.5.7: the Rust backend opens a persistent matrix-sdk-ui timeline
     // for the room. Rust cancels the previous room's subscription, sends
     // one snapshot, and then streams incremental diffs — including

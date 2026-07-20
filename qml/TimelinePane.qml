@@ -440,6 +440,8 @@ Rectangle {
                 // v0.5.11: whether the open room is encrypted — drives the
                 // link-preview privacy gate in each MessageDelegate.
                 property bool roomEncrypted: root.currentRoom.encrypted === true
+                // Bubbles layout applies to direct messages only.
+                property bool isDirectRoom: root.currentRoom.isDirect === true
                 property var expandedStateGroups: ({})
                 function saveRoomPosition() {
                     if (app.currentRoomId === "") return

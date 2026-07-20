@@ -335,7 +335,7 @@ private Q_SLOTS:
         QVERIFY(delegate.contains(QStringLiteral(
             "objectName: \"messagePresentationRow\"")));
         QVERIFY(delegate.contains(QStringLiteral(
-            "readonly property real avatarGutterWidth: 40")));
+            "readonly property real avatarGutterWidth: compactMode ? 8")));
         QVERIFY(delegate.contains(QStringLiteral(
             "readonly property bool showsIdentity: model.showSenderIdentity === true")));
         QVERIFY(delegate.contains(QStringLiteral(
@@ -348,13 +348,18 @@ private Q_SLOTS:
             "objectName: \"senderTimestamp\"")));
 
         // Current-user status may affect metadata and permissions, never
-        // horizontal flow or a colored speech bubble.
+        // horizontal flow in the Modern rows. The design's Bubbles mode is
+        // the ONLY colored-bubble path and it must stay gated to
+        // direct-message timelines behind the message-layout setting.
         QVERIFY(!delegate.contains(QStringLiteral("Qt.AlignRight")));
-        QVERIFY(!delegate.contains(QStringLiteral("AppTheme.ownBubble")));
-        QVERIFY(!delegate.contains(QStringLiteral("AppTheme.otherBubble")));
-        // v0.6.0: the bubble stays transparent by default; the only tint is
-        // the sender-NEUTRAL mention highlight (applies to any sender, never
-        // an own-message color or alignment change).
+        QVERIFY(delegate.contains(QStringLiteral(
+            "readonly property bool bubbleMode: timelineLayout === 1 && isDirectRoom")));
+        QVERIFY(delegate.contains(QStringLiteral(
+            "? (model.isOwn === true ? AppTheme.ownBubble")));
+        // The Modern/Compact bubble stays transparent by default; the only
+        // tint outside Bubbles is the sender-NEUTRAL mention highlight
+        // (applies to any sender, never an own-message color or alignment
+        // change).
         QVERIFY(delegate.contains(QStringLiteral("? Qt.alpha(AppTheme.accent, 0.14)")));
         QVERIFY(delegate.contains(QStringLiteral(": \"transparent\"")));
         QVERIFY(delegate.contains(QStringLiteral("? AppTheme.radiusSm : 0")));

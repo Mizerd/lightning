@@ -73,7 +73,7 @@ Item {
                     color: selected ? AppTheme.selectedText
                          : root.isUnread ? AppTheme.textPrimary
                                          : AppTheme.textSecondary
-                    font.pixelSize: AppTheme.fontBody
+                    font.pixelSize: AppTheme.scaled(AppTheme.fontBody)
                     font.weight: (root.isUnread || selected)
                                  ? Font.Bold : Font.Medium
                     elide: Label.ElideRight
@@ -113,7 +113,7 @@ Item {
                 text: model.lastMessagePreview
                 color: selected ? AppTheme.selectedText : AppTheme.textMuted
                 opacity: selected ? 0.9 : 1.0
-                font.pixelSize: AppTheme.fontMessageSender
+                font.pixelSize: AppTheme.scaled(AppTheme.fontMessageSender)
                 elide: Label.ElideRight
                 Layout.fillWidth: true
             }

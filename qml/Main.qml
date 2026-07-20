@@ -121,6 +121,12 @@ ApplicationWindow {
         property: "systemDark"
         value: app.systemDarkMode
     }
+    // Content text scale (Settings → Appearance → Text size).
+    Binding {
+        target: AppTheme
+        property: "textScale"
+        value: app.settings ? app.settings.textScale / 100 : 1
+    }
 
     // v0.7 design shell: no global header bar — the shell columns carry
     // their own headers (room-list workspace header, room header).
@@ -140,8 +146,10 @@ ApplicationWindow {
         // `app.currentScreen` property are unambiguous.
         function pickComponent() {
             var s = app.currentScreen
-            if (s === 1) return mainComponent      // MainScreen
-            if (s === 2) return settingsComponent  // SettingsScreen
+            // Settings (2) opens INSIDE the main shell — MainScreen swaps
+            // its timeline area for the settings pane while the rail and
+            // room list stay (correction spec §3).
+            if (s === 1 || s === 2) return mainComponent
             return loginComponent                  // 0 = LoginScreen
         }
         sourceComponent: pickComponent()
@@ -159,7 +167,6 @@ ApplicationWindow {
 
     Component { id: loginComponent;    LoginScreen {} }
     Component { id: mainComponent;     MainScreen {} }
-    Component { id: settingsComponent; SettingsScreen {} }
 
     // Slim status strip: shown only while something needs attention
     // (connecting, offline, error) or on the login screen; the steady

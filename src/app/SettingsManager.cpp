@@ -13,6 +13,8 @@ Q_LOGGING_CATEGORY(lcSettings, "matrix.settings")
 namespace {
 constexpr auto kHomeserver          = "homeserver/url";
 constexpr auto kTheme               = "ui/theme";
+constexpr auto kMessageLayout       = "ui/messageLayout";
+constexpr auto kTextScale           = "ui/textScale";
 constexpr auto kLanguage            = "ui/language";
 constexpr auto kStartMinimized      = "ui/startMinimized";
 constexpr auto kNotifications       = "notifications/enabled";
@@ -265,6 +267,11 @@ void SettingsManager::setActiveAccountUserId(const QString &userId)
         m_store->setValue(kActiveAccount, next);
     Q_EMIT sessionChanged();
     Q_EMIT homeserverUrlChanged();
+    // Appearance is per-account: the switched-to account may resolve
+    // different values, so consumers must re-read them.
+    Q_EMIT themeChanged();
+    Q_EMIT messageLayoutChanged();
+    Q_EMIT textScaleChanged();
 }
 
 void SettingsManager::updateAccountProfile(const QString &userId,
@@ -344,9 +351,30 @@ void SettingsManager::setHomeserverUrl(const QString &url)
     Q_EMIT homeserverUrlChanged();
 }
 
+QVariant SettingsManager::appearanceValue(const char *globalKey,
+                                          const QVariant &fallback) const
+{
+    const QString slug = slugForSavedAccount(activeAccountUserId());
+    if (!slug.isEmpty()) {
+        const QString key = accountKey(slug, globalKey);
+        if (m_store->contains(key))
+            return m_store->value(key);
+    }
+    return m_store->value(QLatin1String(globalKey), fallback);
+}
+
+void SettingsManager::setAppearanceValue(const char *globalKey,
+                                         const QVariant &value)
+{
+    const QString slug = slugForSavedAccount(activeAccountUserId());
+    if (!slug.isEmpty())
+        m_store->setValue(accountKey(slug, globalKey), value);
+    m_store->setValue(QLatin1String(globalKey), value);
+}
+
 SettingsManager::Theme SettingsManager::theme() const
 {
-    const int stored = m_store->value(kTheme, SystemTheme).toInt();
+    const int stored = appearanceValue(kTheme, SystemTheme).toInt();
     // An unknown / out-of-range stored theme (e.g. written by a newer build,
     // or corrupted) falls back to the safe default rather than rendering an
     // undefined palette.
@@ -362,8 +390,39 @@ void SettingsManager::setTheme(Theme t)
         t = SystemTheme;
     if (theme() == t)
         return;
-    m_store->setValue(kTheme, static_cast<int>(t));
+    setAppearanceValue(kTheme, static_cast<int>(t));
     Q_EMIT themeChanged();
+}
+
+int SettingsManager::messageLayout() const
+{
+    const int stored = appearanceValue(kMessageLayout, 0).toInt();
+    return (stored < 0 || stored > kMaxMessageLayout) ? 0 : stored;
+}
+
+void SettingsManager::setMessageLayout(int layout)
+{
+    if (layout < 0 || layout > kMaxMessageLayout)
+        layout = 0;
+    if (messageLayout() == layout)
+        return;
+    setAppearanceValue(kMessageLayout, layout);
+    Q_EMIT messageLayoutChanged();
+}
+
+int SettingsManager::textScale() const
+{
+    const int stored = appearanceValue(kTextScale, 100).toInt();
+    return (stored < kMinTextScale || stored > kMaxTextScale) ? 100 : stored;
+}
+
+void SettingsManager::setTextScale(int percent)
+{
+    percent = std::clamp(percent, kMinTextScale, kMaxTextScale);
+    if (textScale() == percent)
+        return;
+    setAppearanceValue(kTextScale, percent);
+    Q_EMIT textScaleChanged();
 }
 
 QString SettingsManager::language() const
