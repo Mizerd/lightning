@@ -277,6 +277,39 @@ private Q_SLOTS:
         QCOMPARE(d.warnings, QStringList{});
     }
 
+    // A plain file (body defaults to the filename) must render the filename
+    // once — inside the file card — never a second time as a duplicate body
+    // line beneath it. A genuine distinct caption is still shown.
+    void fileWithBodyEqualToFilenameSuppressesDuplicate()
+    {
+        AppController controller(AppController::MockBackend);
+        QVariantMap fixture = baseFixture(controller);
+        fixture.insert(QStringLiteral("isFile"), true);
+        fixture.insert(QStringLiteral("mediaFilename"),
+                       QStringLiteral("report.zip"));
+        fixture.insert(QStringLiteral("body"), QStringLiteral("report.zip"));
+
+        Delegate d;
+        QVERIFY(createDelegate(controller, fixture, d));
+        auto *body = d.root->findChild<QQuickItem *>(
+            QStringLiteral("messageBody"));
+        QVERIFY(body != nullptr);
+        QVERIFY(!body->isVisible()); // duplicate filename suppressed
+        QCOMPARE(d.warnings, QStringList{});
+
+        // A distinct caption is preserved.
+        QVariantMap captioned = fixture;
+        captioned.insert(QStringLiteral("body"),
+                         QStringLiteral("Here is the Q3 report"));
+        Delegate c;
+        QVERIFY(createDelegate(controller, captioned, c));
+        auto *captionBody = c.root->findChild<QQuickItem *>(
+            QStringLiteral("messageBody"));
+        QVERIFY(captionBody != nullptr);
+        QVERIFY(captionBody->isVisible());
+        QCOMPARE(c.warnings, QStringList{});
+    }
+
     // Recoverable undecryptable rows show the decrypting skeleton (keys can
     // still arrive); deterministic failures keep the static explanation.
     void decryptingSkeletonOnlyForRecoverableFailures()

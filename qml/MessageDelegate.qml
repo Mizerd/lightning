@@ -41,9 +41,13 @@ Item {
     readonly property bool compactMode: timelineLayout === 2
     readonly property real bubblePad: bubbleMode ? 10 : 0
 
+    // Group leaders (a new sender block or a lone message) get a slightly
+    // more generous gap than the tight 8px so distinct groups read as
+    // separated; continuation lines within a group stay at 1px. Compact/IRC
+    // stays dense.
     readonly property real messageTopSpacing: showsIdentity
                                                ? (compactMode ? 2
-                                                              : AppTheme.spacingS)
+                                                              : AppTheme.spacingM)
                                                : (compactMode ? 0 : 1)
     readonly property real avatarGutterWidth: compactMode ? 8
                                               : (bubbleMode ? 44 : 40)
@@ -534,10 +538,16 @@ Item {
                             if (model.redacted) return qsTr("[message deleted]")
                             // Media rows already show the filename in their
                             // media block; skip duplicating it as the body.
+                            // Files included: a plain file's body equals its
+                            // filename (Rust falls back body -> filename), so
+                            // it would otherwise print twice — the card and a
+                            // duplicate line beneath. A genuine caption
+                            // (filename set, body differs) still renders.
                             var mediaRow = model.isImage
                                            || model.isSticker === true
                                            || model.isVideo === true
                                            || model.isAudio === true
+                                           || model.isFile === true
                             if (mediaRow && model.body === model.mediaFilename) return ""
                             return model.body || ""
                         })())
@@ -972,19 +982,25 @@ Item {
         Flow {
             visible: !model.redacted && model.reactions && model.reactions.length > 0
             Layout.alignment: Qt.AlignLeft
-            Layout.leftMargin: 36 + AppTheme.spacingXS
-            spacing: 4
+            // Align with the message body across every layout mode (Modern 40,
+            // compact 8, bubble 44) instead of a fixed 36; add a deliberate
+            // gap so the chips sit clearly below a media card rather than
+            // crowding it.
+            Layout.leftMargin: root.avatarGutterWidth
+            Layout.topMargin: AppTheme.spacingXS
+            spacing: AppTheme.spacingXS
             Repeater {
                 model: root.reactionsList()
                 Rectangle {
                     // Design §3: own reaction = accent-soft fill + accent
-                    // border + accent-text; others = neutral chip. Pill radius.
+                    // border + accent-text; others = neutral chip. Pill radius,
+                    // 9px side / 3px vertical padding, min height 22.
                     color: modelData.byMe ? AppTheme.accentSoft : AppTheme.reactionBackground
                     radius: AppTheme.radiusPill
                     border.color: modelData.byMe ? AppTheme.accentBorder : AppTheme.border
                     border.width: 1
                     implicitWidth: reactionRow.implicitWidth + 18
-                    implicitHeight: reactionRow.implicitHeight + 4
+                    implicitHeight: Math.max(22, reactionRow.implicitHeight + 6)
                     Row {
                         id: reactionRow
                         anchors.centerIn: parent
