@@ -105,6 +105,48 @@ private Q_SLOTS:
         QVERIFY(!m.statusMessage().isEmpty());
     }
 
+    // The automatic request may never be answered. After the bounded wait,
+    // the model escalates from the indefinite "waiting" spinner to an honest
+    // manual-recovery state so the UI can offer the recovery key instead of
+    // shimmering forever.
+    void unansweredRequestEscalatesToManualRecovery()
+    {
+        CryptoBootstrapModel m;
+        m.setWaitTimeoutMsForTest(20);
+        apply(m, "verification_state", "verified");
+        QCOMPARE(m.phase(), CryptoBootstrapModel::WaitingForKeys);
+        QVERIFY(!m.needsRecoveryKey());
+
+        QSignalSpy changed(&m, &CryptoBootstrapModel::changed);
+        QVERIFY(changed.wait(2000));
+        QCOMPARE(m.phase(), CryptoBootstrapModel::ManualRecoveryRequired);
+        QVERIFY(m.needsRecoveryKey());
+        QVERIFY(m.active());
+        QVERIFY(m.statusMessage().contains(QStringLiteral("recovery key")));
+
+        // A no-progress event must not bounce back to the waiting spinner.
+        apply(m, "recovery_state", "incomplete");
+        QCOMPARE(m.phase(), CryptoBootstrapModel::ManualRecoveryRequired);
+
+        // But real backup progress (the other device finally answered) still
+        // promotes it out of manual recovery.
+        apply(m, "backup_state", "downloading");
+        QCOMPARE(m.phase(), CryptoBootstrapModel::RestoringHistory);
+    }
+
+    // Real progress before the bound cancels the escalation entirely.
+    void progressBeforeTimeoutCancelsEscalation()
+    {
+        CryptoBootstrapModel m;
+        m.setWaitTimeoutMsForTest(20);
+        apply(m, "verification_state", "verified");
+        apply(m, "backup_state", "downloading");
+        QCOMPARE(m.phase(), CryptoBootstrapModel::RestoringHistory);
+        // The stale wait timer must not fire us into manual recovery now.
+        QTest::qWait(60);
+        QCOMPARE(m.phase(), CryptoBootstrapModel::RestoringHistory);
+    }
+
     // Account switch / logout: reset drops every remembered state and
     // count, so a stale phase can never describe the next account.
     void resetIsolatesSessions()

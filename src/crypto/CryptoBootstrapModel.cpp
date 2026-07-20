@@ -14,6 +14,7 @@ const char *phaseName(CryptoBootstrapModel::Phase phase)
     case CryptoBootstrapModel::RestoringHistory: return "restoring_history";
     case CryptoBootstrapModel::Ready: return "ready";
     case CryptoBootstrapModel::NoBackupAvailable: return "no_backup";
+    case CryptoBootstrapModel::ManualRecoveryRequired: return "manual_recovery";
     }
     return "idle";
 }
@@ -22,6 +23,9 @@ const char *phaseName(CryptoBootstrapModel::Phase phase)
 CryptoBootstrapModel::CryptoBootstrapModel(QObject *parent)
     : QObject(parent)
 {
+    m_waitTimer.setSingleShot(true);
+    connect(&m_waitTimer, &QTimer::timeout,
+            this, &CryptoBootstrapModel::onWaitTimeout);
     reset();
 }
 
@@ -43,6 +47,10 @@ QString CryptoBootstrapModel::statusMessage() const
     case NoBackupAvailable:
         return tr("No key backup is available from your other session. "
                   "Enter your recovery key to unlock older messages.");
+    case ManualRecoveryRequired:
+        return tr("Your verified session did not send the encryption keys. "
+                  "Enter your recovery key or passphrase to restore encrypted "
+                  "history.");
     case Idle:
         break;
     }
@@ -52,7 +60,26 @@ QString CryptoBootstrapModel::statusMessage() const
 bool CryptoBootstrapModel::active() const
 {
     return m_phase == WaitingForKeys || m_phase == RestoringHistory
-        || m_phase == Ready || m_phase == NoBackupAvailable;
+        || m_phase == Ready || m_phase == NoBackupAvailable
+        || m_phase == ManualRecoveryRequired;
+}
+
+bool CryptoBootstrapModel::needsRecoveryKey() const
+{
+    return m_phase == NoBackupAvailable || m_phase == ManualRecoveryRequired;
+}
+
+void CryptoBootstrapModel::onWaitTimeout()
+{
+    // Only escalate if we are still idly waiting — any real progress moved us
+    // on and stopped the timer.
+    if (m_phase != WaitingForKeys)
+        return;
+    qCInfo(lcCryptoBootstrap)
+        << "bootstrap phase" << phaseName(m_phase) << "-> manual_recovery"
+        << "(automatic key request timed out)";
+    m_phase = ManualRecoveryRequired;
+    Q_EMIT changed();
 }
 
 void CryptoBootstrapModel::applyEvent(const QString &kind,
@@ -101,8 +128,19 @@ void CryptoBootstrapModel::recompute()
             next = WaitingForKeys;
         }
     }
+    // Once escalated to manual recovery, a no-progress event must not bounce
+    // back to the waiting spinner — only real backup progress promotes it.
+    if (m_phase == ManualRecoveryRequired && next == WaitingForKeys)
+        next = ManualRecoveryRequired;
     if (next == m_phase)
         return;
+    // Arm the bounded wait when entering the waiting state; cancel it on any
+    // other transition so real progress (or a terminal state) never gets
+    // overridden by a late timeout.
+    if (next == WaitingForKeys)
+        m_waitTimer.start(m_waitTimeoutMs);
+    else
+        m_waitTimer.stop();
     qCInfo(lcCryptoBootstrap)
         << "bootstrap phase" << phaseName(m_phase) << "->" << phaseName(next)
         << "keys_received=" << m_keysReceived;
@@ -112,6 +150,7 @@ void CryptoBootstrapModel::recompute()
 
 void CryptoBootstrapModel::reset()
 {
+    m_waitTimer.stop();
     const bool wasInteresting = m_phase != Idle || m_keysReceived != 0;
     m_verification = QStringLiteral("unknown");
     m_recovery = QStringLiteral("unknown");

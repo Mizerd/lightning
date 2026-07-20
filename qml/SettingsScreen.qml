@@ -1423,7 +1423,9 @@ Item {
                                         color: app.cryptoBootstrap.phase
                                                    === CryptoBootstrapModel.Ready
                                                ? AppTheme.success
-                                               : AppTheme.text
+                                               : app.cryptoBootstrap.needsRecoveryKey
+                                                 ? AppTheme.accent
+                                                 : AppTheme.text
                                         font.pixelSize: AppTheme.fontSecondary
                                         text: app.cryptoBootstrap.statusMessage
                                     }

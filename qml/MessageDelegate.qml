@@ -59,6 +59,18 @@ Item {
         ListView.view
         && (y + height) > ListView.view.contentY
         && y < (ListView.view.contentY + ListView.view.height)
+
+    // Once the verified-session bootstrap has given up (the automatic key
+    // request timed out, or there is no backup to restore from), stop
+    // shimmering every undecryptable row forever — hold a static reserved
+    // state instead. Keys arriving later (e.g. after manual recovery) still
+    // replace the row in place.
+    readonly property bool decryptStalled:
+        app.cryptoBootstrap
+        && (app.cryptoBootstrap.phase
+                === CryptoBootstrapModel.ManualRecoveryRequired
+            || app.cryptoBootstrap.phase
+                === CryptoBootstrapModel.NoBackupAvailable)
     visible: roomActivityVisible && !suppressedAsThreadRoot
     implicitHeight: (!roomActivityVisible || suppressedAsThreadRoot) ? 0
                     : isVirtualRow ? virtualRow.implicitHeight
@@ -631,6 +643,7 @@ Item {
                         Skeleton {
                             active: root.rowOnScreen
                                     && root.showsDecryptingSkeleton
+                                    && !root.decryptStalled
                             Layout.preferredWidth: Math.min(
                                 420, Math.max(120, bubble.width * 0.55))
                             Layout.preferredHeight: AppTheme.scaled(13)
@@ -638,6 +651,7 @@ Item {
                         Skeleton {
                             active: root.rowOnScreen
                                     && root.showsDecryptingSkeleton
+                                    && !root.decryptStalled
                             Layout.preferredWidth: Math.min(
                                 300, Math.max(80, bubble.width * 0.35))
                             Layout.preferredHeight: AppTheme.scaled(13)
