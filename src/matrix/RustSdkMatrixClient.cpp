@@ -1961,6 +1961,16 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
         Q_EMIT cryptoHealthUpdated(snapshot);
         return;
     }
+    if (type == QLatin1String("crypto_bootstrap")) {
+        // Sanitized observer state (the poll layer already rejected stale
+        // session handles; AppController resets the model per session).
+        Q_EMIT cryptoBootstrapEvent(
+            event.value(QStringLiteral("kind")).toString(),
+            event.value(QStringLiteral("state")).toString(),
+            static_cast<quint64>(
+                event.value(QStringLiteral("count")).toDouble(0)));
+        return;
+    }
     if (type == QLatin1String("thread_list_reset")
         || type == QLatin1String("thread_list_error")) {
         handleThreadListReset(event);

@@ -99,6 +99,7 @@ AppController::AppController(Backend backend, QObject *parent)
     m_media        = std::make_unique<MediaManager>(this);
     m_crypto       = std::make_unique<CryptoManager>(this);
     m_cryptoHealth = std::make_unique<CryptoHealthModel>(this);
+    m_cryptoBootstrap = std::make_unique<CryptoBootstrapModel>(this);
     m_spaces       = std::make_unique<SpaceManager>(this);
     m_threads      = std::make_unique<ThreadManager>(this);
     m_thread       = std::make_unique<ThreadController>(this);
@@ -417,12 +418,24 @@ AppController::AppController(Backend backend, QObject *parent)
             // rejects the stale answer.
             m_cryptoHealth->applySnapshot(snapshot, m_cryptoQueryGeneration);
         });
+        // v0.7: verified-session bootstrap status. The bridge observer only
+        // reports the ACTIVE session handle; the model additionally resets
+        // on login/logout (which account switching passes through), so a
+        // previous account's bootstrap can never describe the current one.
+        connect(rust, &RustSdkMatrixClient::cryptoBootstrapEvent,
+                this, [this](const QString &kind, const QString &state,
+                             quint64 count) {
+            m_cryptoBootstrap->applyEvent(kind, state, count);
+        });
+        connect(rust, &MatrixClient::loginSucceeded, this,
+                [this](const QString &) { m_cryptoBootstrap->reset(); });
         connect(rust, &MatrixClient::connectionStateChanged,
                 this, [this](MatrixClient::ConnectionState state) {
             m_cryptoHealth->setSyncing(state == MatrixClient::Syncing);
         });
         connect(rust, &MatrixClient::loggedOut, this, [this] {
             m_cryptoHealth->resetForNewGeneration();
+            m_cryptoBootstrap->reset();
             m_sessionDevices.clear();
             m_sessionDevicesLoading = false;
             m_sessionDevicesFailed = false;

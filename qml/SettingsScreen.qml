@@ -1316,6 +1316,36 @@ Item {
                                     color: AppTheme.text
                                     text: app.cryptoHealth.statusSummary
                                 }
+                                // v0.7: live verified-session bootstrap
+                                // status — the SDK-owned secret request /
+                                // backup restore progress after verifying
+                                // this session from a trusted one. Manual
+                                // recovery-key entry below stays the
+                                // fallback, never the first step.
+                                RowLayout {
+                                    objectName: "cryptoBootstrapStatus"
+                                    visible: app.cryptoBootstrap.active
+                                    Layout.fillWidth: true
+                                    spacing: AppTheme.spacing8
+                                    BusyIndicator {
+                                        width: 14; height: 14
+                                        visible: running
+                                        running: app.cryptoBootstrap.phase
+                                                     === CryptoBootstrapModel.WaitingForKeys
+                                                 || app.cryptoBootstrap.phase
+                                                     === CryptoBootstrapModel.RestoringHistory
+                                    }
+                                    Label {
+                                        Layout.fillWidth: true
+                                        wrapMode: Text.WordWrap
+                                        color: app.cryptoBootstrap.phase
+                                                   === CryptoBootstrapModel.Ready
+                                               ? AppTheme.success
+                                               : AppTheme.text
+                                        font.pixelSize: AppTheme.fontSecondary
+                                        text: app.cryptoBootstrap.statusMessage
+                                    }
+                                }
                                 Label {
                                     Layout.fillWidth: true
                                     wrapMode: Text.WordWrap

@@ -104,6 +104,11 @@ struct RustClient {
     // the matching `mx_rust_media_take` call; the map is cleared on
     // shutdown so decrypted media never outlives the session in memory.
     media_results: Arc<Mutex<HashMap<u64, Vec<u8>>>>,
+    // v0.7: verified-session crypto-bootstrap observer. Forwards sanitized
+    // SDK verification/recovery/backup state and room-key-import counts to
+    // C++ for the post-verification status UI. Lives exactly as long as the
+    // sync session; stopped inside stop_sync_and_wait.
+    bootstrap_task: Mutex<Option<SyncTask>>,
 }
 
 impl RustClient {
@@ -134,6 +139,7 @@ impl RustClient {
             active_sas: Arc::new(Mutex::new(None)),
             import_active: Arc::new(AtomicBool::new(false)),
             media_results: Arc::new(Mutex::new(HashMap::new())),
+            bootstrap_task: Mutex::new(None),
         })
     }
 
@@ -142,6 +148,22 @@ impl RustClient {
     }
 
     fn stop_sync_and_wait(&self) -> bool {
+        // The crypto-bootstrap observer shares the sync session's lifetime;
+        // stop it first so no status event can be emitted for a session
+        // that is going away.
+        let bootstrap = self
+            .bootstrap_task
+            .lock()
+            .ok()
+            .and_then(|mut guard| guard.take());
+        if let Some(mut task) = bootstrap {
+            if let Some(cancel) = task.cancel.take() {
+                let _ = cancel.send(());
+            }
+            if let Some(thread) = task.thread.take() {
+                let _ = thread.join();
+            }
+        }
         let task = self.sync_task.lock().ok().and_then(|mut guard| guard.take());
         if let Some(mut task) = task {
             if let Some(cancel) = task.cancel.take() {
@@ -733,17 +755,185 @@ pub unsafe extern "C" fn mx_rust_start_sync(ptr: *mut c_void) {
         bridge.enqueue(json!({ "type": "status", "state": "syncing" }));
 
         let (cancel, cancel_rx) = tokio::sync::oneshot::channel::<()>();
+        let sync_client = client.clone();
         let thread = std::thread::spawn(move || {
             let runtime_events = Arc::clone(&events);
             run_async(runtime_events, "sync", async move {
-                run_authoritative_sync(client, events, sync_mode, cancel_rx).await;
+                run_authoritative_sync(sync_client, events, sync_mode, cancel_rx).await;
             });
         });
         *task_slot = Some(SyncTask {
             cancel: Some(cancel),
             thread: Some(thread),
         });
+        drop(task_slot);
+
+        // v0.7: verified-session crypto-bootstrap observer. Watches the
+        // SDK's verification/recovery/backup state streams and the
+        // room-keys-received stream for the ACTIVE session and forwards
+        // sanitized state names + counts (never key material, session ids,
+        // or secrets) stamped with the session lifecycle so a stale
+        // observer can never update a later account. Stopped inside
+        // stop_sync_and_wait, so it lives exactly as long as the sync.
+        if let Ok(mut slot) = bridge.bootstrap_task.lock() {
+            if slot.is_none() {
+                let observer_events = Arc::clone(&bridge.events);
+                let lifecycle = bridge.timelines.lifecycle();
+                let (cancel, cancel_rx) = tokio::sync::oneshot::channel::<()>();
+                let thread = std::thread::spawn(move || {
+                    let runtime_events = Arc::clone(&observer_events);
+                    run_async(runtime_events, "crypto_bootstrap", async move {
+                        run_crypto_bootstrap_observer(
+                            client, observer_events, lifecycle, cancel_rx,
+                        )
+                        .await;
+                    });
+                });
+                *slot = Some(SyncTask {
+                    cancel: Some(cancel),
+                    thread: Some(thread),
+                });
+            }
+        }
     }));
+}
+
+fn verification_state_name(
+    state: matrix_sdk::encryption::VerificationState,
+) -> &'static str {
+    use matrix_sdk::encryption::VerificationState;
+    match state {
+        VerificationState::Unknown => "unknown",
+        VerificationState::Verified => "verified",
+        VerificationState::Unverified => "unverified",
+    }
+}
+
+fn recovery_state_name(
+    state: matrix_sdk::encryption::recovery::RecoveryState,
+) -> &'static str {
+    use matrix_sdk::encryption::recovery::RecoveryState;
+    match state {
+        RecoveryState::Unknown => "unknown",
+        RecoveryState::Enabled => "enabled",
+        RecoveryState::Disabled => "disabled",
+        RecoveryState::Incomplete => "incomplete",
+    }
+}
+
+fn backup_state_name(state: matrix_sdk::encryption::backups::BackupState) -> &'static str {
+    use matrix_sdk::encryption::backups::BackupState;
+    match state {
+        BackupState::Unknown => "unknown",
+        BackupState::Creating => "creating",
+        BackupState::Enabling => "enabling",
+        BackupState::Resuming => "resuming",
+        BackupState::Enabled => "enabled",
+        BackupState::Downloading => "downloading",
+        BackupState::Disabling => "disabling",
+    }
+}
+
+fn emit_crypto_bootstrap(
+    events: &Arc<Mutex<VecDeque<String>>>,
+    lifecycle: u64,
+    kind: &str,
+    state: &str,
+    count: u64,
+) {
+    enqueue(
+        events,
+        json!({
+            "type": "crypto_bootstrap",
+            "kind": kind,
+            "state": state,
+            "count": count,
+            "lifecycle": lifecycle,
+        }),
+    );
+}
+
+/// v0.7: forwards the SDK's own post-verification bootstrap progress. The
+/// heavy lifting is entirely inside matrix-sdk (automatic secret gossip on
+/// own-identity verification, backup enablement from the gossiped recovery
+/// key, OneShot full-backup download, event-cache redecryption); this task
+/// only OBSERVES the supported state streams so the UI can show an honest
+/// "requesting keys / restoring history / ready" status. It never touches
+/// key material and never sends protocol events of its own.
+async fn run_crypto_bootstrap_observer(
+    client: Client,
+    events: Arc<Mutex<VecDeque<String>>>,
+    lifecycle: u64,
+    mut cancel_rx: tokio::sync::oneshot::Receiver<()>,
+) {
+    let encryption = client.encryption();
+    let mut verification = encryption.verification_state();
+    let recovery = encryption.recovery();
+    let backups = encryption.backups();
+    let mut recovery_states = recovery.state_stream();
+    let mut backup_states = backups.state_stream();
+    let mut room_keys = encryption.room_keys_received_stream().await;
+
+    // Baseline snapshot so C++ has a coherent starting state.
+    emit_crypto_bootstrap(
+        &events, lifecycle, "verification_state",
+        verification_state_name(verification.get()), 0,
+    );
+    emit_crypto_bootstrap(
+        &events, lifecycle, "recovery_state",
+        recovery_state_name(recovery.state()), 0,
+    );
+    emit_crypto_bootstrap(
+        &events, lifecycle, "backup_state",
+        backup_state_name(backups.state()), 0,
+    );
+
+    loop {
+        tokio::select! {
+            _ = &mut cancel_rx => break,
+            state = verification.next() => {
+                let Some(state) = state else { break };
+                emit_crypto_bootstrap(
+                    &events, lifecycle, "verification_state",
+                    verification_state_name(state), 0,
+                );
+            }
+            state = recovery_states.next() => {
+                let Some(state) = state else { break };
+                emit_crypto_bootstrap(
+                    &events, lifecycle, "recovery_state",
+                    recovery_state_name(state), 0,
+                );
+            }
+            state = backup_states.next() => {
+                let Some(state) = state else { break };
+                let Ok(state) = state else { continue }; // lagged stream
+                emit_crypto_bootstrap(
+                    &events, lifecycle, "backup_state",
+                    backup_state_name(state), 0,
+                );
+            }
+            keys = async {
+                match room_keys.as_mut() {
+                    Some(stream) => stream.next().await,
+                    // No crypto machine (should not happen with E2EE wired):
+                    // park forever instead of spinning the loop.
+                    None => std::future::pending().await,
+                }
+            } => {
+                let Some(keys) = keys else { break };
+                let Ok(infos) = keys else { continue }; // lagged stream
+                if !infos.is_empty() {
+                    // Counts only — never room ids, session ids, or key
+                    // material.
+                    emit_crypto_bootstrap(
+                        &events, lifecycle, "room_keys_received", "",
+                        infos.len() as u64,
+                    );
+                }
+            }
+        }
+    }
 }
 
 #[no_mangle]
@@ -3158,14 +3348,23 @@ pub unsafe extern "C" fn mx_rust_free_cstring(ptr: *mut c_char) {
 }
 
 async fn build_client(homeserver: &str, store_path: &Path) -> Result<Client, String> {
-    // v0.6.0 checkpoint 8: AfterDecryptionFailure lets the SDK download the
-    // missing room key from the server-side key backup for each
-    // unable-to-decrypt event (deduplicated and bounded inside the SDK),
-    // once backup access exists — no custom key-transfer protocol, no
-    // change to trust policy (auto cross-signing/backup enabling stay off).
+    // v0.7: OneShot backup download — the Element-like verified-session
+    // bootstrap. When this device completes SAS verification, the SDK's
+    // crypto layer automatically gossips m.secret.request for the missing
+    // cross-signing secrets AND the backup recovery key; when the already
+    // trusted session answers, the SDK enables backups and (with OneShot)
+    // downloads EVERY backed-up room key at once, so historical encrypted
+    // rooms decrypt in place without the user typing the recovery key.
+    // The previous AfterDecryptionFailure strategy only fetched one key per
+    // freshly-failing event, which left already-rendered history encrypted
+    // after verification. Manual recovery-key entry keeps working: the 4S
+    // import path funnels into the same maybe_enable_backups + OneShot
+    // download. Trust policy is unchanged — no auto cross-signing creation
+    // and no auto backup creation (both default false); keys only flow
+    // after SDK-confirmed verification or an explicit recovery-key entry.
     let encryption_settings = matrix_sdk::encryption::EncryptionSettings {
         backup_download_strategy:
-            matrix_sdk::encryption::BackupDownloadStrategy::AfterDecryptionFailure,
+            matrix_sdk::encryption::BackupDownloadStrategy::OneShot,
         ..Default::default()
     };
     // Threading support routes m.thread events into the event cache's per-thread

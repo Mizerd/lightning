@@ -204,6 +204,8 @@ set(APP_SOURCES
     src/crypto/CryptoManager.cpp
     src/crypto/CryptoHealthModel.h
     src/crypto/CryptoHealthModel.cpp
+    src/crypto/CryptoBootstrapModel.h
+    src/crypto/CryptoBootstrapModel.cpp
     src/crypto/E2eeDiagnostics.h
     src/crypto/E2eeDiagnostics.cpp
     src/spaces/SpaceManager.h
@@ -836,6 +838,19 @@ if(BUILD_TESTING)
     target_link_libraries(crypto-health-model-test PRIVATE
         Qt6::Core Qt6::Qml Qt6::Test)
     add_test(NAME crypto-health-model COMMAND crypto-health-model-test)
+
+    # v0.7: verified-session bootstrap status state machine — phase
+    # derivation from sanitized SDK state streams, key-count accumulation,
+    # idempotency, and per-session reset isolation.
+    qt_add_executable(crypto-bootstrap-model-test
+        tests/CryptoBootstrapModelTest.cpp
+        src/crypto/CryptoBootstrapModel.h
+        src/crypto/CryptoBootstrapModel.cpp
+    )
+    target_include_directories(crypto-bootstrap-model-test PRIVATE src)
+    target_link_libraries(crypto-bootstrap-model-test PRIVATE
+        Qt6::Core Qt6::Qml Qt6::Test)
+    add_test(NAME crypto-bootstrap-model COMMAND crypto-bootstrap-model-test)
 
     # v0.6.0 checkpoint 11: the pure notification decision policy — privacy
     # modes, mention metadata, local room modes, active-room suppression,

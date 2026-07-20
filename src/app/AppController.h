@@ -5,6 +5,7 @@
 #include "app/SettingsManager.h"
 #include "auth/AccountManager.h"
 #include "auth/AuthManager.h"
+#include "crypto/CryptoBootstrapModel.h"
 #include "crypto/CryptoHealthModel.h"
 #include "crypto/CryptoManager.h"
 #include "media/MediaBridge.h"
@@ -105,6 +106,8 @@ class AppController : public QObject
     Q_PROPERTY(CryptoManager* crypto READ crypto CONSTANT)
     // v0.6.0 checkpoint 7: read-only E2EE health/readiness (app.cryptoHealth).
     Q_PROPERTY(CryptoHealthModel* cryptoHealth READ cryptoHealth CONSTANT)
+    // v0.7: verified-session key-bootstrap status (app.cryptoBootstrap).
+    Q_PROPERTY(CryptoBootstrapModel* cryptoBootstrap READ cryptoBootstrap CONSTANT)
     // v0.6.0 checkpoint 9: the account's devices/sessions (server metadata +
     // SDK crypto trust; current session first, then by last-seen).
     Q_PROPERTY(QVariantList sessionDevices READ sessionDevices NOTIFY sessionDevicesChanged)
@@ -186,6 +189,8 @@ public:
     MediaManager *media() const;
     CryptoManager *crypto() const;
     CryptoHealthModel *cryptoHealth() const { return m_cryptoHealth.get(); }
+    CryptoBootstrapModel *cryptoBootstrap() const
+    { return m_cryptoBootstrap.get(); }
     // Bounded UI refresh (Settings "Refresh" and post-operation updates).
     Q_INVOKABLE void refreshCryptoHealth();
     QVariantList sessionDevices() const { return m_sessionDevices; }
@@ -424,6 +429,7 @@ private:
     std::unique_ptr<MediaManager> m_media;
     std::unique_ptr<CryptoManager> m_crypto;
     std::unique_ptr<CryptoHealthModel> m_cryptoHealth;
+    std::unique_ptr<CryptoBootstrapModel> m_cryptoBootstrap;
     // The CryptoHealthModel generation captured at the moment a crypto-health
     // query is DISPATCHED. Comparing this (not the model's live generation)
     // against the model epoch when the async answer arrives lets a logout /

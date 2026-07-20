@@ -331,6 +331,10 @@ Q_SIGNALS:
     // v0.6.0 checkpoint 7: sanitized E2EE health snapshot (booleans, enum
     // names, public device id only).
     void cryptoHealthUpdated(const QVariantMap &snapshot);
+    // v0.7: sanitized verified-session bootstrap observer events (state
+    // names + key counts only; never key material or session ids).
+    void cryptoBootstrapEvent(const QString &kind, const QString &state,
+                              quint64 count);
     // v0.6.0 checkpoint 9: entries carry deviceId, displayName, lastSeenTs,
     // lastSeenIp, isCurrent, hasCryptoIdentity, verified, crossSigned.
     void deviceListUpdated(bool ok, const QVariantList &devices);
