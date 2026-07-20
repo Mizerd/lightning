@@ -84,11 +84,16 @@ original one on the GitLab VM and a mirrored fleet on a dedicated VM
 concurrency is **bounded, not free**: the build jobs are split across exactly
 two resource groups (`lightning-package-build-a`: deb/flatpak/snap,
 `lightning-package-build-b`: rpm/appimage), so at most two package builds run
-at once anywhere — typically one per host. The remote VM additionally runs at
-most one job globally (`concurrent = 1`), and the GitLab VM's job containers
-are capped at 4 CPU / 6 GiB so even two co-located builds leave GitLab EE
-headroom. Do not add a third resource group or raise the caps without
-revisiting host capacity.
+at once anywhere. Since 2026-07-20 those two lanes are also guaranteed to run
+on **different hosts**: each host runs at most one package job at a time
+(global `concurrent = 1` on both the mirror VM and the consolidated
+`package-runner-packages` manager on the GitLab VM), so when both lanes are
+active the second is forced onto the other host — the mirror is no longer
+idle during parallel builds. Job containers stay capped at 4 CPU / 6 GiB
+(GitLab VM) / 4 CPU / 8 GiB (mirror) so a single build always leaves GitLab EE
+headroom. Do not add a third resource group or raise `concurrent`/the caps
+without revisiting host capacity (raising `concurrent` would let both lanes
+collapse back onto one host).
 
 The flatpak runners (on both hosts) are the one deliberate confinement
 exception: their job containers run **privileged**. flatpak-builder's bwrap

@@ -110,6 +110,18 @@ for fmt, group in BUILD_GROUP.items():
           f"build-{fmt} is bounded by resource group {group}")
 check(len(set(BUILD_GROUP.values())) == 2,
       "build jobs use exactly two resource groups (bounded 2-way concurrency)")
+# Cross-host routing (2026-07-20): the two resource groups are the CI half of
+# the "parallel lanes land on different hosts" guarantee. Each host runs at
+# most one package job at a time (global concurrent=1 on both the mirror VM
+# and the consolidated package-runner-packages manager on the GitLab VM), so
+# two lanes able to run at once must split across the two hosts. Both groups
+# must be non-empty for the two lanes to exist.
+group_members = {}
+for fmt, group in BUILD_GROUP.items():
+    group_members.setdefault(group, []).append(fmt)
+check(all(len(m) >= 1 for m in group_members.values())
+      and len(group_members) == 2,
+      "both resource groups are non-empty (two lanes exist to distribute)")
 
 # --- publish-chain jobs route API requests through the internal endpoint
 # --- (the public host is Cloudflare-proxied with a request-body cap that
@@ -232,6 +244,19 @@ for action in ["create", "attach-existing"]:
     check(evaluate(gate, v), f"publish jobs run for RELEASE_ACTION={action}")
 v = dict(base, PUBLISH_PACKAGES="false", RELEASE_ACTION="attach-existing")
 check(not evaluate(gate, v), "publish jobs excluded for build-only (PUBLISH_PACKAGES=false)")
+
+# A build-only pipeline uploads NOTHING: every publish/verify/release job (the
+# only jobs that write to project 6's registry or touch a release) must be
+# excluded when PUBLISH_PACKAGES=false, for both release actions and on any
+# branch. Nothing else in the graph performs an upload.
+for action in ["create", "attach-existing"]:
+    for branch in ["main", "feature"]:
+        v = dict(PUBLISH_PACKAGES="false", RELEASE_ACTION=action,
+                 CI_COMMIT_BRANCH=branch, CI_DEFAULT_BRANCH="main")
+        for job in publish_jobs:
+            g = resolve_extends(job)["rules"]
+            check(not evaluate(g, v),
+                  f"build-only ({action}/{branch}): {job} excluded (no upload)")
 v = dict(PUBLISH_PACKAGES="true", RELEASE_ACTION="create",
          CI_COMMIT_BRANCH="feature", CI_DEFAULT_BRANCH="main")
 check(not evaluate(gate, v), "publish jobs excluded off the default branch")
