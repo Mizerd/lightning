@@ -3052,6 +3052,8 @@ quint64 RustSdkMatrixClient::createRoom(const QVariantMap &options)
                    options.value(QStringLiteral("alias")).toString());
     payload.insert(QStringLiteral("space_id"),
                    options.value(QStringLiteral("spaceId")).toString());
+    payload.insert(QStringLiteral("is_space"),
+                   options.value(QStringLiteral("isSpace")).toBool());
     payload.insert(QStringLiteral("invites"),
                    QJsonArray::fromStringList(
                        options.value(QStringLiteral("invites")).toStringList()));

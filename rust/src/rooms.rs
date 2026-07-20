@@ -21,7 +21,7 @@ use matrix_sdk::{
         api::client::{
             media::get_content_thumbnail::v3::Method,
             room::{
-                create_room::{self, v3::RoomPreset},
+                create_room::{self, v3::{CreationContent, RoomPreset}},
                 Visibility,
             },
         },
@@ -30,6 +30,8 @@ use matrix_sdk::{
             room::encryption::RoomEncryptionEventContent, space::child::SpaceChildEventContent,
             InitialStateEvent, StateEventType,
         },
+        room::RoomType,
+        serde::Raw,
         OwnedMxcUri, OwnedUserId, RoomId, UInt, UserId,
     },
     RoomMemberships, RoomState,
@@ -719,6 +721,9 @@ pub(crate) struct CreateRoomOptions {
     pub invites: Vec<String>,
     #[serde(default)]
     pub space_id: String,
+    /// Create a Matrix Space (m.space) instead of an ordinary room.
+    #[serde(default)]
+    pub is_space: bool,
 }
 
 /// Build the pinned ruma create-room request from validated options.
@@ -737,13 +742,21 @@ pub(crate) fn build_create_room_request(
             invites.push(uid);
         }
     }
-    let initial_state = if opts.encrypted {
+    // A Space is a room of type m.space; it is never an encrypted timeline,
+    // so the encryption initial-state is skipped for Spaces.
+    let initial_state = if opts.encrypted && !opts.is_space {
         vec![InitialStateEvent::with_empty_state_key(
             RoomEncryptionEventContent::with_recommended_defaults(),
         )
         .to_raw_any()]
     } else {
         Vec::new()
+    };
+    let creation_content = if opts.is_space {
+        let cc = assign!(CreationContent::new(), { room_type: Some(RoomType::Space) });
+        Some(Raw::new(&cc).map_err(|e| format!("space creation content: {e}"))?)
+    } else {
+        None
     };
     let request = assign!(create_room::v3::Request::new(), {
         name: Some(opts.name.trim().to_owned()),
@@ -759,6 +772,7 @@ pub(crate) fn build_create_room_request(
         room_alias_name: (!opts.alias.trim().is_empty())
             .then(|| opts.alias.trim().to_owned()),
         initial_state,
+        creation_content,
     });
     Ok(request)
 }
@@ -1801,6 +1815,33 @@ mod tests {
         assert_eq!(request.room_alias_name.as_deref(), Some("town-square"));
         assert_eq!(request.topic.as_deref(), Some("hello"));
         assert!(request.initial_state.is_empty());
+    }
+
+    #[test]
+    fn create_space_request_sets_space_creation_content_and_no_encryption() {
+        let opts = CreateRoomOptions {
+            name: "Team".to_owned(),
+            topic: "Our team".to_owned(),
+            is_space: true,
+            // Even if encryption were requested, a Space is never encrypted.
+            encrypted: true,
+            ..Default::default()
+        };
+        let request = build_create_room_request(&opts).unwrap();
+        assert_eq!(request.name.as_deref(), Some("Team"));
+        // No encryption initial-state for a Space.
+        assert!(request.initial_state.is_empty());
+        // creation_content carries room_type: m.space.
+        let raw = request.creation_content.expect("creation_content present");
+        let cc = raw.deserialize().expect("valid creation content");
+        assert_eq!(cc.room_type, Some(RoomType::Space));
+    }
+
+    #[test]
+    fn ordinary_room_has_no_creation_content() {
+        let opts = CreateRoomOptions { name: "Chat".to_owned(), ..Default::default() };
+        let request = build_create_room_request(&opts).unwrap();
+        assert!(request.creation_content.is_none());
     }
 
     #[test]

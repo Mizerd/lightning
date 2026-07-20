@@ -22,19 +22,22 @@ Dialog {
     anchors.centerIn: parent
     padding: AppTheme.spacing16
 
-    // "dm" | "room"
+    // "dm" | "room" | "space"
     property string mode: "dm"
     // DM selection state.
     property string selectedUserId: ""
     property string selectedDisplayName: ""
     // Room invite selection state.
     property var roomInvites: []
+    // Set while a Space create is in flight so the new Space is selected in
+    // the rail (not opened as a timeline) when it arrives.
+    property bool pendingIsSpace: false
 
-    // startMode ("dm" | "room") lets callers (e.g. the Home surface) open
-    // straight into the room tab; defaults to a DM search.
+    // startMode ("dm" | "room" | "space") lets callers (e.g. the Home
+    // surface) open straight into a tab; defaults to a DM search.
     function openDialog(startMode) {
         resetAll()
-        if (startMode === "room" || startMode === "dm")
+        if (startMode === "room" || startMode === "dm" || startMode === "space")
             mode = startMode
         open()
         if (mode === "dm")
@@ -46,12 +49,16 @@ Dialog {
         selectedUserId = ""
         selectedDisplayName = ""
         roomInvites = []
+        pendingIsSpace = false
         roomName.text = ""
         roomTopic.text = ""
         roomAlias.text = ""
         publicRoom.checked = false
         encryptRoom.checked = true
         addToSpace.checked = false
+        spaceName.text = ""
+        spaceTopic.text = ""
+        spacePublic.checked = false
         dmPicker.clear()
         roomPicker.clear()
         app.conversations.reset()
@@ -62,6 +69,10 @@ Dialog {
     Connections {
         target: app.conversations
         function onConversationReady(roomId) {
+            // A newly created Space is selected in the rail rather than opened
+            // as a timeline (it has no message timeline of its own).
+            if (root.pendingIsSpace && roomId && app.spaces)
+                app.spaces.activeSpaceId = roomId
             if (root.opened)
                 root.close()
         }
@@ -92,6 +103,13 @@ Dialog {
                 checked: root.mode === "room"
                 onClicked: root.mode = "room"
                 Accessible.name: qsTr("Create a new room")
+            }
+            Button {
+                text: qsTr("New Space")
+                checkable: true
+                checked: root.mode === "space"
+                onClicked: root.mode = "space"
+                Accessible.name: qsTr("Create a new Space")
             }
             Item { Layout.fillWidth: true }
         }
@@ -312,6 +330,7 @@ Dialog {
                                             ? qsTr("Create encrypted room")
                                             : qsTr("Create unencrypted room"))
                 onClicked: {
+                    root.pendingIsSpace = false
                     app.conversations.createRoom({
                         name: roomName.text,
                         topic: roomTopic.text,
@@ -321,6 +340,57 @@ Dialog {
                         invites: root.roomInvites,
                         spaceId: (addToSpace.visible && addToSpace.checked)
                                  ? app.spaces.activeSpaceId : ""
+                    })
+                }
+            }
+        }
+
+        // ── New Space ─────────────────────────────────────────────────────
+        ColumnLayout {
+            visible: root.mode === "space"
+            Layout.fillWidth: true
+            spacing: AppTheme.spacing8
+
+            Label {
+                Layout.fillWidth: true
+                text: qsTr("A Space groups related rooms together in the "
+                           + "left rail. It is a real Matrix Space, not a "
+                           + "local folder.")
+                color: AppTheme.textMuted
+                wrapMode: Text.WordWrap
+                font.pixelSize: AppTheme.fontSizeXS
+            }
+            TextField {
+                id: spaceName
+                Layout.fillWidth: true
+                placeholderText: qsTr("Space name (required)")
+                font.pixelSize: AppTheme.fontSizeM
+            }
+            TextField {
+                id: spaceTopic
+                Layout.fillWidth: true
+                placeholderText: qsTr("Description (optional)")
+                font.pixelSize: AppTheme.fontSizeM
+            }
+            CheckBox {
+                id: spacePublic
+                text: qsTr("Public Space (anyone can find and join)")
+            }
+            Button {
+                Layout.fillWidth: true
+                highlighted: true
+                enabled: !app.conversations.busy
+                         && spaceName.text.trim().length > 0
+                text: qsTr("Create Space")
+                Accessible.name: text
+                onClicked: {
+                    root.pendingIsSpace = true
+                    app.conversations.createRoom({
+                        name: spaceName.text,
+                        topic: spaceTopic.text,
+                        "public": spacePublic.checked,
+                        encrypted: false,
+                        isSpace: true
                     })
                 }
             }
