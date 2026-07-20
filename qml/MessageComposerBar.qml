@@ -135,13 +135,15 @@ Item {
         title: qsTr("Send file")
         onAccepted: app.media.sendPickedFile(app.currentRoomId, selectedFile)
     }
-    Menu {
+    AppMenu {
         id: legacyAttachMenu
-        MenuItem {
+        AppMenuItem {
+            iconName: "image"
             text: qsTr("Send image…")
             onTriggered: pickImageDialog.open()
         }
-        MenuItem {
+        AppMenuItem {
+            iconName: "attach_file"
             text: qsTr("Send file…")
             onTriggered: pickFileDialog.open()
         }

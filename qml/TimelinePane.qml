@@ -180,6 +180,37 @@ Rectangle {
 
     // v0.5.9: in-app image viewer + explicit Save As for file attachments.
     ImageViewerOverlay { id: imageViewer }
+
+    // v0.7: ONE reaction picker and ONE sender-profile popover for the whole
+    // timeline (previously every message row eagerly built its own picker
+    // popup — dozens of live instances per screen). The target event id is
+    // snapshotted at open; a room or account switch closes both.
+    EmojiPicker {
+        id: sharedReactionPicker
+        mode: "reaction"
+        property string targetEventId: ""
+        onOpened: timeline.emojiPickerOpen = true
+        onClosed: {
+            timeline.emojiPickerOpen = false
+            targetEventId = ""
+        }
+        onEmojiChosen: (emoji) => {
+            if (targetEventId !== "")
+                app.composer.reactTo(targetEventId, emoji)
+        }
+    }
+    MemberProfilePopover {
+        id: senderProfilePopover
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+    }
+    Connections {
+        target: app
+        function onCurrentRoomIdChanged() {
+            sharedReactionPicker.close()
+            senderProfilePopover.close()
+        }
+    }
     FileDialog {
         id: saveMediaDialog
         property string pendingMediaKey: ""
@@ -638,6 +669,19 @@ Rectangle {
                 // the view so MessageDelegate needs no external ids.
                 property var openImage: function(mediaKey, httpUrl) {
                     imageViewer.openFor(mediaKey || "", httpUrl)
+                }
+                // v0.7: shared reaction picker / sender profile entry points
+                // (one instance per timeline; the event id is captured at
+                // open so delegate reuse can never redirect the action).
+                property var openReactionPicker: function(eventId, point) {
+                    if (!eventId || eventId.length === 0)
+                        return
+                    sharedReactionPicker.targetEventId = eventId
+                    sharedReactionPicker.anchorPoint = point
+                    sharedReactionPicker.open()
+                }
+                property var openSenderProfile: function(member) {
+                    senderProfilePopover.openFor(member)
                 }
                 property var saveMedia: function(mediaKey, filename) {
                     if (!mediaKey || mediaKey.length === 0) return

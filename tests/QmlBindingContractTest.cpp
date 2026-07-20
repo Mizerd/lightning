@@ -497,10 +497,13 @@ private Q_SLOTS:
         QVERIFY(delegate.contains(QStringLiteral("id: actionBar")));
         QVERIFY(delegate.contains(QStringLiteral("id: previewLoader")));
         QVERIFY(delegate.contains(QStringLiteral("id: imageComponent")));
-        QVERIFY(delegate.contains(QStringLiteral("id: reactionPicker")));
+        // v0.7: reactions open the view-shared picker via the snapshotted
+        // event id; the delegate owns no picker popup of its own.
+        QVERIFY(delegate.contains(
+            QStringLiteral("openReactionPickerFor(root.eventIdForActions()")));
+        QVERIFY(!delegate.contains(QStringLiteral("id: reactionPicker")));
         QVERIFY(delegate.contains(QStringLiteral("app.composer.beginReply")));
         QVERIFY(delegate.contains(QStringLiteral("app.composer.beginEdit")));
-        QVERIFY(delegate.contains(QStringLiteral("app.composer.reactTo")));
         QVERIFY(delegate.contains(QStringLiteral("acceptedButtons: Qt.RightButton")));
         QVERIFY(delegate.contains(QStringLiteral("Qt.Key_Menu")));
         QVERIFY(delegate.contains(QStringLiteral("id: moreMenu")));

@@ -649,19 +649,20 @@ private Q_SLOTS:
         QVERIFY(root != nullptr);
 
         // Stale the transient state as if the previous row had an open
-        // context menu / reaction picker and an inspected details payload.
+        // context menu and an inspected details payload. (Reaction targets
+        // no longer live on the delegate at all — the view-shared picker
+        // snapshots the event id at open, so a recycled delegate cannot
+        // carry one.)
         QVERIFY(root->setProperty("menuEventId",
                                   QStringLiteral("$stale-menu:mock.local")));
-        QVERIFY(root->setProperty("reactionEventId",
-                                  QStringLiteral("$stale-react:mock.local")));
         QCOMPARE(root->property("menuEventId").toString(),
                  QStringLiteral("$stale-menu:mock.local"));
+        QVERIFY(!root->property("reactionEventId").isValid());
 
         // Simulate the pool handing this delegate to a new row.
         QVERIFY(QMetaObject::invokeMethod(root, "resetForReuse"));
 
         QCOMPARE(root->property("menuEventId").toString(), QString{});
-        QCOMPARE(root->property("reactionEventId").toString(), QString{});
         // No engine warnings means resetForReuse() resolved every id it
         // touches (details dialog, popups, preview refresh) cleanly.
         QCOMPARE(warnings, QStringList{});

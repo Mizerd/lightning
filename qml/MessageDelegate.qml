@@ -75,7 +75,6 @@ Item {
             && ListView.view.pinnedActionsKey !== ""
             && ListView.view.pinnedActionsKey === actionKey
     property string menuEventId: ""
-    property string reactionEventId: ""
 
     // v0.7: pooled-delegate reuse. The ListView recycles this delegate for a
     // different row; model-bound state re-derives through its change handlers
@@ -88,11 +87,9 @@ Item {
     objectName: "messageDelegateRoot"
     function resetForReuse() {
         menuEventId = ""
-        reactionEventId = ""
         messageDetailsDialog.details = ({})
         if (moreMenu.visible) moreMenu.close()
         if (messageDetailsDialog.visible) messageDetailsDialog.close()
-        if (reactionPicker.opened) reactionPicker.close()
         refreshPreview()
     }
     ListView.onReused: resetForReuse()
@@ -753,7 +750,7 @@ Item {
                 anchors.topMargin: -3
                 anchors.rightMargin: 2
                 visible: rowHover.hovered || root.actionsPinned
-                         || reactionPicker.opened || moreMenu.opened
+                         || moreMenu.opened
                 z: 3
                 radius: AppTheme.radiusMd
                 color: AppTheme.surface
@@ -782,12 +779,8 @@ Item {
                         onClicked: {
                             if (root.ListView.view)
                                 root.ListView.view.pinnedActionsKey = root.actionKey
-                            root.reactionEventId = root.eventIdForActions()
-                            var p = reactButton.mapToItem(Overlay.overlay,
-                                                          reactButton.width / 2,
-                                                          reactButton.height)
-                            reactionPicker.anchorPoint = p
-                            reactionPicker.open()
+                            root.openReactionPickerFor(root.eventIdForActions(),
+                                                       reactButton)
                         }
                     }
                     IconButton {
@@ -838,11 +831,18 @@ Item {
                         ToolTip.delay: 500
                         onClicked: root.openContextMenu(root.width - moreMenu.implicitWidth,
                                                        actionBar.y + actionBar.height)
-                        Menu {
+                        // v0.7: the message action menu is a Lightning
+                        // popover — flat themed surface, icon + label rows,
+                        // logical separators, danger-styled destructive
+                        // action. Every action re-resolves its event by the
+                        // STABLE id snapshotted when the menu opened
+                        // (menuEventId), never a recycled delegate's row.
+                        AppMenu {
                             id: moreMenu
                             objectName: "messageContextMenu"
                             onClosed: root.menuEventId = ""
-                            MenuItem {
+                            AppMenuItem {
+                                iconName: "reply"
                                 text: qsTr("Reply")
                                 enabled: root.timelineModel.messagePermalink(
                                              root.menuEventId).length > 0
@@ -850,32 +850,18 @@ Item {
                                              root.menuEventId).redacted
                                 onTriggered: root.beginReply(root.menuEventId)
                             }
-                            MenuItem {
+                            AppMenuItem {
+                                iconName: "add_reaction"
                                 text: qsTr("React")
                                 enabled: root.timelineModel.messagePermalink(
                                              root.menuEventId).length > 0
                                          && !root.timelineModel.messageDetails(
                                              root.menuEventId).redacted
-                                onTriggered: {
-                                    root.reactionEventId = root.menuEventId
-                                    reactionPicker.open()
-                                }
+                                onTriggered: root.openReactionPickerFor(
+                                                 root.menuEventId, bubbleRow)
                             }
-                            MenuItem {
-                                text: qsTr("Copy text")
-                                enabled: root.timelineModel.visibleTextForEvent(
-                                             root.menuEventId).length > 0
-                                onTriggered: root.copyToClipboard(
-                                    root.timelineModel.visibleTextForEvent(root.menuEventId))
-                            }
-                            MenuItem {
-                                text: qsTr("Copy message link")
-                                enabled: root.timelineModel.messagePermalink(
-                                             root.menuEventId).length > 0
-                                onTriggered: root.copyToClipboard(
-                                    root.timelineModel.messagePermalink(root.menuEventId))
-                            }
-                            MenuItem {
+                            AppMenuItem {
+                                iconName: "forum"
                                 text: qsTr("Reply in thread")
                                 enabled: root.timelineModel.messagePermalink(
                                              root.menuEventId).length > 0
@@ -898,24 +884,51 @@ Item {
                             // locate the same event in the room timeline
                             // (highlighted); the existing navigation shows a
                             // safe message when the target is unavailable.
-                            MenuItem {
+                            AppMenuItem {
+                                iconName: "arrow_forward"
                                 text: qsTr("Open in room")
                                 visible: root.inThreadPanel
-                                height: root.inThreadPanel
-                                        ? implicitHeight : 0
                                 enabled: root.menuEventId !== ""
                                 onTriggered: app.pagination.jumpToEvent(
                                     root.menuEventId)
                             }
-                            MenuItem {
-                                text: qsTr("Edit")
-                                enabled: root.timelineModel.canEditEvent(root.menuEventId)
-                                visible: enabled
-                                onTriggered: app.composer.beginEdit(
-                                    root.menuEventId,
+                            AppMenuSeparator {}
+                            AppMenuItem {
+                                iconName: "content_copy"
+                                text: qsTr("Copy text")
+                                enabled: root.timelineModel.visibleTextForEvent(
+                                             root.menuEventId).length > 0
+                                onTriggered: root.copyToClipboard(
                                     root.timelineModel.visibleTextForEvent(root.menuEventId))
                             }
-                            MenuItem {
+                            AppMenuItem {
+                                iconName: "link"
+                                text: qsTr("Copy message link")
+                                enabled: root.timelineModel.messagePermalink(
+                                             root.menuEventId).length > 0
+                                onTriggered: root.copyToClipboard(
+                                    root.timelineModel.messagePermalink(root.menuEventId))
+                            }
+                            AppMenuItem {
+                                iconName: "person"
+                                text: qsTr("View profile")
+                                enabled: root.menuEventId !== ""
+                                         && root.ListView.view
+                                         && !!root.ListView.view.openSenderProfile
+                                onTriggered: {
+                                    var details = root.timelineModel.messageDetails(
+                                                      root.menuEventId)
+                                    if (!details.senderId)
+                                        return
+                                    root.ListView.view.openSenderProfile({
+                                        userId: details.senderId,
+                                        displayName: details.senderName || "",
+                                        avatarUrl: model.senderAvatarMxc || ""
+                                    })
+                                }
+                            }
+                            AppMenuItem {
+                                iconName: "info"
                                 text: qsTr("View details")
                                 enabled: root.menuEventId !== ""
                                 onTriggered: {
@@ -925,8 +938,23 @@ Item {
                                         messageDetailsDialog.open()
                                 }
                             }
-                            MenuItem {
+                            AppMenuItem {
+                                iconName: "edit_square"
+                                text: qsTr("Edit")
+                                enabled: root.timelineModel.canEditEvent(root.menuEventId)
+                                visible: enabled
+                                onTriggered: app.composer.beginEdit(
+                                    root.menuEventId,
+                                    root.timelineModel.visibleTextForEvent(root.menuEventId))
+                            }
+                            AppMenuSeparator {
+                                visible: root.timelineModel.canRedactEvent(
+                                             root.menuEventId)
+                            }
+                            AppMenuItem {
+                                iconName: "delete"
                                 text: qsTr("Delete")
+                                danger: true
                                 enabled: root.timelineModel.canRedactEvent(root.menuEventId)
                                 visible: enabled
                                 onTriggered: app.composer.redact(root.menuEventId)
@@ -979,13 +1007,18 @@ Item {
         }
     }
 
-    EmojiPicker {
-        id: reactionPicker
-        mode: "reaction"
-        onOpened: if (ListView.view) ListView.view.emojiPickerOpen = true
-        onClosed: if (ListView.view) ListView.view.emojiPickerOpen = false
-        onEmojiChosen: (emoji) =>
-            app.composer.reactTo(root.reactionEventId, emoji)
+    // v0.7: the reaction picker and sender-profile popover are SHARED
+    // view-level surfaces (one instance per timeline, not one per row —
+    // dozens of eager per-delegate popups measurably slowed room opening
+    // and scrolling). The target event id is snapshotted at open, so a
+    // recycled delegate can never redirect a reaction.
+    function openReactionPickerFor(eventId, anchorItem) {
+        if (!ListView.view || !ListView.view.openReactionPicker
+            || eventId === "")
+            return
+        var p = anchorItem.mapToItem(Overlay.overlay,
+                                     anchorItem.width / 2, anchorItem.height)
+        ListView.view.openReactionPicker(eventId, p)
     }
 
     TextEdit {
@@ -1046,10 +1079,8 @@ Item {
         target: app
         function onCurrentRoomIdChanged() {
             moreMenu.close()
-            reactionPicker.close()
             messageDetailsDialog.close()
             root.menuEventId = ""
-            root.reactionEventId = ""
         }
     }
 

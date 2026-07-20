@@ -177,10 +177,18 @@ Item {
         enabled: model.membership === "joined"
         onTapped: roomMenu.popup()
     }
-    Menu {
+    AppMenu {
         id: roomMenu
-        MenuItem { text: qsTr("Mark as read"); onTriggered: root.markRead() }
-        MenuItem { text: qsTr("Mark as unread"); onTriggered: root.markUnread() }
+        AppMenuItem {
+            iconName: "check"
+            text: qsTr("Mark as read")
+            onTriggered: root.markRead()
+        }
+        AppMenuItem {
+            iconName: "visibility_off"
+            text: qsTr("Mark as unread")
+            onTriggered: root.markUnread()
+        }
     }
 
     // Design shell: no per-row hairline — rows separate through spacing

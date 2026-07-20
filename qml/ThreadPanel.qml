@@ -535,6 +535,18 @@ Rectangle {
                 function toggleStateGroup(groupId) {}
                 property var openImage: panel.openImage
                 property var saveMedia: panel.saveMedia
+                // v0.7: shared reaction picker / sender profile entry points
+                // (one instance per panel; event id captured at open).
+                property var openReactionPicker: function(eventId, point) {
+                    if (!eventId || eventId.length === 0)
+                        return
+                    threadReactionPicker.targetEventId = eventId
+                    threadReactionPicker.anchorPoint = point
+                    threadReactionPicker.open()
+                }
+                property var openSenderProfile: function(member) {
+                    threadSenderProfile.openFor(member)
+                }
 
                 // v0.6.0 checkpoint 6: the panel's own wheel motion engine
                 // (app.threadScroll) — same device-aware policy as the room
@@ -1003,6 +1015,35 @@ Rectangle {
                                        emoji)
         }
         onClosed: Qt.callLater(threadComposerInput.forceActiveFocus)
+    }
+
+    // v0.7: one reaction picker + one profile popover for every thread row
+    // (never a per-row popup). Closed with the thread/room context.
+    EmojiPicker {
+        id: threadReactionPicker
+        mode: "reaction"
+        property string targetEventId: ""
+        onOpened: replyList.emojiPickerOpen = true
+        onClosed: {
+            replyList.emojiPickerOpen = false
+            targetEventId = ""
+        }
+        onEmojiChosen: (emoji) => {
+            if (targetEventId !== "")
+                app.composer.reactTo(targetEventId, emoji)
+        }
+    }
+    MemberProfilePopover {
+        id: threadSenderProfile
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+    }
+    Connections {
+        target: app
+        function onCurrentRoomIdChanged() {
+            threadReactionPicker.close()
+            threadSenderProfile.close()
+        }
     }
 
     GifPicker {

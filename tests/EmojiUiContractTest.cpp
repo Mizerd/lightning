@@ -24,12 +24,22 @@ private Q_SLOTS:
     {
         const QString delegate = read(QStringLiteral(QML_DIR "/MessageDelegate.qml"));
         const QString composer = read(QStringLiteral(QML_DIR "/MessageComposerBar.qml"));
+        const QString pane = read(QStringLiteral(QML_DIR "/TimelinePane.qml"));
+        const QString thread = read(QStringLiteral(QML_DIR "/ThreadPanel.qml"));
         QVERIFY(!delegate.contains("reactionPalette"));
         QVERIFY(!delegate.contains("[\"👍\""));
-        QCOMPARE(delegate.count("app.composer.reactTo(root.reactionEventId, emoji)"), 1);
+        // v0.7: ONE shared reaction picker per view (never a per-row popup);
+        // the delegate routes through the view with the event id captured
+        // at open, and the shared picker applies the reaction to that
+        // snapshotted target.
+        QVERIFY(!delegate.contains("EmojiPicker {"));
         QVERIFY(delegate.contains(
-            "root.reactionEventId = root.eventIdForActions()"));
-        QVERIFY(delegate.contains("reactionPicker.open()"));
+            "root.openReactionPickerFor(root.eventIdForActions()"));
+        QVERIFY(delegate.contains(
+            "ListView.view.openReactionPicker(eventId, p)"));
+        QCOMPARE(pane.count("app.composer.reactTo(targetEventId, emoji)"), 1);
+        QCOMPARE(thread.count("app.composer.reactTo(targetEventId, emoji)"), 1);
+        QVERIFY(pane.contains("sharedReactionPicker.targetEventId = eventId"));
         QVERIFY(composer.contains("input.selectionStart"));
         QVERIFY(composer.contains("input.selectionEnd"));
         QVERIFY(composer.contains("input.remove(start, end)"));
