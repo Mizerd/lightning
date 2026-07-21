@@ -110,11 +110,21 @@ Item {
                 }
             }
             Label {
+                objectName: "roomPreviewLabel"
                 text: model.lastMessagePreview
                 color: selected ? AppTheme.selectedText : AppTheme.textMuted
                 opacity: selected ? 0.9 : 1.0
                 font.pixelSize: AppTheme.scaled(AppTheme.fontMessageSender)
                 elide: Label.ElideRight
+                // Hard one-line guarantee: the summary layer normalizes
+                // newlines away, but a persisted pre-normalization preview
+                // (or any future producer bug) must still never expand the
+                // row — explicit '\n's would otherwise break lines even
+                // with elide set. Plain text: a message body must never
+                // rich-format the room list.
+                maximumLineCount: 1
+                wrapMode: Text.NoWrap
+                textFormat: Text.PlainText
                 Layout.fillWidth: true
             }
 

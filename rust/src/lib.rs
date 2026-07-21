@@ -4427,6 +4427,13 @@ pub(crate) fn latest_event_preview_text(
         if body.is_empty() { fallback.to_owned() } else { body }
     }
 
+    // Room-list previews are one visual line: bodies are free-form (a poll
+    // fallback carries one line per answer) and must never define room-row
+    // geometry on the C++ side.
+    fn one_line(text: &str) -> String {
+        text.split_whitespace().collect::<Vec<_>>().join(" ")
+    }
+
     let LatestEventValue::Remote(event) = value else {
         return String::new();
     };
@@ -4439,18 +4446,24 @@ pub(crate) fn latest_event_preview_text(
     match message_like {
         AnySyncMessageLikeEvent::RoomMessage(SyncMessageLikeEvent::Original(message)) => {
             match message.content.msgtype {
-                MessageType::Text(content) => content.body,
-                MessageType::Notice(content) => content.body,
-                MessageType::Emote(content) => content.body,
-                MessageType::Image(content) => body_or(content.body, "Image"),
-                MessageType::File(content) => body_or(content.body, "File"),
-                MessageType::Video(content) => body_or(content.body, "Video"),
-                MessageType::Audio(content) => body_or(content.body, "Audio"),
+                MessageType::Text(content) => one_line(&content.body),
+                MessageType::Notice(content) => one_line(&content.body),
+                MessageType::Emote(content) => one_line(&content.body),
+                MessageType::Image(content) => body_or(one_line(&content.body), "Image"),
+                MessageType::File(content) => body_or(one_line(&content.body), "File"),
+                MessageType::Video(content) => body_or(one_line(&content.body), "Video"),
+                MessageType::Audio(content) => body_or(one_line(&content.body), "Audio"),
                 _ => String::new(),
             }
         }
         AnySyncMessageLikeEvent::Sticker(SyncMessageLikeEvent::Original(_)) => {
             "Sticker".to_owned()
+        }
+        // MSC3381 poll starts previously fell through to the empty arm, so a
+        // room whose latest event was a poll showed no preview after a cold
+        // start (and the live path showed the multi-line MSC1767 fallback).
+        AnySyncMessageLikeEvent::UnstablePollStart(SyncMessageLikeEvent::Original(poll)) => {
+            format!("Poll: {}", one_line(&poll.content.poll_start().question.text))
         }
         _ => String::new(),
     }
@@ -4778,6 +4791,35 @@ mod latest_event_preview_tests {
             "m.room.message",
         );
         assert_eq!(latest_event_preview_text(&unnamed), "File");
+    }
+
+    #[test]
+    fn multiline_body_flattens_to_single_line_preview() {
+        let value = remote(
+            json!({ "msgtype": "m.text", "body": "first\nsecond\n\nthird" }),
+            "m.room.message",
+        );
+        assert_eq!(latest_event_preview_text(&value), "first second third");
+    }
+
+    #[test]
+    fn poll_start_previews_question_on_one_line() {
+        let value = remote(
+            json!({
+                "org.matrix.msc3381.poll.start": {
+                    "question": { "org.matrix.msc1767.text": "Best\nanswer?" },
+                    "kind": "org.matrix.msc3381.poll.disclosed",
+                    "max_selections": 1,
+                    "answers": [
+                        { "id": "a", "org.matrix.msc1767.text": "Yes" },
+                        { "id": "b", "org.matrix.msc1767.text": "No" },
+                    ],
+                },
+                "org.matrix.msc1767.text": "Best\nanswer?\n1. Yes\n2. No",
+            }),
+            "org.matrix.msc3381.poll.start",
+        );
+        assert_eq!(latest_event_preview_text(&value), "Poll: Best answer?");
     }
 
     #[test]

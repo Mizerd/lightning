@@ -40,6 +40,24 @@ private Q_SLOTS:
         QVERIFY(!account.contains(QStringLiteral("Layout.maximumWidth: 380")));
     }
 
+    void roomPreviewIsHardClampedToOneLine()
+    {
+        // The summary layer normalizes previews, but persisted
+        // pre-normalization strings (and future producer bugs) must still
+        // never expand a room row: explicit '\n's break lines even with
+        // elide set, so the label needs the hard clamp. Plain text keeps a
+        // message body from rich-formatting the room list.
+        const QString delegate = read(QStringLiteral("RoomDelegate.qml"));
+        QVERIFY(!delegate.isEmpty());
+        const int label =
+            delegate.indexOf(QStringLiteral("objectName: \"roomPreviewLabel\""));
+        QVERIFY(label >= 0);
+        const QString block = delegate.mid(label, 1400);
+        QVERIFY(block.contains(QStringLiteral("maximumLineCount: 1")));
+        QVERIFY(block.contains(QStringLiteral("wrapMode: Text.NoWrap")));
+        QVERIFY(block.contains(QStringLiteral("textFormat: Text.PlainText")));
+    }
+
     void paginationVisibilityDoesNotDependOnGeometry()
     {
         const QString pane = read(QStringLiteral("TimelinePane.qml"));

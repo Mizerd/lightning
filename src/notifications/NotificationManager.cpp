@@ -1,5 +1,6 @@
 #include "notifications/NotificationManager.h"
 
+#include "matrix/EventPreview.h"
 #include "matrix/TimelineEvent.h"
 #include "models/UserLookup.h"
 
@@ -99,8 +100,15 @@ NotificationManager::decide(const TimelineEvent &event, const Context &context)
                                               "Sent a voice message")
                 : QCoreApplication::translate("Notifications",
                                               "Sent an audio file");
+        } else if (event.type == TimelineEvent::Poll) {
+            // Never the multi-line MSC3381 fallback (question plus every
+            // answer) in a desktop notification.
+            decision.body = matrix::preview::oneLineSummary(event).left(160);
         } else {
-            decision.body = event.body.left(160);
+            // Bodies are free-form: mention markdown reduces to its label,
+            // newlines collapse — a notification is one compact line.
+            decision.body =
+                matrix::preview::normalizePreviewText(event.body).left(160);
         }
         break;
     }

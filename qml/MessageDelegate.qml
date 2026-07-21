@@ -2190,7 +2190,10 @@ Item {
                 app.composer.votePoll(eventId, selection, pollThreadRoot)
             }
 
-            implicitWidth: Math.min(420, bubble.width)
+            // Fixed intrinsic width; the Loader's Layout.maximumWidth clamps
+            // it to the bubble. Referencing bubble.width here is circular in
+            // the Bubbles layout (bubble sizes itself from content width).
+            implicitWidth: 420
             implicitHeight: pollColumn.implicitHeight + 20
             color: AppTheme.surfaceElevated
             radius: AppTheme.radiusMd

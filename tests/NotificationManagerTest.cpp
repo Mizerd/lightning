@@ -66,6 +66,28 @@ private Q_SLOTS:
         QCOMPARE(dm.title, QStringLiteral("Bob"));
     }
 
+    void pollAndMultilineBodiesStayOneLine()
+    {
+        auto context = baseContext();
+        context.previewMode = NotificationManager::SenderAndMessage;
+
+        // Poll: question only — never the MSC3381 answer-list fallback.
+        TimelineEvent poll = incomingText(
+            QStringLiteral("Best answer?\n1. Yes\n2. No\n3. Big Money"));
+        poll.type = TimelineEvent::Poll;
+        poll.pollQuestion = QStringLiteral("Best answer?");
+        const auto pollDecision = NotificationManager::decide(poll, context);
+        QCOMPARE(pollDecision.body, QStringLiteral("Poll: Best answer?"));
+
+        // Multi-line text bodies collapse; mention markdown reduces to its
+        // label.
+        const auto text = NotificationManager::decide(
+            incomingText(QStringLiteral(
+                "[@test](https://matrix.to/#/%40test%3Ax) hi\nthere")),
+            context);
+        QCOMPARE(text.body, QStringLiteral("@test hi there"));
+    }
+
     void privateModeIsGeneric()
     {
         auto context = baseContext();

@@ -122,6 +122,8 @@ set(APP_SOURCES
     src/matrix/CppHttpMatrixClient.cpp
     src/matrix/MediaHelpers.h
     src/matrix/MediaHelpers.cpp
+    src/matrix/EventPreview.h
+    src/matrix/EventPreview.cpp
     src/matrix/RustTimelineIngest.h
     src/matrix/RustTimelineIngest.cpp
     src/matrix/RustSessionPolicy.h
@@ -916,6 +918,18 @@ if(BUILD_TESTING)
         Qt6::Core Qt6::Qml Qt6::Test)
     add_test(NAME crypto-bootstrap-model COMMAND crypto-bootstrap-model-test)
 
+    # One-line semantic event summaries for side surfaces (room list,
+    # notifications): poll fallbacks, mention markdown, newline collapse,
+    # bounded length. Pins the multi-line poll room-row regression.
+    qt_add_executable(event-preview-test
+        tests/EventPreviewTest.cpp
+        src/matrix/EventPreview.h
+        src/matrix/EventPreview.cpp
+    )
+    target_include_directories(event-preview-test PRIVATE src)
+    target_link_libraries(event-preview-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME event-preview COMMAND event-preview-test)
+
     # v0.6.0 checkpoint 11: the pure notification decision policy — privacy
     # modes, mention metadata, local room modes, active-room suppression,
     # never-expose-ciphertext.
@@ -923,6 +937,8 @@ if(BUILD_TESTING)
         tests/NotificationManagerTest.cpp
         src/notifications/NotificationManager.h
         src/notifications/NotificationManager.cpp
+        src/matrix/EventPreview.h
+        src/matrix/EventPreview.cpp
         src/models/UserLookup.h
         src/models/UserLookup.cpp
     )

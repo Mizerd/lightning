@@ -2,6 +2,7 @@
 
 #include "app/SettingsManager.h"
 #include "crypto/E2eeDiagnostics.h"
+#include "matrix/EventPreview.h"
 #include "matrix/MediaHelpers.h"
 #include "matrix/RustSessionPolicy.h"
 #include "matrix_rust.h"
@@ -60,20 +61,10 @@ TimelineEvent::Type typeFromString(const QString &msgtype)
 
 QString previewFor(const TimelineEvent &event)
 {
-    if (event.type == TimelineEvent::Image)
-        return event.mediaFilename.isEmpty() ? QStringLiteral("Image") : event.mediaFilename;
-    if (event.type == TimelineEvent::File)
-        return event.mediaFilename.isEmpty() ? QStringLiteral("File") : event.mediaFilename;
-    if (event.type == TimelineEvent::Video)
-        return event.mediaFilename.isEmpty() ? QStringLiteral("Video") : event.mediaFilename;
-    if (event.type == TimelineEvent::Audio)
-        return event.mediaIsVoice ? QStringLiteral("Voice message")
-                                  : (event.mediaFilename.isEmpty()
-                                         ? QStringLiteral("Audio")
-                                         : event.mediaFilename);
-    if (event.type == TimelineEvent::Sticker)
-        return QStringLiteral("Sticker");
-    return event.body;
+    // One normalizing choke point for every side-surface summary: a poll's
+    // multi-line MSC3381 fallback, a mention's markdown permalink, or any
+    // multi-line body must never reach the room list verbatim.
+    return matrix::preview::oneLineSummary(event);
 }
 
 } // namespace
@@ -2434,8 +2425,11 @@ RoomInfo RustSdkMatrixClient::roomInfoFromJson(const QJsonObject &obj) const
     // set/insert diffs arrive on every unread/order change — pre-0.7 this
     // raced previews back to empty until the room was reopened.
     {
-        const QString incomingPreview =
-            obj.value(QStringLiteral("last_message_preview")).toString();
+        // The Rust latest-event path sends plain text (typed summaries are
+        // built Rust-side); normalization still guards legacy multi-line
+        // bodies and mention markdown.
+        const QString incomingPreview = matrix::preview::normalizePreviewText(
+            obj.value(QStringLiteral("last_message_preview")).toString());
         if (!incomingPreview.isEmpty())
             room.lastMessagePreview = incomingPreview;
     }
@@ -2581,7 +2575,11 @@ void RustSdkMatrixClient::handleTimelineEvent(const QJsonObject &event)
         || m_timelineTracker.requestedRoom() == roomId) {
         auto roomIt = m_rooms.find(roomId);
         if (roomIt != m_rooms.end()) {
-            const QString body = obj.value(QStringLiteral("body")).toString();
+            // Raw sync bodies are free-form (poll fallbacks, mention
+            // markdown, newlines); the live-timeline diff path follows up
+            // with the typed summary, but this writer must be one-line too.
+            const QString body = matrix::preview::normalizePreviewText(
+                obj.value(QStringLiteral("body")).toString());
             if (!body.isEmpty())
                 roomIt->lastMessagePreview = body;
             const QDateTime ts = timestampFromMs(static_cast<qint64>(
