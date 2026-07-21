@@ -106,6 +106,7 @@ AppController::AppController(Backend backend, QObject *parent)
     m_conversations= std::make_unique<ConversationController>(this);
     m_roomInfo     = std::make_unique<RoomInfoController>(this);
     m_mediaBridge  = std::make_unique<MediaBridge>(this);
+    m_playback     = std::make_unique<MediaPlaybackController>(this);
     m_pagination   = std::make_unique<PaginationController>(this);
     m_readReceipts = std::make_unique<ReadReceiptCoordinator>(this);
     m_linkPreviews = std::make_unique<LinkPreviewController>(this);
@@ -862,6 +863,8 @@ void AppController::setCurrentRoomId(const QString &roomId)
     // A thread panel never survives into another room; close it BEFORE the
     // room timeline switches so no stale thread work targets the new room.
     m_thread->handleCurrentRoomChanged(roomId);
+    // v0.7: inline media playback never survives a room switch either.
+    m_playback->stopAll();
     m_timeline->setRoomId(roomId);
     m_composer->setRoomId(roomId);
     m_pagination->setRoomId(roomId);
@@ -1309,6 +1312,7 @@ void AppController::onLoginSucceeded()
 void AppController::onLoggedOut()
 {
     m_currentRoomId.clear();
+    m_playback->stopAll(); // no playback (or decrypted-media handle) survives
     Q_EMIT currentRoomIdChanged();
     if (m_accountSwitching) {
         // The old session was detached locally as part of a switch; stay on
@@ -1344,6 +1348,9 @@ void AppController::setAccountSwitching(bool switching)
 
 void AppController::clearCrossAccountCaches()
 {
+    // Playback stops before the decrypted media files are wiped, so no
+    // player holds an open handle into the previous account's cache.
+    m_playback->stopAll();
     m_mediaBridge->clear();
     m_notifications->clearPending();
     m_knownInvites.clear();

@@ -16,7 +16,8 @@ unfold_more play_arrow arrow_back arrow_forward more_horiz more_vert star \
 refresh download attach_file image description logout delete visibility \
 visibility_off content_copy reply gif_box keyboard_return workspaces tag \
 shield key warning error schedule format_bold format_italic strikethrough_s \
-code link format_list_bulleted format_quote"
+code link format_list_bulleted format_quote \
+pause stop volume_up volume_off open_in_full close_fullscreen graphic_eq"
 
 work=$(mktemp -d); trap 'rm -rf "$work"' EXIT
 base="https://github.com/google/material-design-icons/raw/master/variablefont"

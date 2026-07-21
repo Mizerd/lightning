@@ -466,6 +466,131 @@ private Q_SLOTS:
                         + QString::fromLatin1(oversized.toBase64()),
                     QStringLiteral("image/gif")).isEmpty());
     }
+
+    // ── v0.7: playable (video/audio) materialization ────────────────────
+
+    // Container sniffing is fail-closed: only known audio/video magic
+    // passes, mislabeled bytes never materialize, and raw ADTS needs the
+    // metadata to actually claim AAC.
+    void playableSniffingIsFailClosed()
+    {
+        auto ext = [](const QByteArray &bytes, const char *mime) {
+            return MediaBridge::playableExtensionFor(
+                bytes, QString::fromLatin1(mime));
+        };
+        QByteArray mp4 = QByteArrayLiteral("\x00\x00\x00\x18""ftypisom");
+        mp4.resize(64, '\0');
+        QCOMPARE(ext(mp4, "video/mp4"), QStringLiteral("mp4"));
+        QCOMPARE(ext(mp4, "audio/mp4"), QStringLiteral("m4a"));
+        QByteArray webm = QByteArrayLiteral("\x1A\x45\xDF\xA3");
+        webm.resize(64, '\0');
+        QCOMPARE(ext(webm, "video/webm"), QStringLiteral("webm"));
+        QCOMPARE(ext(webm, "video/x-matroska"), QStringLiteral("mkv"));
+        QByteArray ogg = QByteArrayLiteral("OggS");
+        ogg.resize(64, '\0');
+        QCOMPARE(ext(ogg, "audio/ogg"), QStringLiteral("ogg"));
+        QByteArray wav = QByteArrayLiteral("RIFF\x24\x00\x00\x00WAVE");
+        wav.resize(64, '\0');
+        QCOMPARE(ext(wav, "audio/wav"), QStringLiteral("wav"));
+        QByteArray mp3 = QByteArrayLiteral("ID3\x04");
+        mp3.resize(64, '\0');
+        QCOMPARE(ext(mp3, "audio/mpeg"), QStringLiteral("mp3"));
+        QByteArray flac = QByteArrayLiteral("fLaC");
+        flac.resize(64, '\0');
+        QCOMPARE(ext(flac, "audio/flac"), QStringLiteral("flac"));
+        // Frame-sync MP3 needs the mimetype; ADTS needs an AAC claim.
+        QByteArray sync = QByteArrayLiteral("\xFF\xFB\x90\x00");
+        sync.resize(64, '\0');
+        QCOMPARE(ext(sync, "audio/mpeg"), QStringLiteral("mp3"));
+        QVERIFY(ext(sync, "").isEmpty());
+        QByteArray adts = QByteArrayLiteral("\xFF\xF1\x50\x80");
+        adts.resize(64, '\0');
+        QCOMPARE(ext(adts, "audio/aac"), QStringLiteral("aac"));
+        QVERIFY(ext(adts, "audio/mpeg").isEmpty());
+        // Junk and non-media formats are rejected outright.
+        QByteArray junk(64, 'x');
+        QVERIFY(ext(junk, "video/mp4").isEmpty());
+        QByteArray gif = QByteArrayLiteral("GIF89a");
+        gif.resize(64, '\0');
+        QVERIFY(ext(gif, "image/gif").isEmpty());
+        QVERIFY(ext(QByteArrayLiteral("sh"), "video/mp4").isEmpty());
+    }
+
+    // The playable flow materializes a validated payload as a session temp
+    // file (correct suffix, restrictive permissions, unguessable name) and
+    // reports it via playableMediaReady; invalid payloads fail closed with
+    // the permanent "rejected" category.
+    void playableSourceMaterializesValidatedFile()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        QSignalSpy ready(&bridge, &MediaBridge::playableMediaReady);
+        QSignalSpy failed(&bridge, &MediaBridge::mediaFetchFailed);
+
+        // First call dispatches (nothing cached yet).
+        QCOMPARE(bridge.playableSource(QStringLiteral("$vid")), QString());
+        QCOMPARE(client.fetches.size(), 1);
+        QByteArray ogg = QByteArrayLiteral("OggS");
+        ogg.resize(2048, '\1');
+        client.succeed(client.fetches.at(0).opId, ogg,
+                       QStringLiteral("audio/ogg"));
+        QCOMPARE(ready.count(), 1);
+        const QString url = bridge.playableSource(QStringLiteral("$vid"));
+        QVERIFY(url.startsWith(QStringLiteral("file:")));
+        QVERIFY(url.endsWith(QStringLiteral(".ogg")));
+        const QString path = QUrl(url).toLocalFile();
+        QVERIFY(QFileInfo::exists(path));
+        // Unguessable name: never derived from the raw key alone.
+        QVERIFY(!QFileInfo(path).fileName().contains(QStringLiteral("$vid")));
+        const auto perms = QFileInfo(path).permissions();
+        QVERIFY(!(perms & QFileDevice::ReadGroup));
+        QVERIFY(!(perms & QFileDevice::ReadOther));
+
+        // Mislabeled/junk bytes fail closed with the permanent category.
+        QCOMPARE(bridge.playableSource(QStringLiteral("$bad")), QString());
+        QCOMPARE(client.fetches.size(), 2);
+        client.succeed(client.fetches.at(1).opId, QByteArray(2048, 'x'),
+                       QStringLiteral("video/mp4"));
+        QCOMPARE(ready.count(), 1); // no new materialization
+        bool sawRejected = false;
+        for (const auto &args : failed) {
+            if (args.at(0).toString() == QStringLiteral("full:$bad")
+                && args.at(1).toString() == QStringLiteral("rejected"))
+                sawRejected = true;
+        }
+        QVERIFY(sawRejected);
+
+        // clear() (sign-out / account switch) removes the decrypted file.
+        bridge.clear();
+        QVERIFY(!QFileInfo::exists(path));
+        QCOMPARE(bridge.playableSource(QStringLiteral("$vid")), QString());
+        QCOMPARE(client.fetches.size(), 3); // re-dispatch, no stale reuse
+    }
+
+    // Large playable payloads bypass the RAM LRU — one video must not
+    // evict the entire image cache — while small ones still cache.
+    void largePlayablePayloadSkipsRamCache()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+
+        QCOMPARE(bridge.playableSource(QStringLiteral("$big")), QString());
+        QByteArray big = QByteArrayLiteral("OggS");
+        big.resize(9 * 1024 * 1024, '\2'); // > 8 MiB skip threshold
+        client.succeed(client.fetches.at(0).opId, big,
+                       QStringLiteral("audio/ogg"));
+        QVERIFY(bridge.cacheBytesUsed() < 1024 * 1024);
+        QVERIFY(!bridge.playableSource(QStringLiteral("$big")).isEmpty());
+
+        QCOMPARE(bridge.playableSource(QStringLiteral("$small")), QString());
+        QByteArray small = QByteArrayLiteral("OggS");
+        small.resize(4096, '\3');
+        client.succeed(client.fetches.at(1).opId, small,
+                       QStringLiteral("audio/ogg"));
+        QVERIFY(bridge.cacheBytesUsed() >= small.size());
+    }
 };
 
 QTEST_GUILESS_MAIN(MediaBridgeTest)

@@ -41,6 +41,11 @@
             qt.qtdeclarative
             qt.qtsvg
             qt.qtwayland
+            # v0.7: native inline video/audio playback (QMediaPlayer /
+            # VideoOutput). nixpkgs builds qtmultimedia with BOTH the
+            # default FFmpeg backend (ffmpeg-full linked via RPATH — no
+            # plugin-path setup needed) and the GStreamer backend.
+            qt.qtmultimedia
             libsecret
             glib
             xkeyboard_config
@@ -71,11 +76,15 @@
             unset QT_QUICK_CONTROLS_STYLE_PATH
             unset QT_QPA_PLATFORMTHEME
 
-            export QT_PLUGIN_PATH="${qt.qtbase}/lib/qt-6/plugins:${qt.qtwayland}/lib/qt-6/plugins:${qt.qtsvg}/lib/qt-6/plugins:${qt.qtdeclarative}/lib/qt-6/plugins"
+            export QT_PLUGIN_PATH="${qt.qtbase}/lib/qt-6/plugins:${qt.qtwayland}/lib/qt-6/plugins:${qt.qtsvg}/lib/qt-6/plugins:${qt.qtdeclarative}/lib/qt-6/plugins:${qt.qtmultimedia}/lib/qt-6/plugins"
             export QT_QPA_PLATFORM_PLUGIN_PATH="${qt.qtbase}/lib/qt-6/plugins/platforms:${qt.qtwayland}/lib/qt-6/plugins/platforms"
-            export QML_IMPORT_PATH="${qt.qtdeclarative}/lib/qt-6/qml"
+            export QML_IMPORT_PATH="${qt.qtdeclarative}/lib/qt-6/qml:${qt.qtmultimedia}/lib/qt-6/qml"
             export QML2_IMPORT_PATH="$QML_IMPORT_PATH"
             export QT_XKB_CONFIG_ROOT="${pkgs.xkeyboard_config}/share/X11/xkb"
+            # Split-prefix Qt: let Qt6Qml's CMake machinery see qtmultimedia's
+            # QML-plugin configs (silences the harmless "quickmultimediaplugin
+            # ... will not be linked" configure warning; loading stays dynamic).
+            export QT_ADDITIONAL_PACKAGES_PREFIX_PATH="${qt.qtmultimedia}"
 
             echo "matrix-client dev shell — Qt ${qt.qtbase.version}"
             echo "Configure (mock/http):  cmake -S . -B build -G Ninja"

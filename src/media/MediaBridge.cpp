@@ -9,6 +9,7 @@
 #include <QLoggingCategory>
 #include <QMutexLocker>
 #include <QSaveFile>
+#include <QUuid>
 
 // v0.7: media/avatar pipeline diagnostics. Enabled with
 //   QT_LOGGING_RULES="lightning.media.debug=true"
@@ -266,6 +267,83 @@ QString MediaBridge::animatedSource(const QString &mediaKey)
     return {};
 }
 
+QString MediaBridge::playableSource(const QString &mediaKey)
+{
+    if (mediaKey.isEmpty()
+        || mediaKey.contains(QLatin1String("send-queue.localhost"))
+        || !supported())
+        return {};
+    const QString cacheKey = mediaCacheKey(mediaKey, 0);
+    const QString path = m_playableFiles.value(cacheKey);
+    if (!path.isEmpty() && QFileInfo::exists(path)) {
+        m_playableLru.removeOne(cacheKey);
+        m_playableLru.prepend(cacheKey);
+        return QUrl::fromLocalFile(path).toString();
+    }
+    m_playableWanted.insert(cacheKey);
+    if (failureBlocks(cacheKey))
+        return {};
+    const QByteArray cached = cachedBytes(cacheKey);
+    if (!cached.isEmpty()) {
+        // Mimetype intentionally empty: the container magic decides.
+        const QString written = writePlayableFile(cacheKey, cached, {});
+        if (!written.isEmpty())
+            return QUrl::fromLocalFile(written).toString();
+    }
+    if (!alreadyPending(cacheKey)) {
+        Pending request;
+        request.cacheKey = cacheKey;
+        request.mediaKey = mediaKey;
+        request.kind = 0;
+        dispatch(request);
+    }
+    return {};
+}
+
+QString MediaBridge::playableExtensionFor(const QByteArray &bytes,
+                                          const QString &mimetype)
+{
+    if (bytes.size() < 12)
+        return {};
+    const QString mime =
+        mimetype.section(QLatin1Char(';'), 0, 0).trimmed().toLower();
+    const auto u8 = [&bytes](qsizetype i) {
+        return static_cast<unsigned char>(bytes.at(i));
+    };
+    // ISO BMFF (MP4/M4A/MOV): a size-prefixed "ftyp" box leads the file.
+    if (bytes.mid(4, 4) == QByteArrayLiteral("ftyp"))
+        return mime.startsWith(QLatin1String("audio/"))
+            ? QStringLiteral("m4a") : QStringLiteral("mp4");
+    // Matroska/WebM: EBML magic.
+    if (u8(0) == 0x1A && u8(1) == 0x45 && u8(2) == 0xDF && u8(3) == 0xA3)
+        return mime.contains(QLatin1String("webm"))
+            ? QStringLiteral("webm") : QStringLiteral("mkv");
+    // Ogg (Vorbis/Opus).
+    if (bytes.startsWith("OggS"))
+        return QStringLiteral("ogg");
+    // WAV: RIFF….WAVE.
+    if (bytes.startsWith("RIFF")
+        && bytes.mid(8, 4) == QByteArrayLiteral("WAVE"))
+        return QStringLiteral("wav");
+    // FLAC.
+    if (bytes.startsWith("fLaC"))
+        return QStringLiteral("flac");
+    // MP3: ID3 tag or a bare MPEG audio frame sync. The layer bits must be
+    // non-zero — ADTS AAC shares the 0xFFE sync but always has layer 00,
+    // and a mislabeled ADTS stream must not sniff as MP3.
+    if (bytes.startsWith("ID3"))
+        return QStringLiteral("mp3");
+    if (u8(0) == 0xFF && (u8(1) & 0xE0) == 0xE0 && (u8(1) & 0x06) != 0
+        && mime == QLatin1String("audio/mpeg"))
+        return QStringLiteral("mp3");
+    // Raw AAC in ADTS framing — accepted only when the metadata says AAC.
+    if (u8(0) == 0xFF && (u8(1) & 0xF6) == 0xF0
+        && (mime == QLatin1String("audio/aac")
+            || mime == QLatin1String("audio/aacp")))
+        return QStringLiteral("aac");
+    return {};
+}
+
 QString MediaBridge::previewAnimatedSource(const QString &dataSource,
                                            const QString &mimetype)
 {
@@ -487,7 +565,13 @@ void MediaBridge::onMediaReady(quint64 opId, const QString &mediaKey, int kind,
     }
     ++m_statCompleted;
     m_failed.remove(request.cacheKey);
-    insertCache(request.cacheKey, bytes);
+    // v0.7: large playable payloads live on disk for the in-process player;
+    // pushing them through the RAM LRU would evict the entire image cache
+    // for one video. Smaller payloads (thumbnails, images, short audio)
+    // keep the existing in-memory path.
+    const bool playableWanted = m_playableWanted.remove(request.cacheKey);
+    if (!(playableWanted && bytes.size() > kLargeCacheSkipBytes))
+        insertCache(request.cacheKey, bytes);
     qCDebug(lcMedia, "ready %s bytes=%lld mime=%s in=%lldms -> mediaCached",
             qUtf8Printable(keyTag(request.cacheKey)),
             static_cast<long long>(bytes.size()),
@@ -499,7 +583,57 @@ void MediaBridge::onMediaReady(quint64 opId, const QString &mediaKey, int kind,
         else
             Q_EMIT mediaFetchFailed(request.cacheKey, QStringLiteral("invalid_gif"));
     }
+    if (playableWanted) {
+        if (!writePlayableFile(request.cacheKey, bytes, mimetype).isEmpty())
+            Q_EMIT playableMediaReady(request.cacheKey);
+        else
+            Q_EMIT mediaFetchFailed(request.cacheKey,
+                                    QStringLiteral("rejected"));
+    }
     Q_EMIT mediaCached(request.cacheKey);
+}
+
+QString MediaBridge::writePlayableFile(const QString &cacheKey,
+                                       const QByteArray &bytes,
+                                       const QString &mimetype)
+{
+    if (bytes.isEmpty() || bytes.size() > kPlayableCacheBytes
+        || !m_animatedDir || !m_animatedDir->isValid())
+        return {};
+    const QString extension = playableExtensionFor(bytes, mimetype);
+    if (extension.isEmpty())
+        return {}; // unknown container — fail closed, never materialize
+    if (m_playableNameSalt.isEmpty())
+        m_playableNameSalt = QUuid::createUuid().toString(QUuid::Id128);
+    const QString name = QString::fromLatin1(QCryptographicHash::hash(
+        (m_playableNameSalt + cacheKey).toUtf8(),
+        QCryptographicHash::Sha256).toHex())
+        + QLatin1Char('.') + extension;
+    const QString path = m_animatedDir->filePath(name);
+    QSaveFile file(path);
+    if (!file.open(QIODevice::WriteOnly))
+        return {};
+    // Owner-only, explicitly — QSaveFile otherwise honors the umask. The
+    // 0700 parent directory already blocks traversal; this is the second
+    // layer for decrypted payloads.
+    file.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner);
+    if (file.write(bytes) != bytes.size() || !file.commit())
+        return {};
+    m_playableFiles.insert(cacheKey, path);
+    m_playableSizes.insert(cacheKey, bytes.size());
+    m_playableLru.removeOne(cacheKey);
+    m_playableLru.prepend(cacheKey);
+    qint64 total = 0;
+    for (qint64 size : std::as_const(m_playableSizes))
+        total += size;
+    while ((total > kPlayableCacheBytes
+            || m_playableFiles.size() > kPlayableCacheEntries)
+           && m_playableLru.size() > 1) {
+        const QString victim = m_playableLru.takeLast();
+        total -= m_playableSizes.take(victim);
+        QFile::remove(m_playableFiles.take(victim));
+    }
+    return path;
 }
 
 QString MediaBridge::writeAnimatedFile(const QString &cacheKey,
@@ -641,6 +775,11 @@ void MediaBridge::clear()
     m_animatedSizes.clear();
     m_animatedLru.clear();
     m_animatedWanted.clear();
+    m_playableFiles.clear();
+    m_playableSizes.clear();
+    m_playableLru.clear();
+    m_playableWanted.clear();
+    m_playableNameSalt.clear(); // next session gets fresh unguessable names
     m_animatedDir.reset(); // recursively removes decrypted temporary files
     m_animatedDir = std::make_unique<QTemporaryDir>(
         QDir::tempPath() + QStringLiteral("/lightning-animated-XXXXXX"));

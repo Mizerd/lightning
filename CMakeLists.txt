@@ -68,6 +68,9 @@ find_package(Qt6 6.5 REQUIRED COMPONENTS
     Network
     Sql
     Widgets
+    # v0.7: native inline video/audio playback (QMediaPlayer/VideoOutput;
+    # FFmpeg backend by default on the pinned nixpkgs qtmultimedia).
+    Multimedia
 )
 # v0.6.0 checkpoint 11: freedesktop notifications (Linux-first). Optional so
 # non-DBus platforms still build; NotificationManager degrades to a no-op.
@@ -202,6 +205,8 @@ set(APP_SOURCES
     src/media/MediaBridge.cpp
     src/media/MediaImageProvider.h
     src/media/MediaImageProvider.cpp
+    src/media/MediaPlaybackController.h
+    src/media/MediaPlaybackController.cpp
     src/crypto/CryptoManager.h
     src/crypto/CryptoManager.cpp
     src/crypto/CryptoHealthModel.h
@@ -342,6 +347,7 @@ function(lightning_configure_qml_app target)
         Qt6::Network
         Qt6::Sql
         Qt6::Widgets
+        Qt6::Multimedia
     )
     if(TARGET Qt6::DBus)
         target_link_libraries(${target} PRIVATE Qt6::DBus)
@@ -950,6 +956,19 @@ if(BUILD_TESTING)
     target_include_directories(media-bridge-test PRIVATE src)
     target_link_libraries(media-bridge-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME media-bridge COMMAND media-bridge-test)
+
+    # v0.7: shared inline-playback coordinator — single audible owner,
+    # owner-checked release, stopAll generation for room/account switches.
+    qt_add_executable(media-playback-controller-test
+        tests/MediaPlaybackControllerTest.cpp
+        src/media/MediaPlaybackController.h
+        src/media/MediaPlaybackController.cpp
+    )
+    target_include_directories(media-playback-controller-test PRIVATE src)
+    target_link_libraries(media-playback-controller-test
+        PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME media-playback-controller
+             COMMAND media-playback-controller-test)
 
     # v0.5.11: bare-localpart user lookup — candidate derivation from the
     # authenticated account's server, profile confirmation before exposure,

@@ -85,6 +85,14 @@ Text {
         "link": "\ue250",
         "format_list_bulleted": "\ue241",
         "format_quote": "\ue244",
+        // v0.7: inline media playback controls.
+        "pause": "\ue034",
+        "stop": "\ue047",
+        "volume_up": "\ue050",
+        "volume_off": "\ue04f",
+        "open_in_full": "\uf1ce",
+        "close_fullscreen": "\uf1cf",
+        "graphic_eq": "\ue1b8",
     })
 
     text: _codepoints[name] !== undefined ? _codepoints[name] : ""

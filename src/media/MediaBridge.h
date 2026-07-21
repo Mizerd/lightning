@@ -47,6 +47,20 @@ public:
     // Confirmed GIFs use original SDK-fetched/decrypted bytes written
     // atomically beneath a short-lived account/session cache directory.
     Q_INVOKABLE QString animatedSource(const QString &mediaKey);
+    // v0.7: inline video/audio playback. Same secure materialization
+    // contract as animatedSource — SDK-fetched/decrypted bytes, validated
+    // by container magic, written 0600 inside the session's 0700 temp dir
+    // under an unguessable name, bounded by a separate LRU, wiped on
+    // sign-out/account switch — but returns a file:// URL suitable for the
+    // in-process QMediaPlayer ONLY. Paths must never reach external
+    // applications. QML retries from playableMediaReady(cacheKey).
+    Q_INVOKABLE QString playableSource(const QString &mediaKey);
+    // Container sniffing for the playable path: returns the file suffix
+    // ("mp4", "webm", "ogg", …) when the payload's magic matches a
+    // supported audio/video container, "" otherwise. Static + public for
+    // the validation tests.
+    static QString playableExtensionFor(const QByteArray &bytes,
+                                        const QString &mimetype);
     Q_INVOKABLE QString previewAnimatedSource(const QString &dataSource,
                                               const QString &mimetype);
     // Validated client-preview bytes exposed only through the bounded
@@ -109,6 +123,9 @@ Q_SIGNALS:
     void supportedChanged();
     void mediaCached(const QString &cacheKey);
     void animatedMediaReady(const QString &cacheKey);
+    // v0.7: a requested playable (video/audio) payload was validated and
+    // materialized; QML re-calls playableSource(cacheKey) for the URL.
+    void playableMediaReady(const QString &cacheKey);
     void mediaFetchFailed(const QString &cacheKey, const QString &category);
     void saveFinished(bool ok, const QString &message);
 
@@ -146,6 +163,8 @@ private:
     static QString sanitizedFileName(const QString &name);
     void writeSaveFile(const QUrl &destination, const QByteArray &bytes);
     QString writeAnimatedFile(const QString &cacheKey, const QByteArray &bytes,
+                              const QString &mimetype);
+    QString writePlayableFile(const QString &cacheKey, const QByteArray &bytes,
                               const QString &mimetype);
 
     MatrixClient *m_client = nullptr;
@@ -189,6 +208,16 @@ private:
     QHash<QString, qint64> m_animatedSizes;
     QList<QString> m_animatedLru;
     QSet<QString> m_animatedWanted;
+    // v0.7: playable (video/audio) materialization registry. Shares the
+    // session temp dir with the animated path but has its own, larger LRU
+    // budget so one video cannot evict every GIF (or vice versa). The
+    // per-session random suffix keeps names unguessable even though the
+    // directory itself is 0700.
+    QHash<QString, QString> m_playableFiles;
+    QHash<QString, qint64> m_playableSizes;
+    QList<QString> m_playableLru;
+    QSet<QString> m_playableWanted;
+    QString m_playableNameSalt;
     // v0.7: raised from 4 — a cold room list fetches its visible avatars in
     // one or two bursts instead of a long 4-at-a-time trickle. Still a hard
     // bound; excess requests queue and pump as fetches complete.
@@ -196,4 +225,9 @@ private:
     static constexpr int kMaxFailureMarks = 512;
     static constexpr qint64 kAnimatedCacheBytes = 64 * 1024 * 1024;
     static constexpr int kAnimatedCacheEntries = 64;
+    static constexpr qint64 kPlayableCacheBytes = 256 * 1024 * 1024;
+    static constexpr int kPlayableCacheEntries = 16;
+    // Full-size media above this skips the RAM LRU (it exists on disk for
+    // the player; caching it in memory would evict every image at once).
+    static constexpr qint64 kLargeCacheSkipBytes = 8 * 1024 * 1024;
 };
