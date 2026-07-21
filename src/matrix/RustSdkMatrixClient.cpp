@@ -1772,6 +1772,32 @@ void RustSdkMatrixClient::pollRustEvents()
         return;
 
     const quint64 eventGeneration = m_handleGeneration;
+
+    // v0.7 defense-in-depth: drain the TERMINAL command lane completely
+    // before the bounded bulk batch, so media/GIF results can never be
+    // starved (or dropped) behind a timeline-diff flood. The lane's
+    // population is bounded by the C++ in-flight discipline, so "fully"
+    // is a handful of events; 256 is a defensive iteration cap only.
+    for (int i = 0; i < 256; ++i) {
+        const QString raw =
+            takeRustString(mx_rust_poll_command_event(m_rustHandle));
+        if (raw.isEmpty())
+            break;
+        const QJsonDocument doc = QJsonDocument::fromJson(raw.toUtf8());
+        if (!doc.isObject()) {
+            qCWarning(lcRust) << "discarding malformed Rust SDK command event";
+            continue;
+        }
+        const QJsonObject event = doc.object();
+        if (m_lifecycle.acceptsActive(eventGeneration)) {
+            handleRustEvent(event, eventGeneration);
+        } else {
+            qCInfo(lcRust) << "ignored stale command callback"
+                           << "type="
+                           << event.value(QStringLiteral("type")).toString();
+        }
+    }
+
     for (int i = 0; i < 64; ++i) {
         const QString raw = takeRustString(mx_rust_poll_event(m_rustHandle));
         if (raw.isEmpty())
@@ -3493,7 +3519,8 @@ quint64 RustSdkMatrixClient::sendThreadAttachmentBytes(const QString &roomId,
     return opId;
 }
 
-quint64 RustSdkMatrixClient::fetchMedia(const QString &mediaKey, int kind)
+quint64 RustSdkMatrixClient::fetchMedia(const QString &mediaKey, int kind,
+                                        int timeoutClass)
 {
     if (!m_rustHandle || mediaKey.isEmpty())
         return 0;
@@ -3501,7 +3528,8 @@ quint64 RustSdkMatrixClient::fetchMedia(const QString &mediaKey, int kind)
     const QByteArray key = mediaKey.toUtf8();
     const QString result = takeRustString(mx_rust_media_fetch(
         m_rustHandle, key.constData(),
-        static_cast<unsigned int>(qBound(0, kind, 1)), opId));
+        static_cast<unsigned int>(qBound(0, kind, 1)), opId,
+        static_cast<unsigned int>(qBound(0, timeoutClass, 2))));
     return result.isEmpty() ? opId : 0;
 }
 

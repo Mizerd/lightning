@@ -146,6 +146,11 @@ private:
         int size = 0;     // mxc thumbnail edge
         bool saveRequest = false;
         QUrl saveDestination;
+        // v0.7: backend timeout class (0 standard / 1 playable / 2 save).
+        // The Rust timeout for each class sits strictly below the matching
+        // C++ watchdog deadline, so Rust normally emits the terminal event
+        // and the watchdog stays last-resort.
+        int timeoutClass = 0;
         // Monotonic dispatch time (m_failureClock ms) for resolution timing
         // in the logs; 0 until dispatched.
         qint64 dispatchedAtMs = 0;
@@ -194,6 +199,10 @@ private:
     // fetch resolves in well under this. Only a truly stuck op reaches it.
     qint64 m_inflightTimeoutMs = 45 * 1000;
     qint64 m_saveTimeoutMs = 5 * 60 * 1000; // user Save As of a large file
+    // Playable materialization: whole video/audio payloads are larger than
+    // thumbnails but still interactive; above the 90s Rust bound, below
+    // the save class.
+    qint64 m_playableTimeoutMs = 100 * 1000;
     // All incremented on the object thread only (mediaSource/avatarSource,
     // onMediaReady/onMediaFailed, checkInflightTimeouts).
     qint64 m_statCompleted = 0;

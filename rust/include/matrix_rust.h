@@ -51,6 +51,10 @@ void  mx_rust_start_sync(void *client);
 /* Cancels and joins the owned sync task. 1 = stopped, 0 = already stopped. */
 int   mx_rust_stop_sync(void *client);
 char *mx_rust_poll_event(void *client);
+/* v0.7 defense-in-depth: dedicated TERMINAL command lane (media ready /
+ * failed, GIF results). C++ drains this completely before every bulk
+ * mx_rust_poll_event batch so terminal results are never starved. */
+char *mx_rust_poll_command_event(void *client);
 
 /* 0.5.8 Matrix-native room state commands. Results are asynchronous events;
  * no composer text, raw events, or secret material crosses these calls. */
@@ -501,7 +505,10 @@ char *mx_rust_thread_send_attachment_bytes(void *client,
 char *mx_rust_media_fetch(void *client,
                           const char *key,
                           unsigned int kind,
-                          unsigned long long op_id);
+                          unsigned long long op_id,
+                          /* 0 standard(40s) 1 playable(90s) 2 save(270s) —
+                           * each strictly below its C++ watchdog class. */
+                          unsigned int timeout_class);
 /* Server-side thumbnail of a PLAIN mxc URI (avatars). kind is 2 on events. */
 char *mx_rust_media_fetch_mxc(void *client,
                               const char *mxc,

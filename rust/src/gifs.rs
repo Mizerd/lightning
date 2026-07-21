@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 use serde_json::json;
 
-use crate::{enqueue, RustClient};
+use crate::RustClient;
 
 // A provider search/trending JSON response is small (a page of items). Bound it
 // so a hostile or broken endpoint cannot stream unbounded bytes into memory.
@@ -52,7 +52,8 @@ pub(crate) fn gif_get(
         return Err("unsupported or credentialed URL".to_owned());
     }
 
-    let events = Arc::clone(&bridge.events);
+    let events = Arc::clone(&bridge.command_events);
+    let parked = Arc::clone(&bridge.media_results);
     let timelines = Arc::clone(&bridge.timelines);
     let lifecycle = timelines.lifecycle();
     bridge.spawn_room_action(async move {
@@ -72,7 +73,7 @@ pub(crate) fn gif_get(
                 } else {
                     String::new()
                 };
-                enqueue(&events, json!({
+                crate::enqueue_terminal(&events, &parked, json!({
                     "type": "gif_response",
                     "op_id": op_id,
                     "lifecycle": lifecycle,
@@ -92,7 +93,7 @@ pub(crate) fn gif_get(
                     "too_many_redirects" | "invalid_redirect" => "network",
                     _ => "network",
                 };
-                enqueue(&events, json!({
+                crate::enqueue_terminal(&events, &parked, json!({
                     "type": "gif_response",
                     "op_id": op_id,
                     "lifecycle": lifecycle,
@@ -169,7 +170,7 @@ pub(crate) fn gif_download(
         _ => return Err("gif host not allowed".to_owned()),
     }
 
-    let events = Arc::clone(&bridge.events);
+    let events = Arc::clone(&bridge.command_events);
     let timelines = Arc::clone(&bridge.timelines);
     let results = Arc::clone(&bridge.media_results);
     let lifecycle = timelines.lifecycle();
@@ -182,7 +183,7 @@ pub(crate) fn gif_download(
             return; // stale after logout / account switch
         }
         let emit_fail = |category: &str| {
-            enqueue(&events, json!({
+            crate::enqueue_terminal(&events, &results, json!({
                 "type": "gif_download_result",
                 "op_id": op_id,
                 "lifecycle": lifecycle,
@@ -213,7 +214,7 @@ pub(crate) fn gif_download(
                 if let Ok(mut guard) = results.lock() {
                     guard.insert(op_id, response.bytes);
                 }
-                enqueue(&events, json!({
+                crate::enqueue_terminal(&events, &results, json!({
                     "type": "gif_download_result",
                     "op_id": op_id,
                     "lifecycle": lifecycle,

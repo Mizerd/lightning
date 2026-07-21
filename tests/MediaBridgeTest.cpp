@@ -25,17 +25,19 @@ public:
         int kind;    // 0 full, 1 thumb, 2 mxc thumb
         int width = 0;
         int height = 0;
+        int timeoutClass = 0; // v0.7: 0 standard / 1 playable / 2 save
     };
     QList<Fetch> fetches;
     bool rejectFetches = false;
 
     bool supportsMediaBridge() const override { return true; }
-    quint64 fetchMedia(const QString &mediaKey, int kind) override
+    quint64 fetchMedia(const QString &mediaKey, int kind,
+                       int timeoutClass) override
     {
         if (rejectFetches)
             return 0;
         const quint64 op = nextOp++;
-        fetches.append({ op, mediaKey, kind, 0, 0 });
+        fetches.append({ op, mediaKey, kind, 0, 0, timeoutClass });
         return op;
     }
     quint64 fetchMxcThumbnail(const QString &mxc, int width, int height) override
@@ -590,6 +592,75 @@ private Q_SLOTS:
         client.succeed(client.fetches.at(1).opId, small,
                        QStringLiteral("audio/ogg"));
         QVERIFY(bridge.cacheBytesUsed() >= small.size());
+    }
+
+    // ── v0.7 defense-in-depth: timeout classes + terminal coordination ──
+
+    // Each dispatch advertises its backend timeout class so the Rust bound
+    // stays strictly below the covering C++ watchdog deadline.
+    void dispatchCarriesTimeoutClasses()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+
+        bridge.mediaSource(QStringLiteral("$img"), QStringLiteral("full"));
+        QCOMPARE(client.fetches.at(0).timeoutClass, 0);
+
+        bridge.playableSource(QStringLiteral("$vid"));
+        QCOMPARE(client.fetches.at(1).timeoutClass, 1);
+
+        bridge.saveAs(QStringLiteral("$file"),
+                      QUrl::fromLocalFile(QStringLiteral("/tmp/x")));
+        QCOMPARE(client.fetches.at(2).timeoutClass, 2);
+    }
+
+    // A duplicated terminal for the same op releases exactly one slot and
+    // emits exactly one mediaCached; the duplicate counts as stale.
+    void duplicateTerminalIsCountedStale()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        QSignalSpy cached(&bridge, &MediaBridge::mediaCached);
+
+        bridge.avatarSource(kMxc, 64);
+        const quint64 op = client.fetches.first().opId;
+        client.succeed(op, QByteArray("pixels"));
+        client.succeed(op, QByteArray("pixels-again"));
+
+        QCOMPARE(cached.count(), 1);
+        QCOMPARE(bridge.inflightCountForTest(), 0);
+        QCOMPARE(bridge.healthSnapshot()
+                     .value(QStringLiteral("droppedStale")).toLongLong(),
+                 1);
+    }
+
+    // Watchdog fires first, the real completion lands later: the late
+    // success is silently discarded (no duplicate signal, no cache entry
+    // resurrection) and the pipeline stays fully drained.
+    void lateSuccessAfterWatchdogIsDiscarded()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        QSignalSpy cached(&bridge, &MediaBridge::mediaCached);
+        QSignalSpy failed(&bridge, &MediaBridge::mediaFetchFailed);
+
+        bridge.avatarSource(kMxc, 64);
+        const quint64 op = client.fetches.first().opId;
+        bridge.setInflightTimeoutMsForTest(0);
+        bridge.checkInflightTimeouts(); // reclaim → transient timeout mark
+        QCOMPARE(failed.count(), 1);
+        QCOMPARE(failed.first().at(1).toString(), QStringLiteral("timeout"));
+        QCOMPARE(bridge.inflightCountForTest(), 0);
+
+        client.succeed(op, QByteArray("late"));
+        QCOMPARE(cached.count(), 0); // never delivered
+        QCOMPARE(bridge.cacheBytesUsed(), 0);
+        QCOMPARE(bridge.healthSnapshot()
+                     .value(QStringLiteral("droppedStale")).toLongLong(),
+                 1);
     }
 };
 

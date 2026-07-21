@@ -295,6 +295,7 @@ QString MediaBridge::playableSource(const QString &mediaKey)
         request.cacheKey = cacheKey;
         request.mediaKey = mediaKey;
         request.kind = 0;
+        request.timeoutClass = 1; // playable class (90s Rust / 100s watchdog)
         dispatch(request);
     }
     return {};
@@ -444,7 +445,8 @@ void MediaBridge::dispatch(const Pending &request)
         opId = m_client->fetchMxcThumbnail(tracked.mediaKey, tracked.size,
                                            tracked.size);
     else
-        opId = m_client->fetchMedia(tracked.mediaKey, tracked.kind);
+        opId = m_client->fetchMedia(tracked.mediaKey, tracked.kind,
+                                    tracked.timeoutClass);
     if (opId == 0) {
         ++m_statFailed;
         qCWarning(lcMedia, "fetch %s rejected by backend (opId=0)",
@@ -477,7 +479,9 @@ void MediaBridge::checkInflightTimeouts()
     QList<quint64> expired;
     for (auto it = m_inflight.constBegin(); it != m_inflight.constEnd(); ++it) {
         const Pending &p = it.value();
-        const qint64 limit = p.saveRequest ? m_saveTimeoutMs : m_inflightTimeoutMs;
+        const qint64 limit = p.saveRequest ? m_saveTimeoutMs
+                           : p.timeoutClass == 1 ? m_playableTimeoutMs
+                                                 : m_inflightTimeoutMs;
         if (p.dispatchedAtMs >= 0 && now - p.dispatchedAtMs >= limit)
             expired.append(it.key());
     }
@@ -736,6 +740,7 @@ void MediaBridge::saveAs(const QString &mediaKey, const QUrl &destination)
     request.kind = 0;
     request.saveRequest = true;
     request.saveDestination = destination;
+    request.timeoutClass = 2; // save class (270s Rust / 5min watchdog)
     dispatch(request);
 }
 

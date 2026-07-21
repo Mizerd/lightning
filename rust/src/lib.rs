@@ -104,6 +104,13 @@ struct RustClient {
     // the matching `mx_rust_media_take` call; the map is cleared on
     // shutdown so decrypted media never outlives the session in memory.
     media_results: Arc<Mutex<HashMap<u64, Vec<u8>>>>,
+    // v0.7 defense-in-depth: dedicated TERMINAL event lane. Op-id-keyed
+    // command results (media ready/failed, GIF responses/downloads) are
+    // delivered here so a timeline-diff flood on the bulk queue can never
+    // starve or drop them. C++ drains this queue fully before every bulk
+    // batch. Bounded as a tripwire only — the C++ in-flight discipline
+    // keeps it near-empty.
+    command_events: EventQueueRef,
     // v0.7: verified-session crypto-bootstrap observer. Forwards sanitized
     // SDK verification/recovery/backup state and room-key-import counts to
     // C++ for the post-verification status UI. Lives exactly as long as the
@@ -139,6 +146,7 @@ impl RustClient {
             active_sas: Arc::new(Mutex::new(None)),
             import_active: Arc::new(AtomicBool::new(false)),
             media_results: Arc::new(Mutex::new(HashMap::new())),
+            command_events: Arc::new(Mutex::new(VecDeque::new())),
             bootstrap_task: Mutex::new(None),
         })
     }
@@ -190,15 +198,28 @@ impl RustClient {
         let actions = self.room_action_tasks.lock().ok()
             .map(|mut guard| std::mem::take(&mut *guard))
             .unwrap_or_default();
+        // v0.7 defense-in-depth: ONE overall join budget for every pending
+        // room-action task (previously 15s EACH, sequentially — a handful
+        // of hung media fetches could block an account switch for minutes).
+        // Whatever misses the budget is aborted and briefly drained.
         self.runtime.block_on(async {
-            for mut handle in actions {
-                if tokio::time::timeout(
-                    std::time::Duration::from_secs(timeline::SHUTDOWN_JOIN_TIMEOUT_SECS),
-                    &mut handle,
-                ).await.is_err() {
+            let mut handles = actions;
+            let all = futures_util::future::join_all(handles.iter_mut());
+            if tokio::time::timeout(
+                std::time::Duration::from_secs(timeline::SHUTDOWN_JOIN_TIMEOUT_SECS),
+                all,
+            )
+            .await
+            .is_err()
+            {
+                for handle in &handles {
                     handle.abort();
-                    let _ = handle.await;
                 }
+                let _ = tokio::time::timeout(
+                    std::time::Duration::from_secs(2),
+                    futures_util::future::join_all(handles.iter_mut()),
+                )
+                .await;
             }
         });
 
@@ -1266,6 +1287,24 @@ pub unsafe extern "C" fn mx_rust_poll_event(ptr: *mut c_void) -> *mut c_char {
             .events
             .lock()
             .map_err(|_| "Rust SDK event queue lock poisoned.".to_owned())?
+            .pop_front()
+            .unwrap_or_default();
+        Ok(event)
+    })
+}
+
+/// v0.7 defense-in-depth: drain one event from the TERMINAL command lane
+/// (media ready/failed, GIF results). C++ empties this queue completely
+/// before each bulk mx_rust_poll_event batch so terminal results can never
+/// be starved by timeline-diff floods.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_poll_command_event(ptr: *mut c_void) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let event = bridge
+            .command_events
+            .lock()
+            .map_err(|_| "Rust SDK command queue lock poisoned.".to_owned())?
             .pop_front()
             .unwrap_or_default();
         Ok(event)
@@ -3514,11 +3553,13 @@ pub unsafe extern "C" fn mx_rust_media_fetch(
     key: *const c_char,
     kind: u32,
     op_id: u64,
+    timeout_class: c_uint,
 ) -> *mut c_char {
     ffi_string(|| {
         let bridge = unsafe { bridge(ptr)? };
         let key = unsafe { cstr_arg(key) }?;
-        rooms::media_fetch(bridge, key, kind, op_id).map(|_| String::new())
+        rooms::media_fetch(bridge, key, kind, op_id, timeout_class)
+            .map(|_| String::new())
     })
 }
 
@@ -4463,6 +4504,35 @@ async fn room_name(room: &Room) -> String {
 /// initial sync of a real account.
 const EVENT_QUEUE_CAP: usize = 4096;
 
+/// v0.7 defense-in-depth: capacity of the terminal-event lane. Natural
+/// population is bounded by the C++ concurrency discipline (8 media slots
+/// plus a handful of commands), so this is a tripwire, not a working limit.
+pub(crate) const COMMAND_QUEUE_CAP: usize = 512;
+
+/// Enqueue an op-id-terminal result on the dedicated command lane. If the
+/// tripwire cap is ever hit, the OLDEST terminal event is dropped — and its
+/// parked media payload (if any) is freed first, so an overflow can never
+/// leak decrypted bytes in `media_results`.
+pub(crate) fn enqueue_terminal(
+    queue: &EventQueueRef,
+    parked: &Arc<Mutex<HashMap<u64, Vec<u8>>>>,
+    value: serde_json::Value,
+) {
+    let Ok(mut guard) = queue.lock() else { return };
+    while guard.len() >= COMMAND_QUEUE_CAP {
+        if let Some(dropped) = guard.pop_front() {
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&dropped) {
+                if let Some(op) = v.get("op_id").and_then(|o| o.as_u64()) {
+                    if let Ok(mut results) = parked.lock() {
+                        results.remove(&op);
+                    }
+                }
+            }
+        }
+    }
+    guard.push_back(value.to_string());
+}
+
 pub(crate) fn enqueue(events: &Arc<Mutex<VecDeque<String>>>, value: serde_json::Value) {
     let Ok(serialized) = serde_json::to_string(&value) else {
         return;
@@ -4589,6 +4659,47 @@ fn classify_import_error(message: &str) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::classify_import_error;
+
+    // v0.7 media defense-in-depth: the terminal lane's tripwire overflow
+    // frees the parked payload of the dropped event, so decrypted bytes can
+    // never leak in media_results when a terminal event is discarded.
+    #[test]
+    fn terminal_queue_overflow_frees_parked_bytes() {
+        use std::collections::{HashMap, VecDeque};
+        use std::sync::{Arc, Mutex};
+        let queue: super::EventQueueRef = Arc::new(Mutex::new(VecDeque::new()));
+        let parked: Arc<Mutex<HashMap<u64, Vec<u8>>>> =
+            Arc::new(Mutex::new(HashMap::new()));
+
+        // Park a payload for the op whose terminal event will be dropped.
+        parked.lock().unwrap().insert(1, vec![0u8; 64]);
+        parked.lock().unwrap().insert(2, vec![0u8; 64]);
+
+        for op in 1..=(super::COMMAND_QUEUE_CAP as u64) {
+            super::enqueue_terminal(
+                &queue,
+                &parked,
+                serde_json::json!({ "type": "media_ready", "op_id": op }),
+            );
+        }
+        // Queue is at cap; both payloads still parked.
+        assert_eq!(queue.lock().unwrap().len(), super::COMMAND_QUEUE_CAP);
+        assert_eq!(parked.lock().unwrap().len(), 2);
+
+        // One more terminal event drops the OLDEST (op 1) and frees its
+        // parked bytes; op 2's payload survives.
+        super::enqueue_terminal(
+            &queue,
+            &parked,
+            serde_json::json!({ "type": "media_ready", "op_id": 9999u64 }),
+        );
+        assert_eq!(queue.lock().unwrap().len(), super::COMMAND_QUEUE_CAP);
+        assert!(!parked.lock().unwrap().contains_key(&1));
+        assert!(parked.lock().unwrap().contains_key(&2));
+        // FIFO order is preserved for the survivors.
+        let front = queue.lock().unwrap().front().cloned().unwrap();
+        assert!(front.contains("\"op_id\":2"));
+    }
 
     #[test]
     fn wrong_passphrase_becomes_bad_passphrase() {

@@ -309,7 +309,8 @@ public:
                                       const QString &filename,
                                       const QString &mime, int width,
                                       int height) override;
-    quint64 fetchMedia(const QString &mediaKey, int kind) override;
+    quint64 fetchMedia(const QString &mediaKey, int kind,
+                       int timeoutClass = 0) override;
     quint64 fetchMxcThumbnail(const QString &mxc, int width, int height) override;
     qint64 maxUploadSize() const override { return m_maxUploadSize; }
 

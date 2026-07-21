@@ -44,7 +44,7 @@ public:
     QList<Fetch> fetches;
 
     bool supportsMediaBridge() const override { return true; }
-    quint64 fetchMedia(const QString &, int) override { return 0; }
+    quint64 fetchMedia(const QString &, int, int) override { return 0; }
     quint64 fetchMxcThumbnail(const QString &mxc, int width, int) override
     {
         const quint64 op = nextOp++;

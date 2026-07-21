@@ -104,6 +104,10 @@ pub struct StoredMedia {
     pub thumbnail: Option<MediaSource>,
     pub filename: String,
     pub mimetype: Option<String>,
+    /// Declared byte size from the Matrix `info` metadata, when present.
+    /// v0.7 defense-in-depth: full-payload fetches are refused pre-flight
+    /// when this exceeds the class size cap.
+    pub declared_size: Option<u64>,
 }
 
 /// Bound for the per-room media source map. A timeline view never holds
@@ -257,7 +261,7 @@ impl TimelineRegistry {
         &self,
         key: &str,
         thumbnail: bool,
-    ) -> Option<(MediaSource, String, Option<String>)> {
+    ) -> Option<(MediaSource, String, Option<String>, Option<u64>)> {
         let guard = self.media_sources.lock().ok()?;
         let media = guard.get(key)?;
         let source = if thumbnail {
@@ -265,7 +269,12 @@ impl TimelineRegistry {
         } else {
             media.source.clone()
         };
-        Some((source, media.filename.clone(), media.mimetype.clone()))
+        Some((
+            source,
+            media.filename.clone(),
+            media.mimetype.clone(),
+            media.declared_size,
+        ))
     }
 
     fn clear_media(&self) {
@@ -2433,6 +2442,7 @@ fn event_item_to_json(
                         thumbnail: info.thumbnail_source.clone(),
                         filename: content.body.clone(),
                         mimetype,
+                        declared_size: info.size.map(u64::from),
                     };
                     let key: String = match out["event_id"].as_str() {
                         Some(event_id) if !event_id.is_empty() => {
@@ -2600,6 +2610,9 @@ fn fill_message_content(
                 thumbnail,
                 filename: content.body.clone(),
                 mimetype,
+                declared_size: content.info.as_ref()
+                    .and_then(|info| info.size)
+                    .map(u64::from),
             })
         }
         MessageType::File(content) => {
@@ -2628,6 +2641,9 @@ fn fill_message_content(
                 thumbnail: None,
                 filename,
                 mimetype,
+                declared_size: content.info.as_ref()
+                    .and_then(|info| info.size)
+                    .map(u64::from),
             })
         }
         MessageType::Audio(content) => {
@@ -2678,6 +2694,9 @@ fn fill_message_content(
                 thumbnail: None,
                 filename: content.body.clone(),
                 mimetype,
+                declared_size: content.info.as_ref()
+                    .and_then(|info| info.size)
+                    .map(u64::from),
             })
         }
         MessageType::Video(content) => {
@@ -2717,6 +2736,9 @@ fn fill_message_content(
                 thumbnail,
                 filename: content.body.clone(),
                 mimetype,
+                declared_size: content.info.as_ref()
+                    .and_then(|info| info.size)
+                    .map(u64::from),
             })
         }
         other => {

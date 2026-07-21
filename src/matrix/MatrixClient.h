@@ -449,8 +449,11 @@ public:
 
     // Media bridge: fetch (and decrypt, inside the SDK) media bytes for a
     // timeline item media key. kind: 0 = full, 1 = thumbnail.
-    virtual quint64 fetchMedia(const QString &mediaKey, int kind)
-    { Q_UNUSED(mediaKey); Q_UNUSED(kind); return 0; }
+    // timeoutClass (v0.7): 0 = standard, 1 = playable materialization,
+    // 2 = explicit Save As — the backend bounds the fetch accordingly.
+    virtual quint64 fetchMedia(const QString &mediaKey, int kind,
+                               int timeoutClass = 0)
+    { Q_UNUSED(mediaKey); Q_UNUSED(kind); Q_UNUSED(timeoutClass); return 0; }
     // Server-side thumbnail of a plain mxc URI (avatars).
     virtual quint64 fetchMxcThumbnail(const QString &mxc, int width, int height)
     { Q_UNUSED(mxc); Q_UNUSED(width); Q_UNUSED(height); return 0; }

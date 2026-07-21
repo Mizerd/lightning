@@ -1480,15 +1480,41 @@ pub(crate) fn send_thread_attachment_bytes(
 // Media retrieval (the download half of the media bridge)
 // ---------------------------------------------------------------------------
 
+/// v0.7 defense-in-depth: media fetch timeout classes. Each Rust timeout is
+/// STRICTLY below the C++ watchdog class that covers the same operation
+/// (standard 40s < 45s; playable 90s < 100s; save 270s < 300s), so Rust is
+/// the normal terminal emitter and the watchdog stays a last resort.
+/// 0 = standard (thumbnails, avatars, viewer images), 1 = playable
+/// video/audio materialization, 2 = explicit Save As.
+pub(crate) fn media_timeout_secs(class: u32) -> u64 {
+    match class {
+        2 => 270,
+        1 => 90,
+        _ => 40,
+    }
+}
+
+/// Size policy for full-payload fetches. matrix-sdk 0.18 buffers media
+/// responses whole (no streaming API), so peak memory INSIDE the SDK stays
+/// unbounded until upstream streams — these caps bound what Lightning
+/// accepts, parks, and materializes. Save As is deliberately generous.
+pub(crate) fn media_size_cap(timeout_class: u32) -> u64 {
+    match timeout_class {
+        2 => 2 * 1024 * 1024 * 1024, // Save As: 2 GiB
+        _ => 512 * 1024 * 1024,      // inline/viewer/playable: 512 MiB
+    }
+}
+
 fn emit_media_failed(
-    events: &crate::EventQueueRef,
+    terminal: &crate::EventQueueRef,
+    parked: &std::sync::Arc<std::sync::Mutex<std::collections::HashMap<u64, Vec<u8>>>>,
     op_id: u64,
     lifecycle: u64,
     key: &str,
     kind: u32,
     category: &str,
 ) {
-    enqueue(events, json!({
+    crate::enqueue_terminal(terminal, parked, json!({
         "type": "media_failed",
         "op_id": op_id,
         "lifecycle": lifecycle,
@@ -1508,30 +1534,69 @@ pub(crate) fn media_fetch(
     key: String,
     kind: u32,
     op_id: u64,
+    timeout_class: u32,
 ) -> Result<(), String> {
     let client = require_client(bridge)?;
-    let Some((source, filename, mimetype)) =
+    let Some((source, filename, mimetype, declared_size)) =
         bridge.timelines.media_source(&key, kind == 1)
     else {
         return Err("unknown media item".to_owned());
     };
-    let events = Arc::clone(&bridge.events);
+    let terminal = Arc::clone(&bridge.command_events);
     let timelines = Arc::clone(&bridge.timelines);
     let results = Arc::clone(&bridge.media_results);
     let lifecycle = timelines.lifecycle();
+    let cap = media_size_cap(timeout_class);
+    // Pre-flight: refuse a full-payload fetch whose Matrix metadata already
+    // declares an over-cap size — the SDK would buffer it whole.
+    if kind == 0 {
+        if let Some(declared) = declared_size {
+            if declared > cap {
+                emit_media_failed(
+                    &terminal, &results, op_id, lifecycle, &key, kind,
+                    "too_large",
+                );
+                return Ok(());
+            }
+        }
+    }
     bridge.spawn_room_action(async move {
         let request = MediaRequestParameters { source, format: MediaFormat::File };
-        let outcome = client.media().get_media_content(&request, true).await;
+        // Bounded await: matrix-sdk 0.18 deliberately disables its own HTTP
+        // timeout for media, so an unresponsive server would otherwise hang
+        // this task forever (and pin its shutdown join). The timeout
+        // consumes the future, so exactly one terminal event can ever be
+        // emitted per op.
+        let outcome = tokio::time::timeout(
+            std::time::Duration::from_secs(media_timeout_secs(timeout_class)),
+            client.media().get_media_content(&request, true),
+        )
+        .await;
         if !timelines.lifecycle_current(lifecycle) {
             return;
         }
         match outcome {
-            Ok(bytes) => {
+            Err(_elapsed) => {
+                emit_media_failed(
+                    &terminal, &results, op_id, lifecycle, &key, kind,
+                    "timeout",
+                );
+            }
+            Ok(Ok(bytes)) => {
                 let size = bytes.len() as u64;
+                if size > cap {
+                    // The metadata lied (or was absent): reject post-hoc
+                    // instead of parking an unbounded decrypted payload.
+                    emit_media_failed(
+                        &terminal, &results, op_id, lifecycle, &key, kind,
+                        "too_large",
+                    );
+                    return;
+                }
                 if let Ok(mut guard) = results.lock() {
                     guard.insert(op_id, bytes);
                 }
-                enqueue(&events, json!({
+                crate::enqueue_terminal(&terminal, &results, json!({
                     "type": "media_ready",
                     "op_id": op_id,
                     "lifecycle": lifecycle,
@@ -1542,13 +1607,9 @@ pub(crate) fn media_fetch(
                     "filename": filename,
                 }));
             }
-            Err(err) => {
+            Ok(Err(err)) => {
                 emit_media_failed(
-                    &events,
-                    op_id,
-                    lifecycle,
-                    &key,
-                    kind,
+                    &terminal, &results, op_id, lifecycle, &key, kind,
                     classify_room_error(&err.to_string()),
                 );
             }
@@ -1571,7 +1632,7 @@ pub(crate) fn media_fetch_mxc(
         return Err("not an mxc URI".to_owned());
     }
     let uri: OwnedMxcUri = OwnedMxcUri::from(mxc.as_str());
-    let events = Arc::clone(&bridge.events);
+    let terminal = Arc::clone(&bridge.command_events);
     let timelines = Arc::clone(&bridge.timelines);
     let results = Arc::clone(&bridge.media_results);
     let lifecycle = timelines.lifecycle();
@@ -1589,17 +1650,35 @@ pub(crate) fn media_fetch_mxc(
             source: matrix_sdk::ruma::events::room::MediaSource::Plain(uri),
             format,
         };
-        let outcome = client.media().get_media_content(&request, true).await;
+        // Standard class: avatars/thumbnails are small; 40s stays strictly
+        // below the C++ 45s watchdog so Rust emits the terminal first.
+        let outcome = tokio::time::timeout(
+            std::time::Duration::from_secs(media_timeout_secs(0)),
+            client.media().get_media_content(&request, true),
+        )
+        .await;
         if !timelines.lifecycle_current(lifecycle) {
             return;
         }
         match outcome {
-            Ok(bytes) => {
+            Err(_elapsed) => {
+                emit_media_failed(
+                    &terminal, &results, op_id, lifecycle, &mxc, 2, "timeout",
+                );
+            }
+            Ok(Ok(bytes)) => {
                 let size = bytes.len() as u64;
+                if size > media_size_cap(0) {
+                    emit_media_failed(
+                        &terminal, &results, op_id, lifecycle, &mxc, 2,
+                        "too_large",
+                    );
+                    return;
+                }
                 if let Ok(mut guard) = results.lock() {
                     guard.insert(op_id, bytes);
                 }
-                enqueue(&events, json!({
+                crate::enqueue_terminal(&terminal, &results, json!({
                     "type": "media_ready",
                     "op_id": op_id,
                     "lifecycle": lifecycle,
@@ -1608,9 +1687,9 @@ pub(crate) fn media_fetch_mxc(
                     "size": size,
                 }));
             }
-            Err(err) => {
+            Ok(Err(err)) => {
                 emit_media_failed(
-                    &events,
+                    &terminal, &results,
                     op_id,
                     lifecycle,
                     &mxc,
@@ -1650,6 +1729,49 @@ pub(crate) fn fetch_upload_limit(bridge: &RustClient) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // v0.7 media defense-in-depth: the Rust timeout for every class stays
+    // STRICTLY below the C++ watchdog class covering the same operation
+    // (45s standard / 100s playable / 300s Save As), so Rust is the normal
+    // terminal emitter and the watchdog is last-resort only.
+    #[test]
+    fn media_timeout_classes_stay_below_watchdog() {
+        assert_eq!(media_timeout_secs(0), 40);
+        assert_eq!(media_timeout_secs(1), 90);
+        assert_eq!(media_timeout_secs(2), 270);
+        assert!(media_timeout_secs(0) < 45);
+        assert!(media_timeout_secs(1) < 100);
+        assert!(media_timeout_secs(2) < 300);
+        // Unknown classes fall back to the strictest bound.
+        assert_eq!(media_timeout_secs(99), 40);
+    }
+
+    #[test]
+    fn media_size_caps_by_class() {
+        assert_eq!(media_size_cap(0), 512 * 1024 * 1024);
+        assert_eq!(media_size_cap(1), 512 * 1024 * 1024);
+        assert_eq!(media_size_cap(2), 2 * 1024 * 1024 * 1024);
+    }
+
+    // The timeout wrapper emits exactly one outcome: a never-completing
+    // fetch resolves to Elapsed (one "timeout" terminal), a fast fetch
+    // passes its value through untouched.
+    #[tokio::test]
+    async fn media_timeout_wrapper_yields_single_outcome() {
+        let hung: Result<(), tokio::time::error::Elapsed> = tokio::time::timeout(
+            std::time::Duration::from_millis(25),
+            std::future::pending::<()>(),
+        )
+        .await;
+        assert!(hung.is_err());
+
+        let quick = tokio::time::timeout(
+            std::time::Duration::from_millis(25),
+            std::future::ready(7u32),
+        )
+        .await;
+        assert_eq!(quick, Ok(7));
+    }
 
     #[test]
     fn preview_destination_policy_blocks_internal_networks() {
