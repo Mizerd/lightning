@@ -80,6 +80,14 @@ QString firstPreviewableUrl(const QString &body)
         // Embedded credentials must never reach a request or a log.
         if (!url.userInfo().isEmpty())
             continue;
+        // Internal Matrix permalinks (user mentions, room/event links) are
+        // navigation targets, not external web pages: they must never become
+        // preview candidates — suppression happens here, before any network
+        // contact or consent card. Skip-and-continue so a genuine external
+        // URL in the same message still previews.
+        if (url.host().compare(QLatin1String("matrix.to"),
+                               Qt::CaseInsensitive) == 0)
+            continue;
         return candidate;
     }
     return {};

@@ -16,6 +16,24 @@ Item {
     }
     QuickSwitcher { id: quickSwitcher }
 
+    // Mention chips render inside sanitized rich text, so the models need
+    // the current theme ink (AppTheme is QML-only). Re-pushed on every
+    // theme change; the models re-announce FormattedBodyRole themselves.
+    function _pushMentionStyle() {
+        var accent = "" + AppTheme.accent
+        var soft = "" + AppTheme.accentSoft
+        if (app.timeline && app.timeline.setMentionStyle)
+            app.timeline.setMentionStyle(accent, soft)
+        if (app.thread && app.thread.model && app.thread.model.setMentionStyle)
+            app.thread.model.setMentionStyle(accent, soft)
+    }
+    Component.onCompleted: _pushMentionStyle()
+    Connections {
+        target: AppTheme
+        function onAccentChanged() { _pushMentionStyle() }
+        function onAccentSoftChanged() { _pushMentionStyle() }
+    }
+
     SplitView {
         anchors.fill: parent
         orientation: Qt.Horizontal

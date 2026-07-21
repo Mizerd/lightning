@@ -124,6 +124,36 @@ private Q_SLOTS:
             "<a href=\"mention:@me:example.org\"><b>@me</b></a>"));
     }
 
+    void mentionChipStyleIsApplied()
+    {
+        // With theme ink supplied, the mention renders as an inline chip:
+        // accent ink on a soft surface, no underline, padded with nbsp.
+        const QString out = MessageHtml::sanitize(
+            QStringLiteral(
+                "<a href=\"https://matrix.to/#/@bob:example.org\">bob</a>"),
+            nullptr, QString(),
+            MessageHtml::MentionStyle{QStringLiteral("#7c7ff2"),
+                                      QStringLiteral("#25253d")});
+        QCOMPARE(out, QStringLiteral(
+            "<a href=\"mention:@bob:example.org\" "
+            "style=\"color:#7c7ff2;background-color:#25253d;"
+            "text-decoration:none\">&nbsp;@bob&nbsp;</a>"));
+    }
+
+    void mentionChipStyleCannotBreakOutOfTheAttribute()
+    {
+        // Hostile "colors" are escaped; the model additionally validates
+        // hex literals before they get here.
+        const QString out = MessageHtml::sanitize(
+            QStringLiteral(
+                "<a href=\"https://matrix.to/#/@bob:example.org\">bob</a>"),
+            nullptr, QString(),
+            MessageHtml::MentionStyle{
+                QStringLiteral("\"><script>bad</script>"),
+                QStringLiteral("#25253d")});
+        QVERIFY(!out.contains(QStringLiteral("<script")));
+    }
+
     void malformedInputDoesNotCrashAndFailsClosed()
     {
         // Unterminated tag: nothing after the '<' is emitted as markup.

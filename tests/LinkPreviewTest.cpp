@@ -118,6 +118,29 @@ private Q_SLOTS:
         QCOMPARE(firstPreviewableUrl(QString()), QString());
     }
 
+    void matrixToUrlsAreNeverPreviewCandidates()
+    {
+        using matrix::link_preview::firstPreviewableUrl;
+        // A mention's markdown fallback must not trigger any preview —
+        // classification happens before any network contact.
+        QCOMPARE(firstPreviewableUrl(QStringLiteral(
+                     "[@test](https://matrix.to/#/%40test%3Amatrix.example.org)")),
+                 QString());
+        // Room and event permalinks are internal navigation, not previews.
+        QCOMPARE(firstPreviewableUrl(QStringLiteral(
+                     "join https://matrix.to/#/#room:example.org")),
+                 QString());
+        QCOMPARE(firstPreviewableUrl(QStringLiteral(
+                     "see https://MATRIX.TO/#/!room:example.org/$event")),
+                 QString());
+        // Skip-and-continue: a genuine external URL in the same message
+        // still previews.
+        QCOMPARE(firstPreviewableUrl(QStringLiteral(
+                     "[@test](https://matrix.to/#/%40test%3Ax) also "
+                     "https://example.org/story")),
+                 QStringLiteral("https://example.org/story"));
+    }
+
     void trailingPunctuationIsTrimmed()
     {
         using matrix::link_preview::firstPreviewableUrl;

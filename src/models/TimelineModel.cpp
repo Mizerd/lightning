@@ -427,7 +427,9 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
                 return client ? client->displayNameFor(roomId, userId)
                               : QString();
             },
-            m_selfUserId);
+            m_selfUserId,
+            MessageHtml::MentionStyle{m_mentionAccentColor,
+                                      m_mentionSoftColor});
     }
     case TimestampRole:          return e.timestamp;
     case TypeRole:               return static_cast<int>(e.type);
@@ -697,6 +699,30 @@ QVariantList TimelineModel::mediaEntries() const
         out.append(entry);
     }
     return out;
+}
+
+void TimelineModel::setMentionStyle(const QString &accentColor,
+                                    const QString &softColor)
+{
+    // Only hex color literals may enter the sanitizer's style attribute
+    // (defense in depth against style break-out; the values normally come
+    // straight from AppTheme, whose colors stringify as #rrggbb/#aarrggbb).
+    static const QRegularExpression hexColor(
+        QStringLiteral("^#(?:[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"));
+    QString nextAccent, nextSoft;
+    if (hexColor.match(accentColor).hasMatch()
+        && hexColor.match(softColor).hasMatch()) {
+        nextAccent = accentColor.toLower();
+        nextSoft = softColor.toLower();
+    }
+    if (nextAccent == m_mentionAccentColor && nextSoft == m_mentionSoftColor)
+        return;
+    m_mentionAccentColor = nextAccent;
+    m_mentionSoftColor = nextSoft;
+    if (!m_events.isEmpty()) {
+        Q_EMIT dataChanged(index(0), index(m_events.size() - 1),
+                           {FormattedBodyRole});
+    }
 }
 
 int TimelineModel::rowForEventId(const QString &eventId) const

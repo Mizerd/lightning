@@ -75,6 +75,11 @@ TimelineEvent eventFromItemJson(const QJsonObject &item, const QString &roomId)
     e.senderAvatarUrl =
         item.value(QStringLiteral("sender_avatar_url")).toString();
     e.body = item.value(QStringLiteral("body")).toString();
+    // The sanitized-HTML rendering path (MessageHtml::sanitize behind
+    // FormattedBodyRole) is fed from here; dropping this field would make
+    // every live-timeline row fall back to the plain body — for mention
+    // sends that is the raw markdown source.
+    e.formattedBody = item.value(QStringLiteral("formatted_body")).toString();
     e.stateKind = item.value(QStringLiteral("state_kind")).toString();
     e.stateTarget = item.value(QStringLiteral("state_target")).toString();
     e.timestamp = timestampFromMs(static_cast<qint64>(

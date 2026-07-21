@@ -142,7 +142,8 @@ QString localpart(const QString &userId)
 QString MessageHtml::sanitize(
     const QString &html,
     const std::function<QString(const QString &)> &resolveDisplayName,
-    const QString &ownUserId)
+    const QString &ownUserId,
+    const MentionStyle &mentionStyle)
 {
     // Defensive bound: never process an unreasonably large formatted body.
     static constexpr qsizetype kMaxInput = 64 * 1024;
@@ -221,11 +222,28 @@ QString MessageHtml::sanitize(
                     disp = localpart(mentionUser);
                 const bool self =
                     !ownUserId.isEmpty() && mentionUser == ownUserId;
+                const bool chip = !mentionStyle.accentColor.isEmpty()
+                    && !mentionStyle.softColor.isEmpty();
                 out += QStringLiteral("<a href=\"mention:")
-                    + mentionUser.toHtmlEscaped() + QStringLiteral("\">");
+                    + mentionUser.toHtmlEscaped() + QStringLiteral("\"");
+                if (chip) {
+                    // Inline chip: accent ink on a soft surface, no anchor
+                    // underline. The colors are model-validated QColor names,
+                    // escaped again here so a style break-out is impossible.
+                    out += QStringLiteral(" style=\"color:")
+                        + mentionStyle.accentColor.toHtmlEscaped()
+                        + QStringLiteral(";background-color:")
+                        + mentionStyle.softColor.toHtmlEscaped()
+                        + QStringLiteral(";text-decoration:none\"");
+                }
+                out += QStringLiteral(">");
                 if (self)
                     out += QLatin1String("<b>");
+                if (chip)
+                    out += QStringLiteral("&nbsp;");
                 out += (QStringLiteral("@") + disp).toHtmlEscaped();
+                if (chip)
+                    out += QStringLiteral("&nbsp;");
                 if (self)
                     out += QLatin1String("</b>");
                 out += QLatin1String("</a>");

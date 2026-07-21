@@ -208,6 +208,14 @@ public:
     // size to the imageEntries() shape.
     Q_INVOKABLE QVariantList mediaEntries() const;
 
+    // Theme ink for timeline mention chips (AppTheme.accent/accentSoft),
+    // pushed from QML because AppTheme is the sole token source. Values are
+    // validated through QColor; anything invalid clears the style and
+    // mentions degrade to plain internal links. Re-announces every row's
+    // FormattedBodyRole so live theme switches restyle existing rows.
+    Q_INVOKABLE void setMentionStyle(const QString &accentColor,
+                                     const QString &softColor);
+
 Q_SIGNALS:
     void roomIdChanged();
     void countChanged();
@@ -286,4 +294,9 @@ private:
     QString m_searchQuery;
     QStringList m_searchResults;   // matching event ids, oldest → newest
     int m_searchIndex = -1;        // index into m_searchResults; -1 = none
+
+    // Mention-chip ink (validated #rrggbb/#aarrggbb strings; see
+    // setMentionStyle). Empty until QML pushes the current theme.
+    QString m_mentionAccentColor;
+    QString m_mentionSoftColor;
 };

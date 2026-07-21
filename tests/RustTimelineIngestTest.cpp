@@ -64,6 +64,7 @@ class RustTimelineIngestTest : public QObject
 private Q_SLOTS:
     // ── Item conversion ─────────────────────────────────────────────
     void parsesEventItem();
+    void parsesFormattedBody();
     void parsesUndecryptableItem();
     void parsesLocalEchoStates();
     void parsesVirtualItems();
@@ -163,6 +164,26 @@ void RustTimelineIngestTest::parsesEventItem()
     QCOMPARE(e.status, TimelineEvent::Sent);
     QVERIFY(!e.isVirtual());
     QVERIFY(!e.isLocalEcho);
+}
+
+void RustTimelineIngestTest::parsesFormattedBody()
+{
+    // The live-timeline ingest must carry formatted_body through: it feeds
+    // the sanitized rich rendering (mention pills). Dropping it regresses
+    // every mention send to raw markdown in the timeline.
+    QJsonObject item = itemJson(QStringLiteral("uid1"), QStringLiteral("$ev1"),
+                                QStringLiteral("[@t](https://matrix.to/#/%40t%3Ax)"));
+    item.insert(QStringLiteral("formatted_body"),
+                QStringLiteral("<a href=\"https://matrix.to/#/%40t%3Ax\">@t</a>"));
+    const TimelineEvent e = eventFromItemJson(item, kRoom);
+    QCOMPARE(e.formattedBody,
+             QStringLiteral("<a href=\"https://matrix.to/#/%40t%3Ax\">@t</a>"));
+
+    // Absent field keeps the empty default (plain-body fallback contract).
+    const TimelineEvent plain = eventFromItemJson(
+        itemJson(QStringLiteral("uid2"), QStringLiteral("$ev2"),
+                 QStringLiteral("plain")), kRoom);
+    QVERIFY(plain.formattedBody.isEmpty());
 }
 
 void RustTimelineIngestTest::parsesUndecryptableItem()

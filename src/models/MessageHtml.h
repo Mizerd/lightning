@@ -27,12 +27,22 @@
 // or malformed markup is dropped, not passed through.
 namespace MessageHtml {
 
+// Theme ink for mention chips. Colors arrive as validated #rrggbb/#aarrggbb
+// strings (the model validates through QColor before storing); empty means
+// "no chip styling" and mentions render as plain internal links. Qt rich
+// text cannot round corners, so the chip is a soft rectangular highlight.
+struct MentionStyle {
+    QString accentColor; // chip ink
+    QString softColor;   // chip surface
+};
+
 // resolveDisplayName maps a Matrix user id to a room display name (empty or
 // the id itself when unknown — the sanitizer falls back to the localpart).
 // ownUserId, when it matches a mention target, marks a self-mention (bold).
 QString sanitize(
     const QString &html,
     const std::function<QString(const QString &userId)> &resolveDisplayName,
-    const QString &ownUserId);
+    const QString &ownUserId,
+    const MentionStyle &mentionStyle = {});
 
 } // namespace MessageHtml
