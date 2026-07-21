@@ -48,13 +48,22 @@ Item {
     }
     Component.onCompleted: refreshRecent()
     onVisibleChanged: if (visible) refreshRecent()
+    // Coalesce bursty room-list updates: rebuilding the section arrays per
+    // dataChanged would churn up to ~14 delegates (and their avatars) on
+    // every sync tick of a busy account.
+    Timer {
+        id: refreshCoalesce
+        interval: 250
+        repeat: false
+        onTriggered: root.refreshRecent()
+    }
     Connections {
         target: app.roomList
         enabled: root.visible
-        function onModelReset() { root.refreshRecent() }
-        function onRowsInserted() { root.refreshRecent() }
-        function onRowsRemoved() { root.refreshRecent() }
-        function onDataChanged() { root.refreshRecent() }
+        function onModelReset() { refreshCoalesce.restart() }
+        function onRowsInserted() { refreshCoalesce.restart() }
+        function onRowsRemoved() { refreshCoalesce.restart() }
+        function onDataChanged() { refreshCoalesce.restart() }
     }
 
     // Compact "3:24 PM / Yesterday / Mon / 12 Jun" recency label.

@@ -123,6 +123,15 @@ Dialog {
 
     onClosed: resetAll()
 
+    // Notification routing or the quick switcher can change the room while
+    // the dialog is open; a draft must never post into the wrong room.
+    Connections {
+        target: app
+        function onCurrentRoomIdChanged() {
+            if (root.visible) root.close()
+        }
+    }
+
     contentItem: ColumnLayout {
         spacing: AppTheme.spacing12
 

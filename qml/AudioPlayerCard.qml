@@ -32,10 +32,17 @@ Rectangle {
     // the delegate wires this to app.media.openExternal.
     signal openExternalRequested()
 
+    // The player backend loads ON DEMAND (first Play press) — an audio- or
+    // voice-heavy room must not hold one QMediaPlayer per visible row.
+    property bool engaged: false
+    readonly property var player: engine.item
     readonly property bool playing:
-        player.playbackState === MediaPlayer.PlayingState
-    readonly property bool ready: player.source.toString().length > 0
+        player ? player.playbackState === MediaPlayer.PlayingState : false
+    readonly property bool ready:
+        player ? player.source.toString().length > 0 : false
     property string fetchState: "idle" // idle / fetching / failed
+    // Stable failure identity: MediaBridge marks/signals by this cache key.
+    readonly property string fetchCacheKey: "full:" + mediaKey
 
     function formatMs(ms) {
         if (!ms || ms < 0) ms = 0
@@ -49,12 +56,18 @@ Rectangle {
             root.openExternalRequested()
             return
         }
+        engaged = true // synchronous Loader: player exists after this
         if (playing) {
             player.pause()
             return
         }
-        if (fetchState === "failed")
-            fetchState = "idle" // explicit user retry
+        if (fetchState === "failed") {
+            // Explicit user retry: clear the (possibly permanent) failure
+            // mark first — playableSource is otherwise blocked by it and
+            // the card would wait forever for a dispatch that never ran.
+            app.mediaBridge.retry(fetchCacheKey)
+            fetchState = "idle"
+        }
         if (ready) {
             app.playback.acquire(root.ownerKey)
             player.play()
@@ -71,28 +84,41 @@ Rectangle {
         }
     }
     function resetPlayback() {
-        player.stop()
-        player.source = ""
+        if (player) {
+            player.stop()
+            player.source = ""
+        }
+        engaged = false // unload the backend and its temp-file handle
         fetchState = "idle"
         app.playback.release(root.ownerKey)
     }
     onMediaKeyChanged: resetPlayback() // delegate reuse safety
     onRowOnScreenChanged: if (!rowOnScreen && playing) player.pause()
     Component.onDestruction: app.playback.release(root.ownerKey)
+    // A forced stop (room/account switch, sign-out) drops the source and
+    // unloads the engine — the decrypted temp file is about to be wiped.
+    readonly property int stopGen: app.playback.stopGeneration
+    onStopGenChanged: resetPlayback()
 
     Connections {
         target: app.mediaBridge
+        // Both handlers filter on THIS card's cache key — an unrelated
+        // avatar/thumbnail failure elsewhere must not flip this fetch.
         function onPlayableMediaReady(cacheKey) {
-            if (root.fetchState !== "fetching") return
+            if (cacheKey !== root.fetchCacheKey
+                || root.fetchState !== "fetching")
+                return
             var url = app.mediaBridge.playableSource(root.mediaKey)
-            if (url.length === 0) return
+            if (url.length === 0 || !root.player) return
             root.fetchState = "idle"
-            player.source = url
+            root.player.source = url
             app.playback.acquire(root.ownerKey)
-            player.play()
+            root.player.play()
         }
         function onMediaFetchFailed(cacheKey, category) {
-            if (root.fetchState === "fetching") root.fetchState = "failed"
+            if (cacheKey === root.fetchCacheKey
+                && root.fetchState === "fetching")
+                root.fetchState = "failed"
         }
     }
     Connections {
@@ -103,13 +129,15 @@ Rectangle {
         }
     }
 
-    MediaPlayer {
-        id: player
-        audioOutput: AudioOutput {
-            id: audioOut
-            muted: muteButton.mutedState
+    Loader {
+        id: engine
+        active: root.engaged
+        sourceComponent: MediaPlayer {
+            audioOutput: AudioOutput {
+                muted: muteButton.mutedState
+            }
+            onErrorOccurred: root.fetchState = "failed"
         }
-        onErrorOccurred: root.fetchState = "failed"
     }
 
     implicitWidth: Math.min(360, bubble ? bubble.width : 360)
@@ -192,8 +220,9 @@ Rectangle {
                                 return Math.max(0.12, Math.min(1, wf[at]))
                             }
                             readonly property real progress:
-                                player.duration > 0
-                                ? player.position / player.duration : 0
+                                root.player && root.player.duration > 0
+                                ? root.player.position / root.player.duration
+                                : 0
                             width: 2
                             anchors.verticalCenter: parent.verticalCenter
                             height: parent.height * amp
@@ -203,9 +232,10 @@ Rectangle {
                         }
                     }
                     TapHandler {
-                        enabled: player.seekable
+                        enabled: root.player ? root.player.seekable : false
                         onTapped: (eventPoint) => {
-                            player.position = player.duration
+                            if (!root.player) return
+                            root.player.position = root.player.duration
                                 * (eventPoint.position.x / waveRow.width)
                         }
                     }
@@ -215,20 +245,23 @@ Rectangle {
                     anchors.fill: parent
                     visible: !waveRow.visible
                     from: 0
-                    to: Math.max(1, player.duration > 0 ? player.duration
-                                                        : root.durationMs)
-                    enabled: player.seekable
-                    value: pressed ? value : player.position
+                    to: Math.max(1, root.player && root.player.duration > 0
+                                    ? root.player.duration : root.durationMs)
+                    enabled: root.player ? root.player.seekable : false
+                    value: pressed ? value
+                                   : (root.player ? root.player.position : 0)
                     Accessible.name: qsTr("Seek position")
-                    onMoved: player.position = value
+                    onMoved: if (root.player) root.player.position = value
                 }
             }
 
             Label {
                 text: {
-                    var pos = root.formatMs(player.position)
+                    var pos = root.formatMs(root.player ? root.player.position
+                                                        : 0)
                     var total = root.formatMs(
-                        player.duration > 0 ? player.duration : root.durationMs)
+                        root.player && root.player.duration > 0
+                        ? root.player.duration : root.durationMs)
                     var line = root.ready ? pos + " / " + total : total
                     if (!root.isVoice && root.fileSize > 0) {
                         var kb = root.fileSize / 1024
@@ -256,7 +289,8 @@ Rectangle {
             Accessible.name: qsTr("Playback speed %1x").arg(rates[rateIndex])
             onClicked: {
                 rateIndex = (rateIndex + 1) % rates.length
-                player.playbackRate = rates[rateIndex]
+                if (root.player)
+                    root.player.playbackRate = rates[rateIndex]
             }
             background: Rectangle {
                 radius: AppTheme.radiusSm

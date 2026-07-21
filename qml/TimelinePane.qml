@@ -1517,9 +1517,15 @@ Rectangle {
             }
             onSpaceIdChanged: { addNotice = ""; refresh() }
             Component.onCompleted: refresh()
+            Timer {
+                id: spaceRefreshCoalesce
+                interval: 250
+                repeat: false
+                onTriggered: spaceHome.refresh()
+            }
             Connections {
                 target: app.spaces
-                function onSpacesChanged() { spaceHome.refresh() }
+                function onSpacesChanged() { spaceRefreshCoalesce.restart() }
                 function onChildAddFinished(spaceId, roomId, ok) {
                     if (spaceId !== spaceHome.spaceId) return
                     spaceHome.addNotice = ok

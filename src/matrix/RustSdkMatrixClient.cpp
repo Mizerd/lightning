@@ -1053,7 +1053,15 @@ void RustSdkMatrixClient::sendPollResponse(const QString &roomId,
     const QByteArray roomBytes = roomId.toUtf8();
     const QByteArray threadBytes = threadRootId.toUtf8();
     const QByteArray pollBytes = pollStartEventId.toUtf8();
-    const QByteArray answerBytes = answerIds.join(QLatin1Char('\n')).toUtf8();
+    // The FFI list is newline-joined; a hostile poll whose answer ids embed
+    // newlines would otherwise submit split, non-matching ids (a spoiled
+    // vote). Such ids are dropped rather than mangled.
+    QStringList safeIds;
+    for (const QString &id : answerIds) {
+        if (!id.contains(QLatin1Char('\n')))
+            safeIds.append(id);
+    }
+    const QByteArray answerBytes = safeIds.join(QLatin1Char('\n')).toUtf8();
     const QString result = takeRustString(mx_rust_timeline_poll_response(
         m_rustHandle, roomBytes.constData(), threadBytes.constData(),
         pollBytes.constData(), answerBytes.constData()));

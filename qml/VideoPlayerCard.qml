@@ -43,6 +43,9 @@ Item {
         return m + ":" + (s < 10 ? "0" : "") + s
     }
 
+    // Stable failure identity: MediaBridge marks/signals by this cache key.
+    readonly property string fetchCacheKey: "full:" + mediaKey
+
     function start() {
         var url = app.mediaBridge.playableSource(root.mediaKey)
         if (url.length > 0) {
@@ -53,6 +56,14 @@ Item {
         } else {
             fetchState = "fetching"
         }
+    }
+    // Explicit user retry must clear the (possibly permanent) failure mark
+    // first — playableSource is otherwise blocked by it and the card would
+    // wait forever for a dispatch that never happened.
+    function retryFetch() {
+        app.mediaBridge.retry(fetchCacheKey)
+        fetchState = "idle"
+        start()
     }
     function resetPlayback() {
         player.stop()
@@ -72,11 +83,17 @@ Item {
 
     Connections {
         target: app.mediaBridge
+        // Both handlers filter on THIS card's cache key — an unrelated
+        // avatar/thumbnail failure elsewhere must not flip this fetch.
         function onPlayableMediaReady(cacheKey) {
-            if (root.fetchState === "fetching") root.start()
+            if (cacheKey === root.fetchCacheKey
+                && root.fetchState === "fetching")
+                root.start()
         }
         function onMediaFetchFailed(cacheKey, category) {
-            if (root.fetchState === "fetching") root.fetchState = "failed"
+            if (cacheKey === root.fetchCacheKey
+                && root.fetchState === "fetching")
+                root.fetchState = "failed"
         }
     }
     Connections {
@@ -87,6 +104,11 @@ Item {
                 player.pause()
         }
     }
+    // A forced stop (room/account switch, sign-out) must drop the source —
+    // the decrypted temp file is about to be wiped; a paused player holding
+    // an open handle would outlive it.
+    readonly property int stopGen: app.playback.stopGeneration
+    onStopGenChanged: resetPlayback()
 
     MediaPlayer {
         id: player
@@ -141,7 +163,7 @@ Item {
             AppButton {
                 text: qsTr("Retry")
                 Layout.alignment: Qt.AlignHCenter
-                onClicked: { root.fetchState = "idle"; root.start() }
+                onClicked: root.retryFetch()
             }
         }
 
@@ -254,7 +276,9 @@ Item {
                     ToolTip.text: qsTr("Expand video")
                     ToolTip.visible: hovered
                     ToolTip.delay: 600
-                    onClicked: videoOverlay.openFor(player, audioOut)
+                    // Hand the overlay the inline VIDEO output — it must be
+                    // restored as player.videoOutput on close.
+                    onClicked: videoOverlay.openFor(player, output)
                 }
                 IconButton {
                     objectName: "videoCloseButton"
