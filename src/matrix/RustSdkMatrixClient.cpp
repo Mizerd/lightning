@@ -3361,6 +3361,19 @@ quint64 RustSdkMatrixClient::addRoomToSpace(const QString &spaceId,
     return result.isEmpty() ? opId : 0;
 }
 
+quint64 RustSdkMatrixClient::removeRoomFromSpace(const QString &spaceId,
+                                                 const QString &roomId)
+{
+    if (!m_rustHandle || spaceId.isEmpty() || roomId.isEmpty())
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray space = spaceId.toUtf8();
+    const QByteArray room = roomId.toUtf8();
+    const QString result = takeRustString(mx_rust_remove_room_from_space(
+        m_rustHandle, space.constData(), room.constData(), opId));
+    return result.isEmpty() ? opId : 0;
+}
+
 quint64 RustSdkMatrixClient::sendAttachment(const QString &roomId,
                                             const QString &localPath,
                                             const QString &mime,
@@ -3746,6 +3759,15 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
                                   event.value(QStringLiteral("space_id")).toString(),
                                   event.value(QStringLiteral("room_id")).toString(),
                                   event.value(QStringLiteral("ok")).toBool());
+        return true;
+    }
+
+    if (type == QLatin1String("space_child_removed_result")) {
+        Q_EMIT spaceChildRemoveFinished(
+            opId(),
+            event.value(QStringLiteral("space_id")).toString(),
+            event.value(QStringLiteral("room_id")).toString(),
+            event.value(QStringLiteral("ok")).toBool());
         return true;
     }
 

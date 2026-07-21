@@ -290,6 +290,8 @@ public:
     quint64 removeRoomAvatar(const QString &roomId) override;
     quint64 leaveRoom(const QString &roomId) override;
     quint64 addRoomToSpace(const QString &spaceId, const QString &roomId) override;
+    quint64 removeRoomFromSpace(const QString &spaceId,
+                                const QString &roomId) override;
     quint64 sendAttachment(const QString &roomId, const QString &localPath,
                            const QString &mime, const QString &caption,
                            int width, int height, bool animated) override;

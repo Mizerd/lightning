@@ -431,6 +431,12 @@ char *mx_rust_add_room_to_space(void *client,
                                 const char *space_id,
                                 const char *room_id,
                                 unsigned long long op_id);
+/* v0.7: MSC1772 child removal (empty-via m.space.child); never leaves or
+ * deletes the child room. Result: space_child_removed_result. */
+char *mx_rust_remove_room_from_space(void *client,
+                                     const char *space_id,
+                                     const char *room_id,
+                                     unsigned long long op_id);
 
 /*
  * Attachment sending through the SDK timeline send queue. The SDK creates

@@ -6,9 +6,12 @@
 #include <QHash>
 #include <QList>
 #include <QObject>
+#include <QPair>
 #include <QSet>
 #include <QString>
 #include <QStringList>
+#include <QVariantList>
+#include <QVariantMap>
 
 class MatrixClient;
 
@@ -70,9 +73,33 @@ public:
     // v0.7 design shell: display name for the room-list workspace header.
     Q_INVOKABLE QString spaceName(const QString &spaceId) const;
 
+    // v0.7 Space Home. Presentation snapshot of one Space (name, topic,
+    // avatar, child/unread totals) and its children in authoritative
+    // m.space.child order with unread/mention state. `addableRooms` lists
+    // joined, non-Space rooms that are NOT yet children (name-filtered) for
+    // the "Add existing room" picker.
+    Q_INVOKABLE QVariantMap spaceInfo(const QString &spaceId) const;
+    Q_INVOKABLE QVariantList childRoomsDetailed(const QString &spaceId) const;
+    Q_INVOKABLE QVariantList addableRooms(const QString &spaceId,
+                                          const QString &filter) const;
+    // Sends the real m.space.child state event through the backend. The
+    // authoritative hierarchy update arrives via sync (roomsChanged →
+    // rebuild); childAddFinished only reports the send outcome.
+    Q_INVOKABLE void addRoomToSpace(const QString &spaceId,
+                                    const QString &roomId);
+    // MSC1772 removal (empty-via m.space.child); the room itself is never
+    // left or deleted. Permission failures surface as ok=false.
+    Q_INVOKABLE void removeRoomFromSpace(const QString &spaceId,
+                                         const QString &roomId);
+
 Q_SIGNALS:
     void activeSpaceIdChanged();
     void spacesChanged();
+    // v0.7: outcome of one addRoomToSpace call (send result, not sync).
+    void childAddFinished(const QString &spaceId, const QString &roomId,
+                          bool ok);
+    void childRemoveFinished(const QString &spaceId, const QString &roomId,
+                             bool ok);
 
 private Q_SLOTS:
     void rebuild();
@@ -96,6 +123,9 @@ private:
     QSet<QString> m_orphanRoomIds;          // Rooms not in any Space.
     int m_homeUnreadTotal = 0;
     int m_homeHighlightTotal = 0;
+    // v0.7: pending m.space.child sends, opId → (spaceId, roomId).
+    QHash<quint64, QPair<QString, QString>> m_pendingChildAdds;
+    QHash<quint64, QPair<QString, QString>> m_pendingChildRemovals;
 
     QString m_activeSpaceId; // Empty means "All rooms".
 };

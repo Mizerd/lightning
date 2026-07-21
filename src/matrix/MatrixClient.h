@@ -387,6 +387,11 @@ public:
     { Q_UNUSED(roomId); return 0; }
     virtual quint64 addRoomToSpace(const QString &spaceId, const QString &roomId)
     { Q_UNUSED(spaceId); Q_UNUSED(roomId); return 0; }
+    // v0.7: MSC1772 child removal (empty-via m.space.child). Never leaves
+    // or deletes the child room itself.
+    virtual quint64 removeRoomFromSpace(const QString &spaceId,
+                                        const QString &roomId)
+    { Q_UNUSED(spaceId); Q_UNUSED(roomId); return 0; }
 
     // Attachment sending (Rust: SDK send queue with local echo). `mime` is
     // detected by the caller from file content, not just the extension.
@@ -570,6 +575,8 @@ Q_SIGNALS:
                            const QString &category);
     void spaceChildFinished(quint64 opId, const QString &spaceId,
                             const QString &roomId, bool ok);
+    void spaceChildRemoveFinished(quint64 opId, const QString &spaceId,
+                                  const QString &roomId, bool ok);
     // Queue acceptance only — delivery state flows through the timeline
     // item's send state like any other local echo.
     void attachmentQueueFinished(quint64 opId, const QString &roomId,

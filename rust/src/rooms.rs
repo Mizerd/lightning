@@ -855,6 +855,55 @@ async fn add_space_child(
         .map_err(|err| classify_room_error(&err.to_string()).to_owned())
 }
 
+/// MSC1772 child removal: an m.space.child state event whose `via` list is
+/// empty means "not a child" — the room itself is never left or deleted.
+async fn remove_space_child(
+    client: &matrix_sdk::Client,
+    space_id: &str,
+    child_room_id: &str,
+) -> Result<(), String> {
+    let space = RoomId::parse(space_id)
+        .ok()
+        .and_then(|id| client.get_room(&id))
+        .filter(|room| room.state() == RoomState::Joined)
+        .ok_or_else(|| "unknown space".to_owned())?;
+    space
+        .send_state_event_for_key(
+            &RoomId::parse(child_room_id).map_err(|_| "invalid room id".to_owned())?,
+            SpaceChildEventContent::new(Vec::new()),
+        )
+        .await
+        .map(|_| ())
+        .map_err(|err| classify_room_error(&err.to_string()).to_owned())
+}
+
+pub(crate) fn remove_room_from_space(
+    bridge: &crate::RustClient,
+    space_id: String,
+    room_id: String,
+    op_id: u64,
+) -> Result<(), String> {
+    let client = require_client(bridge)?;
+    let events = Arc::clone(&bridge.events);
+    let timelines = Arc::clone(&bridge.timelines);
+    let lifecycle = timelines.lifecycle();
+    bridge.spawn_room_action(async move {
+        let ok = remove_space_child(&client, &space_id, &room_id).await.is_ok();
+        if !timelines.lifecycle_current(lifecycle) {
+            return;
+        }
+        enqueue(&events, json!({
+            "type": "space_child_removed_result",
+            "op_id": op_id,
+            "lifecycle": lifecycle,
+            "space_id": space_id,
+            "room_id": room_id,
+            "ok": ok,
+        }));
+    });
+    Ok(())
+}
+
 pub(crate) fn add_room_to_space(
     bridge: &RustClient,
     space_id: String,

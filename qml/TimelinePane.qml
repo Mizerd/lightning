@@ -1252,13 +1252,29 @@ Rectangle {
             // placeholder when nothing is selected. Sits over the (empty,
             // hidden) timeline; the ListView stays present for tests and to
             // resume the selected room instantly.
+            // A REAL selected Space gets its dedicated management surface;
+            // the pseudo-spaces (All rooms / not-in-a-space) keep Home.
+            readonly property bool spaceViewActive:
+                app.currentRoomId === ""
+                && app.spaces && app.spaces.activeSpaceId.length > 0
+                && app.spaces.activeSpaceId.charAt(0) === "!"
+
             HomePane {
                 objectName: "homePane"
                 anchors.fill: parent
-                visible: app.currentRoomId === ""
+                visible: app.currentRoomId === "" && !parent.spaceViewActive
                 onNewMessageRequested: root.newConversationRequested("dm")
                 onCreateRoomRequested: root.newConversationRequested("room")
                 onCreateSpaceRequested: root.newConversationRequested("space")
+            }
+
+            // v0.7: Space Home — never an ordinary room timeline/composer.
+            Loader {
+                objectName: "spaceHomeLoader"
+                anchors.fill: parent
+                active: parent.spaceViewActive
+                visible: active
+                sourceComponent: spaceHomeComponent
             }
 
             // v0.7: room-loading surface shown while the presentation gate
@@ -1476,4 +1492,629 @@ Rectangle {
     }
 
     } // RowLayout
+
+    // v0.7: Space Home — the management surface for a selected Space
+    // (never an ordinary timeline). Hierarchy data is authoritative
+    // SpaceManager state (m.space.child via sync); "Add existing room"
+    // sends the real state event and the list updates when sync confirms.
+    Component {
+        id: spaceHomeComponent
+        Rectangle {
+            id: spaceHome
+            objectName: "spaceHomePane"
+            color: AppTheme.surface
+
+            readonly property string spaceId:
+                app.spaces ? app.spaces.activeSpaceId : ""
+            property var info: ({})
+            property var childRooms: []
+            property string addNotice: ""
+            property bool settingsOpen: false
+            function refresh() {
+                info = app.spaces ? app.spaces.spaceInfo(spaceId) : {}
+                childRooms = app.spaces
+                           ? app.spaces.childRoomsDetailed(spaceId) : []
+            }
+            onSpaceIdChanged: { addNotice = ""; refresh() }
+            Component.onCompleted: refresh()
+            Connections {
+                target: app.spaces
+                function onSpacesChanged() { spaceHome.refresh() }
+                function onChildAddFinished(spaceId, roomId, ok) {
+                    if (spaceId !== spaceHome.spaceId) return
+                    spaceHome.addNotice = ok
+                        ? qsTr("Room added — waiting for the server to "
+                               + "confirm.")
+                        : qsTr("The room could not be added to this Space.")
+                    spaceHome.refresh()
+                }
+                function onChildRemoveFinished(spaceId, roomId, ok) {
+                    if (spaceId !== spaceHome.spaceId) return
+                    spaceHome.addNotice = ok
+                        ? qsTr("Room removed from this Space. The room "
+                               + "itself is untouched.")
+                        : qsTr("The room could not be removed — you may "
+                               + "not have permission.")
+                    spaceHome.refresh()
+                }
+            }
+
+            Flickable {
+                anchors.fill: parent
+                contentWidth: width
+                contentHeight: spaceCol.implicitHeight + AppTheme.spacing24 * 2
+                boundsBehavior: Flickable.StopAtBounds
+                clip: true
+
+                ColumnLayout {
+                    id: spaceCol
+                    width: Math.min(640, parent.width - AppTheme.spacing24 * 2)
+                    x: (parent.width - width) / 2
+                    y: AppTheme.spacing24
+                    spacing: AppTheme.spacing16
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: AppTheme.spacing12
+                        Avatar {
+                            size: 56
+                            name: spaceHome.info.name || ""
+                            mxc: spaceHome.info.avatarUrl || ""
+                            colorKey: spaceHome.spaceId
+                            roomGlyph: true
+                        }
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 2
+                            Label {
+                                objectName: "spaceHomeName"
+                                text: spaceHome.info.name || qsTr("Space")
+                                color: AppTheme.text
+                                font.family: AppTheme.uiFont
+                                font.pixelSize: 22
+                                font.weight: Font.ExtraBold
+                                elide: Label.ElideRight
+                                Layout.fillWidth: true
+                            }
+                            Label {
+                                visible: (spaceHome.info.topic || "").length > 0
+                                text: spaceHome.info.topic || ""
+                                color: AppTheme.textSecondary
+                                font.pixelSize: 13
+                                wrapMode: Text.WordWrap
+                                maximumLineCount: 3
+                                elide: Label.ElideRight
+                                Layout.fillWidth: true
+                            }
+                            Label {
+                                text: {
+                                    var c = spaceHome.info.childCount || 0
+                                    var u = spaceHome.info.unreadTotal || 0
+                                    var line = c === 1
+                                        ? qsTr("1 room") : qsTr("%1 rooms").arg(c)
+                                    if (u > 0)
+                                        line += qsTr(" • %1 unread").arg(u)
+                                    return line
+                                }
+                                color: AppTheme.textMuted
+                                font.pixelSize: 12
+                            }
+                        }
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: AppTheme.spacingS
+                        AppButton {
+                            objectName: "spaceCreateRoomButton"
+                            kind: "primary"
+                            text: qsTr("Create room here")
+                            visible: app.conversations
+                                     && app.conversations.supported
+                            onClicked: root.newConversationRequested("room")
+                        }
+                        AppButton {
+                            objectName: "spaceAddRoomButton"
+                            text: qsTr("Add existing room")
+                            onClicked: {
+                                addRoomPopup.query = ""
+                                addRoomPopup.refresh()
+                                addRoomPopup.open()
+                            }
+                        }
+                        AppButton {
+                            objectName: "spaceSettingsButton"
+                            text: spaceHome.settingsOpen
+                                  ? qsTr("Hide settings") : qsTr("Space settings")
+                            onClicked:
+                                spaceHome.settingsOpen = !spaceHome.settingsOpen
+                        }
+                        Item { Layout.fillWidth: true }
+                    }
+
+                    Label {
+                        visible: spaceHome.addNotice.length > 0
+                        text: spaceHome.addNotice
+                        color: AppTheme.textMuted
+                        font.pixelSize: 12
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                    }
+
+                    // Space settings — the Space IS a Matrix room; edits go
+                    // through the same permission-gated room-edit backend.
+                    Rectangle {
+                        visible: spaceHome.settingsOpen
+                        Layout.fillWidth: true
+                        radius: AppTheme.radiusMd
+                        color: AppTheme.cardElevated
+                        border.color: AppTheme.border
+                        border.width: 1
+                        implicitHeight: settingsCol.implicitHeight
+                                        + AppTheme.spacing16 * 2
+                        onVisibleChanged: {
+                            if (visible && app.roomInfo)
+                                app.roomInfo.roomId = spaceHome.spaceId
+                        }
+                        ColumnLayout {
+                            id: settingsCol
+                            anchors.fill: parent
+                            anchors.margins: AppTheme.spacing16
+                            spacing: AppTheme.spacingS
+                            Label {
+                                text: qsTr("Name")
+                                color: AppTheme.textMuted
+                                font.pixelSize: 12
+                            }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: AppTheme.spacingS
+                                AppTextField {
+                                    id: spaceNameField
+                                    objectName: "spaceNameEditField"
+                                    Layout.fillWidth: true
+                                    text: spaceHome.info.name || ""
+                                    enabled: app.roomInfo
+                                             && app.roomInfo.canEditName
+                                    Accessible.name: qsTr("Space name")
+                                }
+                                AppButton {
+                                    text: qsTr("Rename")
+                                    enabled: app.roomInfo
+                                             && app.roomInfo.canEditName
+                                             && spaceNameField.text.trim().length > 0
+                                             && !app.roomInfo.editPending
+                                    onClicked: app.roomInfo.setRoomName(
+                                                   spaceNameField.text.trim())
+                                }
+                            }
+                            Label {
+                                text: qsTr("Topic")
+                                color: AppTheme.textMuted
+                                font.pixelSize: 12
+                            }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: AppTheme.spacingS
+                                AppTextField {
+                                    id: spaceTopicField
+                                    objectName: "spaceTopicEditField"
+                                    Layout.fillWidth: true
+                                    text: spaceHome.info.topic || ""
+                                    enabled: app.roomInfo
+                                             && app.roomInfo.canEditTopic
+                                    Accessible.name: qsTr("Space topic")
+                                }
+                                AppButton {
+                                    text: qsTr("Save")
+                                    enabled: app.roomInfo
+                                             && app.roomInfo.canEditTopic
+                                             && !app.roomInfo.editPending
+                                    onClicked: app.roomInfo.setRoomTopic(
+                                                   spaceTopicField.text.trim())
+                                }
+                            }
+                            Label {
+                                visible: app.roomInfo
+                                         && app.roomInfo.editError.length > 0
+                                text: app.roomInfo ? app.roomInfo.editError : ""
+                                color: AppTheme.danger
+                                font.pixelSize: 12
+                                Layout.fillWidth: true
+                                wrapMode: Text.WordWrap
+                            }
+                            RowLayout {
+                                Layout.topMargin: AppTheme.spacingS
+                                spacing: AppTheme.spacingS
+                                AppButton {
+                                    objectName: "spaceLeaveButton"
+                                    kind: "danger"
+                                    text: qsTr("Leave Space")
+                                    enabled: app.roomInfo
+                                             && !app.roomInfo.leavePending
+                                    onClicked: leaveSpaceConfirm.open()
+                                }
+                                Label {
+                                    text: qsTr("Leaving does not remove the "
+                                               + "rooms inside it.")
+                                    color: AppTheme.textMuted
+                                    font.pixelSize: 11
+                                }
+                            }
+                        }
+                    }
+
+                    Label {
+                        text: qsTr("ROOMS IN THIS SPACE")
+                        color: AppTheme.textMuted
+                        font.family: AppTheme.uiFont
+                        font.pixelSize: 11
+                        font.weight: Font.ExtraBold
+                        font.letterSpacing: 0.8
+                        Layout.topMargin: AppTheme.spacingS
+                    }
+
+                    // Empty state for a fresh Space.
+                    Rectangle {
+                        visible: spaceHome.childRooms.length === 0
+                        Layout.fillWidth: true
+                        radius: AppTheme.radiusMd
+                        color: AppTheme.cardElevated
+                        border.color: AppTheme.border
+                        border.width: 1
+                        implicitHeight: emptyCol.implicitHeight
+                                        + AppTheme.spacing16 * 2
+                        ColumnLayout {
+                            id: emptyCol
+                            anchors.fill: parent
+                            anchors.margins: AppTheme.spacing16
+                            spacing: AppTheme.spacingXS
+                            Label {
+                                text: qsTr("No rooms yet")
+                                color: AppTheme.text
+                                font.pixelSize: 14
+                                font.weight: Font.DemiBold
+                            }
+                            Label {
+                                Layout.fillWidth: true
+                                text: qsTr("Create a room here or add one of "
+                                           + "your existing rooms to organise "
+                                           + "it under this Space.")
+                                color: AppTheme.textSecondary
+                                font.pixelSize: 12
+                                wrapMode: Text.WordWrap
+                            }
+                        }
+                    }
+
+                    Repeater {
+                        model: spaceHome.childRooms
+                        delegate: Rectangle {
+                            required property var modelData
+                            Layout.fillWidth: true
+                            implicitHeight: 46
+                            radius: AppTheme.radiusMd
+                            color: childHover.hovered
+                                   ? AppTheme.hover : "transparent"
+                            HoverHandler { id: childHover }
+                            RowLayout {
+                                anchors.fill: parent
+                                anchors.leftMargin: AppTheme.spacingS
+                                anchors.rightMargin: AppTheme.spacingS
+                                spacing: AppTheme.spacingS
+                                Avatar {
+                                    size: 32
+                                    name: modelData.name || ""
+                                    mxc: modelData.avatarUrl || ""
+                                    colorKey: modelData.roomId || ""
+                                    circle: modelData.isDirect === true
+                                    roomGlyph: modelData.isDirect !== true
+                                }
+                                Label {
+                                    Layout.fillWidth: true
+                                    text: modelData.name || qsTr("Room")
+                                    color: AppTheme.text
+                                    font.family: AppTheme.uiFont
+                                    font.pixelSize: AppTheme.scaled(
+                                        AppTheme.fontBody)
+                                    font.weight: modelData.hasUnread
+                                                 ? Font.Bold : Font.Medium
+                                    elide: Label.ElideRight
+                                }
+                                Rectangle {
+                                    visible: (modelData.highlightCount || 0) > 0
+                                    radius: height / 2
+                                    color: AppTheme.danger
+                                    implicitHeight: 18
+                                    implicitWidth: Math.max(
+                                        18, childMention.implicitWidth + 10)
+                                    Label {
+                                        id: childMention
+                                        anchors.centerIn: parent
+                                        text: "@"
+                                        color: AppTheme.accentText
+                                        font.pixelSize: 10
+                                        font.weight: Font.ExtraBold
+                                    }
+                                }
+                                Rectangle {
+                                    visible: modelData.hasUnread === true
+                                    radius: height / 2
+                                    color: AppTheme.accent
+                                    implicitHeight: 18
+                                    implicitWidth: Math.max(
+                                        18, childCount.implicitWidth + 10)
+                                    Label {
+                                        id: childCount
+                                        anchors.centerIn: parent
+                                        visible: (modelData.unreadCount || 0) > 0
+                                        text: modelData.unreadCount > 99
+                                              ? "99+" : modelData.unreadCount
+                                        color: AppTheme.accentText
+                                        font.pixelSize: 11
+                                        font.weight: Font.ExtraBold
+                                    }
+                                }
+                                // MSC1772 child removal — the room itself
+                                // stays; server-side permissions decide.
+                                IconButton {
+                                    objectName: "spaceChildRemoveButton"
+                                    visible: childHover.hovered
+                                    iconName: "close"
+                                    iconSize: 14
+                                    implicitWidth: 24; implicitHeight: 24
+                                    Accessible.name: qsTr("Remove %1 from "
+                                        + "this Space").arg(modelData.name || "")
+                                    ToolTip.text: qsTr("Remove from Space")
+                                    ToolTip.visible: hovered
+                                    ToolTip.delay: 600
+                                    onClicked: {
+                                        removeChildConfirm.roomId =
+                                            modelData.roomId || ""
+                                        removeChildConfirm.roomName =
+                                            modelData.name || ""
+                                        removeChildConfirm.open()
+                                    }
+                                }
+                            }
+                            TapHandler {
+                                onTapped: if (modelData.roomId)
+                                              app.openRoom(modelData.roomId)
+                            }
+                            Accessible.role: Accessible.Button
+                            Accessible.name: qsTr("Open %1")
+                                .arg(modelData.name || "")
+                        }
+                    }
+                }
+            }
+
+            // Child-removal confirmation. Destructive only for the
+            // hierarchy relation — never the room.
+            Popup {
+                id: removeChildConfirm
+                property string roomId: ""
+                property string roomName: ""
+                parent: Overlay.overlay
+                anchors.centerIn: parent
+                modal: true
+                focus: true
+                padding: AppTheme.spacing16
+                background: Rectangle {
+                    color: AppTheme.surface
+                    radius: AppTheme.radiusMd
+                    border.color: AppTheme.borderStrong
+                    border.width: 1
+                }
+                contentItem: ColumnLayout {
+                    spacing: AppTheme.spacing12
+                    Label {
+                        text: qsTr("Remove %1 from this Space?")
+                            .arg(removeChildConfirm.roomName || qsTr("room"))
+                        color: AppTheme.text
+                        font.pixelSize: 14
+                        font.weight: Font.DemiBold
+                    }
+                    Label {
+                        text: qsTr("The room keeps existing and you stay "
+                                   + "in it — it just leaves this Space's "
+                                   + "list.")
+                        color: AppTheme.textSecondary
+                        font.pixelSize: 12
+                        wrapMode: Text.WordWrap
+                        Layout.fillWidth: true
+                    }
+                    RowLayout {
+                        spacing: AppTheme.spacingS
+                        Item { Layout.fillWidth: true }
+                        AppButton {
+                            text: qsTr("Cancel")
+                            onClicked: removeChildConfirm.close()
+                        }
+                        AppButton {
+                            objectName: "spaceChildRemoveConfirmButton"
+                            kind: "danger"
+                            text: qsTr("Remove")
+                            onClicked: {
+                                app.spaces.removeRoomFromSpace(
+                                    spaceHome.spaceId,
+                                    removeChildConfirm.roomId)
+                                removeChildConfirm.close()
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Leave confirmation — leaving a Space never touches its rooms.
+            Popup {
+                id: leaveSpaceConfirm
+                parent: Overlay.overlay
+                anchors.centerIn: parent
+                modal: true
+                focus: true
+                padding: AppTheme.spacing16
+                background: Rectangle {
+                    color: AppTheme.surface
+                    radius: AppTheme.radiusMd
+                    border.color: AppTheme.borderStrong
+                    border.width: 1
+                }
+                contentItem: ColumnLayout {
+                    spacing: AppTheme.spacing12
+                    Label {
+                        text: qsTr("Leave %1?")
+                            .arg(spaceHome.info.name || qsTr("this Space"))
+                        color: AppTheme.text
+                        font.pixelSize: 14
+                        font.weight: Font.DemiBold
+                    }
+                    Label {
+                        text: qsTr("The rooms inside stay untouched.")
+                        color: AppTheme.textSecondary
+                        font.pixelSize: 12
+                    }
+                    RowLayout {
+                        spacing: AppTheme.spacingS
+                        Item { Layout.fillWidth: true }
+                        AppButton {
+                            text: qsTr("Cancel")
+                            onClicked: leaveSpaceConfirm.close()
+                        }
+                        AppButton {
+                            objectName: "spaceLeaveConfirmButton"
+                            kind: "danger"
+                            text: qsTr("Leave Space")
+                            onClicked: {
+                                leaveSpaceConfirm.close()
+                                if (app.roomInfo) {
+                                    app.roomInfo.roomId = spaceHome.spaceId
+                                    app.roomInfo.leaveRoom()
+                                }
+                                app.spaces.activeSpaceId = ""
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Add-existing-room picker: joined non-Space rooms, filtered,
+            // with existing children clearly marked and un-addable.
+            Popup {
+                id: addRoomPopup
+                objectName: "spaceAddRoomPopup"
+                parent: Overlay.overlay
+                anchors.centerIn: parent
+                modal: true
+                focus: true
+                width: Math.min(420, (parent ? parent.width : 420)
+                                - AppTheme.spacing24 * 2)
+                padding: AppTheme.spacing16
+                property string query: ""
+                property var results: []
+                function refresh() {
+                    results = app.spaces
+                              ? app.spaces.addableRooms(spaceHome.spaceId, query)
+                              : []
+                }
+                background: Rectangle {
+                    color: AppTheme.surface
+                    radius: AppTheme.radiusLg
+                    border.color: AppTheme.border
+                    border.width: 1
+                }
+                contentItem: ColumnLayout {
+                    spacing: AppTheme.spacing12
+                    Label {
+                        text: qsTr("Add a room to %1")
+                            .arg(spaceHome.info.name || qsTr("this Space"))
+                        color: AppTheme.text
+                        font.pixelSize: 15
+                        font.weight: Font.DemiBold
+                    }
+                    AppTextField {
+                        objectName: "spaceAddRoomSearch"
+                        Layout.fillWidth: true
+                        searchIcon: true
+                        clearButton: true
+                        placeholderText: qsTr("Search your rooms…")
+                        Accessible.name: qsTr("Search rooms to add")
+                        onTextChanged: {
+                            addRoomPopup.query = text
+                            addRoomPopup.refresh()
+                        }
+                    }
+                    Label {
+                        visible: addRoomPopup.results.length === 0
+                        text: qsTr("No rooms to add.")
+                        color: AppTheme.textMuted
+                        font.pixelSize: 12
+                    }
+                    ListView {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: Math.min(280, contentHeight)
+                        clip: true
+                        model: addRoomPopup.results
+                        spacing: 2
+                        delegate: Rectangle {
+                            required property var modelData
+                            width: ListView.view.width
+                            height: 40
+                            radius: AppTheme.radiusSm
+                            color: addHover.hovered
+                                   ? AppTheme.hover : "transparent"
+                            HoverHandler { id: addHover }
+                            RowLayout {
+                                anchors.fill: parent
+                                anchors.leftMargin: AppTheme.spacingXS
+                                anchors.rightMargin: AppTheme.spacingXS
+                                spacing: AppTheme.spacingS
+                                Avatar {
+                                    size: 26
+                                    name: modelData.name || ""
+                                    mxc: modelData.avatarUrl || ""
+                                    colorKey: modelData.roomId || ""
+                                    circle: modelData.isDirect === true
+                                    roomGlyph: modelData.isDirect !== true
+                                }
+                                Label {
+                                    Layout.fillWidth: true
+                                    text: modelData.name || qsTr("Room")
+                                    color: AppTheme.text
+                                    font.pixelSize: 13
+                                    elide: Label.ElideRight
+                                }
+                                Label {
+                                    visible: modelData.alreadyChild === true
+                                    text: qsTr("Already added")
+                                    color: AppTheme.textMuted
+                                    font.pixelSize: 11
+                                }
+                                AppButton {
+                                    visible: modelData.alreadyChild !== true
+                                    text: qsTr("Add")
+                                    Accessible.name: qsTr("Add %1 to the Space")
+                                        .arg(modelData.name || "")
+                                    onClicked: {
+                                        app.spaces.addRoomToSpace(
+                                            spaceHome.spaceId,
+                                            modelData.roomId)
+                                        addRoomPopup.close()
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Item { Layout.fillWidth: true }
+                        AppButton {
+                            text: qsTr("Close")
+                            onClicked: addRoomPopup.close()
+                        }
+                    }
+                }
+            }
+        }
+    }
 }

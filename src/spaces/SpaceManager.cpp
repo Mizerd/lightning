@@ -20,8 +20,34 @@ void SpaceManager::setClient(MatrixClient *client)
         connect(m_client, &MatrixClient::roomUpdated,
                 this, &SpaceManager::rebuild);
         connect(m_client, &MatrixClient::loggedOut,
-                this, &SpaceManager::rebuild);
+                this, [this] {
+            m_pendingChildAdds.clear(); // account isolation
+            m_pendingChildRemovals.clear();
+            rebuild();
+        });
+        connect(m_client, &MatrixClient::spaceChildFinished,
+                this, [this](quint64 opId, const QString &spaceId,
+                             const QString &roomId, bool ok) {
+            // Only ops this manager issued; ConversationController's
+            // create-with-placement path reports through its own signal.
+            const auto it = m_pendingChildAdds.constFind(opId);
+            if (it == m_pendingChildAdds.constEnd())
+                return;
+            m_pendingChildAdds.erase(it);
+            Q_EMIT childAddFinished(spaceId, roomId, ok);
+        });
+        connect(m_client, &MatrixClient::spaceChildRemoveFinished,
+                this, [this](quint64 opId, const QString &spaceId,
+                             const QString &roomId, bool ok) {
+            const auto it = m_pendingChildRemovals.constFind(opId);
+            if (it == m_pendingChildRemovals.constEnd())
+                return;
+            m_pendingChildRemovals.erase(it);
+            Q_EMIT childRemoveFinished(spaceId, roomId, ok);
+        });
     }
+    m_pendingChildAdds.clear();
+    m_pendingChildRemovals.clear();
     rebuild();
 }
 
@@ -139,6 +165,113 @@ QString SpaceManager::spaceName(const QString &spaceId) const
     return {};
 }
 
+QVariantMap SpaceManager::spaceInfo(const QString &spaceId) const
+{
+    for (const SpaceEntry &entry : m_spaces) {
+        if (entry.info.id != spaceId || spaceId.isEmpty())
+            continue;
+        return QVariantMap{
+            { QStringLiteral("roomId"),        entry.info.id },
+            { QStringLiteral("name"),          entry.info.name },
+            { QStringLiteral("topic"),         entry.info.topic },
+            { QStringLiteral("avatarUrl"),     entry.info.avatarUrl },
+            { QStringLiteral("childCount"),    entry.childRoomIds.size() },
+            { QStringLiteral("unreadTotal"),   entry.unreadTotal },
+            { QStringLiteral("highlightTotal"), entry.highlightTotal },
+        };
+    }
+    return {};
+}
+
+QVariantList SpaceManager::childRoomsDetailed(const QString &spaceId) const
+{
+    QVariantList out;
+    if (!m_client)
+        return out;
+    const SpaceEntry *space = nullptr;
+    for (const SpaceEntry &entry : m_spaces) {
+        if (!spaceId.isEmpty() && entry.info.id == spaceId) {
+            space = &entry;
+            break;
+        }
+    }
+    if (!space)
+        return out;
+
+    QHash<QString, RoomInfo> byId;
+    const auto rooms = m_client->rooms();
+    for (const RoomInfo &room : rooms)
+        byId.insert(room.id, room);
+
+    // Authoritative m.space.child order; children the account has not
+    // joined (or whose rooms are unknown locally) are simply absent —
+    // never fabricated placeholder rows.
+    for (const QString &childId : space->childRoomIds) {
+        const auto it = byId.constFind(childId);
+        if (it == byId.constEnd() || it->membership != RoomInfo::Joined)
+            continue;
+        out.append(QVariantMap{
+            { QStringLiteral("roomId"),        it->id },
+            { QStringLiteral("name"),          it->name },
+            { QStringLiteral("avatarUrl"),     it->avatarUrl },
+            { QStringLiteral("isDirect"),      it->isDirect },
+            { QStringLiteral("hasUnread"),     it->hasUnreadMessages },
+            { QStringLiteral("unreadCount"),   it->unreadCount },
+            { QStringLiteral("highlightCount"), it->highlightCount },
+            { QStringLiteral("lastActivity"),  it->lastActivity },
+        });
+    }
+    return out;
+}
+
+QVariantList SpaceManager::addableRooms(const QString &spaceId,
+                                        const QString &filter) const
+{
+    QVariantList out;
+    if (!m_client || spaceId.isEmpty())
+        return out;
+    const auto member = m_membership.constFind(spaceId);
+    const QString needle = filter.trimmed();
+    const auto rooms = m_client->rooms();
+    for (const RoomInfo &room : rooms) {
+        if (room.isSpace || room.membership != RoomInfo::Joined)
+            continue;
+        const bool alreadyChild =
+            member != m_membership.constEnd() && member->contains(room.id);
+        if (!needle.isEmpty()
+            && !room.name.contains(needle, Qt::CaseInsensitive))
+            continue;
+        out.append(QVariantMap{
+            { QStringLiteral("roomId"),       room.id },
+            { QStringLiteral("name"),         room.name },
+            { QStringLiteral("avatarUrl"),    room.avatarUrl },
+            { QStringLiteral("isDirect"),     room.isDirect },
+            { QStringLiteral("alreadyChild"), alreadyChild },
+        });
+        if (out.size() >= 50)
+            break;
+    }
+    return out;
+}
+
+void SpaceManager::addRoomToSpace(const QString &spaceId,
+                                  const QString &roomId)
+{
+    if (!m_client || spaceId.isEmpty() || roomId.isEmpty())
+        return;
+    // Duplicate protection: adding an existing child is a no-op success.
+    if (includesRoom(spaceId, roomId)) {
+        Q_EMIT childAddFinished(spaceId, roomId, true);
+        return;
+    }
+    const quint64 opId = m_client->addRoomToSpace(spaceId, roomId);
+    if (opId == 0) {
+        Q_EMIT childAddFinished(spaceId, roomId, false);
+        return;
+    }
+    m_pendingChildAdds.insert(opId, { spaceId, roomId });
+}
+
 bool SpaceManager::includesRoom(const QString &spaceId, const QString &roomId) const
 {
     if (spaceId == allRoomsId())
@@ -234,4 +367,21 @@ void SpaceManager::recomputeOrphans()
         if (!covered.contains(r))
             m_orphanRoomIds.insert(r);
     }
+}
+
+void SpaceManager::removeRoomFromSpace(const QString &spaceId,
+                                       const QString &roomId)
+{
+    if (!m_client || spaceId.isEmpty() || roomId.isEmpty())
+        return;
+    if (!includesRoom(spaceId, roomId)) {
+        Q_EMIT childRemoveFinished(spaceId, roomId, true); // already gone
+        return;
+    }
+    const quint64 opId = m_client->removeRoomFromSpace(spaceId, roomId);
+    if (opId == 0) {
+        Q_EMIT childRemoveFinished(spaceId, roomId, false);
+        return;
+    }
+    m_pendingChildRemovals.insert(opId, { spaceId, roomId });
 }
