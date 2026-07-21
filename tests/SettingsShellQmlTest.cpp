@@ -265,6 +265,43 @@ private slots:
         }
     }
 
+    void selectedThemeCardRingIsNotClipped()
+    {
+        // The selection glow (3px accent-soft, drawn outside the card) and
+        // the keyboard focus ring (2px at -6..-4) must render in full. The
+        // old clip:true rectangular scissor shaved both to corner crescents
+        // plus a one-device-pixel sliver protruding into the card gap — the
+        // live "line sticking out beside Indigo Night" defect.
+        m_controller->settings()->setTheme(SettingsManager::IndigoNightTheme);
+        QCoreApplication::processEvents();
+        auto *card = item("featuredThemeCard_9");
+        QVERIFY(card);
+        QVERIFY(!card->clip());
+
+        const QImage selected = m_window->grabWindow();
+        QVERIFY(!selected.isNull());
+        // Mid-height, ~1.5px outside the right edge: inside the glow band.
+        const QPointF ringPoint =
+            card->mapToScene(QPointF(card->width() + 1.5, card->height() / 2));
+        QVERIFY2(channelDelta(sampleAvg(selected,
+                      QRect(int(ringPoint.x()), int(ringPoint.y()) - 1, 2, 2)),
+                      themeColor("accentSoft")) <= kTolerance,
+                 "selection glow missing outside the card edge");
+
+        // Keyboard focus ring: 2px band at -6..-4 from the card edge.
+        card->forceActiveFocus();
+        QTRY_VERIFY(card->hasActiveFocus());
+        const QImage focused = m_window->grabWindow();
+        // The focus band is only 2px wide (-6..-4); sample a single column
+        // squarely inside it.
+        const QPointF focusPoint =
+            card->mapToScene(QPointF(card->width() + 4.5, card->height() / 2));
+        QVERIFY2(channelDelta(sampleAvg(focused,
+                      QRect(int(focusPoint.x()), int(focusPoint.y()) - 1, 1, 2)),
+                      themeColor("focusRing")) <= kTolerance,
+                 "focus ring invisible outside the card edge");
+    }
+
     void clickingThemeCardSwitchesInstantly()
     {
         const QColor before = themeColor("accent");

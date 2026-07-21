@@ -335,9 +335,20 @@ Item {
                                     readonly property bool selectedTheme:
                                         app.settings.theme === modelData.id
                                     implicitWidth: 200
-                                    implicitHeight: previewTop.height + cardFoot.height
+                                    // Integral height keeps the card edge on
+                                    // device pixels (fractional text metrics
+                                    // otherwise bleed one-device-pixel ring
+                                    // slivers under fractional scaling).
+                                    implicitHeight: previewTop.height
+                                                    + Math.ceil(cardFoot.height)
                                     radius: 12
-                                    clip: true
+                                    // NO clip here: the selection glow and
+                                    // focus ring are drawn OUTSIDE the card
+                                    // (negative margins below). Item.clip is a
+                                    // rectangular scissor, so it cannot round
+                                    // the preview's corners anyway — all it
+                                    // did was shave the rings to corner
+                                    // crescents and a protruding edge sliver.
                                     color: AppTheme.surface
                                     border.width: 1.5
                                     border.color: selectedTheme ? AppTheme.accent
@@ -383,6 +394,12 @@ Item {
                                         anchors.right: parent.right
                                         height: 96
                                         color: themeCard.modelData.frame
+                                        // Follow the card's rounded top; the
+                                        // old rectangular clip never did this
+                                        // — the preview overdrew the corner
+                                        // arcs squarely.
+                                        topLeftRadius: 11
+                                        topRightRadius: 11
                                         // 10px padding, 26px mini rail, three
                                         // rounded bars at 70/50/60% width —
                                         // the last in the theme's accent.
