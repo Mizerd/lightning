@@ -7,12 +7,17 @@ import MatrixClient
 // rejection and duplicate removal live in C++ (UserSearchModel); this
 // component provides the input, result list, keyboard navigation and
 // selection signal. Used by the New Conversation and Invite People dialogs.
+//
+// ALL instances share ONE UserSearchModel (app.conversations.userSearch);
+// owners keep at most one picker visible at a time and clear the search
+// when switching surfaces.
 ColumnLayout {
     id: root
     spacing: AppTheme.spacing8
 
-    // Emitted when the user picks a result row (click or Enter).
-    signal userSelected(string userId, string displayName)
+    // Emitted when the user picks a result row (click or Enter). Existing
+    // two-argument handlers keep working; avatarUrl is additive.
+    signal userSelected(string userId, string displayName, string avatarUrl)
 
     property alias searchText: searchField.text
     readonly property var model: app.conversations.userSearch
@@ -26,11 +31,15 @@ ColumnLayout {
         searchField.forceActiveFocus()
     }
 
-    TextField {
+    AppTextField {
         id: searchField
+        objectName: root.objectName.length > 0
+                    ? root.objectName + "SearchField" : "userPickerSearchField"
         Layout.fillWidth: true
+        searchIcon: true
+        clearButton: true
         placeholderText: qsTr("Search people, or enter a full Matrix ID…")
-        font.pixelSize: AppTheme.fontSizeM
+        Accessible.name: qsTr("Search for a user")
         onTextChanged: {
             app.conversations.userSearch.query = text
             resultsList.currentIndex = -1
@@ -54,23 +63,18 @@ ColumnLayout {
                 event.accepted = false
             }
         }
-        background: Rectangle {
-            color: AppTheme.inputBackground
-            border.color: searchField.activeFocus ? AppTheme.focusRing
-                                                  : AppTheme.inputBorder
-            border.width: searchField.activeFocus ? 2 : 1
-            radius: AppTheme.radiusSm
-        }
     }
 
     // State line: loading / no results / error. Results replace it.
     Label {
+        objectName: root.objectName.length > 0
+                    ? root.objectName + "StateLabel" : "userPickerStateLabel"
         visible: text.length > 0
         Layout.fillWidth: true
         text: {
             var s = app.conversations.userSearch.state
             if (s === "loading") return qsTr("Searching…")
-            if (s === "no_results") return qsTr("No users found.")
+            if (s === "no_results") return qsTr("No results")
             if (s === "error") return qsTr("Search failed. Check your connection and try again.")
             return ""
         }
@@ -81,6 +85,8 @@ ColumnLayout {
 
     ListView {
         id: resultsList
+        objectName: root.objectName.length > 0
+                    ? root.objectName + "Results" : "userPickerResults"
         Layout.fillWidth: true
         Layout.preferredHeight: Math.min(contentHeight, 240)
         visible: count > 0
@@ -92,15 +98,22 @@ ColumnLayout {
 
         function selectRow(row) {
             var userId = root.model.userIdAt(row)
-            if (userId && userId.length > 0)
-                root.userSelected(userId, root.model.displayNameAt(row) || "")
+            if (userId && userId.length > 0) {
+                // Avatar comes from the visible delegate (the model keeps
+                // avatarUrl as a role; the highlighted row is instantiated).
+                var delegateItem = resultsList.itemAtIndex(row)
+                root.userSelected(userId, root.model.displayNameAt(row) || "",
+                                  delegateItem ? delegateItem.rowAvatarUrl : "")
+            }
         }
 
         delegate: ItemDelegate {
             id: row
             width: ListView.view.width
             highlighted: ListView.isCurrentItem
-            onClicked: root.userSelected(model.userId, model.displayName || "")
+            readonly property string rowAvatarUrl: model.avatarUrl || ""
+            onClicked: root.userSelected(model.userId, model.displayName || "",
+                                         rowAvatarUrl)
             Accessible.name: model.displayName && model.displayName.length > 0
                              ? qsTr("%1 (%2)").arg(model.displayName).arg(model.userId)
                              : model.userId
@@ -113,6 +126,7 @@ ColumnLayout {
                           ? model.displayName
                           : (model.userId.length > 1 ? model.userId.slice(1) : "?")
                     mxc: model.avatarUrl || ""
+                    colorKey: model.userId
                 }
                 ColumnLayout {
                     Layout.fillWidth: true

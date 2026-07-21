@@ -4,6 +4,7 @@
 #include "models/UserSearchModel.h"
 
 #include <QLoggingCategory>
+#include <QUrl>
 
 Q_LOGGING_CATEGORY(lcConv, "matrix.conversations")
 
@@ -43,6 +44,8 @@ void ConversationController::setClient(MatrixClient *client)
                 this, &ConversationController::onInviteUserFinished);
         connect(m_client, &MatrixClient::inviteBatchFinished,
                 this, &ConversationController::onInviteBatchFinished);
+        connect(m_client, &MatrixClient::roomEditFinished,
+                this, &ConversationController::onRoomEditFinished);
         connect(m_client, &MatrixClient::roomsChanged,
                 this, &ConversationController::onRoomsChanged);
         connect(m_client, &MatrixClient::loggedOut,
@@ -106,11 +109,20 @@ void ConversationController::createRoom(const QVariantMap &options)
         return;
     }
     clearError();
-    const quint64 opId = m_client->createRoom(options);
+    // The optional avatar is applied after creation through the ordinary
+    // room-edit path — it is stripped here and never reaches the backend's
+    // create call.
+    QVariantMap createOptions = options;
+    const QString rawAvatar =
+        createOptions.take(QStringLiteral("avatarPath")).toString();
+    const quint64 opId = m_client->createRoom(createOptions);
     if (opId == 0) {
         setError(tr("Creating rooms is not supported on this backend."));
         return;
     }
+    const QUrl avatarUrl(rawAvatar);
+    m_pendingAvatarPath = avatarUrl.isLocalFile() ? avatarUrl.toLocalFile()
+                                                  : rawAvatar;
     m_pendingOp = opId;
     Q_EMIT busyChanged();
 }
@@ -158,6 +170,8 @@ void ConversationController::reset()
     m_waitingForRoom = false;
     m_awaitedRoomId.clear();
     m_roomWaitTimeout.stop();
+    m_pendingAvatarPath.clear();
+    m_avatarOp = 0;
     m_existingDms.clear();
     m_inviteResults.clear();
     clearError();
@@ -191,6 +205,7 @@ void ConversationController::onRoomCreateFinished(quint64 opId, bool ok,
         return;
     m_pendingOp = 0;
     if (!ok || roomId.isEmpty()) {
+        m_pendingAvatarPath.clear();
         setError(describeCategory(category));
         Q_EMIT busyChanged();
         return;
@@ -198,6 +213,15 @@ void ConversationController::onRoomCreateFinished(quint64 opId, bool ok,
     qCInfo(lcConv) << "room created";
     if (warning == QLatin1String("space_add_failed"))
         Q_EMIT spacePlacementFailed(roomId);
+    // Apply the optional avatar now that the room exists. Fire-and-track:
+    // the room opens regardless of how (or whether) this completes.
+    if (!m_pendingAvatarPath.isEmpty()) {
+        const QString path = m_pendingAvatarPath;
+        m_pendingAvatarPath.clear();
+        m_avatarOp = m_client->setRoomAvatar(roomId, path);
+        if (m_avatarOp == 0)
+            Q_EMIT avatarUploadFailed(roomId);
+    }
     beginWaitForRoom(roomId);
 }
 
@@ -233,6 +257,21 @@ void ConversationController::onInviteBatchFinished(quint64 opId,
     m_pendingOp = 0;
     Q_EMIT busyChanged();
     Q_EMIT inviteBatchCompleted(okCount, failCount);
+}
+
+void ConversationController::onRoomEditFinished(quint64 opId,
+                                                const QString &roomId,
+                                                const QString &field,
+                                                bool ok,
+                                                const QString &category)
+{
+    Q_UNUSED(field);
+    Q_UNUSED(category);
+    if (m_avatarOp == 0 || opId != m_avatarOp)
+        return; // not our avatar upload (e.g. a RoomInfoController edit)
+    m_avatarOp = 0;
+    if (!ok)
+        Q_EMIT avatarUploadFailed(roomId);
 }
 
 void ConversationController::beginWaitForRoom(const QString &roomId)

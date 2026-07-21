@@ -26,10 +26,14 @@ public:
     int createDmCalls = 0;
     int createRoomCalls = 0;
     int inviteCalls = 0;
+    int avatarCalls = 0;
+    bool avatarSupported = true;
     QString lastSearchQuery;
     QString lastDmUser;
     QVariantMap lastRoomOptions;
     QStringList lastInvitees;
+    QString lastAvatarRoom;
+    QString lastAvatarPath;
     quint64 lastOpId = 0;
 
     // MatrixClient pure virtuals (inert).
@@ -93,6 +97,17 @@ public:
     {
         ++inviteCalls;
         lastInvitees = users;
+        lastOpId = nextOp++;
+        return lastOpId;
+    }
+    quint64 setRoomAvatar(const QString &roomId,
+                          const QString &localPath) override
+    {
+        ++avatarCalls;
+        lastAvatarRoom = roomId;
+        lastAvatarPath = localPath;
+        if (!avatarSupported)
+            return 0;
         lastOpId = nextOp++;
         return lastOpId;
     }
@@ -378,6 +393,148 @@ private Q_SLOTS:
         client.mirror = { makeRoom(QStringLiteral("!r:example.org")) };
         Q_EMIT client.roomsChanged();
         QCOMPARE(ready.count(), 1);
+    }
+
+    // ---- optional room avatar (applied after create) ----------------------
+
+    void roomCreateWithAvatarAppliesItAfterCreate()
+    {
+        FakeClient client;
+        ConversationController controller;
+        controller.setClient(&client);
+        QSignalSpy ready(&controller, &ConversationController::conversationReady);
+        QSignalSpy warn(&controller, &ConversationController::avatarUploadFailed);
+
+        controller.createRoom({
+            { QStringLiteral("name"), QStringLiteral("Room") },
+            { QStringLiteral("avatarPath"),
+              QStringLiteral("file:///tmp/picture.png") },
+        });
+        QCOMPARE(client.createRoomCalls, 1);
+        // The avatar never reaches the backend's create call.
+        QVERIFY(!client.lastRoomOptions.contains(QStringLiteral("avatarPath")));
+        // No avatar call before the room exists.
+        QCOMPARE(client.avatarCalls, 0);
+
+        Q_EMIT client.roomCreateFinished(client.lastOpId, true,
+                                         QStringLiteral("!r:example.org"),
+                                         QString(), QString());
+        QCOMPARE(client.avatarCalls, 1);
+        QCOMPARE(client.lastAvatarRoom, QStringLiteral("!r:example.org"));
+        // The file:// URL was converted to a plain local path.
+        QCOMPARE(client.lastAvatarPath, QStringLiteral("/tmp/picture.png"));
+
+        const quint64 avatarOp = client.lastOpId;
+        Q_EMIT client.roomEditFinished(avatarOp, QStringLiteral("!r:example.org"),
+                                       QStringLiteral("avatar"), true, QString());
+        QCOMPARE(warn.count(), 0);
+
+        client.mirror = { makeRoom(QStringLiteral("!r:example.org")) };
+        Q_EMIT client.roomsChanged();
+        QCOMPARE(ready.count(), 1);
+        QVERIFY(!controller.busy());
+        QVERIFY(controller.errorMessage().isEmpty());
+    }
+
+    void avatarUploadFailureWarnsButNeverBlocksOpening()
+    {
+        FakeClient client;
+        ConversationController controller;
+        controller.setClient(&client);
+        QSignalSpy ready(&controller, &ConversationController::conversationReady);
+        QSignalSpy warn(&controller, &ConversationController::avatarUploadFailed);
+
+        controller.createRoom({
+            { QStringLiteral("name"), QStringLiteral("Room") },
+            { QStringLiteral("avatarPath"), QStringLiteral("/tmp/pic.png") },
+        });
+        Q_EMIT client.roomCreateFinished(client.lastOpId, true,
+                                         QStringLiteral("!r:example.org"),
+                                         QString(), QString());
+        QCOMPARE(client.avatarCalls, 1);
+        const quint64 avatarOp = client.lastOpId;
+
+        // The room opens BEFORE the avatar upload completes — the pending
+        // avatar op is outside busy() and can never stall the open.
+        client.mirror = { makeRoom(QStringLiteral("!r:example.org")) };
+        Q_EMIT client.roomsChanged();
+        QCOMPARE(ready.count(), 1);
+        QVERIFY(!controller.busy());
+
+        // The late failure is a warning, not an error.
+        Q_EMIT client.roomEditFinished(avatarOp, QStringLiteral("!r:example.org"),
+                                       QStringLiteral("avatar"), false,
+                                       QStringLiteral("network"));
+        QCOMPARE(warn.count(), 1);
+        QCOMPARE(warn.first().first().toString(),
+                 QStringLiteral("!r:example.org"));
+        QVERIFY(controller.errorMessage().isEmpty());
+        QVERIFY(!controller.busy());
+    }
+
+    void avatarUnsupportedBackendWarnsImmediately()
+    {
+        FakeClient client;
+        client.avatarSupported = false;
+        ConversationController controller;
+        controller.setClient(&client);
+        QSignalSpy ready(&controller, &ConversationController::conversationReady);
+        QSignalSpy warn(&controller, &ConversationController::avatarUploadFailed);
+
+        controller.createRoom({
+            { QStringLiteral("name"), QStringLiteral("Room") },
+            { QStringLiteral("avatarPath"), QStringLiteral("/tmp/pic.png") },
+        });
+        Q_EMIT client.roomCreateFinished(client.lastOpId, true,
+                                         QStringLiteral("!r:example.org"),
+                                         QString(), QString());
+        QCOMPARE(client.avatarCalls, 1);
+        QCOMPARE(warn.count(), 1);
+
+        client.mirror = { makeRoom(QStringLiteral("!r:example.org")) };
+        Q_EMIT client.roomsChanged();
+        QCOMPARE(ready.count(), 1);
+        QVERIFY(controller.errorMessage().isEmpty());
+    }
+
+    void roomCreateWithoutAvatarNeverCallsSetRoomAvatar()
+    {
+        FakeClient client;
+        ConversationController controller;
+        controller.setClient(&client);
+        QSignalSpy ready(&controller, &ConversationController::conversationReady);
+
+        controller.createRoom({ { QStringLiteral("name"), QStringLiteral("Room") } });
+        Q_EMIT client.roomCreateFinished(client.lastOpId, true,
+                                         QStringLiteral("!r:example.org"),
+                                         QString(), QString());
+        client.mirror = { makeRoom(QStringLiteral("!r:example.org")) };
+        Q_EMIT client.roomsChanged();
+        QCOMPARE(ready.count(), 1);
+        QCOMPARE(client.avatarCalls, 0);
+    }
+
+    void signOutClearsPendingAvatar()
+    {
+        FakeClient client;
+        ConversationController controller;
+        controller.setClient(&client);
+        QSignalSpy warn(&controller, &ConversationController::avatarUploadFailed);
+
+        controller.createRoom({
+            { QStringLiteral("name"), QStringLiteral("Room") },
+            { QStringLiteral("avatarPath"), QStringLiteral("/tmp/pic.png") },
+        });
+        const quint64 op = client.lastOpId;
+        Q_EMIT client.loggedOut();
+
+        // The stale creation completion must not trigger an avatar upload
+        // for the next session.
+        Q_EMIT client.roomCreateFinished(op, true,
+                                         QStringLiteral("!late:example.org"),
+                                         QString(), QString());
+        QCOMPARE(client.avatarCalls, 0);
+        QCOMPARE(warn.count(), 0);
     }
 
     // ---- invites ------------------------------------------------------------

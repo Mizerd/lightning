@@ -52,7 +52,10 @@ public:
     Q_INVOKABLE void startDirectMessage(const QString &userId);
 
     // Create a room. options: name, topic, public, encrypted, alias,
-    // invites (list of user ids), spaceId.
+    // invites (list of user ids), spaceId, and an optional avatarPath (a
+    // local file path or file:// URL). The avatar is applied AFTER the room
+    // is created; a failed upload emits avatarUploadFailed and never blocks
+    // or fails the creation itself.
     Q_INVOKABLE void createRoom(const QVariantMap &options);
 
     // Invite one or more users into a joined room.
@@ -71,6 +74,9 @@ Q_SIGNALS:
     void conversationReady(const QString &roomId);
     // Room creation succeeded but the optional Space placement failed.
     void spacePlacementFailed(const QString &roomId);
+    // Room creation succeeded but the optional avatar upload failed (or is
+    // unsupported by the backend). A warning, never a failed create.
+    void avatarUploadFailed(const QString &roomId);
     void inviteBatchCompleted(int okCount, int failCount);
 
 private Q_SLOTS:
@@ -83,6 +89,9 @@ private Q_SLOTS:
                               const QString &category);
     void onInviteBatchFinished(quint64 opId, const QString &roomId,
                                int okCount, int failCount);
+    void onRoomEditFinished(quint64 opId, const QString &roomId,
+                            const QString &field, bool ok,
+                            const QString &category);
     void onRoomsChanged();
     void onLoggedOut();
 
@@ -104,4 +113,10 @@ private:
     bool m_waitingForRoom = false;
     QString m_awaitedRoomId;
     QTimer m_roomWaitTimeout;
+
+    // Optional avatar applied after a successful room create. Deliberately
+    // OUTSIDE busy(): a slow or failed avatar upload must never block or
+    // time out opening the new room.
+    QString m_pendingAvatarPath;
+    quint64 m_avatarOp = 0;
 };

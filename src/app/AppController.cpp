@@ -274,6 +274,11 @@ AppController::AppController(Backend backend, QObject *parent)
         Q_EMIT errorReported(
             tr("The room was created, but adding it to the Space failed."));
     });
+    connect(m_conversations.get(), &ConversationController::avatarUploadFailed,
+            this, [this](const QString &) {
+        Q_EMIT errorReported(
+            tr("The room was created, but setting its picture failed."));
+    });
     connect(m_roomInfo.get(), &RoomInfoController::roomLeft,
             this, [this](const QString &roomId) {
         if (m_currentRoomId == roomId) {

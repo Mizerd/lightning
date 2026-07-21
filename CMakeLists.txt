@@ -241,6 +241,7 @@ set(APP_QML_FILES
     qml/SegmentedControl.qml
     qml/AppTextField.qml
     qml/AppComboBox.qml
+    qml/AppSwitch.qml
     qml/LoginScreen.qml
     qml/SettingsScreen.qml
     qml/MainScreen.qml
@@ -1139,6 +1140,21 @@ if(BUILD_TESTING)
     target_link_libraries(composer-qml-test PRIVATE Qt6::Test)
     add_test(NAME composer-qml COMMAND composer-qml-test)
     set_tests_properties(composer-qml PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    # Creation UX (New Conversation / Create Room / Create Space dialog):
+    # per-tab instantiation (the Space tab must instantiate NO encryption
+    # control), shared-search clearing + focus handoff on tab switch, name
+    # validation gating, busy/error states, existing-DM reuse ordering, and
+    # keyboard result selection.
+    qt_add_executable(creation-dialog-qml-test
+        tests/CreationDialogQmlTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_app(creation-dialog-qml-test)
+    target_link_libraries(creation-dialog-qml-test PRIVATE Qt6::Test)
+    add_test(NAME creation-dialog-qml COMMAND creation-dialog-qml-test)
+    set_tests_properties(creation-dialog-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     # Composer formatting toolbar: markdown wrap/unwrap, line prefixes, link
