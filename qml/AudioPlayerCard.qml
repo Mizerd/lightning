@@ -137,11 +137,15 @@ Rectangle {
                          : (root.isVoice && !root.ready ? "mic" : "play_arrow"))
             iconSize: 17
             enabled: root.fetchState !== "fetching"
-            Accessible.name: root.playing
+            readonly property string actionLabel: root.playing
                 ? qsTr("Pause %1").arg(root.isVoice
                                        ? qsTr("voice message") : root.filename)
                 : qsTr("Play %1").arg(root.isVoice
                                       ? qsTr("voice message") : root.filename)
+            Accessible.name: actionLabel
+            ToolTip.text: actionLabel
+            ToolTip.visible: hovered
+            ToolTip.delay: 600
             onClicked: root.togglePlay()
         }
 
@@ -279,6 +283,9 @@ Rectangle {
             implicitWidth: 24; implicitHeight: 24
             visible: root.ready
             Accessible.name: mutedState ? qsTr("Unmute") : qsTr("Mute")
+            ToolTip.text: mutedState ? qsTr("Unmute") : qsTr("Mute")
+            ToolTip.visible: hovered
+            ToolTip.delay: 600
             onClicked: mutedState = !mutedState
         }
         IconButton {
@@ -287,8 +294,12 @@ Rectangle {
             iconSize: 15
             implicitWidth: 24; implicitHeight: 24
             visible: root.canSave
-            Accessible.name: qsTr("Save %1 as…")
-                .arg(root.filename || qsTr("audio"))
+            readonly property string actionLabel:
+                qsTr("Save %1 as…").arg(root.filename || qsTr("audio"))
+            Accessible.name: actionLabel
+            ToolTip.text: actionLabel
+            ToolTip.visible: hovered
+            ToolTip.delay: 600
             onClicked: root.saveRequested()
         }
     }

@@ -251,6 +251,9 @@ Item {
                     iconSize: 16
                     implicitWidth: 26; implicitHeight: 26
                     Accessible.name: qsTr("Expand video")
+                    ToolTip.text: qsTr("Expand video")
+                    ToolTip.visible: hovered
+                    ToolTip.delay: 600
                     onClicked: videoOverlay.openFor(player, audioOut)
                 }
                 IconButton {

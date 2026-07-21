@@ -121,15 +121,50 @@ Popup {
             }
         }
 
-        Button {
+        RowLayout {
             Layout.fillWidth: true
-            visible: !root.isOwn && app.conversations.supported
-            highlighted: true
-            text: qsTr("Message")
-            Accessible.name: qsTr("Start or open a direct message with %1")
-                             .arg(root.displayName.length > 0 ? root.displayName
-                                                              : root.userId)
-            onClicked: root.startOrOpenDm()
+            spacing: AppTheme.spacing8
+            AppButton {
+                Layout.fillWidth: true
+                visible: !root.isOwn && app.conversations.supported
+                kind: "primary"
+                text: qsTr("Message")
+                Accessible.name: qsTr("Start or open a direct message with %1")
+                                 .arg(root.displayName.length > 0
+                                      ? root.displayName : root.userId)
+                onClicked: root.startOrOpenDm()
+            }
+            AppButton {
+                objectName: "profileCopyIdButton"
+                Layout.fillWidth: true
+                text: qsTr("Copy ID")
+                Accessible.name: qsTr("Copy Matrix ID %1").arg(root.userId)
+                onClicked: {
+                    idClipboard.text = root.userId
+                    idClipboard.selectAll()
+                    idClipboard.copy()
+                    idClipboard.text = ""
+                    copiedNotice.visible = true
+                    copiedTimer.restart()
+                }
+            }
+        }
+        Label {
+            id: copiedNotice
+            visible: false
+            text: qsTr("Matrix ID copied")
+            color: AppTheme.textMuted
+            font.pixelSize: 11
+            Timer {
+                id: copiedTimer
+                interval: 1500
+                onTriggered: copiedNotice.visible = false
+            }
+        }
+        TextEdit {
+            id: idClipboard
+            visible: false
+            width: 0; height: 0
         }
     }
 }

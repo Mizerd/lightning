@@ -89,6 +89,9 @@ Popup {
                 iconSize: 20
                 implicitWidth: 34; implicitHeight: 34
                 Accessible.name: qsTr("Exit expanded video")
+                ToolTip.text: qsTr("Exit expanded video")
+                ToolTip.visible: hovered
+                ToolTip.delay: 600
                 onClicked: root.close()
             }
         }
