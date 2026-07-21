@@ -63,6 +63,9 @@ public:
     // Home surface, as a bounded list of {roomId,name,avatarUrl,isDirect,
     // hasUnread,unreadCount} maps, reusing the model's activity ordering.
     Q_INVOKABLE QVariantList recentRooms(int max = 6) const;
+    // v0.7 Home: joined Spaces (presentation fields only) for the Spaces
+    // shortcut strip.
+    Q_INVOKABLE QVariantList spacesSummary(int max = 8) const;
     Q_INVOKABLE void acceptInvite(const QString &roomId);
     Q_INVOKABLE void rejectInvite(const QString &roomId);
     Q_INVOKABLE void markRoomRead(const QString &roomId);

@@ -51,13 +51,68 @@ Dialog {
         close()
     }
 
+    // Anything typed makes the poll "dirty": click-outside no longer
+    // discards silently, and Cancel/X ask before dropping the draft.
+    // Escape stays a deliberate close for keyboard users.
+    readonly property bool dirty:
+        questionField.text.trim().length > 0 || answerTexts().length > 0
+    function maybeClose() {
+        if (dirty)
+            discardConfirm.open()
+        else
+            close()
+    }
+
     parent: Overlay.overlay
     anchors.centerIn: parent
     modal: true
     focus: true
-    closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+    closePolicy: dirty ? Popup.CloseOnEscape
+                       : (Popup.CloseOnEscape | Popup.CloseOnPressOutside)
     width: Math.min(440, (parent ? parent.width : 440) - AppTheme.spacing24 * 2)
     padding: AppTheme.spacing20
+
+    Popup {
+        id: discardConfirm
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        modal: true
+        focus: true
+        padding: AppTheme.spacing16
+        background: Rectangle {
+            color: AppTheme.surface
+            radius: AppTheme.radiusMd
+            border.color: AppTheme.borderStrong
+            border.width: 1
+        }
+        contentItem: ColumnLayout {
+            spacing: AppTheme.spacing12
+            Label {
+                text: qsTr("Discard this poll draft?")
+                color: AppTheme.text
+                font.pixelSize: 14
+                font.weight: Font.DemiBold
+            }
+            RowLayout {
+                spacing: AppTheme.spacing8
+                Item { Layout.fillWidth: true }
+                AppButton {
+                    objectName: "pollDiscardKeepButton"
+                    text: qsTr("Keep editing")
+                    onClicked: discardConfirm.close()
+                }
+                AppButton {
+                    objectName: "pollDiscardConfirmButton"
+                    kind: "danger"
+                    text: qsTr("Discard")
+                    onClicked: {
+                        discardConfirm.close()
+                        root.close()
+                    }
+                }
+            }
+        }
+    }
 
     background: Rectangle {
         color: AppTheme.surface
@@ -88,7 +143,7 @@ Dialog {
                 iconSize: 18
                 implicitWidth: 28; implicitHeight: 28
                 Accessible.name: qsTr("Close poll creation")
-                onClicked: root.close()
+                onClicked: root.maybeClose()
             }
         }
 
@@ -216,7 +271,7 @@ Dialog {
             AppButton {
                 objectName: "createPollCancelButton"
                 text: qsTr("Cancel")
-                onClicked: root.close()
+                onClicked: root.maybeClose()
             }
             AppButton {
                 objectName: "createPollSubmitButton"

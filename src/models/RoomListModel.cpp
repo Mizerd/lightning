@@ -188,6 +188,29 @@ QVariantList RoomListModel::recentRooms(int max) const
             { QStringLiteral("isDirect"),    r.isDirect },
             { QStringLiteral("hasUnread"),   r.hasUnreadMessages },
             { QStringLiteral("unreadCount"), r.unreadCount },
+            // v0.7 Home: activity recency and the mention badge.
+            { QStringLiteral("lastActivity"), r.lastActivity },
+            { QStringLiteral("highlightCount"), r.highlightCount },
+        });
+    }
+    return out;
+}
+
+QVariantList RoomListModel::spacesSummary(int max) const
+{
+    // Home's Spaces strip: joined Spaces in list order, presentation
+    // fields only. The rail remains the authoritative Space navigation;
+    // this is a shortcut surface.
+    QVariantList out;
+    for (const auto &r : m_rooms) {
+        if (out.size() >= max)
+            break;
+        if (!r.isSpace || r.membership != RoomInfo::Joined)
+            continue;
+        out.append(QVariantMap{
+            { QStringLiteral("roomId"),    r.id },
+            { QStringLiteral("name"),      r.name },
+            { QStringLiteral("avatarUrl"), r.avatarUrl },
         });
     }
     return out;

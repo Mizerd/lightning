@@ -238,6 +238,38 @@ Rectangle {
             }
         }
 
+        // Playback speed — voice messages benefit most. Cycles the standard
+        // rates; per-session only, resets to 1x with the card.
+        AbstractButton {
+            id: audioSpeedButton
+            objectName: "audioSpeedButton"
+            readonly property var rates: [0.5, 0.75, 1.0, 1.25, 1.5, 2.0]
+            property int rateIndex: 2
+            visible: root.ready
+            implicitWidth: 32; implicitHeight: 24
+            focusPolicy: Qt.TabFocus
+            Accessible.role: Accessible.Button
+            Accessible.name: qsTr("Playback speed %1x").arg(rates[rateIndex])
+            onClicked: {
+                rateIndex = (rateIndex + 1) % rates.length
+                player.playbackRate = rates[rateIndex]
+            }
+            background: Rectangle {
+                radius: AppTheme.radiusSm
+                color: audioSpeedButton.hovered ? AppTheme.hover : "transparent"
+                border.width: audioSpeedButton.visualFocus ? 2 : 0
+                border.color: AppTheme.focusRing
+            }
+            contentItem: Label {
+                text: audioSpeedButton.rates[audioSpeedButton.rateIndex] + "×"
+                color: audioSpeedButton.rateIndex === 2
+                       ? AppTheme.textMuted : AppTheme.accent
+                font.pixelSize: 10
+                font.weight: Font.DemiBold
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
+            }
+        }
         IconButton {
             id: muteButton
             objectName: "audioMuteButton"

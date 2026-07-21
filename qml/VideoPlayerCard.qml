@@ -211,6 +211,40 @@ Item {
                     from: 0; to: 1; value: 0.8
                     Accessible.name: qsTr("Volume")
                 }
+                // Playback speed: cycles the standard rates; resets to 1x
+                // per playback session (never persisted).
+                AbstractButton {
+                    id: videoSpeedButton
+                    objectName: "videoSpeedButton"
+                    readonly property var rates: [0.5, 0.75, 1.0, 1.25, 1.5, 2.0]
+                    property int rateIndex: 2
+                    implicitWidth: 34; implicitHeight: 26
+                    focusPolicy: Qt.TabFocus
+                    Accessible.role: Accessible.Button
+                    Accessible.name: qsTr("Playback speed %1x")
+                        .arg(rates[rateIndex])
+                    onClicked: {
+                        rateIndex = (rateIndex + 1) % rates.length
+                        player.playbackRate = rates[rateIndex]
+                    }
+                    background: Rectangle {
+                        radius: AppTheme.radiusSm
+                        color: videoSpeedButton.hovered
+                               ? AppTheme.hover : "transparent"
+                        border.width: videoSpeedButton.visualFocus ? 2 : 0
+                        border.color: AppTheme.focusRing
+                    }
+                    contentItem: Label {
+                        text: videoSpeedButton.rates[videoSpeedButton.rateIndex]
+                              + "×"
+                        color: videoSpeedButton.rateIndex === 2
+                               ? AppTheme.textMuted : AppTheme.accent
+                        font.pixelSize: 10
+                        font.weight: Font.DemiBold
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                }
                 IconButton {
                     objectName: "videoExpandButton"
                     iconName: "open_in_full"

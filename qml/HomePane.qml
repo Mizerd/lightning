@@ -41,8 +41,10 @@ Item {
     // through a Repeater over the whole room list, so hidden rows never spin
     // up avatar fetches.
     property var recentModel: []
+    property var spacesModel: []
     function refreshRecent() {
         recentModel = app.roomList ? app.roomList.recentRooms(6) : []
+        spacesModel = app.roomList ? app.roomList.spacesSummary(8) : []
     }
     Component.onCompleted: refreshRecent()
     onVisibleChanged: if (visible) refreshRecent()
@@ -54,6 +56,24 @@ Item {
         function onRowsRemoved() { root.refreshRecent() }
         function onDataChanged() { root.refreshRecent() }
     }
+
+    // Compact "3:24 PM / Yesterday / Mon / 12 Jun" recency label.
+    function activityLabel(when) {
+        if (!when || isNaN(when.getTime()) || when.getTime() <= 0)
+            return ""
+        var now = new Date()
+        var days = Math.floor((now - when) / 86400000)
+        if (when.toDateString() === now.toDateString())
+            return Qt.formatTime(when, Qt.locale().timeFormat(Locale.ShortFormat))
+        if (days < 2) return qsTr("Yesterday")
+        if (days < 7) return Qt.formatDate(when, "ddd")
+        return Qt.formatDate(when, "d MMM")
+    }
+
+    readonly property bool offline:
+        app.connectionStatus === qsTr("Error")
+        || app.connectionStatus === qsTr("Offline — retrying")
+        || app.connectionStatus === qsTr("Not connected")
 
     Flickable {
         anchors.fill: parent
@@ -108,6 +128,68 @@ Item {
                 font.family: AppTheme.uiFont
                 font.pixelSize: 13
                 wrapMode: Text.WordWrap
+            }
+
+            // Offline notice — informational only; cached rooms stay
+            // reachable and the global status bar carries the detail.
+            Rectangle {
+                objectName: "homeOfflineNotice"
+                visible: root.offline
+                Layout.fillWidth: true
+                radius: AppTheme.radiusMd
+                color: AppTheme.cardElevated
+                border.color: AppTheme.warning
+                border.width: 1
+                implicitHeight: offlineRow.implicitHeight + AppTheme.spacingS * 2
+                RowLayout {
+                    id: offlineRow
+                    anchors.fill: parent
+                    anchors.margins: AppTheme.spacingS
+                    spacing: AppTheme.spacingS
+                    Icon { name: "warning"; size: 16; color: AppTheme.warning }
+                    Label {
+                        Layout.fillWidth: true
+                        text: qsTr("You appear to be offline. Reconnecting — "
+                                   + "your rooms stay available.")
+                        color: AppTheme.textSecondary
+                        font.pixelSize: 12
+                        wrapMode: Text.WordWrap
+                    }
+                }
+            }
+
+            // Actionable security state ONLY — silence when everything is
+            // fine. Routed straight to Privacy & security.
+            Rectangle {
+                objectName: "homeSecurityCard"
+                visible: app.cryptoBootstrap
+                         && app.cryptoBootstrap.needsRecoveryKey === true
+                Layout.fillWidth: true
+                radius: AppTheme.radiusMd
+                color: AppTheme.cardElevated
+                border.color: AppTheme.accent
+                border.width: 1
+                implicitHeight: securityRow.implicitHeight + AppTheme.spacingS * 2
+                RowLayout {
+                    id: securityRow
+                    anchors.fill: parent
+                    anchors.margins: AppTheme.spacingS
+                    spacing: AppTheme.spacingS
+                    Icon { name: "key"; size: 16; color: AppTheme.accent }
+                    Label {
+                        Layout.fillWidth: true
+                        text: app.cryptoBootstrap
+                              ? app.cryptoBootstrap.statusMessage : ""
+                        color: AppTheme.textSecondary
+                        font.pixelSize: 12
+                        wrapMode: Text.WordWrap
+                    }
+                    AppButton {
+                        objectName: "homeSecurityButton"
+                        text: qsTr("Open security")
+                        onClicked: app.showSettingsSection("privacy")
+                    }
+                }
             }
 
             // Primary actions (shared Lightning buttons).
@@ -213,6 +295,33 @@ Item {
                                 font.weight: modelData.hasUnread ? Font.Bold : Font.Medium
                                 elide: Label.ElideRight
                             }
+                            // Last-activity recency.
+                            Label {
+                                text: root.activityLabel(modelData.lastActivity)
+                                visible: text.length > 0
+                                color: AppTheme.textMuted
+                                font.family: AppTheme.uiFont
+                                font.pixelSize: 11
+                            }
+                            // Mention badge — distinct from plain unread.
+                            Rectangle {
+                                visible: (modelData.highlightCount || 0) > 0
+                                radius: height / 2
+                                color: AppTheme.danger
+                                implicitHeight: 18
+                                implicitWidth: Math.max(
+                                    18, mentionLabel.implicitWidth + 10)
+                                Label {
+                                    id: mentionLabel
+                                    anchors.centerIn: parent
+                                    text: "@" + (modelData.highlightCount > 99
+                                                 ? "99+" : modelData.highlightCount)
+                                    color: AppTheme.accentText
+                                    font.family: AppTheme.uiFont
+                                    font.pixelSize: 10
+                                    font.weight: Font.ExtraBold
+                                }
+                            }
                             // Unread dot / count.
                             Rectangle {
                                 visible: modelData.hasUnread === true
@@ -239,6 +348,108 @@ Item {
                         }
                         Accessible.role: Accessible.Button
                         Accessible.name: qsTr("Open %1").arg(modelData.name || "")
+                    }
+                }
+            }
+
+            // Spaces shortcut strip (rail stays authoritative navigation).
+            ColumnLayout {
+                Layout.fillWidth: true
+                Layout.topMargin: AppTheme.spacingS
+                spacing: AppTheme.spacingXS
+                visible: root.spacesModel.length > 0
+                Label {
+                    text: qsTr("YOUR SPACES")
+                    color: AppTheme.textMuted
+                    font.family: AppTheme.uiFont
+                    font.pixelSize: 11
+                    font.weight: Font.ExtraBold
+                    font.letterSpacing: 0.8
+                }
+                Flow {
+                    Layout.fillWidth: true
+                    spacing: AppTheme.spacingXS
+                    Repeater {
+                        model: root.spacesModel
+                        delegate: Rectangle {
+                            required property var modelData
+                            radius: AppTheme.radiusPill
+                            color: spaceHover.hovered
+                                   ? AppTheme.hover : AppTheme.cardElevated
+                            border.color: AppTheme.border
+                            border.width: 1
+                            implicitHeight: 32
+                            implicitWidth: spaceRow.implicitWidth
+                                           + AppTheme.spacingS * 2
+                            HoverHandler { id: spaceHover }
+                            RowLayout {
+                                id: spaceRow
+                                anchors.centerIn: parent
+                                spacing: AppTheme.spacingXS
+                                Avatar {
+                                    size: 20
+                                    name: modelData.name || ""
+                                    mxc: modelData.avatarUrl || ""
+                                    colorKey: modelData.roomId || ""
+                                    roomGlyph: true
+                                }
+                                Label {
+                                    text: modelData.name || qsTr("Space")
+                                    color: AppTheme.text
+                                    font.family: AppTheme.uiFont
+                                    font.pixelSize: 12
+                                    font.weight: Font.Medium
+                                }
+                            }
+                            TapHandler {
+                                onTapped: if (modelData.roomId && app.spaces)
+                                              app.spaces.activeSpaceId =
+                                                  modelData.roomId
+                            }
+                            Accessible.role: Accessible.Button
+                            Accessible.name: qsTr("Open Space %1")
+                                .arg(modelData.name || "")
+                        }
+                    }
+                }
+            }
+
+            // Empty-account onboarding: no joined conversations yet. The
+            // primary actions above stay the entry points; this explains
+            // them without cluttering a populated Home.
+            Rectangle {
+                objectName: "homeOnboarding"
+                visible: root.recentModel.length === 0
+                Layout.fillWidth: true
+                Layout.topMargin: AppTheme.spacingS
+                radius: AppTheme.radiusMd
+                color: AppTheme.cardElevated
+                border.color: AppTheme.border
+                border.width: 1
+                implicitHeight: onboardingCol.implicitHeight
+                                + AppTheme.spacing16 * 2
+                ColumnLayout {
+                    id: onboardingCol
+                    anchors.fill: parent
+                    anchors.margins: AppTheme.spacing16
+                    spacing: AppTheme.spacingXS
+                    Label {
+                        text: qsTr("Nothing here yet")
+                        color: AppTheme.text
+                        font.family: AppTheme.uiFont
+                        font.pixelSize: 14
+                        font.weight: Font.DemiBold
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        text: qsTr("Start a direct message to talk to someone, "
+                                   + "create a room for a group, or organise "
+                                   + "rooms into a Space. You can also join an "
+                                   + "existing room from the New conversation "
+                                   + "dialog by entering its address.")
+                        color: AppTheme.textSecondary
+                        font.pixelSize: 12
+                        wrapMode: Text.WordWrap
                     }
                 }
             }

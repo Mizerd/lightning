@@ -975,6 +975,29 @@ Item {
                                 onTriggered: root.copyToClipboard(
                                     root.timelineModel.messagePermalink(root.menuEventId))
                             }
+                            // v0.7: unified media action — every media row
+                            // offers Save from the same menu (cards keep
+                            // their inline affordances too).
+                            AppMenuItem {
+                                objectName: "saveMediaMenuItem"
+                                iconName: "download"
+                                text: qsTr("Save as…")
+                                visible: (model.isImage === true
+                                          || model.isVideo === true
+                                          || model.isAudio === true
+                                          || model.isSticker === true
+                                          || model.isFile === true)
+                                         && model.mediaSourceAvailable === true
+                                         && app.mediaBridge.supported
+                                enabled: visible && root.menuEventId !== ""
+                                onTriggered: {
+                                    if (root.ListView.view
+                                        && root.ListView.view.saveMedia)
+                                        root.ListView.view.saveMedia(
+                                            model.mediaKey || "",
+                                            model.mediaFilename || "download")
+                                }
+                            }
                             AppMenuItem {
                                 iconName: "person"
                                 text: qsTr("View profile")
@@ -2304,6 +2327,13 @@ Item {
                                     radius: 2
                                     color: modelData.byMe === true
                                            ? AppTheme.accent : AppTheme.accentSoft
+                                    Behavior on width {
+                                        enabled: !AppTheme.reducedMotion
+                                        NumberAnimation {
+                                            duration: 200
+                                            easing.type: Easing.OutCubic
+                                        }
+                                    }
                                 }
                             }
                         }
