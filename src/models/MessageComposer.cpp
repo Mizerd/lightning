@@ -176,6 +176,9 @@ void MessageComposer::setText(const QString &t)
 {
     if (m_text == t)
         return;
+    // Keep the mention ranges in sync with an ordinary edit (typing, deletion,
+    // paste): a ref whose slice no longer matches is dropped fail-closed.
+    m_mentionRefs = mention::shiftRefs(m_mentionRefs, m_text, t);
     m_text = t;
     Q_EMIT textChanged();
     updateCanSend();
@@ -194,6 +197,7 @@ void MessageComposer::setRoomId(const QString &r)
     m_attachments->clearAll();
     m_roomId = r;
     m_text.clear();
+    m_mentionRefs.clear();
     Q_EMIT textChanged();
     Q_EMIT roomIdChanged();
     updateCanSend();
@@ -207,11 +211,16 @@ bool MessageComposer::canSend() const
 void MessageComposer::send()
 {
     if (!m_canSend || !m_client) return;
-    const QString body = m_text.trimmed();
+    // v0.7: expand inserted @-mentions into matrix.to markdown links and
+    // collect the deduped MXIDs for m.mentions. With no mentions this is the
+    // trimmed text and an empty id list, so the previous behaviour is exact.
+    const mention::Expansion expansion = mention::expand(m_text, m_mentionRefs);
+    const QString body = expansion.body.trimmed();
+    const QStringList mentionIds = expansion.userIds;
     if (!m_editingEventId.isEmpty()) {
         // Edit mode edits text only; attachments stay queued.
         if (body.isEmpty()) return;
-        m_client->editMessage(m_roomId, m_editingEventId, body);
+        m_client->editMessage(m_roomId, m_editingEventId, body, mentionIds);
     } else {
         // v0.5.9: attachments go first (each becomes its own SDK local
         // echo), then the text as a separate message — matching how other
@@ -221,11 +230,13 @@ void MessageComposer::send()
             if (!m_threadRootId.isEmpty()) {
                 // v0.4.1: thread replies. Mock preserves thread grouping;
                 // HTTP falls back to sendReply via the interface default.
-                m_client->sendThreadReply(m_roomId, m_threadRootId, body);
+                m_client->sendThreadReplyTo(m_roomId, m_threadRootId, QString(),
+                                            body, mentionIds);
             } else if (!m_replyingToEventId.isEmpty()) {
-                m_client->sendReply(m_roomId, m_replyingToEventId, body);
+                m_client->sendReply(m_roomId, m_replyingToEventId, body,
+                                    mentionIds);
             } else {
-                m_client->sendTextMessage(m_roomId, body);
+                m_client->sendTextMessage(m_roomId, body, mentionIds);
             }
         }
     }
@@ -236,11 +247,57 @@ void MessageComposer::send()
 
 void MessageComposer::clear()
 {
+    m_mentionRefs.clear();
     if (m_text.isEmpty()) return;
     m_text.clear();
     Q_EMIT textChanged();
     updateCanSend();
     refreshTypingState();
+}
+
+QVariantMap MessageComposer::mentionTokenAt(const QString &text,
+                                            int cursorPos) const
+{
+    const mention::Token tok = mention::activeToken(text, cursorPos);
+    QVariantMap out;
+    if (!tok.active) {
+        out.insert(QStringLiteral("active"), false);
+        return out;
+    }
+    // Suppress the popup when the detected token overlaps an already-inserted
+    // mention (for example the trailing space right after "@Name ").
+    const int tokEnd = qBound(0, cursorPos, text.length());
+    for (const mention::MentionRef &ref : m_mentionRefs) {
+        const int rs = ref.start;
+        const int re = ref.start + ref.length;
+        if (tok.start < re && rs < tokEnd) {
+            out.insert(QStringLiteral("active"), false);
+            return out;
+        }
+    }
+    out.insert(QStringLiteral("active"), true);
+    out.insert(QStringLiteral("start"), tok.start);
+    out.insert(QStringLiteral("query"), tok.query);
+    return out;
+}
+
+int MessageComposer::insertMention(const QString &userId,
+                                   const QString &displayName, int tokenStart,
+                                   int cursorPos)
+{
+    if (userId.isEmpty())
+        return cursorPos;
+    const mention::InsertResult res = mention::buildInsertion(
+        m_text, tokenStart, cursorPos, userId, displayName);
+    // The insertion is one atomic edit: shift existing refs across it, then
+    // record the new one (it never overlaps an existing ref).
+    m_mentionRefs = mention::shiftRefs(m_mentionRefs, m_text, res.text);
+    m_mentionRefs.append(res.ref);
+    m_text = res.text;
+    Q_EMIT textChanged();
+    updateCanSend();
+    refreshTypingState();
+    return res.cursorPos;
 }
 
 void MessageComposer::beginReply(const QString &eventId,
@@ -297,6 +354,7 @@ void MessageComposer::cancelReplyOrEdit()
     m_editingEventId.clear();
     m_threadRootId.clear();
     m_threadPreview.clear();
+    m_mentionRefs.clear();
     if (wasEditing) {
         m_text.clear();
         Q_EMIT textChanged();

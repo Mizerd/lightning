@@ -94,6 +94,7 @@ AppController::AppController(Backend backend, QObject *parent)
     m_quickSwitcher = std::make_unique<QuickSwitcherModel>(this);
     m_timeline     = std::make_unique<TimelineModel>(this);
     m_composer     = std::make_unique<MessageComposer>(this);
+    m_mentionSuggestions = std::make_unique<MentionSuggestionModel>(this);
     m_emojiCatalog = std::make_unique<EmojiCatalog>(m_settings.get(), this);
     m_notifications= std::make_unique<NotificationManager>(this);
     m_media        = std::make_unique<MediaManager>(this);
@@ -209,6 +210,7 @@ AppController::AppController(Backend backend, QObject *parent)
     m_quickSwitcher->setSpaceManager(m_spaces.get());
     m_timeline->setClient(m_client.get());
     m_composer->setClient(m_client.get());
+    m_mentionSuggestions->setClient(m_client.get());
     m_media->setClient(m_client.get());
     m_conversations->setClient(m_client.get());
     m_roomInfo->setClient(m_client.get());

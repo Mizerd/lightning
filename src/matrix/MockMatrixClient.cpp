@@ -342,6 +342,80 @@ void MockMatrixClient::sendThreadReplyTo(const QString &roomId,
         emitThreadList(roomId);
 }
 
+// v0.7 outgoing @-mentions: record what the composer delivered (expanded body
+// + deduped ids) for the composer tests, then reuse the existing send paths.
+void MockMatrixClient::sendTextMessage(const QString &roomId,
+                                       const QString &body,
+                                       const QStringList &mentionUserIds)
+{
+    m_lastSentBody = body;
+    m_lastMentionIds = mentionUserIds;
+    sendTextMessage(roomId, body);
+}
+
+void MockMatrixClient::sendReply(const QString &roomId,
+                                 const QString &replyToEventId,
+                                 const QString &body,
+                                 const QStringList &mentionUserIds)
+{
+    m_lastSentBody = body;
+    m_lastMentionIds = mentionUserIds;
+    sendReply(roomId, replyToEventId, body);
+}
+
+void MockMatrixClient::editMessage(const QString &roomId,
+                                   const QString &targetEventId,
+                                   const QString &newBody,
+                                   const QStringList &mentionUserIds)
+{
+    m_lastSentBody = newBody;
+    m_lastMentionIds = mentionUserIds;
+    editMessage(roomId, targetEventId, newBody);
+}
+
+void MockMatrixClient::sendThreadReplyTo(const QString &roomId,
+                                         const QString &threadRootEventId,
+                                         const QString &inReplyToEventId,
+                                         const QString &body,
+                                         const QStringList &mentionUserIds)
+{
+    m_lastSentBody = body;
+    m_lastMentionIds = mentionUserIds;
+    sendThreadReplyTo(roomId, threadRootEventId, inReplyToEventId, body);
+}
+
+quint64 MockMatrixClient::requestRoomMembers(const QString &roomId)
+{
+    const quint64 op = ++m_opCounter;
+    QVariantList members;
+    for (const auto &room : m_rooms) {
+        if (room.id != roomId)
+            continue;
+        for (auto it = room.members.constBegin(); it != room.members.constEnd();
+             ++it) {
+            QVariantMap entry;
+            entry.insert(QStringLiteral("userId"), it.key());
+            entry.insert(QStringLiteral("displayName"), it.value().displayName);
+            entry.insert(QStringLiteral("avatarUrl"), it.value().avatarMxcUrl);
+            entry.insert(QStringLiteral("membership"), QStringLiteral("join"));
+            entry.insert(QStringLiteral("role"), QStringLiteral("default"));
+            entry.insert(QStringLiteral("ambiguous"), false);
+            entry.insert(QStringLiteral("isOwn"), it.key() == m_userId);
+            members.append(entry);
+        }
+        break;
+    }
+    QVariantMap snapshot;
+    snapshot.insert(QStringLiteral("ok"), true);
+    snapshot.insert(QStringLiteral("members"), members);
+    // Asynchronous like the real backend, so the model's op-id is stored before
+    // the snapshot arrives.
+    QTimer::singleShot(0, this, [this, op, roomId, snapshot] {
+        Q_EMIT roomMembersReceived(op, roomId, snapshot);
+    });
+    return op;
+}
+
 quint64 MockMatrixClient::appendThreadAttachment(const QString &roomId,
                                                  const QString &rootEventId,
                                                  const QString &fileName,

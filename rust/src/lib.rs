@@ -2564,14 +2564,16 @@ pub unsafe extern "C" fn mx_rust_timeline_send_text(
     ptr: *mut c_void,
     room_id: *const c_char,
     body: *const c_char,
+    mention_user_ids: *const c_char,
 ) -> *mut c_char {
     ffi_string(|| {
         let bridge = unsafe { bridge(ptr)? };
         let room_id = unsafe { cstr_arg(room_id) }?;
         let body = unsafe { cstr_arg(body) }?;
+        let mentions = unsafe { cstr_list_arg(mention_user_ids) }?;
         bridge
             .timelines
-            .send_text(&bridge.runtime, room_id, body)
+            .send_text(&bridge.runtime, room_id, body, mentions)
             .map(|_| String::new())
     })
 }
@@ -2582,15 +2584,17 @@ pub unsafe extern "C" fn mx_rust_timeline_send_reply(
     room_id: *const c_char,
     in_reply_to_event_id: *const c_char,
     body: *const c_char,
+    mention_user_ids: *const c_char,
 ) -> *mut c_char {
     ffi_string(|| {
         let bridge = unsafe { bridge(ptr)? };
         let room_id = unsafe { cstr_arg(room_id) }?;
         let reply_to = unsafe { cstr_arg(in_reply_to_event_id) }?;
         let body = unsafe { cstr_arg(body) }?;
+        let mentions = unsafe { cstr_list_arg(mention_user_ids) }?;
         bridge
             .timelines
-            .send_reply(&bridge.runtime, room_id, reply_to, body)
+            .send_reply(&bridge.runtime, room_id, reply_to, body, mentions)
             .map(|_| String::new())
     })
 }
@@ -2652,6 +2656,7 @@ pub unsafe extern "C" fn mx_rust_thread_send_text(
     root_event_id: *const c_char,
     body: *const c_char,
     in_reply_to: *const c_char,
+    mention_user_ids: *const c_char,
 ) -> *mut c_char {
     ffi_string(|| {
         let bridge = unsafe { bridge(ptr)? };
@@ -2666,12 +2671,15 @@ pub unsafe extern "C" fn mx_rust_thread_send_text(
             let value = unsafe { cstr_arg(in_reply_to) }?;
             if value.trim().is_empty() { None } else { Some(value) }
         };
+        let mentions = unsafe { cstr_list_arg(mention_user_ids) }?;
         let Some(client) = bridge.client.lock().ok().and_then(|g| g.clone()) else {
             return Err("Rust SDK session is not logged in.".to_owned());
         };
         bridge
             .timelines
-            .send_thread_text(&bridge.runtime, client, room_id, root, body, reply_to)
+            .send_thread_text(
+                &bridge.runtime, client, room_id, root, body, reply_to, mentions,
+            )
             .map(|_| String::new())
     })
 }
@@ -2938,15 +2946,17 @@ pub unsafe extern "C" fn mx_rust_timeline_edit(
     room_id: *const c_char,
     target_event_id: *const c_char,
     new_body: *const c_char,
+    mention_user_ids: *const c_char,
 ) -> *mut c_char {
     ffi_string(|| {
         let bridge = unsafe { bridge(ptr)? };
         let room_id = unsafe { cstr_arg(room_id) }?;
         let target = unsafe { cstr_arg(target_event_id) }?;
         let new_body = unsafe { cstr_arg(new_body) }?;
+        let mentions = unsafe { cstr_list_arg(mention_user_ids) }?;
         bridge
             .timelines
-            .edit(&bridge.runtime, room_id, target, new_body)
+            .edit(&bridge.runtime, room_id, target, new_body, mentions)
             .map(|_| String::new())
     })
 }

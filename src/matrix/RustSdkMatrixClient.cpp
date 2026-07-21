@@ -828,7 +828,8 @@ void RustSdkMatrixClient::sendTextMessage(const QString &roomId, const QString &
         const QByteArray roomBytes = roomId.toUtf8();
         const QByteArray bodyBytes = body.toUtf8();
         const QString result = takeRustString(mx_rust_timeline_send_text(
-            m_rustHandle, roomBytes.constData(), bodyBytes.constData()));
+            m_rustHandle, roomBytes.constData(), bodyBytes.constData(),
+            nullptr));
         if (!result.isEmpty()) {
             Q_EMIT errorOccurred(result.startsWith(QLatin1String("error: "))
                                      ? result.mid(7)
@@ -858,6 +859,48 @@ void RustSdkMatrixClient::sendTextMessage(const QString &roomId, const QString &
     }
 }
 
+// v0.7: outgoing @-mentions. The body already carries matrix.to markdown
+// links; the id list is forwarded to the SDK so it writes m.mentions. Empty
+// ids or a room without a live timeline fall back to the plain send path.
+void RustSdkMatrixClient::sendTextMessage(const QString &roomId,
+                                          const QString &body,
+                                          const QStringList &mentionUserIds)
+{
+    if (mentionUserIds.isEmpty()) {
+        sendTextMessage(roomId, body);
+        return;
+    }
+    if (!m_loggedIn || !m_rustHandle) {
+        Q_EMIT errorOccurred(tr("Not signed in."));
+        return;
+    }
+    if (!m_rooms.contains(roomId)) {
+        Q_EMIT errorOccurred(tr("Unknown room: %1").arg(roomId));
+        return;
+    }
+    if (isRoomEncrypted(roomId) && !rustSupportsE2ee()) {
+        Q_EMIT errorOccurred(tr(
+            "Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified."));
+        return;
+    }
+    if (!timelineActiveFor(roomId)) {
+        sendTextMessage(roomId, body);
+        return;
+    }
+    const QByteArray roomBytes = roomId.toUtf8();
+    const QByteArray bodyBytes = body.toUtf8();
+    const QByteArray mentionBytes =
+        mentionUserIds.join(QLatin1Char('\n')).toUtf8();
+    const QString result = takeRustString(mx_rust_timeline_send_text(
+        m_rustHandle, roomBytes.constData(), bodyBytes.constData(),
+        mentionBytes.constData()));
+    if (!result.isEmpty()) {
+        Q_EMIT errorOccurred(result.startsWith(QLatin1String("error: "))
+                                 ? result.mid(7)
+                                 : result);
+    }
+}
+
 // v0.5.7: replies, edits, reactions, and redactions route through the
 // official matrix-sdk-ui timeline actions when the room's live timeline is
 // open (relation JSON is never hand-built in C++). Rooms without a live
@@ -875,7 +918,31 @@ void RustSdkMatrixClient::sendReply(const QString &roomId,
     const QByteArray bodyBytes = body.toUtf8();
     const QString result = takeRustString(mx_rust_timeline_send_reply(
         m_rustHandle, roomBytes.constData(), targetBytes.constData(),
-        bodyBytes.constData()));
+        bodyBytes.constData(), nullptr));
+    if (!result.isEmpty()) {
+        Q_EMIT errorOccurred(result.startsWith(QLatin1String("error: "))
+                                 ? result.mid(7)
+                                 : result);
+    }
+}
+
+void RustSdkMatrixClient::sendReply(const QString &roomId,
+                                    const QString &replyToEventId,
+                                    const QString &body,
+                                    const QStringList &mentionUserIds)
+{
+    if (mentionUserIds.isEmpty() || !timelineActiveFor(roomId)) {
+        sendReply(roomId, replyToEventId, body);
+        return;
+    }
+    const QByteArray roomBytes = roomId.toUtf8();
+    const QByteArray targetBytes = replyToEventId.toUtf8();
+    const QByteArray bodyBytes = body.toUtf8();
+    const QByteArray mentionBytes =
+        mentionUserIds.join(QLatin1Char('\n')).toUtf8();
+    const QString result = takeRustString(mx_rust_timeline_send_reply(
+        m_rustHandle, roomBytes.constData(), targetBytes.constData(),
+        bodyBytes.constData(), mentionBytes.constData()));
     if (!result.isEmpty()) {
         Q_EMIT errorOccurred(result.startsWith(QLatin1String("error: "))
                                  ? result.mid(7)
@@ -896,7 +963,31 @@ void RustSdkMatrixClient::editMessage(const QString &roomId,
     const QByteArray bodyBytes = newBody.toUtf8();
     const QString result = takeRustString(mx_rust_timeline_edit(
         m_rustHandle, roomBytes.constData(), targetBytes.constData(),
-        bodyBytes.constData()));
+        bodyBytes.constData(), nullptr));
+    if (!result.isEmpty()) {
+        Q_EMIT errorOccurred(result.startsWith(QLatin1String("error: "))
+                                 ? result.mid(7)
+                                 : result);
+    }
+}
+
+void RustSdkMatrixClient::editMessage(const QString &roomId,
+                                      const QString &targetEventId,
+                                      const QString &newBody,
+                                      const QStringList &mentionUserIds)
+{
+    if (mentionUserIds.isEmpty() || !timelineActiveFor(roomId)) {
+        editMessage(roomId, targetEventId, newBody);
+        return;
+    }
+    const QByteArray roomBytes = roomId.toUtf8();
+    const QByteArray targetBytes = targetEventId.toUtf8();
+    const QByteArray bodyBytes = newBody.toUtf8();
+    const QByteArray mentionBytes =
+        mentionUserIds.join(QLatin1Char('\n')).toUtf8();
+    const QString result = takeRustString(mx_rust_timeline_edit(
+        m_rustHandle, roomBytes.constData(), targetBytes.constData(),
+        bodyBytes.constData(), mentionBytes.constData()));
     if (!result.isEmpty()) {
         Q_EMIT errorOccurred(result.startsWith(QLatin1String("error: "))
                                  ? result.mid(7)
@@ -1276,6 +1367,16 @@ void RustSdkMatrixClient::sendThreadReplyTo(const QString &roomId,
                                             const QString &inReplyToEventId,
                                             const QString &body)
 {
+    sendThreadReplyTo(roomId, threadRootEventId, inReplyToEventId, body,
+                      QStringList());
+}
+
+void RustSdkMatrixClient::sendThreadReplyTo(const QString &roomId,
+                                            const QString &threadRootEventId,
+                                            const QString &inReplyToEventId,
+                                            const QString &body,
+                                            const QStringList &mentionUserIds)
+{
     if (!m_loggedIn || !m_rustHandle || roomId.isEmpty()
         || threadRootEventId.isEmpty() || body.trimmed().isEmpty()) {
         refuseSend("sendThreadReply");
@@ -1285,10 +1386,13 @@ void RustSdkMatrixClient::sendThreadReplyTo(const QString &roomId,
     const QByteArray rootBytes = threadRootEventId.toUtf8();
     const QByteArray bodyBytes = body.toUtf8();
     const QByteArray replyBytes = inReplyToEventId.toUtf8();
+    const QByteArray mentionBytes =
+        mentionUserIds.join(QLatin1Char('\n')).toUtf8();
     const QString result = takeRustString(mx_rust_thread_send_text(
         m_rustHandle, roomBytes.constData(), rootBytes.constData(),
         bodyBytes.constData(),
-        inReplyToEventId.isEmpty() ? nullptr : replyBytes.constData()));
+        inReplyToEventId.isEmpty() ? nullptr : replyBytes.constData(),
+        mentionUserIds.isEmpty() ? nullptr : mentionBytes.constData()));
     if (!result.isEmpty()) {
         Q_EMIT errorOccurred(result.startsWith(QLatin1String("error: "))
                                  ? result.mid(7)

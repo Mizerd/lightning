@@ -43,9 +43,9 @@ use matrix_sdk::{
                 },
                 MediaSource,
             },
-            AnyMessageLikeEventContent,
+            AnyMessageLikeEventContent, Mentions,
         },
-        EventId, RoomId, UserId,
+        EventId, OwnedUserId, RoomId, UserId,
     },
     Client,
 };
@@ -62,6 +62,24 @@ use matrix_sdk_ui::{
 use serde_json::json;
 
 use crate::enqueue;
+
+/// v0.7 outgoing @-mentions: build an m.mentions payload from a caller-supplied
+/// list of MXID strings. Invalid ids are dropped silently (the mention simply
+/// isn't recorded); an all-empty/all-invalid list yields `None` so no
+/// `m.mentions` is attached. `add_mentions` MUST be called on message content
+/// BEFORE any relation-adding method (reply / replacement) for the mentions to
+/// be set correctly.
+fn mentions_from_ids(ids: Vec<String>) -> Option<Mentions> {
+    let users: Vec<OwnedUserId> = ids
+        .into_iter()
+        .filter_map(|id| UserId::parse(&id).ok())
+        .collect();
+    if users.is_empty() {
+        None
+    } else {
+        Some(Mentions::with_user_ids(users))
+    }
+}
 
 /// Default number of events requested per backward-pagination batch.
 /// Matches the size Element X uses for scroll-triggered backfill: large
@@ -661,6 +679,7 @@ impl TimelineRegistry {
         root_event_id: String,
         body: String,
         in_reply_to: Option<String>,
+        mention_user_ids: Vec<String>,
     ) -> Result<(), String> {
         let reply_to = match &in_reply_to {
             Some(id) if !id.trim().is_empty() => Some(
@@ -669,6 +688,7 @@ impl TimelineRegistry {
             ),
             _ => None,
         };
+        let mentions = mentions_from_ids(mention_user_ids);
         let events = Arc::clone(&self.events);
         let lifecycle = self.lifecycle_gen.load(Ordering::SeqCst);
         // Capture the thread generation at dispatch so a send that resolves
@@ -683,23 +703,32 @@ impl TimelineRegistry {
             let send_on = |timeline: Arc<Timeline>| {
                 let body = body.clone();
                 let reply_to = reply_to.clone();
+                let mentions = mentions.clone();
                 async move {
                     match reply_to {
-                        Some(reply_to) => timeline
-                            .send_reply(
+                        Some(reply_to) => {
+                            let mut content =
                                 RoomMessageEventContentWithoutRelation::text_markdown(
                                     body,
-                                ),
-                                reply_to,
-                            )
-                            .await
-                            .is_ok(),
-                        None => timeline
-                            .send(AnyMessageLikeEventContent::RoomMessage(
-                                RoomMessageEventContent::text_markdown(body),
-                            ))
-                            .await
-                            .is_ok(),
+                                );
+                            if let Some(mentions) = mentions {
+                                content = content.add_mentions(mentions);
+                            }
+                            timeline.send_reply(content, reply_to).await.is_ok()
+                        }
+                        None => {
+                            let mut message =
+                                RoomMessageEventContent::text_markdown(body);
+                            if let Some(mentions) = mentions {
+                                message = message.add_mentions(mentions);
+                            }
+                            timeline
+                                .send(AnyMessageLikeEventContent::RoomMessage(
+                                    message,
+                                ))
+                                .await
+                                .is_ok()
+                        }
                     }
                 }
             };
@@ -1069,16 +1098,20 @@ impl TimelineRegistry {
         runtime: &tokio::runtime::Runtime,
         room_id: String,
         body: String,
+        mention_user_ids: Vec<String>,
     ) -> Result<(), String> {
         let Some((timeline, room_gen, lifecycle)) = self.timeline_for(&room_id) else {
             return Err("No live timeline is open for that room.".to_owned());
         };
+        let mentions = mentions_from_ids(mention_user_ids);
         let registry = Arc::clone(self);
         let events = Arc::clone(&self.events);
         runtime.spawn(async move {
-            let content = AnyMessageLikeEventContent::RoomMessage(
-                RoomMessageEventContent::text_markdown(body),
-            );
+            let mut message = RoomMessageEventContent::text_markdown(body);
+            if let Some(mentions) = mentions {
+                message = message.add_mentions(mentions);
+            }
+            let content = AnyMessageLikeEventContent::RoomMessage(message);
             if timeline.send(content).await.is_err()
                 && registry.is_current(room_gen, lifecycle)
             {
@@ -1167,16 +1200,22 @@ impl TimelineRegistry {
         room_id: String,
         in_reply_to: String,
         body: String,
+        mention_user_ids: Vec<String>,
     ) -> Result<(), String> {
         let Some((timeline, room_gen, lifecycle)) = self.timeline_for(&room_id) else {
             return Err("No live timeline is open for that room.".to_owned());
         };
         let reply_to = EventId::parse(&in_reply_to)
             .map_err(|_| "Invalid reply target event id.".to_owned())?;
+        let mentions = mentions_from_ids(mention_user_ids);
         let registry = Arc::clone(self);
         let events = Arc::clone(&self.events);
         runtime.spawn(async move {
-            let content = RoomMessageEventContentWithoutRelation::text_markdown(body);
+            let mut content =
+                RoomMessageEventContentWithoutRelation::text_markdown(body);
+            if let Some(mentions) = mentions {
+                content = content.add_mentions(mentions);
+            }
             if timeline.send_reply(content, reply_to).await.is_err()
                 && registry.is_current(room_gen, lifecycle)
             {
@@ -1281,19 +1320,27 @@ impl TimelineRegistry {
         room_id: String,
         target_event_id: String,
         new_body: String,
+        mention_user_ids: Vec<String>,
     ) -> Result<(), String> {
         let Some((timeline, room_gen, lifecycle)) = self.timeline_for(&room_id) else {
             return Err("No live timeline is open for that room.".to_owned());
         };
         let event_id = EventId::parse(&target_event_id)
             .map_err(|_| "Invalid edit target event id.".to_owned())?;
+        let mentions = mentions_from_ids(mention_user_ids);
         let registry = Arc::clone(self);
         let events = Arc::clone(&self.events);
         runtime.spawn(async move {
             let item_id = TimelineEventItemId::EventId(event_id);
-            let content = EditedContent::RoomMessage(
-                RoomMessageEventContentWithoutRelation::text_markdown(new_body),
-            );
+            // ruma's make_replacement puts the new mentions in m.new_content and
+            // the top-level content carries only the newly added mentions, so
+            // attach them to the WithoutRelation content before wrapping it.
+            let mut message =
+                RoomMessageEventContentWithoutRelation::text_markdown(new_body);
+            if let Some(mentions) = mentions {
+                message = message.add_mentions(mentions);
+            }
+            let content = EditedContent::RoomMessage(message);
             if timeline.edit(&item_id, content).await.is_err()
                 && registry.is_current(room_gen, lifecycle)
             {
@@ -3039,6 +3086,38 @@ mod tests {
             }
             other => panic!("unexpected msgtype: {other:?}"),
         }
+    }
+
+    // v0.7 outgoing @-mentions: content built with add_mentions serializes an
+    // "m.mentions".user_ids array, invalid MXIDs are dropped, and an all-empty
+    // list produces no mentions at all.
+    #[test]
+    fn mentions_serialize_user_ids_and_drop_invalid() {
+        use matrix_sdk::ruma::events::room::message::RoomMessageEventContent;
+
+        let mentions = super::mentions_from_ids(vec![
+            "@alice:example.org".to_owned(),
+            "not a user id".to_owned(),
+            "@bob:example.org".to_owned(),
+        ])
+        .expect("valid ids should produce mentions");
+        let content =
+            RoomMessageEventContent::text_markdown("hi").add_mentions(mentions);
+        let value = serde_json::to_value(&content).expect("serialize");
+        let user_ids = value["m.mentions"]["user_ids"]
+            .as_array()
+            .expect("user_ids array");
+        let ids: Vec<&str> =
+            user_ids.iter().map(|v| v.as_str().unwrap()).collect();
+        assert_eq!(ids.len(), 2, "the invalid MXID must be dropped");
+        assert!(ids.contains(&"@alice:example.org"));
+        assert!(ids.contains(&"@bob:example.org"));
+
+        // No valid ids → no Mentions → no m.mentions in the payload.
+        assert!(super::mentions_from_ids(vec!["nope".to_owned()]).is_none());
+        let plain = RoomMessageEventContent::text_markdown("hi");
+        let plain_value = serde_json::to_value(&plain).expect("serialize");
+        assert!(plain_value.get("m.mentions").is_none());
     }
 
     // ---- v0.7 polls -----------------------------------------------------

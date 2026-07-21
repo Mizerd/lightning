@@ -183,9 +183,20 @@ public:
     void sendReply(const QString &roomId,
                    const QString &replyToEventId,
                    const QString &body) override;
+    // v0.7 outgoing @-mentions: attach m.mentions through the SDK send path.
+    void sendTextMessage(const QString &roomId, const QString &body,
+                         const QStringList &mentionUserIds) override;
+    void sendReply(const QString &roomId,
+                   const QString &replyToEventId,
+                   const QString &body,
+                   const QStringList &mentionUserIds) override;
     void editMessage(const QString &roomId,
                      const QString &targetEventId,
                      const QString &newBody) override;
+    void editMessage(const QString &roomId,
+                     const QString &targetEventId,
+                     const QString &newBody,
+                     const QStringList &mentionUserIds) override;
     void redactEvent(const QString &roomId,
                      const QString &eventId,
                      const QString &reason = QString()) override;
@@ -230,6 +241,11 @@ public:
                            const QString &threadRootEventId,
                            const QString &inReplyToEventId,
                            const QString &body) override;
+    void sendThreadReplyTo(const QString &roomId,
+                           const QString &threadRootEventId,
+                           const QString &inReplyToEventId,
+                           const QString &body,
+                           const QStringList &mentionUserIds) override;
     void retryDecryption(const QString &roomId) override;
     bool supportsThreadList() const override { return true; }
     void openThreadList(const QString &roomId) override;

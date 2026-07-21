@@ -1,11 +1,14 @@
 #pragma once
 
 #include "models/AttachmentQueueModel.h"
+#include "models/MentionTokenizer.h"
 
+#include <QList>
 #include <QObject>
 #include <QString>
 #include <QTimer>
 #include <QUrl>
+#include <QVariantMap>
 
 class MatrixClient;
 
@@ -68,6 +71,18 @@ public:
     Q_INVOKABLE void cancelReplyOrEdit();
     Q_INVOKABLE void reactTo(const QString &targetEventId, const QString &key);
     Q_INVOKABLE void redact(const QString &eventId);
+
+    // v0.7 outgoing @-mentions. `mentionTokenAt` reports the active @-token at
+    // the cursor ({active, start, query}); it is ref-aware, so a cursor sitting
+    // over an already-inserted mention reports inactive (the pill is complete).
+    // `insertMention` replaces that token with "@DisplayName ", records the
+    // mention range, and returns the new cursor position. Send-time expansion
+    // rewrites the recorded ranges into matrix.to markdown links.
+    Q_INVOKABLE QVariantMap mentionTokenAt(const QString &text,
+                                           int cursorPos) const;
+    Q_INVOKABLE int insertMention(const QString &userId,
+                                  const QString &displayName,
+                                  int tokenStart, int cursorPos);
 
     // v0.7: MSC3381 poll actions on the current room. `threadRootId` is
     // non-empty when the acting delegate lives in the thread panel, so the
@@ -142,6 +157,7 @@ private:
     QString m_editingEventId;
     QString m_threadRootId;
     QString m_threadPreview;
+    QList<mention::MentionRef> m_mentionRefs;
     bool    m_canSend = false;
     bool    m_typingActive = false;
     QTimer  m_typingRefresh;

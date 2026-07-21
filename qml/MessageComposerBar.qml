@@ -77,6 +77,51 @@ Item {
         onClosed: Qt.callLater(input.forceActiveFocus)
     }
 
+    // v0.7 outgoing @-mentions. The popup presents current-room members while
+    // an @-token is active at the caret; the input keeps focus and forwards the
+    // navigation keys. No Matrix protocol logic here — expansion + m.mentions
+    // happen in MessageComposer at send time.
+    property int mentionTokenStart: -1
+    MentionPopup {
+        id: mentionPopup
+        suggestions: app.mentionSuggestions
+        onChosen: (userId, displayName) => root.insertMention(userId, displayName)
+    }
+    function updateMentionState() {
+        if (app.currentRoomId === "") {
+            mentionPopup.close()
+            return
+        }
+        var tok = app.composer.mentionTokenAt(input.text, input.cursorPosition)
+        if (tok && tok.active === true) {
+            root.mentionTokenStart = tok.start
+            app.mentionSuggestions.roomId = app.currentRoomId
+            app.mentionSuggestions.query = tok.query
+            var p = input.mapToItem(Overlay.overlay, 0, 0)
+            mentionPopup.anchorInputTop = Qt.point(p.x, p.y)
+            mentionPopup.anchorWidth = input.width
+            if (!mentionPopup.visible)
+                mentionPopup.open()
+        } else {
+            root.mentionTokenStart = -1
+            mentionPopup.close()
+        }
+    }
+    function insertMention(userId, displayName) {
+        var newCursor = app.composer.insertMention(userId, displayName,
+                                                   root.mentionTokenStart,
+                                                   input.cursorPosition)
+        if (input.text !== app.composer.text)
+            input.text = app.composer.text
+        input.cursorPosition = newCursor
+        mentionPopup.close()
+        input.forceActiveFocus()
+    }
+    Connections {
+        target: app
+        function onCurrentRoomIdChanged() { mentionPopup.close() }
+    }
+
     function openGifPicker() {
         emojiPicker.close()
         var p = gifButton.mapToItem(Overlay.overlay, gifButton.width / 2, 0)
@@ -554,11 +599,22 @@ Item {
                         onTextChanged: {
                             if (app.composer.text !== text) app.composer.text = text
                             root.refreshFormatState()
+                            root.updateMentionState()
                         }
                         onSelectionStartChanged: root.refreshFormatState()
                         onSelectionEndChanged: root.refreshFormatState()
-                        onCursorPositionChanged: root.refreshFormatState()
+                        onCursorPositionChanged: {
+                            root.refreshFormatState()
+                            root.updateMentionState()
+                        }
                         Keys.onReturnPressed: (event) => {
+                            // While the mention popup is open, Return picks the
+                            // highlighted member instead of sending.
+                            if (mentionPopup.visible) {
+                                mentionPopup.accept()
+                                event.accepted = true
+                                return
+                            }
                             if (event.modifiers & Qt.ShiftModifier) {
                                 event.accepted = false
                                 return
@@ -566,6 +622,46 @@ Item {
                             event.accepted = true
                             app.composer.send()
                             input.forceActiveFocus()
+                        }
+                        Keys.onUpPressed: (event) => {
+                            if (mentionPopup.visible) {
+                                mentionPopup.moveUp()
+                                event.accepted = true
+                            } else {
+                                event.accepted = false
+                            }
+                        }
+                        Keys.onDownPressed: (event) => {
+                            if (mentionPopup.visible) {
+                                mentionPopup.moveDown()
+                                event.accepted = true
+                            } else {
+                                event.accepted = false
+                            }
+                        }
+                        Keys.onTabPressed: (event) => {
+                            if (mentionPopup.visible) {
+                                mentionPopup.accept()
+                                event.accepted = true
+                            } else {
+                                event.accepted = false
+                            }
+                        }
+                        Keys.onEscapePressed: (event) => {
+                            // Escape closes the mention popup WITHOUT touching
+                            // reply/edit state; only when it is closed does it
+                            // fall through to cancelling a reply/edit.
+                            if (mentionPopup.visible) {
+                                mentionPopup.close()
+                                event.accepted = true
+                            } else if (app.composer.isReplying
+                                       || app.composer.isEditing
+                                       || app.composer.inThread) {
+                                app.composer.cancelReplyOrEdit()
+                                event.accepted = true
+                            } else {
+                                event.accepted = false
+                            }
                         }
                         Keys.onPressed: (event) => {
                             // Clipboard images / file URLs become attachments;

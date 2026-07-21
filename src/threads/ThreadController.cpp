@@ -152,6 +152,9 @@ void ThreadController::openThread(const QString &roomId,
     m_rootEventId = rootEventId;
     m_failureCategory.clear();
     cancelReply();
+    // A thread switch abandons the previous thread's composer draft (and its
+    // mention refs), just like queued attachments below.
+    clearComposerText();
     // Queued attachments belong to the thread they were prepared in; a thread
     // switch must never reroute them into the newly opened thread.
     clearAttachments();
@@ -177,6 +180,7 @@ void ThreadController::close()
     m_failureCategory.clear();
     m_model.setRoomId(QString{});
     cancelReply();
+    clearComposerText();
     clearAttachments();
     resetFollowState();
     m_lastMarkedReadEventId.clear();
@@ -193,19 +197,87 @@ void ThreadController::sendText(const QString &body)
     // thread — then the text as a separate thread message, matching the room
     // composer's "files + comment" behaviour.
     dispatchAttachments();
-    const QString trimmed = body.trimmed();
-    if (trimmed.isEmpty())
+    if (body.trimmed().isEmpty())
         return;   // attachment-only send is valid.
-    // Always the backend's SDK thread path — never sendTextMessage, so a
-    // thread reply can never land as an ordinary room message. An active
-    // reply target makes it a rich reply within the thread.
+    // v0.7: expand inserted @-mentions into matrix.to markdown links and the
+    // deduped MXID list. The refs index into m_text (the tracked composer
+    // text); a caller that does not sync text (no mentions possible) falls
+    // back to the trimmed body.
+    const mention::Expansion expansion = mention::expand(m_text, m_mentionRefs);
+    QString outBody = expansion.body.trimmed();
+    if (outBody.isEmpty())
+        outBody = body.trimmed();
+    const QStringList mentionIds = expansion.userIds;
+    // Always the backend's SDK thread path (sendThreadReplyTo) — never
+    // sendTextMessage, so a thread reply can never land as an ordinary room
+    // message. An active reply target makes it a rich reply within the thread;
+    // an empty in-reply-to is a plain thread reply.
     if (!m_replyToEventId.isEmpty()) {
-        m_client->sendThreadReplyTo(m_roomId, m_rootEventId,
-                                    m_replyToEventId, trimmed);
+        m_client->sendThreadReplyTo(m_roomId, m_rootEventId, m_replyToEventId,
+                                    outBody, mentionIds);
         cancelReply();
     } else {
-        m_client->sendThreadReply(m_roomId, m_rootEventId, trimmed);
+        m_client->sendThreadReplyTo(m_roomId, m_rootEventId, QString(), outBody,
+                                    mentionIds);
     }
+    clearComposerText();
+}
+
+void ThreadController::setText(const QString &text)
+{
+    if (m_text == text)
+        return;
+    m_mentionRefs = mention::shiftRefs(m_mentionRefs, m_text, text);
+    m_text = text;
+    Q_EMIT textChanged();
+}
+
+void ThreadController::clearComposerText()
+{
+    m_mentionRefs.clear();
+    if (m_text.isEmpty())
+        return;
+    m_text.clear();
+    Q_EMIT textChanged();
+}
+
+QVariantMap ThreadController::mentionTokenAt(const QString &text,
+                                             int cursorPos) const
+{
+    const mention::Token tok = mention::activeToken(text, cursorPos);
+    QVariantMap out;
+    if (!tok.active) {
+        out.insert(QStringLiteral("active"), false);
+        return out;
+    }
+    const int tokEnd = qBound(0, cursorPos, text.length());
+    for (const mention::MentionRef &ref : m_mentionRefs) {
+        const int rs = ref.start;
+        const int re = ref.start + ref.length;
+        if (tok.start < re && rs < tokEnd) {
+            out.insert(QStringLiteral("active"), false);
+            return out;
+        }
+    }
+    out.insert(QStringLiteral("active"), true);
+    out.insert(QStringLiteral("start"), tok.start);
+    out.insert(QStringLiteral("query"), tok.query);
+    return out;
+}
+
+int ThreadController::insertMention(const QString &userId,
+                                    const QString &displayName, int tokenStart,
+                                    int cursorPos)
+{
+    if (userId.isEmpty())
+        return cursorPos;
+    const mention::InsertResult res = mention::buildInsertion(
+        m_text, tokenStart, cursorPos, userId, displayName);
+    m_mentionRefs = mention::shiftRefs(m_mentionRefs, m_text, res.text);
+    m_mentionRefs.append(res.ref);
+    m_text = res.text;
+    Q_EMIT textChanged();
+    return res.cursorPos;
 }
 
 bool ThreadController::attachmentsSupported() const

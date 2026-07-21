@@ -7,7 +7,10 @@
 #include <QtQmlIntegration/qqmlintegration.h>
 
 #include "models/AttachmentQueueModel.h"
+#include "models/MentionTokenizer.h"
 #include "models/TimelineModel.h"
+
+#include <QVariantMap>
 
 class MatrixClient;
 
@@ -41,6 +44,10 @@ class ThreadController : public QObject
     // display; never carries server detail or message content.
     Q_PROPERTY(QString failureCategory READ failureCategory NOTIFY stateChanged)
     Q_PROPERTY(TimelineModel *model READ model CONSTANT)
+    // v0.7: the thread composer text lives here so outgoing @-mentions can be
+    // tracked (the room composer keeps its own text on MessageComposer). The
+    // thread panel two-way-binds its TextArea to this.
+    Q_PROPERTY(QString text READ text WRITE setText NOTIFY textChanged)
     // v0.6.0 checkpoint 4: rich-reply-within-thread compose state. The panel
     // composer shows the banner; sendText targets the reply through the SDK
     // thread path.
@@ -84,6 +91,8 @@ public:
     QString rootEventId() const { return m_rootEventId; }
     QString failureCategory() const { return m_failureCategory; }
     TimelineModel *model() { return &m_model; }
+    QString text() const { return m_text; }
+    void setText(const QString &text);
     bool inReply() const { return !m_replyToEventId.isEmpty(); }
     QString replyToEventId() const { return m_replyToEventId; }
     QString replyToSender() const { return m_replyToSender; }
@@ -115,6 +124,13 @@ public:
     // target turns it into a rich reply within the thread and is cleared
     // after dispatch.
     Q_INVOKABLE void sendText(const QString &body);
+    // v0.7 outgoing @-mentions in the thread composer — mirrors
+    // MessageComposer's ref-aware token detection and insertion.
+    Q_INVOKABLE QVariantMap mentionTokenAt(const QString &text,
+                                           int cursorPos) const;
+    Q_INVOKABLE int insertMention(const QString &userId,
+                                  const QString &displayName,
+                                  int tokenStart, int cursorPos);
     // Begin/cancel replying to a specific loaded thread event.
     Q_INVOKABLE void beginReply(const QString &eventId);
     Q_INVOKABLE void cancelReply();
@@ -151,6 +167,7 @@ public:
 Q_SIGNALS:
     void supportedChanged();
     void stateChanged();
+    void textChanged();
     void replyStateChanged();
     void followStateChanged();
     void listStateChanged();
@@ -179,6 +196,9 @@ private:
     QString m_replyToEventId;
     QString m_replyToSender;
     QString m_replyToPreview;
+    QString m_text;
+    QList<mention::MentionRef> m_mentionRefs;
+    void clearComposerText();
     void resetFollowState();
     // Conservative unread hint for a list entry: the loaded room timeline's
     // SDK thread summary for that root, when present.

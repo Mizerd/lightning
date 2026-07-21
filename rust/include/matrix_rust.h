@@ -238,13 +238,18 @@ char *mx_rust_timeline_close(void *client);
 char *mx_rust_timeline_paginate_back(void *client,
                                      const char *room_id,
                                      unsigned short count);
+/* `mention_user_ids` (v0.7) is a nullable newline-separated list of full MXIDs
+ * placed in m.mentions; NULL/empty attaches no mentions. The body already
+ * carries the matrix.to markdown links for those users. */
 char *mx_rust_timeline_send_text(void *client,
                                  const char *room_id,
-                                 const char *body);
+                                 const char *body,
+                                 const char *mention_user_ids);
 char *mx_rust_timeline_send_reply(void *client,
                                   const char *room_id,
                                   const char *in_reply_to_event_id,
-                                  const char *body);
+                                  const char *body,
+                                  const char *mention_user_ids);
 /* v0.6.0: SDK-backed thread timelines. One thread panel at a time; it
  * belongs to the open room and is closed automatically by room switches. */
 char *mx_rust_thread_open(void *client,
@@ -261,7 +266,8 @@ char *mx_rust_thread_send_text(void *client,
                                const char *room_id,
                                const char *root_event_id,
                                const char *body,
-                               const char *in_reply_to);
+                               const char *in_reply_to,
+                               const char *mention_user_ids);
 /* v0.6.0 checkpoint 9: list the account's devices/sessions (server list
  * merged with SDK crypto trust). Result: `device_list` poll event with
  * presentation-safe fields only — never device keys or tokens. */
@@ -290,7 +296,8 @@ char *mx_rust_thread_set_subscribed(void *client,
 char *mx_rust_timeline_edit(void *client,
                             const char *room_id,
                             const char *target_event_id,
-                            const char *new_body);
+                            const char *new_body,
+                            const char *mention_user_ids);
 char *mx_rust_timeline_toggle_reaction(void *client,
                                        const char *room_id,
                                        const char *target_event_id,

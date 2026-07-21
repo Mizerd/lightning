@@ -85,6 +85,26 @@ public:
                            const QString &replyToEventId,
                            const QString &body) = 0;
 
+    // v0.7 outgoing @-mentions. `mentionUserIds` are full MXIDs to place in
+    // m.mentions (deduped, order-insensitive). The default impls forward to
+    // the zero-mention versions so Mock/HTTP backends stay correct; the Rust
+    // backend overrides these to attach m.mentions through the SDK. The body
+    // already carries the matrix.to markdown links for those users.
+    virtual void sendTextMessage(const QString &roomId, const QString &body,
+                                 const QStringList &mentionUserIds)
+    {
+        Q_UNUSED(mentionUserIds);
+        sendTextMessage(roomId, body);
+    }
+    virtual void sendReply(const QString &roomId,
+                           const QString &replyToEventId,
+                           const QString &body,
+                           const QStringList &mentionUserIds)
+    {
+        Q_UNUSED(mentionUserIds);
+        sendReply(roomId, replyToEventId, body);
+    }
+
     // v0.4.1: reply into a thread rooted at `threadRootEventId`. Default
     // falls back to sendReply — the HTTP backend still delivers the message
     // and it's marked as an in-reply-to on the server. Concrete backends
@@ -187,9 +207,33 @@ public:
         sendThreadReply(roomId, threadRootEventId, body);
     }
 
+    // v0.7 outgoing @-mentions inside a thread. `inReplyToEventId` empty is a
+    // plain thread reply; non-empty is a rich reply within the thread. Default
+    // forwards to the zero-mention path.
+    virtual void sendThreadReplyTo(const QString &roomId,
+                                   const QString &threadRootEventId,
+                                   const QString &inReplyToEventId,
+                                   const QString &body,
+                                   const QStringList &mentionUserIds)
+    {
+        Q_UNUSED(mentionUserIds);
+        sendThreadReplyTo(roomId, threadRootEventId, inReplyToEventId, body);
+    }
+
     virtual void editMessage(const QString &roomId,
                              const QString &targetEventId,
                              const QString &newBody) = 0;
+
+    // v0.7 outgoing @-mentions on an edit. Default forwards to the zero-mention
+    // edit path.
+    virtual void editMessage(const QString &roomId,
+                             const QString &targetEventId,
+                             const QString &newBody,
+                             const QStringList &mentionUserIds)
+    {
+        Q_UNUSED(mentionUserIds);
+        editMessage(roomId, targetEventId, newBody);
+    }
     virtual void redactEvent(const QString &roomId,
                              const QString &eventId,
                              const QString &reason = QString()) = 0;

@@ -53,6 +53,21 @@ public:
     void sendThreadReply(const QString &roomId,
                          const QString &threadRootEventId,
                          const QString &body) override;
+    // v0.7 outgoing @-mentions: record the ids (and expanded body) for tests,
+    // then forward to the existing non-mention behaviour.
+    void sendTextMessage(const QString &roomId, const QString &body,
+                         const QStringList &mentionUserIds) override;
+    void sendReply(const QString &roomId, const QString &replyToEventId,
+                   const QString &body,
+                   const QStringList &mentionUserIds) override;
+    void editMessage(const QString &roomId, const QString &targetEventId,
+                     const QString &newBody,
+                     const QStringList &mentionUserIds) override;
+    // Deterministic member snapshot for the mention suggestion model (built
+    // from the seeded room members; emitted asynchronously by op id).
+    quint64 requestRoomMembers(const QString &roomId) override;
+    QString lastSentBodyForTest() const { return m_lastSentBody; }
+    QStringList lastMentionIdsForTest() const { return m_lastMentionIds; }
     // v0.6.0: mock thread timelines so ThreadController and the thread UI
     // are testable without a homeserver. Mirrors the composite timeline-id
     // contract of the Rust backend (root first, replies in room order).
@@ -63,6 +78,11 @@ public:
                            const QString &threadRootEventId,
                            const QString &inReplyToEventId,
                            const QString &body) override;
+    void sendThreadReplyTo(const QString &roomId,
+                           const QString &threadRootEventId,
+                           const QString &inReplyToEventId,
+                           const QString &body,
+                           const QStringList &mentionUserIds) override;
     // v0.6.1: thread attachment sending — mirrors the SDK thread path so
     // ThreadController's attachment queue is testable without a homeserver.
     bool supportsAttachmentSend() const override { return true; }
@@ -161,6 +181,8 @@ private:
     void ackAfter(int ms, const QString &roomId, const QString &eventId);
 
     SettingsManager *m_settings = nullptr; // not owned; may stay null
+    QString m_lastSentBody;                 // v0.7 mention-test recording
+    QStringList m_lastMentionIds;
     bool m_loggedIn = false;
     ConnectionState m_state = Disconnected;
     QString m_userId;

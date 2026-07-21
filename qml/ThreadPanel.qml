@@ -73,6 +73,9 @@ Rectangle {
         target: app.thread
         function onStateChanged() {
             panel.refreshRoot()
+            // A thread lifecycle change (switch/close) abandons any open
+            // mention popup for the previous thread.
+            threadMentionPopup.close()
             // Any lifecycle transition invalidates in-flight wheel motion —
             // old-thread motion must never scroll the new thread.
             app.threadScroll.cancel()
@@ -869,7 +872,39 @@ Rectangle {
                             background: Rectangle { color: "transparent" }
                             color: AppTheme.text
                             font.pixelSize: AppTheme.scaled(13)
+                            // v0.7: the composer text lives on app.thread so
+                            // outgoing @-mentions can be tracked (two-way sync,
+                            // mirroring the room composer).
+                            text: app.thread.text
+                            onTextChanged: {
+                                if (app.thread.text !== text)
+                                    app.thread.text = text
+                                panel.updateThreadMentionState()
+                            }
+                            onCursorPositionChanged: panel.updateThreadMentionState()
                             Keys.onPressed: (event) => {
+                                // Mention popup gets first refusal of the
+                                // navigation keys while it is open.
+                                if (threadMentionPopup.visible) {
+                                    if (event.key === Qt.Key_Down) {
+                                        threadMentionPopup.moveDown()
+                                        event.accepted = true; return
+                                    }
+                                    if (event.key === Qt.Key_Up) {
+                                        threadMentionPopup.moveUp()
+                                        event.accepted = true; return
+                                    }
+                                    if (event.key === Qt.Key_Tab
+                                        || event.key === Qt.Key_Return
+                                        || event.key === Qt.Key_Enter) {
+                                        threadMentionPopup.accept()
+                                        event.accepted = true; return
+                                    }
+                                    if (event.key === Qt.Key_Escape) {
+                                        threadMentionPopup.close()
+                                        event.accepted = true; return
+                                    }
+                                }
                                 if ((event.key === Qt.Key_Return
                                      || event.key === Qt.Key_Enter)
                                     && !(event.modifiers & Qt.ShiftModifier)) {
@@ -1017,6 +1052,54 @@ Rectangle {
         onClosed: Qt.callLater(threadComposerInput.forceActiveFocus)
     }
 
+    // v0.7 outgoing @-mentions in the thread composer. Same behaviour as the
+    // room composer: current-room members only, the input keeps focus.
+    property int threadMentionTokenStart: -1
+    MentionPopup {
+        id: threadMentionPopup
+        suggestions: app.mentionSuggestions
+        onChosen: (userId, displayName) =>
+            panel.insertThreadMention(userId, displayName)
+    }
+    function updateThreadMentionState() {
+        if (!app.thread.active) {
+            threadMentionPopup.close()
+            return
+        }
+        var tok = app.thread.mentionTokenAt(threadComposerInput.text,
+                                            threadComposerInput.cursorPosition)
+        if (tok && tok.active === true) {
+            panel.threadMentionTokenStart = tok.start
+            app.mentionSuggestions.roomId = app.thread.roomId
+            app.mentionSuggestions.query = tok.query
+            var p = threadComposerInput.mapToItem(Overlay.overlay, 0, 0)
+            threadMentionPopup.anchorInputTop = Qt.point(p.x, p.y)
+            threadMentionPopup.anchorWidth = threadComposerInput.width
+            if (!threadMentionPopup.visible)
+                threadMentionPopup.open()
+        } else {
+            panel.threadMentionTokenStart = -1
+            threadMentionPopup.close()
+        }
+    }
+    function insertThreadMention(userId, displayName) {
+        var newCursor = app.thread.insertMention(
+            userId, displayName, panel.threadMentionTokenStart,
+            threadComposerInput.cursorPosition)
+        if (threadComposerInput.text !== app.thread.text)
+            threadComposerInput.text = app.thread.text
+        threadComposerInput.cursorPosition = newCursor
+        threadMentionPopup.close()
+        threadComposerInput.forceActiveFocus()
+    }
+    Connections {
+        target: app.thread
+        function onTextChanged() {
+            if (threadComposerInput.text !== app.thread.text)
+                threadComposerInput.text = app.thread.text
+        }
+    }
+
     // v0.7: one reaction picker + one profile popover for every thread row
     // (never a per-row popup). Closed with the thread/room context.
     EmojiPicker {
@@ -1043,6 +1126,7 @@ Rectangle {
         function onCurrentRoomIdChanged() {
             threadReactionPicker.close()
             threadSenderProfile.close()
+            threadMentionPopup.close()
         }
     }
 

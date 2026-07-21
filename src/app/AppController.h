@@ -12,6 +12,7 @@
 #include "media/MediaPlaybackController.h"
 #include "media/MediaManager.h"
 #include "models/MessageComposer.h"
+#include "models/MentionSuggestionModel.h"
 #include "models/EmojiCatalog.h"
 #include "models/LinkPreviewController.h"
 #include "gif/GifSearchController.h"
@@ -102,6 +103,10 @@ class AppController : public QObject
     Q_PROPERTY(QuickSwitcherModel* quickSwitcher READ quickSwitcher CONSTANT)
     Q_PROPERTY(TimelineModel* timeline READ timeline CONSTANT)
     Q_PROPERTY(MessageComposer* composer READ composer CONSTANT)
+    // v0.7 outgoing @-mentions: the current-room member suggestion model
+    // shared by the room and thread composer mention popups.
+    Q_PROPERTY(MentionSuggestionModel* mentionSuggestions READ mentionSuggestions
+                   CONSTANT)
     Q_PROPERTY(EmojiCatalog* emojiCatalog READ emojiCatalog CONSTANT)
     Q_PROPERTY(MediaManager* media READ media CONSTANT)
     Q_PROPERTY(CryptoManager* crypto READ crypto CONSTANT)
@@ -194,6 +199,8 @@ public:
     QuickSwitcherModel *quickSwitcher() const;
     TimelineModel *timeline() const;
     MessageComposer *composer() const;
+    MentionSuggestionModel *mentionSuggestions() const
+    { return m_mentionSuggestions.get(); }
     EmojiCatalog *emojiCatalog() const { return m_emojiCatalog.get(); }
     MediaManager *media() const;
     CryptoManager *crypto() const;
@@ -434,6 +441,7 @@ private:
     std::unique_ptr<QuickSwitcherModel> m_quickSwitcher;
     std::unique_ptr<TimelineModel> m_timeline;
     std::unique_ptr<MessageComposer> m_composer;
+    std::unique_ptr<MentionSuggestionModel> m_mentionSuggestions;
     std::unique_ptr<EmojiCatalog> m_emojiCatalog;
     std::unique_ptr<NotificationManager> m_notifications;
     std::unique_ptr<MediaManager> m_media;

@@ -153,6 +153,10 @@ set(APP_SOURCES
     src/models/TimelineScrollController.cpp
     src/models/MessageComposer.h
     src/models/MessageComposer.cpp
+    src/models/MentionTokenizer.h
+    src/models/MentionTokenizer.cpp
+    src/models/MentionSuggestionModel.h
+    src/models/MentionSuggestionModel.cpp
     src/models/MarkdownFormat.h
     src/models/MarkdownFormat.cpp
     src/models/EmojiCatalog.h
@@ -258,6 +262,7 @@ set(APP_QML_FILES
     qml/MessageDelegate.qml
     qml/RoomActivityDelegate.qml
     qml/MessageComposerBar.qml
+    qml/MentionPopup.qml
     qml/EmojiPicker.qml
     qml/CreatePollDialog.qml
     qml/VideoPlayerCard.qml
@@ -822,6 +827,8 @@ if(BUILD_TESTING)
         tests/AttachmentQueueTest.cpp
         src/models/MessageComposer.h
         src/models/MessageComposer.cpp
+        src/models/MentionTokenizer.h
+        src/models/MentionTokenizer.cpp
         src/models/MarkdownFormat.h
         src/models/MarkdownFormat.cpp
         src/models/AttachmentQueueModel.h
@@ -858,6 +865,8 @@ if(BUILD_TESTING)
         tests/ThreadControllerTest.cpp
         src/threads/ThreadController.h
         src/threads/ThreadController.cpp
+        src/models/MentionTokenizer.h
+        src/models/MentionTokenizer.cpp
         src/models/TimelineModel.h
         src/models/TimelineModel.cpp
         src/models/MessageHtml.h
@@ -1190,6 +1199,42 @@ if(BUILD_TESTING)
     target_include_directories(markdown-format-test PRIVATE src)
     target_link_libraries(markdown-format-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME markdown-format COMMAND markdown-format-test)
+
+    # v0.7 outgoing @-mentions: pure tokenizer (trigger boundaries, inline
+    # code / fenced-block rejection, query capture + cap, ref shifting, and
+    # matrix.to link expansion).
+    qt_add_executable(mention-tokenizer-test
+        tests/MentionTokenizerTest.cpp
+        src/models/MentionTokenizer.h
+        src/models/MentionTokenizer.cpp
+    )
+    target_include_directories(mention-tokenizer-test PRIVATE src)
+    target_link_libraries(mention-tokenizer-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME mention-tokenizer COMMAND mention-tokenizer-test)
+
+    # v0.7 outgoing @-mentions: the current-room member suggestion model —
+    # request on activation, filter/rank/dedup, own-user exclusion, stale
+    # op-id rejection, room-switch + logout clearing, membersChanged re-request.
+    qt_add_executable(mention-suggestion-test
+        tests/MentionSuggestionModelTest.cpp
+        src/models/MentionSuggestionModel.h
+        src/models/MentionSuggestionModel.cpp
+        src/models/UserLookup.h
+        src/models/UserLookup.cpp
+        src/matrix/MatrixClient.h
+        src/matrix/MatrixClient.cpp
+        src/matrix/MockMatrixClient.h
+        src/matrix/MockMatrixClient.cpp
+        src/matrix/MediaHelpers.h
+        src/matrix/MediaHelpers.cpp
+        # MockMatrixClient's registry-backed restore needs these:
+        src/app/SettingsManager.cpp
+        src/storage/AppDataPaths.cpp
+    )
+    target_include_directories(mention-suggestion-test PRIVATE src)
+    target_link_libraries(mention-suggestion-test PRIVATE
+        Qt6::Core Qt6::Gui Qt6::Qml Qt6::Test)
+    add_test(NAME mention-suggestion COMMAND mention-suggestion-test)
 
     # Incoming formatted-body sanitizer: allowlist tags, drop dangerous
     # markup/content, validate hrefs, and rewrite matrix.to mentions.
