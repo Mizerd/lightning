@@ -66,6 +66,10 @@ Item {
         start()
     }
     function resetPlayback() {
+        // A forced reset invalidates the expanded view too — it borrows
+        // this card's player and must never outlive its source.
+        if (videoOverlay.opened)
+            videoOverlay.close()
         player.stop()
         player.source = ""
         fetchState = "idle"
@@ -117,7 +121,7 @@ Item {
             id: audioOut
             muted: root.startMuted && !userUnmuted
             property bool userUnmuted: false
-            volume: volumeSlider.value
+            volume: 0.8
         }
         onErrorOccurred: root.fetchState = "failed"
     }
@@ -130,19 +134,30 @@ Item {
         border.width: 1
         clip: true
 
+        // The video owns the whole card; controls overlay its lower edge
+        // on a gradient scrim instead of consuming card height.
         VideoOutput {
             id: output
             anchors.fill: parent
-            anchors.bottomMargin: controls.height
             fillMode: VideoOutput.PreserveAspectFit
         }
 
-        // Click video area toggles play/pause.
+        HoverHandler { id: cardHover }
+
+        // Tap toggles play/pause; double-tap expands (matching the
+        // expanded view, where double-tap exits).
         TapHandler {
+            id: videoTap
             enabled: root.ready && root.fetchState !== "failed"
-            onTapped: player.playbackState === MediaPlayer.PlayingState
-                      ? player.pause()
-                      : (app.playback.acquire(root.ownerKey), player.play())
+            onTapped: {
+                if (videoTap.tapCount === 2) {
+                    videoOverlay.openFor(player, output)
+                    return
+                }
+                player.playbackState === MediaPlayer.PlayingState
+                    ? player.pause()
+                    : (app.playback.acquire(root.ownerKey), player.play())
+            }
         }
 
         BusyIndicator {
@@ -167,130 +182,32 @@ Item {
             }
         }
 
-        // Control strip.
-        Rectangle {
+        // Adaptive control bar over the video's lower edge. Visible while
+        // paused/idle/failed, on hover, or with keyboard focus inside it;
+        // auto-hides during undisturbed playback.
+        VideoControlBar {
             id: controls
+            objectName: "videoControlBar"
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.bottom: parent.bottom
-            height: 36
-            color: AppTheme.surface
-            RowLayout {
-                anchors.fill: parent
-                anchors.leftMargin: AppTheme.spacing8
-                anchors.rightMargin: AppTheme.spacing8
-                spacing: AppTheme.spacing8
-                IconButton {
-                    objectName: "videoPlayPauseButton"
-                    iconName: player.playbackState === MediaPlayer.PlayingState
-                              ? "pause" : "play_arrow"
-                    iconSize: 18
-                    implicitWidth: 26; implicitHeight: 26
-                    enabled: root.ready
-                    Accessible.name:
-                        player.playbackState === MediaPlayer.PlayingState
-                        ? qsTr("Pause video") : qsTr("Play video")
-                    onClicked: {
-                        if (player.playbackState === MediaPlayer.PlayingState) {
-                            player.pause()
-                        } else {
-                            app.playback.acquire(root.ownerKey)
-                            player.play()
-                        }
-                    }
-                }
-                Label {
-                    text: root.formatMs(player.position) + " / "
-                          + root.formatMs(player.duration)
-                    color: AppTheme.textMuted
-                    font.pixelSize: 10
-                }
-                Slider {
-                    id: seekSlider
-                    Layout.fillWidth: true
-                    from: 0
-                    to: Math.max(1, player.duration)
-                    enabled: player.seekable
-                    value: pressed ? value : player.position
-                    Accessible.name: qsTr("Seek position")
-                    onMoved: player.position = value
-                }
-                IconButton {
-                    objectName: "videoMuteButton"
-                    iconName: audioOut.muted ? "volume_off" : "volume_up"
-                    iconSize: 16
-                    implicitWidth: 26; implicitHeight: 26
-                    Accessible.name: audioOut.muted
-                                     ? qsTr("Unmute") : qsTr("Mute")
-                    onClicked: {
-                        audioOut.userUnmuted = true
-                        audioOut.muted = !audioOut.muted
-                    }
-                }
-                Slider {
-                    id: volumeSlider
-                    Layout.preferredWidth: 56
-                    from: 0; to: 1; value: 0.8
-                    Accessible.name: qsTr("Volume")
-                }
-                // Playback speed: cycles the standard rates; resets to 1x
-                // per playback session (never persisted).
-                AbstractButton {
-                    id: videoSpeedButton
-                    objectName: "videoSpeedButton"
-                    readonly property var rates: [0.5, 0.75, 1.0, 1.25, 1.5, 2.0]
-                    property int rateIndex: 2
-                    implicitWidth: 34; implicitHeight: 26
-                    focusPolicy: Qt.TabFocus
-                    Accessible.role: Accessible.Button
-                    Accessible.name: qsTr("Playback speed %1x")
-                        .arg(rates[rateIndex])
-                    onClicked: {
-                        rateIndex = (rateIndex + 1) % rates.length
-                        player.playbackRate = rates[rateIndex]
-                    }
-                    background: Rectangle {
-                        radius: AppTheme.radiusSm
-                        color: videoSpeedButton.hovered
-                               ? AppTheme.hover : "transparent"
-                        border.width: videoSpeedButton.visualFocus ? 2 : 0
-                        border.color: AppTheme.focusRing
-                    }
-                    contentItem: Label {
-                        text: videoSpeedButton.rates[videoSpeedButton.rateIndex]
-                              + "×"
-                        color: videoSpeedButton.rateIndex === 2
-                               ? AppTheme.textMuted : AppTheme.accent
-                        font.pixelSize: 10
-                        font.weight: Font.DemiBold
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                    }
-                }
-                IconButton {
-                    objectName: "videoExpandButton"
-                    iconName: "open_in_full"
-                    iconSize: 16
-                    implicitWidth: 26; implicitHeight: 26
-                    Accessible.name: qsTr("Expand video")
-                    ToolTip.text: qsTr("Expand video")
-                    ToolTip.visible: hovered
-                    ToolTip.delay: 600
-                    // Hand the overlay the inline VIDEO output — it must be
-                    // restored as player.videoOutput on close.
-                    onClicked: videoOverlay.openFor(player, output)
-                }
-                IconButton {
-                    objectName: "videoCloseButton"
-                    iconName: "close"
-                    iconSize: 16
-                    implicitWidth: 26; implicitHeight: 26
-                    Accessible.name: qsTr("Close player")
-                    onClicked: {
-                        root.resetPlayback()
-                        root.closeRequested()
-                    }
-                }
+            player: player
+            audio: audioOut
+            ownerKey: root.ownerKey
+            expandIcon: "open_in_full"
+            onExpandRequested: videoOverlay.openFor(player, output)
+            onCloseRequested: {
+                root.resetPlayback()
+                root.closeRequested()
+            }
+            readonly property bool shown:
+                player.playbackState !== MediaPlayer.PlayingState
+                || cardHover.hovered || controls.activeFocus
+            visible: opacity > 0
+            opacity: shown ? 1.0 : 0.0
+            Behavior on opacity {
+                enabled: !AppTheme.reducedMotion
+                NumberAnimation { duration: 160 }
             }
         }
     }

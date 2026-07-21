@@ -200,9 +200,22 @@ private Q_SLOTS:
         auto *video = d.root->findChild<QQuickItem *>(
             QStringLiteral("videoMedia"));
         QVERIFY(video != nullptr);
-        // 1280×720 bounded to 360 wide → 360×202.5.
-        QVERIFY(qAbs(video->implicitWidth() - 360.0) < 1.0);
-        QVERIFY(qAbs(video->implicitHeight() - 202.5) < 1.0);
+        // Landscape sizing: ~72% of the content column (280..560 bounds),
+        // aspect preserved, 400px height cap. Recompute from the box's own
+        // published bounds so the assertion tracks the delegate's layout
+        // margins instead of pinning them.
+        const qreal maxW = video->property("maxW").toReal();
+        const qreal minControlW = video->property("minControlW").toReal();
+        const qreal ratio = 720.0 / 1280.0;
+        qreal expectedW = qMin(1280.0, maxW);
+        if (expectedW * ratio > 400.0)
+            expectedW = 400.0 / ratio;
+        expectedW = qMax(minControlW, expectedW);
+        QVERIFY(qAbs(video->implicitWidth() - expectedW) < 1.0);
+        QVERIFY(qAbs(video->implicitHeight()
+                     - qMin(400.0, expectedW * ratio)) < 1.0);
+        // Materially larger than the old flat 360 cap on a 640px row.
+        QVERIFY(video->implicitWidth() >= 400.0);
         bool foundDuration = false;
         const auto labels = video->findChildren<QQuickItem *>();
         for (auto *child : labels) {
@@ -211,6 +224,73 @@ private Q_SLOTS:
         }
         QVERIFY(foundDuration);
         QCOMPARE(d.warnings, QStringList{});
+    }
+
+    // Portrait video must never render as an unusably narrow strip, and
+    // every player control — seek, expand, close — must be reachable at the
+    // minimum card width (the live regression: a fixed 324px control row
+    // clipped seek/speed/expand off a ~180px portrait card).
+    void portraitVideoControlsRemainReachable()
+    {
+        AppController controller(AppController::MockBackend);
+        QVariantMap fixture = baseFixture(controller);
+        fixture.insert(QStringLiteral("isVideo"), true);
+        fixture.insert(QStringLiteral("mediaWidth"), 720);
+        fixture.insert(QStringLiteral("mediaHeight"), 1280);
+        fixture.insert(QStringLiteral("mediaDurationMs"), 66000);
+        fixture.insert(QStringLiteral("mediaSourceAvailable"), true);
+        fixture.insert(QStringLiteral("mediaKey"),
+                       QStringLiteral("fixture-video"));
+        fixture.insert(QStringLiteral("mediaFilename"),
+                       QStringLiteral("clip.mp4"));
+        fixture.insert(QStringLiteral("body"), QStringLiteral("clip.mp4"));
+
+        Delegate d;
+        QVERIFY(createDelegate(controller, fixture, d));
+        auto *video = d.root->findChild<QQuickItem *>(
+            QStringLiteral("videoMedia"));
+        QVERIFY(video != nullptr);
+        // The control-surface floor: never narrower than 260 (or the
+        // column), height capped at 440 with the video letterboxing.
+        QVERIFY(video->implicitWidth() >= 260.0 - 0.5);
+        QVERIFY(video->implicitHeight() <= 440.0 + 0.5);
+
+        // Activate the inline player and check every control of the
+        // adaptive bar lies inside the card. At 260px the bar is in its
+        // tight mode: mute/speed collapse into the overflow menu, but
+        // play, seek, time, expand and close are all present.
+        QVERIFY(video->setProperty("playerActive", true));
+        QCoreApplication::processEvents();
+        auto *bar = video->findChild<QQuickItem *>(
+            QStringLiteral("videoControlBar"));
+        QVERIFY(bar != nullptr);
+        const QStringList required = {
+            QStringLiteral("videoPlayPauseButton"),
+            QStringLiteral("videoSeekSlider"),
+            QStringLiteral("videoTimeLabel"),
+            QStringLiteral("videoExpandButton"),
+            QStringLiteral("videoCloseButton"),
+            QStringLiteral("videoOverflowButton"),
+        };
+        for (const QString &name : required) {
+            auto *control = bar->findChild<QQuickItem *>(name);
+            QVERIFY2(control, qPrintable(name));
+            QVERIFY2(control->isVisible(), qPrintable(name));
+            const QPointF topLeft =
+                control->mapToItem(video, QPointF(0, 0));
+            const QPointF bottomRight = control->mapToItem(
+                video, QPointF(control->width(), control->height()));
+            QVERIFY2(topLeft.x() >= -0.5, qPrintable(name));
+            QVERIFY2(bottomRight.x() <= video->width() + 0.5,
+                     qPrintable(name));
+            QVERIFY2(bottomRight.y() <= video->height() + 0.5,
+                     qPrintable(name));
+        }
+        // Tight mode: the dedicated mute/speed buttons yield to overflow.
+        auto *mute = bar->findChild<QQuickItem *>(
+            QStringLiteral("videoMuteButton"));
+        QVERIFY(mute);
+        QVERIFY(!mute->isVisible());
     }
 
     // Audio and voice rows are compact and fixed — never image-sized — and

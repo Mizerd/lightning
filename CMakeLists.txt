@@ -269,6 +269,7 @@ set(APP_QML_FILES
     qml/CreatePollDialog.qml
     qml/VideoPlayerCard.qml
     qml/AudioPlayerCard.qml
+    qml/VideoControlBar.qml
     qml/VideoViewerOverlay.qml
     qml/UserPicker.qml
     qml/NewConversationDialog.qml

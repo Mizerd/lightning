@@ -93,6 +93,12 @@ Text {
         "open_in_full": "\uf1ce",
         "close_fullscreen": "\uf1cf",
         "graphic_eq": "\ue1b8",
+        "speed": "\ue9e4",
+        "zoom_in": "\ue8ff",
+        "zoom_out": "\ue900",
+        "fit_screen": "\uea10",
+        "chevron_left": "\ue5cb",
+        "chevron_right": "\ue5cc",
     })
 
     text: _codepoints[name] !== undefined ? _codepoints[name] : ""

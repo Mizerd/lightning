@@ -23,6 +23,10 @@ AbstractButton {
     property bool active: false
     // Style C: primary accent fill.
     property bool fill: false
+    // Scrim contexts (video control bars, media viewers) need explicit
+    // constant ink — the themed icon colour can vanish over video. Empty
+    // keeps the standard three-style theming.
+    property string iconColorOverride: ""
 
     implicitWidth: 34
     implicitHeight: 34
@@ -35,6 +39,7 @@ AbstractButton {
         name: root.iconName
         size: root.iconSize
         color: !root.enabled ? AppTheme.textDisabled
+               : root.iconColorOverride !== "" ? root.iconColorOverride
                : root.fill ? AppTheme.accentText
                : root.active ? AppTheme.accent
                : AppTheme.icon

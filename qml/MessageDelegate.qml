@@ -1863,19 +1863,30 @@ Item {
         Item {
             id: videoBox
             objectName: "videoMedia"
-            readonly property real maxW: Math.min(360, bubble.width)
-            readonly property real maxH: 320
+            // 60-75% of the content column, bounded: landscape videos get a
+            // useful width, portrait videos a useful height, and the card
+            // never drops below the width the control bar needs (the old
+            // flat 360/320 caps rendered portrait video ~180px wide and
+            // clipped seek/speed/expand clean off).
+            readonly property real maxW: {
+                var cap = Math.min(560, Math.max(280, bubble.width * 0.72))
+                return Math.max(1, Math.min(cap, bubble.width))
+            }
             readonly property real natW: model.mediaWidth > 0 ? model.mediaWidth : 0
             readonly property real natH: model.mediaHeight > 0 ? model.mediaHeight : 0
             readonly property real ratio: (natW > 0 && natH > 0)
                                           ? (natH / natW) : 0.5625
+            readonly property real maxH: ratio > 1 ? 440 : 400
+            readonly property real minControlW: Math.min(260, bubble.width)
             readonly property real dispW: {
                 var w = natW > 0 ? Math.min(natW, maxW) : maxW
                 if (w * ratio > maxH) w = maxH / ratio
-                return Math.max(1, Math.min(w, maxW))
+                return Math.max(minControlW, Math.min(w, maxW))
             }
             implicitWidth: dispW
-            implicitHeight: Math.max(1, dispW * ratio)
+            // Height caps even after the minimum-width floor (a portrait
+            // video letterboxes inside rather than towering).
+            implicitHeight: Math.max(1, Math.min(maxH, dispW * ratio))
 
             // v0.7: inline playback. Explicit user intent swaps the cover
             // for the player card in place — identical geometry, so
