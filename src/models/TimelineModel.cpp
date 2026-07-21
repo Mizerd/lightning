@@ -460,6 +460,13 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
     case IsStickerRole:          return e.type == TimelineEvent::Sticker;
     case MediaDurationMsRole:    return static_cast<qint64>(e.mediaDurationMs);
     case MediaIsVoiceRole:       return e.mediaIsVoice;
+    case MediaWaveformRole: {
+        QVariantList out;
+        out.reserve(e.mediaWaveform.size());
+        for (int amp : e.mediaWaveform)
+            out.append(amp / 100.0); // QML consumes normalized 0..1
+        return out;
+    }
     case ReactionsRole:          return reactionsVariant(e);
     case IsPollRole:             return e.type == TimelineEvent::Poll;
     case PollQuestionRole:       return e.pollQuestion;
@@ -634,6 +641,7 @@ QHash<int, QByteArray> TimelineModel::roleNames() const
         { IsStickerRole,            "isSticker" },
         { MediaDurationMsRole,      "mediaDurationMs" },
         { MediaIsVoiceRole,         "mediaIsVoice" },
+        { MediaWaveformRole,        "mediaWaveform" },
         { IsPollRole,               "isPoll" },
         { PollQuestionRole,         "pollQuestion" },
         { PollKindRole,             "pollKind" },

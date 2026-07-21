@@ -110,6 +110,10 @@ struct TimelineEvent {
     // geometry before any bytes arrive.
     qint64  mediaDurationMs = 0;
     bool    mediaIsVoice = false;
+    // v0.7: real MSC3245 waveform envelope (bridge-normalized 0..=100,
+    // at most 96 buckets). Empty when the event carried none — the UI
+    // then shows a plain progress track, never a fabricated waveform.
+    QList<int> mediaWaveform;
 
     // Media bridge (v0.5.9, Rust backend only). `mediaKey` identifies the
     // item's media for MatrixClient::fetchMedia; the actual source (which

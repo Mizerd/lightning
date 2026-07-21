@@ -115,6 +115,7 @@ public:
         IsStickerRole,
         MediaDurationMsRole,
         MediaIsVoiceRole,
+        MediaWaveformRole,   // real MSC3245 envelope (0..100); may be empty
         // v0.7: MSC3381 polls. Aggregation is SDK-owned; these roles only
         // present the outcome. Counts are 0 while an undisclosed poll runs.
         IsPollRole,

@@ -2597,6 +2597,21 @@ fn fill_message_content(
             if content.voice.is_some() {
                 out["media_voice"] = true.into();
             }
+            // v0.7: the REAL MSC3245 waveform, when the event carried one —
+            // downsampled and normalized to a bounded 0..=100 array. The UI
+            // never fabricates a decorative waveform; absent metadata means
+            // a plain progress track.
+            if let Some(audio) = &content.audio {
+                if !audio.waveform.is_empty() {
+                    let raw: Vec<u64> = audio
+                        .waveform
+                        .iter()
+                        .map(|amp| u64::from(amp.get()))
+                        .collect();
+                    let normalized = downsample_waveform(&raw, 1024);
+                    out["media_waveform"] = normalized.into();
+                }
+            }
             let mut mimetype = None;
             if let Some(info) = &content.info {
                 if let Some(mime) = &info.mimetype {
@@ -2663,6 +2678,27 @@ fn fill_message_content(
             None
         }
     }
+}
+
+/// Downsample a voice-message waveform to at most 96 buckets of 0..=100
+/// (v0.7). Pure: bucket-averages the raw MSC3245 amplitudes (0..=`max`),
+/// so the payload crossing the FFI is small, normalized, and carries no
+/// information beyond the coarse envelope the sender already published.
+fn downsample_waveform(raw: &[u64], max: u64) -> Vec<u64> {
+    const BUCKETS: usize = 96;
+    if raw.is_empty() || max == 0 {
+        return Vec::new();
+    }
+    let buckets = raw.len().min(BUCKETS);
+    let mut out = Vec::with_capacity(buckets);
+    for i in 0..buckets {
+        let start = i * raw.len() / buckets;
+        let end = (((i + 1) * raw.len()) / buckets).max(start + 1);
+        let slice = &raw[start..end.min(raw.len())];
+        let avg: u64 = slice.iter().sum::<u64>() / slice.len() as u64;
+        out.push((avg.min(max) * 100) / max);
+    }
+    out
 }
 
 /// Build MSC3381 poll-start content through ruma constructors only (v0.7).
@@ -3140,6 +3176,23 @@ mod tests {
             clamped.poll_start.kind,
             matrix_sdk::ruma::events::poll::start::PollKind::Undisclosed
         ));
+    }
+
+    #[test]
+    fn waveform_downsamples_and_normalizes() {
+        // Fewer samples than buckets: kept 1:1, normalized to 0..=100.
+        let out = super::downsample_waveform(&[0, 512, 1024], 1024);
+        assert_eq!(out, vec![0, 50, 100]);
+        // Long input caps at 96 buckets, all within range.
+        let long: Vec<u64> = (0..1000).map(|i| i % 1025).collect();
+        let out = super::downsample_waveform(&long, 1024);
+        assert_eq!(out.len(), 96);
+        assert!(out.iter().all(|v| *v <= 100));
+        // Degenerate inputs are safe.
+        assert!(super::downsample_waveform(&[], 1024).is_empty());
+        assert!(super::downsample_waveform(&[5], 0).is_empty());
+        // Out-of-spec amplitudes clamp instead of overflowing the scale.
+        assert_eq!(super::downsample_waveform(&[9999], 1024), vec![100]);
     }
 
     #[test]

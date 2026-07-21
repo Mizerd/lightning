@@ -213,12 +213,17 @@ void RustTimelineIngestTest::parsesTypedMediaItems()
     QCOMPARE(a.mediaDurationMs, qint64(4000));
     QVERIFY(!a.mediaIsVoice);
 
-    // Voice: the MSC3245 marker flows through.
+    // Voice: the MSC3245 marker flows through, and the real waveform
+    // envelope arrives bounded and range-checked (out-of-range or
+    // malformed entries are dropped, never clamped into fake data).
     QJsonObject voice = audio;
     voice.insert(QStringLiteral("media_voice"), true);
+    voice.insert(QStringLiteral("media_waveform"),
+                 QJsonArray{ 0, 50, 100, 101, -3, QStringLiteral("x") });
     const TimelineEvent vo = eventFromItemJson(voice, kRoom);
     QCOMPARE(vo.type, TimelineEvent::Audio);
     QVERIFY(vo.mediaIsVoice);
+    QCOMPARE(vo.mediaWaveform, (QList<int>{ 0, 50, 100 }));
 
     // Sticker: image-shaped metadata with its own semantic type.
     QJsonObject sticker = itemJson(QStringLiteral("uidS"), QStringLiteral("$s"),

@@ -1854,6 +1854,16 @@ Item {
             implicitWidth: dispW
             implicitHeight: Math.max(1, dispW * ratio)
 
+            // v0.7: inline playback. Explicit user intent swaps the cover
+            // for the player card in place — identical geometry, so
+            // starting playback never reflows the timeline. Delegate reuse
+            // for another event always drops back to the cover.
+            property bool playerActive: false
+            readonly property string playerIdentity: model.mediaKey || ""
+            onPlayerIdentityChanged: playerActive = false
+            readonly property bool playbackAvailable:
+                model.mediaSourceAvailable === true && app.mediaBridge.supported
+
             readonly property bool usesBridge:
                 model.mediaSourceAvailable === true && app.mediaBridge.supported
                 && model.mediaThumbAvailable === true
@@ -1949,102 +1959,86 @@ Item {
                     }
                 }
             }
+            // Explicit Save As stays available from the cover.
+            IconButton {
+                objectName: "videoSaveButton"
+                visible: !videoBox.playerActive && videoBox.playbackAvailable
+                anchors.top: parent.top
+                anchors.right: parent.right
+                anchors.margins: 5
+                iconName: "download"
+                iconSize: 15
+                implicitWidth: 26; implicitHeight: 26
+                Accessible.name: qsTr("Save %1 as…")
+                    .arg(model.mediaFilename || qsTr("video"))
+                onClicked: {
+                    if (root.ListView.view && root.ListView.view.saveMedia)
+                        root.ListView.view.saveMedia(model.mediaKey || "",
+                                                     model.mediaFilename
+                                                     || "video")
+                }
+            }
             TapHandler {
+                enabled: !videoBox.playerActive
                 onTapped: {
                     if (videoBox.bridgeFailed) {
                         videoBox.refreshBridgeSource()
                         return
                     }
-                    if (model.mediaSourceAvailable === true
-                        && app.mediaBridge.supported
-                        && root.ListView.view && root.ListView.view.saveMedia)
-                        root.ListView.view.saveMedia(model.mediaKey || "",
-                                                     model.mediaFilename
-                                                     || "video")
+                    if (videoBox.playbackAvailable)
+                        videoBox.playerActive = true
                     else if (model.mediaUrl
                              && model.mediaUrl.toString().length > 0)
                         app.media.openExternal(model.mediaUrl)
+                }
+            }
+            // The inline player replaces the cover in place (same box).
+            Loader {
+                anchors.fill: parent
+                active: videoBox.playerActive
+                visible: active
+                sourceComponent: VideoPlayerCard {
+                    mediaKey: model.mediaKey || ""
+                    ownerKey: root.actionKey + "\u001f"
+                              + (model.mediaKey || "")
+                    filename: model.mediaFilename || ""
+                    rowOnScreen: root.rowOnScreen
+                    onCloseRequested: videoBox.playerActive = false
                 }
             }
         }
     }
 
     // ---- audio / voice ----
-    // A stable compact audio row: leading type icon, filename, duration and
-    // an explicit Save action. Fixed minimum height — audio never reserves
-    // image-sized geometry and never reflows when metadata resolves.
+    // v0.7: real inline playback. The compact card keeps its stable
+    // geometry; pressing Play fetches through MediaBridge's validated
+    // playable materialization and plays in-process. Voice messages render
+    // their real MSC3245 waveform when present. Non-bridge backends keep
+    // the external-open path.
     Component {
         id: audioComponent
-        Rectangle {
+        AudioPlayerCard {
             objectName: "audioMedia"
-            implicitWidth: Math.min(320, bubble.width)
-            implicitHeight: Math.max(44, audioRow.implicitHeight + 10)
-            color: AppTheme.surfaceElevated
-            radius: AppTheme.radiusSm
-            border.color: AppTheme.border
-            border.width: 1
-            RowLayout {
-                id: audioRow
-                anchors.fill: parent
-                anchors.margins: 6
-                spacing: 8
-                Rectangle {
-                    width: 30; height: 30; radius: 15
-                    color: AppTheme.accentSoft
-                    Icon {
-                        anchors.centerIn: parent
-                        name: model.mediaIsVoice === true ? "mic" : "play_arrow"
-                        size: 17
-                        color: AppTheme.accent
-                    }
-                }
-                ColumnLayout {
-                    Layout.fillWidth: true
-                    spacing: 1
-                    Label {
-                        text: model.mediaIsVoice === true
-                              ? qsTr("Voice message")
-                              : (model.mediaFilename || model.body || qsTr("Audio"))
-                        color: AppTheme.text
-                        font.pixelSize: 12
-                        font.weight: Font.Medium
-                        elide: Label.ElideMiddle
-                        Layout.fillWidth: true
-                    }
-                    Label {
-                        text: {
-                            var ms = model.mediaDurationMs
-                            if (!ms || ms <= 0) return qsTr("Audio")
-                            var total = Math.round(ms / 1000)
-                            var m = Math.floor(total / 60)
-                            var s = total % 60
-                            return m + ":" + (s < 10 ? "0" : "") + s
-                        }
-                        color: AppTheme.textMuted
-                        font.pixelSize: 10
-                    }
-                }
-                ToolButton {
-                    visible: model.mediaSourceAvailable === true
-                             && app.mediaBridge.supported
-                    text: qsTr("Save")
-                    Accessible.name: qsTr("Save %1 as…")
-                        .arg(model.mediaFilename || qsTr("audio"))
-                    onClicked: {
-                        if (root.ListView.view && root.ListView.view.saveMedia)
-                            root.ListView.view.saveMedia(model.mediaKey || "",
-                                                         model.mediaFilename
-                                                         || "audio")
-                    }
-                }
-                ToolButton {
-                    visible: !(model.mediaSourceAvailable === true)
-                             && (model.mediaUrl
-                                 ? model.mediaUrl.toString().length > 0
-                                 : false)
-                    text: qsTr("Open")
-                    onClicked: app.media.openExternal(model.mediaUrl)
-                }
+            bubble: bubble
+            mediaKey: model.mediaKey || ""
+            ownerKey: root.actionKey + "\u001f" + (model.mediaKey || "")
+            filename: model.mediaFilename || model.body || ""
+            mimetype: model.mediaMimetype || ""
+            fileSize: model.mediaSize || 0
+            durationMs: model.mediaDurationMs || 0
+            isVoice: model.mediaIsVoice === true
+            waveform: model.mediaWaveform || []
+            rowOnScreen: root.rowOnScreen
+            canSave: model.mediaSourceAvailable === true
+                     && app.mediaBridge.supported
+            onSaveRequested: {
+                if (root.ListView.view && root.ListView.view.saveMedia)
+                    root.ListView.view.saveMedia(model.mediaKey || "",
+                                                 model.mediaFilename || "audio")
+            }
+            onOpenExternalRequested: {
+                if (model.mediaUrl && model.mediaUrl.toString().length > 0)
+                    app.media.openExternal(model.mediaUrl)
             }
         }
     }

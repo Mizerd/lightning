@@ -260,6 +260,9 @@ set(APP_QML_FILES
     qml/MessageComposerBar.qml
     qml/EmojiPicker.qml
     qml/CreatePollDialog.qml
+    qml/VideoPlayerCard.qml
+    qml/AudioPlayerCard.qml
+    qml/VideoViewerOverlay.qml
     qml/UserPicker.qml
     qml/NewConversationDialog.qml
     qml/InvitePeopleDialog.qml

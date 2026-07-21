@@ -141,6 +141,13 @@ TimelineEvent eventFromItemJson(const QJsonObject &item, const QString &roomId)
     e.mediaDurationMs = static_cast<qint64>(
         item.value(QStringLiteral("media_duration_ms")).toDouble(0));
     e.mediaIsVoice = item.value(QStringLiteral("media_voice")).toBool(false);
+    const QJsonArray waveform =
+        item.value(QStringLiteral("media_waveform")).toArray();
+    for (const auto &value : waveform) {
+        const int amp = value.toInt(-1);
+        if (amp >= 0 && amp <= 100 && e.mediaWaveform.size() < 96)
+            e.mediaWaveform.append(amp);
+    }
 
     // v0.5.9: media-bridge retrieval key + availability flags (set for both
     // plain and encrypted sources; the source itself stays inside Rust).
