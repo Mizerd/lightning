@@ -156,6 +156,13 @@ pub struct TimelineRegistry {
     /// v0.5.9: media sources for the currently open room's items. Cleared
     /// on every room open and on shutdown. Never crosses the FFI.
     media_sources: Mutex<HashMap<String, StoredMedia>>,
+    /// v0.7 recovery supervisor: backup key-download attempts made this
+    /// lifecycle ("<room>" for whole-room passes, "<room>\x1f<session>" for
+    /// per-session downloads), so verified-session recovery never polls the
+    /// backup endpoints. Cleared on shutdown; manual recovery clears the
+    /// open room's entry to force one fresh pass. Session IDENTIFIERS only —
+    /// never key material.
+    backup_download_attempts: Mutex<std::collections::HashSet<String>>,
 }
 
 impl TimelineRegistry {
@@ -170,7 +177,31 @@ impl TimelineRegistry {
             room_gen: AtomicU64::new(0),
             lifecycle_gen: AtomicU64::new(1),
             media_sources: Mutex::new(HashMap::new()),
+            backup_download_attempts: Mutex::new(std::collections::HashSet::new()),
         }
+    }
+
+    /// Record a backup-download attempt. Returns false when the same
+    /// attempt already ran this lifecycle (the caller must then skip it).
+    fn mark_backup_attempt(&self, key: &str) -> bool {
+        match self.backup_download_attempts.lock() {
+            Ok(mut guard) => guard.insert(key.to_owned()),
+            Err(_) => false,
+        }
+    }
+
+    /// Forget a whole-room backup pass so an explicit user action (manual
+    /// recovery-key/passphrase entry) can force one fresh download pass.
+    pub fn clear_backup_attempt(&self, room_id: &str) {
+        if let Ok(mut guard) = self.backup_download_attempts.lock() {
+            guard.remove(room_id);
+        }
+    }
+
+    /// Room id of the currently open live timeline, if any.
+    pub fn active_room_id(&self) -> Option<String> {
+        let guard = self.active.lock().ok()?;
+        guard.as_ref().map(|active| active.room_id.clone())
     }
 
     fn is_current(&self, room_gen: u64, lifecycle: u64) -> bool {
@@ -845,6 +876,56 @@ impl TimelineRegistry {
         )
     }
 
+    /// One deduplicated whole-room key-download pass from the active key
+    /// backup (v0.7 recovery supervisor). This is the deterministic
+    /// replacement for the SDK's fire-once OneShot download, which never
+    /// re-runs once a backup decryption key is stored (and whose bulk
+    /// download failure is swallowed): whenever backups are usable, each
+    /// room gets exactly one explicit `download_room_keys_for_room` pass
+    /// per session lifecycle (plus one bounded retry), and manual recovery
+    /// can force a fresh pass. Only public SDK APIs; imported keys reach
+    /// open timelines through the SDK's own redecryption propagation.
+    pub async fn download_backup_keys_for_room(
+        self: &Arc<Self>,
+        client: &Client,
+        room_id: &str,
+    ) {
+        let backups = client.encryption().backups();
+        if !backups.are_enabled().await {
+            return; // no usable backup key — nothing to download
+        }
+        let Ok(room_ref) = RoomId::parse(room_id) else { return };
+        if !self.mark_backup_attempt(room_id) {
+            return; // already attempted this lifecycle
+        }
+        let lifecycle = self.lifecycle();
+        let emit = |state: &str| {
+            if self.lifecycle_current(lifecycle) {
+                enqueue(
+                    &self.events,
+                    json!({
+                        "type": "crypto_bootstrap",
+                        "kind": "backup_download",
+                        "state": state,
+                        "count": 0,
+                        "lifecycle": lifecycle,
+                    }),
+                );
+            }
+        };
+        emit("started");
+        let mut result = backups.download_room_keys_for_room(&room_ref).await;
+        if result.is_err() && self.lifecycle_current(lifecycle) {
+            // One bounded retry — a single transient network failure must
+            // not silently strand history, but this never polls.
+            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+            result = backups.download_room_keys_for_room(&room_ref).await;
+        }
+        // Sanitized outcome only — no error strings (they can embed URLs
+        // and backup versions), no room ids, no counts of key material.
+        emit(if result.is_ok() { "ok" } else { "failed" });
+    }
+
     /// Deterministic stop of all timeline work: advances the lifecycle
     /// generation, aborts the subscription task and awaits it (bounded).
     /// Called before sign-out store cleanup and before handle destruction.
@@ -854,6 +935,9 @@ impl TimelineRegistry {
         self.thread_gen.fetch_add(1, Ordering::SeqCst);
         self.close_thread_list();
         self.clear_media();
+        if let Ok(mut guard) = self.backup_download_attempts.lock() {
+            guard.clear();
+        }
         if let Some((task, _room, _root)) = self.take_active_thread() {
             if let Some(task) = task {
                 let _ = runtime.block_on(async {
@@ -1340,12 +1424,16 @@ impl TimelineRegistry {
     /// Collects the session ids of the currently visible unable-to-decrypt
     /// items (room timeline + open thread timeline) and asks the SDK to
     /// retry them — one bounded pass per user action, no polling, no custom
-    /// key transfer. Key DOWNLOAD attempts (backup) are the SDK's own
-    /// AfterDecryptionFailure behavior; this only re-runs decryption against
-    /// whatever key material has arrived since.
+    /// key transfer. v0.7: since the client runs the OneShot strategy (the
+    /// SDK's per-UTD AfterDecryptionFailure download task does not exist),
+    /// each visible UTD session additionally gets one deduplicated
+    /// `download_room_key` attempt from the active backup before the
+    /// decryption retry, so Retry can actually fetch a missing key instead
+    /// of only re-checking key material that already arrived.
     pub fn retry_visible_decryption(
         self: &Arc<Self>,
         runtime: &tokio::runtime::Runtime,
+        client: Client,
         room_id: String,
     ) -> Result<(), String> {
         let Some((timeline, room_gen, lifecycle)) = self.timeline_for(&room_id) else {
@@ -1387,6 +1475,23 @@ impl TimelineRegistry {
                     "sessions": session_ids.len(),
                 }),
             );
+            // Bounded per-session backup downloads (identifiers only; key
+            // material stays inside the SDK). `download_room_key` is a
+            // harmless Ok(false) when no usable backup exists.
+            let backups = client.encryption().backups();
+            if backups.are_enabled().await {
+                if let Ok(room_ref) = RoomId::parse(&room_id) {
+                    for session_id in &session_ids {
+                        let key = format!("{room_id}\u{1f}{session_id}");
+                        if !registry.mark_backup_attempt(&key) {
+                            continue;
+                        }
+                        let _ = backups
+                            .download_room_key(&room_ref, session_id)
+                            .await;
+                    }
+                }
+            }
             timeline.retry_decryption(session_ids.iter().cloned()).await;
             if let Some(thread) = &thread_timeline {
                 thread.retry_decryption(session_ids.iter().cloned()).await;
@@ -1539,6 +1644,20 @@ async fn open_room_task(
             "items": snapshot,
         }),
     );
+
+    // v0.7 recovery supervisor: one deduplicated key-download pass from the
+    // active backup for THIS room (no-op without a usable backup key; at
+    // most once per room per lifecycle). Runs concurrently — never ahead
+    // of — diff forwarding; imported keys come back as ordinary in-place
+    // Set diffs through the SDK's own redecryption propagation.
+    {
+        let registry = Arc::clone(&registry);
+        let client = client.clone();
+        let room = room_id.clone();
+        tokio::spawn(async move {
+            registry.download_backup_keys_for_room(&client, &room).await;
+        });
+    }
 
     // v0.7: hydrate room-member sender profiles. With lazy-loaded membership
     // the SDK only knows senders whose member events happened to sync, so

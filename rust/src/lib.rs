@@ -778,13 +778,15 @@ pub unsafe extern "C" fn mx_rust_start_sync(ptr: *mut c_void) {
         if let Ok(mut slot) = bridge.bootstrap_task.lock() {
             if slot.is_none() {
                 let observer_events = Arc::clone(&bridge.events);
+                let timelines = Arc::clone(&bridge.timelines);
                 let lifecycle = bridge.timelines.lifecycle();
                 let (cancel, cancel_rx) = tokio::sync::oneshot::channel::<()>();
                 let thread = std::thread::spawn(move || {
                     let runtime_events = Arc::clone(&observer_events);
                     run_async(runtime_events, "crypto_bootstrap", async move {
                         run_crypto_bootstrap_observer(
-                            client, observer_events, lifecycle, cancel_rx,
+                            client, observer_events, timelines, lifecycle,
+                            cancel_rx,
                         )
                         .await;
                     });
@@ -853,16 +855,30 @@ fn emit_crypto_bootstrap(
     );
 }
 
-/// v0.7: forwards the SDK's own post-verification bootstrap progress. The
-/// heavy lifting is entirely inside matrix-sdk (automatic secret gossip on
-/// own-identity verification, backup enablement from the gossiped recovery
-/// key, OneShot full-backup download, event-cache redecryption); this task
-/// only OBSERVES the supported state streams so the UI can show an honest
-/// "requesting keys / restoring history / ready" status. It never touches
-/// key material and never sends protocol events of its own.
+/// v0.7: verified-session crypto-bootstrap SUPERVISOR. Forwards the SDK's
+/// post-verification progress (verification/recovery/backup state streams,
+/// received-room-key counts) exactly like the original observer, and — the
+/// v0.7 recovery fix — actively drives the two supported steps the SDK's
+/// fire-once OneShot strategy leaves undone:
+///
+///   * once this session is Verified, one `fetch_exists_on_server` probe
+///     reports whether a key backup actually exists (`backup_exists`), so
+///     the UI can distinguish "no backup to restore" from "waiting for the
+///     other device" honestly;
+///   * whenever backups become (or already are) usable while verified, the
+///     open room gets one deduplicated `download_room_keys_for_room` pass —
+///     the deterministic replacement for the OneShot bulk download, which
+///     never re-runs once a backup key is stored and swallows failures.
+///
+/// Everything stays on public matrix-sdk APIs. No custom crypto, no secret
+/// requests of its own (0.18 sends the m.secret.request at SAS completion
+/// and exposes no public re-request API — after a missed request the
+/// spec-clean remedies remain a fresh verification or manual recovery).
+/// Never touches or forwards key material.
 async fn run_crypto_bootstrap_observer(
     client: Client,
     events: Arc<Mutex<VecDeque<String>>>,
+    timelines: Arc<timeline::TimelineRegistry>,
     lifecycle: u64,
     mut cancel_rx: tokio::sync::oneshot::Receiver<()>,
 ) {
@@ -873,6 +889,12 @@ async fn run_crypto_bootstrap_observer(
     let mut recovery_states = recovery.state_stream();
     let mut backup_states = backups.state_stream();
     let mut room_keys = encryption.room_keys_received_stream().await;
+
+    let mut verified = matches!(
+        verification.get(),
+        matrix_sdk::encryption::VerificationState::Verified
+    );
+    let mut exists_probed = false;
 
     // Baseline snapshot so C++ has a coherent starting state.
     emit_crypto_bootstrap(
@@ -888,15 +910,41 @@ async fn run_crypto_bootstrap_observer(
         backup_state_name(backups.state()), 0,
     );
 
+    // Server-truth probe + download pass for the already-steady state (the
+    // F2 stored-key case: verified, backup Enabled at startup, and the SDK
+    // will never download on its own).
+    if verified {
+        probe_backup_exists(&client, &events, lifecycle, &mut exists_probed)
+            .await;
+    }
+    if verified
+        && matches!(
+            backups.state(),
+            matrix_sdk::encryption::backups::BackupState::Enabled
+        )
+    {
+        run_backup_download_pass(&client, &timelines).await;
+    }
+
     loop {
         tokio::select! {
             _ = &mut cancel_rx => break,
             state = verification.next() => {
                 let Some(state) = state else { break };
+                verified = matches!(
+                    state,
+                    matrix_sdk::encryption::VerificationState::Verified
+                );
                 emit_crypto_bootstrap(
                     &events, lifecycle, "verification_state",
                     verification_state_name(state), 0,
                 );
+                if verified {
+                    probe_backup_exists(
+                        &client, &events, lifecycle, &mut exists_probed,
+                    )
+                    .await;
+                }
             }
             state = recovery_states.next() => {
                 let Some(state) = state else { break };
@@ -912,6 +960,17 @@ async fn run_crypto_bootstrap_observer(
                     &events, lifecycle, "backup_state",
                     backup_state_name(state), 0,
                 );
+                // The gossiped (or manually recovered) backup key became
+                // usable — run the deterministic download pass the OneShot
+                // strategy only attempts on the very first key store.
+                if verified
+                    && matches!(
+                        state,
+                        matrix_sdk::encryption::backups::BackupState::Enabled
+                    )
+                {
+                    run_backup_download_pass(&client, &timelines).await;
+                }
             }
             keys = async {
                 match room_keys.as_mut() {
@@ -933,6 +992,49 @@ async fn run_crypto_bootstrap_observer(
                 }
             }
         }
+    }
+}
+
+/// One-time (per supervisor) network probe: does a key backup actually
+/// exist on the homeserver? Emits the sanitized boolean as
+/// `backup_exists` true/false; a failed probe emits nothing (the UI keeps
+/// its cautious unknown state) and may be retried on the next
+/// verification-state edge.
+async fn probe_backup_exists(
+    client: &Client,
+    events: &Arc<Mutex<VecDeque<String>>>,
+    lifecycle: u64,
+    exists_probed: &mut bool,
+) {
+    if *exists_probed {
+        return;
+    }
+    match client.encryption().backups().fetch_exists_on_server().await {
+        Ok(exists) => {
+            *exists_probed = true;
+            emit_crypto_bootstrap(
+                events,
+                lifecycle,
+                "backup_exists",
+                if exists { "true" } else { "false" },
+                0,
+            );
+        }
+        Err(_) => { /* transient network failure — stay unknown */ }
+    }
+}
+
+/// Run the deduplicated whole-room backup download pass for the currently
+/// open room, if any. Rooms opened later get their own pass from
+/// `open_room_task`.
+async fn run_backup_download_pass(
+    client: &Client,
+    timelines: &Arc<timeline::TimelineRegistry>,
+) {
+    if let Some(room_id) = timelines.active_room_id() {
+        timelines
+            .download_backup_keys_for_room(client, &room_id)
+            .await;
     }
 }
 
@@ -1349,21 +1451,26 @@ pub unsafe extern "C" fn mx_rust_probe_encrypted_send(
     })
 }
 
-/// Key-backup recovery probe (v0.5.0-prep+7). Calls
-/// `client.encryption().recovery().recover(recovery_key)` on matrix-sdk
-/// v0.18 to import backed-up room keys from the homeserver's secret
-/// storage. The recovery key must arrive here as a plain string; the C++
-/// side is expected to sanitise before calling. This FFI **never** logs
-/// the recovery key or the imported key material. Result events on the
-/// poll queue:
+/// Manual key-backup recovery (v0.5.0-prep+7, upgraded by the v0.7
+/// recovery supervisor). Calls
+/// `client.encryption().recovery().recover(input)` on matrix-sdk 0.18,
+/// which accepts a Base58 recovery KEY **or a recovery PASSPHRASE** (the
+/// SDK tries the passphrase KDF first when the server's key event carries
+/// passphrase info, then Base58 — verified in the pinned sources). The
+/// secret must arrive here as a plain string; C++ sanitises and zeroes its
+/// buffer after the call. This FFI **never** logs the input or any
+/// imported key material. Result events on the poll queue:
 ///   { "type": "key_backup_status", "state": "attempted" }
 ///   { "type": "key_backup_status", "state": "ok" }
 ///   { "type": "key_backup_status", "state": "failed", "message": "…" }
 ///
-/// Recovery-passphrase support is intentionally NOT wired here — the
-/// matrix-sdk API takes a recovery *key* (BASE58) on the fast path. The
-/// smoke harness reports `key_backup=failed reason=passphrase_not_supported`
-/// if a passphrase is provided but no key.
+/// v0.7: after a successful recover, the SDK's `maybe_enable_backups`
+/// short-circuits with NO download whenever the backup key was already
+/// stored (and the fire-once OneShot bulk download does not re-run), so a
+/// deterministic download pass for the open room plus a visible-UTD
+/// decryption retry run here explicitly. Manual recovery deliberately
+/// clears the room's dedup mark first — an explicit user action gets one
+/// fresh pass.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_recover_from_backup(
     ptr: *mut c_void,
@@ -1376,6 +1483,7 @@ pub unsafe extern "C" fn mx_rust_recover_from_backup(
             return Ok("error: Rust SDK session is not logged in.".to_owned());
         };
         let events = Arc::clone(&bridge.events);
+        let timelines = Arc::clone(&bridge.timelines);
         std::thread::spawn(move || {
             let runtime_events = Arc::clone(&events);
             run_async(runtime_events, "recover_backup", async move {
@@ -1385,10 +1493,25 @@ pub unsafe extern "C" fn mx_rust_recover_from_backup(
                 );
                 let recovery = client.encryption().recovery();
                 match recovery.recover(&recovery_key).await {
-                    Ok(_) => enqueue(
-                        &events,
-                        json!({ "type": "key_backup_status", "state": "ok" }),
-                    ),
+                    Ok(_) => {
+                        // Deterministic post-recover download for the open
+                        // room (forced once), then re-run decryption for its
+                        // visible undecryptable rows. Uses only public SDK
+                        // APIs; imported keys propagate to timelines through
+                        // the SDK's own redecryption path.
+                        if let Some(room_id) = timelines.active_room_id() {
+                            timelines.clear_backup_attempt(&room_id);
+                            timelines
+                                .download_backup_keys_for_room(
+                                    &client, &room_id,
+                                )
+                                .await;
+                        }
+                        enqueue(
+                            &events,
+                            json!({ "type": "key_backup_status", "state": "ok" }),
+                        );
+                    }
                     Err(err) => enqueue(
                         &events,
                         json!({
@@ -2638,9 +2761,12 @@ pub unsafe extern "C" fn mx_rust_timeline_retry_decryption(
     ffi_string(|| {
         let bridge = unsafe { bridge(ptr)? };
         let room_id = unsafe { cstr_arg(room_id) }?;
+        let Some(client) = bridge.client.lock().ok().and_then(|g| g.clone()) else {
+            return Err("Rust SDK session is not logged in.".to_owned());
+        };
         bridge
             .timelines
-            .retry_visible_decryption(&bridge.runtime, room_id)
+            .retry_visible_decryption(&bridge.runtime, client, room_id)
             .map(|_| String::new())
     })
 }

@@ -45,6 +45,14 @@ QString CryptoBootstrapModel::statusMessage() const
                  m_keysReceived)
             : tr("History decryption is ready.");
     case NoBackupAvailable:
+        // Server-truth absence is worded honestly: without a backup on the
+        // homeserver, neither gossip nor a recovery key can restore
+        // history — only a key file exported from another client can.
+        if (m_backupExists == 0)
+            return tr("This account has no encryption key backup on the "
+                      "server. Older encrypted messages can only be "
+                      "recovered by importing a key file from another "
+                      "client.");
         return tr("No key backup is available from your other session. "
                   "Enter your recovery key to unlock older messages.");
     case ManualRecoveryRequired:
@@ -91,6 +99,12 @@ void CryptoBootstrapModel::applyEvent(const QString &kind,
         m_recovery = state;
     } else if (kind == QLatin1String("backup_state")) {
         m_backup = state;
+    } else if (kind == QLatin1String("backup_exists")) {
+        // Homeserver truth from the supervisor's one-shot probe.
+        m_backupExists = (state == QLatin1String("true")) ? 1 : 0;
+    } else if (kind == QLatin1String("backup_download")) {
+        // The supervisor's explicit per-room download pass.
+        m_download = state;
     } else if (kind == QLatin1String("room_keys_received")) {
         if (count > 0) {
             m_keysReceived += static_cast<int>(
@@ -114,10 +128,19 @@ void CryptoBootstrapModel::recompute()
     } else if (m_verification == QLatin1String("verified")) {
         if (m_backup == QLatin1String("downloading")
             || m_backup == QLatin1String("enabling")
-            || m_backup == QLatin1String("resuming")) {
+            || m_backup == QLatin1String("resuming")
+            || m_download == QLatin1String("started")) {
             next = RestoringHistory;
         } else if (m_backup == QLatin1String("enabled")) {
-            next = Ready;
+            // The backup key is usable. The supervisor's explicit download
+            // pass tells us whether history restoration actually worked —
+            // a failed pass escalates honestly instead of claiming Ready.
+            next = m_download == QLatin1String("failed")
+                ? ManualRecoveryRequired : Ready;
+        } else if (m_backupExists == 0) {
+            // Server truth: no key backup exists at all — there is nothing
+            // for gossip OR a recovery key to restore history from.
+            next = NoBackupAvailable;
         } else if (m_recovery == QLatin1String("disabled")) {
             // Verified, but no secret storage exists to gossip a backup key
             // from — only a manually entered recovery key can help.
@@ -155,6 +178,8 @@ void CryptoBootstrapModel::reset()
     m_verification = QStringLiteral("unknown");
     m_recovery = QStringLiteral("unknown");
     m_backup = QStringLiteral("unknown");
+    m_backupExists = -1;
+    m_download.clear();
     m_phase = Idle;
     m_keysReceived = 0;
     if (wasInteresting)

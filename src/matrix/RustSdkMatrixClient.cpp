@@ -2746,9 +2746,13 @@ void RustSdkMatrixClient::recoverFromBackup(const QString &recoveryKey)
                                tr("Recovery key is empty."));
         return;
     }
-    const QByteArray keyBytes = recoveryKey.toUtf8();
+    QByteArray keyBytes = recoveryKey.toUtf8();
     const QString result = takeRustString(mx_rust_recover_from_backup(
         m_rustHandle, keyBytes.constData()));
+    // Best-effort scrub of the recovery secret's transit buffer, mirroring
+    // importRoomKeys (the QString original is owned by the caller, which
+    // clears its field immediately after submitting).
+    keyBytes.fill('\0');
     if (!result.isEmpty()) {
         Q_EMIT keyBackupResult(QStringLiteral("failed"),
             result.startsWith(QLatin1String("error: "))

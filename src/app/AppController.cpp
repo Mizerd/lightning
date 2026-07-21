@@ -576,6 +576,12 @@ AppController::AppController(Backend backend, QObject *parent)
                               << m_currentRoomId.right(12);
                 reloadCurrentRoomTimeline(50);
             }
+            // v0.7: the security pane's backup/recovery snapshot must
+            // reflect the just-verified state without a manual refresh —
+            // the recovery supervisor's download pass reports through the
+            // bootstrap events, and this keeps the health card coherent
+            // with it.
+            refreshCryptoHealth();
         });
         connect(rust, &RustSdkMatrixClient::verificationCancelled,
                 this, [this](const QString &flowId, const QString &) {

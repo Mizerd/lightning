@@ -105,6 +105,52 @@ private Q_SLOTS:
         QVERIFY(!m.statusMessage().isEmpty());
     }
 
+    // v0.7 supervisor: the homeserver-truth probe says no backup exists.
+    // The model reaches the honest terminal state immediately — no
+    // 30-second wait for a gossip answer that cannot restore anything —
+    // and the copy stops promising that a recovery key will bring
+    // history back.
+    void serverTruthNoBackupIsTerminal()
+    {
+        CryptoBootstrapModel m;
+        apply(m, "verification_state", "verified");
+        QCOMPARE(m.phase(), CryptoBootstrapModel::WaitingForKeys);
+        apply(m, "backup_exists", "false");
+        QCOMPARE(m.phase(), CryptoBootstrapModel::NoBackupAvailable);
+        QVERIFY(m.statusMessage().contains(QStringLiteral("no encryption key backup")));
+
+        // backup_exists=true keeps the ordinary waiting path.
+        CryptoBootstrapModel n;
+        apply(n, "verification_state", "verified");
+        apply(n, "backup_exists", "true");
+        QCOMPARE(n.phase(), CryptoBootstrapModel::WaitingForKeys);
+    }
+
+    // v0.7 supervisor: the explicit download pass drives the phase. A
+    // started pass shows restoring even when the backup state is already
+    // steady at enabled (the F2 stored-key case); a failed pass escalates
+    // honestly instead of claiming Ready; a later successful pass (e.g.
+    // after manual recovery) still promotes.
+    void downloadPassDrivesRestoreAndEscalation()
+    {
+        CryptoBootstrapModel m;
+        apply(m, "verification_state", "verified");
+        apply(m, "backup_state", "enabled");
+        QCOMPARE(m.phase(), CryptoBootstrapModel::Ready);
+
+        apply(m, "backup_download", "started");
+        QCOMPARE(m.phase(), CryptoBootstrapModel::RestoringHistory);
+        apply(m, "backup_download", "failed");
+        QCOMPARE(m.phase(), CryptoBootstrapModel::ManualRecoveryRequired);
+        QVERIFY(m.needsRecoveryKey());
+
+        // Manual recovery forces a fresh pass; success promotes to Ready.
+        apply(m, "backup_download", "started");
+        QCOMPARE(m.phase(), CryptoBootstrapModel::RestoringHistory);
+        apply(m, "backup_download", "ok");
+        QCOMPARE(m.phase(), CryptoBootstrapModel::Ready);
+    }
+
     // The automatic request may never be answered. After the bounded wait,
     // the model escalates from the indefinite "waiting" spinner to an honest
     // manual-recovery state so the UI can offer the recovery key instead of
@@ -155,6 +201,8 @@ private Q_SLOTS:
         apply(m, "verification_state", "verified");
         apply(m, "backup_state", "downloading");
         apply(m, "room_keys_received", "", 7);
+        apply(m, "backup_exists", "false");
+        apply(m, "backup_download", "failed");
         QCOMPARE(m.phase(), CryptoBootstrapModel::RestoringHistory);
         QCOMPARE(m.keysReceived(), 7);
 
@@ -163,6 +211,12 @@ private Q_SLOTS:
         QCOMPARE(m.keysReceived(), 0);
         QVERIFY(!m.active());
         QCOMPARE(m.statusMessage(), QString());
+
+        // The v0.7 supervisor inputs are per-account too: the next account
+        // must not inherit "no backup exists" or a failed download pass.
+        apply(m, "verification_state", "verified");
+        QCOMPARE(m.phase(), CryptoBootstrapModel::WaitingForKeys);
+        m.reset();
 
         // Old-session events after the reset (already rejected upstream by
         // the handle generation) would at worst re-derive from scratch —

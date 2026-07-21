@@ -80,6 +80,13 @@ private:
     QString m_recovery;     // unknown / enabled / disabled / incomplete
     QString m_backup;       // unknown / creating / enabling / resuming /
                             // enabled / downloading / disabling
+    // v0.7 supervisor inputs. backupExists is the homeserver truth from the
+    // one-shot fetch_exists_on_server probe (-1 unknown / 0 no / 1 yes) —
+    // it distinguishes "there is nothing to restore" from "waiting for the
+    // other device". download tracks the explicit per-room key-download
+    // pass ("", started, ok, failed).
+    int m_backupExists = -1;
+    QString m_download;
     Phase m_phase = Idle;
     int m_keysReceived = 0;
     QTimer m_waitTimer;
