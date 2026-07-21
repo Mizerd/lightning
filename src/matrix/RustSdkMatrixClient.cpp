@@ -946,6 +946,81 @@ void RustSdkMatrixClient::toggleReaction(const QString &roomId,
     }
 }
 
+// v0.7 polls. Votes and ends act on a poll visible in the CURRENT room (or
+// one of its threads), so the room-timeline-active guard applies to all
+// three actions; the thread target is resolved Rust-side (open panel
+// timeline, else a transient thread-focused timeline).
+void RustSdkMatrixClient::sendPollResponse(const QString &roomId,
+                                           const QString &threadRootId,
+                                           const QString &pollStartEventId,
+                                           const QStringList &answerIds)
+{
+    if (!timelineActiveFor(roomId)) {
+        refuseSend("sendPollResponse");
+        return;
+    }
+    const QByteArray roomBytes = roomId.toUtf8();
+    const QByteArray threadBytes = threadRootId.toUtf8();
+    const QByteArray pollBytes = pollStartEventId.toUtf8();
+    const QByteArray answerBytes = answerIds.join(QLatin1Char('\n')).toUtf8();
+    const QString result = takeRustString(mx_rust_timeline_poll_response(
+        m_rustHandle, roomBytes.constData(), threadBytes.constData(),
+        pollBytes.constData(), answerBytes.constData()));
+    if (!result.isEmpty()) {
+        Q_EMIT errorOccurred(result.startsWith(QLatin1String("error: "))
+                                 ? result.mid(7)
+                                 : result);
+    }
+}
+
+void RustSdkMatrixClient::endPoll(const QString &roomId,
+                                  const QString &threadRootId,
+                                  const QString &pollStartEventId)
+{
+    if (!timelineActiveFor(roomId)) {
+        refuseSend("endPoll");
+        return;
+    }
+    const QByteArray roomBytes = roomId.toUtf8();
+    const QByteArray threadBytes = threadRootId.toUtf8();
+    const QByteArray pollBytes = pollStartEventId.toUtf8();
+    const QString result = takeRustString(mx_rust_timeline_poll_end(
+        m_rustHandle, roomBytes.constData(), threadBytes.constData(),
+        pollBytes.constData()));
+    if (!result.isEmpty()) {
+        Q_EMIT errorOccurred(result.startsWith(QLatin1String("error: "))
+                                 ? result.mid(7)
+                                 : result);
+    }
+}
+
+void RustSdkMatrixClient::createPoll(const QString &roomId,
+                                     const QString &threadRootId,
+                                     const QString &question,
+                                     const QStringList &answers,
+                                     bool undisclosed,
+                                     int maxSelections)
+{
+    if (!timelineActiveFor(roomId)) {
+        refuseSend("createPoll");
+        return;
+    }
+    const QByteArray roomBytes = roomId.toUtf8();
+    const QByteArray threadBytes = threadRootId.toUtf8();
+    const QByteArray questionBytes = question.toUtf8();
+    const QByteArray answerBytes = answers.join(QLatin1Char('\n')).toUtf8();
+    const QString result = takeRustString(mx_rust_timeline_poll_create(
+        m_rustHandle, roomBytes.constData(), threadBytes.constData(),
+        questionBytes.constData(), answerBytes.constData(),
+        undisclosed ? 1 : 0,
+        static_cast<unsigned int>(qMax(1, maxSelections))));
+    if (!result.isEmpty()) {
+        Q_EMIT errorOccurred(result.startsWith(QLatin1String("error: "))
+                                 ? result.mid(7)
+                                 : result);
+    }
+}
+
 void RustSdkMatrixClient::sendTyping(const QString &roomId, bool typing, int)
 {
     if (!m_rustHandle || roomId.isEmpty()) return;

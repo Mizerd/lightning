@@ -254,6 +254,7 @@ set(APP_QML_FILES
     qml/RoomActivityDelegate.qml
     qml/MessageComposerBar.qml
     qml/EmojiPicker.qml
+    qml/CreatePollDialog.qml
     qml/UserPicker.qml
     qml/NewConversationDialog.qml
     qml/InvitePeopleDialog.qml

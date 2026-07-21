@@ -319,6 +319,36 @@ void MessageComposer::redact(const QString &eventId)
     m_client->redactEvent(m_roomId, eventId, {});
 }
 
+bool MessageComposer::pollsSupported() const
+{
+    return m_client && m_client->supportsPolls();
+}
+
+void MessageComposer::votePoll(const QString &pollEventId,
+                               const QStringList &answerIds,
+                               const QString &threadRootId)
+{
+    if (!m_client || m_roomId.isEmpty() || pollEventId.isEmpty()) return;
+    m_client->sendPollResponse(m_roomId, threadRootId, pollEventId, answerIds);
+}
+
+void MessageComposer::endPoll(const QString &pollEventId,
+                              const QString &threadRootId)
+{
+    if (!m_client || m_roomId.isEmpty() || pollEventId.isEmpty()) return;
+    m_client->endPoll(m_roomId, threadRootId, pollEventId);
+}
+
+void MessageComposer::createPoll(const QString &question,
+                                 const QStringList &answers,
+                                 bool undisclosed,
+                                 int maxSelections)
+{
+    if (!m_client || m_roomId.isEmpty()) return;
+    m_client->createPoll(m_roomId, m_threadRootId, question, answers,
+                         undisclosed, maxSelections);
+}
+
 void MessageComposer::sendImageFromPath(const QString &localPath)
 {
     if (!m_client || m_roomId.isEmpty() || localPath.isEmpty()) return;

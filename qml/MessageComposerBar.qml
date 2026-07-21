@@ -155,6 +155,28 @@ Item {
         }
     }
 
+    // Rust-backend attach menu (v0.7): files plus poll creation. The
+    // legacy menu above keeps the HTTP backend's immediate-upload paths.
+    AppMenu {
+        id: attachMenu
+        objectName: "composerAttachMenu"
+        AppMenuItem {
+            iconName: "attach_file"
+            text: qsTr("Attach files…")
+            onTriggered: pickAttachmentsDialog.open()
+        }
+        AppMenuItem {
+            objectName: "createPollMenuItem"
+            iconName: "check_circle"
+            text: qsTr("Create poll…")
+            visible: app.composer.pollsSupported()
+            onTriggered: createPollDialog.openDialog()
+        }
+    }
+    CreatePollDialog {
+        id: createPollDialog
+    }
+
     // Files dragged anywhere over the composer are queued (Rust backend).
     DropArea {
         id: dropArea
@@ -470,12 +492,18 @@ Item {
                         iconName: "add_circle"
                         iconSize: 22
                         enabled: app.currentRoomId !== ""
-                        Accessible.name: qsTr("Attach files")
+                        Accessible.name: qsTr("Attach files or create a poll")
                         onClicked: {
-                            if (app.composer.attachmentsSupported)
-                                pickAttachmentsDialog.open()
-                            else
+                            if (!app.composer.attachmentsSupported) {
                                 legacyAttachMenu.popup()
+                                return
+                            }
+                            // Polls available → offer the menu; otherwise
+                            // keep the direct one-click file picker.
+                            if (app.composer.pollsSupported())
+                                attachMenu.popup()
+                            else
+                                pickAttachmentsDialog.open()
                         }
                         ToolTip.text: qsTr("Attach")
                         ToolTip.visible: hovered

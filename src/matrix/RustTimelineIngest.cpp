@@ -31,6 +31,8 @@ TimelineEvent::Type messageType(const QString &msgtype)
         return TimelineEvent::Audio;
     if (msgtype == QLatin1String("sticker"))
         return TimelineEvent::Sticker;
+    if (msgtype == QLatin1String("poll"))
+        return TimelineEvent::Poll;
     if (msgtype == QLatin1String("state"))
         return TimelineEvent::StateChange;
     if (msgtype == QLatin1String("text"))
@@ -159,6 +161,30 @@ TimelineEvent eventFromItemJson(const QJsonObject &item, const QString &roomId)
         r.byMe = obj.value(QStringLiteral("by_me")).toBool(false);
         if (!r.key.isEmpty() && r.count > 0)
             e.reactions.append(r);
+    }
+
+    // v0.7: MSC3381 poll presentation. Counts arrive pre-gated from Rust
+    // (0 for a running undisclosed poll); nothing here re-aggregates.
+    if (e.type == TimelineEvent::Poll) {
+        e.pollQuestion = item.value(QStringLiteral("poll_question")).toString();
+        e.pollKind = item.value(QStringLiteral("poll_kind")).toString();
+        e.pollMaxSelections =
+            item.value(QStringLiteral("poll_max_selections")).toInt(1);
+        e.pollTotalVoters =
+            item.value(QStringLiteral("poll_total_voters")).toInt(0);
+        e.pollEnded = item.value(QStringLiteral("poll_ended")).toBool(false);
+        const QJsonArray answers =
+            item.value(QStringLiteral("poll_answers")).toArray();
+        for (const auto &value : answers) {
+            const QJsonObject obj = value.toObject();
+            PollAnswer answer;
+            answer.id = obj.value(QStringLiteral("id")).toString();
+            answer.text = obj.value(QStringLiteral("text")).toString();
+            answer.count = obj.value(QStringLiteral("count")).toInt(0);
+            answer.byMe = obj.value(QStringLiteral("by_me")).toBool(false);
+            if (!answer.id.isEmpty())
+                e.pollAnswers.append(answer);
+        }
     }
 
     // Honest placeholder for undecryptable rows — the FFI contract sends an

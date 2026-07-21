@@ -196,6 +196,44 @@ public:
     virtual void toggleReaction(const QString &roomId,
                                 const QString &targetEventId,
                                 const QString &key) = 0;
+
+    // v0.7: MSC3381 polls (Rust backend only; mock/HTTP keep the honest
+    // false default and the poll actions stay hidden/disabled in the UI).
+    // threadRootId empty targets the room's live timeline, otherwise the
+    // thread whose root it names. answerIds empty retracts the vote.
+    virtual bool supportsPolls() const { return false; }
+    virtual void sendPollResponse(const QString &roomId,
+                                  const QString &threadRootId,
+                                  const QString &pollStartEventId,
+                                  const QStringList &answerIds)
+    {
+        Q_UNUSED(roomId);
+        Q_UNUSED(threadRootId);
+        Q_UNUSED(pollStartEventId);
+        Q_UNUSED(answerIds);
+    }
+    virtual void endPoll(const QString &roomId,
+                         const QString &threadRootId,
+                         const QString &pollStartEventId)
+    {
+        Q_UNUSED(roomId);
+        Q_UNUSED(threadRootId);
+        Q_UNUSED(pollStartEventId);
+    }
+    virtual void createPoll(const QString &roomId,
+                            const QString &threadRootId,
+                            const QString &question,
+                            const QStringList &answers,
+                            bool undisclosed,
+                            int maxSelections)
+    {
+        Q_UNUSED(roomId);
+        Q_UNUSED(threadRootId);
+        Q_UNUSED(question);
+        Q_UNUSED(answers);
+        Q_UNUSED(undisclosed);
+        Q_UNUSED(maxSelections);
+    }
     virtual void sendTyping(const QString &roomId,
                             bool isTyping,
                             int timeoutMs = 20000) = 0;

@@ -25,6 +25,16 @@ use matrix_sdk::{
     ruma::{
         api::client::receipt::create_receipt::v3::ReceiptType,
         events::{
+            poll::{
+                start::PollKind,
+                unstable_end::UnstablePollEndEventContent,
+                unstable_response::UnstablePollResponseEventContent,
+                unstable_start::{
+                    NewUnstablePollStartEventContent, UnstablePollAnswer,
+                    UnstablePollAnswers, UnstablePollStartContentBlock,
+                    UnstablePollStartEventContent,
+                },
+            },
             room::{
                 message::{
                     FormattedBody, MessageFormat, MessageType,
@@ -44,9 +54,9 @@ use matrix_sdk_ui::{
     timeline::{
         thread_list_service::{ThreadListItem, ThreadListService},
         AttachmentConfig, AttachmentSource, EncryptedMessage, EventSendState,
-        EventTimelineItem, MsgLikeKind, Timeline, TimelineBuilder, TimelineDetails,
-        TimelineEventItemId, TimelineFocus, TimelineItem, TimelineItemContent,
-        TimelineItemKind, VirtualTimelineItem,
+        EventTimelineItem, MsgLikeKind, PollResult, Timeline, TimelineBuilder,
+        TimelineDetails, TimelineEventItemId, TimelineFocus, TimelineItem,
+        TimelineItemContent, TimelineItemKind, VirtualTimelineItem,
     },
 };
 use serde_json::json;
@@ -686,6 +696,153 @@ impl TimelineRegistry {
             }
         });
         Ok(())
+    }
+
+    /// Send one already-built message-like content to a room or thread
+    /// timeline (v0.7 polls). The room path mirrors `edit`/`redact`
+    /// (generation-gated `timeline_send_failed`); the thread path mirrors
+    /// `send_thread_text` (open panel timeline, else a transient
+    /// thread-focused timeline so the SDK owns any thread relation).
+    /// Contents that already carry an `m.reference` relation (poll response
+    /// / poll end) are left untouched by the SDK's thread-aware send.
+    fn send_content_to_timeline(
+        self: &Arc<Self>,
+        runtime: &tokio::runtime::Runtime,
+        client: Client,
+        room_id: String,
+        thread_root_id: String,
+        content: AnyMessageLikeEventContent,
+        failure_category: &'static str,
+    ) -> Result<(), String> {
+        if thread_root_id.trim().is_empty() {
+            let Some((timeline, room_gen, lifecycle)) = self.timeline_for(&room_id)
+            else {
+                return Err("No live timeline is open for that room.".to_owned());
+            };
+            let registry = Arc::clone(self);
+            let events = Arc::clone(&self.events);
+            runtime.spawn(async move {
+                if timeline.send(content).await.is_err()
+                    && registry.is_current(room_gen, lifecycle)
+                {
+                    enqueue(
+                        &events,
+                        json!({
+                            "type": "timeline_send_failed",
+                            "room_id": room_id,
+                            "room_generation": room_gen,
+                            "lifecycle": lifecycle,
+                            "category": failure_category,
+                        }),
+                    );
+                }
+            });
+            return Ok(());
+        }
+
+        let events = Arc::clone(&self.events);
+        let lifecycle = self.lifecycle_gen.load(Ordering::SeqCst);
+        let thread_gen = self.thread_gen.load(Ordering::SeqCst);
+        let registry = Arc::clone(self);
+        let open_thread = self.thread_timeline_for(&room_id, &thread_root_id);
+        runtime.spawn(async move {
+            let sent = if let Some((timeline, _gen, _lc)) = open_thread {
+                timeline.send(content).await.is_ok()
+            } else {
+                match build_transient_thread_timeline(
+                    &client, &room_id, &thread_root_id,
+                )
+                .await
+                {
+                    Some(timeline) => timeline.send(content).await.is_ok(),
+                    None => false,
+                }
+            };
+            if !sent && registry.thread_current(thread_gen, lifecycle) {
+                enqueue(
+                    &events,
+                    json!({
+                        "type": "thread_send_failed",
+                        "room_id": room_id,
+                        "thread_root_id": thread_root_id,
+                        "lifecycle": lifecycle,
+                        "category": failure_category,
+                    }),
+                );
+            }
+        });
+        Ok(())
+    }
+
+    /// Vote on an MSC3381 poll through the SDK timeline. An empty answer
+    /// list is the standard "retract my vote" response. Aggregation (latest
+    /// vote per user, spoiled/late votes) stays entirely SDK/ruma-side; the
+    /// updated poll item arrives back as an in-place Set diff.
+    pub fn send_poll_response(
+        self: &Arc<Self>,
+        runtime: &tokio::runtime::Runtime,
+        client: Client,
+        room_id: String,
+        thread_root_id: String,
+        poll_start_event_id: String,
+        answers: Vec<String>,
+    ) -> Result<(), String> {
+        let poll_start = EventId::parse(&poll_start_event_id)
+            .map_err(|_| "Invalid poll event id.".to_owned())?;
+        let content = AnyMessageLikeEventContent::UnstablePollResponse(
+            UnstablePollResponseEventContent::new(answers, poll_start),
+        );
+        self.send_content_to_timeline(
+            runtime, client, room_id, thread_root_id, content,
+            "poll_response_rejected",
+        )
+    }
+
+    /// End an MSC3381 poll. The SDK/homeserver enforce sender permission;
+    /// the UI additionally offers this only for the user's own polls.
+    pub fn end_poll(
+        self: &Arc<Self>,
+        runtime: &tokio::runtime::Runtime,
+        client: Client,
+        room_id: String,
+        thread_root_id: String,
+        poll_start_event_id: String,
+    ) -> Result<(), String> {
+        let poll_start = EventId::parse(&poll_start_event_id)
+            .map_err(|_| "Invalid poll event id.".to_owned())?;
+        let content = AnyMessageLikeEventContent::UnstablePollEnd(
+            UnstablePollEndEventContent::new("The poll has ended.", poll_start),
+        );
+        self.send_content_to_timeline(
+            runtime, client, room_id, thread_root_id, content,
+            "poll_end_rejected",
+        )
+    }
+
+    /// Create an MSC3381 poll in a room or thread. Content is built by
+    /// `build_poll_start_content` (ruma constructors only); a thread target
+    /// gets its m.thread relation from the SDK's thread-focused send.
+    pub fn send_poll_start(
+        self: &Arc<Self>,
+        runtime: &tokio::runtime::Runtime,
+        client: Client,
+        room_id: String,
+        thread_root_id: String,
+        question: String,
+        answers: Vec<String>,
+        undisclosed: bool,
+        max_selections: u64,
+    ) -> Result<(), String> {
+        let content = build_poll_start_content(
+            &question, &answers, undisclosed, max_selections,
+        )?;
+        self.send_content_to_timeline(
+            runtime, client, room_id, thread_root_id,
+            AnyMessageLikeEventContent::UnstablePollStart(
+                UnstablePollStartEventContent::New(content),
+            ),
+            "poll_create_rejected",
+        )
     }
 
     /// Deterministic stop of all timeline work: advances the lifecycle
@@ -2123,9 +2280,13 @@ fn event_item_to_json(
                         media.thumbnail.is_some().into();
                     registry.remember_media(key, media);
                 }
-                MsgLikeKind::Poll(_) => {
-                    out["msgtype"] = "unsupported".into();
-                    out["body"] = "[poll]".into();
+                MsgLikeKind::Poll(state) => {
+                    fill_poll_content(
+                        &mut out,
+                        &PollView::from_results(state.results()),
+                        state.fallback_text(),
+                        own_user,
+                    );
                 }
                 MsgLikeKind::Other(_) => {
                     out["msgtype"] = "unsupported".into();
@@ -2385,6 +2546,154 @@ fn fill_message_content(
     }
 }
 
+/// Build MSC3381 poll-start content through ruma constructors only (v0.7).
+/// Pure so the shape is unit-testable. Answer ids are opaque, unique within
+/// the poll (timestamp + index); ruma enforces the 1..=20 answer bound and
+/// Lightning additionally requires two answers, matching the creation UI.
+/// The MSC1767 fallback body lists the question and numbered answers so
+/// clients without poll support show something honest.
+pub(crate) fn build_poll_start_content(
+    question: &str,
+    answers: &[String],
+    undisclosed: bool,
+    max_selections: u64,
+) -> Result<NewUnstablePollStartEventContent, String> {
+    let question = question.trim();
+    if question.is_empty() {
+        return Err("A poll needs a question.".to_owned());
+    }
+    let trimmed: Vec<&str> = answers
+        .iter()
+        .map(|text| text.trim())
+        .filter(|text| !text.is_empty())
+        .collect();
+    if trimmed.len() < 2 {
+        return Err("A poll needs at least two answers.".to_owned());
+    }
+    let unique_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let poll_answers: Vec<UnstablePollAnswer> = trimmed
+        .iter()
+        .enumerate()
+        .map(|(idx, text)| {
+            UnstablePollAnswer::new(format!("lp{unique_ms:x}-{idx}"), *text)
+        })
+        .collect();
+    let poll_answers = UnstablePollAnswers::try_from(poll_answers)
+        .map_err(|_| "A poll allows at most 20 answers.".to_owned())?;
+
+    let mut block = UnstablePollStartContentBlock::new(question, poll_answers);
+    block.kind = if undisclosed {
+        PollKind::Undisclosed
+    } else {
+        PollKind::Disclosed
+    };
+    let clamped = max_selections.clamp(1, trimmed.len() as u64);
+    if let Some(max) = matrix_sdk::ruma::UInt::new(clamped) {
+        block.max_selections = max;
+    }
+
+    let mut fallback = question.to_owned();
+    for (idx, text) in trimmed.iter().enumerate() {
+        fallback.push_str(&format!("\n{}. {}", idx + 1, text));
+    }
+    Ok(NewUnstablePollStartEventContent::plain_text(fallback, block))
+}
+
+/// Crate-owned projection of the SDK's aggregated `PollResult` (v0.7).
+/// Exists because `PollResultAnswer` is not re-exported by matrix-sdk-ui,
+/// which would make the serializer untestable if it consumed `PollResult`
+/// directly. Aggregation (latest vote per user, spoiled votes,
+/// max-selection truncation, votes-after-end, redacted responses) is
+/// entirely ruma/SDK-owned — this projection only carries the outcome.
+pub(crate) struct PollView {
+    pub question: String,
+    pub disclosed: bool,
+    pub max_selections: u64,
+    /// `(stable answer id, answer text)` in poll-start declaration order.
+    pub answers: Vec<(String, String)>,
+    /// Answer id -> voter MXIDs, as aggregated by ruma.
+    pub votes: HashMap<String, Vec<String>>,
+    pub ended: bool,
+    pub edited: bool,
+}
+
+impl PollView {
+    fn from_results(results: PollResult) -> Self {
+        PollView {
+            question: results.question,
+            disclosed: matches!(results.kind, PollKind::Disclosed),
+            max_selections: results.max_selections,
+            answers: results
+                .answers
+                .into_iter()
+                .map(|answer| (answer.id, answer.text))
+                .collect(),
+            votes: results.votes,
+            ended: results.end_time.is_some(),
+            edited: results.has_been_edited,
+        }
+    }
+}
+
+/// MSC3381 poll presentation payload (v0.7). Privacy: for an undisclosed
+/// poll that has not ended, per-answer tallies never cross the FFI (counts
+/// are forced to 0); only the user's own selections and the distinct-voter
+/// total are forwarded. Voter MXIDs other than the requesting user's own
+/// membership in an answer never cross the FFI.
+fn fill_poll_content(
+    out: &mut serde_json::Value,
+    view: &PollView,
+    fallback_text: Option<String>,
+    own_user: &str,
+) {
+    let show_counts = view.disclosed || view.ended;
+
+    let mut voters: Vec<&str> = view
+        .votes
+        .values()
+        .flatten()
+        .map(String::as_str)
+        .collect();
+    voters.sort_unstable();
+    voters.dedup();
+
+    let answers: Vec<serde_json::Value> = view
+        .answers
+        .iter()
+        .map(|(id, text)| {
+            let votes = view.votes.get(id);
+            let count = votes.map(Vec::len).unwrap_or(0);
+            let by_me = votes
+                .map(|v| v.iter().any(|voter| voter == own_user))
+                .unwrap_or(false);
+            json!({
+                "id": id,
+                "text": text,
+                "count": if show_counts { count } else { 0 },
+                "by_me": by_me,
+            })
+        })
+        .collect();
+
+    out["msgtype"] = "poll".into();
+    out["body"] = fallback_text
+        .unwrap_or_else(|| view.question.clone())
+        .into();
+    out["poll_question"] = view.question.clone().into();
+    out["poll_kind"] =
+        if view.disclosed { "disclosed" } else { "undisclosed" }.into();
+    out["poll_max_selections"] = view.max_selections.into();
+    out["poll_answers"] = answers.into();
+    out["poll_total_voters"] = (voters.len() as u64).into();
+    out["poll_ended"] = view.ended.into();
+    if view.edited {
+        out["edited"] = true.into();
+    }
+}
+
 /// Best-effort short preview for reply boxes. Never includes ciphertext.
 /// Coarse semantic kind of a thread's latest reply, so the summary card can
 /// render a safe label ("Image", "GIF", "Encrypted reply", …) instead of a
@@ -2428,7 +2737,14 @@ fn content_preview(content: &TimelineItemContent) -> String {
             MsgLikeKind::Redacted => "[message deleted]".to_owned(),
             MsgLikeKind::UnableToDecrypt(_) => "[unable to decrypt]".to_owned(),
             MsgLikeKind::Sticker(_) => "[sticker]".to_owned(),
-            MsgLikeKind::Poll(_) => "[poll]".to_owned(),
+            MsgLikeKind::Poll(state) => {
+                let question = state.results().question;
+                if question.is_empty() {
+                    "[poll]".to_owned()
+                } else {
+                    format!("Poll: {question}")
+                }
+            }
             MsgLikeKind::Other(_) | MsgLikeKind::LiveLocation(_) => {
                 "[unsupported event]".to_owned()
             }
@@ -2568,5 +2884,171 @@ mod tests {
             }
             other => panic!("unexpected msgtype: {other:?}"),
         }
+    }
+
+    // ---- v0.7 polls -----------------------------------------------------
+
+    fn poll_view(disclosed: bool, ended: bool) -> super::PollView {
+        let mut votes = std::collections::HashMap::new();
+        votes.insert(
+            "a1".to_owned(),
+            vec!["@alice:example.org".to_owned(), "@me:example.org".to_owned()],
+        );
+        votes.insert("a2".to_owned(), vec!["@bob:example.org".to_owned()]);
+        super::PollView {
+            question: "Favourite colour?".to_owned(),
+            disclosed,
+            max_selections: 1,
+            answers: vec![
+                ("a1".to_owned(), "Blue".to_owned()),
+                ("a2".to_owned(), "Green".to_owned()),
+                ("a3".to_owned(), "Red".to_owned()),
+            ],
+            votes,
+            ended,
+            edited: false,
+        }
+    }
+
+    fn filled(view: &super::PollView) -> serde_json::Value {
+        let mut out = serde_json::json!({});
+        super::fill_poll_content(&mut out, view, None, "@me:example.org");
+        out
+    }
+
+    #[test]
+    fn disclosed_poll_payload_exposes_counts_and_own_vote() {
+        let out = filled(&poll_view(true, false));
+        assert_eq!(out["msgtype"], "poll");
+        assert_eq!(out["poll_question"], "Favourite colour?");
+        assert_eq!(out["poll_kind"], "disclosed");
+        assert_eq!(out["poll_ended"], false);
+        assert_eq!(out["poll_total_voters"], 3);
+        let answers = out["poll_answers"].as_array().unwrap();
+        assert_eq!(answers.len(), 3);
+        // Declaration order preserved; counts and own-vote flags accurate.
+        assert_eq!(answers[0]["id"], "a1");
+        assert_eq!(answers[0]["count"], 2);
+        assert_eq!(answers[0]["by_me"], true);
+        assert_eq!(answers[1]["count"], 1);
+        assert_eq!(answers[1]["by_me"], false);
+        assert_eq!(answers[2]["count"], 0);
+        // Voter MXIDs never cross the FFI.
+        assert!(!out.to_string().contains("@alice:example.org"));
+    }
+
+    #[test]
+    fn undisclosed_running_poll_hides_counts_but_keeps_own_vote() {
+        let out = filled(&poll_view(false, false));
+        assert_eq!(out["poll_kind"], "undisclosed");
+        let answers = out["poll_answers"].as_array().unwrap();
+        // Hidden tallies never cross the FFI while the poll is running…
+        assert!(answers.iter().all(|a| a["count"] == 0));
+        // …but the user's own selection still renders.
+        assert_eq!(answers[0]["by_me"], true);
+        assert_eq!(out["poll_total_voters"], 3);
+    }
+
+    #[test]
+    fn undisclosed_ended_poll_discloses_counts() {
+        let out = filled(&poll_view(false, true));
+        assert_eq!(out["poll_ended"], true);
+        let answers = out["poll_answers"].as_array().unwrap();
+        assert_eq!(answers[0]["count"], 2);
+        assert_eq!(answers[1]["count"], 1);
+    }
+
+    #[test]
+    fn poll_body_prefers_fallback_text() {
+        let view = poll_view(true, false);
+        let mut out = serde_json::json!({});
+        super::fill_poll_content(
+            &mut out, &view, Some("fallback".to_owned()), "@me:example.org",
+        );
+        assert_eq!(out["body"], "fallback");
+        // Without a fallback the question doubles as the body.
+        assert_eq!(filled(&view)["body"], "Favourite colour?");
+    }
+
+    #[test]
+    fn poll_start_content_builds_msc3381_shape() {
+        let content = super::build_poll_start_content(
+            "  Question?  ",
+            &["One".to_owned(), " Two ".to_owned(), "".to_owned()],
+            false,
+            2,
+        )
+        .expect("valid poll");
+        assert_eq!(content.poll_start.question.text, "Question?");
+        let answers: Vec<_> = content.poll_start.answers.iter().collect();
+        assert_eq!(answers.len(), 2);
+        assert_eq!(answers[0].text, "One");
+        assert_eq!(answers[1].text, "Two");
+        // Ids are unique within the poll.
+        assert_ne!(answers[0].id, answers[1].id);
+        assert!(matches!(
+            content.poll_start.kind,
+            matrix_sdk::ruma::events::poll::start::PollKind::Disclosed
+        ));
+        assert_eq!(u64::from(content.poll_start.max_selections), 2);
+        // MSC1767 fallback lists the question and numbered answers.
+        let fallback = content.text.expect("fallback text");
+        assert!(fallback.contains("Question?"));
+        assert!(fallback.contains("1. One"));
+        assert!(fallback.contains("2. Two"));
+    }
+
+    #[test]
+    fn poll_start_content_rejects_bad_input() {
+        assert!(super::build_poll_start_content(
+            "", &["a".to_owned(), "b".to_owned()], false, 1
+        )
+        .is_err());
+        assert!(super::build_poll_start_content(
+            "Q", &["only one".to_owned()], false, 1
+        )
+        .is_err());
+        let too_many: Vec<String> =
+            (0..21).map(|i| format!("answer {i}")).collect();
+        assert!(super::build_poll_start_content("Q", &too_many, false, 1).is_err());
+        // max_selections clamps into the valid range instead of failing.
+        let clamped = super::build_poll_start_content(
+            "Q", &["a".to_owned(), "b".to_owned()], true, 99,
+        )
+        .expect("valid poll");
+        assert_eq!(u64::from(clamped.poll_start.max_selections), 2);
+        assert!(matches!(
+            clamped.poll_start.kind,
+            matrix_sdk::ruma::events::poll::start::PollKind::Undisclosed
+        ));
+    }
+
+    #[test]
+    fn poll_response_content_uses_reference_relation() {
+        use matrix_sdk::ruma::events::poll::unstable_response::UnstablePollResponseEventContent;
+        let event_id =
+            matrix_sdk::ruma::EventId::parse("$poll:example.org").unwrap();
+        let content = UnstablePollResponseEventContent::new(
+            vec!["a1".to_owned()],
+            event_id.to_owned(),
+        );
+        let json = serde_json::to_value(&content).unwrap();
+        assert_eq!(json["m.relates_to"]["rel_type"], "m.reference");
+        assert_eq!(json["m.relates_to"]["event_id"], "$poll:example.org");
+        assert_eq!(
+            json["org.matrix.msc3381.poll.response"]["answers"][0], "a1"
+        );
+        // Retraction: the empty answer list is legal and serializes.
+        let retract = UnstablePollResponseEventContent::new(
+            Vec::new(), event_id.to_owned(),
+        );
+        let json = serde_json::to_value(&retract).unwrap();
+        assert_eq!(
+            json["org.matrix.msc3381.poll.response"]["answers"]
+                .as_array()
+                .unwrap()
+                .len(),
+            0
+        );
     }
 }

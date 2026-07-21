@@ -12,6 +12,16 @@ struct Reaction {
     QString myEventId;       // If byMe: the event_id of our reaction, needed to redact.
 };
 
+// One MSC3381 poll answer with its SDK-aggregated tally (v0.7). `count` is
+// 0 for undisclosed polls that have not ended — hidden tallies never cross
+// the FFI. `byMe` reflects the user's latest valid response.
+struct PollAnswer {
+    QString id;              // Stable answer id from the poll-start event.
+    QString text;
+    int count = 0;
+    bool byMe = false;
+};
+
 struct TimelineEvent {
     enum Type {
         TextMessage,
@@ -32,6 +42,9 @@ struct TimelineEvent {
         Video,
         Audio,
         Sticker,
+        // v0.7: MSC3381 polls (Rust backend only). Appended last so
+        // persisted integer values stay stable.
+        Poll,
     };
 
     enum Status {
@@ -114,6 +127,15 @@ struct TimelineEvent {
 
     // Reactions attached to this event (v0.3).
     QList<Reaction> reactions;
+
+    // v0.7: MSC3381 poll presentation (type == Poll, Rust backend only).
+    // Aggregation is SDK/ruma-owned; these fields carry only the outcome.
+    QString pollQuestion;
+    QString pollKind;            // "disclosed" | "undisclosed"
+    int pollMaxSelections = 1;
+    int pollTotalVoters = 0;
+    bool pollEnded = false;
+    QList<PollAnswer> pollAnswers;
 
     // Encryption flags (v0.5.0-prep+6). Populated by the Rust backend
     // when it parses events out of the Matrix Rust SDK; HTTP and Mock

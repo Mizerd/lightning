@@ -126,6 +126,8 @@ private Q_SLOTS:
     void clientSwitchDoesNotLeakSenderProfile();
     void messageActionsUseStableIdentityAndSafeMetadata();
     void staleAndInapplicableMessageActionsAreRejected();
+    // v0.7: MSC3381 poll roles and the conservative end-poll rule.
+    void pollRolesExposeOutcomeAndEndPermission();
     // v0.6.1 loaded-timeline search.
     void searchFindsMatchesAndNavigatesWithWrap();
     void searchUpdatesOnPaginationInsert();
@@ -410,6 +412,78 @@ void TimelineModelDiffTest::stableRoleData()
              QByteArrayLiteral("eventId"));
     QCOMPARE(names.value(TimelineModel::UndecryptableRole),
              QByteArrayLiteral("undecryptable"));
+}
+
+void TimelineModelDiffTest::pollRolesExposeOutcomeAndEndPermission()
+{
+    TimelineEvent poll = makeEvent(QStringLiteral("$poll"),
+                                   QStringLiteral("Favourite colour?"));
+    poll.type = TimelineEvent::Poll;
+    poll.pollQuestion = QStringLiteral("Favourite colour?");
+    poll.pollKind = QStringLiteral("disclosed");
+    poll.pollMaxSelections = 2;
+    poll.pollTotalVoters = 3;
+    PollAnswer blue;
+    blue.id = QStringLiteral("a1");
+    blue.text = QStringLiteral("Blue");
+    blue.count = 2;
+    blue.byMe = true;
+    PollAnswer green;
+    green.id = QStringLiteral("a2");
+    green.text = QStringLiteral("Green");
+    green.count = 1;
+    poll.pollAnswers = { blue, green };
+    m_client->mirror.append(poll);
+    Q_EMIT m_client->eventAppended(kRoom, poll);
+
+    const auto idx = m_model->index(2);
+    QVERIFY(m_model->data(idx, TimelineModel::IsPollRole).toBool());
+    QCOMPARE(m_model->data(idx, TimelineModel::PollQuestionRole).toString(),
+             QStringLiteral("Favourite colour?"));
+    QCOMPARE(m_model->data(idx, TimelineModel::PollKindRole).toString(),
+             QStringLiteral("disclosed"));
+    QCOMPARE(m_model->data(idx, TimelineModel::PollMaxSelectionsRole).toInt(),
+             2);
+    QCOMPARE(m_model->data(idx, TimelineModel::PollTotalVotersRole).toInt(),
+             3);
+    QVERIFY(!m_model->data(idx, TimelineModel::PollEndedRole).toBool());
+    const QVariantList answers =
+        m_model->data(idx, TimelineModel::PollAnswersRole).toList();
+    QCOMPARE(answers.size(), 2);
+    const QVariantMap first = answers.first().toMap();
+    QCOMPARE(first.value(QStringLiteral("id")).toString(),
+             QStringLiteral("a1"));
+    QCOMPARE(first.value(QStringLiteral("count")).toInt(), 2);
+    QVERIFY(first.value(QStringLiteral("byMe")).toBool());
+
+    // Alice's poll is not ours: no End poll offer.
+    QVERIFY(!m_model->data(idx, TimelineModel::CanEndPollRole).toBool());
+
+    // Our own running poll can be ended…
+    TimelineEvent own = poll;
+    own.eventId = QStringLiteral("$own-poll");
+    own.itemId = QStringLiteral("uid-own-poll");
+    own.sender = QStringLiteral("@me:example.org");
+    m_client->mirror.append(own);
+    Q_EMIT m_client->eventAppended(kRoom, own);
+    const auto ownIdx = m_model->index(3);
+    QVERIFY(m_model->data(ownIdx, TimelineModel::CanEndPollRole).toBool());
+
+    // …but not once it has ended (in-place Set replacement).
+    TimelineEvent ended = own;
+    ended.pollEnded = true;
+    m_client->mirror[3] = ended;
+    Q_EMIT m_client->eventChangedAt(kRoom, 3, ended);
+    QVERIFY(m_model->data(ownIdx, TimelineModel::PollEndedRole).toBool());
+    QVERIFY(!m_model->data(ownIdx, TimelineModel::CanEndPollRole).toBool());
+    // Role-name contract for QML.
+    const auto names = m_model->roleNames();
+    QCOMPARE(names.value(TimelineModel::IsPollRole),
+             QByteArrayLiteral("isPoll"));
+    QCOMPARE(names.value(TimelineModel::PollAnswersRole),
+             QByteArrayLiteral("pollAnswers"));
+    QCOMPARE(names.value(TimelineModel::CanEndPollRole),
+             QByteArrayLiteral("canEndPoll"));
 }
 
 void TimelineModelDiffTest::typingTextFormatsByCount()

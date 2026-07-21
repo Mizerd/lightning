@@ -8,7 +8,7 @@ use std::{
     ffi::{c_char, CStr, CString},
     fs::OpenOptions,
     io::Write,
-    os::raw::{c_int, c_void},
+    os::raw::{c_int, c_uint, c_void},
     panic::{catch_unwind, AssertUnwindSafe},
     path::{Path, PathBuf},
     sync::{
@@ -2840,6 +2840,121 @@ pub unsafe extern "C" fn mx_rust_timeline_toggle_reaction(
         bridge
             .timelines
             .toggle_reaction(&bridge.runtime, room_id, target, key)
+            .map(|_| String::new())
+    })
+}
+
+/// Parse an optional newline-separated FFI list argument. NULL or an empty
+/// string yields an empty list; entries are trimmed and blanks dropped.
+unsafe fn cstr_list_arg(value: *const c_char) -> Result<Vec<String>, String> {
+    if value.is_null() {
+        return Ok(Vec::new());
+    }
+    let raw = unsafe { cstr_arg(value) }?;
+    Ok(raw
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(str::to_owned)
+        .collect())
+}
+
+/// Parse the optional thread-root FFI argument. NULL/empty means the room's
+/// live timeline; anything else targets that thread's timeline.
+unsafe fn thread_root_arg(value: *const c_char) -> Result<String, String> {
+    if value.is_null() {
+        return Ok(String::new());
+    }
+    Ok(unsafe { cstr_arg(value) }?.trim().to_owned())
+}
+
+/// v0.7 polls: vote on an MSC3381 poll. `answer_ids` is a newline-separated
+/// list of the chosen stable answer ids; an empty list retracts the vote.
+/// `thread_root_id` NULL/empty targets the room timeline, else the thread.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_timeline_poll_response(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    thread_root_id: *const c_char,
+    poll_start_event_id: *const c_char,
+    answer_ids: *const c_char,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let thread_root = unsafe { thread_root_arg(thread_root_id) }?;
+        let poll_start = unsafe { cstr_arg(poll_start_event_id) }?;
+        let answers = unsafe { cstr_list_arg(answer_ids) }?;
+        let Some(client) = bridge.client.lock().ok().and_then(|g| g.clone()) else {
+            return Err("Rust SDK session is not logged in.".to_owned());
+        };
+        bridge
+            .timelines
+            .send_poll_response(
+                &bridge.runtime, client, room_id, thread_root, poll_start, answers,
+            )
+            .map(|_| String::new())
+    })
+}
+
+/// v0.7 polls: end an MSC3381 poll (UI offers this for own polls only; the
+/// homeserver/receivers enforce the actual permission rules).
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_timeline_poll_end(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    thread_root_id: *const c_char,
+    poll_start_event_id: *const c_char,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let thread_root = unsafe { thread_root_arg(thread_root_id) }?;
+        let poll_start = unsafe { cstr_arg(poll_start_event_id) }?;
+        let Some(client) = bridge.client.lock().ok().and_then(|g| g.clone()) else {
+            return Err("Rust SDK session is not logged in.".to_owned());
+        };
+        bridge
+            .timelines
+            .end_poll(&bridge.runtime, client, room_id, thread_root, poll_start)
+            .map(|_| String::new())
+    })
+}
+
+/// v0.7 polls: create an MSC3381 poll in a room or thread. `answers` is a
+/// newline-separated list (2..=20 after trimming); `undisclosed` != 0 hides
+/// tallies until the poll ends; `max_selections` is clamped to >= 1.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_timeline_poll_create(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    thread_root_id: *const c_char,
+    question: *const c_char,
+    answers: *const c_char,
+    undisclosed: c_int,
+    max_selections: c_uint,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let thread_root = unsafe { thread_root_arg(thread_root_id) }?;
+        let question = unsafe { cstr_arg(question) }?;
+        let answers = unsafe { cstr_list_arg(answers) }?;
+        let Some(client) = bridge.client.lock().ok().and_then(|g| g.clone()) else {
+            return Err("Rust SDK session is not logged in.".to_owned());
+        };
+        bridge
+            .timelines
+            .send_poll_start(
+                &bridge.runtime,
+                client,
+                room_id,
+                thread_root,
+                question,
+                answers,
+                undisclosed != 0,
+                u64::from(max_selections),
+            )
             .map(|_| String::new())
     })
 }

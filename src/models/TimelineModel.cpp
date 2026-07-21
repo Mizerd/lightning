@@ -314,6 +314,21 @@ QVariantList TimelineModel::reactionsVariant(const TimelineEvent &e) const
     return out;
 }
 
+QVariantList TimelineModel::pollAnswersVariant(const TimelineEvent &e) const
+{
+    QVariantList out;
+    out.reserve(e.pollAnswers.size());
+    for (const auto &a : e.pollAnswers) {
+        QVariantMap m;
+        m.insert(QStringLiteral("id"),    a.id);
+        m.insert(QStringLiteral("text"),  a.text);
+        m.insert(QStringLiteral("count"), a.count);
+        m.insert(QStringLiteral("byMe"),  a.byMe);
+        out.append(m);
+    }
+    return out;
+}
+
 // Virtual rows (date dividers, read markers, the timeline-start marker) are
 // synthetic SDK bookkeeping items, not visible messages — matrix-sdk-ui
 // freely interleaves them between real events (a date divider at every day
@@ -446,6 +461,19 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
     case MediaDurationMsRole:    return static_cast<qint64>(e.mediaDurationMs);
     case MediaIsVoiceRole:       return e.mediaIsVoice;
     case ReactionsRole:          return reactionsVariant(e);
+    case IsPollRole:             return e.type == TimelineEvent::Poll;
+    case PollQuestionRole:       return e.pollQuestion;
+    case PollKindRole:           return e.pollKind;
+    case PollMaxSelectionsRole:  return e.pollMaxSelections;
+    case PollAnswersRole:        return pollAnswersVariant(e);
+    case PollTotalVotersRole:    return e.pollTotalVoters;
+    case PollEndedRole:          return e.pollEnded;
+    // Conservative permission rule, mirroring canRedactEvent: Lightning
+    // offers End poll only on the user's own running polls; the server and
+    // receiving clients enforce the actual MSC3381 rules.
+    case CanEndPollRole:
+        return e.type == TimelineEvent::Poll && !e.pollEnded
+            && e.sender == m_selfUserId;
     case ThreadRootIdRole:       return e.threadRootId;
     case IsThreadRootRole: {
         // v0.6.0: the SDK's bundled thread summary is authoritative when
@@ -606,6 +634,14 @@ QHash<int, QByteArray> TimelineModel::roleNames() const
         { IsStickerRole,            "isSticker" },
         { MediaDurationMsRole,      "mediaDurationMs" },
         { MediaIsVoiceRole,         "mediaIsVoice" },
+        { IsPollRole,               "isPoll" },
+        { PollQuestionRole,         "pollQuestion" },
+        { PollKindRole,             "pollKind" },
+        { PollMaxSelectionsRole,    "pollMaxSelections" },
+        { PollAnswersRole,          "pollAnswers" },
+        { PollTotalVotersRole,      "pollTotalVoters" },
+        { PollEndedRole,            "pollEnded" },
+        { CanEndPollRole,           "canEndPoll" },
     };
 }
 

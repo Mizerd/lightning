@@ -68,6 +68,23 @@ public:
     Q_INVOKABLE void cancelReplyOrEdit();
     Q_INVOKABLE void reactTo(const QString &targetEventId, const QString &key);
     Q_INVOKABLE void redact(const QString &eventId);
+
+    // v0.7: MSC3381 poll actions on the current room. `threadRootId` is
+    // non-empty when the acting delegate lives in the thread panel, so the
+    // backend can route through the thread-focused timeline. Aggregation
+    // and permission enforcement stay SDK/server-side.
+    Q_INVOKABLE bool pollsSupported() const;
+    Q_INVOKABLE void votePoll(const QString &pollEventId,
+                              const QStringList &answerIds,
+                              const QString &threadRootId = QString());
+    Q_INVOKABLE void endPoll(const QString &pollEventId,
+                             const QString &threadRootId = QString());
+    // Creates the poll in the composer's current context: the open thread
+    // when the composer is in thread-reply mode, else the room timeline.
+    Q_INVOKABLE void createPoll(const QString &question,
+                                const QStringList &answers,
+                                bool undisclosed,
+                                int maxSelections);
     Q_INVOKABLE void sendImageFromPath(const QString &localPath);
     Q_INVOKABLE void sendFileFromPath(const QString &localPath);
 

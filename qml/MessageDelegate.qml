@@ -538,8 +538,22 @@ Item {
                         }
                     }
 
+                    // Poll block (MSC3381, v0.7). Renders the SDK-aggregated
+                    // outcome only; votes route through app.composer and the
+                    // updated poll returns as an in-place Set diff.
+                    Loader {
+                        id: pollLoader
+                        active: model.isPoll === true
+                        visible: active
+                        Layout.alignment: Qt.AlignLeft
+                        Layout.preferredWidth: item ? item.implicitWidth : 0
+                        Layout.maximumWidth: bubble.width
+                        sourceComponent: pollComponent
+                    }
+
                     // Body text (hidden for media messages whose body is just
-                    // the filename already shown in the media block, and for
+                    // the filename already shown in the media block, for poll
+                    // rows, whose card renders the question, and for
                     // recoverable undecryptable rows, which show the
                     // decrypting skeleton instead).
                     TextEdit {
@@ -548,6 +562,9 @@ Item {
                         visible: text.length > 0 && !root.showsDecryptingSkeleton
                         text: {
                             if (model.redacted) return qsTr("[message deleted]")
+                            // The poll card presents the question; the body
+                            // is only the MSC1767 fallback for old clients.
+                            if (model.isPoll === true) return ""
                             // Media rows already show the filename in their
                             // media block; skip duplicating it as the body.
                             // Files included: a plain file's body equals its
@@ -995,6 +1012,21 @@ Item {
                                 onTriggered: app.composer.beginEdit(
                                     root.menuEventId,
                                     root.timelineModel.visibleTextForEvent(root.menuEventId))
+                            }
+                            // v0.7 polls: conservative rule — own running
+                            // polls only. The server and receiving clients
+                            // enforce the actual MSC3381 permission rules.
+                            AppMenuItem {
+                                objectName: "endPollMenuItem"
+                                iconName: "check_circle"
+                                text: qsTr("End poll")
+                                visible: model.isPoll === true
+                                         && model.canEndPoll === true
+                                enabled: visible && root.menuEventId !== ""
+                                onTriggered: app.composer.endPoll(
+                                    root.menuEventId,
+                                    root.inThreadPanel
+                                    ? (app.thread.rootEventId || "") : "")
                             }
                             AppMenuSeparator {
                                 visible: root.timelineModel.canRedactEvent(
@@ -2083,6 +2115,221 @@ Item {
                                  : false)
                     text: qsTr("Open")
                     onClicked: app.media.openExternal(model.mediaUrl)
+                }
+            }
+        }
+    }
+
+    // MSC3381 poll card (v0.7). Entirely stateless: selection, counts and
+    // the ended flag all derive from model roles, so pooled-delegate reuse
+    // can never show another row's votes. Undisclosed running polls arrive
+    // with zeroed counts from the bridge — hidden tallies never reach QML.
+    Component {
+        id: pollComponent
+        Rectangle {
+            id: pollCard
+            objectName: "pollCard"
+            readonly property var pollAnswers: model.pollAnswers || []
+            readonly property bool pollEnded: model.pollEnded === true
+            readonly property bool showCounts:
+                pollEnded || model.pollKind === "disclosed"
+            readonly property int maxSelections:
+                Math.max(1, model.pollMaxSelections || 1)
+            readonly property bool multiSelect: maxSelections > 1
+            readonly property bool canVote:
+                !pollEnded && app.composer.pollsSupported()
+            readonly property string pollThreadRoot:
+                root.inThreadPanel ? (app.thread.rootEventId || "") : ""
+            readonly property int totalVotes: {
+                var sum = 0
+                for (var i = 0; i < pollAnswers.length; ++i)
+                    sum += (pollAnswers[i].count || 0)
+                return sum
+            }
+            function ownSelection() {
+                var ids = []
+                for (var i = 0; i < pollAnswers.length; ++i)
+                    if (pollAnswers[i].byMe) ids.push(pollAnswers[i].id)
+                return ids
+            }
+            function toggleAnswer(answerId) {
+                if (!canVote) return
+                var eventId = root.eventIdForActions()
+                if (!eventId || eventId === "") return
+                var selection
+                if (multiSelect) {
+                    selection = ownSelection()
+                    var at = selection.indexOf(answerId)
+                    if (at >= 0) selection.splice(at, 1)
+                    else if (selection.length < maxSelections)
+                        selection.push(answerId)
+                    else return // selection cap reached
+                } else {
+                    // Re-clicking the own choice retracts the vote (the
+                    // empty response list is the MSC3381 retraction).
+                    selection = ownSelection().indexOf(answerId) >= 0
+                                ? [] : [answerId]
+                }
+                app.composer.votePoll(eventId, selection, pollThreadRoot)
+            }
+
+            implicitWidth: Math.min(420, bubble.width)
+            implicitHeight: pollColumn.implicitHeight + 20
+            color: AppTheme.surfaceElevated
+            radius: AppTheme.radiusMd
+            border.color: AppTheme.border
+            border.width: 1
+
+            ColumnLayout {
+                id: pollColumn
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.top: parent.top
+                anchors.margins: 10
+                spacing: 8
+
+                RowLayout {
+                    spacing: 8
+                    Layout.fillWidth: true
+                    Icon {
+                        name: "check_circle"
+                        size: 16
+                        color: AppTheme.accent
+                    }
+                    Label {
+                        objectName: "pollQuestion"
+                        text: model.pollQuestion || ""
+                        color: AppTheme.text
+                        font.family: AppTheme.uiFont
+                        font.pixelSize: AppTheme.scaled(AppTheme.fontSizeM)
+                        font.weight: Font.DemiBold
+                        wrapMode: Text.Wrap
+                        Layout.fillWidth: true
+                    }
+                }
+
+                Label {
+                    visible: !pollCard.showCounts && !pollCard.pollEnded
+                    text: qsTr("Results are revealed when the poll ends")
+                    color: AppTheme.textMuted
+                    font.pixelSize: AppTheme.scaled(11)
+                    Layout.fillWidth: true
+                    wrapMode: Text.Wrap
+                }
+
+                Repeater {
+                    model: pollCard.pollAnswers
+                    delegate: AbstractButton {
+                        id: answerRow
+                        required property var modelData
+                        readonly property int voteCount: modelData.count || 0
+                        readonly property real voteShare:
+                            pollCard.totalVotes > 0
+                            ? voteCount / pollCard.totalVotes : 0
+                        objectName: "pollAnswer"
+                        Layout.fillWidth: true
+                        padding: 6
+                        enabled: pollCard.canVote
+                        hoverEnabled: pollCard.canVote
+                        focusPolicy: Qt.TabFocus
+                        Accessible.role: pollCard.multiSelect
+                                         ? Accessible.CheckBox
+                                         : Accessible.RadioButton
+                        Accessible.name: pollCard.showCounts
+                            ? qsTr("%1, %2 votes").arg(modelData.text || "")
+                                                  .arg(voteCount)
+                            : (modelData.text || "")
+                        Accessible.checkable: pollCard.canVote
+                        Accessible.checked: modelData.byMe === true
+                        onClicked: pollCard.toggleAnswer(modelData.id)
+                        Keys.onReturnPressed: pollCard.toggleAnswer(modelData.id)
+                        Keys.onSpacePressed: pollCard.toggleAnswer(modelData.id)
+
+                        background: Rectangle {
+                            radius: AppTheme.radiusSm
+                            color: answerRow.hovered && pollCard.canVote
+                                   ? AppTheme.hover : "transparent"
+                            border.width: answerRow.visualFocus ? 2 : 0
+                            border.color: AppTheme.focusRing
+                        }
+                        contentItem: ColumnLayout {
+                            id: answerColumn
+                            spacing: 4
+                            RowLayout {
+                                spacing: 8
+                                Layout.fillWidth: true
+                                // Radio / checkbox indicator by selection mode.
+                                Rectangle {
+                                    width: 16; height: 16
+                                    radius: pollCard.multiSelect
+                                            ? AppTheme.radiusSm / 2 : 8
+                                    color: modelData.byMe === true
+                                           ? AppTheme.accent : "transparent"
+                                    border.width: 1
+                                    border.color: modelData.byMe === true
+                                                  ? AppTheme.accent
+                                                  : AppTheme.borderStrong
+                                    Icon {
+                                        anchors.centerIn: parent
+                                        visible: modelData.byMe === true
+                                        name: "check"
+                                        size: 11
+                                        color: AppTheme.accentText
+                                    }
+                                }
+                                Label {
+                                    text: modelData.text || ""
+                                    color: AppTheme.text
+                                    font.family: AppTheme.uiFont
+                                    font.pixelSize: AppTheme.scaled(13)
+                                    wrapMode: Text.Wrap
+                                    Layout.fillWidth: true
+                                }
+                                Label {
+                                    visible: pollCard.showCounts
+                                    text: answerRow.voteCount
+                                    color: modelData.byMe === true
+                                           ? AppTheme.accent : AppTheme.textMuted
+                                    font.pixelSize: AppTheme.scaled(12)
+                                    font.weight: Font.Medium
+                                }
+                            }
+                            // Result bar — only when tallies are visible.
+                            Rectangle {
+                                visible: pollCard.showCounts
+                                Layout.fillWidth: true
+                                Layout.leftMargin: 24
+                                implicitHeight: 4
+                                radius: 2
+                                color: AppTheme.hover
+                                Rectangle {
+                                    anchors.left: parent.left
+                                    anchors.top: parent.top
+                                    anchors.bottom: parent.bottom
+                                    width: parent.width * answerRow.voteShare
+                                    radius: 2
+                                    color: modelData.byMe === true
+                                           ? AppTheme.accent : AppTheme.accentSoft
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Label {
+                    objectName: "pollFooter"
+                    text: {
+                        var voters = model.pollTotalVoters || 0
+                        if (pollCard.pollEnded)
+                            return voters === 1
+                                ? qsTr("Final result • 1 vote")
+                                : qsTr("Final result • %1 votes").arg(voters)
+                        if (voters === 0) return qsTr("No votes yet")
+                        return voters === 1 ? qsTr("1 vote")
+                                            : qsTr("%1 votes").arg(voters)
+                    }
+                    color: AppTheme.textMuted
+                    font.pixelSize: AppTheme.scaled(11)
                 }
             }
         }

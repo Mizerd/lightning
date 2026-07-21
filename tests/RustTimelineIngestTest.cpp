@@ -74,6 +74,10 @@ private Q_SLOTS:
     void parsesTypedStateActivity();
     // v0.7: typed media rows with type-correct reserved-geometry metadata.
     void parsesTypedMediaItems();
+    // v0.7: MSC3381 polls.
+    void parsesPollItem();
+    void pollAbsentFieldsKeepDefaults();
+    void pollVoteUpdatesInPlaceViaSet();
 
     // ── Diff application: every VectorDiff variant ──────────────────
     void appendAppends();
@@ -228,6 +232,116 @@ void RustTimelineIngestTest::parsesTypedMediaItems()
     QCOMPARE(s.type, TimelineEvent::Sticker);
     QCOMPARE(s.mediaWidth, 512);
     QVERIFY(s.mediaSourceAvailable);
+}
+
+namespace {
+
+QJsonObject pollItemJson(const QString &itemId, const QString &eventId)
+{
+    QJsonObject item = itemJson(itemId, eventId,
+                                QStringLiteral("Favourite colour?"));
+    item.insert(QStringLiteral("msgtype"), QStringLiteral("poll"));
+    item.insert(QStringLiteral("poll_question"),
+                QStringLiteral("Favourite colour?"));
+    item.insert(QStringLiteral("poll_kind"), QStringLiteral("disclosed"));
+    item.insert(QStringLiteral("poll_max_selections"), 1);
+    item.insert(QStringLiteral("poll_total_voters"), 3);
+    item.insert(QStringLiteral("poll_ended"), false);
+    QJsonArray answers;
+    QJsonObject a1;
+    a1.insert(QStringLiteral("id"), QStringLiteral("a1"));
+    a1.insert(QStringLiteral("text"), QStringLiteral("Blue"));
+    a1.insert(QStringLiteral("count"), 2);
+    a1.insert(QStringLiteral("by_me"), true);
+    answers.append(a1);
+    QJsonObject a2;
+    a2.insert(QStringLiteral("id"), QStringLiteral("a2"));
+    a2.insert(QStringLiteral("text"), QStringLiteral("Green"));
+    a2.insert(QStringLiteral("count"), 1);
+    a2.insert(QStringLiteral("by_me"), false);
+    answers.append(a2);
+    item.insert(QStringLiteral("poll_answers"), answers);
+    return item;
+}
+
+} // namespace
+
+void RustTimelineIngestTest::parsesPollItem()
+{
+    const TimelineEvent e = eventFromItemJson(pollItemJson(
+        QStringLiteral("uidP"), QStringLiteral("$poll")), kRoom);
+    QCOMPARE(e.type, TimelineEvent::Poll);
+    QCOMPARE(e.pollQuestion, QStringLiteral("Favourite colour?"));
+    QCOMPARE(e.pollKind, QStringLiteral("disclosed"));
+    QCOMPARE(e.pollMaxSelections, 1);
+    QCOMPARE(e.pollTotalVoters, 3);
+    QVERIFY(!e.pollEnded);
+    QCOMPARE(e.pollAnswers.size(), 2);
+    QCOMPARE(e.pollAnswers.at(0).id, QStringLiteral("a1"));
+    QCOMPARE(e.pollAnswers.at(0).text, QStringLiteral("Blue"));
+    QCOMPARE(e.pollAnswers.at(0).count, 2);
+    QVERIFY(e.pollAnswers.at(0).byMe);
+    QCOMPARE(e.pollAnswers.at(1).count, 1);
+    QVERIFY(!e.pollAnswers.at(1).byMe);
+}
+
+void RustTimelineIngestTest::pollAbsentFieldsKeepDefaults()
+{
+    // A poll payload with only the msgtype: defaults must be safe, and an
+    // answer without a stable id is dropped rather than rendered.
+    QJsonObject item = itemJson(QStringLiteral("uidP"), QStringLiteral("$p"),
+                                QString());
+    item.insert(QStringLiteral("msgtype"), QStringLiteral("poll"));
+    QJsonArray answers;
+    QJsonObject noId;
+    noId.insert(QStringLiteral("text"), QStringLiteral("orphan"));
+    answers.append(noId);
+    item.insert(QStringLiteral("poll_answers"), answers);
+    const TimelineEvent e = eventFromItemJson(item, kRoom);
+    QCOMPARE(e.type, TimelineEvent::Poll);
+    QCOMPARE(e.pollMaxSelections, 1);
+    QCOMPARE(e.pollTotalVoters, 0);
+    QVERIFY(!e.pollEnded);
+    QVERIFY(e.pollAnswers.isEmpty());
+}
+
+void RustTimelineIngestTest::pollVoteUpdatesInPlaceViaSet()
+{
+    // A poll renders, then a vote arrives: the SDK aggregates into the SAME
+    // timeline item and emits a Set diff — identity must be preserved.
+    QJsonArray items;
+    items.append(pollItemJson(QStringLiteral("uidP"), QStringLiteral("$poll")));
+    auto mirror = eventsFromItemArray(items, kRoom);
+    QCOMPARE(mirror.first().pollAnswers.at(1).count, 1);
+
+    QJsonObject updated = pollItemJson(QStringLiteral("uidP"),
+                                       QStringLiteral("$poll"));
+    QJsonArray answers = updated.value(QStringLiteral("poll_answers")).toArray();
+    QJsonObject a2 = answers.at(1).toObject();
+    a2.insert(QStringLiteral("count"), 2);
+    answers.replace(1, a2);
+    updated.insert(QStringLiteral("poll_answers"), answers);
+    updated.insert(QStringLiteral("poll_total_voters"), 4);
+
+    QJsonObject diff = diffJson(QStringLiteral("set"));
+    diff.insert(QStringLiteral("index"), 0);
+    diff.insert(QStringLiteral("item"), updated);
+    const auto outcome = applyTimelineDiff(mirror, diff, kRoom);
+    QCOMPARE(outcome.kind, DiffOutcome::Changed);
+    QCOMPARE(mirror.size(), 1); // in place — no duplicate row
+    QCOMPARE(mirror.first().itemId, QStringLiteral("uidP"));
+    QCOMPARE(mirror.first().pollAnswers.at(1).count, 2);
+    QCOMPARE(mirror.first().pollTotalVoters, 4);
+
+    // Poll end via the same mechanism.
+    QJsonObject ended = updated;
+    ended.insert(QStringLiteral("poll_ended"), true);
+    QJsonObject endDiff = diffJson(QStringLiteral("set"));
+    endDiff.insert(QStringLiteral("index"), 0);
+    endDiff.insert(QStringLiteral("item"), ended);
+    QCOMPARE(applyTimelineDiff(mirror, endDiff, kRoom).kind,
+             DiffOutcome::Changed);
+    QVERIFY(mirror.first().pollEnded);
 }
 
 void RustTimelineIngestTest::parsesLocalEchoStates()

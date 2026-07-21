@@ -115,6 +115,16 @@ public:
         IsStickerRole,
         MediaDurationMsRole,
         MediaIsVoiceRole,
+        // v0.7: MSC3381 polls. Aggregation is SDK-owned; these roles only
+        // present the outcome. Counts are 0 while an undisclosed poll runs.
+        IsPollRole,
+        PollQuestionRole,
+        PollKindRole,           // "disclosed" | "undisclosed"
+        PollMaxSelectionsRole,
+        PollAnswersRole,        // list of {id, text, count, byMe}
+        PollTotalVotersRole,
+        PollEndedRole,
+        CanEndPollRole,         // own poll, not ended (conservative rule)
     };
 
     explicit TimelineModel(QObject *parent = nullptr);
@@ -243,6 +253,7 @@ private:
     int rowForEventId(const QString &eventId) const;
     void refreshTypingText();
     QVariantList reactionsVariant(const TimelineEvent &e) const;
+    QVariantList pollAnswersVariant(const TimelineEvent &e) const;
     // Grouping is transparent through virtual rows (date dividers, read
     // markers, timeline-start) — only a visible message/media event ends a
     // group. See TimelineModel.cpp for the rationale.

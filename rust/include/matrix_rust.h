@@ -304,6 +304,29 @@ char *mx_rust_timeline_retry_send(void *client,
                                   const char *transaction_id);
 
 /*
+ * v0.7 — MSC3381 polls. thread_root_id NULL/empty targets the room's live
+ * timeline; a real root event id targets that thread (the SDK owns the
+ * m.thread relation for poll starts). answer_ids/answers are newline-
+ * separated lists; an empty answer_ids list retracts the caller's vote.
+ */
+char *mx_rust_timeline_poll_response(void *client,
+                                     const char *room_id,
+                                     const char *thread_root_id,
+                                     const char *poll_start_event_id,
+                                     const char *answer_ids);
+char *mx_rust_timeline_poll_end(void *client,
+                                const char *room_id,
+                                const char *thread_root_id,
+                                const char *poll_start_event_id);
+char *mx_rust_timeline_poll_create(void *client,
+                                   const char *room_id,
+                                   const char *thread_root_id,
+                                   const char *question,
+                                   const char *answers,
+                                   int undisclosed,
+                                   unsigned int max_selections);
+
+/*
  * v0.5.9 — room management, user search, attachments and the media bridge.
  *
  * Every command takes a C++-generated op_id that is echoed on the async

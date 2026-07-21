@@ -192,6 +192,23 @@ public:
     void toggleReaction(const QString &roomId,
                         const QString &targetEventId,
                         const QString &key) override;
+
+    // v0.7: MSC3381 polls through the SDK timeline (room or thread target).
+    bool supportsPolls() const override { return true; }
+    void sendPollResponse(const QString &roomId,
+                          const QString &threadRootId,
+                          const QString &pollStartEventId,
+                          const QStringList &answerIds) override;
+    void endPoll(const QString &roomId,
+                 const QString &threadRootId,
+                 const QString &pollStartEventId) override;
+    void createPoll(const QString &roomId,
+                    const QString &threadRootId,
+                    const QString &question,
+                    const QStringList &answers,
+                    bool undisclosed,
+                    int maxSelections) override;
+
     void sendTyping(const QString &roomId, bool isTyping, int timeoutMs = 20000) override;
     void sendReadReceipt(const QString &roomId, const QString &eventId) override;
     void setRoomMarkedUnread(const QString &roomId, bool unread) override;
