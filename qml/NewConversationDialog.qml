@@ -62,10 +62,6 @@ Dialog {
     property string spaceTopicText: ""
     property bool spaceIsPublic: false
 
-    // Set while a Space create is in flight so the new Space is selected in
-    // the rail (not opened as a timeline) when it arrives.
-    property bool pendingIsSpace: false
-
     readonly property bool busy: app.conversations.busy
     readonly property bool canCreateRoom: !busy && roomNameText.trim().length > 0
     readonly property bool canCreateSpace: !busy && spaceNameText.trim().length > 0
@@ -74,11 +70,15 @@ Dialog {
         && app.spaces.activeSpaceId.startsWith("!")
 
     // startMode ("dm" | "room" | "space") lets callers (e.g. the Home
-    // surface) open straight into a tab; defaults to a DM search.
-    function openDialog(startMode) {
+    // surface, the rail's Add Space tile) open straight into a tab;
+    // defaults to a DM search. options.addToSpace preselects placement
+    // into the active Space (Space Home's "Create room here").
+    function openDialog(startMode, options) {
         resetAll()
         if (startMode === "room" || startMode === "dm" || startMode === "space")
             mode = startMode
+        if (options && options.addToSpace === true && spacePlacementAvailable)
+            addToSpaceChecked = true
         open()
     }
 
@@ -100,7 +100,6 @@ Dialog {
         spaceNameEdited = false
         spaceTopicText = ""
         spaceIsPublic = false
-        pendingIsSpace = false
         app.conversations.reset()
         app.conversations.userSearch.clear()
     }
@@ -131,7 +130,6 @@ Dialog {
     function submitRoom() {
         if (!canCreateRoom)
             return
-        pendingIsSpace = false
         app.conversations.createRoom({
             name: roomNameText,
             topic: roomTopicText,
@@ -148,7 +146,6 @@ Dialog {
     function submitSpace() {
         if (!canCreateSpace)
             return
-        pendingIsSpace = true
         app.conversations.createRoom({
             name: spaceNameText,
             topic: spaceTopicText,
@@ -164,10 +161,13 @@ Dialog {
     Connections {
         target: app.conversations
         function onConversationReady(roomId) {
-            // A newly created Space is selected in the rail rather than opened
-            // as a timeline (it has no message timeline of its own).
-            if (root.pendingIsSpace && roomId && app.spaces)
-                app.spaces.activeSpaceId = roomId
+            if (root.opened)
+                root.close()
+        }
+        // Space routing is controller-owned (spaceReady) — selecting the
+        // rail happens in AppController even if this dialog was closed
+        // mid-create; here the dialog only dismisses itself.
+        function onSpaceReady(spaceId) {
             if (root.opened)
                 root.close()
         }

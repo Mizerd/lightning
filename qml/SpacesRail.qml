@@ -12,6 +12,10 @@ Rectangle {
     id: root
     color: AppTheme.rail
 
+    // Emitted by the Add Space tile below the Space list; MainScreen routes
+    // it into the creation dialog's Space mode.
+    signal createSpaceRequested()
+
     ColumnLayout {
         anchors.fill: parent
         anchors.topMargin: AppTheme.spacing12 + 2
@@ -156,6 +160,41 @@ Rectangle {
                     visible: spaceHover.hovered
                     text: spaceItem.Accessible.name
                     delay: 500
+                }
+            }
+
+            // Add Space: part of the list CONTENT, so it sits directly
+            // below the last Space tile, scrolls with the tiles, and never
+            // overlaps the pinned Settings/account cluster.
+            footer: Item {
+                width: list.width
+                height: railAddSpaceButton.visible ? 48 : 0
+                IconButton {
+                    id: railAddSpaceButton
+                    objectName: "railAddSpaceButton"
+                    y: 4
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    implicitWidth: 40; implicitHeight: 40
+                    radius: AppTheme.radiusLg
+                    iconName: "add"
+                    iconSize: 22
+                    visible: app.loggedIn && app.conversations
+                             && app.conversations.supported
+                    Accessible.name: qsTr("Create a Space")
+                    ToolTip.text: qsTr("Create a Space")
+                    ToolTip.visible: hovered
+                    ToolTip.delay: 500
+                    onClicked: root.createSpaceRequested()
+                    // Soft dashed-affordance treatment: a quiet outline
+                    // distinguishes "add" from real Space tiles.
+                    Rectangle {
+                        anchors.fill: parent
+                        z: -1
+                        radius: AppTheme.radiusLg
+                        color: "transparent"
+                        border.width: 1
+                        border.color: AppTheme.borderStrong
+                    }
                 }
             }
         }

@@ -10,7 +10,9 @@ Rectangle {
 
     // v0.7.1: the Home surface routes create actions to the room list's
     // shared new-conversation dialog (MainScreen wires this to RoomsPanel).
-    signal newConversationRequested(string mode)
+    // options (optional): {addToSpace: bool} — Space Home's "Create room
+    // here" preselects placement into the active Space.
+    signal newConversationRequested(string mode, var options)
 
     property var currentRoom: ({})
     // v0.5.9: Room Information side panel (Phases 6/10 surface).
@@ -1653,7 +1655,8 @@ Rectangle {
                             text: qsTr("Create room here")
                             visible: app.conversations
                                      && app.conversations.supported
-                            onClicked: root.newConversationRequested("room")
+                            onClicked: root.newConversationRequested(
+                                           "room", { addToSpace: true })
                         }
                         AppButton {
                             objectName: "spaceAddRoomButton"

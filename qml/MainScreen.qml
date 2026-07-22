@@ -49,6 +49,7 @@ Item {
             SplitView.preferredWidth: 68
             SplitView.minimumWidth:   68
             SplitView.maximumWidth:   68
+            onCreateSpaceRequested: roomsPanel.startConversation("space")
         }
 
         // ── Rooms column ──────────────────────────────────────────────────
@@ -69,7 +70,8 @@ Item {
             SplitView.fillWidth:  true
             SplitView.minimumWidth: 320
             // Home surface create actions reuse the room list's dialog.
-            onNewConversationRequested: (mode) => roomsPanel.startConversation(mode)
+            onNewConversationRequested:
+                (mode, options) => roomsPanel.startConversation(mode, options)
         }
     }
 

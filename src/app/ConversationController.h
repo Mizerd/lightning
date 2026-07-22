@@ -71,7 +71,13 @@ Q_SIGNALS:
     void existingDmsChanged();
     void inviteResultsChanged();
     // Fired when a created (or reused) conversation should be opened.
+    // Never fired for Spaces — an m.space room must not get a message
+    // timeline; spaceReady carries those.
     void conversationReady(const QString &roomId);
+    // Fired when a created Space is present in the authoritative room list
+    // (or the bounded wait elapsed): select it in the rail, never open a
+    // timeline on it.
+    void spaceReady(const QString &spaceId);
     // Room creation succeeded but the optional Space placement failed.
     void spacePlacementFailed(const QString &roomId);
     // Room creation succeeded but the optional avatar upload failed (or is
@@ -113,6 +119,10 @@ private:
     bool m_waitingForRoom = false;
     QString m_awaitedRoomId;
     QTimer m_roomWaitTimeout;
+    // Whether the pending create is an m.space room. Owned here — not in
+    // the dialog — so closing the dialog mid-create can never reroute a
+    // Space into an ordinary room timeline.
+    bool m_pendingIsSpace = false;
 
     // Optional avatar applied after a successful room create. Deliberately
     // OUTSIDE busy(): a slow or failed avatar upload must never block or

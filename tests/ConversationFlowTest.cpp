@@ -395,6 +395,48 @@ private Q_SLOTS:
         QCOMPARE(ready.count(), 1);
     }
 
+    // ---- Space creation routing -------------------------------------------
+
+    void spaceCreateEmitsSpaceReadyNeverConversationReady()
+    {
+        // An m.space room must never be opened as a message timeline: the
+        // controller owns the isSpace decision (a dialog closed mid-create
+        // cannot reroute it) and emits spaceReady instead.
+        FakeClient client;
+        ConversationController controller;
+        controller.setClient(&client);
+        QSignalSpy ready(&controller,
+                         &ConversationController::conversationReady);
+        QSignalSpy spaceReady(&controller,
+                              &ConversationController::spaceReady);
+
+        controller.createRoom({
+            { QStringLiteral("name"), QStringLiteral("My Space") },
+            { QStringLiteral("isSpace"), true },
+        });
+        QCOMPARE(client.createRoomCalls, 1);
+        Q_EMIT client.roomCreateFinished(client.lastOpId, true,
+                                         QStringLiteral("!s:example.org"),
+                                         QString(), QString());
+        client.mirror = { makeRoom(QStringLiteral("!s:example.org")) };
+        Q_EMIT client.roomsChanged();
+        QCOMPARE(spaceReady.count(), 1);
+        QCOMPARE(spaceReady.at(0).at(0).toString(),
+                 QStringLiteral("!s:example.org"));
+        QCOMPARE(ready.count(), 0);
+
+        // The flag never leaks into the NEXT ordinary create.
+        controller.createRoom({
+            { QStringLiteral("name"), QStringLiteral("Plain") } });
+        Q_EMIT client.roomCreateFinished(client.lastOpId, true,
+                                         QStringLiteral("!p:example.org"),
+                                         QString(), QString());
+        client.mirror = { makeRoom(QStringLiteral("!p:example.org")) };
+        Q_EMIT client.roomsChanged();
+        QCOMPARE(spaceReady.count(), 1);
+        QCOMPARE(ready.count(), 1);
+    }
+
     // ---- optional room avatar (applied after create) ----------------------
 
     void roomCreateWithAvatarAppliesItAfterCreate()

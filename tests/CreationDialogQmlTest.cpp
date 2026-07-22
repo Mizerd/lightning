@@ -197,9 +197,12 @@ private:
 
     void openDialog(const char *mode)
     {
+        // openDialog(startMode, options) — options optional from QML but
+        // the meta-invocation must match the full arity.
         QVERIFY(QMetaObject::invokeMethod(
             m_dialog, "openDialog",
-            Q_ARG(QVariant, QVariant(QLatin1String(mode)))));
+            Q_ARG(QVariant, QVariant(QLatin1String(mode))),
+            Q_ARG(QVariant, QVariant())));
         QTRY_VERIFY(m_dialog->property("visible").toBool());
         QCoreApplication::processEvents();
     }

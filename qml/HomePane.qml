@@ -451,11 +451,13 @@ Item {
                     }
                     Label {
                         Layout.fillWidth: true
+                        // No join-by-address flow exists yet — the copy must
+                        // not promise one (invitations still arrive in the
+                        // room list as normal).
                         text: qsTr("Start a direct message to talk to someone, "
                                    + "create a room for a group, or organise "
-                                   + "rooms into a Space. You can also join an "
-                                   + "existing room from the New conversation "
-                                   + "dialog by entering its address.")
+                                   + "rooms into a Space. Invitations you "
+                                   + "receive appear in the room list.")
                         color: AppTheme.textSecondary
                         font.pixelSize: 12
                         wrapMode: Text.WordWrap

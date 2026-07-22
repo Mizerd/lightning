@@ -96,6 +96,7 @@ void ConversationController::startDirectMessage(const QString &userId)
         setError(tr("Starting direct messages is not supported on this backend."));
         return;
     }
+    m_pendingIsSpace = false;
     m_pendingOp = opId;
     Q_EMIT busyChanged();
 }
@@ -123,6 +124,7 @@ void ConversationController::createRoom(const QVariantMap &options)
     const QUrl avatarUrl(rawAvatar);
     m_pendingAvatarPath = avatarUrl.isLocalFile() ? avatarUrl.toLocalFile()
                                                   : rawAvatar;
+    m_pendingIsSpace = options.value(QStringLiteral("isSpace")).toBool();
     m_pendingOp = opId;
     Q_EMIT busyChanged();
 }
@@ -169,6 +171,7 @@ void ConversationController::reset()
     m_pendingOp = 0;
     m_waitingForRoom = false;
     m_awaitedRoomId.clear();
+    m_pendingIsSpace = false;
     m_roomWaitTimeout.stop();
     m_pendingAvatarPath.clear();
     m_avatarOp = 0;
@@ -303,11 +306,16 @@ void ConversationController::finishWaitForRoom()
     if (!m_waitingForRoom)
         return;
     const QString roomId = m_awaitedRoomId;
+    const bool isSpace = m_pendingIsSpace;
     m_waitingForRoom = false;
     m_awaitedRoomId.clear();
+    m_pendingIsSpace = false;
     m_roomWaitTimeout.stop();
     Q_EMIT busyChanged();
-    Q_EMIT conversationReady(roomId);
+    if (isSpace)
+        Q_EMIT spaceReady(roomId);
+    else
+        Q_EMIT conversationReady(roomId);
 }
 
 void ConversationController::onLoggedOut()

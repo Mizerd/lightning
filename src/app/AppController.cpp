@@ -272,6 +272,15 @@ AppController::AppController(Backend backend, QObject *parent)
     // removed by the authoritative room-list update, not locally.
     connect(m_conversations.get(), &ConversationController::conversationReady,
             this, &AppController::openRoom);
+    // A created Space is SELECTED (rail + Space Home), never opened as a
+    // message timeline: an m.space room has no conversation of its own.
+    // Clearing the current room is what makes the Space Home surface show.
+    connect(m_conversations.get(), &ConversationController::spaceReady,
+            this, [this](const QString &spaceId) {
+        if (m_spaces)
+            m_spaces->setActiveSpaceId(spaceId);
+        setCurrentRoomId(QString());
+    });
     connect(m_conversations.get(), &ConversationController::spacePlacementFailed,
             this, [this](const QString &) {
         Q_EMIT errorReported(
