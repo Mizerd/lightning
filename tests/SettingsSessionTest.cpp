@@ -97,6 +97,7 @@ private Q_SLOTS:
     void appearanceIsPerAccountWithGlobalFallback();
     void uiFontPersistsPerAccountAndValidates();
     void loginHomeserverPrefillIsAccountIndependent();
+    void freshProfileDefaultsToMatrixOrg();
 
 private:
     QTemporaryDir m_configHome;
@@ -572,6 +573,23 @@ void SettingsSessionTest::loginHomeserverPrefillIsAccountIndependent()
     // The active account's stored server is untouched by the login prefill.
     QCOMPARE(settings.homeserverUrl(),
              QStringLiteral("https://matrix.example"));
+}
+
+// A brand-new profile (fresh QSettings; init() clears it before each test)
+// must present matrix.org as the homeserver — never a developer/personal
+// server — for BOTH the account-independent login prefill and the effective
+// homeserverUrl(). This is independent of environment variables and any local
+// key file: SettingsManager seeds the neutral default in its constructor.
+void SettingsSessionTest::freshProfileDefaultsToMatrixOrg()
+{
+    SettingsManager settings;
+    QCOMPARE(settings.homeserverUrl(), QStringLiteral("https://matrix.org"));
+    QCOMPARE(settings.loginHomeserverPrefill(),
+             QStringLiteral("https://matrix.org"));
+    // No personal/developer server ever leaks in as a first-run default.
+    QVERIFY(!settings.homeserverUrl().contains(QStringLiteral("smetonis")));
+    QVERIFY(!settings.loginHomeserverPrefill()
+                 .contains(QStringLiteral("smetonis")));
 }
 
 QTEST_MAIN(SettingsSessionTest)
