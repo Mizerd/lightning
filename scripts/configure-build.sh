@@ -137,7 +137,9 @@ test -x "$STAGE_DIR/usr/bin/matrix-client"
 # Fail closed on the Rust-only release invariant: the staged binary must ship
 # only the Rust backend (no HTTP/mock compiled in, no runtime fallback).
 staged_build_info="$("$STAGE_DIR/usr/bin/matrix-client" --build-info)"
-printf '%s\n' "$staged_build_info" | tee "$ROOT/dist/build-info-linux.txt"
+printf '%s\n' "$staged_build_info"
+mkdir -p "$ROOT/dist"
+printf '%s\n' "$staged_build_info" >"$ROOT/dist/build-info-linux.txt"
 printf '%s\n' "$staged_build_info" | grep -qx 'matrix_backend: rust' \
     || die "staged binary is not Rust-only (matrix_backend != rust)"
 printf '%s\n' "$staged_build_info" | grep -qx 'http_backend_compiled: false' \

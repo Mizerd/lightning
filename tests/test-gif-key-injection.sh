@@ -70,7 +70,7 @@ case "\$1" in
     # DESTDIR install: stage a fake executable so the caller's checks pass.
     dest="\${DESTDIR:?}"
     mkdir -p "\$dest/usr/bin"
-    printf '#!/bin/sh\necho "matrix-client 0.6.2"\n' > "\$dest/usr/bin/matrix-client"
+    printf '#!/bin/sh\necho "matrix-client 0.6.2"\necho "matrix_backend: rust"\necho "http_backend_compiled: false"\necho "mock_backend_compiled: false"\n' > "\$dest/usr/bin/matrix-client"
     chmod +x "\$dest/usr/bin/matrix-client"
     exit 0 ;;
   -S|*)
