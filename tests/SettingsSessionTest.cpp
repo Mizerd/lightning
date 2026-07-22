@@ -21,6 +21,10 @@ public:
                      const QString &key,
                      const QString &value) override
     {
+        if (m_failStore) {
+            m_error = QStringLiteral("simulated store failure");
+            return false;
+        }
         m_values.insert(userId + QLatin1Char('/') + key, value);
         return true;
     }
@@ -55,11 +59,17 @@ public:
 
     QString lastError() const override { return m_error; }
     void setFailClear(bool fail) { m_failClear = fail; }
+    void setFailStore(bool fail) { m_failStore = fail; }
+    bool hasSecret(const QString &userId, const QString &key) const
+    {
+        return m_values.contains(userId + QLatin1Char('/') + key);
+    }
 
 private:
     QHash<QString, QString> m_values;
     QString m_error;
     bool m_failClear = false;
+    bool m_failStore = false;
 };
 
 class SettingsSessionTest : public QObject
@@ -73,6 +83,8 @@ private Q_SLOTS:
     void clearsMetadataWhenTokenIsAlreadyMissing();
     void normalizedIdentityClearsLegacyKey();
     void reportsSecretCleanupFailureButClearsMetadata();
+    void migratesInsecureSecretsGroupIntoSecureStore();
+    void keepsPlaintextWhenSecureMigrationFails();
     // v0.5.11.
     void validThemeIdsRoundTripAndPersist();
     void unknownStoredThemeFallsBackToSystem();
@@ -178,6 +190,51 @@ void SettingsSessionTest::reportsSecretCleanupFailureButClearsMetadata()
     QVERIFY(!settings.clearSession());
     QVERIFY(settings.userId().isEmpty());
     QVERIFY(settings.deviceId().isEmpty());
+}
+
+void SettingsSessionTest::migratesInsecureSecretsGroupIntoSecureStore()
+{
+    // Simulate a prior InsecureFallback run: a plaintext token under
+    // secrets/<user>/accessToken in QSettings.
+    const QString user = QStringLiteral("@alice:matrix.example");
+    const QString token = QStringLiteral("plaintext-token-fixture");
+    {
+        QSettings seed;
+        seed.setValue(QStringLiteral("secrets/%1/accessToken").arg(user), token);
+        seed.sync();
+    }
+
+    FakeSecretStore secrets;   // isSecure() == true
+    SettingsManager settings;
+    settings.setSecretStore(&secrets);   // triggers migration
+
+    // Token moved into the secure store, verifiable by identity.
+    QCOMPARE(secrets.readSecret(user, QStringLiteral("accessToken")), token);
+    // Plaintext removed from QSettings.
+    QSettings check;
+    QVERIFY(!check.contains(QStringLiteral("secrets/%1/accessToken").arg(user)));
+}
+
+void SettingsSessionTest::keepsPlaintextWhenSecureMigrationFails()
+{
+    const QString user = QStringLiteral("@bob:matrix.example");
+    const QString token = QStringLiteral("plaintext-token-fixture-2");
+    {
+        QSettings seed;
+        seed.setValue(QStringLiteral("secrets/%1/accessToken").arg(user), token);
+        seed.sync();
+    }
+
+    FakeSecretStore secrets;
+    secrets.setFailStore(true);   // secure write fails
+    SettingsManager settings;
+    settings.setSecretStore(&secrets);
+
+    // Failure must not lose the session: plaintext stays, secure store empty.
+    QVERIFY(!secrets.hasSecret(user, QStringLiteral("accessToken")));
+    QSettings check;
+    QCOMPARE(check.value(QStringLiteral("secrets/%1/accessToken").arg(user)).toString(),
+             token);
 }
 
 void SettingsSessionTest::validThemeIdsRoundTripAndPersist()

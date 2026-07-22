@@ -142,6 +142,8 @@ set(APP_SOURCES
     src/storage/InsecureFallbackSecretStore.cpp
     src/storage/LibSecretStore.h
     src/storage/LibSecretStore.cpp
+    src/storage/WinCredStore.h
+    src/storage/WinCredStore.cpp
 
     src/models/RoomListModel.h
     src/models/RoomListModel.cpp
@@ -375,6 +377,14 @@ function(lightning_configure_qml_app target)
     if(HAVE_LIBSECRET)
         target_link_libraries(${target} PRIVATE PkgConfig::LIBSECRET)
         target_compile_definitions(${target} PRIVATE HAVE_LIBSECRET=1)
+    endif()
+
+    # Windows Credential Manager backend for SecretStore (CredWriteW/ReadW/
+    # DeleteW/EnumerateW live in advapi32). WIN32 is true for both MSVC and the
+    # MinGW cross-build; off Windows WinCredStore compiles as a no-op stub.
+    if(WIN32)
+        target_link_libraries(${target} PRIVATE advapi32)
+        target_compile_definitions(${target} PRIVATE HAVE_WINCRED=1)
     endif()
 
     if(ENABLE_RUST_SDK_BACKEND)

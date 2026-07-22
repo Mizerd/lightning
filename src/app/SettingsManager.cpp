@@ -309,25 +309,82 @@ void SettingsManager::migratePlaintextTokenIfPresent()
 {
     if (!m_secretStore)
         return;
-    if (!m_store->contains(kAccessTokenLegacy))
-        return;
-    const QString legacyToken = m_store->value(kAccessTokenLegacy).toString();
-    const QString uid = userId();
-    if (legacyToken.isEmpty() || uid.isEmpty()) {
-        // Nothing useful to migrate; just clean up.
-        m_store->remove(kAccessTokenLegacy);
-        return;
+
+    // Legacy single-session token (pre-multi-account): session/accessToken.
+    if (m_store->contains(kAccessTokenLegacy)) {
+        const QString legacyToken = m_store->value(kAccessTokenLegacy).toString();
+        const QString uid = userId();
+        if (legacyToken.isEmpty() || uid.isEmpty()) {
+            // Nothing useful to migrate; just clean up.
+            m_store->remove(kAccessTokenLegacy);
+        } else if (m_secretStore->storeSecret(uid, QLatin1String(kSecretAccessToken), legacyToken)) {
+            qCInfo(lcSettings)
+                << "migrated legacy plaintext access token for" << uid
+                << "into" << m_secretStore->backendName();
+            m_store->remove(kAccessTokenLegacy);
+        } else {
+            qCWarning(lcSettings)
+                << "failed to migrate plaintext access token — leaving in place;"
+                << "SecretStore error:" << m_secretStore->lastError();
+        }
     }
-    if (m_secretStore->storeSecret(uid, QLatin1String(kSecretAccessToken), legacyToken)) {
-        qCInfo(lcSettings)
-            << "migrated legacy plaintext access token for" << uid
-            << "into" << m_secretStore->backendName();
-        m_store->remove(kAccessTokenLegacy);
-    } else {
+
+    // Multi-account plaintext tokens left by an earlier InsecureFallback run
+    // (secrets/<safeUser>/accessToken). Move them into the now-secure store —
+    // otherwise a Windows user who once ran the insecure fallback keeps tokens
+    // in the registry after upgrading to the Credential Manager backend.
+    migrateInsecureSecretsGroup();
+}
+
+void SettingsManager::migrateInsecureSecretsGroup()
+{
+    // Only migrate INTO a genuinely secure backend; never plaintext->plaintext.
+    if (!m_secretStore || !m_secretStore->isSecure())
+        return;
+
+    m_store->beginGroup(QStringLiteral("secrets"));
+    const QStringList accounts = m_store->childGroups();
+    m_store->endGroup();
+    if (accounts.isEmpty())
+        return;
+
+    int migrated = 0;
+    int failed = 0;
+    for (const QString &safeUser : accounts) {
+        const QString plainKey = QStringLiteral("secrets/%1/%2")
+            .arg(safeUser, QLatin1String(kSecretAccessToken));
+        if (!m_store->contains(plainKey))
+            continue;
+        const QString token = m_store->value(plainKey).toString();
+        const QString groupKey = QStringLiteral("secrets/%1").arg(safeUser);
+        if (token.isEmpty()) {
+            m_store->remove(groupKey);
+            continue;
+        }
+        // safeUser equals the MXID for every valid id: InsecureFallback only
+        // substitutes '/' and '\\', which a Matrix user id never contains.
+        // Verify the secure write read-backs before deleting the plaintext, so
+        // a failed write never locks the user out of their session.
+        if (m_secretStore->storeSecret(safeUser, QLatin1String(kSecretAccessToken), token)
+            && m_secretStore->readSecret(safeUser, QLatin1String(kSecretAccessToken)) == token) {
+            m_store->remove(groupKey);
+            ++migrated;
+        } else {
+            ++failed;   // keep plaintext; do not claim success
+        }
+    }
+
+    if (migrated > 0 || failed > 0)
+        m_store->sync();
+    if (migrated > 0)
+        qCInfo(lcSettings) << "Secure credential migration: completed for"
+                           << migrated << "account(s) into"
+                           << m_secretStore->backendName();
+    if (failed > 0)
         qCWarning(lcSettings)
-            << "failed to migrate plaintext access token — leaving in place;"
-            << "SecretStore error:" << m_secretStore->lastError();
-    }
+            << "Secure credential migration: failed for" << failed
+            << "account(s) — plaintext left in place; SecretStore error:"
+            << m_secretStore->lastError();
 }
 
 QString SettingsManager::homeserverUrl() const

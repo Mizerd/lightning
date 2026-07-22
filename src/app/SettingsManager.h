@@ -280,6 +280,7 @@ Q_SIGNALS:
 
 private:
     void migratePlaintextTokenIfPresent();
+    void migrateInsecureSecretsGroup();
     void migrateLegacySessionRecord();
     // Per-account appearance storage: reads prefer the active account's
     // value, writes update the account AND the global fallback (so the
