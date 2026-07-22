@@ -56,6 +56,12 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }
 # never sends catalogue data through FFI and performs no runtime download.
 emojis = "=0.8.2"
 
+[dev-dependencies]
+# Live E2EE interop harness only: captures matrix-sdk's own sanitized
+# crypto tracing (gossip/backup state transitions) during the ignored
+# live test. Same version the lock file already pins transitively.
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+
 [profile.release]
 lto = true
 codegen-units = 1

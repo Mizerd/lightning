@@ -492,9 +492,12 @@ pub unsafe extern "C" fn mx_rust_login(
         let client_slot = Arc::clone(&bridge.client);
         let events = Arc::clone(&bridge.events);
         let active_request = Arc::clone(&bridge.active_request);
+        // Shared runtime: the SDK's post-login E2EE initialization task
+        // must outlive this call (see run_async_on).
+        let shared_runtime = Arc::clone(&bridge.runtime);
         std::thread::spawn(move || {
             let runtime_events = Arc::clone(&events);
-            run_async(runtime_events, "login", async move {
+            run_async_on(shared_runtime, runtime_events, "login", async move {
                 match build_client(&homeserver, &store_path).await {
                     Ok(client) => {
                         install_event_handlers(
@@ -587,9 +590,14 @@ pub unsafe extern "C" fn mx_rust_restore_from_file(
         let client_slot = Arc::clone(&bridge.client);
         let events = Arc::clone(&bridge.events);
         let active_request = Arc::clone(&bridge.active_request);
+        // Shared runtime: the SDK's post-restore E2EE initialization task
+        // must outlive this call (see run_async_on).
+        let shared_runtime = Arc::clone(&bridge.runtime);
         std::thread::spawn(move || {
             let runtime_events = Arc::clone(&events);
-            run_async(runtime_events, "restore_from_file", async move {
+            run_async_on(
+                shared_runtime, runtime_events, "restore_from_file",
+                async move {
                 let stored = match read_persistent_session(&session_file) {
                     Ok(stored) => stored,
                     Err(err) => {
@@ -699,9 +707,12 @@ pub unsafe extern "C" fn mx_rust_restore(
         let client_slot = Arc::clone(&bridge.client);
         let events = Arc::clone(&bridge.events);
         let active_request = Arc::clone(&bridge.active_request);
+        // Shared runtime: the SDK's post-restore E2EE initialization task
+        // must outlive this call (see run_async_on).
+        let shared_runtime = Arc::clone(&bridge.runtime);
         std::thread::spawn(move || {
             let runtime_events = Arc::clone(&events);
-            run_async(runtime_events, "restore", async move {
+            run_async_on(shared_runtime, runtime_events, "restore", async move {
                 match restore_client(&homeserver, &store_path, &user_id, &device_id, access_token)
                     .await
                 {
@@ -1115,8 +1126,8 @@ async fn run_crypto_bootstrap_observer(
                         // accepted / created. A later arming edge (fresh
                         // verification, manual request) starts a new one.
                     }
-                    SecretAttemptOutcome::Requested(_)
-                    | SecretAttemptOutcome::AlreadyPending(_)
+                    SecretAttemptOutcome::Requested
+                    | SecretAttemptOutcome::AlreadyPending
                     | SecretAttemptOutcome::NoEligibleDevices => {
                         retry_attempt += 1;
                         retry_deadline = secret_retry_deadline(retry_attempt);
@@ -1188,8 +1199,8 @@ async fn run_crypto_bootstrap_observer(
                         )
                         .await;
                         match outcome {
-                            SecretAttemptOutcome::Requested(_)
-                            | SecretAttemptOutcome::AlreadyPending(_)
+                            SecretAttemptOutcome::Requested
+                            | SecretAttemptOutcome::AlreadyPending
                             | SecretAttemptOutcome::NoEligibleDevices => {
                                 // The manual attempt consumed slot 0; keep
                                 // the bounded follow-ups armed.
@@ -1374,9 +1385,9 @@ enum SecretAttemptOutcome {
     /// standards-based remedy; requesting again would mislead.
     IdentityUnverified,
     /// New m.secret.request gossip was queued for every missing secret.
-    Requested(u64),
+    Requested,
     /// Requests for the missing secrets are already queued and unsent.
-    AlreadyPending(u64),
+    AlreadyPending,
     /// No other verified own device exists to answer a request right now.
     NoEligibleDevices,
     /// The crypto machine was unavailable or the store query failed.
@@ -1447,14 +1458,14 @@ async fn attempt_secret_recovery(
             emit_crypto_bootstrap(
                 events, lifecycle, "secret_request", "requested", eligible,
             );
-            SecretAttemptOutcome::Requested(eligible)
+            SecretAttemptOutcome::Requested
         }
         Ok(false) => {
             emit_crypto_bootstrap(
                 events, lifecycle, "secret_request", "already_pending",
                 eligible,
             );
-            SecretAttemptOutcome::AlreadyPending(eligible)
+            SecretAttemptOutcome::AlreadyPending
         }
         Err(()) => {
             emit_crypto_bootstrap(
@@ -5153,6 +5164,39 @@ where
     }
 }
 
+/// Like `run_async`, but executes the future on the SHARED bridge runtime
+/// so tasks the SDK spawns from within it survive after the call returns.
+///
+/// This is MANDATORY for every path that establishes the session
+/// (login/restore): matrix-sdk's `restore_session`/`login` spawn the
+/// client's E2EE initialization task on the ambient runtime — the
+/// verification-state updater, `Backups::setup_and_resume` (which
+/// registers the `m.secret.send` listener and resumes/enables key backup),
+/// `Recovery::setup`, and the backup upload/download tasks. Running those
+/// paths on a throwaway per-call runtime silently KILLED all of that the
+/// moment the call finished, which left every session with "backup exists
+/// but this session cannot use it": a gossiped or stored backup key was
+/// parked in the secret inbox with nothing alive to consume it. (v0.7.2
+/// root-cause fix.)
+fn run_async_on<F>(
+    runtime: Arc<tokio::runtime::Runtime>,
+    events: Arc<Mutex<VecDeque<String>>>,
+    label: &'static str,
+    future: F,
+) where
+    F: std::future::Future<Output = ()> + Send + 'static,
+{
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        runtime.block_on(future);
+    }));
+    if result.is_err() {
+        enqueue(
+            &events,
+            json!({ "type": "error", "message": format!("Rust SDK {label} task panicked.") }),
+        );
+    }
+}
+
 unsafe fn bridge<'a>(ptr: *mut c_void) -> Result<&'a RustClient, String> {
     if ptr.is_null() {
         return Err("Rust SDK backend handle is null.".to_owned());
@@ -5493,5 +5537,528 @@ mod latest_event_preview_tests {
             .expect("valid fixture event"),
         ));
         assert_eq!(latest_event_preview_text(&value), "");
+    }
+}
+
+/// Live two-device E2EE interoperability harness (v0.7.2).
+///
+/// Runs ONLY when explicitly requested (`--ignored` plus the
+/// LIGHTNING_LIVE_E2EE=1 gate) against a real homeserver with a dedicated
+/// test account supplied through LIGHTNING_TEST_HOMESERVER /
+/// LIGHTNING_TEST_USER / LIGHTNING_TEST_PASSWORD environment variables.
+///
+/// Device A ("peer") is a plain matrix-sdk 0.18 client — the same
+/// verification and secret-gossip responder engine Element X ships. It
+/// bootstraps cross-signing + recovery/backup, seeds encrypted history,
+/// then answers the SAS flow and secret requests exactly as a trusted
+/// Element session would. Device B is the REAL Lightning bridge (the C
+/// FFI surface plus the recovery coordinator under test).
+///
+/// The peer's sync is paused right after its SAS confirmation, so
+/// Lightning completes verification against a temporarily unresponsive
+/// trusted session — the live failure shape — and the coordinator's
+/// supervision (Verified-edge ladder arming, request rounds, secret
+/// acceptance, backup enablement, OneShot restore, restart persistence)
+/// must recover once the peer resumes.
+///
+/// The test NEVER prints event payloads, tokens, keys, or identifiers —
+/// progress markers are fixed kind/state tokens only.
+#[cfg(test)]
+mod live_e2ee_interop_tests {
+    use std::ffi::{c_void, CStr, CString};
+    use std::time::{Duration, Instant};
+
+    fn env_nonempty(name: &str) -> Option<String> {
+        std::env::var(name).ok().filter(|v| !v.trim().is_empty())
+    }
+
+    unsafe fn take(ptr: *mut std::ffi::c_char) -> String {
+        if ptr.is_null() {
+            return String::new();
+        }
+        let s = CStr::from_ptr(ptr).to_string_lossy().into_owned();
+        super::mx_rust_free_cstring(ptr);
+        s
+    }
+
+    unsafe fn poll_all(handle: *mut c_void) -> Vec<serde_json::Value> {
+        let mut out = Vec::new();
+        loop {
+            let raw = take(super::mx_rust_poll_event(handle));
+            if raw.is_empty() {
+                break;
+            }
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&raw) {
+                out.push(v);
+            }
+        }
+        out
+    }
+
+    /// Drain bridge events until `pred` matches or the timeout elapses.
+    /// Returns the matching event. Never logs payloads.
+    unsafe fn wait_for(
+        handle: *mut c_void,
+        what: &str,
+        timeout: Duration,
+        mut pred: impl FnMut(&serde_json::Value) -> bool,
+    ) -> serde_json::Value {
+        let deadline = Instant::now() + timeout;
+        loop {
+            for ev in poll_all(handle) {
+                if pred(&ev) {
+                    eprintln!("[live] {what}: ok");
+                    return ev;
+                }
+            }
+            assert!(
+                Instant::now() < deadline,
+                "timed out waiting for {what}"
+            );
+            std::thread::sleep(Duration::from_millis(300));
+        }
+    }
+
+    fn is_bootstrap(ev: &serde_json::Value, kind: &str) -> bool {
+        ev["type"] == "crypto_bootstrap" && ev["kind"] == kind
+    }
+
+    #[test]
+    #[ignore = "live homeserver E2EE interop; set LIGHTNING_LIVE_E2EE=1 and credentials env"]
+    fn live_verified_session_recovers_secrets_and_backup() {
+        if env_nonempty("LIGHTNING_LIVE_E2EE").as_deref() != Some("1") {
+            eprintln!("[live] gate off; skipping");
+            return;
+        }
+        // Surface the SDK's own sanitized crypto tracing (RUST_LOG
+        // controlled; off unless the runner sets it).
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+            .with_writer(std::io::stderr)
+            .try_init();
+        let homeserver = env_nonempty("LIGHTNING_TEST_HOMESERVER")
+            .expect("LIGHTNING_TEST_HOMESERVER");
+        let user = env_nonempty("LIGHTNING_TEST_USER")
+            .expect("LIGHTNING_TEST_USER");
+        let password = env_nonempty("LIGHTNING_TEST_PASSWORD")
+            .expect("LIGHTNING_TEST_PASSWORD");
+
+        let peer_dir = tempfile_dir("lightning-live-peer");
+        let bridge_dir = tempfile_dir("lightning-live-bridge");
+        let session_file = bridge_dir.join("session.json");
+
+        // ── Peer (device A): trusted session with recovery + history. ──
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .expect("peer runtime");
+        let peer = runtime.block_on(async {
+            let client = matrix_sdk::Client::builder()
+                .homeserver_url(&homeserver)
+                .sqlite_store(&peer_dir, None)
+                .build()
+                .await
+                .expect("peer client");
+            client
+                .matrix_auth()
+                .login_username(&user, &password)
+                .initial_device_display_name("Lightning interop peer")
+                .send()
+                .await
+                .expect("peer login");
+            client
+        });
+        eprintln!("[live] peer: logged in");
+
+        // Pauseable peer sync loop.
+        let (pause_tx, pause_rx) = tokio::sync::watch::channel(false);
+        {
+            let client = peer.clone();
+            runtime.spawn(async move {
+                let mut settings = matrix_sdk::config::SyncSettings::default()
+                    .timeout(Duration::from_secs(5));
+                loop {
+                    if *pause_rx.borrow() {
+                        tokio::time::sleep(Duration::from_millis(250)).await;
+                        continue;
+                    }
+                    match client.sync_once(settings.clone()).await {
+                        Ok(resp) => {
+                            settings = settings.token(resp.next_batch);
+                        }
+                        Err(_) => {
+                            tokio::time::sleep(Duration::from_millis(750))
+                                .await;
+                        }
+                    }
+                }
+            });
+        }
+
+        // Cross-signing bootstrap (fresh identity per run is fine for the
+        // dedicated test account) + recovery/backup enablement.
+        runtime.block_on(async {
+            use matrix_sdk::ruma::api::client::uiaa;
+            let encryption = peer.encryption();
+            let needs_bootstrap = encryption
+                .cross_signing_status()
+                .await
+                .map(|s| !(s.has_master && s.has_self_signing && s.has_user_signing))
+                .unwrap_or(true);
+            if needs_bootstrap {
+                if let Err(err) = encryption.bootstrap_cross_signing(None).await {
+                    let response = err
+                        .as_uiaa_response()
+                        .expect("bootstrap needs UIA")
+                        .clone();
+                    let mut auth = uiaa::Password::new(
+                        uiaa::UserIdentifier::Matrix(
+                            uiaa::MatrixUserIdentifier::new(user.clone()),
+                        ),
+                        password.clone(),
+                    );
+                    auth.session = response.session;
+                    encryption
+                        .bootstrap_cross_signing(Some(
+                            uiaa::AuthData::Password(auth),
+                        ))
+                        .await
+                        .expect("bootstrap cross-signing with UIA");
+                }
+            }
+            eprintln!("[live] peer: cross-signing ready");
+            match encryption.recovery().state() {
+                matrix_sdk::encryption::recovery::RecoveryState::Enabled => {}
+                _ => {
+                    // Creates 4S + key backup and uploads the secrets. The
+                    // returned recovery key stays in this process memory
+                    // only and is dropped immediately. A stale backup from
+                    // an earlier run of the DEDICATED test account (whose
+                    // key is lost by design) is deleted and recreated.
+                    let recovery = encryption.recovery();
+                    if let Err(err) = recovery.enable().await {
+                        use matrix_sdk::encryption::recovery::RecoveryError;
+                        match err {
+                            RecoveryError::BackupExistsOnServer => {
+                                encryption
+                                    .backups()
+                                    .disable_and_delete()
+                                    .await
+                                    .expect("delete stale test backup");
+                                let _recovery_key = recovery
+                                    .enable()
+                                    .await
+                                    .expect("enable recovery after reset");
+                            }
+                            other => panic!("enable recovery: {other:?}"),
+                        }
+                    }
+                }
+            }
+            eprintln!("[live] peer: recovery enabled");
+        });
+
+        // Seed encrypted history and wait until its keys are in backup.
+        let _room_id = runtime.block_on(async {
+            use matrix_sdk::ruma::events::room::message::RoomMessageEventContent;
+            let request = matrix_sdk::ruma::api::client::room::create_room::v3::Request::new();
+            let room = peer.create_room(request).await.expect("create room");
+            room.enable_encryption().await.expect("enable encryption");
+            for i in 0..3 {
+                room.send(RoomMessageEventContent::text_plain(format!(
+                    "interop history {i}"
+                )))
+                .await
+                .expect("send history");
+            }
+            let backups = peer.encryption().backups();
+            backups
+                .wait_for_steady_state()
+                .await
+                .expect("backup steady state");
+            eprintln!("[live] peer: history seeded and backed up");
+            room.room_id().to_owned()
+        });
+
+        // ── Lightning (device B): the real bridge under test. ──
+        let store = CString::new(bridge_dir.to_string_lossy().as_bytes())
+            .unwrap();
+        let handle = super::mx_rust_create(store.as_ptr());
+        assert!(!handle.is_null(), "bridge handle");
+        unsafe {
+            let sf = CString::new(session_file.to_string_lossy().as_bytes())
+                .unwrap();
+            let r = take(super::mx_rust_set_session_file(handle, sf.as_ptr()));
+            assert!(r.is_empty(), "set_session_file");
+            let hs = CString::new(homeserver.as_bytes()).unwrap();
+            let us = CString::new(user.as_bytes()).unwrap();
+            let pw = CString::new(password.as_bytes()).unwrap();
+            let r = take(super::mx_rust_login(
+                handle, hs.as_ptr(), us.as_ptr(), pw.as_ptr(),
+            ));
+            assert!(r.is_empty(), "login dispatch");
+            wait_for(handle, "bridge login", Duration::from_secs(45), |ev| {
+                assert!(
+                    ev["type"] != "login_failed",
+                    "bridge login failed"
+                );
+                ev["type"] == "login_ok"
+            });
+            super::mx_rust_start_sync(handle);
+
+            // ── SAS verification, with the peer pausing after ITS
+            //    confirmation (the unresponsive-trusted-session shape). ──
+            let r = take(super::mx_rust_start_own_verification(handle));
+            assert!(r.is_empty(), "start verification dispatch");
+            let started = wait_for(
+                handle,
+                "verification request started",
+                Duration::from_secs(30),
+                |ev| ev["type"] == "verification_request_started",
+            );
+            let flow_id = started["flow_id"].as_str().unwrap().to_owned();
+
+            // Peer accepts the request and drives SAS to its own
+            // confirmation.
+            let peer_confirm = {
+                let client = peer.clone();
+                let flow = flow_id.clone();
+                let uid = client.user_id().unwrap().to_owned();
+                runtime.spawn(async move {
+                    use matrix_sdk::encryption::verification::Verification;
+                    let request = loop {
+                        if let Some(r) = client
+                            .encryption()
+                            .get_verification_request(&uid, &flow)
+                            .await
+                        {
+                            break r;
+                        }
+                        tokio::time::sleep(Duration::from_millis(400)).await;
+                    };
+                    request.accept().await.expect("peer accept request");
+                    let sas = loop {
+                        if let Some(Verification::SasV1(s)) = client
+                            .encryption()
+                            .get_verification(&uid, &flow)
+                            .await
+                        {
+                            break s;
+                        }
+                        tokio::time::sleep(Duration::from_millis(400)).await;
+                    };
+                    sas.accept().await.expect("peer accept sas");
+                    loop {
+                        if matches!(
+                            sas.state(),
+                            matrix_sdk::encryption::verification::SasState::KeysExchanged { .. }
+                        ) {
+                            break;
+                        }
+                        tokio::time::sleep(Duration::from_millis(400)).await;
+                    }
+                    sas.confirm().await.expect("peer confirm");
+                })
+            };
+
+            wait_for(
+                handle,
+                "sas emojis on bridge",
+                Duration::from_secs(90),
+                |ev| ev["type"] == "verification_sas_ready",
+            );
+            runtime
+                .block_on(async { peer_confirm.await })
+                .expect("peer confirmation task");
+            // Pause the trusted session NOW: it has confirmed (its MAC is
+            // out) but will not see the bridge's MAC, will not sign the
+            // new device, and will not answer secret requests until
+            // resumed.
+            pause_tx.send(true).ok();
+            eprintln!("[live] peer: paused after confirmation");
+
+            let fid = CString::new(flow_id.as_bytes()).unwrap();
+            let r = take(super::mx_rust_confirm_verification(
+                handle, fid.as_ptr(),
+            ));
+            assert!(r.is_empty(), "bridge confirm dispatch");
+            wait_for(
+                handle,
+                "bridge verification done",
+                Duration::from_secs(60),
+                |ev| ev["type"] == "verification_done",
+            );
+
+            // Give the coordinator's first ladder window a chance to run
+            // against the unresponsive peer, then resume it.
+            std::thread::sleep(Duration::from_secs(30));
+            pause_tx.send(false).ok();
+            eprintln!("[live] peer: resumed");
+
+            // The coordinator must observe the answers and reach the
+            // recovered state: cross-signing secrets present and the
+            // backup enabled (OneShot bulk download included).
+            wait_for(
+                handle,
+                "secret answer observed",
+                Duration::from_secs(180),
+                |ev| {
+                    is_bootstrap(ev, "secret_response")
+                        || (is_bootstrap(ev, "cross_signing_secrets")
+                            && ev["state"] == "complete")
+                },
+            );
+            let deadline = Instant::now() + Duration::from_secs(180);
+            let health = loop {
+                let r = take(super::mx_rust_query_crypto_health(handle));
+                assert!(r.is_empty(), "health dispatch");
+                let h = wait_for(
+                    handle,
+                    "crypto health snapshot",
+                    Duration::from_secs(20),
+                    |ev| {
+                        // Surface coordinator progress markers while
+                        // waiting (fixed kind/state tokens only).
+                        if ev["type"] == "crypto_bootstrap" {
+                            eprintln!(
+                                "[live] bootstrap {} {} {}",
+                                ev["kind"].as_str().unwrap_or("?"),
+                                ev["state"].as_str().unwrap_or(""),
+                                ev["count"].as_u64().unwrap_or(0),
+                            );
+                        }
+                        ev["type"] == "crypto_health"
+                    },
+                );
+                // Sanitized booleans and enum names only.
+                eprintln!(
+                    "[live] health master={} self={} user={} backup={} \
+                     xdev={} ownid={} recovery={}",
+                    h["has_master"], h["has_self_signing"],
+                    h["has_user_signing"], h["backup_state"],
+                    h["device_cross_signed"], h["own_identity_verified"],
+                    h["recovery_state"],
+                );
+                let complete = h["has_master"] == true
+                    && h["has_self_signing"] == true
+                    && h["has_user_signing"] == true
+                    && h["backup_state"] == "enabled"
+                    && h["device_cross_signed"] == true
+                    && h["own_identity_verified"] == true;
+                if complete {
+                    break h;
+                }
+                assert!(
+                    Instant::now() < deadline,
+                    "recovery never completed: cross-signing/backup state \
+                     did not converge"
+                );
+                std::thread::sleep(Duration::from_secs(5));
+            };
+            assert_eq!(health["recovery_state"], "enabled");
+            eprintln!("[live] bridge: secrets + backup recovered");
+
+            // A manual re-request after completion must honestly report
+            // that nothing is missing (proves the user action end to end).
+            let r = take(super::mx_rust_request_missing_secrets(handle));
+            assert!(r.is_empty(), "manual request dispatch");
+            wait_for(
+                handle,
+                "manual request reports none missing",
+                Duration::from_secs(30),
+                |ev| {
+                    is_bootstrap(ev, "secret_request")
+                        && ev["state"] == "none_missing"
+                },
+            );
+
+            // ── Restart persistence: same store, restored session. ──
+            let stopped = super::mx_rust_stop_sync(handle);
+            assert!(stopped >= 0);
+            {
+                // The sqlite pool releases connections via spawn_blocking;
+                // give the drop an ambient runtime (harness-only concern —
+                // the application tears down inside its own runtime).
+                let _guard = runtime.enter();
+                super::mx_rust_destroy(handle);
+            }
+
+            let handle2 = super::mx_rust_create(store.as_ptr());
+            assert!(!handle2.is_null());
+            let sf = CString::new(session_file.to_string_lossy().as_bytes())
+                .unwrap();
+            let r = take(super::mx_rust_set_session_file(handle2, sf.as_ptr()));
+            assert!(r.is_empty());
+            let hs = CString::new(homeserver.as_bytes()).unwrap();
+            let expected = {
+                let uid = peer.user_id().unwrap().to_string();
+                CString::new(uid.as_bytes()).unwrap()
+            };
+            let r = take(super::mx_rust_restore_from_file(
+                handle2, hs.as_ptr(), expected.as_ptr(),
+            ));
+            assert!(r.is_empty(), "restore dispatch");
+            wait_for(handle2, "bridge restore", Duration::from_secs(45), |ev| {
+                assert!(ev["type"] != "login_failed", "restore failed");
+                ev["type"] == "login_ok"
+            });
+            super::mx_rust_start_sync(handle2);
+            let deadline = Instant::now() + Duration::from_secs(120);
+            loop {
+                let r = take(super::mx_rust_query_crypto_health(handle2));
+                assert!(r.is_empty());
+                let h = wait_for(
+                    handle2,
+                    "post-restart crypto health",
+                    Duration::from_secs(20),
+                    |ev| ev["type"] == "crypto_health",
+                );
+                if h["has_master"] == true
+                    && h["has_self_signing"] == true
+                    && h["has_user_signing"] == true
+                    && h["backup_state"] == "enabled"
+                {
+                    break;
+                }
+                assert!(
+                    Instant::now() < deadline,
+                    "restart lost recovered secrets or backup state"
+                );
+                std::thread::sleep(Duration::from_secs(5));
+            }
+            eprintln!("[live] bridge: restart kept secrets and backup");
+
+            // Cleanup: sign the test device out (temp store, dedicated
+            // test account) and wait for the round trip before dropping.
+            super::mx_rust_logout(handle2);
+            let deadline = Instant::now() + Duration::from_secs(20);
+            'logout: while Instant::now() < deadline {
+                for ev in poll_all(handle2) {
+                    if ev["type"] == "logged_out" {
+                        break 'logout;
+                    }
+                }
+                std::thread::sleep(Duration::from_millis(300));
+            }
+            {
+                let _guard = runtime.enter();
+                super::mx_rust_destroy(handle2);
+            }
+        }
+        {
+            let _guard = runtime.enter();
+            drop(peer);
+        }
+        runtime.shutdown_timeout(Duration::from_secs(5));
+    }
+
+    fn tempfile_dir(prefix: &str) -> std::path::PathBuf {
+        let base = std::env::temp_dir().join(format!(
+            "{prefix}-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&base).expect("temp dir");
+        base
     }
 }
