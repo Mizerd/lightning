@@ -57,7 +57,7 @@ if ldd /usr/bin/matrix-client | tee "$ROOT/dist/deb-ldd.txt" | grep -q 'not foun
 fi
 
 set +e
-(cd /tmp && timeout 15s env QT_QPA_PLATFORM=offscreen /usr/bin/matrix-client --backend=mock) \
+(cd /tmp && timeout 15s env QT_QPA_PLATFORM=offscreen /usr/bin/matrix-client --backend=rust) \
     >"$ROOT/dist/deb-headless.log" 2>&1
 headless_status=$?
 set -e

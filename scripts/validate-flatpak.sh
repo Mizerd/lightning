@@ -45,7 +45,7 @@ version_output=$(run_app --version)
 
 set +e
 timeout 20s flatpak run --user --command=sh "$APP_ID" -c \
-    "cd /tmp && QT_QPA_PLATFORM=offscreen exec /app/bin/matrix-client --backend=mock" \
+    "cd /tmp && QT_QPA_PLATFORM=offscreen exec /app/bin/matrix-client --backend=rust" \
     > dist/flatpak-launch.log 2>&1
 status=$?
 set -e

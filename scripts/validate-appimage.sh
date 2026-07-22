@@ -31,7 +31,7 @@ version_output=$(cd /tmp && "$ROOT/$app" --version)
 
 set +e
 ( cd /tmp && timeout 20s env QT_QPA_PLATFORM=offscreen \
-    "$ROOT/$app" --backend=mock ) > dist/appimage-launch.log 2>&1
+    "$ROOT/$app" --backend=rust ) > dist/appimage-launch.log 2>&1
 status=$?
 set -e
 [ "$status" = 0 ] || [ "$status" = 124 ] \

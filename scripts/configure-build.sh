@@ -97,7 +97,10 @@ cmake -S "$SOURCE_DIR" -B "$BUILD_DIR" -G Ninja \
     -DCMAKE_INSTALL_PREFIX=/usr \
     -DBUILD_TESTING=OFF \
     -DENABLE_RUST_SDK_BACKEND=ON \
+    -DLIGHTNING_RUST_ONLY=ON \
     -DLIGHTNING_REQUIRE_GIF_KEYS="$REQUIRE_GIF_KEYS" \
+    -DLIGHTNING_ARTIFACT_KIND=release \
+    -DLIGHTNING_SOURCE_SHA="${SOURCE_SHA:-}" \
     "${CCACHE_ARGS[@]}"
 cmake --build "$BUILD_DIR" --parallel "$BUILD_JOBS"
 DESTDIR="$STAGE_DIR" cmake --install "$BUILD_DIR"
@@ -130,3 +133,14 @@ install -Dm0644 "$SOURCE_DIR/README.md" \
 
 test -x "$STAGE_DIR/usr/bin/matrix-client"
 "$STAGE_DIR/usr/bin/matrix-client" --version
+
+# Fail closed on the Rust-only release invariant: the staged binary must ship
+# only the Rust backend (no HTTP/mock compiled in, no runtime fallback).
+staged_build_info="$("$STAGE_DIR/usr/bin/matrix-client" --build-info)"
+printf '%s\n' "$staged_build_info" | tee "$ROOT/dist/build-info-linux.txt"
+printf '%s\n' "$staged_build_info" | grep -qx 'matrix_backend: rust' \
+    || die "staged binary is not Rust-only (matrix_backend != rust)"
+printf '%s\n' "$staged_build_info" | grep -qx 'http_backend_compiled: false' \
+    || die "staged binary compiled the HTTP backend"
+printf '%s\n' "$staged_build_info" | grep -qx 'mock_backend_compiled: false' \
+    || die "staged binary compiled the mock backend"

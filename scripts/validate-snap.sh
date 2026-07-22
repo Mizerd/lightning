@@ -57,7 +57,7 @@ version_output=$(cd /tmp && env SNAP="$audit/prime" QT_QPA_PLATFORM=offscreen \
 
 set +e
 ( cd /tmp && timeout 20s env SNAP="$audit/prime" QT_QPA_PLATFORM=offscreen \
-    "$audit/prime/usr/bin/matrix-client" --backend=mock \
+    "$audit/prime/usr/bin/matrix-client" --backend=rust \
     ) > dist/snap-launch.log 2>&1
 status=$?
 set -e
