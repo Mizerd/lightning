@@ -1339,7 +1339,7 @@ void AppController::setCurrentScreen(Screen s)
     if (m_currentScreen == s)
         return;
     qCInfo(lcApp) << "screen change" << int(m_currentScreen) << "->" << int(s)
-                  << "(0=Login, 1=Main, 2=Settings)";
+                  << "(0=Login, 1=Main, 2=Settings, 3=Boot)";
     m_currentScreen = s;
     Q_EMIT currentScreenChanged();
 }

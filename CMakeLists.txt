@@ -10,6 +10,34 @@ include(CTest)
 # Human-facing release label. Keep in sync with project() and rust/Cargo.toml.
 set(APP_VERSION_LABEL "0.6.2")
 
+# Build metadata surfaced by `matrix-client --build-info` (booleans/strings
+# only; never secrets). The source SHA is resolved from git at configure time
+# and can be overridden by packaging (project 7 checks out a pinned commit).
+set(LIGHTNING_SOURCE_SHA "" CACHE STRING "Source commit SHA for --build-info")
+if(NOT LIGHTNING_SOURCE_SHA)
+    execute_process(
+        COMMAND git -C "${CMAKE_SOURCE_DIR}" rev-parse HEAD
+        OUTPUT_VARIABLE _lightning_git_sha
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET RESULT_VARIABLE _lightning_git_rc)
+    if(_lightning_git_rc EQUAL 0)
+        set(LIGHTNING_SOURCE_SHA "${_lightning_git_sha}")
+    endif()
+endif()
+set(LIGHTNING_BUILD_TARGET "" CACHE STRING "Target triple for --build-info")
+if(NOT LIGHTNING_BUILD_TARGET)
+    if(CMAKE_CXX_COMPILER_TARGET)
+        set(LIGHTNING_BUILD_TARGET "${CMAKE_CXX_COMPILER_TARGET}")
+    elseif(WIN32)
+        set(LIGHTNING_BUILD_TARGET "x86_64-pc-windows-gnu")
+    else()
+        set(LIGHTNING_BUILD_TARGET
+            "${CMAKE_SYSTEM_PROCESSOR}-${CMAKE_SYSTEM_NAME}")
+    endif()
+endif()
+# "unsigned-test", "release", or "source" (default). Packaging sets this.
+set(LIGHTNING_ARTIFACT_KIND "source" CACHE STRING "Artifact kind for --build-info")
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -376,6 +404,9 @@ function(lightning_configure_qml_app target)
 
     target_compile_definitions(${target} PRIVATE
         APP_VERSION="${APP_VERSION_LABEL}"
+        LIGHTNING_SOURCE_SHA="${LIGHTNING_SOURCE_SHA}"
+        LIGHTNING_BUILD_TARGET="${LIGHTNING_BUILD_TARGET}"
+        LIGHTNING_ARTIFACT_KIND="${LIGHTNING_ARTIFACT_KIND}"
         $<$<CONFIG:Release>:QT_NO_DEBUG_OUTPUT>
     )
 
@@ -480,6 +511,15 @@ endif()
 
 qt_add_executable(matrix-client ${APP_SOURCES})
 lightning_configure_qml_app(matrix-client)
+
+# On Windows the production binary is a GUI-subsystem PE so a normal
+# double-click never flashes or leaves a console window. --version / --help /
+# --build-info still print to a parent console when launched from one (main.cpp
+# attaches to it). Only the production executable gets this — test binaries stay
+# console-subsystem so CTest captures their output.
+if(WIN32)
+    set_target_properties(matrix-client PROPERTIES WIN32_EXECUTABLE ON)
+endif()
 
 if(BUILD_TESTING)
     find_package(Qt6 6.5 REQUIRED COMPONENTS Test)

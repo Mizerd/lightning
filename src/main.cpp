@@ -26,10 +26,77 @@
 #include <cstdlib>
 #include <string>
 
+#ifdef Q_OS_WIN
+#include <cstdio>
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#endif
+
 namespace {
 
 using lightning::backendFromName;
 using lightning::backendNameFor;
+
+#ifdef Q_OS_WIN
+// The production Windows binary is a GUI-subsystem PE (no console) so a
+// double-click never flashes a terminal. To keep --version / --help /
+// --build-info and diagnostic logging usable, attach to the parent console
+// when launched from cmd/powershell. A double-click has no parent console, so
+// this is a harmless no-op and no window appears. --console forces a visible
+// console. UTF-8 output so log punctuation (e.g. en-dashes) is not mojibake.
+void configureWindowsConsole(bool forceAlloc)
+{
+    bool attached = AttachConsole(ATTACH_PARENT_PROCESS) != 0;
+    if (!attached && forceAlloc)
+        attached = AllocConsole() != 0;
+    if (attached) {
+        FILE *f = nullptr;
+        f = freopen("CONOUT$", "w", stdout);
+        f = freopen("CONOUT$", "w", stderr);
+        (void)f;
+        SetConsoleOutputCP(CP_UTF8);
+    }
+}
+#endif
+
+// Non-secret build metadata for --build-info: version, source revision, target
+// triple, compiled backends, the compiled default backend, the compiled secret
+// store, and the artifact kind. Never prints keys, tokens, or account data.
+QString buildInfoString()
+{
+    QStringList backends;
+#ifdef ENABLE_RUST_SDK_BACKEND
+    backends << QStringLiteral("rust");
+#endif
+    backends << QStringLiteral("http") << QStringLiteral("mock");
+
+    const QString secretStore =
+#if defined(HAVE_WINCRED)
+        QStringLiteral("windows-credential-manager");
+#elif defined(HAVE_LIBSECRET)
+        QStringLiteral("libsecret");
+#else
+        QStringLiteral("insecure-qsettings");
+#endif
+
+    return QStringLiteral(
+        "version: %1\n"
+        "source: %2\n"
+        "target: %3\n"
+        "backends: %4\n"
+        "default_backend: %5\n"
+        "secret_store: %6\n"
+        "artifact_kind: %7\n")
+        .arg(QLatin1String(APP_VERSION),
+             QLatin1String(LIGHTNING_SOURCE_SHA),
+             QLatin1String(LIGHTNING_BUILD_TARGET),
+             backends.join(QLatin1Char(',')),
+             backendNameFor(lightning::defaultBackend()),
+             secretStore,
+             QLatin1String(LIGHTNING_ARTIFACT_KIND));
+}
 
 // Simple pre-flight CLI parser that runs *before* QGuiApplication is
 // constructed. Bad --backend values or --help are handled here so a Qt
@@ -54,6 +121,7 @@ struct PreflightResult {
     bool backendExplicit = false;
     bool mockAliasUsed = false;
     bool smokeTestRequested = false;
+    bool consoleRequested = false;   // Windows: force a visible console.
     QString stderrMsg;
     QString stdoutMsg;
 };
@@ -73,6 +141,12 @@ PreflightResult preflightParse(int argc, char *argv[])
                 "Options:\n"
                 "  -h, --help           Show this help and exit.\n"
                 "  -v, --version        Show version and exit.\n"
+                "  --build-info         Print non-secret build metadata (version,\n"
+                "                       source, target, backends, default backend,\n"
+                "                       secret store, artifact kind) and exit.\n"
+                "  --console            Windows: open a visible diagnostic console\n"
+                "                       for the GUI-subsystem binary. No effect\n"
+                "                       elsewhere.\n"
                 "  --mock               Alias for --backend=mock.\n"
                 "                       Note: --http and --rust are NOT accepted;\n"
                 "                       use --backend=http / --backend=rust instead.\n"
@@ -107,6 +181,18 @@ PreflightResult preflightParse(int argc, char *argv[])
             r.action = PreflightResult::ExitSuccess;
             r.stdoutMsg = QStringLiteral("matrix-client %1\n").arg(QLatin1String(APP_VERSION));
             return r;
+        }
+        if (a == QLatin1String("--build-info")) {
+            r.action = PreflightResult::ExitSuccess;
+            r.stdoutMsg = buildInfoString();
+            return r;
+        }
+        if (a == QLatin1String("--console")) {
+            // Windows: request a visible diagnostic console. Parsed on every
+            // platform so it is never treated as an unknown flag; only acted
+            // on under Q_OS_WIN.
+            r.consoleRequested = true;
+            continue;
         }
         if (a == QLatin1String("--mock")) {
             r.mockAliasUsed = true;
@@ -285,6 +371,13 @@ int main(int argc, char *argv[])
     // This keeps --help / --version / bad --backend from being masked by a
     // Qt platform-plugin abort when no display is available.
     const PreflightResult pf = preflightParse(argc, argv);
+
+#ifdef Q_OS_WIN
+    // Attach to a parent console (if any) so the GUI-subsystem binary can still
+    // print --version / --help / --build-info and diagnostic logs where it was
+    // launched; a double-click has no parent console and stays window-only.
+    configureWindowsConsole(pf.consoleRequested);
+#endif
 
     // Qt's default message handler routes qCDebug/qCInfo/qCWarning to the
     // systemd journal instead of stderr whenever stderr is not a TTY, which
