@@ -44,8 +44,8 @@ native Windows acceptance.
 ## Verified cross-build result
 
 The pre-runner feasibility pass built the unchanged Rust-enabled source as a
-62 MiB PE32+ x86-64 console application. The complete staged runtime contained
-149 x86-64 PE executables/DLLs; dependency closure, required QML imports and
+62 MiB PE32+ x86-64 console application. The final deployment contained 145
+x86-64 PE executables/DLLs; dependency closure, required QML imports and
 plugins, path/secret scans, portable ZIP inspection, x64 MSI table inspection,
 and amd64 NSIS inspection passed. Separate clean Wine prefixes passed portable
 `--version`, silent MSI install/run/uninstall, and silent NSIS
@@ -62,6 +62,11 @@ web/API pipeline on project 7's protected default branch when
 `BUILD_WINDOWS_PACKAGES=true`, `PUBLISH_PACKAGES=false`, and `SOURCE_REF` is a
 full source commit. The job uses a prebuilt local image; it does not build a
 Dockerfile from a user-selected source ref and does not receive the host socket.
+Large artifact uploads use GitLab's host-internal coordinator endpoint because
+the public proxy rejects request bodies above approximately 100 MiB. Source
+checkout remains on the canonical HTTPS origin with certificate verification;
+the internal coordinator route is a deliberately documented trusted-network
+boundary, not a TLS-verification bypass.
 
 ## Known limitations
 

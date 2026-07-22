@@ -113,6 +113,13 @@ unprotected work. Build tools remain inside the pinned
 `lightning-windows-builder:fedora44-qt6.11.1-rust1.95.0-v1` image; the job does
 not receive the host Docker socket.
 
+The runner manager uses GitLab's host-internal coordinator endpoint for polling
+and the combined artifact upload because the public proxy rejects request
+bodies above approximately 100 MiB. Project source fetches remain on the
+canonical HTTPS URL with certificate verification. The internal route is a
+trusted-network boundary; it is not exposed to job containers and no TLS
+verification setting is disabled.
+
 Start a new pipeline from project 7's protected default branch with exactly:
 
 ```text

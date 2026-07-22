@@ -4,7 +4,9 @@ shutdown_timeout = 30
 
 [[runners]]
   name = "lightning-windows-cross-main-gitlab"
-  url = "https://gitlab.smetonis.net"
+  # Keep coordinator polling and large job-artifact uploads on the host-internal
+  # GitLab endpoint. Source repositories still use the canonical HTTPS URL.
+  url = "http://10.195.35.2"
   token = "REPLACE_ON_HOST_WITH_PROJECT_RUNNER_AUTHENTICATION_TOKEN"
   executor = "docker"
   limit = 1

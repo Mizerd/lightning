@@ -16,3 +16,10 @@ The manager's Docker socket mount is root-equivalent and must not be added to
 the job `volumes` list. Keep `concurrent=1`, the image allowlist, and the
 project CI rule intact. See `docs/windows-runner-operations.md` for status,
 rotation, cache maintenance, and rollback commands.
+
+The manager polls GitLab and uploads the combined Windows artifact archive over
+the host-internal `http://10.195.35.2` endpoint. This avoids the public proxy's
+approximately 100 MiB request limit without exposing jobs to GitLab's Docker
+network. Project source URLs remain canonical HTTPS URLs with normal
+certificate verification. Do not add a TLS-disable option or expose the
+internal endpoint outside the trusted host network.

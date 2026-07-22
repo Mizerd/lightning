@@ -28,12 +28,22 @@ containers do **not** receive the socket, host paths, GitLab volumes, SSH keys,
 or secrets. Do not make the tags available to another project and do not relax
 the rule for merge requests or arbitrary branches.
 
-GitLab source fetches use normal certificate verification against
+Project source fetches use normal certificate verification against
 `https://gitlab.smetonis.net`. No private CA is needed in the current topology;
-never set `GIT_SSL_NO_VERIFY`, use `curl -k`, or disable runner TLS checks.
-Project 7's short-lived `CI_JOB_TOKEN` and the existing project-6 inbound
-allowlist are the only source credentials. The runner authentication token is
-stored only in the root-owned `config/config.toml` on the host.
+never set `GIT_SSL_NO_VERIFY`, use `curl -k`, or disable TLS checks. Project 7's
+short-lived `CI_JOB_TOKEN` and the existing project-6 inbound allowlist are the
+only source credentials. The runner authentication token is stored only in the
+root-owned `config/config.toml` on the host.
+
+The public hostname is behind a proxy with an approximately 100 MiB request
+limit, while the combined MSI, setup EXE, portable ZIP, deployment tree, and
+reports form a larger artifact archive. The manager therefore polls the
+coordinator and uploads job artifacts through GitLab's established
+host-internal `http://10.195.35.2` endpoint. This traffic remains on the trusted
+GitLab host network; job containers are not attached to GitLab's private Docker
+network. Source clones remain HTTPS, and no certificate-verification bypass is
+set. Treat access to that internal network as a credential-bearing trust
+boundary.
 
 ## Routine commands
 
@@ -74,6 +84,12 @@ the measured Rust LTO peak approached 5.8 GiB, so the job has an 8 GiB cap
 while concurrency stays one. A missing local builder image,
 an unprotected ref, a non-SHA source, or any publication/release input causes
 the job to be absent or fail closed.
+
+An HTTP 413 during artifact upload means the runner is using the public proxy
+instead of the internal coordinator endpoint. Check only the non-secret `url`
+field in root-owned `config/config.toml`, correct it to `http://10.195.35.2`,
+then restart and verify this dedicated runner. Do not print the token or weaken
+project source TLS.
 
 ## Token rotation and unregister
 
