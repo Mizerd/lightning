@@ -22,15 +22,28 @@ constexpr QLatin1String kApplicationName{"matrix-client"};
 constexpr QLatin1String kRustStoreName{"matrix-rust-sdk-store"};
 constexpr QLatin1String kSmokeSessionName{"matrix-rust-sdk-smoke-session.json"};
 
-QString xdgDataHome()
+QString envValue(const char *name)
 {
-    const char *xdg = std::getenv("XDG_DATA_HOME");
-    if (xdg && *xdg)
-        return QString::fromLocal8Bit(xdg);
-    const char *home = std::getenv("HOME");
-    if (home && *home)
-        return QString::fromLocal8Bit(home) + QLatin1String("/.local/share");
-    return {};
+    const char *v = std::getenv(name);
+    return (v && *v) ? QString::fromLocal8Bit(v) : QString();
+}
+
+// Resolve the app-data base from the current process environment. The actual
+// selection logic lives in the pure resolveAppDataBase() so it can be tested
+// on any host; this only reads getenv (which is why it stays usable before a
+// QCoreApplication exists, as --reset-crypto-store requires).
+QString appDataBase()
+{
+#ifdef Q_OS_WIN
+    constexpr bool kWindows = true;
+#else
+    constexpr bool kWindows = false;
+#endif
+    return resolveAppDataBase(kWindows,
+                              envValue("XDG_DATA_HOME"),
+                              envValue("LOCALAPPDATA"),
+                              envValue("USERPROFILE"),
+                              envValue("HOME"));
 }
 
 bool isSafePathComponent(const QString &value)
@@ -128,9 +141,28 @@ bool AccountIdentity::isValid() const
     return isSafeAccountIdentity(*this);
 }
 
+QString resolveAppDataBase(bool windows,
+                           const QString &xdgDataHome,
+                           const QString &localAppData,
+                           const QString &userProfile,
+                           const QString &home)
+{
+    if (!xdgDataHome.isEmpty())
+        return xdgDataHome;
+    if (windows) {
+        if (!localAppData.isEmpty())
+            return localAppData;
+        if (!userProfile.isEmpty())
+            return userProfile + QLatin1String("/AppData/Local");
+    }
+    if (!home.isEmpty())
+        return home + QLatin1String("/.local/share");
+    return {};
+}
+
 QString primaryRoot()
 {
-    const QString base = xdgDataHome();
+    const QString base = appDataBase();
     if (base.isEmpty()) return {};
     return base
         + QLatin1Char('/') + kOrganizationName
@@ -294,7 +326,7 @@ RemovalSummary removeAccountRustState(const AccountIdentity &identity)
 QStringList legacyRoots()
 {
     QStringList out;
-    const QString base = xdgDataHome();
+    const QString base = appDataBase();
     if (base.isEmpty()) return out;
 
     // v0.5.0-prep+3 and earlier resolved --reset-crypto-store to

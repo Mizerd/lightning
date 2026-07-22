@@ -11,6 +11,8 @@ class AppDataPathsTest : public QObject
 
 private Q_SLOTS:
     void initTestCase();
+    void resolveAppDataBase_data();
+    void resolveAppDataBase();
     void canonicalIdentity_data();
     void canonicalIdentity();
     void rejectsInvalidIdentity_data();
@@ -32,6 +34,69 @@ void AppDataPathsTest::initTestCase()
 {
     QVERIFY(m_dataHome.isValid());
     qputenv("XDG_DATA_HOME", m_dataHome.path().toUtf8());
+}
+
+void AppDataPathsTest::resolveAppDataBase_data()
+{
+    QTest::addColumn<bool>("windows");
+    QTest::addColumn<QString>("xdg");
+    QTest::addColumn<QString>("localAppData");
+    QTest::addColumn<QString>("userProfile");
+    QTest::addColumn<QString>("home");
+    QTest::addColumn<QString>("expected");
+
+    // XDG_DATA_HOME always wins, on either platform.
+    QTest::newRow("xdg-wins-linux")
+        << false << QStringLiteral("/xdg/data") << QString() << QString()
+        << QStringLiteral("/home/x") << QStringLiteral("/xdg/data");
+    QTest::newRow("xdg-wins-windows")
+        << true << QStringLiteral("D:/xdg") << QStringLiteral("C:/Users/X/AppData/Local")
+        << QString() << QString() << QStringLiteral("D:/xdg");
+
+    // Windows: LOCALAPPDATA, then USERPROFILE\AppData\Local. Drive letters,
+    // spaces and Unicode profile names must all survive.
+    QTest::newRow("win-localappdata")
+        << true << QString() << QStringLiteral("C:/Users/Test/AppData/Local")
+        << QStringLiteral("C:/Users/Test") << QStringLiteral("/ignored")
+        << QStringLiteral("C:/Users/Test/AppData/Local");
+    QTest::newRow("win-userprofile-fallback")
+        << true << QString() << QString()
+        << QStringLiteral("C:/Users/Rokas Name") << QString()
+        << QStringLiteral("C:/Users/Rokas Name/AppData/Local");
+    QTest::newRow("win-unicode-profile")
+        << true << QString() << QString()
+        << QStringLiteral("C:/Users/Žmogus") << QString()
+        << QStringLiteral("C:/Users/Žmogus/AppData/Local");
+
+    // Windows lookup is NOT consulted on non-Windows even if the vars are set.
+    QTest::newRow("linux-ignores-localappdata")
+        << false << QString() << QStringLiteral("C:/Users/X/AppData/Local")
+        << QString() << QStringLiteral("/home/y")
+        << QStringLiteral("/home/y/.local/share");
+
+    // POSIX HOME fallback.
+    QTest::newRow("linux-home")
+        << false << QString() << QString() << QString()
+        << QStringLiteral("/home/z") << QStringLiteral("/home/z/.local/share");
+
+    // Nothing resolvable → empty (never a bogus root).
+    QTest::newRow("nothing-linux")
+        << false << QString() << QString() << QString() << QString() << QString();
+    QTest::newRow("nothing-windows")
+        << true << QString() << QString() << QString() << QString() << QString();
+}
+
+void AppDataPathsTest::resolveAppDataBase()
+{
+    QFETCH(bool, windows);
+    QFETCH(QString, xdg);
+    QFETCH(QString, localAppData);
+    QFETCH(QString, userProfile);
+    QFETCH(QString, home);
+    QFETCH(QString, expected);
+    QCOMPARE(matrix::app_data::resolveAppDataBase(windows, xdg, localAppData,
+                                                  userProfile, home),
+             expected);
 }
 
 void AppDataPathsTest::canonicalIdentity_data()

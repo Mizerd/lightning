@@ -258,19 +258,29 @@ bool CppHttpMatrixClient::restoreSession()
 
     setState(Connecting);
     openCacheFor(m_userId);
+    // openCacheFor() nulls m_cache when the cache could not be opened at all
+    // (e.g. an unresolved app-data root). That is a purely local failure and
+    // says nothing about the validity of the server-side /sync token.
+    const bool cacheOpened = static_cast<bool>(m_cache);
     const int cachedVisibleRoomCount = loadCachedState();
-    if (cachedVisibleRoomCount == 0 && !m_syncToken.isEmpty()) {
+    if (cacheOpened && cachedVisibleRoomCount == 0 && !m_syncToken.isEmpty()) {
         // A /sync since token is only useful together with the local state
-        // that token advances from. If the SQLite cache is empty, missing,
-        // or only contains Space rooms that are hidden from the visible room
-        // list, an incremental sync can correctly return no joined-room
-        // objects and leave the app looking empty. Force a since-less
-        // initial sync so the server sends a full room snapshot again.
+        // that token advances from. If the SQLite cache OPENED but is empty,
+        // missing rooms, or only contains Space rooms that are hidden from the
+        // visible room list, an incremental sync can correctly return no
+        // joined-room objects and leave the app looking empty. Force a
+        // since-less initial sync so the server sends a full room snapshot
+        // again. When the cache failed to open we KEEP the token: discarding
+        // it there is what forced a full initial sync on every Windows launch.
         qCWarning(lcHttp)
             << "discarding stored sync token because cache has no visible rooms;"
             << "forcing initial sync";
         m_syncToken.clear();
         m_settings->setSyncToken({});
+    } else if (!cacheOpened && !m_syncToken.isEmpty()) {
+        qCWarning(lcHttp)
+            << "cache unavailable; keeping stored sync token for an "
+               "incremental resume";
     }
     doWhoami();
     return true;

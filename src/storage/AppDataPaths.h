@@ -13,9 +13,14 @@
 //
 // Because reset runs before Qt is up, we cannot call
 // `QStandardPaths::writableLocation(AppLocalDataLocation)` there. This
-// helper computes the same path Qt would return, using only $HOME /
-// $XDG_DATA_HOME and the compile-time OrganizationName / ApplicationName
-// pair that `main.cpp` sets on `QCoreApplication`.
+// helper computes the same path Qt would return from the environment and
+// the compile-time OrganizationName / ApplicationName pair that `main.cpp`
+// sets on `QCoreApplication`. The base directory is resolved per platform:
+//   - $XDG_DATA_HOME if set (any platform);
+//   - on Windows, %LOCALAPPDATA% (or %USERPROFILE%\AppData\Local);
+//   - otherwise $HOME/.local/share.
+// Reading only POSIX $HOME/$XDG_DATA_HOME (the pre-fix behaviour) returned
+// an empty base on native Windows, which refused every account cache path.
 //
 // The helper also lists LEGACY roots that earlier v0.5.0-prep+3 / +4
 // builds wrote to (before this fix). Reset scans those as well so a
@@ -43,8 +48,21 @@ struct RemovalSummary {
 
 // Same path QStandardPaths::AppLocalDataLocation resolves to at runtime
 // (with OrganizationName="MatrixClient" and ApplicationName="matrix-client").
-// Returns empty when neither $HOME nor $XDG_DATA_HOME is set.
+// On Windows this is %LOCALAPPDATA%\MatrixClient\matrix-client. Returns empty
+// only when no usable base directory can be resolved from the environment.
 QString primaryRoot();
+
+// Pure resolver for the app-data base directory, factored out so the
+// platform-specific branch (Windows %LOCALAPPDATA% / %USERPROFILE%) is unit
+// testable on any host. `windows` selects the Windows lookup order; the four
+// strings are the raw values of $XDG_DATA_HOME, %LOCALAPPDATA%, %USERPROFILE%
+// and $HOME (empty when unset). Precedence: XDG_DATA_HOME, then (Windows only)
+// LOCALAPPDATA / USERPROFILE\AppData\Local, then HOME/.local/share, then empty.
+QString resolveAppDataBase(bool windows,
+                           const QString &xdgDataHome,
+                           const QString &localAppData,
+                           const QString &userProfile,
+                           const QString &home);
 
 // Safe per-account directory slug used under the app data roots. Returns an
 // empty string for malformed or unsafe Matrix user ids.
