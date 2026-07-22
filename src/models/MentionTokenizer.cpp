@@ -1,5 +1,6 @@
 #include "models/MentionTokenizer.h"
 
+#include <QRegularExpression>
 #include <QUrl>
 
 #include <algorithm>
@@ -222,6 +223,59 @@ Expansion expand(const QString &text, const QList<MentionRef> &refs)
     }
     result.body = body;
     return result;
+}
+
+Recovery recoverFromBody(const QString &body)
+{
+    Recovery out;
+    static const QRegularExpression link(QStringLiteral(
+        "\\[((?:[^\\]\\\\\\n]|\\\\.){1,120})\\]"
+        "\\((https://matrix\\.to/#/[^)\\s]{1,512})\\)"));
+
+    QString text;
+    text.reserve(body.size());
+    qsizetype cursor = 0;
+    auto it = link.globalMatch(body);
+    while (it.hasNext()) {
+        const QRegularExpressionMatch m = it.next();
+
+        // Only matrix.to USER permalinks are mentions; room/event links (and
+        // any unparseable target) stay as literal markdown.
+        const QUrl url(m.captured(2));
+        QString frag = url.fragment(QUrl::FullyDecoded);
+        if (frag.startsWith(QLatin1Char('/')))
+            frag = frag.mid(1);
+        const qsizetype slash = frag.indexOf(QLatin1Char('/'));
+        if (slash >= 0)
+            frag = frag.left(slash);
+        const bool isUser = frag.startsWith(QLatin1Char('@'))
+            && frag.contains(QLatin1Char(':'));
+        if (!isUser
+            || url.host().compare(QLatin1String("matrix.to"),
+                                  Qt::CaseInsensitive) != 0) {
+            text += body.mid(cursor, m.capturedEnd() - cursor);
+            cursor = m.capturedEnd();
+            continue;
+        }
+
+        // Unescape the label ("\]" and "\\" per escapeLinkLabel).
+        QString label = m.captured(1);
+        label.replace(QLatin1String("\\]"), QLatin1String("]"));
+        label.replace(QLatin1String("\\\\"), QLatin1String("\\"));
+
+        text += body.mid(cursor, m.capturedStart() - cursor);
+        MentionRef ref;
+        ref.userId = frag;
+        ref.displayText = label;
+        ref.start = static_cast<int>(text.length());
+        ref.length = static_cast<int>(label.length());
+        out.refs.append(ref);
+        text += label;
+        cursor = m.capturedEnd();
+    }
+    text += body.mid(cursor);
+    out.text = text;
+    return out;
 }
 
 } // namespace mention

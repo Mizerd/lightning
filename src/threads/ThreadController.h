@@ -48,6 +48,10 @@ class ThreadController : public QObject
     // tracked (the room composer keeps its own text on MessageComposer). The
     // thread panel two-way-binds its TextArea to this.
     Q_PROPERTY(QString text READ text WRITE setText NOTIFY textChanged)
+    // Mention ranges [{start, length}] for the thread composer's chip
+    // highlighter; mirrors MessageComposer::mentionRanges.
+    Q_PROPERTY(QVariantList mentionRanges READ mentionRanges
+                   NOTIFY mentionRangesChanged)
     // v0.6.0 checkpoint 4: rich-reply-within-thread compose state. The panel
     // composer shows the banner; sendText targets the reply through the SDK
     // thread path.
@@ -92,6 +96,17 @@ public:
     QString failureCategory() const { return m_failureCategory; }
     TimelineModel *model() { return &m_model; }
     QString text() const { return m_text; }
+    QVariantList mentionRanges() const
+    {
+        QVariantList out;
+        for (const mention::MentionRef &ref : m_mentionRefs) {
+            out.append(QVariantMap{
+                { QStringLiteral("start"), ref.start },
+                { QStringLiteral("length"), ref.length },
+            });
+        }
+        return out;
+    }
     void setText(const QString &text);
     bool inReply() const { return !m_replyToEventId.isEmpty(); }
     QString replyToEventId() const { return m_replyToEventId; }
@@ -168,6 +183,7 @@ Q_SIGNALS:
     void supportedChanged();
     void stateChanged();
     void textChanged();
+    void mentionRangesChanged();
     void replyStateChanged();
     void followStateChanged();
     void listStateChanged();

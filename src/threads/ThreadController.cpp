@@ -230,11 +230,13 @@ void ThreadController::setText(const QString &text)
     m_mentionRefs = mention::shiftRefs(m_mentionRefs, m_text, text);
     m_text = text;
     Q_EMIT textChanged();
+    Q_EMIT mentionRangesChanged();
 }
 
 void ThreadController::clearComposerText()
 {
     m_mentionRefs.clear();
+    Q_EMIT mentionRangesChanged();
     if (m_text.isEmpty())
         return;
     m_text.clear();
@@ -277,6 +279,7 @@ int ThreadController::insertMention(const QString &userId,
     m_mentionRefs.append(res.ref);
     m_text = res.text;
     Q_EMIT textChanged();
+    Q_EMIT mentionRangesChanged();
     return res.cursorPos;
 }
 

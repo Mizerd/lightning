@@ -8,6 +8,7 @@
 #include <QString>
 #include <QTimer>
 #include <QUrl>
+#include <QVariantList>
 #include <QVariantMap>
 
 class MatrixClient;
@@ -32,6 +33,11 @@ class MessageComposer : public QObject
     Q_PROPERTY(AttachmentQueueModel* attachments READ attachments CONSTANT)
     Q_PROPERTY(bool hasAttachments READ hasAttachments NOTIFY attachmentsChanged)
     Q_PROPERTY(bool attachmentsSupported READ attachmentsSupported NOTIFY roomIdChanged)
+    // Current mention ranges as [{start, length}] for the composer's chip
+    // highlighter and atomic-delete key handling. Derived from the semantic
+    // refs; re-announced on every text change (the refs re-anchor there).
+    Q_PROPERTY(QVariantList mentionRanges READ mentionRanges
+                   NOTIFY mentionRangesChanged)
 
 public:
     explicit MessageComposer(QObject *parent = nullptr);
@@ -55,6 +61,18 @@ public:
     bool inThread()   const { return !m_threadRootId.isEmpty(); }
 
     bool canSend() const;
+
+    QVariantList mentionRanges() const
+    {
+        QVariantList out;
+        for (const mention::MentionRef &ref : m_mentionRefs) {
+            out.append(QVariantMap{
+                { QStringLiteral("start"), ref.start },
+                { QStringLiteral("length"), ref.length },
+            });
+        }
+        return out;
+    }
 
     Q_INVOKABLE void send();
     Q_INVOKABLE void clear();
@@ -129,6 +147,7 @@ public:
 
 Q_SIGNALS:
     void textChanged();
+    void mentionRangesChanged();
     void roomIdChanged();
     void canSendChanged();
     void replyStateChanged();

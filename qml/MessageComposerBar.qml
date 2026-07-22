@@ -669,11 +669,40 @@ Item {
                             if (event.matches(StandardKey.Paste)
                                     && app.composer.pasteFromClipboard()) {
                                 event.accepted = true
+                                return
+                            }
+                            // Atomic mention delete: Backspace at a chip's
+                            // trailing edge (or Delete at its leading edge)
+                            // removes the whole mention in one keystroke.
+                            if ((event.key === Qt.Key_Backspace
+                                 || event.key === Qt.Key_Delete)
+                                    && input.selectionStart === input.selectionEnd) {
+                                var ranges = app.composer.mentionRanges
+                                for (var i = 0; i < ranges.length; ++i) {
+                                    var r = ranges[i]
+                                    var hit = event.key === Qt.Key_Backspace
+                                        ? input.cursorPosition === r.start + r.length
+                                        : input.cursorPosition === r.start
+                                    if (hit) {
+                                        input.remove(r.start, r.start + r.length)
+                                        event.accepted = true
+                                        return
+                                    }
+                                }
                             }
                         }
                         // The card is the visual container: the field itself
                         // is borderless and transparent — no inner pill.
                         background: Rectangle { color: "transparent" }
+
+                        // Inline mention chips over the semantic ranges the
+                        // composer re-anchors on every edit.
+                        MentionHighlighter {
+                            document: input.textDocument
+                            ranges: app.composer.mentionRanges
+                            accentColor: AppTheme.accent
+                            softColor: AppTheme.accentSoft
+                        }
                     }
 
                     IconButton {

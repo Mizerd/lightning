@@ -159,6 +159,8 @@ set(APP_SOURCES
     src/models/MentionTokenizer.cpp
     src/models/MentionSuggestionModel.h
     src/models/MentionSuggestionModel.cpp
+    src/models/MentionHighlighter.h
+    src/models/MentionHighlighter.cpp
     src/models/MarkdownFormat.h
     src/models/MarkdownFormat.cpp
     src/models/EmojiCatalog.h

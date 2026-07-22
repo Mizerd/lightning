@@ -72,4 +72,15 @@ struct Expansion {
 // Text with no refs is returned unchanged, so the readable body is preserved.
 Expansion expand(const QString &text, const QList<MentionRef> &refs);
 
+// Reverse of expand(), for the Edit flow: parse a raw plain body containing
+// [label](https://matrix.to/#/<mxid>) user links back into the human-readable
+// display text plus recovered refs, so editing shows "@Alice" instead of raw
+// markdown and a resend keeps m.mentions. Room/event matrix.to links and all
+// other markdown pass through untouched.
+struct Recovery {
+    QString text;
+    QList<MentionRef> refs;
+};
+Recovery recoverFromBody(const QString &body);
+
 } // namespace mention

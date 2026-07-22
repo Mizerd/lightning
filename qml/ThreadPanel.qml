@@ -919,7 +919,35 @@ Rectangle {
                                 } else if (event.matches(StandardKey.Paste)
                                            && app.thread.pasteFromClipboard()) {
                                     event.accepted = true
+                                } else if ((event.key === Qt.Key_Backspace
+                                            || event.key === Qt.Key_Delete)
+                                           && threadComposerInput.selectionStart
+                                              === threadComposerInput.selectionEnd) {
+                                    // Atomic mention delete, mirroring the
+                                    // room composer.
+                                    var ranges = app.thread.mentionRanges
+                                    for (var i = 0; i < ranges.length; ++i) {
+                                        var r = ranges[i]
+                                        var hit = event.key === Qt.Key_Backspace
+                                            ? threadComposerInput.cursorPosition
+                                              === r.start + r.length
+                                            : threadComposerInput.cursorPosition
+                                              === r.start
+                                        if (hit) {
+                                            threadComposerInput.remove(
+                                                r.start, r.start + r.length)
+                                            event.accepted = true
+                                            return
+                                        }
+                                    }
                                 }
+                            }
+
+                            MentionHighlighter {
+                                document: threadComposerInput.textDocument
+                                ranges: app.thread.mentionRanges
+                                accentColor: AppTheme.accent
+                                softColor: AppTheme.accentSoft
                             }
                         }
                         IconButton {

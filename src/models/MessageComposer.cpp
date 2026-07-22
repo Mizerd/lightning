@@ -181,6 +181,7 @@ void MessageComposer::setText(const QString &t)
     m_mentionRefs = mention::shiftRefs(m_mentionRefs, m_text, t);
     m_text = t;
     Q_EMIT textChanged();
+    Q_EMIT mentionRangesChanged();
     updateCanSend();
     refreshTypingState();
 }
@@ -199,6 +200,7 @@ void MessageComposer::setRoomId(const QString &r)
     m_text.clear();
     m_mentionRefs.clear();
     Q_EMIT textChanged();
+    Q_EMIT mentionRangesChanged();
     Q_EMIT roomIdChanged();
     updateCanSend();
 }
@@ -248,6 +250,7 @@ void MessageComposer::send()
 void MessageComposer::clear()
 {
     m_mentionRefs.clear();
+    Q_EMIT mentionRangesChanged();
     if (m_text.isEmpty()) return;
     m_text.clear();
     Q_EMIT textChanged();
@@ -295,6 +298,7 @@ int MessageComposer::insertMention(const QString &userId,
     m_mentionRefs.append(res.ref);
     m_text = res.text;
     Q_EMIT textChanged();
+    Q_EMIT mentionRangesChanged();
     updateCanSend();
     refreshTypingState();
     return res.cursorPos;
@@ -323,8 +327,14 @@ void MessageComposer::beginEdit(const QString &eventId,
     m_threadPreview.clear();
     Q_EMIT threadStateChanged();
     m_editingEventId = eventId;
-    m_text = currentBody;
+    // The raw body of a mention send is markdown ([@x](https://matrix.to/…));
+    // editing must show the human-readable text and keep the semantic refs,
+    // or the resend would silently drop m.mentions.
+    const mention::Recovery recovered = mention::recoverFromBody(currentBody);
+    m_text = recovered.text;
+    m_mentionRefs = recovered.refs;
     Q_EMIT editStateChanged();
+    Q_EMIT mentionRangesChanged();
     Q_EMIT textChanged();
     updateCanSend();
 }
@@ -355,6 +365,7 @@ void MessageComposer::cancelReplyOrEdit()
     m_threadRootId.clear();
     m_threadPreview.clear();
     m_mentionRefs.clear();
+    Q_EMIT mentionRangesChanged();
     if (wasEditing) {
         m_text.clear();
         Q_EMIT textChanged();
