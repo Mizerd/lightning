@@ -13,7 +13,16 @@ name = "matrix_client_rust"
 crate-type = ["staticlib"]
 
 [dependencies]
-matrix-sdk = { version = "0.18", default-features = false, features = ["e2e-encryption", "sqlite", "markdown"] }
+# `testing` is required in production here: matrix-sdk 0.18 gates the ONLY
+# public accessor to the OlmMachine (`Client::olm_machine_for_testing`)
+# behind it, and that accessor is the only route to
+# `OlmMachine::query_missing_secrets_from_other_sessions` — the
+# standards-based m.secret.request re-issue API the E2EE recovery
+# coordinator needs (the SDK's own secret-request set fires exactly once at
+# SAS completion and is otherwise unrepeatable). Every `testing`-gated code
+# site in matrix-sdk/-base 0.18.0 was audited: all are additive helpers or
+# mirror fields; none alter runtime behavior.
+matrix-sdk = { version = "0.18", default-features = false, features = ["e2e-encryption", "sqlite", "markdown", "testing"] }
 # Same release train as the pinned matrix-sdk. Provides the persistent
 # Timeline (initial items + VectorDiff subscription, retry decryption,
 # pagination, local echoes) used by the live timeline registry.
