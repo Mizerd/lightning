@@ -201,14 +201,24 @@ build-rpm:
   variables:
     FORMAT: "rpm"
     BASE_IMAGE: "fedora:44"
+    RUST_TOOLCHAIN: "1.93.0"
   before_script:
     - >-
       dnf install -y
-      appstream cargo ca-certificates ccache cmake curl desktop-file-utils
+      appstream ca-certificates ccache cmake curl desktop-file-utils
       gcc gcc-c++ git jq libsecret-devel
       ninja-build openssl-devel patchelf pkgconf-pkg-config
       qt6-qtbase-devel qt6-qtdeclarative-devel qt6-qtmultimedia-devel
-      qt6-qtsvg-devel qt6-qttools-devel rpm-build rust sqlite-devel zstd
+      qt6-qtsvg-devel qt6-qttools-devel rpm-build sqlite-devel zstd
+    # Fedora's system rust (1.96.1) OOMs compiling matrix-sdk under the 6 GiB
+    # runner cap; pin the same rustup toolchain the deb/appimage builds use so
+    # every Linux format builds the locked SDK identically.
+    - >-
+      curl --fail --show-error --silent --location
+      --proto '=https' --tlsv1.2 https://sh.rustup.rs
+      --output /tmp/rustup-init.sh
+    - sh /tmp/rustup-init.sh -y --profile minimal --default-toolchain "$RUST_TOOLCHAIN"
+    - export PATH="/root/.cargo/bin:$PATH"
   script:
     - ./scripts/prepare-pinned-source.sh
     - ./scripts/build-rpm.sh
