@@ -55,6 +55,7 @@ for required in \
     "$STAGE/libwinpthread-1.dll" \
     "$STAGE/plugins/platforms/qwindows.dll" \
     "$STAGE/plugins/multimedia/windowsmediaplugin.dll" \
+    "$STAGE/plugins/multimedia/ffmpegmediaplugin.dll" \
     "$STAGE/qml/QtMultimedia/qmldir" \
     "$STAGE/qml/QtMultimedia/quickmultimediaplugin.dll" \
     "$STAGE/qml/QtQuick/Controls/qmldir" \
@@ -67,6 +68,16 @@ done
 for forbidden in "$STAGE/qml/QtTest" "$STAGE/qml/Qt/test" \
     "$STAGE/Qt6Test.dll" "$STAGE/Qt6QuickTest.dll"; do
     [[ ! -e "$forbidden" ]] || die "test-only Qt runtime found in portable payload: $forbidden"
+done
+
+# The FFmpeg backend needs its runtime libraries alongside the plugin, or video
+# playback falls back to WMF and freezes. The DLLs are versioned (e.g.
+# avcodec-61.dll), so match by family. This is the structural guard that a
+# future runtime-staging change cannot silently drop the video backend.
+for fflib in avcodec avformat avutil swresample swscale; do
+    if ! find "$STAGE" -maxdepth 1 -type f -iname "${fflib}-*.dll" -print -quit | grep -q .; then
+        die "FFmpeg runtime DLL is missing from the Windows payload: ${fflib}-*.dll"
+    fi
 done
 
 if find "$STAGE" -type f \( -name '*.so' -o -name '*.a' -o -name '*.o' \) -print -quit | grep -q .; then

@@ -3,13 +3,16 @@ FROM fedora@sha256:6c75d5bf57cb0fa5aa4b92c6a83c86c791644496d9ac230de7711f5b8ec3b
 ARG RUST_TOOLCHAIN=1.95.0
 ARG QT_MULTIMEDIA_VERSION=6.11.1
 ARG QT_MULTIMEDIA_SHA256=390f8e52ddee3aca5c4de7eead900c84c4fa61ff6d1f0ebea9c7543365c09b0a
+ARG FFMPEG_VERSION=7.1.1
+ARG FFMPEG_SHA256=733984395e0dbbe5c046abda2dc49a5544e7e0e1e2366bba849222ae9e3a03b1
 
 LABEL org.opencontainers.image.title="Lightning Windows cross-package builder" \
-      org.opencontainers.image.description="Fedora 44 Linux/MinGW builder for unsigned Lightning Windows test artifacts" \
+      org.opencontainers.image.description="Fedora 44 Linux/MinGW builder for unsigned Lightning Windows artifacts (Qt Multimedia FFmpeg backend)" \
       org.opencontainers.image.source="https://gitlab.smetonis.net/Mizerd/lightning-deploy" \
       net.smetonis.lightning.builder-kind="linux-cross" \
       net.smetonis.lightning.target="x86_64-pc-windows-gnu" \
       net.smetonis.lightning.qt="6.11.1" \
+      net.smetonis.lightning.ffmpeg="7.1.1" \
       net.smetonis.lightning.rust="${RUST_TOOLCHAIN}"
 
 # The base image is content-addressed. The compiler, Qt, Rust installer,
@@ -25,6 +28,7 @@ RUN dnf install -y --setopt=install_weak_deps=False \
         diffutils \
         file \
         findutils \
+        gcc-16.1.1-2.fc44 \
         git \
         grep \
         gzip \
@@ -46,6 +50,7 @@ RUN dnf install -y --setopt=install_weak_deps=False \
         mingw64-sqlite-3.51.3-1.fc44 \
         mingw64-zlib-1.3.2-1.fc44 \
         msitools-0.106.58-1.fc44 \
+        nasm-3.01-3.fc44 \
         ninja-build-1.13.2-2.fc44 \
         python3-3.14.6-1.fc44 \
         python3-pyyaml-6.0.3-3.fc44 \
@@ -87,16 +92,57 @@ COPY packaging/windows/cargo-windows-wrapper \
 COPY packaging/windows/toolchain-mingw64.cmake \
     /usr/local/share/lightning-windows/toolchain-mingw64.cmake
 
+# Cross-build FFmpeg (LGPLv3, shared) for the Windows target so Qt Multimedia's
+# FFmpeg backend can be built. The Fedora MinGW Qt ships ONLY the Windows Media
+# Foundation backend, which delivers a video's first buffered frames and then
+# stalls the surface; the FFmpeg backend decodes it correctly. LGPL build (no
+# --enable-gpl / --enable-nonfree; native decoders only). --disable-iconv drops
+# the subtitle charset path Lightning does not use (and which fails under
+# GCC 16 + MinGW). The native host compiler must use the NATIVE assembler, so
+# /usr/bin precedes the target bin dir on PATH here; the cross tools are still
+# resolved by their x86_64-w64-mingw32- prefix.
+RUN set -eu; \
+    url="https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz"; \
+    curl --fail --show-error --silent --location --proto '=https' --tlsv1.2 \
+        "$url" --output /tmp/ffmpeg.tar.xz; \
+    printf '%s  %s\n' "$FFMPEG_SHA256" /tmp/ffmpeg.tar.xz | sha256sum -c -; \
+    mkdir -p /tmp/ffmpeg-src; \
+    tar -xJf /tmp/ffmpeg.tar.xz --strip-components=1 -C /tmp/ffmpeg-src; \
+    cd /tmp/ffmpeg-src; \
+    export PATH=/usr/bin:/bin:$PATH; \
+    ./configure \
+        --prefix=/usr/x86_64-w64-mingw32/sys-root/mingw \
+        --arch=x86_64 --target-os=mingw32 \
+        --cross-prefix=x86_64-w64-mingw32- \
+        --pkg-config=x86_64-w64-mingw32-pkg-config \
+        --enable-cross-compile --enable-shared --disable-static \
+        --disable-programs --disable-doc --disable-debug \
+        --disable-gpl --disable-nonfree --enable-version3 --disable-iconv \
+        --extra-cflags="-Wno-incompatible-pointer-types -Wno-implicit-function-declaration -Wno-int-conversion"; \
+    make -j4; \
+    make install; \
+    mkdir -p /usr/share/licenses/lightning-ffmpeg; \
+    cp -a COPYING.LGPLv2.1 COPYING.LGPLv3 LICENSE.md \
+        /usr/share/licenses/lightning-ffmpeg/ 2>/dev/null || true; \
+    rm -rf /tmp/ffmpeg.tar.xz /tmp/ffmpeg-src; \
+    file /usr/x86_64-w64-mingw32/sys-root/mingw/bin/avcodec-*.dll \
+        | grep -F 'PE32+ executable'
+
 # Fedora's 6.11.1 MinGW multimedia RPM contains Qt6Multimedia.dll and the
-# Windows Media Foundation backend but omits the QtMultimedia QML module used
-# by Lightning. Build only that missing module from the matching official Qt
-# source. The host ShaderTools package supplies qsb; all generated DLLs still
-# use the Windows GNU target toolchain.
+# Windows Media Foundation backend but omits the QtMultimedia QML module and the
+# FFmpeg backend plugin. Build both from the matching official Qt source: the
+# quickmultimedia QML module and ffmpegmediaplugin (the FFmpeg decode backend,
+# which links the av*/sw* DLLs cross-built above). The WMF plugin is NOT built
+# here (its sources include <D3d11.h>, which is case-sensitive on this Linux
+# cross-build) — the RPM's windowsmediaplugin.dll is kept as the fallback. The
+# FFmpeg plugin's PCH also includes <D3d11.h>, so a case-only symlink to the
+# lowercase MinGW header lets it compile. Host ShaderTools supplies qsb.
 RUN set -eu; \
     dnf install -y --setopt=install_weak_deps=False \
         qt6-qtshadertools-devel-6.11.1-1.fc44.x86_64; \
     dnf clean all; \
     rm -rf /var/cache/dnf; \
+    ln -sf d3d11.h /usr/x86_64-w64-mingw32/sys-root/mingw/include/D3d11.h; \
     source_url="https://download.qt.io/official_releases/qt/6.11/${QT_MULTIMEDIA_VERSION}/submodules/qtmultimedia-everywhere-src-${QT_MULTIMEDIA_VERSION}.tar.xz"; \
     curl --fail --show-error --silent --location --proto '=https' --tlsv1.2 \
         "$source_url" --output /tmp/qtmultimedia.tar.xz; \
@@ -111,9 +157,16 @@ RUN set -eu; \
         -DCMAKE_BUILD_TYPE=Release \
         -DQT_BUILD_EXAMPLES=OFF \
         -DQT_BUILD_TESTS=OFF; \
+    grep -Eq '^ +FFmpeg .+ yes$' /tmp/qtmultimedia-build/config.summary; \
     cmake --build /tmp/qtmultimedia-build --parallel 4 --target quickmultimedia; \
+    ninja -C /tmp/qtmultimedia-build \
+        lib/qt6/plugins/multimedia/ffmpegmediaplugin.dll; \
     install -m 0755 /tmp/qtmultimedia-build/bin/Qt6MultimediaQuick.dll \
         /usr/x86_64-w64-mingw32/sys-root/mingw/bin/Qt6MultimediaQuick.dll; \
+    mkdir -p /usr/x86_64-w64-mingw32/sys-root/mingw/lib/qt6/plugins/multimedia; \
+    install -m 0755 \
+        /tmp/qtmultimedia-build/lib/qt6/plugins/multimedia/ffmpegmediaplugin.dll \
+        /usr/x86_64-w64-mingw32/sys-root/mingw/lib/qt6/plugins/multimedia/ffmpegmediaplugin.dll; \
     mkdir -p /usr/x86_64-w64-mingw32/sys-root/mingw/lib/qt6/qml/QtMultimedia \
         /usr/share/licenses/lightning-qtmultimedia-qml-source; \
     cp -a /tmp/qtmultimedia-build/lib/qt6/qml/QtMultimedia/. \
@@ -130,6 +183,11 @@ RUN chmod 0755 /usr/local/libexec/lightning-windows/cargo \
     && file /usr/x86_64-w64-mingw32/sys-root/mingw/bin/Qt6MultimediaQuick.dll \
        | grep -F 'PE32+ executable' \
     && test -f /usr/x86_64-w64-mingw32/sys-root/mingw/lib/qt6/qml/QtMultimedia/qmldir \
+    && file /usr/x86_64-w64-mingw32/sys-root/mingw/lib/qt6/plugins/multimedia/ffmpegmediaplugin.dll \
+       | grep -F 'PE32+ executable' \
+    && for lib in avcodec avformat avutil swresample swscale; do \
+         ls /usr/x86_64-w64-mingw32/sys-root/mingw/bin/${lib}-*.dll >/dev/null; \
+       done \
     && wixl --version \
     && makensis '-XTarget amd64-unicode' -VERSION \
     && wine64 --version

@@ -32,7 +32,11 @@ PLUGIN_FILES = {
         "qgif.dll", "qico.dll", "qjpeg.dll", "qsvg.dll", "qtiff.dll",
         "qwebp.dll",
     ),
-    "multimedia": ("windowsmediaplugin.dll",),
+    # ffmpegmediaplugin is the FFmpeg decode backend Lightning pins on Windows
+    # (QT_MEDIA_BACKEND=ffmpeg); windowsmediaplugin (WMF) is kept as a fallback.
+    # Staging the FFmpeg plugin makes the recursive import-walk pull in the
+    # avcodec/avformat/avutil/swscale/swresample runtime DLLs automatically.
+    "multimedia": ("windowsmediaplugin.dll", "ffmpegmediaplugin.dll"),
     "networkinformation": ("qnetworklistmanager.dll",),
     "platforms": ("qwindows.dll",),
     "sqldrivers": ("qsqlite.dll",),
