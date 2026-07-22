@@ -21,8 +21,13 @@ release_contract_env
 # here); the upload/verify requests map them onto API_ROOT separately.
 registry_base="${CANONICAL_API_ROOT}/packages/generic/${PACKAGE_NAME}/${PACKAGE_VERSION}"
 
+# Windows artifact names embed the 7-char source SHA (build-windows.sh derives
+# it the same way); Linux names are pure-version. Both come from the one
+# resolved release commit.
+short_sha="${SOURCE_SHA:0:7}"
+
 # Declared package files for this release. Append future formats here only.
-declare -a formats=(deb rpm flatpak appimage snap)
+declare -a formats=(deb rpm flatpak appimage snap windows-portable windows-msi windows-setup)
 declare -A file_of arch_of name_of
 file_of[deb]="$ROOT/dist/lightning_${PACKAGE_VERSION}_amd64.deb"
 arch_of[deb]="amd64"
@@ -39,16 +44,29 @@ name_of[appimage]="Lightning ${PACKAGE_VERSION} — AppImage x86_64"
 file_of[snap]="$ROOT/dist/lightning_${PACKAGE_VERSION}_amd64.snap"
 arch_of[snap]="amd64"
 name_of[snap]="Lightning ${PACKAGE_VERSION} — Snap amd64"
+file_of[windows-portable]="$ROOT/dist/windows/Lightning-${PACKAGE_VERSION}-${short_sha}-windows-x86_64-portable.zip"
+arch_of[windows-portable]="x86_64"
+name_of[windows-portable]="Lightning ${PACKAGE_VERSION} — Windows x86_64 portable (unsigned)"
+file_of[windows-msi]="$ROOT/dist/windows/Lightning-${PACKAGE_VERSION}-${short_sha}-windows-x86_64.msi"
+arch_of[windows-msi]="x86_64"
+name_of[windows-msi]="Lightning ${PACKAGE_VERSION} — Windows x86_64 MSI installer (unsigned)"
+file_of[windows-setup]="$ROOT/dist/windows/Lightning-${PACKAGE_VERSION}-${short_sha}-windows-x86_64-setup.exe"
+arch_of[windows-setup]="x86_64"
+name_of[windows-setup]="Lightning ${PACKAGE_VERSION} — Windows x86_64 setup EXE (unsigned)"
 
 entries="[]"
+sums_file="$ROOT/dist/SHA256SUMS"
+: >"$sums_file"
 for fmt in "${formats[@]}"; do
     path="${file_of[$fmt]}"
     [[ -f "$path" ]] || die "manifest input missing for ${fmt}: $(basename "$path")"
     filename="$(basename "$path")"
     sha256="$(sha256sum "$path" | cut -d' ' -f1)"
     size="$(wc -c <"$path" | tr -d ' ')"
+    # Aggregate checksum line (two-space form, verifiable with sha256sum -c).
+    printf '%s  %s\n' "$sha256" "$filename" >>"$sums_file"
     entry="$(jq -n \
-        --arg local_path "dist/${filename}" \
+        --arg local_path "${path#"$ROOT"/}" \
         --arg filename "$filename" \
         --arg format "$fmt" \
         --arg architecture "${arch_of[$fmt]}" \
@@ -65,6 +83,30 @@ for fmt in "${formats[@]}"; do
           asset_path:$asset_path, registry_url:$registry_url}')"
     entries="$(jq -c --argjson e "$entry" '. + [$e]' <<<"$entries")"
 done
+
+# Aggregate SHA256SUMS is itself a published, verifiable release asset (so users
+# can `sha256sum -c SHA256SUMS`). It is generated from the checksums above, so
+# it is deterministic and immutable across re-runs. Add it as a final entry.
+sums_name="$(basename "$sums_file")"
+sums_sha="$(sha256sum "$sums_file" | cut -d' ' -f1)"
+sums_size="$(wc -c <"$sums_file" | tr -d ' ')"
+sums_entry="$(jq -n \
+    --arg local_path "${sums_file#"$ROOT"/}" \
+    --arg filename "$sums_name" \
+    --arg format "checksums" \
+    --arg architecture "any" \
+    --arg version "$PACKAGE_VERSION" \
+    --arg source_sha "$SOURCE_SHA" \
+    --arg sha256 "$sums_sha" \
+    --argjson size "$sums_size" \
+    --arg asset_name "Lightning ${PACKAGE_VERSION} — SHA-256 checksums" \
+    --arg asset_path "/packages/${PACKAGE_VERSION}/${sums_name}" \
+    --arg registry_url "${registry_base}/${sums_name}" \
+    '{local_path:$local_path, filename:$filename, format:$format,
+      architecture:$architecture, version:$version, source_sha:$source_sha,
+      sha256:$sha256, size:$size, asset_name:$asset_name,
+      asset_path:$asset_path, registry_url:$registry_url}')"
+entries="$(jq -c --argjson e "$sums_entry" '. + [$e]' <<<"$entries")"
 
 # Every manifest filename must be unique; a duplicate would collide in the
 # registry version and in release links.

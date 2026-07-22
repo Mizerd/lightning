@@ -43,7 +43,7 @@ required_jobs = [
     "validate-deb", "validate-rpm",
     "validate-flatpak", "validate-appimage", "validate-snap",
     "publish-packages", "verify-published-packages", "finalize-release",
-    "windows-package-test",
+    "windows-package-test", "build-windows",
 ]
 for job in required_jobs:
     check(job in doc, f"job {job} is defined")
@@ -181,6 +181,8 @@ check(set(["validate-deb", "validate-rpm", "validate-flatpak",
            "validate-appimage", "validate-snap"]).issubset(
           needs_names("publish-packages")),
       "publish-packages depends on every format's validation job")
+check("build-windows" in needs_names("publish-packages"),
+      "publish-packages depends on the Windows build (portable/MSI/setup)")
 check("resolve-source" in needs_names("publish-packages"),
       "publish-packages depends on resolve-source")
 check("publish-packages" in needs_names("verify-published-packages"),
@@ -295,11 +297,12 @@ for fmt in all_fmts:
 windows = resolve_extends("windows-package-test")
 check(set(windows.get("tags", [])) == {"windows-cross", "windows-package"},
       "Windows job uses only the dedicated cross-package runner tags")
+WINDOWS_IMAGE = "lightning-windows-builder:fedora44-qt6.11.1-ffmpeg7.1.1-rust1.95.0-v2"
 image = windows.get("image", {})
 check(isinstance(image, dict)
-      and image.get("name") == "lightning-windows-builder:fedora44-qt6.11.1-rust1.95.0-v1"
+      and image.get("name") == WINDOWS_IMAGE
       and image.get("pull_policy") == "if-not-present",
-      "Windows job uses the pinned local builder image")
+      "Windows job uses the pinned local FFmpeg-enabled builder image")
 windows_rule_text = yaml.dump(windows.get("rules", []))
 for required in ("CI_DEFAULT_BRANCH", "CI_PIPELINE_SOURCE", "BUILD_WINDOWS_PACKAGES",
                  "PUBLISH_PACKAGES", "BUILD_FORMATS", "SOURCE_REF",
@@ -336,6 +339,26 @@ for key, value in (("CI_COMMIT_BRANCH", "feature"),
 check(not any(build_included(fmt, {"PUBLISH_PACKAGES": "false", "BUILD_FORMATS": "none"})
               for fmt in all_fmts),
       "BUILD_FORMATS=none excludes every Linux package build")
+
+# --- build-windows: the publishing Windows job (0.6.3+). Same FFmpeg image and
+#     runner as the test job, but publish-gated and feeding publish-packages so
+#     the portable/MSI/setup artifacts publish from the same resolved commit. ---
+build_windows = resolve_extends("build-windows")
+bw_image = build_windows.get("image", {})
+check(isinstance(bw_image, dict) and bw_image.get("name") == WINDOWS_IMAGE,
+      "build-windows uses the FFmpeg-enabled builder image")
+check(set(build_windows.get("tags", [])) == {"windows-cross", "windows-package"},
+      "build-windows uses the dedicated cross-package runner tags")
+bw_gate = build_windows["rules"]
+check(evaluate(bw_gate, {"CI_COMMIT_BRANCH": "main", "CI_DEFAULT_BRANCH": "main",
+                         "PUBLISH_PACKAGES": "true"}),
+      "build-windows runs in a publishing pipeline on the default branch")
+check(not evaluate(bw_gate, {"CI_COMMIT_BRANCH": "main", "CI_DEFAULT_BRANCH": "main",
+                             "PUBLISH_PACKAGES": "false"}),
+      "build-windows is excluded when not publishing")
+check(not evaluate(bw_gate, {"CI_COMMIT_BRANCH": "feature", "CI_DEFAULT_BRANCH": "main",
+                             "PUBLISH_PACKAGES": "true"}),
+      "build-windows is excluded off the default branch")
 
 if errors:
     print(f"\nPipeline config tests FAILED ({len(errors)})", file=sys.stderr)

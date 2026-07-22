@@ -43,7 +43,9 @@ REPORT_DIR="$WINDOWS_DIST/reports"
 
 require_var EXPECTED_SOURCE_SHA
 [[ "$EXPECTED_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || die "Windows packaging requires a full source commit SHA"
-[[ "${PUBLISH_PACKAGES:-false}" == "false" ]] || die "Windows test artifacts cannot be built in a publishing pipeline"
+# Windows is a first-class release target since 0.6.3: it may run in both the
+# developer test path (PUBLISH_PACKAGES=false) and the publishing pipeline.
+PUBLISHING="${PUBLISH_PACKAGES:-false}"
 [[ -f "$SOURCE_DIR/CMakeLists.txt" && -f "$ROOT/dist/version.env" ]] || \
     die "run prepare-pinned-source.sh before build-windows.sh"
 load_versions
@@ -92,7 +94,7 @@ BEGIN
       VALUE "OriginalFilename", "Lightning.exe"
       VALUE "ProductName", "Lightning"
       VALUE "ProductVersion", "${BASE_VERSION}"
-      VALUE "Comments", "Unsigned test build from ${SOURCE_SHA:0:7}"
+      VALUE "Comments", "Unsigned build from ${SOURCE_SHA:0:7}"
     END
   END
   BLOCK "VarFileInfo"
@@ -121,6 +123,12 @@ EOF
 # ultimately extractable — these test artifacts are developer-scoped and expire.
 gif_require=OFF
 gif_keys_embedded=false
+# Fail closed in a publishing pipeline: an official Windows release must embed
+# both provider keys (same rule as the Linux release builds).
+if [[ "$PUBLISHING" == true ]]; then
+    [[ -n "${GIPHY_API_KEY:-}" ]] || die "official Windows build requires GIPHY_API_KEY"
+    [[ -n "${KLIPY_API_KEY:-}" ]] || die "official Windows build requires KLIPY_API_KEY"
+fi
 if [[ -n "${GIPHY_API_KEY:-}" && -n "${KLIPY_API_KEY:-}" ]]; then
     export LIGHTNING_BUILD_GIPHY_API_KEY="$GIPHY_API_KEY"
     export LIGHTNING_BUILD_KLIPY_API_KEY="$KLIPY_API_KEY"
@@ -131,6 +139,15 @@ else
     printf 'GIF provider keys not supplied; building keyless\n'
 fi
 
+# Release artifacts report artifact_kind=release; the developer test path keeps
+# the unsigned-test marker. Windows packages are unsigned in both cases (the
+# signing hook is a no-op unless WINDOWS_SIGNING_PFX_B64 is configured).
+if [[ "$PUBLISHING" == true ]]; then
+    WIN_ARTIFACT_KIND=release
+else
+    WIN_ARTIFACT_KIND=unsigned-test
+fi
+
 cmake -S "$SOURCE_DIR" -B "$BUILD_DIR" -G Ninja \
     -DCMAKE_TOOLCHAIN_FILE="$ROOT/packaging/windows/toolchain-mingw64.cmake" \
     -DCMAKE_BUILD_TYPE=Release \
@@ -138,10 +155,11 @@ cmake -S "$SOURCE_DIR" -B "$BUILD_DIR" -G Ninja \
     -DCMAKE_EXE_LINKER_FLAGS="$BUILD_DIR/lightning-version.o" \
     -DBUILD_TESTING=OFF \
     -DENABLE_RUST_SDK_BACKEND=ON \
+    -DLIGHTNING_RUST_ONLY=ON \
     -DLIGHTNING_REQUIRE_GIF_KEYS="$gif_require" \
     -DLIGHTNING_SOURCE_SHA="$SOURCE_SHA" \
     -DLIGHTNING_BUILD_TARGET="x86_64-pc-windows-gnu" \
-    -DLIGHTNING_ARTIFACT_KIND="unsigned-test"
+    -DLIGHTNING_ARTIFACT_KIND="$WIN_ARTIFACT_KIND"
 # The generator has written the header; drop the key values from the build
 # environment so nothing downstream (compile, staging, packaging) sees them.
 unset LIGHTNING_BUILD_GIPHY_API_KEY LIGHTNING_BUILD_KLIPY_API_KEY 2>/dev/null || true
@@ -161,9 +179,10 @@ jq -n \
     --arg packaging_commit "$PACKAGING_SHA" \
     --arg timestamp "$(date -u -d "@$SOURCE_DATE_EPOCH" +%Y-%m-%dT%H:%M:%SZ)" \
     --argjson gif_keys_embedded "$gif_keys_embedded" \
+    --arg build_kind "$WIN_ARTIFACT_KIND" \
     '{version:$version, source_commit:$source_commit,
       packaging_commit:$packaging_commit, target:"x86_64-pc-windows-gnu",
-      build_kind:"unsigned-test", runner_kind:"linux-cross",
+      build_kind:$build_kind, runner_kind:"linux-cross", signed:false,
       qt_version:"6.11.1", rust_version:"1.95.0", build_timestamp:$timestamp,
       gif_keys_embedded:$gif_keys_embedded, native_windows_tested:false}' \
     >"$STAGE_DIR/build-info.json"

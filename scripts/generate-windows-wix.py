@@ -55,7 +55,7 @@ def main() -> None:
     ET.SubElement(product, tag("Package"), {
         "InstallerVersion": "500", "Compressed": "yes",
         "InstallScope": "perUser",
-        "Description": "Lightning unsigned Windows test package",
+        "Description": "Lightning unsigned Windows package",
         "Manufacturer": "Mizerd",
     })
     ET.SubElement(product, tag("MajorUpgrade"), {
