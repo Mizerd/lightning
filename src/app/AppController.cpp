@@ -6,8 +6,10 @@
 #include "auth/AccountManager.h"
 #include "auth/AuthManager.h"
 #include "crypto/CryptoManager.h"
+#ifndef LIGHTNING_RUST_ONLY
 #include "matrix/CppHttpMatrixClient.h"
 #include "matrix/MockMatrixClient.h"
+#endif
 #include "media/MediaManager.h"
 #include "models/MessageComposer.h"
 #include "models/EmojiCatalog.h"
@@ -39,7 +41,14 @@ bool AppController::isBackendCompiled(Backend backend)
     switch (backend) {
     case MockBackend:
     case HttpBackend:
+#ifdef LIGHTNING_RUST_ONLY
+        // Rust-only release: mock/http are not compiled in, so preflight
+        // (main.cpp) rejects --backend=mock/http/--mock with the standard
+        // "backend not compiled into this build" error.
+        return false;
+#else
         return true;
+#endif
     case RustBackend:
 #ifdef ENABLE_RUST_SDK_BACKEND
         return true;
@@ -54,6 +63,12 @@ std::unique_ptr<MatrixClient> AppController::makeClient(Backend backend,
                                                         SettingsManager *settings,
                                                         QObject *parent)
 {
+#ifdef LIGHTNING_RUST_ONLY
+    // Rust-only release build: the HTTP/mock backends are not compiled in and
+    // preflight (main.cpp) rejects any non-Rust --backend before construction.
+    Q_UNUSED(backend);
+    return std::make_unique<RustSdkMatrixClient>(settings, parent);
+#else
     switch (backend) {
     case MockBackend: {
         auto mock = std::make_unique<MockMatrixClient>(parent);
@@ -75,6 +90,7 @@ std::unique_ptr<MatrixClient> AppController::makeClient(Backend backend,
     default:
         return std::make_unique<CppHttpMatrixClient>(settings, parent);
     }
+#endif
 }
 
 AppController::AppController(Backend backend, QObject *parent)
@@ -83,6 +99,13 @@ AppController::AppController(Backend backend, QObject *parent)
     , m_secretStore(SecretStore::createDefault(this))
     , m_settings(std::make_unique<SettingsManager>(this))
 {
+#ifdef LIGHTNING_RUST_ONLY
+    // Fail closed: a release binary must never run a non-Rust backend. Preflight
+    // already rejects non-Rust --backend values (they are not compiled in), so
+    // this only fires if that invariant is ever bypassed.
+    if (backend != RustBackend)
+        qFatal("LIGHTNING_RUST_ONLY: refusing to start a non-Rust backend");
+#endif
     // Wire the SecretStore before anything reads accessToken(). Migrates any
     // legacy plaintext token into the SecretStore on first entry.
     m_settings->setSecretStore(m_secretStore.get());

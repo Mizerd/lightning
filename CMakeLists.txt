@@ -52,6 +52,22 @@ set(CMAKE_AUTORCC ON)
 option(ENABLE_RUST_SDK_BACKEND
     "Build the Matrix Rust SDK backend (requires cargo in PATH)" OFF)
 
+# Release/packaging guard: exclude the HTTP and mock backends from the shipped
+# matrix-client binary entirely, so a production package can only ever run the
+# Rust SDK backend (no --backend=http / --mock, no silent fallback). OFF for
+# ordinary dev/test builds, which keep mock/http buildable and testable per the
+# architecture contract; project 7 packaging sets it ON. When ON it REQUIRES
+# ENABLE_RUST_SDK_BACKEND=ON (enforced below) and only affects the main target —
+# the mock-based test executables compile their own MockMatrixClient and are
+# unaffected.
+option(LIGHTNING_RUST_ONLY
+    "Ship ONLY the Rust backend: drop HTTP/mock from the matrix-client binary" OFF)
+if(LIGHTNING_RUST_ONLY AND NOT ENABLE_RUST_SDK_BACKEND)
+    message(FATAL_ERROR
+        "LIGHTNING_RUST_ONLY=ON requires ENABLE_RUST_SDK_BACKEND=ON "
+        "(a Rust-only build must have the Rust backend compiled in).")
+endif()
+
 # ---------------------------------------------------------------------------
 # Build-only GIF provider keys. Official release packages embed application
 # GIPHY/KLIPY keys so installed clients work without user configuration. The
@@ -272,7 +288,8 @@ endif()
 
 # Everything except main.cpp — reused by timeline-pane-qml-test so it can
 # construct a real AppController and load the real QML module instead of
-# re-declaring a parallel object graph.
+# re-declaring a parallel object graph. Keeps mock/http so mock-based tests
+# still build even in a LIGHTNING_RUST_ONLY configuration.
 set(APP_LIB_SOURCES ${APP_SOURCES})
 list(REMOVE_ITEM APP_LIB_SOURCES src/main.cpp)
 
@@ -407,6 +424,7 @@ function(lightning_configure_qml_app target)
         LIGHTNING_SOURCE_SHA="${LIGHTNING_SOURCE_SHA}"
         LIGHTNING_BUILD_TARGET="${LIGHTNING_BUILD_TARGET}"
         LIGHTNING_ARTIFACT_KIND="${LIGHTNING_ARTIFACT_KIND}"
+        LIGHTNING_BUILD_TYPE="${CMAKE_BUILD_TYPE}"
         $<$<CONFIG:Release>:QT_NO_DEBUG_OUTPUT>
     )
 
@@ -509,8 +527,29 @@ else()
     message(STATUS "Rust SDK backend disabled (use -DENABLE_RUST_SDK_BACKEND=ON to build it)")
 endif()
 
-qt_add_executable(matrix-client ${APP_SOURCES})
+# The shipped executable's own source list. In a LIGHTNING_RUST_ONLY release we
+# physically drop the HTTP and mock backend TUs from the binary (the shared
+# APP_SOURCES/APP_LIB_SOURCES keep them so mock-based tests still build).
+# AUTOMOC only processes headers that are target sources, so removing both the
+# .h and .cpp keeps the QObject mock/http clients and their moc out of the
+# binary; --build-info then reports http/mock_backend_compiled:false truthfully.
+set(APP_MAIN_SOURCES ${APP_SOURCES})
+if(LIGHTNING_RUST_ONLY)
+    list(REMOVE_ITEM APP_MAIN_SOURCES
+        src/matrix/MockMatrixClient.h
+        src/matrix/MockMatrixClient.cpp
+        src/matrix/CppHttpMatrixClient.h
+        src/matrix/CppHttpMatrixClient.cpp
+    )
+endif()
+
+qt_add_executable(matrix-client ${APP_MAIN_SOURCES})
 lightning_configure_qml_app(matrix-client)
+# Per-target (never on the shared mock-based test targets): drive the C++
+# #ifdef guards in AppController and the --build-info self-report.
+if(LIGHTNING_RUST_ONLY)
+    target_compile_definitions(matrix-client PRIVATE LIGHTNING_RUST_ONLY=1)
+endif()
 
 # On Windows the production binary is a GUI-subsystem PE so a normal
 # double-click never flashes or leaves a console window. --version / --help /

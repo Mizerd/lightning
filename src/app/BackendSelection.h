@@ -29,6 +29,14 @@ constexpr AppController::Backend defaultBackend()
 #endif
 }
 
+#ifdef LIGHTNING_RUST_ONLY
+// A Rust-only release build must have the Rust backend as its compiled default
+// (the CMake guard already requires ENABLE_RUST_SDK_BACKEND). Assert it so a
+// misconfiguration fails at compile time, not at a user's first launch.
+static_assert(defaultBackend() == AppController::RustBackend,
+    "LIGHTNING_RUST_ONLY requires the Rust backend to be the compiled default");
+#endif
+
 // Resolve --backend=NAME (case-insensitive). Returns HttpBackend on unknown
 // values and reports the ambiguity via *ok.
 inline AppController::Backend backendFromName(const QString &name, bool *ok)

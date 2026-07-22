@@ -1,6 +1,7 @@
 #include "app/AppController.h"
 #include "app/BackendSelection.h"
 #include "app/StartupChecks.h"
+#include "gif/GifBuildKeys.h"
 #include "gif/GifProviderSelfTest.h"
 #include "media/MediaImageProvider.h"
 #include "storage/AppDataPaths.h"
@@ -61,16 +62,43 @@ void configureWindowsConsole(bool forceAlloc)
 }
 #endif
 
+#ifndef LIGHTNING_BUILD_TYPE
+#define LIGHTNING_BUILD_TYPE "unknown"
+#endif
+
 // Non-secret build metadata for --build-info: version, source revision, target
-// triple, compiled backends, the compiled default backend, the compiled secret
-// store, and the artifact kind. Never prints keys, tokens, or account data.
+// triple, build type, the shipped Matrix backend, which backends are compiled
+// in, whether GIF provider keys are embedded, the secret store, and the
+// artifact kind. Machine-checkable (anchored `key: value` lines) so CI can
+// assert release invariants. Never prints keys, tokens, URLs, or account data —
+// gif_keys_embedded is derived from whether the compiled key is non-empty, not
+// from its value.
 QString buildInfoString()
 {
-    QStringList backends;
+    const bool rustCompiled =
 #ifdef ENABLE_RUST_SDK_BACKEND
-    backends << QStringLiteral("rust");
+        true;
+#else
+        false;
 #endif
-    backends << QStringLiteral("http") << QStringLiteral("mock");
+    // The HTTP and mock backends are compiled together (or excluded together in
+    // a LIGHTNING_RUST_ONLY release).
+    const bool httpMockCompiled =
+#ifdef LIGHTNING_RUST_ONLY
+        false;
+#else
+        true;
+#endif
+
+    QStringList backends;
+    if (rustCompiled)
+        backends << QStringLiteral("rust");
+    if (httpMockCompiled)
+        backends << QStringLiteral("http") << QStringLiteral("mock");
+
+    const bool gifKeysEmbedded =
+        !gif::buildKeyFor(QStringLiteral("giphy")).isEmpty()
+        && !gif::buildKeyFor(QStringLiteral("klipy")).isEmpty();
 
     const QString secretStore =
 #if defined(HAVE_WINCRED)
@@ -81,21 +109,28 @@ QString buildInfoString()
         QStringLiteral("insecure-qsettings");
 #endif
 
-    return QStringLiteral(
-        "version: %1\n"
-        "source: %2\n"
-        "target: %3\n"
-        "backends: %4\n"
-        "default_backend: %5\n"
-        "secret_store: %6\n"
-        "artifact_kind: %7\n")
-        .arg(QLatin1String(APP_VERSION),
-             QLatin1String(LIGHTNING_SOURCE_SHA),
-             QLatin1String(LIGHTNING_BUILD_TARGET),
-             backends.join(QLatin1Char(',')),
-             backendNameFor(lightning::defaultBackend()),
-             secretStore,
-             QLatin1String(LIGHTNING_ARTIFACT_KIND));
+    const auto yn = [](bool b) {
+        return b ? QStringLiteral("true") : QStringLiteral("false");
+    };
+    const QString backendName = backendNameFor(lightning::defaultBackend());
+
+    QString out;
+    out += QStringLiteral("version: %1\n").arg(QLatin1String(APP_VERSION));
+    out += QStringLiteral("source: %1\n").arg(QLatin1String(LIGHTNING_SOURCE_SHA));
+    out += QStringLiteral("target: %1\n").arg(QLatin1String(LIGHTNING_BUILD_TARGET));
+    out += QStringLiteral("build_type: %1\n").arg(QLatin1String(LIGHTNING_BUILD_TYPE));
+    // matrix_backend is the single shipped/default backend; default_backend is
+    // retained as its historical alias so existing CI checks keep matching.
+    out += QStringLiteral("matrix_backend: %1\n").arg(backendName);
+    out += QStringLiteral("default_backend: %1\n").arg(backendName);
+    out += QStringLiteral("backends: %1\n").arg(backends.join(QLatin1Char(',')));
+    out += QStringLiteral("rust_backend_compiled: %1\n").arg(yn(rustCompiled));
+    out += QStringLiteral("http_backend_compiled: %1\n").arg(yn(httpMockCompiled));
+    out += QStringLiteral("mock_backend_compiled: %1\n").arg(yn(httpMockCompiled));
+    out += QStringLiteral("gif_keys_embedded: %1\n").arg(yn(gifKeysEmbedded));
+    out += QStringLiteral("secret_store: %1\n").arg(secretStore);
+    out += QStringLiteral("artifact_kind: %1\n").arg(QLatin1String(LIGHTNING_ARTIFACT_KIND));
+    return out;
 }
 
 // Simple pre-flight CLI parser that runs *before* QGuiApplication is
