@@ -88,6 +88,8 @@ private Q_SLOTS:
     void effectiveDirectAvatarRefreshAndAccountIsolation();
     void missingDirectAvatarResolvesWithoutSearch();
     void missingDirectAvatarResolvesWithoutMemberSnapshot();
+    void selfDirectMessageAdoptsOwnAvatar();
+    void mismatchedProfileResultDoesNotWedgePending();
     void groupDirectMappingDoesNotResolveMemberAvatar();
     void inviteActionsRouteAndStaySeparate();
     void explicitDiffOperationsValidateIndexesAndIdentity();
@@ -315,6 +317,63 @@ void RoomStateModelTest::missingDirectAvatarResolvesWithoutMemberSnapshot()
              QStringLiteral("mxc://example.org/bob"));
     QVERIFY(changed.count() > 0);
     QVERIFY(dm.members.isEmpty()); // never required
+}
+
+// A self-DM ("notes to self") has the direct target equal to our OWN user id,
+// no room avatar and no member snapshot (the real backend shape). The room
+// list never sees the per-event room-member avatar the timeline uses, so it
+// must adopt the signed-in account's own avatar — even when that profile was
+// fetched by another consumer (the account switcher) via an op the room list
+// did not start. Otherwise the entry is stuck on an "M" initial forever.
+void RoomStateModelTest::selfDirectMessageAdoptsOwnAvatar()
+{
+    FakeClient client;
+    RoomListModel model;
+    auto dm = room(QStringLiteral("!self:example.org"), true);
+    dm.directUserId = client.selfUserId;
+    dm.directUserIds = { dm.directUserId };
+    QVERIFY(dm.members.isEmpty());
+    client.mirror = {dm};
+    model.setClient(&client);
+    QVERIFY(model.data(model.index(0), RoomListModel::AvatarUrlRole)
+                .toString().isEmpty());
+
+    // Own profile resolved for the account switcher: an op the model never
+    // started (opId not in its map). It must still be adopted for the self-DM.
+    QSignalSpy changed(&model, &RoomListModel::dataChanged);
+    Q_EMIT client.userProfileFinished(/*opId=*/9999, true, client.selfUserId,
+                                      QStringLiteral("Me"),
+                                      QStringLiteral("mxc://example.org/me"), {});
+    QCOMPARE(model.data(model.index(0), RoomListModel::AvatarUrlRole).toString(),
+             QStringLiteral("mxc://example.org/me"));
+    QVERIFY(changed.count() > 0);
+}
+
+// A profile result whose returned user id differs from the requested string
+// (SDK id normalization) must still release the pending marker, so the next
+// reconcile re-fetches. Previously the early return on the mismatch wedged the
+// target permanently pending and the DM avatar could never resolve.
+void RoomStateModelTest::mismatchedProfileResultDoesNotWedgePending()
+{
+    FakeClient client;
+    RoomListModel model;
+    auto dm = room(QStringLiteral("!dm:example.org"), true);
+    dm.directUserId = QStringLiteral("@bob:example.org");
+    dm.directUserIds = { dm.directUserId };
+    client.mirror = {dm};
+    model.setClient(&client);
+    QCOMPARE(client.profileUser, dm.directUserId);
+    const quint64 firstOp = client.profileOp;
+
+    // Mismatched id, no avatar: releases pending without caching.
+    Q_EMIT client.userProfileFinished(firstOp, true,
+                                      QStringLiteral("@BOB:example.org"),
+                                      QStringLiteral("Bob"), {}, {});
+    // The still-avatarless target must be re-fetched on the next reconcile.
+    client.profileUser.clear();
+    Q_EMIT client.roomUpdated(dm.id);
+    QCOMPARE(client.profileUser, dm.directUserId);
+    QVERIFY(client.profileOp > firstOp);
 }
 
 // A room m.direct maps against more than one target user is a group DM (or

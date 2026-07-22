@@ -324,12 +324,29 @@ void RoomListModel::onUserProfileFinished(quint64 opId, bool ok,
 {
     Q_UNUSED(displayName);
     Q_UNUSED(category);
+    // Always release the pending marker for the op that completed, keyed by
+    // BOTH what we requested and what the SDK reports. The previous early
+    // return whenever the requested and returned ids differed (SDK id
+    // normalization) left the target stuck in m_profilePending forever, so
+    // resolveMissingDirectAvatars never re-fetched it and the DM avatar was
+    // wedged on initials.
     const QString requestedUser = m_profileOps.take(opId);
-    if (requestedUser.isEmpty() || requestedUser != userId)
-        return;
-    m_profilePending.remove(userId);
-    if (ok && !avatarUrl.isEmpty())
+    if (!requestedUser.isEmpty())
+        m_profilePending.remove(requestedUser);
+    if (!userId.isEmpty())
+        m_profilePending.remove(userId);
+
+    // Cache the resolved avatar under the SDK's authoritative user id, and
+    // accept results even for ops we did not start (every consumer shares the
+    // client's userProfileFinished signal). This is what lets a self-DM row
+    // — whose direct target is our OWN user id — adopt the signed-in
+    // account's own avatar (fetched for the account switcher) instead of
+    // resolving to an "M" initial forever, since the room list never sees the
+    // per-event room-member avatar the timeline uses.
+    if (ok && !userId.isEmpty() && !avatarUrl.isEmpty())
         m_profileAvatars.insert(userId, avatarUrl);
+    if (userId.isEmpty())
+        return;
     for (int row = 0; row < m_rooms.size(); ++row) {
         if (m_rooms.at(row).isDirect && m_rooms.at(row).directUserId == userId)
             Q_EMIT dataChanged(index(row), index(row), {AvatarUrlRole});
