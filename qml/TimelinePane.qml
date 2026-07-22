@@ -508,6 +508,25 @@ Rectangle {
                 // Auto-scroll to end on new events when already near the bottom.
                 property bool stickToBottom: true
 
+                // ── Bottom-follow ownership ──────────────────────────────
+                // `stickToBottom` (FollowingBottom) is LATCHED to user intent,
+                // not guessed from proximity. It is recomputed ONLY on user
+                // input (wheel/drag/settle), never from asynchronous content
+                // growth, so once a reader scrolls up it stays disengaged until
+                // they deliberately return to the very end (or hit Jump to
+                // latest / open a fresh room). Proximity must never RE-PIN a
+                // reader who scrolled up: that re-pin, followed by the next
+                // async onContentHeightChanged -> positionViewAtEnd, was the
+                // "scroll up teleports me back to the bottom" fight. The slack
+                // is deliberately smaller than one message line, so "scroll up
+                // to re-read" always disengages, while a downward flick that
+                // stops a hair short of the end still resumes following.
+                readonly property real bottomFollowSlack: 8
+                function atBottomEdge() {
+                    return atYEnd
+                           || (contentY + height >= contentHeight - bottomFollowSlack)
+                }
+
                 // ── v0.7: initial-hydration presentation gate ────────────
                 // A freshly opened room must not present a one-item partial
                 // snapshot that visibly rebuilds while the SDK event cache
@@ -783,8 +802,7 @@ Rectangle {
                 // drag/flick path does. Needed because wheel/pixel motion sets
                 // contentY programmatically, so Flickable.moving stays false.
                 function updateStickAndPaginate() {
-                    stickToBottom = atYEnd
-                                    || (contentY + height >= contentHeight - 40)
+                    stickToBottom = atBottomEdge()
                     if (contentY < height * 0.5 && !stickToBottom)
                         app.pagination.requestNearTop()
                 }
@@ -919,6 +937,15 @@ Rectangle {
                             timeline.contentY = app.timelineScroll.pixelTargetY(
                                 event.pixelDelta.y, timeline.contentY, minY, maxY)
                             timeline.updateStickAndPaginate()
+                            // Any upward intent immediately establishes user
+                            // ownership and leaves follow-latest — parity with
+                            // the mouse branch below. Without this a touchpad
+                            // up-scroll near the bottom (which cancels the wheel
+                            // engine, so wheelAnimating is false) could not
+                            // disengage bottom-follow, and the next async
+                            // content-height change teleported the view down.
+                            if (event.pixelDelta.y > 0)
+                                timeline.stickToBottom = false
                             scrollSettleTimer.restart()
                         } else if (event.angleDelta.y !== 0) {
                             // Discrete mouse wheel: the C++ engine coalesces
@@ -1145,7 +1172,7 @@ Rectangle {
                     // motion; ignore programmatic navigation (jump, reply,
                     // restore) which manages follow-latest itself.
                     if (!moving && !wheelAnimating) return
-                    stickToBottom = (contentY + height >= contentHeight - 40)
+                    stickToBottom = atBottomEdge()
                     // Trigger backfill before hitting the exact top so history
                     // is ready as the user approaches it.
                     if (contentY < height * 0.5 && !stickToBottom)
@@ -1161,8 +1188,7 @@ Rectangle {
                     // Scrolling settled: recompute whether we are at the
                     // bottom (return-to-bottom must clear unread — the
                     // coordinator reacts to the nearBottom binding).
-                    stickToBottom = atYEnd
-                                    || (contentY + height >= contentHeight - 40)
+                    stickToBottom = atBottomEdge()
                     saveRoomPosition()
                     captureViewAnchor()
                 }

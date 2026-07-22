@@ -349,7 +349,12 @@ private Q_SLOTS:
         QVERIFY(delegate.contains(QStringLiteral("qsTr(\"New messages\")")));
         QVERIFY(pane.contains(QStringLiteral("objectName: \"jumpToLatestButton\"")));
         QVERIFY(pane.contains(QStringLiteral("!timeline.stickToBottom")));
-        QVERIFY(pane.contains(QStringLiteral("contentHeight - 40")));
+        // Bottom-follow is latched to user intent via a small slack (a reader
+        // who scrolls up is never re-pinned by proximity), replacing the wide
+        // 40px window that snapped the view back to the newest message.
+        QVERIFY(pane.contains(QStringLiteral("function atBottomEdge()")));
+        QVERIFY(pane.contains(QStringLiteral("contentHeight - bottomFollowSlack")));
+        QVERIFY(!pane.contains(QStringLiteral("contentHeight - 40")));
         QVERIFY(!pane.contains(QStringLiteral("contentY + height === contentHeight")));
     }
 

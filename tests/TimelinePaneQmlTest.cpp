@@ -1215,6 +1215,116 @@ private Q_SLOTS:
         QCOMPARE(warnings, QStringList{});
     }
 
+    // Regression: a TOUCHPAD (pixelDelta) upward scroll must leave
+    // follow-latest, exactly like the mouse-wheel path. The touchpad branch
+    // previously only recomputed a wide 40px "near bottom" test and never set
+    // stickToBottom=false on upward intent, so a small trackpad nudge near the
+    // bottom could not disengage — the next async content-height change then
+    // teleported the reader to the newest message (the reported "can't scroll
+    // up, it jumps back down" defect on KDE Wayland laptops).
+    void touchpadWheelUpwardLeavesFollowLatest()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        controller.setCurrentRoomId(QStringLiteral("!general:mock.local"));
+
+        QQmlApplicationEngine engine;
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this,
+                [&warnings](const QList<QQmlError> &errors) {
+                    for (const auto &e : errors) warnings << e.toString();
+                });
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("TimelinePane"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(root != nullptr);
+        QObject *timeline = root->findChild<QObject *>(
+            QStringLiteral("timelineListView"));
+        QVERIFY(timeline != nullptr);
+
+        QQuickWindow window;
+        window.resize(640, 480);
+        root->setParentItem(window.contentItem());
+        root->setWidth(window.width());
+        root->setHeight(window.height());
+        window.show();
+        QCoreApplication::processEvents();
+
+        QVERIFY(timeline->setProperty("stickToBottom", true));
+
+        // Touchpad: non-zero pixelDelta upward (+y), no angle notch, scroll
+        // phase set — routed through the pixelDelta branch of the handler.
+        const QPointF pos(320, 300);
+        QWheelEvent wheel(pos, window.mapToGlobal(pos.toPoint()), QPoint(0, 48),
+                          QPoint(0, 0), Qt::NoButton, Qt::NoModifier,
+                          Qt::ScrollUpdate, /*inverted=*/false);
+        QCoreApplication::sendEvent(&window, &wheel);
+        QCoreApplication::processEvents();
+
+        QCOMPARE(timeline->property("stickToBottom").toBool(), false);
+        QCOMPARE(warnings, QStringList{});
+    }
+
+    // Regression: once the reader has scrolled up (follow-latest left), later
+    // content growth — new events AND asynchronous delegate-height settles —
+    // must NOT re-pin to the bottom. Bottom-follow is latched to user intent
+    // and is never re-asserted from a content/count change, so the reader
+    // stays put and Jump-to-latest stays offered.
+    void contentGrowthWhileBrowsingDoesNotResnap()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        const QString roomId = QStringLiteral("!general:mock.local");
+        controller.setCurrentRoomId(roomId);
+
+        QQmlApplicationEngine engine;
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this,
+                [&warnings](const QList<QQmlError> &errors) {
+                    for (const auto &e : errors) warnings << e.toString();
+                });
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("TimelinePane"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        QObject *root = createdSpy.at(0).at(0).value<QObject *>();
+        QVERIFY(root != nullptr);
+        QObject *timeline = root->findChild<QObject *>(
+            QStringLiteral("timelineListView"));
+        QObject *jump = root->findChild<QObject *>(
+            QStringLiteral("jumpToLatestButton"));
+        QVERIFY(timeline != nullptr);
+        QVERIFY(jump != nullptr);
+
+        // Reader browses history: disengaged from the bottom.
+        QVERIFY(timeline->setProperty("stickToBottom", false));
+        QTRY_COMPARE_WITH_TIMEOUT(jump->property("visible").toBool(), true,
+                                  kSignalTimeoutMs);
+
+        auto *mock = controller.findChild<MockMatrixClient *>();
+        QVERIFY(mock != nullptr);
+        // Several appends in a row exercise onCountChanged + the coalesced
+        // onContentHeightChanged reaction. None may re-pin the reader.
+        for (int i = 0; i < 4; ++i) {
+            const int before = controller.timeline()->rowCount();
+            mock->sendTextMessage(
+                roomId, QStringLiteral("growth event %1").arg(i));
+            QTRY_COMPARE_WITH_TIMEOUT(controller.timeline()->rowCount(),
+                                      before + 1, kSignalTimeoutMs);
+            QCoreApplication::processEvents();
+            QCOMPARE(timeline->property("stickToBottom").toBool(), false);
+        }
+        QCOMPARE(jump->property("visible").toBool(), true);
+        QCOMPARE(warnings, QStringList{});
+    }
+
     // ── v0.5.19 checkpoint 3: keyboard timeline navigation ───────────────
     // Loads the pane into a shown window and focuses the timeline. Delegate
     // incubation never runs offscreen, so these assert the key ROUTING and

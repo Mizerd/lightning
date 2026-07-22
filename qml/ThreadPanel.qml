@@ -562,8 +562,7 @@ Rectangle {
                     return maxY < minY ? minY : maxY
                 }
                 function afterWheelSettled() {
-                    followLatest = atYEnd
-                                   || (contentY + height >= contentHeight - 40)
+                    followLatest = atBottomEdge()
                     if (followLatest)
                         app.thread.markRead()
                     if (contentY - originY < height * 0.5)
@@ -584,6 +583,11 @@ Rectangle {
                                 event.pixelDelta.y, replyList.contentY,
                                 minY, maxY)
                             replyList.afterWheelSettled()
+                            // Upward touchpad intent leaves follow-latest, as
+                            // in the mouse branch — otherwise a near-bottom
+                            // up-scroll could not disengage.
+                            if (event.pixelDelta.y > 0)
+                                replyList.followLatest = false
                         } else if (event.angleDelta.y !== 0) {
                             app.threadScroll.wheelNotch(
                                 event.angleDelta.y, replyList.contentY,
@@ -611,6 +615,17 @@ Rectangle {
                 Component.onDestruction: app.threadScroll.cancel()
 
                 property bool followLatest: true
+                // Bottom-follow is latched to user intent (see the room
+                // timeline's atBottomEdge): a sub-line slack means scrolling
+                // up to re-read always disengages, and only a genuine return
+                // to the end resumes following. The wide 40px window let a
+                // small up-scroll near the end stay "following", re-pinning
+                // the reader on the next content-height change.
+                readonly property real bottomFollowSlack: 8
+                function atBottomEdge() {
+                    return atYEnd
+                           || (contentY + height >= contentHeight - bottomFollowSlack)
+                }
                 function scrollToEndDeferredIfFollowing() {
                     if (followLatest && count > 0) {
                         Qt.callLater(function() { replyList.positionViewAtEnd() })
@@ -620,8 +635,7 @@ Rectangle {
                     }
                 }
                 onMovementEnded: {
-                    followLatest = atYEnd
-                                   || (contentY + height >= contentHeight - 40)
+                    followLatest = atBottomEdge()
                     if (followLatest)
                         app.thread.markRead()
                     // Near-top backfill for long threads; the model's
