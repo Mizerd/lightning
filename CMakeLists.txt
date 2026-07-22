@@ -1221,6 +1221,17 @@ if(BUILD_TESTING)
     set_tests_properties(creation-dialog-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+    # Startup platform guard: the DISPLAY / WAYLAND_DISPLAY preflight is an
+    # X11/Wayland concept and must fire only on Unix-like non-macOS platforms.
+    # Header-only pure predicate, so no app sources are linked.
+    qt_add_executable(startup-checks-test
+        tests/StartupChecksTest.cpp
+        src/app/StartupChecks.h
+    )
+    target_include_directories(startup-checks-test PRIVATE src)
+    target_link_libraries(startup-checks-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME startup-checks COMMAND startup-checks-test)
+
     # Composer formatting toolbar: markdown wrap/unwrap, line prefixes, link
     # scaffold, selection integrity, and active-state detection.
     qt_add_executable(markdown-format-test

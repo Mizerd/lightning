@@ -1,4 +1,5 @@
 #include "app/AppController.h"
+#include "app/StartupChecks.h"
 #include "gif/GifProviderSelfTest.h"
 #include "media/MediaImageProvider.h"
 #include "storage/AppDataPaths.h"
@@ -358,11 +359,23 @@ int main(int argc, char *argv[])
     // trace as the coredump reported for v0.4.0). Users can still opt into
     // headless execution by setting QT_QPA_PLATFORM=offscreen (used by the
     // smoke tests).
+    //
+    // DISPLAY / WAYLAND_DISPLAY are an X11/Wayland concept, so this probe is
+    // meaningful ONLY on Unix-like platforms other than macOS. On Windows the
+    // "windows" QPA plugin and on macOS the "cocoa" plugin reach a native
+    // display with neither variable set — probing there is the bug that made a
+    // normal double-click on Windows exit "no graphical display available".
     {
+#if defined(Q_OS_UNIX) && !defined(Q_OS_MACOS)
+        constexpr bool kPlatformRequiresDisplayServer = true;
+#else
+        constexpr bool kPlatformRequiresDisplayServer = false;
+#endif
         const bool hasDisplay = std::getenv("DISPLAY") != nullptr
                              || std::getenv("WAYLAND_DISPLAY") != nullptr;
         const bool platformForced = std::getenv("QT_QPA_PLATFORM") != nullptr;
-        if (!hasDisplay && !platformForced) {
+        if (lightning::startup::shouldRejectForNoDisplay(
+                kPlatformRequiresDisplayServer, hasDisplay, platformForced)) {
             QTextStream(stderr) <<
                 "matrix-client: no graphical display available "
                 "(DISPLAY / WAYLAND_DISPLAY unset).\n"
