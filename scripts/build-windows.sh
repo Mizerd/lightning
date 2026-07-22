@@ -5,6 +5,35 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./scripts/lib.sh
 source "$SCRIPT_DIR/lib.sh"
 
+# Authenticode signing hook — DISABLED unless a real signing credential is
+# supplied via protected CI variables. There is no fake or self-signed identity.
+# When WINDOWS_SIGNING_PFX_B64 is unset (every test pipeline), this is a no-op
+# and artifacts stay honestly unsigned. Enabling it also needs osslsigncode in
+# the builder image. Signing material is never printed, logged, committed, or
+# written into a job artifact; the decoded PFX and password live in mktemp files
+# removed immediately after use, and the password is passed via -readpass (not
+# argv) so it never appears in the process list.
+sign_windows_file() {
+    local target="$1"
+    if [[ -z "${WINDOWS_SIGNING_PFX_B64:-}" ]]; then
+        printf 'Authenticode signing skipped for %s (unsigned test build)\n' "${target##*/}"
+        return 0
+    fi
+    command -v osslsigncode >/dev/null 2>&1 || \
+        die "WINDOWS_SIGNING_PFX_B64 is set but osslsigncode is not installed in the builder image"
+    local pfx passfile signed
+    pfx="$(mktemp)"; passfile="$(mktemp)"; signed="$(mktemp)"
+    # shellcheck disable=SC2064
+    trap "rm -f '$pfx' '$passfile' '$signed'" RETURN
+    printf '%s' "$WINDOWS_SIGNING_PFX_B64" | base64 -d >"$pfx"
+    printf '%s' "${WINDOWS_SIGNING_PASSWORD:-}" >"$passfile"
+    osslsigncode sign -pkcs12 "$pfx" -readpass "$passfile" \
+        -h sha256 -t "${WINDOWS_SIGNING_TIMESTAMP_URL:-http://timestamp.digicert.com}" \
+        -in "$target" -out "$signed" >/dev/null
+    mv "$signed" "$target"
+    printf 'Authenticode-signed %s\n' "${target##*/}"
+}
+
 ROOT="$(project_dir)"
 SOURCE_DIR="$ROOT/work/lightning"
 BUILD_DIR="$ROOT/work/windows-build"
@@ -113,6 +142,10 @@ jq -n \
       native_windows_tested:false}' >"$STAGE_DIR/build-info.json"
 cp /usr/local/share/lightning-windows-rpms.txt "$REPORT_DIR/builder-rpms.txt"
 
+# Sign the staged executable BEFORE it is captured into the portable ZIP / MSI /
+# NSIS payloads, so a signed build signs the app itself, not just the installers.
+sign_windows_file "$STAGE_DIR/Lightning.exe"
+
 short_sha="${SOURCE_SHA:0:7}"
 artifact_base="Lightning-${BASE_VERSION}-${short_sha}-windows-x86_64"
 portable="$WINDOWS_DIST/${artifact_base}-portable.zip"
@@ -125,6 +158,7 @@ python3 "$SCRIPT_DIR/generate-windows-wix.py" \
     --output "$wxs" --metadata "$REPORT_DIR/msi-identity.json"
 msi="$WINDOWS_DIST/${artifact_base}.msi"
 wixl --arch x64 --output "$msi" "$wxs" 2>&1 | tee "$REPORT_DIR/wixl.log"
+sign_windows_file "$msi"
 
 setup="$WINDOWS_DIST/${artifact_base}-setup.exe"
 makensis '-XTarget amd64-unicode' \
@@ -134,6 +168,7 @@ makensis '-XTarget amd64-unicode' \
     "-DOUTPUT_FILE=$setup" \
     "$ROOT/packaging/windows/installer.nsi" \
     2>&1 | tee "$REPORT_DIR/nsis.log"
+sign_windows_file "$setup"
 
 "$SCRIPT_DIR/validate-windows-artifacts.sh" "$WINDOWS_DIST"
 "$SCRIPT_DIR/smoke-windows-wine.sh" "$WINDOWS_DIST"
