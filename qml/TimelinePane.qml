@@ -933,6 +933,11 @@ Rectangle {
                     }
                     function onWheelMotionSettled() {
                         timeline.updateStickAndPaginate()
+                        // Refresh the view anchor the moment wheel motion ends,
+                        // closing the 250ms stale-anchor window on the mouse
+                        // path so a late delegate-height change cannot re-align
+                        // contentY to a position the reader has already left.
+                        timeline.captureViewAnchor()
                         scrollSettleTimer.restart()
                     }
                 }
@@ -975,6 +980,18 @@ Rectangle {
                             // content-height change teleported the view down.
                             if (event.pixelDelta.y > 0)
                                 timeline.stickToBottom = false
+                            // Keep the view anchor live on every touchpad delta.
+                            // The touchpad path runs with moving=false AND
+                            // wheelAnimating=false (cancelWheelMotion above), so
+                            // it is invisible to maintainViewAnchor's guard; if
+                            // the anchor is not refreshed here it stays frozen at
+                            // the last >250ms settle and the next async
+                            // content-height change yanks contentY back to that
+                            // stale row — the reported jitter / resist-upward /
+                            // pull-back-down defect. captureViewAnchor() reads
+                            // live content-space geometry and self-clears while
+                            // bottom-following, so downward re-engage stays correct.
+                            timeline.captureViewAnchor()
                             scrollSettleTimer.restart()
                         } else if (event.angleDelta.y !== 0) {
                             // Discrete mouse wheel: the C++ engine coalesces

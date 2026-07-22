@@ -358,6 +358,39 @@ private Q_SLOTS:
         QVERIFY(!pane.contains(QStringLiteral("contentY + height === contentHeight")));
     }
 
+    // Regression: the TOUCHPAD (pixelDelta) scroll path must keep the view
+    // anchor live on every delta, and wheel-motion settle must refresh it too.
+    // The touchpad path runs with moving=false AND wheelAnimating=false, so it
+    // is invisible to maintainViewAnchor's guard; without a live anchor the
+    // async delegate-height compensator yanks contentY back to a >250ms-stale
+    // row — the touchpad jitter / resist-upward / pull-back-down defect. The
+    // offscreen QPA does not incubate ListView delegates, so the pixel outcome
+    // is only provable on a physical touchpad; this scan guards the wiring.
+    void touchpadScrollKeepsViewAnchorLive()
+    {
+        const QString pane = read(QStringLiteral("TimelinePane.qml"));
+
+        const int pixelBranch =
+            pane.indexOf(QStringLiteral("if (event.pixelDelta.y !== 0)"));
+        QVERIFY(pixelBranch >= 0);
+        const int angleBranch = pane.indexOf(
+            QStringLiteral("else if (event.angleDelta.y !== 0)"), pixelBranch);
+        QVERIFY(angleBranch > pixelBranch);
+        const QString touchpad = pane.mid(pixelBranch, angleBranch - pixelBranch);
+        QVERIFY(touchpad.contains(QStringLiteral("timeline.captureViewAnchor()")));
+
+        const int settled =
+            pane.indexOf(QStringLiteral("function onWheelMotionSettled()"));
+        QVERIFY(settled >= 0);
+        // Scope to the function body (its own trailing scrollSettleTimer.restart)
+        // so this cannot spuriously match the settle timer's captureViewAnchor.
+        const int settledEnd =
+            pane.indexOf(QStringLiteral("scrollSettleTimer.restart()"), settled);
+        QVERIFY(settledEnd > settled);
+        const QString settledBlock = pane.mid(settled, settledEnd - settled);
+        QVERIFY(settledBlock.contains(QStringLiteral("timeline.captureViewAnchor()")));
+    }
+
     void directPreviewUsesControlledSourceAndOriginalUrlActivation()
     {
         const QString delegate = read(QStringLiteral("MessageDelegate.qml"));
