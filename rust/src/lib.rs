@@ -35,6 +35,7 @@ use matrix_sdk::{
                 encrypted::OriginalSyncRoomEncryptedEvent,
                 message::{MessageType, OriginalSyncRoomMessageEvent, RoomMessageEventContent},
             },
+            secret::send::ToDeviceSecretSendEvent,
             typing::SyncTypingEvent,
         },
         uint, EventId, OwnedDeviceId, OwnedEventId, OwnedRoomId, OwnedTransactionId,
@@ -60,6 +61,44 @@ mod timeline;
 
 /// Shared alias for the FFI event queue reference (used by `rooms.rs`).
 pub(crate) type EventQueueRef = Arc<Mutex<VecDeque<String>>>;
+
+/// v0.7.2: wake-up signals for the E2EE recovery coordinator (the
+/// crypto-bootstrap observer). Carries NO key material — each variant is a
+/// pure "something changed, re-evaluate" edge.
+#[derive(Clone, Copy, Debug)]
+enum RecoveryNudge {
+    /// A SAS flow reached `SasState::Done` locally (either direction).
+    /// Re-arms the bounded secret-request retry ladder even when the
+    /// device-level `VerificationState` was already `Verified` (a repeat
+    /// verification produces no state edge, but its fire-once SDK secret
+    /// requests deserve the same supervised follow-up).
+    VerificationDone,
+    /// The user explicitly asked to re-request the encryption secrets
+    /// ("Request keys again"). Runs one attempt immediately and re-arms
+    /// the bounded follow-up ladder.
+    ManualRequest,
+    /// An `m.secret.send` to-device event was decrypted for this session.
+    /// Only the arrival is signalled (never the name or value); the
+    /// coordinator re-checks sanitized SDK state shortly afterwards.
+    SecretEventSeen,
+}
+
+/// Slot through which SAS flows and the manual-request FFI reach the live
+/// coordinator's nudge channel. `None` whenever no observer is running.
+type RecoveryNudgeSlot =
+    Arc<Mutex<Option<tokio::sync::mpsc::UnboundedSender<RecoveryNudge>>>>;
+
+/// Deliver a nudge to the live coordinator, if one is running. A missing
+/// or closed channel is silently fine — the coordinator re-evaluates from
+/// authoritative SDK state whenever it (re)starts.
+fn notify_recovery_nudge(slot: &RecoveryNudgeSlot, nudge: RecoveryNudge) -> bool {
+    if let Ok(guard) = slot.lock() {
+        if let Some(sender) = guard.as_ref() {
+            return sender.send(nudge).is_ok();
+        }
+    }
+    false
+}
 
 struct RustClient {
     store_path: PathBuf,
@@ -116,6 +155,11 @@ struct RustClient {
     // C++ for the post-verification status UI. Lives exactly as long as the
     // sync session; stopped inside stop_sync_and_wait.
     bootstrap_task: Mutex<Option<SyncTask>>,
+    // v0.7.2: live coordinator nudge channel. SAS flows push
+    // VerificationDone here, the manual FFI pushes ManualRequest, and the
+    // m.secret.send handler pushes SecretEventSeen. Cleared whenever the
+    // observer stops so a stale sender can never reach a later session.
+    recovery_nudges: RecoveryNudgeSlot,
 }
 
 impl RustClient {
@@ -148,6 +192,7 @@ impl RustClient {
             media_results: Arc::new(Mutex::new(HashMap::new())),
             command_events: Arc::new(Mutex::new(VecDeque::new())),
             bootstrap_task: Mutex::new(None),
+            recovery_nudges: Arc::new(Mutex::new(None)),
         })
     }
 
@@ -158,7 +203,11 @@ impl RustClient {
     fn stop_sync_and_wait(&self) -> bool {
         // The crypto-bootstrap observer shares the sync session's lifetime;
         // stop it first so no status event can be emitted for a session
-        // that is going away.
+        // that is going away. Dropping the nudge sender first guarantees no
+        // late SAS/manual nudge can reach a coordinator that is stopping.
+        if let Ok(mut nudges) = self.recovery_nudges.lock() {
+            *nudges = None;
+        }
         let bootstrap = self
             .bootstrap_task
             .lock()
@@ -801,13 +850,14 @@ pub unsafe extern "C" fn mx_rust_start_sync(ptr: *mut c_void) {
                 let observer_events = Arc::clone(&bridge.events);
                 let timelines = Arc::clone(&bridge.timelines);
                 let lifecycle = bridge.timelines.lifecycle();
+                let nudges = Arc::clone(&bridge.recovery_nudges);
                 let (cancel, cancel_rx) = tokio::sync::oneshot::channel::<()>();
                 let thread = std::thread::spawn(move || {
                     let runtime_events = Arc::clone(&observer_events);
                     run_async(runtime_events, "crypto_bootstrap", async move {
                         run_crypto_bootstrap_observer(
                             client, observer_events, timelines, lifecycle,
-                            cancel_rx,
+                            nudges, cancel_rx,
                         )
                         .await;
                     });
@@ -876,11 +926,11 @@ fn emit_crypto_bootstrap(
     );
 }
 
-/// v0.7: verified-session crypto-bootstrap SUPERVISOR. Forwards the SDK's
-/// post-verification progress (verification/recovery/backup state streams,
-/// received-room-key counts) exactly like the original observer, and — the
-/// v0.7 recovery fix — actively drives the two supported steps the SDK's
-/// fire-once OneShot strategy leaves undone:
+/// v0.7.2: the per-account E2EE RECOVERY COORDINATOR (formerly the
+/// crypto-bootstrap observer). Forwards the SDK's post-verification
+/// progress (verification/recovery/backup state streams, received-room-key
+/// counts) exactly like the original observer, and actively drives the
+/// standards-based recovery steps matrix-sdk 0.18 leaves undone:
 ///
 ///   * once this session is Verified, one `fetch_exists_on_server` probe
 ///     reports whether a key backup actually exists (`backup_exists`), so
@@ -890,30 +940,40 @@ fn emit_crypto_bootstrap(
 ///     open room gets one deduplicated `download_room_keys_for_room` pass —
 ///     the deterministic replacement for the OneShot bulk download, which
 ///     never re-runs once a backup key is stored and swallows failures;
-///   * v0.7.1: each Verified edge arms a bounded ONE-SHOT secrets watchdog
-///     (90 s). If the gossiped secrets still have not arrived when it fires
-///     (recovery still Unknown/Incomplete, backup engine idle) while the
-///     server-truth probe said a backup EXISTS, one sanitized
-///     `secrets_pending` bootstrap event tells the UI honestly that the
-///     other device has not answered — states and counts only.
+///   * a bounded secret-request RETRY LADDER replaces the old one-shot
+///     watchdog. matrix-sdk queues the m.secret.request set exactly once at
+///     SAS completion (matrix-sdk-crypto verification/mod.rs
+///     `mark_as_done` → gossiping) and a request that reaches the peer
+///     before the peer finished its own completion is refused and never
+///     replayed. The ladder re-issues genuinely new requests through
+///     `OlmMachine::query_missing_secrets_from_other_sessions` (reached via
+///     the audited `testing` feature accessor — see `Cargo.toml`), which
+///     creates fresh request IDs for every still-missing secret and
+///     deduplicates against queued-but-unsent ones. Attempts fire at
+///     bounded delays after every arming edge (startup-verified, Verified
+///     edge, SAS Done, manual request) and stop as soon as nothing is
+///     missing, the own identity turns out unverified (a gossiped answer
+///     could not be accepted — a fresh verification is the honest remedy),
+///     or the ladder is exhausted (manual recovery remains);
+///   * an `m.secret.send` arrival handler and nudge channel let SAS
+///     completions, the user's "Request keys again" action, and secret
+///     arrivals re-drive evaluation even when the device-level
+///     `VerificationState` shows no edge (a repeat verification while
+///     already Verified previously produced NO follow-up at all);
+///   * received room keys additionally trigger the active room's in-place
+///     decryption retry so recovered history appears without reopening.
 ///
-/// Everything stays on public matrix-sdk APIs. No custom crypto, no secret
-/// requests of its own: matrix-sdk 0.18 queues the m.secret.request set
-/// exactly once at SAS completion (matrix-sdk-crypto
-/// verification/mod.rs `mark_request_as_done` → gossiping), and the crypto
-/// layer's re-request entry point,
-/// `OlmMachine::query_missing_secrets_from_other_sessions`, is unreachable
-/// here because `Encryption::olm_machine()` is `pub(crate)` in matrix-sdk
-/// 0.18. After a missed/dropped request the spec-clean remedies therefore
-/// remain a FRESH verification (a new SAS Done re-queues the whole secret
-/// request set, and the peer now already trusts this device) or manual
-/// recovery-key entry — the Settings UI offers exactly those two.
-/// Never touches or forwards key material.
+/// Everything stays on public matrix-sdk APIs. No custom crypto and no
+/// hand-built gossip: requests are created, validated, stored, and matched
+/// by the SDK's own GossipMachine; incoming secrets keep the SDK's full
+/// trust checks (same user + verified sending device). Never touches or
+/// forwards key material — kinds, fixed state strings, and counts only.
 async fn run_crypto_bootstrap_observer(
     client: Client,
     events: Arc<Mutex<VecDeque<String>>>,
     timelines: Arc<timeline::TimelineRegistry>,
     lifecycle: u64,
+    nudges: RecoveryNudgeSlot,
     mut cancel_rx: tokio::sync::oneshot::Receiver<()>,
 ) {
     let encryption = client.encryption();
@@ -924,18 +984,39 @@ async fn run_crypto_bootstrap_observer(
     let mut backup_states = backups.state_stream();
     let mut room_keys = encryption.room_keys_received_stream().await;
 
+    // v0.7.2 coordinator wiring: the nudge channel (SAS Done, manual
+    // request, secret arrival) and the m.secret.send arrival observer. The
+    // handler forwards ONLY the fact that a secret event was decrypted —
+    // never its name, value, or sender.
+    let (nudge_tx, mut nudge_rx) =
+        tokio::sync::mpsc::unbounded_channel::<RecoveryNudge>();
+    if let Ok(mut slot) = nudges.lock() {
+        *slot = Some(nudge_tx.clone());
+    }
+    let secret_send_handle = client.add_event_handler({
+        let tx = nudge_tx.clone();
+        move |_ev: ToDeviceSecretSendEvent| {
+            let tx = tx.clone();
+            async move {
+                let _ = tx.send(RecoveryNudge::SecretEventSeen);
+            }
+        }
+    });
+
     let mut verified = matches!(
         verification.get(),
         matrix_sdk::encryption::VerificationState::Verified
     );
     // Homeserver truth from the one-shot probe: None = not yet known.
     let mut backup_exists: Option<bool> = None;
-    // v0.7.1 bounded one-shot secrets watchdog. Armed on every Verified
-    // edge; disarmed by firing or by an Unverified edge. The fire-time
-    // CONDITION (secrets_still_pending) decides whether anything is
-    // emitted, so progress before the deadline silently defuses it.
-    const SECRETS_WATCHDOG_SECS: u64 = 90;
-    let mut watchdog_deadline: Option<tokio::time::Instant> = None;
+    // v0.7.2 bounded secret-request retry ladder. `attempt` indexes
+    // SECRET_RETRY_DELAYS_SECS; `retry_deadline` is the next evaluation
+    // instant (None = disarmed). A short `recheck_deadline` follows each
+    // observed m.secret.send so freshly imported state is re-read after
+    // the SDK finished processing it.
+    let mut retry_attempt: usize = 0;
+    let mut retry_deadline: Option<tokio::time::Instant> = None;
+    let mut recheck_deadline: Option<tokio::time::Instant> = None;
 
     // Baseline snapshot so C++ has a coherent starting state.
     emit_crypto_bootstrap(
@@ -953,14 +1034,15 @@ async fn run_crypto_bootstrap_observer(
 
     // Server-truth probe + download pass for the already-steady state (the
     // F2 stored-key case: verified, backup Enabled at startup, and the SDK
-    // will never download on its own).
+    // will never download on its own). Arming the ladder here is what
+    // heals a session that is ALREADY stuck in "verified but secretless"
+    // from a previous run: the first attempt fires shortly after startup
+    // and issues fresh, standards-based secret requests.
     if verified {
         probe_backup_exists(&client, &events, lifecycle, &mut backup_exists)
             .await;
-        watchdog_deadline = Some(
-            tokio::time::Instant::now()
-                + std::time::Duration::from_secs(SECRETS_WATCHDOG_SECS),
-        );
+        retry_attempt = 0;
+        retry_deadline = secret_retry_deadline(retry_attempt);
     }
     if verified
         && matches!(
@@ -991,15 +1073,11 @@ async fn run_crypto_bootstrap_observer(
                     )
                     .await;
                     if !was_verified {
-                        // (Re)arm the one-shot secrets watchdog on every
-                        // Verified edge — a repeat verification gets its
-                        // own bounded wait.
-                        watchdog_deadline = Some(
-                            tokio::time::Instant::now()
-                                + std::time::Duration::from_secs(
-                                    SECRETS_WATCHDOG_SECS,
-                                ),
-                        );
+                        // (Re)arm the retry ladder on every Verified edge —
+                        // a repeat verification gets its own bounded,
+                        // actively re-requesting wait.
+                        retry_attempt = 0;
+                        retry_deadline = secret_retry_deadline(retry_attempt);
                         // v0.7.1 idempotency fix: verification completing
                         // AFTER the backup key is already usable (manual
                         // recovery first, verification second) previously
@@ -1016,21 +1094,126 @@ async fn run_crypto_bootstrap_observer(
                         }
                     }
                 } else {
-                    watchdog_deadline = None;
+                    retry_deadline = None;
                 }
             }
-            _ = watchdog_sleep(watchdog_deadline) => {
-                // One-shot: firing disarms it until the next Verified edge.
-                watchdog_deadline = None;
-                if secrets_still_pending(
-                    verified, backup_exists, recovery.state(), backups.state(),
-                ) {
-                    // Sanitized intermediate truth: the other device has
-                    // not answered the fire-once m.secret.request yet.
-                    // Kind + fixed state string only — never key material.
-                    emit_crypto_bootstrap(
-                        &events, lifecycle, "secrets_pending", "waiting", 0,
-                    );
+            _ = watchdog_sleep(retry_deadline) => {
+                retry_deadline = None;
+                if !verified {
+                    continue;
+                }
+                let outcome = attempt_secret_recovery(
+                    &client, &events, lifecycle, backup_exists,
+                )
+                .await;
+                match outcome {
+                    SecretAttemptOutcome::Complete
+                    | SecretAttemptOutcome::IdentityUnverified
+                    | SecretAttemptOutcome::Unavailable => {
+                        // Terminal for this ladder: either nothing is
+                        // missing, or a gossiped answer could not be
+                        // accepted / created. A later arming edge (fresh
+                        // verification, manual request) starts a new one.
+                    }
+                    SecretAttemptOutcome::Requested(_)
+                    | SecretAttemptOutcome::AlreadyPending(_)
+                    | SecretAttemptOutcome::NoEligibleDevices => {
+                        retry_attempt += 1;
+                        retry_deadline = secret_retry_deadline(retry_attempt);
+                        emit_crypto_bootstrap(
+                            &events, lifecycle, "secrets_pending",
+                            if retry_deadline.is_some() {
+                                "waiting"
+                            } else {
+                                // Ladder exhausted with secrets still
+                                // missing — the UI escalates to manual
+                                // recovery honestly.
+                                "exhausted"
+                            },
+                            0,
+                        );
+                    }
+                }
+            }
+            _ = watchdog_sleep(recheck_deadline) => {
+                recheck_deadline = None;
+                // Re-read sanitized SDK state after the secret event was
+                // fully processed; stop the ladder when nothing is missing.
+                if secret_recheck_complete(
+                    &client, &events, lifecycle, backup_exists,
+                )
+                .await
+                {
+                    retry_deadline = None;
+                } else if verified && retry_deadline.is_none() {
+                    // A secret arrived but recovery is still incomplete
+                    // (e.g. the SDK refused it, or the gossiped backup key
+                    // did not match the active version and was discarded).
+                    // Re-arm one bounded follow-up round instead of
+                    // stalling forever on an exhausted ladder.
+                    retry_attempt = 1;
+                    retry_deadline = secret_retry_deadline(retry_attempt);
+                }
+            }
+            nudge = nudge_rx.recv() => {
+                let Some(nudge) = nudge else { continue };
+                match nudge {
+                    RecoveryNudge::VerificationDone => {
+                        // A SAS flow completed locally. The SDK queued its
+                        // own fire-once request set; give the peer a
+                        // bounded window before supervising with fresh
+                        // requests. Runs even when VerificationState shows
+                        // no edge (repeat verification).
+                        probe_backup_exists(
+                            &client, &events, lifecycle, &mut backup_exists,
+                        )
+                        .await;
+                        retry_attempt = 0;
+                        retry_deadline = secret_retry_deadline(retry_attempt);
+                    }
+                    RecoveryNudge::ManualRequest => {
+                        probe_backup_exists(
+                            &client, &events, lifecycle, &mut backup_exists,
+                        )
+                        .await;
+                        if !verified {
+                            emit_crypto_bootstrap(
+                                &events, lifecycle, "secret_request",
+                                "identity_unverified", 0,
+                            );
+                            continue;
+                        }
+                        let outcome = attempt_secret_recovery(
+                            &client, &events, lifecycle, backup_exists,
+                        )
+                        .await;
+                        match outcome {
+                            SecretAttemptOutcome::Requested(_)
+                            | SecretAttemptOutcome::AlreadyPending(_)
+                            | SecretAttemptOutcome::NoEligibleDevices => {
+                                // The manual attempt consumed slot 0; keep
+                                // the bounded follow-ups armed.
+                                retry_attempt = 1;
+                                retry_deadline =
+                                    secret_retry_deadline(retry_attempt);
+                            }
+                            _ => {
+                                retry_deadline = None;
+                            }
+                        }
+                    }
+                    RecoveryNudge::SecretEventSeen => {
+                        // Arrival only — the SDK validated, matched, and
+                        // imported (or refused) the secret itself.
+                        emit_crypto_bootstrap(
+                            &events, lifecycle, "secret_response",
+                            "received", 1,
+                        );
+                        recheck_deadline = Some(
+                            tokio::time::Instant::now()
+                                + std::time::Duration::from_secs(3),
+                        );
+                    }
                 }
             }
             state = recovery_states.next() => {
@@ -1076,9 +1259,31 @@ async fn run_crypto_bootstrap_observer(
                         &events, lifecycle, "room_keys_received", "",
                         infos.len() as u64,
                     );
+                    // v0.7.2: freshly imported keys retry the ACTIVE room's
+                    // undecryptable rows in place (the registry filters to
+                    // the open room and deduplicates; identifiers stay
+                    // inside the Rust boundary).
+                    let mut by_room: HashMap<String, Vec<String>> =
+                        HashMap::new();
+                    for info in infos.iter() {
+                        by_room
+                            .entry(info.room_id.to_string())
+                            .or_default()
+                            .push(info.session_id.clone());
+                    }
+                    let sessions: Vec<(String, Vec<String>)> =
+                        by_room.into_iter().collect();
+                    timelines
+                        .retry_decryption_after_import(&sessions)
+                        .await;
                 }
             }
         }
+    }
+
+    client.remove_event_handler(secret_send_handle);
+    if let Ok(mut slot) = nudges.lock() {
+        *slot = None;
     }
 }
 
@@ -1111,9 +1316,9 @@ async fn probe_backup_exists(
     }
 }
 
-/// v0.7.1: sleep until the armed secrets-watchdog deadline, or forever when
-/// it is disarmed. Takes the deadline BY VALUE (Copy) so the select! arm
-/// never borrows the observer's mutable state.
+/// v0.7.1: sleep until the armed deadline, or forever when it is disarmed.
+/// Takes the deadline BY VALUE (Copy) so the select! arm never borrows the
+/// coordinator's mutable state.
 async fn watchdog_sleep(deadline: Option<tokio::time::Instant>) {
     match deadline {
         Some(deadline) => tokio::time::sleep_until(deadline).await,
@@ -1121,29 +1326,204 @@ async fn watchdog_sleep(deadline: Option<tokio::time::Instant>) {
     }
 }
 
-/// v0.7.1 secrets-watchdog decision: after a Verified edge, are the
-/// gossiped secrets still missing even though a server-side backup could
-/// supply history? True only when (a) this session is verified, (b) the
-/// homeserver-truth probe said a key backup EXISTS, (c) recovery is still
-/// Unknown/Incomplete — the fire-once m.secret.request set was never
-/// answered (Disabled means there is no secret storage to gossip from, a
-/// different honest state), and (d) the backup engine shows no progress.
-/// Pure and synchronous so the decision table is unit-testable.
-fn secrets_still_pending(
-    verified: bool,
+/// v0.7.2 retry-ladder delays, in seconds AFTER each arming edge. The
+/// first attempt waits long enough for the SDK's own fire-once request set
+/// (queued at SAS Done) or an in-flight answer to land; the later attempts
+/// cover the documented peer-side race (a request that arrives before the
+/// peer finished its own completion is refused and never replayed) with
+/// bounded backoff. Past the last entry the coordinator emits an honest
+/// `secrets_pending exhausted` and stops until a new arming edge.
+const SECRET_RETRY_DELAYS_SECS: [u64; 3] = [20, 90, 240];
+
+/// Deadline for the given ladder attempt, or None when the ladder is
+/// exhausted. Pure delay lookup kept separate for unit tests.
+fn next_secret_retry_delay(attempt: usize) -> Option<u64> {
+    SECRET_RETRY_DELAYS_SECS.get(attempt).copied()
+}
+
+fn secret_retry_deadline(attempt: usize) -> Option<tokio::time::Instant> {
+    next_secret_retry_delay(attempt).map(|secs| {
+        tokio::time::Instant::now() + std::time::Duration::from_secs(secs)
+    })
+}
+
+/// v0.7.2 missing-secret decision: is post-verification recovery still
+/// incomplete? Cross-signing private keys are always required; the backup
+/// decryption key only when the homeserver-truth probe said a backup
+/// EXISTS (an account without any backup has nothing to enable, and an
+/// unknown probe result stays conservative on the cross-signing half
+/// only). Pure and synchronous so the decision table is unit-testable.
+fn secret_recovery_missing(
+    cross_signing_complete: bool,
     backup_exists: Option<bool>,
-    recovery: matrix_sdk::encryption::recovery::RecoveryState,
-    backup: matrix_sdk::encryption::backups::BackupState,
+    backup_enabled: bool,
 ) -> bool {
-    use matrix_sdk::encryption::backups::BackupState;
-    use matrix_sdk::encryption::recovery::RecoveryState;
-    verified
-        && backup_exists == Some(true)
-        && matches!(
-            recovery,
-            RecoveryState::Unknown | RecoveryState::Incomplete
-        )
-        && matches!(backup, BackupState::Unknown | BackupState::Disabling)
+    !cross_signing_complete
+        || (backup_exists == Some(true) && !backup_enabled)
+}
+
+/// One bounded secret-recovery attempt outcome. Carried counts are device
+/// counts only — never identifiers or key material.
+enum SecretAttemptOutcome {
+    /// Nothing is missing anymore; the ladder stops.
+    Complete,
+    /// The own identity is not verified on this session, so the SDK would
+    /// reject any gossiped answer (m.secret.send is only accepted from a
+    /// device this session considers verified, which requires local
+    /// own-identity trust). A fresh interactive verification is the
+    /// standards-based remedy; requesting again would mislead.
+    IdentityUnverified,
+    /// New m.secret.request gossip was queued for every missing secret.
+    Requested(u64),
+    /// Requests for the missing secrets are already queued and unsent.
+    AlreadyPending(u64),
+    /// No other verified own device exists to answer a request right now.
+    NoEligibleDevices,
+    /// The crypto machine was unavailable or the store query failed.
+    Unavailable,
+}
+
+/// Evaluate the sanitized trust/secret state and, when appropriate, queue
+/// standards-based m.secret.request gossip through the SDK. Emits the
+/// matching `own_identity`, `cross_signing_secrets`, and `secret_request`
+/// bootstrap events (fixed state strings + counts only).
+async fn attempt_secret_recovery(
+    client: &Client,
+    events: &Arc<Mutex<VecDeque<String>>>,
+    lifecycle: u64,
+    backup_exists: Option<bool>,
+) -> SecretAttemptOutcome {
+    let encryption = client.encryption();
+
+    let own_identity_verified = match client.user_id() {
+        Some(uid) => matches!(
+            encryption.get_user_identity(uid).await,
+            Ok(Some(identity)) if identity.is_verified()
+        ),
+        None => false,
+    };
+    emit_crypto_bootstrap(
+        events, lifecycle, "own_identity",
+        if own_identity_verified { "verified" } else { "unverified" }, 0,
+    );
+
+    let cross_signing_complete = encryption
+        .cross_signing_status()
+        .await
+        .map(|status| {
+            status.has_master && status.has_self_signing && status.has_user_signing
+        })
+        .unwrap_or(false);
+    emit_crypto_bootstrap(
+        events, lifecycle, "cross_signing_secrets",
+        if cross_signing_complete { "complete" } else { "incomplete" }, 0,
+    );
+
+    let backup_enabled = encryption.backups().are_enabled().await;
+    if !secret_recovery_missing(cross_signing_complete, backup_exists, backup_enabled) {
+        emit_crypto_bootstrap(
+            events, lifecycle, "secret_request", "none_missing", 0,
+        );
+        return SecretAttemptOutcome::Complete;
+    }
+
+    if !own_identity_verified {
+        emit_crypto_bootstrap(
+            events, lifecycle, "secret_request", "identity_unverified", 0,
+        );
+        return SecretAttemptOutcome::IdentityUnverified;
+    }
+
+    let eligible = count_eligible_verified_devices(client).await;
+    if eligible == 0 {
+        emit_crypto_bootstrap(
+            events, lifecycle, "secret_request", "no_eligible_devices", 0,
+        );
+        return SecretAttemptOutcome::NoEligibleDevices;
+    }
+
+    match queue_missing_secret_requests(client).await {
+        Ok(true) => {
+            emit_crypto_bootstrap(
+                events, lifecycle, "secret_request", "requested", eligible,
+            );
+            SecretAttemptOutcome::Requested(eligible)
+        }
+        Ok(false) => {
+            emit_crypto_bootstrap(
+                events, lifecycle, "secret_request", "already_pending",
+                eligible,
+            );
+            SecretAttemptOutcome::AlreadyPending(eligible)
+        }
+        Err(()) => {
+            emit_crypto_bootstrap(
+                events, lifecycle, "secret_request", "unavailable", 0,
+            );
+            SecretAttemptOutcome::Unavailable
+        }
+    }
+}
+
+/// Post-arrival re-read: emit the refreshed sanitized identity/secret
+/// state and report whether recovery is now complete (nothing missing).
+async fn secret_recheck_complete(
+    client: &Client,
+    events: &Arc<Mutex<VecDeque<String>>>,
+    lifecycle: u64,
+    backup_exists: Option<bool>,
+) -> bool {
+    let encryption = client.encryption();
+    let cross_signing_complete = encryption
+        .cross_signing_status()
+        .await
+        .map(|status| {
+            status.has_master && status.has_self_signing && status.has_user_signing
+        })
+        .unwrap_or(false);
+    emit_crypto_bootstrap(
+        events, lifecycle, "cross_signing_secrets",
+        if cross_signing_complete { "complete" } else { "incomplete" }, 0,
+    );
+    let backup_enabled = encryption.backups().are_enabled().await;
+    !secret_recovery_missing(cross_signing_complete, backup_exists, backup_enabled)
+}
+
+/// Count the OTHER verified devices of this account (the sessions a
+/// standards-based secret request could be answered by). Count only —
+/// device identifiers never leave this function.
+async fn count_eligible_verified_devices(client: &Client) -> u64 {
+    let Some(uid) = client.user_id() else { return 0 };
+    let own_device = client.device_id();
+    match client.encryption().get_user_devices(uid).await {
+        Ok(devices) => devices
+            .devices()
+            .filter(|device| {
+                Some(device.device_id()) != own_device && device.is_verified()
+            })
+            .count() as u64,
+        Err(_) => 0,
+    }
+}
+
+/// Queue m.secret.request gossip for every still-missing secret through
+/// `OlmMachine::query_missing_secrets_from_other_sessions` — the SDK's own
+/// re-request entry point (fresh request IDs, deduplicated against
+/// queued-but-unsent requests, sent by the normal outgoing-request sync
+/// machinery, answered only via the SDK's full trust validation). The
+/// accessor is gated behind matrix-sdk's `testing` feature because 0.18
+/// exposes no other public route to the machine; the feature's code sites
+/// were audited as strictly additive (see rust/Cargo.toml). Returns
+/// whether any new request was queued.
+async fn queue_missing_secret_requests(client: &Client) -> Result<bool, ()> {
+    let machine = client.olm_machine_for_testing().await;
+    let Some(machine) = machine.as_ref() else {
+        return Err(());
+    };
+    machine
+        .query_missing_secrets_from_other_sessions()
+        .await
+        .map_err(|_| ())
 }
 
 /// Run the deduplicated whole-room backup download pass for the currently
@@ -1876,6 +2256,7 @@ pub unsafe extern "C" fn mx_rust_accept_verification(
         let events = Arc::clone(&bridge.events);
         let sas_slot = Arc::clone(&bridge.active_sas);
         let request_slot = Arc::clone(&bridge.active_request);
+        let nudges = Arc::clone(&bridge.recovery_nudges);
         std::thread::spawn(move || {
             let runtime_events = Arc::clone(&events);
             run_async(runtime_events, "verification_accept", async move {
@@ -1978,6 +2359,9 @@ pub unsafe extern "C" fn mx_rust_accept_verification(
                                 "type": "verification_done",
                                 "flow_id": sas_flow_id,
                             }));
+                            notify_recovery_nudge(
+                                &nudges, RecoveryNudge::VerificationDone,
+                            );
                             if let Ok(mut g) = sas_slot.lock() { *g = None; }
                             if let Ok(mut g) = request_slot.lock() { *g = None; }
                             return;
@@ -2149,6 +2533,7 @@ pub unsafe extern "C" fn mx_rust_start_own_verification(
         let events = Arc::clone(&bridge.events);
         let request_slot = Arc::clone(&bridge.active_request);
         let sas_slot = Arc::clone(&bridge.active_sas);
+        let nudges = Arc::clone(&bridge.recovery_nudges);
         std::thread::spawn(move || {
             let runtime_events = Arc::clone(&events);
             run_async(runtime_events, "verification_start_own", async move {
@@ -2343,6 +2728,9 @@ pub unsafe extern "C" fn mx_rust_start_own_verification(
                                 "type": "verification_done",
                                 "flow_id": flow_id,
                             }));
+                            notify_recovery_nudge(
+                                &nudges, RecoveryNudge::VerificationDone,
+                            );
                             if let Ok(mut g) = sas_slot.lock() { *g = None; }
                             if let Ok(mut g) = request_slot.lock() { *g = None; }
                             return;
@@ -2530,6 +2918,31 @@ pub unsafe extern "C" fn mx_rust_query_crypto_health(ptr: *mut c_void) -> *mut c
             }));
         });
         Ok(String::new())
+    })
+}
+
+/// v0.7.2: user-initiated "Request keys again". Nudges the live recovery
+/// coordinator to run one immediate standards-based secret-request attempt
+/// (fresh m.secret.request IDs through the SDK's own gossip machinery) and
+/// re-arm its bounded follow-up ladder. Progress arrives as sanitized
+/// `crypto_bootstrap` events; no key material crosses the FFI.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_request_missing_secrets(
+    ptr: *mut c_void,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        if bridge.client.lock().ok().and_then(|g| g.clone()).is_none() {
+            return Ok("error: Rust SDK session is not logged in.".to_owned());
+        }
+        if notify_recovery_nudge(
+            &bridge.recovery_nudges,
+            RecoveryNudge::ManualRequest,
+        ) {
+            Ok(String::new())
+        } else {
+            Ok("error: encryption sync is not running yet.".to_owned())
+        }
     })
 }
 
@@ -4909,33 +5322,57 @@ mod tests {
         assert_eq!(obj["lifecycle"], 7);
     }
 
-    // v0.7.1 secrets watchdog: the fire-time decision table. Only the
-    // "verified + server-side backup exists + secrets never answered +
-    // backup engine idle" combination reports pending.
+    // v0.7.2 retry ladder: bounded, ordered delays; exhausted past the end.
     #[test]
-    fn secrets_watchdog_decision_table() {
-        use matrix_sdk::encryption::backups::BackupState as B;
-        use matrix_sdk::encryption::recovery::RecoveryState as R;
-        let pending = super::secrets_still_pending;
-        // The live-failure shape: verified, backup exists server-side,
-        // recovery incomplete/unknown, backup engine idle.
-        assert!(pending(true, Some(true), R::Incomplete, B::Unknown));
-        assert!(pending(true, Some(true), R::Unknown, B::Unknown));
-        // Any real progress or terminal state must not report pending.
-        assert!(!pending(true, Some(true), R::Enabled, B::Enabled));
-        assert!(!pending(true, Some(true), R::Incomplete, B::Enabled));
-        assert!(!pending(true, Some(true), R::Incomplete, B::Downloading));
-        assert!(!pending(true, Some(true), R::Incomplete, B::Enabling));
-        assert!(!pending(true, Some(true), R::Incomplete, B::Resuming));
-        assert!(!pending(true, Some(true), R::Incomplete, B::Creating));
-        // No server-side backup, or an unknown probe: the model already
-        // names those states honestly without the watchdog.
-        assert!(!pending(true, Some(false), R::Incomplete, B::Unknown));
-        assert!(!pending(true, None, R::Incomplete, B::Unknown));
-        // Recovery Disabled = no secret storage to gossip from at all.
-        assert!(!pending(true, Some(true), R::Disabled, B::Unknown));
-        // Unverified sessions never report pending secrets.
-        assert!(!pending(false, Some(true), R::Incomplete, B::Unknown));
+    fn secret_retry_ladder_is_bounded_and_ordered() {
+        let d0 = super::next_secret_retry_delay(0).expect("first attempt");
+        let d1 = super::next_secret_retry_delay(1).expect("second attempt");
+        let d2 = super::next_secret_retry_delay(2).expect("third attempt");
+        assert!(d0 < d1 && d1 < d2, "delays must back off");
+        assert_eq!(super::next_secret_retry_delay(3), None);
+        assert_eq!(super::next_secret_retry_delay(usize::MAX), None);
+    }
+
+    // v0.7.2 missing-secret decision table: cross-signing private keys are
+    // always required; the backup key only when the server-truth probe said
+    // a backup exists.
+    #[test]
+    fn secret_recovery_missing_decision_table() {
+        let missing = super::secret_recovery_missing;
+        // The live-failure shape: nothing arrived yet.
+        assert!(missing(false, Some(true), false));
+        // Cross-signing incomplete alone is enough, whatever the backup.
+        assert!(missing(false, Some(false), false));
+        assert!(missing(false, None, true));
+        // Cross-signing complete but a server-side backup is not usable.
+        assert!(missing(true, Some(true), false));
+        // Fully recovered.
+        assert!(!missing(true, Some(true), true));
+        // No backup on the server (or unknown probe): the cross-signing
+        // half decides alone.
+        assert!(!missing(true, Some(false), false));
+        assert!(!missing(true, None, false));
+    }
+
+    // v0.7.2: every coordinator emission goes through the shared
+    // crypto_bootstrap shape (kind + fixed state string + count +
+    // lifecycle stamp — no extra fields, no identifiers).
+    #[test]
+    fn secret_request_event_shape_matches_bootstrap_events() {
+        use std::collections::VecDeque;
+        use std::sync::{Arc, Mutex};
+        let events: Arc<Mutex<VecDeque<String>>> =
+            Arc::new(Mutex::new(VecDeque::new()));
+        super::emit_crypto_bootstrap(&events, 9, "secret_request", "requested", 2);
+        let raw = events.lock().unwrap().pop_front().expect("one event");
+        let event: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        let obj = event.as_object().expect("json object");
+        assert_eq!(obj.len(), 5);
+        assert_eq!(obj["type"], "crypto_bootstrap");
+        assert_eq!(obj["kind"], "secret_request");
+        assert_eq!(obj["state"], "requested");
+        assert_eq!(obj["count"], 2);
+        assert_eq!(obj["lifecycle"], 9);
     }
 }
 

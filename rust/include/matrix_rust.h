@@ -180,6 +180,17 @@ char *mx_rust_query_own_device_status(void *client);
 char *mx_rust_query_crypto_health(void *client);
 
 /*
+ * v0.7.2: user-initiated "Request keys again". Nudges the per-account
+ * recovery coordinator to run one immediate standards-based
+ * m.secret.request round through the SDK's gossip machinery (fresh
+ * request IDs, deduplicated, full SDK trust validation on answers) and
+ * re-arm its bounded follow-up ladder. Progress arrives as sanitized
+ * `crypto_bootstrap` poll events. Returns "" on dispatch, "error: ..."
+ * when not logged in or the encryption sync is not running.
+ */
+char *mx_rust_request_missing_secrets(void *client);
+
+/*
  * Encrypted Megolm room-key import (v0.5.6). Decrypts an
  * Element/Matrix-SDK-compatible encrypted export file with `passphrase`
  * and imports the extracted inbound room-session keys into the active
