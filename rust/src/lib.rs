@@ -5078,12 +5078,25 @@ async fn room_name(room: &Room) -> String {
         }
     }
 
+    // The SDK's Display impl is the full Matrix room-naming algorithm
+    // (explicit name -> canonical alias -> heroes -> member summary) and it
+    // renders an unnamed lone-member room as "Empty Room" rather than a bare
+    // MXID. Handling the variants by hand previously dropped `Empty`/`Err`
+    // into the raw-room-id arm, so a legitimately unnamed room (e.g. a fresh
+    // room with no name, alias, or other members) showed "!id:server" as its
+    // display name across the room list and header. Render through the SDK
+    // instead, and only fall back to the raw id when the SDK truly yields
+    // nothing (a defensive last-resort diagnostic, never the normal path).
     match room.display_name().await {
-        Ok(matrix_sdk::RoomDisplayName::Named(name))
-        | Ok(matrix_sdk::RoomDisplayName::Aliased(name))
-        | Ok(matrix_sdk::RoomDisplayName::Calculated(name))
-        | Ok(matrix_sdk::RoomDisplayName::EmptyWas(name)) if !name.is_empty() => name,
-        _ => room.room_id().to_string(),
+        Ok(display_name) => {
+            let rendered = display_name.to_string();
+            if rendered.is_empty() {
+                room.room_id().to_string()
+            } else {
+                rendered
+            }
+        }
+        Err(_) => room.room_id().to_string(),
     }
 }
 
@@ -5775,10 +5788,18 @@ mod live_e2ee_interop_tests {
             eprintln!("[live] peer: recovery enabled");
         });
 
-        // Seed encrypted history and wait until its keys are in backup.
-        let _room_id = runtime.block_on(async {
+        // Seed encrypted history and wait until its keys are in backup. The
+        // room carries a clearly recognizable name (and a per-process run
+        // marker) so a leftover on the dedicated test account is never a bare
+        // MXID, and is cleaned up at the end (see the teardown below).
+        let test_room_id = runtime.block_on(async {
             use matrix_sdk::ruma::events::room::message::RoomMessageEventContent;
-            let request = matrix_sdk::ruma::api::client::room::create_room::v3::Request::new();
+            let mut request =
+                matrix_sdk::ruma::api::client::room::create_room::v3::Request::new();
+            request.name = Some(format!(
+                "Lightning E2EE Interop Test {}",
+                std::process::id()
+            ));
             let room = peer.create_room(request).await.expect("create room");
             room.enable_encryption().await.expect("enable encryption");
             for i in 0..3 {
@@ -6062,6 +6083,37 @@ mod live_e2ee_interop_tests {
                 super::mx_rust_destroy(handle2);
             }
         }
+
+        // Cleanup the temporary test room so repeated runs do not litter the
+        // dedicated test account with unnamed encrypted rooms (six such rooms
+        // had accumulated before this). Bounded to EXACTLY the room this run
+        // created (tracked by id) and performed by the peer, which — being the
+        // same account — leaves it for every device. Failure is reported, not
+        // hidden, and never flips the test result. Set
+        // LIGHTNING_LIVE_E2EE_KEEP_ROOMS=1 to preserve the room for debugging.
+        if env_nonempty("LIGHTNING_LIVE_E2EE_KEEP_ROOMS").is_none() {
+            runtime.block_on(async {
+                match peer.get_room(&test_room_id) {
+                    Some(room) => match room.leave().await {
+                        Ok(()) => {
+                            let _ = room.forget().await;
+                            eprintln!("[live] peer: test room left and forgotten");
+                        }
+                        Err(err) => eprintln!(
+                            "[live] peer: test room leave FAILED, left for \
+                             manual cleanup: {err:?}"
+                        ),
+                    },
+                    None => eprintln!(
+                        "[live] peer: test room not resolvable for cleanup, \
+                         left for manual cleanup"
+                    ),
+                }
+            });
+        } else {
+            eprintln!("[live] peer: KEEP_ROOMS set; test room preserved");
+        }
+
         {
             let _guard = runtime.enter();
             drop(peer);
