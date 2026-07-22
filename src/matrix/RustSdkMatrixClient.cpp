@@ -2973,6 +2973,21 @@ void RustSdkMatrixClient::startOwnVerification()
     }
 }
 
+void RustSdkMatrixClient::requestMissingSecrets()
+{
+    if (!m_loggedIn || !m_rustHandle) {
+        Q_EMIT errorOccurred(tr("Not signed in."));
+        return;
+    }
+    const QString r =
+        takeRustString(mx_rust_request_missing_secrets(m_rustHandle));
+    if (!r.isEmpty()) {
+        qCWarning(lcRust) << "request_missing_secrets dispatch failed";
+        Q_EMIT errorOccurred(
+            r.startsWith(QLatin1String("error: ")) ? r.mid(7) : r);
+    }
+}
+
 void RustSdkMatrixClient::refreshOwnDeviceStatus()
 {
     if (!m_loggedIn || !m_rustHandle)

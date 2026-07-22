@@ -305,6 +305,12 @@ public Q_SLOTS:
     // against another session belonging to the same Matrix account.
     Q_INVOKABLE void startOwnVerification();
 
+    // v0.7.2. "Request keys again": ask the Rust recovery coordinator for
+    // a fresh standards-based encryption-secret request round and re-arm
+    // the bootstrap model's bounded wait. Only meaningful on the Rust
+    // backend while signed in.
+    Q_INVOKABLE void requestEncryptionKeys();
+
     // v0.5.6. Re-query the SDK trust state so the Settings pane can
     // refresh after a manual action.
     Q_INVOKABLE void refreshSessionTrustState();

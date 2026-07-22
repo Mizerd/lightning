@@ -22,6 +22,9 @@ import MatrixClient
 Item {
     id: root
 
+    // v0.7.2: whether the sanitized E2EE recovery diagnostics are expanded.
+    property bool showRecoveryDiagnostics: false
+
     // Reusable settings card (grouped-controls surface).
     component SettingsCard: Pane {
         Layout.fillWidth: true
@@ -1434,6 +1437,8 @@ Item {
                                                  || app.cryptoBootstrap.phase
                                                      === CryptoBootstrapModel.SecretsPending
                                                  || app.cryptoBootstrap.phase
+                                                     === CryptoBootstrapModel.SecretReceived
+                                                 || app.cryptoBootstrap.phase
                                                      === CryptoBootstrapModel.RestoringHistory
                                     }
                                     Label {
@@ -1451,20 +1456,34 @@ Item {
                                         Accessible.name: text
                                     }
                                 }
-                                // v0.7.1: standards-clean key re-request.
-                                // matrix-sdk 0.18 sends the m.secret.request
-                                // set exactly once per SAS completion, so
-                                // when the first request was missed (the
-                                // other client processed it before trusting
-                                // this device) a FRESH verification is the
-                                // honest way to request the secrets again —
-                                // the other session now already trusts this
-                                // device and answers. No new crypto: this is
-                                // the existing startOwnVerification path.
+                                // v0.7.2: standards-based key re-request.
+                                // The Rust recovery coordinator issues a
+                                // FRESH m.secret.request round through the
+                                // SDK's gossip machinery (new request IDs,
+                                // full trust validation on the answers) and
+                                // keeps re-trying on a bounded ladder. Shown
+                                // only when a new request is genuinely
+                                // useful (session verified, identity
+                                // trusted, secrets still missing).
+                                AppButton {
+                                    objectName: "requestKeysAgain"
+                                    visible: app.cryptoBootstrap.canRequestKeys
+                                    enabled: app.loggedIn
+                                    text: qsTr("Request keys again")
+                                    Accessible.name: text
+                                    onClicked: app.requestEncryptionKeys()
+                                }
+                                // When this session does not itself trust
+                                // the account identity, a gossiped answer
+                                // could not be accepted — only a repeated
+                                // interactive verification (or the recovery
+                                // key below) can complete the trust chain.
+                                // No new crypto: this is the existing
+                                // startOwnVerification path.
                                 AppButton {
                                     objectName: "verifyAgainForKeys"
                                     visible: app.cryptoBootstrap.phase
-                                                 === CryptoBootstrapModel.SecretsPending
+                                                 === CryptoBootstrapModel.IdentityIncomplete
                                              || app.cryptoBootstrap.phase
                                                  === CryptoBootstrapModel.ManualRecoveryRequired
                                     enabled: app.loggedIn
@@ -1472,7 +1491,10 @@ Item {
                                                  || app.verificationState === "done"
                                                  || app.verificationState === "cancelled"
                                                  || app.verificationState.indexOf("failed") === 0)
-                                    text: qsTr("Verify again to request keys")
+                                    text: app.cryptoBootstrap.phase
+                                              === CryptoBootstrapModel.IdentityIncomplete
+                                          ? qsTr("Verify this session again")
+                                          : qsTr("Verify another session to request keys")
                                     Accessible.name: text
                                     onClicked: {
                                         // The live flow card renders in the
@@ -1534,6 +1556,105 @@ Item {
                                           : app.cryptoHealth.cryptoReady
                                             ? qsTr("Encryption sync: ready")
                                             : qsTr("Encryption sync: waiting")
+                                }
+                                // v0.7.2 sanitized recovery diagnostics —
+                                // fixed tokens and counts only, expandable
+                                // so the primary status stays concise.
+                                Label {
+                                    objectName: "recoveryDiagnosticsToggle"
+                                    visible: app.cryptoBootstrap.active
+                                    text: root.showRecoveryDiagnostics
+                                          ? qsTr("Hide recovery diagnostics")
+                                          : qsTr("Recovery diagnostics")
+                                    color: AppTheme.accent
+                                    font.pixelSize: AppTheme.fontSecondary
+                                    font.underline: true
+                                    Accessible.role: Accessible.Button
+                                    Accessible.name: text
+                                    MouseArea {
+                                        anchors.fill: parent
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: root.showRecoveryDiagnostics
+                                            = !root.showRecoveryDiagnostics
+                                    }
+                                }
+                                ColumnLayout {
+                                    objectName: "recoveryDiagnostics"
+                                    visible: root.showRecoveryDiagnostics
+                                             && app.cryptoBootstrap.active
+                                    Layout.fillWidth: true
+                                    spacing: AppTheme.spacing4
+                                    Label {
+                                        Layout.fillWidth: true
+                                        color: AppTheme.textMuted
+                                        font.pixelSize: AppTheme.fontSecondary
+                                        text: qsTr("Own identity: %1").arg(
+                                            app.cryptoBootstrap.ownIdentity === "verified"
+                                                ? qsTr("verified")
+                                                : app.cryptoBootstrap.ownIdentity === "unverified"
+                                                  ? qsTr("not verified on this session")
+                                                  : qsTr("not checked yet"))
+                                    }
+                                    Label {
+                                        Layout.fillWidth: true
+                                        color: AppTheme.textMuted
+                                        font.pixelSize: AppTheme.fontSecondary
+                                        text: qsTr("Cross-signing private keys: %1").arg(
+                                            app.cryptoBootstrap.crossSigningSecrets === "complete"
+                                                ? qsTr("present")
+                                                : app.cryptoBootstrap.crossSigningSecrets === "incomplete"
+                                                  ? qsTr("missing on this session")
+                                                  : qsTr("not checked yet"))
+                                    }
+                                    Label {
+                                        Layout.fillWidth: true
+                                        color: AppTheme.textMuted
+                                        font.pixelSize: AppTheme.fontSecondary
+                                        text: {
+                                            var s = app.cryptoBootstrap.requestState
+                                            var label = s === "requested"
+                                                ? qsTr("sent")
+                                                : s === "already_pending"
+                                                  ? qsTr("pending")
+                                                  : s === "none_missing"
+                                                    ? qsTr("nothing missing")
+                                                    : s === "identity_unverified"
+                                                      ? qsTr("blocked — identity not verified")
+                                                      : s === "no_eligible_devices"
+                                                        ? qsTr("no verified session to ask")
+                                                        : s === "unavailable"
+                                                          ? qsTr("could not be created")
+                                                          : qsTr("not sent yet")
+                                            return qsTr("Secret request: %1 (%n attempt(s))",
+                                                        "",
+                                                        app.cryptoBootstrap.requestAttempts)
+                                                .arg(label)
+                                        }
+                                    }
+                                    Label {
+                                        Layout.fillWidth: true
+                                        color: AppTheme.textMuted
+                                        font.pixelSize: AppTheme.fontSecondary
+                                        visible: app.cryptoBootstrap.requestAttempts > 0
+                                        text: qsTr("Verified sessions available: %1")
+                                            .arg(app.cryptoBootstrap.eligibleDevices)
+                                    }
+                                    Label {
+                                        Layout.fillWidth: true
+                                        color: AppTheme.textMuted
+                                        font.pixelSize: AppTheme.fontSecondary
+                                        text: qsTr("Backup key usable: %1").arg(
+                                            app.cryptoHealth.keyBackupUsable
+                                                ? qsTr("yes") : qsTr("no"))
+                                    }
+                                    Label {
+                                        Layout.fillWidth: true
+                                        color: AppTheme.textMuted
+                                        font.pixelSize: AppTheme.fontSecondary
+                                        visible: app.cryptoBootstrap.keysReceived > 0
+                                        text: qsTr("Room keys imported: %1")
+                                            .arg(app.cryptoBootstrap.keysReceived)
+                                    }
                                 }
                             }
                         }

@@ -339,6 +339,138 @@ private Q_SLOTS:
         apply(n, "verification_state", "verified");
         QCOMPARE(n.phase(), CryptoBootstrapModel::WaitingForKeys);
     }
+
+    // v0.7.2 coordinator attempts: each explicit "requested" report counts
+    // an attempt, carries the eligible-device count, refines the waiting
+    // message, and offers the real re-request action.
+    void secretRequestAttemptsRefineWaitingState()
+    {
+        CryptoBootstrapModel m;
+        apply(m, "verification_state", "verified");
+        apply(m, "backup_exists", "true");
+        QCOMPARE(m.phase(), CryptoBootstrapModel::WaitingForKeys);
+        QCOMPARE(m.requestAttempts(), 0);
+
+        apply(m, "own_identity", "verified");
+        apply(m, "cross_signing_secrets", "incomplete");
+        apply(m, "secret_request", "requested", 1);
+        QCOMPARE(m.phase(), CryptoBootstrapModel::WaitingForKeys);
+        QCOMPARE(m.requestAttempts(), 1);
+        QCOMPARE(m.eligibleDevices(), 1);
+        QCOMPARE(m.requestState(), QStringLiteral("requested"));
+        QVERIFY(m.canRequestKeys());
+        QVERIFY(m.statusMessage().contains(QStringLiteral("request sent")));
+
+        // The coordinator's unanswered report refines, a second attempt
+        // accumulates.
+        apply(m, "secrets_pending", "waiting");
+        QCOMPARE(m.phase(), CryptoBootstrapModel::SecretsPending);
+        apply(m, "secret_request", "requested", 1);
+        QCOMPARE(m.requestAttempts(), 2);
+    }
+
+    // v0.7.2: the coordinator's explicit ladder-exhaustion report escalates
+    // to manual recovery without waiting for the local backstop timer.
+    void exhaustedLadderEscalatesExplicitly()
+    {
+        CryptoBootstrapModel m;
+        apply(m, "verification_state", "verified");
+        apply(m, "backup_exists", "true");
+        apply(m, "secret_request", "requested", 1);
+        apply(m, "secrets_pending", "waiting");
+        QCOMPARE(m.phase(), CryptoBootstrapModel::SecretsPending);
+
+        apply(m, "secrets_pending", "exhausted");
+        QCOMPARE(m.phase(), CryptoBootstrapModel::ManualRecoveryRequired);
+        QVERIFY(m.needsRecoveryKey());
+        // Manual state still offers the genuine re-request action.
+        QVERIFY(m.canRequestKeys());
+    }
+
+    // v0.7.2: a received m.secret.send answer names the processing state;
+    // backup progress promotes it out and consumes the flag.
+    void secretResponseNamesProcessingState()
+    {
+        CryptoBootstrapModel m;
+        apply(m, "verification_state", "verified");
+        apply(m, "backup_exists", "true");
+        apply(m, "secret_request", "requested", 1);
+        apply(m, "secret_response", "received", 1);
+        QCOMPARE(m.phase(), CryptoBootstrapModel::SecretReceived);
+        QVERIFY(m.active());
+        QVERIFY(!m.needsRecoveryKey());
+
+        apply(m, "backup_state", "enabling");
+        QCOMPARE(m.phase(), CryptoBootstrapModel::RestoringHistory);
+        // Flag consumed: regressing to an idle backup returns to plain
+        // waiting, not the stale received state.
+        apply(m, "backup_state", "unknown");
+        QCOMPARE(m.phase(), CryptoBootstrapModel::WaitingForKeys);
+    }
+
+    // v0.7.2: an unverified own identity blocks requesting (answers could
+    // not be accepted) and names the honest remedy.
+    void unverifiedIdentityBlocksRequests()
+    {
+        CryptoBootstrapModel m;
+        apply(m, "verification_state", "verified");
+        apply(m, "backup_exists", "true");
+        apply(m, "own_identity", "unverified");
+        QCOMPARE(m.phase(), CryptoBootstrapModel::IdentityIncomplete);
+        QVERIFY(!m.canRequestKeys());
+        QVERIFY(m.needsRecoveryKey());
+        QVERIFY(m.statusMessage().contains(QStringLiteral("Verify")));
+
+        // A later verified identity restores the normal waiting family.
+        apply(m, "own_identity", "verified");
+        QCOMPARE(m.phase(), CryptoBootstrapModel::WaitingForKeys);
+    }
+
+    // v0.7.2 manual re-request: leaves the sticky manual state exactly
+    // once, and a genuinely new coordinator request round does the same.
+    void manualRearmLeavesManualRecoveryOnce()
+    {
+        CryptoBootstrapModel m;
+        apply(m, "verification_state", "verified");
+        apply(m, "backup_exists", "true");
+        apply(m, "secrets_pending", "exhausted");
+        QCOMPARE(m.phase(), CryptoBootstrapModel::ManualRecoveryRequired);
+
+        m.rearmAfterManualRequest();
+        QCOMPARE(m.phase(), CryptoBootstrapModel::WaitingForKeys);
+
+        // Escalate again; this time the coordinator's own fresh request
+        // round (new ladder) re-arms the waiting state.
+        apply(m, "secrets_pending", "exhausted");
+        QCOMPARE(m.phase(), CryptoBootstrapModel::ManualRecoveryRequired);
+        apply(m, "secret_request", "requested", 1);
+        QCOMPARE(m.phase(), CryptoBootstrapModel::WaitingForKeys);
+
+        // But a plain no-progress event stays sticky.
+        apply(m, "secrets_pending", "exhausted");
+        apply(m, "recovery_state", "incomplete");
+        QCOMPARE(m.phase(), CryptoBootstrapModel::ManualRecoveryRequired);
+    }
+
+    // v0.7.2: reset drops every coordinator diagnostic.
+    void resetClearsCoordinatorDiagnostics()
+    {
+        CryptoBootstrapModel m;
+        apply(m, "verification_state", "verified");
+        apply(m, "own_identity", "verified");
+        apply(m, "cross_signing_secrets", "incomplete");
+        apply(m, "secret_request", "requested", 2);
+        apply(m, "secret_response", "received", 1);
+        QVERIFY(m.requestAttempts() > 0);
+
+        m.reset();
+        QCOMPARE(m.phase(), CryptoBootstrapModel::Idle);
+        QCOMPARE(m.requestAttempts(), 0);
+        QCOMPARE(m.eligibleDevices(), 0);
+        QVERIFY(m.requestState().isEmpty());
+        QVERIFY(m.ownIdentity().isEmpty());
+        QVERIFY(m.crossSigningSecrets().isEmpty());
+    }
 };
 
 QTEST_MAIN(CryptoBootstrapModelTest)

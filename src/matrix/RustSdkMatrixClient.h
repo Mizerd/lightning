@@ -127,6 +127,12 @@ public:
     // events. Only advertises SAS as a method.
     void startOwnVerification();
 
+    // v0.7.2. Ask the Rust recovery coordinator for a fresh
+    // standards-based encryption-secret request round ("Request keys
+    // again"). Progress arrives as cryptoBootstrapEvent state updates;
+    // failures to dispatch surface through errorOccurred.
+    void requestMissingSecrets();
+
     // v0.6.0 checkpoint 7. Ask Rust for one sanitized E2EE health snapshot
     // (device trust, cross-signing keys, backup/recovery/secret-storage
     // state). Result arrives as cryptoHealthUpdated(map). Safe to call at

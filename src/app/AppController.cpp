@@ -1127,6 +1127,26 @@ void AppController::refreshSessionTrustState()
 #endif
 }
 
+void AppController::requestEncryptionKeys()
+{
+#ifdef ENABLE_RUST_SDK_BACKEND
+    if (m_backend != RustBackend || !m_client) {
+        Q_EMIT errorReported(tr(
+            "Key requests are only available on the Rust backend."));
+        return;
+    }
+    if (auto *rust = qobject_cast<RustSdkMatrixClient *>(m_client.get())) {
+        // Model first, so the UI honestly re-enters the waiting state the
+        // coordinator's events will refine (or re-escalate).
+        m_cryptoBootstrap->rearmAfterManualRequest();
+        rust->requestMissingSecrets();
+    }
+#else
+    Q_EMIT errorReported(tr(
+        "Key requests are only available on the Rust backend."));
+#endif
+}
+
 void AppController::setActiveRoomAtLatest(bool atLatest)
 {
     if (m_activeRoomAtLatest == atLatest)
