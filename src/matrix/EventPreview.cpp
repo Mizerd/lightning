@@ -20,8 +20,13 @@ QString normalizePreviewText(const QString &text, int maxChars)
     s.replace(QChar(0x2028), QLatin1Char(' '));
     s.replace(QChar(0x2029), QLatin1Char(' '));
     s = s.simplified();
-    if (maxChars > 1 && s.size() > maxChars)
-        s = s.left(maxChars - 1) + QChar(0x2026);
+    if (maxChars > 1 && s.size() > maxChars) {
+        int cut = maxChars - 1;
+        // Never split a surrogate pair (astral-plane emoji) at the cut.
+        if (cut > 0 && s.at(cut - 1).isHighSurrogate())
+            --cut;
+        s = s.left(cut) + QChar(0x2026);
+    }
     return s;
 }
 

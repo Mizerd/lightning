@@ -278,4 +278,51 @@ Recovery recoverFromBody(const QString &body)
     return out;
 }
 
+QList<MentionRef> refsFromSanitizedHtml(const QString &plainBody,
+                                        const QString &sanitizedHtml)
+{
+    QList<MentionRef> refs;
+    if (plainBody.isEmpty() || sanitizedHtml.isEmpty())
+        return refs;
+    // MessageHtml::sanitize emits mention anchors as
+    //   <a href="mention:@user:hs" [style="…"]>[&nbsp;][<b>]@Label[</b>][&nbsp;]</a>
+    static const QRegularExpression anchor(QStringLiteral(
+        "<a href=\"mention:([^\"]{1,255})\"[^>]{0,512}>(.{0,300}?)</a>"));
+    int searchFrom = 0;
+    auto it = anchor.globalMatch(sanitizedHtml);
+    while (it.hasNext()) {
+        const QRegularExpressionMatch m = it.next();
+        const QString userId = m.captured(1);
+        if (!userId.startsWith(QLatin1Char('@'))
+            || !userId.contains(QLatin1Char(':')))
+            continue;
+        // Reduce the anchor's inner markup to its visible label.
+        QString label = m.captured(2);
+        static const QRegularExpression innerTag(QStringLiteral("<[^>]{1,64}>"));
+        label.remove(innerTag);
+        label.replace(QLatin1String("&nbsp;"), QLatin1String(" "));
+        label.replace(QLatin1String("&lt;"), QLatin1String("<"));
+        label.replace(QLatin1String("&gt;"), QLatin1String(">"));
+        label.replace(QLatin1String("&quot;"), QLatin1String("\""));
+        label.replace(QLatin1String("&#39;"), QLatin1String("'"));
+        label.replace(QLatin1String("&amp;"), QLatin1String("&"));
+        label = label.trimmed();
+        if (label.isEmpty())
+            continue;
+        // Sequential match: each anchor consumes the next occurrence, so
+        // repeated identical labels map in order.
+        const int at = plainBody.indexOf(label, searchFrom);
+        if (at < 0)
+            continue; // fail-closed: no ref rather than a wrong range
+        MentionRef ref;
+        ref.userId = userId;
+        ref.displayText = label;
+        ref.start = at;
+        ref.length = static_cast<int>(label.length());
+        refs.append(ref);
+        searchFrom = at + ref.length;
+    }
+    return refs;
+}
+
 } // namespace mention

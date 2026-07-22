@@ -317,7 +317,8 @@ void MessageComposer::beginReply(const QString &eventId,
 }
 
 void MessageComposer::beginEdit(const QString &eventId,
-                                 const QString &currentBody)
+                                 const QString &currentBody,
+                                 const QString &sanitizedHtml)
 {
     m_replyingToEventId.clear();
     m_replyingToSender.clear();
@@ -327,12 +328,18 @@ void MessageComposer::beginEdit(const QString &eventId,
     m_threadPreview.clear();
     Q_EMIT threadStateChanged();
     m_editingEventId = eventId;
-    // The raw body of a mention send is markdown ([@x](https://matrix.to/…));
-    // editing must show the human-readable text and keep the semantic refs,
-    // or the resend would silently drop m.mentions.
+    // Legacy sends carry raw [@x](https://matrix.to/…) markdown in the
+    // body; newer sends carry display text with the mention identities
+    // only in the formatted body's mention: anchors. Recover the semantic
+    // refs from whichever form this event has, or the resend would
+    // silently drop m.mentions.
     const mention::Recovery recovered = mention::recoverFromBody(currentBody);
     m_text = recovered.text;
     m_mentionRefs = recovered.refs;
+    if (m_mentionRefs.isEmpty() && !sanitizedHtml.isEmpty()) {
+        m_mentionRefs =
+            mention::refsFromSanitizedHtml(m_text, sanitizedHtml);
+    }
     Q_EMIT editStateChanged();
     Q_EMIT mentionRangesChanged();
     Q_EMIT textChanged();

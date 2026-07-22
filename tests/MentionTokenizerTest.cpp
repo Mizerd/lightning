@@ -185,6 +185,38 @@ private slots:
                                QStringLiteral("@bob:hs") }));
     }
 
+    void refsRecoverFromSanitizedAnchorsForDisplayTextBodies()
+    {
+        // Post-plain-body-reduction sends: body is display text, identities
+        // live only in the sanitized formatted body's mention: anchors.
+        const QString body = QStringLiteral("@Alice and @Alice hi");
+        const QString html = QStringLiteral(
+            "<a href=\"mention:@alice:hs\" style=\"color:#7c7ff2;"
+            "background-color:#25253d;text-decoration:none\">"
+            "&nbsp;@Alice&nbsp;</a> and "
+            "<a href=\"mention:@alice2:hs\"><b>@Alice</b></a> hi");
+        const QList<MentionRef> refs = refsFromSanitizedHtml(body, html);
+        QCOMPARE(refs.size(), 2);
+        QCOMPARE(refs.at(0).userId, QStringLiteral("@alice:hs"));
+        QCOMPARE(refs.at(0).start, 0);
+        QCOMPARE(refs.at(0).length, 6);
+        // The second identical label consumes the NEXT occurrence.
+        QCOMPARE(refs.at(1).userId, QStringLiteral("@alice2:hs"));
+        QCOMPARE(refs.at(1).start, 11);
+
+        // Round trip: expanding the recovered refs rebuilds both mentions.
+        const Expansion e = expand(body, refs);
+        QCOMPARE(e.userIds,
+                 (QStringList{ QStringLiteral("@alice:hs"),
+                               QStringLiteral("@alice2:hs") }));
+
+        // Fail-closed: an anchor whose label is absent yields no ref.
+        const QList<MentionRef> miss = refsFromSanitizedHtml(
+            QStringLiteral("something else"),
+            QStringLiteral("<a href=\"mention:@x:hs\">@Gone</a>"));
+        QVERIFY(miss.isEmpty());
+    }
+
     void recoverLeavesNonMentionMarkdownAlone()
     {
         // Room/event permalinks and ordinary links are NOT mentions.

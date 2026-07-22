@@ -145,19 +145,18 @@ Item {
         HoverHandler { id: cardHover }
 
         // Tap toggles play/pause; double-tap expands (matching the
-        // expanded view, where double-tap exits).
+        // expanded view, where double-tap exits). Exclusive signals so a
+        // double-tap does not first flip the play state as a side effect.
         TapHandler {
             id: videoTap
             enabled: root.ready && root.fetchState !== "failed"
-            onTapped: {
-                if (videoTap.tapCount === 2) {
-                    videoOverlay.openFor(player, output)
-                    return
-                }
+            exclusiveSignals: TapHandler.SingleTap | TapHandler.DoubleTap
+            onSingleTapped: {
                 player.playbackState === MediaPlayer.PlayingState
                     ? player.pause()
                     : (app.playback.acquire(root.ownerKey), player.play())
             }
+            onDoubleTapped: videoOverlay.openFor(player, output)
         }
 
         BusyIndicator {

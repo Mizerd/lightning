@@ -167,6 +167,11 @@ public:
     // Stable-id message action helpers. Each call re-resolves the event in
     // the current room so a recycled QML delegate cannot act on another row.
     Q_INVOKABLE QString visibleTextForEvent(const QString &eventId) const;
+    // The event's sanitized formatted body (same output as
+    // FormattedBodyRole), for the edit flow: display-text plain bodies
+    // carry no mention markdown, so the composer recovers mention refs
+    // from the sanitized mention: anchors instead.
+    Q_INVOKABLE QString sanitizedHtmlForEvent(const QString &eventId) const;
 
     // v0.6.1: loaded-timeline search. beginSearch/updateSearch (re)compute
     // matches over the currently loaded, visible message text; next/prev walk

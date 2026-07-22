@@ -79,8 +79,12 @@ public:
     Q_INVOKABLE void beginReply(const QString &eventId,
                                 const QString &sender,
                                 const QString &preview);
+    // sanitizedHtml (optional): the event's sanitized formatted body, used
+    // to recover mention refs when the plain body carries display text
+    // (sends after the plain-body reduction have no markdown to parse).
     Q_INVOKABLE void beginEdit(const QString &eventId,
-                               const QString &currentBody);
+                               const QString &currentBody,
+                               const QString &sanitizedHtml = QString());
     // v0.4.1: enter thread-reply mode. `preview` is a short body preview of
     // the thread root, used to render the composer chip. Cleared by
     // cancelReplyOrEdit() or by the next successful send().

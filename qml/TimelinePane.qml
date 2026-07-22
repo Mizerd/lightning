@@ -241,11 +241,11 @@ Rectangle {
     }
     Connections {
         target: app.mediaBridge
-        function onSaveFinished(ok, message) {
+        function onSaveFinished(ok, message, mediaKey) {
             saveResult.ok = ok
             saveResult.text = message
             saveResultTimer.restart()
-            timeline.noteSaveFinished(ok)
+            timeline.noteSaveFinished(ok, mediaKey)
         }
     }
 
@@ -723,12 +723,16 @@ Rectangle {
                     saveInFlightKey = mediaKey
                     lastSavedKey = ""
                 }
-                function noteSaveFinished(ok) {
-                    if (saveInFlightKey === "")
+                function noteSaveFinished(ok, mediaKey) {
+                    // Keyed by the bridge's completion: a viewer save or an
+                    // overlapping second save can never flash the wrong
+                    // card's outcome.
+                    if (!mediaKey || mediaKey === "")
                         return
-                    lastSavedKey = saveInFlightKey
+                    if (saveInFlightKey === mediaKey)
+                        saveInFlightKey = ""
+                    lastSavedKey = mediaKey
                     lastSaveOk = ok
-                    saveInFlightKey = ""
                     savedFlashTimer.restart()
                 }
 

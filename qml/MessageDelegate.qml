@@ -1045,7 +1045,8 @@ Item {
                                 visible: enabled
                                 onTriggered: app.composer.beginEdit(
                                     root.menuEventId,
-                                    root.timelineModel.visibleTextForEvent(root.menuEventId))
+                                    root.timelineModel.visibleTextForEvent(root.menuEventId),
+                                    root.timelineModel.sanitizedHtmlForEvent(root.menuEventId))
                             }
                             // v0.7 polls: conservative rule — own running
                             // polls only. The server and receiving clients
@@ -1318,8 +1319,12 @@ Item {
             implicitWidth: Math.min(400, bubble.width - 8)
             // Gate/loading/failed keep a monotonic reserved height so the
             // consent click and a failure never reflow the row under the
-            // reader; only the loaded preview re-measures.
+            // reader; only the loaded preview re-measures. The latch is
+            // per-event: pooled delegate reuse for another row must not
+            // inherit the previous event's minimum.
             property real reservedH: 0
+            readonly property string _rowIdentity: root.actionKey
+            on_RowIdentityChanged: reservedH = 0
             readonly property real naturalH:
                 cardCol.implicitHeight + AppTheme.spacingS * 2
             onNaturalHChanged: {
@@ -1487,14 +1492,15 @@ Item {
                                     ? card.previewStatic
                                     : (card.p.imageMxc || "").length > 0
                                     && app.mediaBridge.supported
-                                    ? app.mediaBridge.avatarSource(card.p.imageMxc, 480)
+                                    ? app.mediaBridge.mxcImageSource(card.p.imageMxc, 480)
                                     : ""
                             Connections {
                                 target: app.mediaBridge
                                 enabled: (card.p.imageMxc || "").length > 0
                                 function onMediaCached(cacheKey) {
-                                    thumb.source = app.mediaBridge.avatarSource(
-                                        card.p.imageMxc, 480)
+                                    if (cacheKey.endsWith(":" + card.p.imageMxc))
+                                        thumb.source = app.mediaBridge.mxcImageSource(
+                                            card.p.imageMxc, 480)
                                 }
                             }
                         }

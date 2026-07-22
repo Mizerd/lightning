@@ -48,6 +48,9 @@ public:
     // cache entry, and a single failure mark per identity. QML scales the
     // decoded bitmap down at render time.
     Q_INVOKABLE QString avatarSource(const QString &mxcUri, int size);
+    // Non-avatar mxc image (link-preview thumbnails): caller-chosen edge,
+    // main cache class — never charged to the avatar budget.
+    Q_INVOKABLE QString mxcImageSource(const QString &mxcUri, int edge);
     // Provider URL for an already-cached key ("" when evicted meanwhile).
     Q_INVOKABLE QString cachedSource(const QString &cacheKey) const;
     // Confirmed GIFs use original SDK-fetched/decrypted bytes written
@@ -154,7 +157,10 @@ Q_SIGNALS:
     // materialized; QML re-calls playableSource(cacheKey) for the URL.
     void playableMediaReady(const QString &cacheKey);
     void mediaFetchFailed(const QString &cacheKey, const QString &category);
-    void saveFinished(bool ok, const QString &message);
+    // mediaKey identifies WHICH save finished, so per-card save
+    // feedback can never show another download's outcome.
+    void saveFinished(bool ok, const QString &message,
+                      const QString &mediaKey);
 
 private Q_SLOTS:
     void onMediaReady(quint64 opId, const QString &mediaKey, int kind,
@@ -200,7 +206,8 @@ private:
     void pump();
     bool alreadyPending(const QString &cacheKey) const;
     static QString sanitizedFileName(const QString &name);
-    void writeSaveFile(const QUrl &destination, const QByteArray &bytes);
+    void writeSaveFile(const QUrl &destination, const QByteArray &bytes,
+                       const QString &mediaKey);
     QString writeAnimatedFile(const QString &cacheKey, const QByteArray &bytes,
                               const QString &mimetype);
     QString writePlayableFile(const QString &cacheKey, const QByteArray &bytes,

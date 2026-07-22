@@ -108,15 +108,15 @@ Popup {
         }
         TapHandler {
             id: overlayTap
-            onTapped: {
+            // Exclusive signals: double-tap exits WITHOUT first flipping
+            // the play state.
+            exclusiveSignals: TapHandler.SingleTap | TapHandler.DoubleTap
+            onSingleTapped: {
                 if (!root.player) return
-                if (overlayTap.tapCount === 2) {
-                    root.close()
-                    return
-                }
                 root.player.playbackState === MediaPlayer.PlayingState
                     ? root.player.pause() : root.player.play()
             }
+            onDoubleTapped: root.close()
         }
         HoverHandler { id: overlayHover }
 

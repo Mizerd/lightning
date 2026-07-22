@@ -1072,6 +1072,22 @@ QString TimelineModel::visibleTextForEvent(const QString &eventId) const
     return event->body;
 }
 
+QString TimelineModel::sanitizedHtmlForEvent(const QString &eventId) const
+{
+    const auto *event = eventForId(eventId);
+    if (!event || event->isVirtual() || event->redacted
+        || event->formattedBody.isEmpty())
+        return {};
+    const QString roomId = m_roomId;
+    MatrixClient *client = m_client;
+    return MessageHtml::sanitize(
+        event->formattedBody,
+        [client, roomId](const QString &userId) {
+            return client ? client->displayNameFor(roomId, userId) : QString();
+        },
+        m_selfUserId);
+}
+
 QString TimelineModel::messagePermalink(const QString &eventId) const
 {
     const auto *event = eventForId(eventId);

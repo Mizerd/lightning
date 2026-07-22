@@ -83,4 +83,14 @@ struct Recovery {
 };
 Recovery recoverFromBody(const QString &body);
 
+// Recovery for display-text plain bodies (sends after the plain-body
+// reduction): the body carries "@Alice hi" with no markdown, and the
+// mention identities live only in the sanitized formatted body's
+// "mention:<mxid>" anchors. Each anchor's label is matched against the
+// next unconsumed occurrence in the plain body; an unmatched anchor is
+// dropped fail-closed (the mention degrades to plain text, never a wrong
+// range).
+QList<MentionRef> refsFromSanitizedHtml(const QString &plainBody,
+                                        const QString &sanitizedHtml);
+
 } // namespace mention

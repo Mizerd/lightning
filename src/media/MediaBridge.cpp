@@ -497,6 +497,38 @@ QString MediaBridge::avatarSource(const QString &mxcUri, int size)
     return {};
 }
 
+QString MediaBridge::mxcImageSource(const QString &mxcUri, int edge)
+{
+    // Non-avatar mxc images (link-preview thumbnails): honors the caller's
+    // edge and uses the "mxcimg:" prefix, so these larger bitmaps live in
+    // the MAIN cache class — they must never churn real avatars out of the
+    // reserved avatar budget, and they render at full quality instead of
+    // the 224px avatar canonical edge.
+    if (!mxcUri.startsWith(QLatin1String("mxc://")) || !supported())
+        return {};
+    edge = qBound(64, edge, 1024);
+    const QString cacheKey =
+        QStringLiteral("mxcimg:%1:%2").arg(edge).arg(mxcUri);
+    const QString cached = cachedSource(cacheKey);
+    if (!cached.isEmpty()) {
+        ++m_statCacheHit;
+        return cached;
+    }
+    if (failureBlocks(cacheKey))
+        return {};
+    if (!alreadyPending(cacheKey)) {
+        ++m_statCacheMiss;
+        Pending request;
+        request.cacheKey = cacheKey;
+        request.isMxc = true;
+        request.mediaKey = mxcUri;
+        request.kind = 2;
+        request.size = edge;
+        dispatch(request);
+    }
+    return {};
+}
+
 void MediaBridge::dispatch(const Pending &request)
 {
     if (m_inflight.size() >= kMaxConcurrent) {
@@ -530,7 +562,8 @@ void MediaBridge::dispatch(const Pending &request)
         Q_EMIT mediaFetchFailed(tracked.cacheKey,
                                 QStringLiteral("unavailable"));
         if (tracked.saveRequest)
-            Q_EMIT saveFinished(false, tr("The file could not be downloaded."));
+            Q_EMIT saveFinished(false, tr("The file could not be downloaded."),
+                                tracked.mediaKey);
         return;
     }
     qCDebug(lcMedia, "fetch %s opId=%llu inflight=%lld",
@@ -580,7 +613,8 @@ void MediaBridge::checkInflightTimeouts()
                   qUtf8Printable(keyTag(request.cacheKey)),
                   static_cast<long long>(m_inflight.size()));
         if (request.saveRequest) {
-            Q_EMIT saveFinished(false, tr("The download timed out."));
+            Q_EMIT saveFinished(false, tr("The download timed out."),
+                                request.mediaKey);
         } else {
             // Transient category: expires like a network failure, so QML
             // surfaces a fallback immediately and re-dispatches once the
@@ -646,7 +680,7 @@ void MediaBridge::onMediaReady(quint64 opId, const QString &mediaKey, int kind,
         ? m_failureClock.elapsed() - request.dispatchedAtMs : -1;
 
     if (request.saveRequest) {
-        writeSaveFile(request.saveDestination, bytes);
+        writeSaveFile(request.saveDestination, bytes, request.mediaKey);
         return;
     }
     ++m_statCompleted;
@@ -784,7 +818,8 @@ void MediaBridge::onMediaFailed(quint64 opId, const QString &mediaKey, int kind,
     m_inflight.erase(it);
     pump();
     if (request.saveRequest) {
-        Q_EMIT saveFinished(false, tr("The file could not be downloaded."));
+        Q_EMIT saveFinished(false, tr("The file could not be downloaded."),
+                            request.mediaKey);
         return;
     }
     ++m_statFailed;
@@ -807,13 +842,13 @@ QString MediaBridge::sanitizedFileName(const QString &name)
 void MediaBridge::saveAs(const QString &mediaKey, const QUrl &destination)
 {
     if (mediaKey.isEmpty() || !supported() || !destination.isLocalFile()) {
-        Q_EMIT saveFinished(false, tr("No destination selected."));
+        Q_EMIT saveFinished(false, tr("No destination selected."), mediaKey);
         return;
     }
     // Serve from cache when the full payload is already in memory.
     const QByteArray cached = cachedBytes(mediaCacheKey(mediaKey, 0));
     if (!cached.isEmpty()) {
-        writeSaveFile(destination, cached);
+        writeSaveFile(destination, cached, mediaKey);
         return;
     }
     Pending request;
@@ -826,7 +861,8 @@ void MediaBridge::saveAs(const QString &mediaKey, const QUrl &destination)
     dispatch(request);
 }
 
-void MediaBridge::writeSaveFile(const QUrl &destination, const QByteArray &bytes)
+void MediaBridge::writeSaveFile(const QUrl &destination, const QByteArray &bytes,
+                                const QString &mediaKey)
 {
     const QFileInfo chosen(destination.toLocalFile());
     // The user picked the directory; the file name is re-sanitized so a
@@ -835,14 +871,15 @@ void MediaBridge::writeSaveFile(const QUrl &destination, const QByteArray &bytes
         chosen.dir().filePath(sanitizedFileName(chosen.fileName()));
     QSaveFile file(target);
     if (!file.open(QIODevice::WriteOnly)) {
-        Q_EMIT saveFinished(false, tr("The destination is not writable."));
+        Q_EMIT saveFinished(false, tr("The destination is not writable."),
+                            mediaKey);
         return;
     }
     if (file.write(bytes) != bytes.size() || !file.commit()) {
-        Q_EMIT saveFinished(false, tr("Writing the file failed."));
+        Q_EMIT saveFinished(false, tr("Writing the file failed."), mediaKey);
         return;
     }
-    Q_EMIT saveFinished(true, tr("Saved."));
+    Q_EMIT saveFinished(true, tr("Saved."), mediaKey);
 }
 
 void MediaBridge::clear()
