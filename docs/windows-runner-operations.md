@@ -17,7 +17,7 @@ the existing Linux runners.
 | Executor | Docker, non-privileged jobs |
 | Tags | `windows-cross`, `windows-package` |
 | Scope | project 7 only, locked, protected, tagged jobs only |
-| Concurrency | 1 |
+| Concurrency | 1 job; 2 polling requests |
 | Job limits | 4 CPU, 8 GiB memory (10 GiB including swap), 2-hour maximum |
 | Builder | `lightning-windows-builder:fedora44-qt6.11.1-rust1.95.0-v1` |
 

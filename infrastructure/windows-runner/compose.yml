@@ -15,6 +15,7 @@ services:
     volumes:
       - ./config:/etc/gitlab-runner
       - ./cache:/cache
+      - ./home:/home/gitlab-runner
       - /var/run/docker.sock:/var/run/docker.sock
     healthcheck:
       test: ["CMD", "gitlab-runner", "verify"]
