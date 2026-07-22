@@ -150,20 +150,29 @@ The job produces seven-day, developer-visible CI artifacts only:
 - `SHA256SUMS-windows.txt`, the staged deployment tree, and validation reports
 
 They are unsigned test artifacts, not a release. The job has no package upload,
-release, release-link, or tag action. It builds the unchanged project-6 source
-with the real Rust backend for `x86_64-pc-windows-gnu`, stages a dependency-
-closed Qt 6.11.1 runtime, creates a per-user NSIS installer and x64 MSI, inspects
-every PE and the MSI tables, scans for credentials/private build paths, and
-runs portable plus silent install/uninstall tests in disposable Wine prefixes.
-Wine smoke coverage is supplemental and is never described as native Windows
-acceptance.
+release, release-link, or tag action. It builds the project-6 source with the
+real Rust backend for `x86_64-pc-windows-gnu`, producing a **GUI-subsystem**
+`Lightning.exe` that **defaults to the Rust (E2EE) backend** and uses the
+**Windows Credential Manager** for token storage. It stages a dependency-closed
+Qt 6.11.1 runtime, creates a per-user NSIS installer and x64 MSI, inspects every
+PE and the MSI tables (asserting the GUI subsystem), scans for
+credentials/private build paths, and runs portable plus silent install/uninstall
+tests in disposable Wine prefixes — including a `--build-info` check that the
+binary reports `default_backend=rust` and
+`secret_store=windows-credential-manager`. Wine smoke coverage is supplemental
+and is never described as native Windows acceptance;
+`packaging/windows/native-windows-acceptance.ps1` is the operator-run native
+check.
 
-Native Windows 10/11 install, graphics, multimedia, Credential Manager,
-SmartScreen/Defender, DPI, tray/notification, long-path/non-ASCII profile,
-MSI repair/upgrade, and Add/Remove Programs behavior remain **NOT TESTED**.
-Project 6 currently has no Windows Credential Manager implementation and uses
-its warned QSettings fallback there; code signing is also absent. Those are
-release blockers, not properties hidden by the packaging pipeline. See
+Native Windows 10/11 install, graphics, multimedia, Credential Manager
+behaviour, SmartScreen/Defender, DPI, tray/notification, long-path/non-ASCII
+profile, the shutdown race, MSI repair/upgrade, and Add/Remove Programs behavior
+remain **NOT TESTED**. The Windows build now uses a native Credential Manager
+SecretStore (project 6) instead of the insecure QSettings fallback, but its
+runtime behaviour is only exercisable on native Windows. Code signing is absent
+(a disabled hook activates only with a real credential — no fake identity), so
+SmartScreen will warn. Those are release blockers, not properties hidden by the
+packaging pipeline. See
 [`docs/windows-packaging.md`](docs/windows-packaging.md) for the architecture
 decision and [`docs/windows-runner-operations.md`](docs/windows-runner-operations.md)
 for operations, rollback, cache, and troubleshooting.

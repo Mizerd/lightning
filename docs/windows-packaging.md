@@ -43,14 +43,23 @@ native Windows acceptance.
 
 ## Verified cross-build result
 
-The pre-runner feasibility pass built the unchanged Rust-enabled source as a
-62 MiB PE32+ x86-64 console application. The final deployment contained 145
-x86-64 PE executables/DLLs; dependency closure, required QML imports and
-plugins, path/secret scans, portable ZIP inspection, x64 MSI table inspection,
-and amd64 NSIS inspection passed. Separate clean Wine prefixes passed portable
-`--version`, silent MSI install/run/uninstall, and silent NSIS
-install/run/uninstall while preserving simulated user data. Those are
-cross-platform and Wine results only, not native Windows acceptance.
+The corrected build (project 6 `c4450fb` onward) produces the production
+`Lightning.exe` as a **GUI-subsystem** PE32+ x86-64 binary, so a normal
+double-click never flashes or leaves a console; `--version` / `--help` /
+`--build-info` still print when launched from a console (the binary attaches to
+the parent console). The build defaults to the **Rust (E2EE) backend** and, on
+Windows, stores tokens in the **Windows Credential Manager**. Validation asserts
+the GUI subsystem, dependency closure, required QML imports and plugins,
+path/secret scans, portable ZIP inspection, x64 MSI table inspection, and amd64
+NSIS inspection. Separate clean Wine prefixes pass portable/MSI/NSIS
+`--version`, install/run/uninstall (preserving simulated user data), and a
+`--build-info` check that the packaged binary reports `default_backend=rust`
+and `secret_store=windows-credential-manager`. Those are cross-platform and Wine
+results only, not native Windows acceptance.
+
+An earlier pre-runner feasibility pass had built the source as a 62 MiB
+console-subsystem application; that subsystem and the earlier HTTP/insecure
+defaults were the defects this pass corrected.
 
 ## Security decision
 
@@ -68,14 +77,31 @@ checkout remains on the canonical HTTPS origin with certificate verification;
 the internal coordinator route is a deliberately documented trusted-network
 boundary, not a TLS-verification bypass.
 
+## Native acceptance
+
+`packaging/windows/native-windows-acceptance.ps1` is run by an operator on a
+real Windows host. It verifies installed files, `--version`/`--build-info` (Rust
+default + Credential Manager), the GUI PE subsystem, DISPLAY-free startup +
+bounded liveness + clean close, and the captured log (qwindows / Rust / secure
+store selected, cache opened, and none of: insecure fallback, invalid cache
+path, "Invalid window handle", QML binding loop, pagination storm). It emits a
+sanitized diagnostic ZIP with no credentials, account database, token, or
+message content. Record its results as **PASS/FAIL/NOT TESTED**.
+
 ## Known limitations
 
-Project 6 still has no Windows Credential Manager/DPAPI SecretStore; the
-Windows build falls back to the application's explicitly warned insecure
-QSettings store. That makes these artifacts unsuitable for production and is
-a concrete upstream requirement before release. There is no Authenticode
-certificate. Native Windows 10/11 installation, Credential Manager,
-SmartScreen/Defender, GUI/Direct3D, multimedia, notifications, tray behavior,
-DPI, long paths, non-ASCII profiles, MSI repair/upgrade, and Add/Remove Programs
-presentation remain **NOT TESTED**. A real authorized Windows host is still
-required for those checks and for any release claim.
+The Windows build now uses a native Windows Credential Manager SecretStore
+(`WinCredStore`, project 6); it no longer falls back to the insecure QSettings
+store, and existing plaintext tokens are migrated on first launch. What that
+store does at runtime is still **NOT TESTED** here — it is compiled by the MinGW
+cross-build but only exercisable on native Windows.
+
+There is no Authenticode certificate, so SmartScreen/Defender will warn on these
+unsigned test artifacts (project 7 has a disabled signing hook that activates
+only when a real signing credential is supplied via protected CI variables — no
+fake/self-signed identity is ever created). Native Windows 10/11 installation,
+Credential Manager behaviour, SmartScreen/Defender, GUI/Direct3D, multimedia,
+notifications, tray behavior, DPI, long paths, non-ASCII profiles, the shutdown
+race, MSI repair/upgrade, and Add/Remove Programs presentation remain **NOT
+TESTED**. A real authorized Windows host (run the acceptance script above) is
+still required for those checks and for any release claim.
