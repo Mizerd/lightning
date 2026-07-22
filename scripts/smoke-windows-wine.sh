@@ -44,8 +44,22 @@ run_version() {
     grep -Fq "matrix-client $version" "$log" || die "Wine --version output mismatch: $exe"
 }
 
+# Prove the packaged binary defaults to the Rust (E2EE) backend and the native
+# Windows secret store — the two production-critical properties. Wine can read a
+# GUI-subsystem PE's redirected stdout, so --build-info is capturable here.
+# (Wine CANNOT prove the Credential Manager actually works — that is native-only
+# and stays NOT TESTED; this only proves the COMPILED default/store selection.)
+run_build_info() {
+    local exe="$1" log="$2"
+    timeout 60s wine64 "$exe" --build-info >"$log" 2>&1
+    grep -Eq '^default_backend: rust$' "$log" || die "build-info default_backend is not rust: $exe"
+    grep -Eq '^secret_store: windows-credential-manager$' "$log" || die "build-info secret_store is not windows-credential-manager: $exe"
+    grep -Eq '^backends: .*rust' "$log" || die "build-info does not list the rust backend: $exe"
+}
+
 new_prefix
 run_version "$STAGE/Lightning.exe" "$REPORTS/wine-portable-version.log"
+run_build_info "$STAGE/Lightning.exe" "$REPORTS/wine-portable-build-info.log"
 finish_prefix
 
 new_prefix
@@ -59,6 +73,7 @@ wineserver -w
 msi_exe="$(find "$WINEPREFIX/drive_c/users" -type f -path '*/AppData/Local/Programs/Lightning/Lightning.exe' -print -quit)"
 [[ -n "$msi_exe" ]] || die "MSI Wine install did not create Lightning.exe"
 run_version "$msi_exe" "$REPORTS/wine-msi-version.log"
+run_build_info "$msi_exe" "$REPORTS/wine-msi-build-info.log"
 timeout 120s wine64 msiexec /x "$msi_windows" /qn /norestart \
     >"$REPORTS/wine-msi-uninstall.log" 2>&1
 wineserver -w
@@ -85,8 +100,11 @@ finish_prefix
 
 jq -n \
     --arg version "$version" \
-    '{wine_version_tested:true, native_windows_tested:false,
+    '{wine_version_tested:true, wine_build_info_tested:true,
+      build_info_default_backend_rust:true,
+      build_info_secret_store_windows_credential_manager:true,
+      native_windows_tested:false,
       application_version:$version, portable_version:true,
       msi_install_version_uninstall:true, nsis_install_version_uninstall:true,
       simulated_user_data_preserved:true}' >"$REPORTS/wine-smoke.json"
-printf 'Wine supplemental smoke passed (portable, MSI, NSIS); native Windows NOT TESTED\n'
+printf 'Wine supplemental smoke passed (portable, MSI, NSIS; --build-info rust+wincred); native Windows NOT TESTED\n'

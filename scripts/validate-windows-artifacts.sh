@@ -37,8 +37,11 @@ for pe in "${pe_files[@]}"; do
         x86_64-w64-mingw32-objdump -p "$pe" | sed -n 's/^[[:space:]]*DLL Name: /  /p' | LC_ALL=C sort -fu
     } >>"$REPORTS/pe-imports.txt"
 done
+# The production binary is now a GUI-subsystem PE (WIN32_EXECUTABLE) so a normal
+# double-click never flashes or leaves a console; --version / --build-info still
+# print to a parent console (main.cpp attaches to it).
 x86_64-w64-mingw32-objdump -p "$STAGE/Lightning.exe" | \
-    grep -F '(Windows CUI)' >/dev/null || die "application subsystem is not the expected diagnostics-capable CUI"
+    grep -F '(Windows GUI)' >/dev/null || die "application subsystem is not the expected Windows GUI"
 
 for required in \
     "$STAGE/Qt6Core.dll" \

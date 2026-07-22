@@ -87,7 +87,13 @@ cmake -S "$SOURCE_DIR" -B "$BUILD_DIR" -G Ninja \
     -DCMAKE_EXE_LINKER_FLAGS="$BUILD_DIR/lightning-version.o" \
     -DBUILD_TESTING=OFF \
     -DENABLE_RUST_SDK_BACKEND=ON \
-    -DLIGHTNING_REQUIRE_GIF_KEYS=OFF
+    -DLIGHTNING_REQUIRE_GIF_KEYS=OFF \
+    -DLIGHTNING_SOURCE_SHA="$SOURCE_SHA" \
+    -DLIGHTNING_BUILD_TARGET="x86_64-pc-windows-gnu" \
+    -DLIGHTNING_ARTIFACT_KIND="unsigned-test"
+# The production matrix-client is a GUI-subsystem PE on Windows (WIN32_EXECUTABLE
+# set in the app CMake); --version / --help / --build-info still print to a
+# parent console. No subsystem flag is passed here.
 cmake --build "$BUILD_DIR" --parallel "${BUILD_JOBS:-4}" --target matrix-client
 
 python3 "$SCRIPT_DIR/stage-windows-runtime.py" \
