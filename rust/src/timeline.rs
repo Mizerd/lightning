@@ -962,6 +962,13 @@ impl TimelineRegistry {
         // Sanitized outcome only — no error strings (they can embed URLs
         // and backup versions), no room ids, no counts of key material.
         emit(if result.is_ok() { "ok" } else { "failed" });
+        // A failed pass must stay re-runnable: the attempt mark exists to
+        // dedup SUCCESSFUL passes within a lifecycle, not to pin a failure
+        // until sign-out. The next Verified/BackupState edge (still
+        // edge-driven, never polled) may retry.
+        if result.is_err() {
+            self.clear_backup_attempt(room_id);
+        }
     }
 
     /// Deterministic stop of all timeline work: advances the lifecycle

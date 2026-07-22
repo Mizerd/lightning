@@ -889,12 +889,25 @@ fn emit_crypto_bootstrap(
 ///   * whenever backups become (or already are) usable while verified, the
 ///     open room gets one deduplicated `download_room_keys_for_room` pass —
 ///     the deterministic replacement for the OneShot bulk download, which
-///     never re-runs once a backup key is stored and swallows failures.
+///     never re-runs once a backup key is stored and swallows failures;
+///   * v0.7.1: each Verified edge arms a bounded ONE-SHOT secrets watchdog
+///     (90 s). If the gossiped secrets still have not arrived when it fires
+///     (recovery still Unknown/Incomplete, backup engine idle) while the
+///     server-truth probe said a backup EXISTS, one sanitized
+///     `secrets_pending` bootstrap event tells the UI honestly that the
+///     other device has not answered — states and counts only.
 ///
 /// Everything stays on public matrix-sdk APIs. No custom crypto, no secret
-/// requests of its own (0.18 sends the m.secret.request at SAS completion
-/// and exposes no public re-request API — after a missed request the
-/// spec-clean remedies remain a fresh verification or manual recovery).
+/// requests of its own: matrix-sdk 0.18 queues the m.secret.request set
+/// exactly once at SAS completion (matrix-sdk-crypto
+/// verification/mod.rs `mark_request_as_done` → gossiping), and the crypto
+/// layer's re-request entry point,
+/// `OlmMachine::query_missing_secrets_from_other_sessions`, is unreachable
+/// here because `Encryption::olm_machine()` is `pub(crate)` in matrix-sdk
+/// 0.18. After a missed/dropped request the spec-clean remedies therefore
+/// remain a FRESH verification (a new SAS Done re-queues the whole secret
+/// request set, and the peer now already trusts this device) or manual
+/// recovery-key entry — the Settings UI offers exactly those two.
 /// Never touches or forwards key material.
 async fn run_crypto_bootstrap_observer(
     client: Client,
@@ -915,7 +928,14 @@ async fn run_crypto_bootstrap_observer(
         verification.get(),
         matrix_sdk::encryption::VerificationState::Verified
     );
-    let mut exists_probed = false;
+    // Homeserver truth from the one-shot probe: None = not yet known.
+    let mut backup_exists: Option<bool> = None;
+    // v0.7.1 bounded one-shot secrets watchdog. Armed on every Verified
+    // edge; disarmed by firing or by an Unverified edge. The fire-time
+    // CONDITION (secrets_still_pending) decides whether anything is
+    // emitted, so progress before the deadline silently defuses it.
+    const SECRETS_WATCHDOG_SECS: u64 = 90;
+    let mut watchdog_deadline: Option<tokio::time::Instant> = None;
 
     // Baseline snapshot so C++ has a coherent starting state.
     emit_crypto_bootstrap(
@@ -935,8 +955,12 @@ async fn run_crypto_bootstrap_observer(
     // F2 stored-key case: verified, backup Enabled at startup, and the SDK
     // will never download on its own).
     if verified {
-        probe_backup_exists(&client, &events, lifecycle, &mut exists_probed)
+        probe_backup_exists(&client, &events, lifecycle, &mut backup_exists)
             .await;
+        watchdog_deadline = Some(
+            tokio::time::Instant::now()
+                + std::time::Duration::from_secs(SECRETS_WATCHDOG_SECS),
+        );
     }
     if verified
         && matches!(
@@ -952,6 +976,7 @@ async fn run_crypto_bootstrap_observer(
             _ = &mut cancel_rx => break,
             state = verification.next() => {
                 let Some(state) = state else { break };
+                let was_verified = verified;
                 verified = matches!(
                     state,
                     matrix_sdk::encryption::VerificationState::Verified
@@ -962,9 +987,50 @@ async fn run_crypto_bootstrap_observer(
                 );
                 if verified {
                     probe_backup_exists(
-                        &client, &events, lifecycle, &mut exists_probed,
+                        &client, &events, lifecycle, &mut backup_exists,
                     )
                     .await;
+                    if !was_verified {
+                        // (Re)arm the one-shot secrets watchdog on every
+                        // Verified edge — a repeat verification gets its
+                        // own bounded wait.
+                        watchdog_deadline = Some(
+                            tokio::time::Instant::now()
+                                + std::time::Duration::from_secs(
+                                    SECRETS_WATCHDOG_SECS,
+                                ),
+                        );
+                        // v0.7.1 idempotency fix: verification completing
+                        // AFTER the backup key is already usable (manual
+                        // recovery first, verification second) previously
+                        // ran no download pass — the Enabled edge fired
+                        // while this session was still unverified, and no
+                        // later edge would come. The pass is deduplicated
+                        // per lifecycle, so this is safe to repeat.
+                        if matches!(
+                            backups.state(),
+                            matrix_sdk::encryption::backups::BackupState::Enabled
+                        ) {
+                            run_backup_download_pass(&client, &timelines)
+                                .await;
+                        }
+                    }
+                } else {
+                    watchdog_deadline = None;
+                }
+            }
+            _ = watchdog_sleep(watchdog_deadline) => {
+                // One-shot: firing disarms it until the next Verified edge.
+                watchdog_deadline = None;
+                if secrets_still_pending(
+                    verified, backup_exists, recovery.state(), backups.state(),
+                ) {
+                    // Sanitized intermediate truth: the other device has
+                    // not answered the fire-once m.secret.request yet.
+                    // Kind + fixed state string only — never key material.
+                    emit_crypto_bootstrap(
+                        &events, lifecycle, "secrets_pending", "waiting", 0,
+                    );
                 }
             }
             state = recovery_states.next() => {
@@ -1025,24 +1091,59 @@ async fn probe_backup_exists(
     client: &Client,
     events: &Arc<Mutex<VecDeque<String>>>,
     lifecycle: u64,
-    exists_probed: &mut bool,
+    exists: &mut Option<bool>,
 ) {
-    if *exists_probed {
+    if exists.is_some() {
         return;
     }
     match client.encryption().backups().fetch_exists_on_server().await {
-        Ok(exists) => {
-            *exists_probed = true;
+        Ok(found) => {
+            *exists = Some(found);
             emit_crypto_bootstrap(
                 events,
                 lifecycle,
                 "backup_exists",
-                if exists { "true" } else { "false" },
+                if found { "true" } else { "false" },
                 0,
             );
         }
         Err(_) => { /* transient network failure — stay unknown */ }
     }
+}
+
+/// v0.7.1: sleep until the armed secrets-watchdog deadline, or forever when
+/// it is disarmed. Takes the deadline BY VALUE (Copy) so the select! arm
+/// never borrows the observer's mutable state.
+async fn watchdog_sleep(deadline: Option<tokio::time::Instant>) {
+    match deadline {
+        Some(deadline) => tokio::time::sleep_until(deadline).await,
+        None => std::future::pending::<()>().await,
+    }
+}
+
+/// v0.7.1 secrets-watchdog decision: after a Verified edge, are the
+/// gossiped secrets still missing even though a server-side backup could
+/// supply history? True only when (a) this session is verified, (b) the
+/// homeserver-truth probe said a key backup EXISTS, (c) recovery is still
+/// Unknown/Incomplete — the fire-once m.secret.request set was never
+/// answered (Disabled means there is no secret storage to gossip from, a
+/// different honest state), and (d) the backup engine shows no progress.
+/// Pure and synchronous so the decision table is unit-testable.
+fn secrets_still_pending(
+    verified: bool,
+    backup_exists: Option<bool>,
+    recovery: matrix_sdk::encryption::recovery::RecoveryState,
+    backup: matrix_sdk::encryption::backups::BackupState,
+) -> bool {
+    use matrix_sdk::encryption::backups::BackupState;
+    use matrix_sdk::encryption::recovery::RecoveryState;
+    verified
+        && backup_exists == Some(true)
+        && matches!(
+            recovery,
+            RecoveryState::Unknown | RecoveryState::Incomplete
+        )
+        && matches!(backup, BackupState::Unknown | BackupState::Disabling)
 }
 
 /// Run the deduplicated whole-room backup download pass for the currently
@@ -1727,10 +1828,25 @@ pub unsafe extern "C" fn mx_rust_reload_room_timeline(
     })
 }
 
+/// v0.7.1: sanitized local-confirmation event. Emitted (once per flow)
+/// when the SDK reports `SasState::Confirmed` — "the verification process
+/// has been confirmed from our side, we're waiting for the other side to
+/// confirm as well" — so the UI can acknowledge the "They match" press
+/// instead of freezing on the emoji screen until the PEER also confirms.
+/// Flow id only; never emoji values, decimals, or key material.
+fn verification_sas_confirmed_event(flow_id: &str) -> serde_json::Value {
+    json!({
+        "type": "verification_sas_confirmed",
+        "flow_id": flow_id,
+    })
+}
+
 /// SAS emoji verification — accept an incoming request and drive it to
 /// the KeysExchanged state (v0.5.0). Emits `verification_sas_ready` with
-/// the emoji list when the SDK finishes key exchange; `verification_done`
-/// / `verification_cancelled` when the flow reaches a terminal state.
+/// the emoji list when the SDK finishes key exchange;
+/// `verification_sas_confirmed` when OUR confirmation is registered;
+/// `verification_done` / `verification_cancelled` when the flow reaches a
+/// terminal state.
 ///
 /// Poll-based state watching (500 ms cadence, 120 s cap) is used
 /// deliberately instead of a futures Stream so we don't introduce a
@@ -1829,9 +1945,10 @@ pub unsafe extern "C" fn mx_rust_accept_verification(
                 }));
 
                 // Poll state for up to 120 s waiting for KeysExchanged /
-                // Done / Cancelled. matrix-sdk emits emojis at
+                // Confirmed / Done / Cancelled. matrix-sdk emits emojis at
                 // KeysExchanged.
                 let mut emitted_emojis = false;
+                let mut emitted_confirmed = false;
                 for _ in 0..240 {
                     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
                     let state = sas.state();
@@ -1874,6 +1991,16 @@ pub unsafe extern "C" fn mx_rust_accept_verification(
                             if let Ok(mut g) = sas_slot.lock() { *g = None; }
                             if let Ok(mut g) = request_slot.lock() { *g = None; }
                             return;
+                        }
+                        // v0.7.1: OUR confirmation registered; Done still
+                        // requires the peer's MAC. Surface it once so the
+                        // UI can leave the frozen emoji screen honestly.
+                        SasState::Confirmed if !emitted_confirmed => {
+                            emitted_confirmed = true;
+                            enqueue(
+                                &events,
+                                verification_sas_confirmed_event(&sas_flow_id),
+                            );
                         }
                         _ => {}
                     }
@@ -2186,6 +2313,7 @@ pub unsafe extern "C" fn mx_rust_start_own_verification(
                 }));
 
                 let mut emitted_emojis = false;
+                let mut emitted_confirmed = false;
                 for _ in 0..240 {
                     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
                     let state = sas.state();
@@ -2228,6 +2356,16 @@ pub unsafe extern "C" fn mx_rust_start_own_verification(
                             if let Ok(mut g) = sas_slot.lock() { *g = None; }
                             if let Ok(mut g) = request_slot.lock() { *g = None; }
                             return;
+                        }
+                        // v0.7.1: OUR confirmation registered; Done still
+                        // requires the peer's MAC. Surface it once so the
+                        // UI can leave the frozen emoji screen honestly.
+                        SasState::Confirmed if !emitted_confirmed => {
+                            emitted_confirmed = true;
+                            enqueue(
+                                &events,
+                                verification_sas_confirmed_event(&flow_id),
+                            );
                         }
                         _ => {}
                     }
@@ -4736,6 +4874,68 @@ mod tests {
     #[test]
     fn other_errors_default_to_import_failed() {
         assert_eq!(classify_import_error("crypto store unavailable"), "import_failed");
+    }
+
+    // v0.7.1 verification UX: the local-confirmation event carries the flow
+    // id and nothing else — never emoji symbols, descriptions, decimals, or
+    // key material.
+    #[test]
+    fn sas_confirmed_event_shape_is_flow_id_only() {
+        let event = super::verification_sas_confirmed_event("flow-abc123");
+        let obj = event.as_object().expect("json object");
+        assert_eq!(obj.len(), 2);
+        assert_eq!(obj["type"], "verification_sas_confirmed");
+        assert_eq!(obj["flow_id"], "flow-abc123");
+    }
+
+    // v0.7.1 secrets watchdog: the sanitized event matches the shared
+    // crypto_bootstrap shape exactly (kind + fixed state string + zero
+    // count + lifecycle stamp — no extra fields).
+    #[test]
+    fn secrets_pending_event_shape_matches_bootstrap_events() {
+        use std::collections::VecDeque;
+        use std::sync::{Arc, Mutex};
+        let events: Arc<Mutex<VecDeque<String>>> =
+            Arc::new(Mutex::new(VecDeque::new()));
+        super::emit_crypto_bootstrap(&events, 7, "secrets_pending", "waiting", 0);
+        let raw = events.lock().unwrap().pop_front().expect("one event");
+        let event: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        let obj = event.as_object().expect("json object");
+        assert_eq!(obj.len(), 5);
+        assert_eq!(obj["type"], "crypto_bootstrap");
+        assert_eq!(obj["kind"], "secrets_pending");
+        assert_eq!(obj["state"], "waiting");
+        assert_eq!(obj["count"], 0);
+        assert_eq!(obj["lifecycle"], 7);
+    }
+
+    // v0.7.1 secrets watchdog: the fire-time decision table. Only the
+    // "verified + server-side backup exists + secrets never answered +
+    // backup engine idle" combination reports pending.
+    #[test]
+    fn secrets_watchdog_decision_table() {
+        use matrix_sdk::encryption::backups::BackupState as B;
+        use matrix_sdk::encryption::recovery::RecoveryState as R;
+        let pending = super::secrets_still_pending;
+        // The live-failure shape: verified, backup exists server-side,
+        // recovery incomplete/unknown, backup engine idle.
+        assert!(pending(true, Some(true), R::Incomplete, B::Unknown));
+        assert!(pending(true, Some(true), R::Unknown, B::Unknown));
+        // Any real progress or terminal state must not report pending.
+        assert!(!pending(true, Some(true), R::Enabled, B::Enabled));
+        assert!(!pending(true, Some(true), R::Incomplete, B::Enabled));
+        assert!(!pending(true, Some(true), R::Incomplete, B::Downloading));
+        assert!(!pending(true, Some(true), R::Incomplete, B::Enabling));
+        assert!(!pending(true, Some(true), R::Incomplete, B::Resuming));
+        assert!(!pending(true, Some(true), R::Incomplete, B::Creating));
+        // No server-side backup, or an unknown probe: the model already
+        // names those states honestly without the watchdog.
+        assert!(!pending(true, Some(false), R::Incomplete, B::Unknown));
+        assert!(!pending(true, None, R::Incomplete, B::Unknown));
+        // Recovery Disabled = no secret storage to gossip from at all.
+        assert!(!pending(true, Some(true), R::Disabled, B::Unknown));
+        // Unverified sessions never report pending secrets.
+        assert!(!pending(false, Some(true), R::Incomplete, B::Unknown));
     }
 }
 

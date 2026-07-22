@@ -235,6 +235,110 @@ private Q_SLOTS:
         apply(m, "backup_state", "some_future_state");
         QCOMPARE(m.phase(), CryptoBootstrapModel::WaitingForKeys);
     }
+
+    // v0.7.1 secrets watchdog: the Rust supervisor's bounded secrets_pending
+    // report refines the waiting phase into an honest "your other device has
+    // not answered" state — still waiting (spinner semantics, no recovery
+    // panel highlight yet) with copy distinct from plain WaitingForKeys.
+    void secretsPendingNamesIntermediateWaitState()
+    {
+        CryptoBootstrapModel m;
+        apply(m, "verification_state", "verified");
+        apply(m, "backup_exists", "true");
+        QCOMPARE(m.phase(), CryptoBootstrapModel::WaitingForKeys);
+        const QString waitingCopy = m.statusMessage();
+
+        apply(m, "secrets_pending", "waiting");
+        QCOMPARE(m.phase(), CryptoBootstrapModel::SecretsPending);
+        QVERIFY(m.active());
+        QVERIFY(!m.needsRecoveryKey());
+        QVERIFY(!m.statusMessage().isEmpty());
+        QVERIFY(m.statusMessage() != waitingCopy);
+
+        // Duplicate watchdog reports are idempotent.
+        QSignalSpy changed(&m, &CryptoBootstrapModel::changed);
+        apply(m, "secrets_pending", "waiting");
+        QCOMPARE(changed.count(), 0);
+        QCOMPARE(m.phase(), CryptoBootstrapModel::SecretsPending);
+    }
+
+    // The WaitingForKeys -> SecretsPending refinement must NOT restart or
+    // stop the escalation timer: the shared bound still promotes the wait to
+    // ManualRecoveryRequired, which then stays sticky against late watchdog
+    // reports and no-progress events.
+    void secretsPendingStillEscalatesOnTheSharedTimer()
+    {
+        CryptoBootstrapModel m;
+        m.setWaitTimeoutMsForTest(30);
+        apply(m, "verification_state", "verified");   // timer armed here
+        apply(m, "backup_exists", "true");
+        apply(m, "secrets_pending", "waiting");
+        QCOMPARE(m.phase(), CryptoBootstrapModel::SecretsPending);
+
+        QSignalSpy changed(&m, &CryptoBootstrapModel::changed);
+        QVERIFY(changed.wait(2000));
+        QCOMPARE(m.phase(), CryptoBootstrapModel::ManualRecoveryRequired);
+        QVERIFY(m.needsRecoveryKey());
+
+        // Sticky: a late watchdog report cannot bounce back to waiting…
+        apply(m, "secrets_pending", "waiting");
+        QCOMPARE(m.phase(), CryptoBootstrapModel::ManualRecoveryRequired);
+        // …nor can a no-progress recovery event.
+        apply(m, "recovery_state", "incomplete");
+        QCOMPARE(m.phase(), CryptoBootstrapModel::ManualRecoveryRequired);
+        // Real backup progress still promotes it out.
+        apply(m, "backup_state", "downloading");
+        QCOMPARE(m.phase(), CryptoBootstrapModel::RestoringHistory);
+    }
+
+    // Real progress consumes the watchdog report: promotion to restoring /
+    // ready, and a later re-entry into the waiting family starts from the
+    // plain WaitingForKeys copy again (no stale "device did not answer").
+    void secretsPendingProgressPromotesAndClears()
+    {
+        CryptoBootstrapModel m;
+        m.setWaitTimeoutMsForTest(30);
+        apply(m, "verification_state", "verified");
+        apply(m, "secrets_pending", "waiting");
+        QCOMPARE(m.phase(), CryptoBootstrapModel::SecretsPending);
+
+        apply(m, "backup_state", "downloading");
+        QCOMPARE(m.phase(), CryptoBootstrapModel::RestoringHistory);
+        // The stale wait timer must not fire us into manual recovery now.
+        QTest::qWait(60);
+        QCOMPARE(m.phase(), CryptoBootstrapModel::RestoringHistory);
+
+        apply(m, "backup_state", "enabled");
+        QCOMPARE(m.phase(), CryptoBootstrapModel::Ready);
+
+        // A backup-state regression re-enters the WAITING phase, not the
+        // consumed SecretsPending refinement.
+        apply(m, "backup_state", "unknown");
+        QCOMPARE(m.phase(), CryptoBootstrapModel::WaitingForKeys);
+    }
+
+    // Per-session isolation: reset drops the watchdog flag, and a report
+    // arriving while unverified can never mark the next verified wait.
+    void secretsPendingResetAndUnverifiedIsolation()
+    {
+        CryptoBootstrapModel m;
+        apply(m, "verification_state", "verified");
+        apply(m, "secrets_pending", "waiting");
+        QCOMPARE(m.phase(), CryptoBootstrapModel::SecretsPending);
+
+        m.reset();
+        QCOMPARE(m.phase(), CryptoBootstrapModel::Idle);
+        apply(m, "verification_state", "verified");
+        QCOMPARE(m.phase(), CryptoBootstrapModel::WaitingForKeys);
+
+        // While unverified the report is consumed without effect.
+        CryptoBootstrapModel n;
+        apply(n, "verification_state", "unverified");
+        apply(n, "secrets_pending", "waiting");
+        QCOMPARE(n.phase(), CryptoBootstrapModel::Unverified);
+        apply(n, "verification_state", "verified");
+        QCOMPARE(n.phase(), CryptoBootstrapModel::WaitingForKeys);
+    }
 };
 
 QTEST_MAIN(CryptoBootstrapModelTest)

@@ -557,6 +557,18 @@ AppController::AppController(Backend backend, QObject *parent)
             m_verificationState = QStringLiteral("sas_ready");
             Q_EMIT verificationStateChanged();
         });
+        // v0.7.1: the SDK registered OUR "They match" (SasState::Confirmed).
+        // Done still needs the peer's confirmation — surface the honest
+        // intermediate state. Only the local "confirming" state advances so
+        // a stray/late Confirmed poll can never resurrect a flow that
+        // already finished, failed, or was cancelled.
+        connect(rust, &RustSdkMatrixClient::verificationSasConfirmed,
+                this, [this](const QString &flowId) {
+            if (flowId != m_verificationFlowId) return;
+            if (m_verificationState != QLatin1String("confirming")) return;
+            m_verificationState = QStringLiteral("waiting_for_peer");
+            Q_EMIT verificationStateChanged();
+        });
         connect(rust, &RustSdkMatrixClient::verificationDone,
                 this, [this, rust](const QString &flowId) {
             if (flowId != m_verificationFlowId) return;
@@ -1026,6 +1038,17 @@ void AppController::confirmVerification()
 #ifdef ENABLE_RUST_SDK_BACKEND
     if (m_backend != RustBackend || !m_client || m_verificationFlowId.isEmpty())
         return;
+    // v0.7.1: confirming is only meaningful while the emoji list is on
+    // screen. Repeated clicks and stray invocations in any other state
+    // (confirming, waiting_for_peer, done, cancelled, failed…) are no-ops.
+    if (m_verificationState != QLatin1String("sas_ready"))
+        return;
+    // Flip to "confirming" SYNCHRONOUSLY so the button press always has
+    // immediate visible feedback; the SDK's SasState::Confirmed then moves
+    // it to "waiting_for_peer", and a synchronous FFI failure lands in the
+    // existing verificationFailed path ("failed:…").
+    m_verificationState = QStringLiteral("confirming");
+    Q_EMIT verificationStateChanged();
     if (auto *rust = qobject_cast<RustSdkMatrixClient *>(m_client.get()))
         rust->confirmVerification(m_verificationFlowId);
 #endif

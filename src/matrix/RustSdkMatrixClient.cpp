@@ -2336,6 +2336,12 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
             emojis, decimals);
         return;
     }
+    if (type == QLatin1String("verification_sas_confirmed")) {
+        // v0.7.1: our confirmation registered; waiting for the peer's.
+        Q_EMIT verificationSasConfirmed(
+            event.value(QStringLiteral("flow_id")).toString());
+        return;
+    }
     if (type == QLatin1String("verification_done")) {
         Q_EMIT verificationDone(
             event.value(QStringLiteral("flow_id")).toString());

@@ -1432,6 +1432,8 @@ Item {
                                         running: app.cryptoBootstrap.phase
                                                      === CryptoBootstrapModel.WaitingForKeys
                                                  || app.cryptoBootstrap.phase
+                                                     === CryptoBootstrapModel.SecretsPending
+                                                 || app.cryptoBootstrap.phase
                                                      === CryptoBootstrapModel.RestoringHistory
                                     }
                                     Label {
@@ -1445,6 +1447,39 @@ Item {
                                                  : AppTheme.text
                                         font.pixelSize: AppTheme.fontSecondary
                                         text: app.cryptoBootstrap.statusMessage
+                                        Accessible.role: Accessible.StaticText
+                                        Accessible.name: text
+                                    }
+                                }
+                                // v0.7.1: standards-clean key re-request.
+                                // matrix-sdk 0.18 sends the m.secret.request
+                                // set exactly once per SAS completion, so
+                                // when the first request was missed (the
+                                // other client processed it before trusting
+                                // this device) a FRESH verification is the
+                                // honest way to request the secrets again —
+                                // the other session now already trusts this
+                                // device and answers. No new crypto: this is
+                                // the existing startOwnVerification path.
+                                AppButton {
+                                    objectName: "verifyAgainForKeys"
+                                    visible: app.cryptoBootstrap.phase
+                                                 === CryptoBootstrapModel.SecretsPending
+                                             || app.cryptoBootstrap.phase
+                                                 === CryptoBootstrapModel.ManualRecoveryRequired
+                                    enabled: app.loggedIn
+                                             && (!app.verificationActive
+                                                 || app.verificationState === "done"
+                                                 || app.verificationState === "cancelled"
+                                                 || app.verificationState.indexOf("failed") === 0)
+                                    text: qsTr("Verify again to request keys")
+                                    Accessible.name: text
+                                    onClicked: {
+                                        // The live flow card renders in the
+                                        // Sessions section — bring it into
+                                        // view alongside starting the flow.
+                                        root.section = "sessions"
+                                        app.startOwnVerification()
                                     }
                                 }
                                 Label {
@@ -1737,40 +1772,73 @@ Item {
                                             color: AppTheme.text
                                             font.weight: Font.DemiBold
                                         }
-                                        Label {
+                                        RowLayout {
                                             Layout.fillWidth: true
-                                            wrapMode: Text.WordWrap
-                                            color: AppTheme.textMuted
-                                            text: {
-                                                if (app.verificationState === "starting")
-                                                    return qsTr("Sending verification request…")
-                                                if (app.verificationState === "waiting_for_other_session")
-                                                    return qsTr(
-                                                        "Verification request sent. Accept it in " +
-                                                        "another session, such as Element.")
-                                                if (app.verificationState === "requested")
-                                                    return qsTr("Incoming verification request from %1")
-                                                        .arg(app.verificationOtherUser)
-                                                if (app.verificationState === "sas_ready")
-                                                    return qsTr(
-                                                        "Compare all seven emojis with the other " +
-                                                        "session. Confirm only if every emoji matches " +
-                                                        "in the same order.")
-                                                if (app.verificationState === "done")
-                                                    return qsTr(
-                                                        "Verification flow complete. Lightning is " +
-                                                        "querying the SDK for updated trust state.")
-                                                if (app.verificationState === "cancelled")
-                                                    return qsTr("Verification cancelled.")
-                                                if (app.verificationState.indexOf("failed") === 0)
-                                                    return qsTr("Verification failed.")
-                                                return qsTr("Waiting…")
+                                            spacing: AppTheme.spacing8
+                                            // v0.7.1: live progress feedback
+                                            // for the two post-"They match"
+                                            // states — the press is
+                                            // acknowledged immediately and
+                                            // the peer wait is named.
+                                            BusyIndicator {
+                                                implicitWidth: 18
+                                                implicitHeight: 18
+                                                visible: running
+                                                running: app.verificationState === "confirming"
+                                                         || app.verificationState === "waiting_for_peer"
+                                            }
+                                            Label {
+                                                objectName: "verificationStatusLabel"
+                                                Layout.fillWidth: true
+                                                wrapMode: Text.WordWrap
+                                                color: app.verificationState === "done"
+                                                       ? AppTheme.success
+                                                       : AppTheme.textMuted
+                                                Accessible.role: Accessible.StaticText
+                                                Accessible.name: text
+                                                text: {
+                                                    if (app.verificationState === "starting")
+                                                        return qsTr("Sending verification request…")
+                                                    if (app.verificationState === "waiting_for_other_session")
+                                                        return qsTr(
+                                                            "Verification request sent. Accept it in " +
+                                                            "another session, such as Element.")
+                                                    if (app.verificationState === "requested")
+                                                        return qsTr("Incoming verification request from %1")
+                                                            .arg(app.verificationOtherUser)
+                                                    if (app.verificationState === "sas_ready")
+                                                        return qsTr(
+                                                            "Compare all seven emojis with the other " +
+                                                            "session. Confirm only if every emoji matches " +
+                                                            "in the same order.")
+                                                    if (app.verificationState === "confirming")
+                                                        return qsTr("Confirming verification…")
+                                                    if (app.verificationState === "waiting_for_peer")
+                                                        return qsTr(
+                                                            "Waiting for your other device to confirm…")
+                                                    if (app.verificationState === "done")
+                                                        return qsTr(
+                                                            "Verification complete. This session is now " +
+                                                            "verified; Lightning is refreshing the trust " +
+                                                            "state and requesting encryption keys.")
+                                                    if (app.verificationState === "cancelled")
+                                                        return qsTr("Verification cancelled.")
+                                                    if (app.verificationState.indexOf("failed") === 0)
+                                                        return qsTr("Verification failed.")
+                                                    return qsTr("Waiting…")
+                                                }
                                             }
                                         }
                                         Flow {
                                             Layout.fillWidth: true
                                             spacing: AppTheme.spacing8
+                                            // Emoji stay on screen through
+                                            // confirming/waiting so users can
+                                            // keep comparing while the flow
+                                            // settles.
                                             visible: app.verificationState === "sas_ready"
+                                                     || app.verificationState === "confirming"
+                                                     || app.verificationState === "waiting_for_peer"
                                             Repeater {
                                                 model: app.verificationEmojis
                                                 delegate: Rectangle {
@@ -1810,19 +1878,37 @@ Item {
                                             }
                                             AppButton {
                                                 text: qsTr("They match")
+                                                // v0.7.1: stays visible (but
+                                                // disabled) through the
+                                                // confirm/peer wait so the
+                                                // card does not jump; only
+                                                // sas_ready accepts the press
+                                                // (AppController enforces the
+                                                // same guard).
                                                 visible: app.verificationState === "sas_ready"
+                                                        || app.verificationState === "confirming"
+                                                        || app.verificationState === "waiting_for_peer"
+                                                enabled: app.verificationState === "sas_ready"
                                                 kind: "primary"
                                                 onClicked: app.confirmVerification()
                                             }
                                             AppButton {
                                                 text: qsTr("They do not match")
                                                 visible: app.verificationState === "sas_ready"
+                                                        || app.verificationState === "confirming"
+                                                        || app.verificationState === "waiting_for_peer"
+                                                enabled: app.verificationState === "sas_ready"
                                                 onClicked: app.mismatchVerification()
                                             }
                                             AppButton {
                                                 text: qsTr("Cancel verification")
+                                                // Cancel stays available while
+                                                // confirming and while waiting
+                                                // for the peer.
                                                 visible: app.verificationState === "requested"
                                                         || app.verificationState === "sas_ready"
+                                                        || app.verificationState === "confirming"
+                                                        || app.verificationState === "waiting_for_peer"
                                                         || app.verificationState === "waiting_for_other_session"
                                                         || app.verificationState === "starting"
                                                 onClicked: app.cancelVerification()

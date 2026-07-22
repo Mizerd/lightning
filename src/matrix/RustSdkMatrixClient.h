@@ -349,6 +349,11 @@ Q_SIGNALS:
     void verificationSasReady(const QString &flowId,
                               const QVariantList &emojis,
                               const QVariantList &decimals);
+    // v0.7.1. OUR side's "They match" was registered by the SDK
+    // (SasState::Confirmed) — the flow now waits for the OTHER session's
+    // confirmation before verificationDone can fire. Emitted at most once
+    // per flow; carries the flow id only, never emoji values.
+    void verificationSasConfirmed(const QString &flowId);
     void verificationDone(const QString &flowId);
     void verificationCancelled(const QString &flowId, const QString &message);
     void verificationFailed(const QString &flowId, const QString &message);

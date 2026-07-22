@@ -44,7 +44,14 @@ public:
         RestoringHistory,      // backup key arrived; downloading room keys
         Ready,                 // backup enabled; history decryption available
         NoBackupAvailable,     // verified but no recoverable backup exists
-        ManualRecoveryRequired // waited past the bound; keys never arrived
+        ManualRecoveryRequired, // waited past the bound; keys never arrived
+        // v0.7.1: the Rust supervisor's 90 s watchdog reported that the
+        // other device has not answered the fire-once secret request yet
+        // (backup exists server-side, recovery still incomplete). Still a
+        // waiting state — the shared escalation timer keeps running and
+        // eventually promotes it to ManualRecoveryRequired. Appended so the
+        // existing enum values stay stable.
+        SecretsPending
     };
     Q_ENUM(Phase)
 
@@ -64,8 +71,10 @@ public:
     void setWaitTimeoutMsForTest(int ms) { m_waitTimeoutMs = ms; }
 
     // One sanitized observer event: kind is verification_state /
-    // recovery_state / backup_state / room_keys_received; state is the SDK
-    // enum name; count is the imported-key count for room_keys_received.
+    // recovery_state / backup_state / backup_exists / backup_download /
+    // secrets_pending / room_keys_received; state is the SDK enum name (or
+    // the supervisor's fixed token); count is the imported-key count for
+    // room_keys_received.
     void applyEvent(const QString &kind, const QString &state, quint64 count);
     void reset();
 
@@ -87,8 +96,16 @@ private:
     // pass ("", started, ok, failed).
     int m_backupExists = -1;
     QString m_download;
+    // v0.7.1: the Rust supervisor's secrets watchdog fired — the other
+    // device never answered the fire-once secret request. Distinguishes the
+    // SecretsPending waiting state from plain WaitingForKeys; cleared by
+    // any real progress (and by reset).
+    bool m_secretsPending = false;
     Phase m_phase = Idle;
     int m_keysReceived = 0;
     QTimer m_waitTimer;
-    int m_waitTimeoutMs = 30000;
+    // v0.7.1: 120 s (was 30 s) so the Rust watchdog's 90 s secrets_pending
+    // report visibly names the intermediate state before this local bound
+    // escalates the waiting phases to ManualRecoveryRequired.
+    int m_waitTimeoutMs = 120000;
 };

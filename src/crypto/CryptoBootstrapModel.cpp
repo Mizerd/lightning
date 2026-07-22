@@ -15,6 +15,7 @@ const char *phaseName(CryptoBootstrapModel::Phase phase)
     case CryptoBootstrapModel::Ready: return "ready";
     case CryptoBootstrapModel::NoBackupAvailable: return "no_backup";
     case CryptoBootstrapModel::ManualRecoveryRequired: return "manual_recovery";
+    case CryptoBootstrapModel::SecretsPending: return "secrets_pending";
     }
     return "idle";
 }
@@ -37,6 +38,13 @@ QString CryptoBootstrapModel::statusMessage() const
     case WaitingForKeys:
         return tr("Requesting encryption keys from your verified session. "
                   "Approve the request on your other device if it asks.");
+    case SecretsPending:
+        // The Rust watchdog's honest intermediate report: the request went
+        // out once, the other device has not answered. Distinct copy from
+        // WaitingForKeys so users know what is actually happening.
+        return tr("Your other device has not sent the encryption keys yet. "
+                  "Keep it open and unlocked — or verify again to request "
+                  "the keys once more.");
     case RestoringHistory:
         return tr("Restoring encrypted history from key backup…");
     case Ready:
@@ -67,7 +75,8 @@ QString CryptoBootstrapModel::statusMessage() const
 
 bool CryptoBootstrapModel::active() const
 {
-    return m_phase == WaitingForKeys || m_phase == RestoringHistory
+    return m_phase == WaitingForKeys || m_phase == SecretsPending
+        || m_phase == RestoringHistory
         || m_phase == Ready || m_phase == NoBackupAvailable
         || m_phase == ManualRecoveryRequired;
 }
@@ -80,8 +89,9 @@ bool CryptoBootstrapModel::needsRecoveryKey() const
 void CryptoBootstrapModel::onWaitTimeout()
 {
     // Only escalate if we are still idly waiting — any real progress moved us
-    // on and stopped the timer.
-    if (m_phase != WaitingForKeys)
+    // on and stopped the timer. SecretsPending is the same wait, just with
+    // the watchdog's honest explanation, so it escalates on the same bound.
+    if (m_phase != WaitingForKeys && m_phase != SecretsPending)
         return;
     qCInfo(lcCryptoBootstrap)
         << "bootstrap phase" << phaseName(m_phase) << "-> manual_recovery"
@@ -105,6 +115,11 @@ void CryptoBootstrapModel::applyEvent(const QString &kind,
     } else if (kind == QLatin1String("backup_download")) {
         // The supervisor's explicit per-room download pass.
         m_download = state;
+    } else if (kind == QLatin1String("secrets_pending")) {
+        // v0.7.1: the supervisor's 90 s watchdog — the other device has not
+        // answered the fire-once secret request. Only refines the waiting
+        // phase; recompute() clears it again on any real progress.
+        m_secretsPending = true;
     } else if (kind == QLatin1String("room_keys_received")) {
         if (count > 0) {
             m_keysReceived += static_cast<int>(
@@ -147,22 +162,33 @@ void CryptoBootstrapModel::recompute()
             next = NoBackupAvailable;
         } else {
             // Secret requests are on their way (recovery unknown or
-            // incomplete, backup not yet enabled).
-            next = WaitingForKeys;
+            // incomplete, backup not yet enabled). The Rust watchdog's
+            // secrets_pending report refines the same wait honestly.
+            next = m_secretsPending ? SecretsPending : WaitingForKeys;
         }
     }
     // Once escalated to manual recovery, a no-progress event must not bounce
     // back to the waiting spinner — only real backup progress promotes it.
-    if (m_phase == ManualRecoveryRequired && next == WaitingForKeys)
+    if (m_phase == ManualRecoveryRequired
+        && (next == WaitingForKeys || next == SecretsPending))
         next = ManualRecoveryRequired;
+    const bool wasWaiting =
+        m_phase == WaitingForKeys || m_phase == SecretsPending;
+    const bool nextWaiting =
+        next == WaitingForKeys || next == SecretsPending;
+    // Any non-waiting outcome consumes the watchdog report, so a later
+    // re-entry into the waiting phase starts from the plain copy again.
+    if (!nextWaiting)
+        m_secretsPending = false;
     if (next == m_phase)
         return;
-    // Arm the bounded wait when entering the waiting state; cancel it on any
-    // other transition so real progress (or a terminal state) never gets
-    // overridden by a late timeout.
-    if (next == WaitingForKeys)
+    // Arm the bounded wait when ENTERING the waiting family; keep it running
+    // across the WaitingForKeys -> SecretsPending refinement (same wait,
+    // same escalation bound); cancel it on any real progress or terminal
+    // state so a late timeout can never override them.
+    if (nextWaiting && !wasWaiting)
         m_waitTimer.start(m_waitTimeoutMs);
-    else
+    else if (!nextWaiting)
         m_waitTimer.stop();
     qCInfo(lcCryptoBootstrap)
         << "bootstrap phase" << phaseName(m_phase) << "->" << phaseName(next)
@@ -180,6 +206,7 @@ void CryptoBootstrapModel::reset()
     m_backup = QStringLiteral("unknown");
     m_backupExists = -1;
     m_download.clear();
+    m_secretsPending = false;
     m_phase = Idle;
     m_keysReceived = 0;
     if (wasInteresting)

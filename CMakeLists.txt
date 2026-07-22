@@ -919,6 +919,19 @@ if(BUILD_TESTING)
         Qt6::Core Qt6::Qml Qt6::Test)
     add_test(NAME crypto-bootstrap-model COMMAND crypto-bootstrap-model-test)
 
+    # Verification UI state machine: sas_ready -> confirming (synchronous)
+    # -> waiting_for_peer -> done, no-op guards, stale-flow rejection, and
+    # logout clearing. Slots QSKIP without the Rust backend.
+    qt_add_executable(verification-flow-test
+        tests/VerificationFlowTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_app(verification-flow-test)
+    target_link_libraries(verification-flow-test PRIVATE Qt6::Test)
+    add_test(NAME verification-flow COMMAND verification-flow-test)
+    set_tests_properties(verification-flow PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
     # One-line semantic event summaries for side surfaces (room list,
     # notifications): poll fallbacks, mention markdown, newline collapse,
     # bounded length. Pins the multi-line poll room-row regression.
