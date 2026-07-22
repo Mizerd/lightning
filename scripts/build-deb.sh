@@ -55,7 +55,7 @@ SHLIBS="$(sed -n 's/^shlibs:Depends=//p' "$SHLIBS_OUT")"
 # QML imports are loaded dynamically and therefore cannot be discovered from
 # ELF NEEDED entries by dpkg-shlibdeps. Keep this list aligned with the
 # production QML import scan; the clean install/startup test enforces it.
-QML_DEPENDS="qml6-module-qtquick, qml6-module-qtquick-controls, qml6-module-qtquick-dialogs, qml6-module-qtquick-effects, qml6-module-qtquick-layouts, qml6-module-qtquick-window"
+QML_DEPENDS="qml6-module-qtquick, qml6-module-qtquick-controls, qml6-module-qtquick-dialogs, qml6-module-qtquick-effects, qml6-module-qtquick-layouts, qml6-module-qtquick-window, qml6-module-qtmultimedia"
 
 {
     cat "$ROOT/packaging/deb/control"

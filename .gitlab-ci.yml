@@ -174,7 +174,7 @@ build-deb:
       build-essential ca-certificates ccache cmake curl debhelper dpkg-dev
       fakeroot file git jq libsecret-1-dev libsqlite3-dev libssl-dev
       ninja-build patchelf pkg-config qt6-base-dev qt6-declarative-dev
-      qt6-tools-dev zstd
+      qt6-multimedia-dev qt6-tools-dev zstd
     - >-
       curl --fail --show-error --silent --location
       --proto '=https' --tlsv1.2 https://sh.rustup.rs
@@ -207,8 +207,8 @@ build-rpm:
       appstream cargo ca-certificates ccache cmake curl desktop-file-utils
       gcc gcc-c++ git jq libsecret-devel
       ninja-build openssl-devel patchelf pkgconf-pkg-config
-      qt6-qtbase-devel qt6-qtdeclarative-devel qt6-qtsvg-devel
-      qt6-qttools-devel rpm-build rust sqlite-devel zstd
+      qt6-qtbase-devel qt6-qtdeclarative-devel qt6-qtmultimedia-devel
+      qt6-qtsvg-devel qt6-qttools-devel rpm-build rust sqlite-devel zstd
   script:
     - ./scripts/prepare-pinned-source.sh
     - ./scripts/build-rpm.sh
@@ -265,8 +265,9 @@ build-appimage:
       apt-get install -y --no-install-recommends
       build-essential ca-certificates ccache cmake curl file git jq
       libsecret-1-dev libsqlite3-dev libssl-dev ninja-build patchelf
-      pkg-config qt6-base-dev qt6-declarative-dev qt6-tools-dev
-      qt6-wayland qml6-module-qtquick qml6-module-qtquick-controls
+      pkg-config qt6-base-dev qt6-declarative-dev qt6-multimedia-dev
+      qt6-tools-dev qt6-wayland qml6-module-qtmultimedia
+      qml6-module-qtquick qml6-module-qtquick-controls
       qml6-module-qtquick-dialogs qml6-module-qtquick-effects
       qml6-module-qtquick-layouts qml6-module-qtquick-window zstd
     - >-
