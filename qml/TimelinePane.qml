@@ -213,6 +213,14 @@ Rectangle {
         function onCurrentRoomIdChanged() {
             sharedReactionPicker.close()
             senderProfilePopover.close()
+            // The viewer holds decoded pixels and a stale entries snapshot;
+            // it must never survive into another room or account (account
+            // switches also change the current room).
+            imageViewer.close()
+        }
+        function onAccountSwitchingChanged() {
+            if (app.accountSwitching)
+                imageViewer.close()
         }
     }
     FileDialog {
@@ -221,8 +229,10 @@ Rectangle {
         title: qsTr("Save file as…")
         fileMode: FileDialog.SaveFile
         onAccepted: {
-            if (pendingMediaKey.length > 0)
+            if (pendingMediaKey.length > 0) {
+                timeline.noteSaveStarted(pendingMediaKey)
                 app.mediaBridge.saveAs(pendingMediaKey, selectedFile)
+            }
             pendingMediaKey = ""
         }
         onRejected: pendingMediaKey = ""
@@ -233,6 +243,7 @@ Rectangle {
             saveResult.ok = ok
             saveResult.text = message
             saveResultTimer.restart()
+            timeline.noteSaveFinished(ok)
         }
     }
 
@@ -692,6 +703,31 @@ Rectangle {
                     saveMediaDialog.pendingMediaKey = mediaKey
                     saveMediaDialog.currentFile = "file:///" + (filename || "download")
                     saveMediaDialog.open()
+                }
+                // Per-card save feedback: which media key is being written
+                // (indeterminate — MediaBridge saves atomically, no progress
+                // API), and the last finished key for a brief success/error
+                // flash on its card. Keyed state, so an unrelated card can
+                // never show another download's outcome.
+                property string saveInFlightKey: ""
+                property string lastSavedKey: ""
+                property bool lastSaveOk: true
+                Timer {
+                    id: savedFlashTimer
+                    interval: 4000
+                    onTriggered: timeline.lastSavedKey = ""
+                }
+                function noteSaveStarted(mediaKey) {
+                    saveInFlightKey = mediaKey
+                    lastSavedKey = ""
+                }
+                function noteSaveFinished(ok) {
+                    if (saveInFlightKey === "")
+                        return
+                    lastSavedKey = saveInFlightKey
+                    lastSaveOk = ok
+                    saveInFlightKey = ""
+                    savedFlashTimer.restart()
                 }
 
                 // Scroll to the newest row *after* the model/view have finished

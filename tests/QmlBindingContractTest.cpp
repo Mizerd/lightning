@@ -467,10 +467,15 @@ private Q_SLOTS:
             "item ? item.implicitWidth : 400")));
         QVERIFY(!previewBlock.contains(QStringLiteral("Layout.fillWidth: true")));
 
+        // Video cards: responsive 72% column cap with hard bounds and the
+        // control-surface floor (the old flat 360/320 caps clipped portrait
+        // controls); file cards keep a bounded width.
         QVERIFY(delegate.contains(QStringLiteral(
-            "readonly property real maxW: Math.min(360, bubble.width)")));
+            "var cap = Math.min(560, Math.max(280, bubble.width * 0.72))")));
         QVERIFY(delegate.contains(QStringLiteral(
-            "implicitWidth: Math.min(320, bubble.width)")));
+            "readonly property real minControlW: Math.min(260, bubble.width)")));
+        QVERIFY(delegate.contains(QStringLiteral(
+            "implicitWidth: Math.min(340, bubble.width)")));
     }
 
     void directGifUsesInlineMediaRenderer()

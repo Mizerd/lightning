@@ -560,24 +560,33 @@ Item {
                         id: bodyLabel
                         objectName: "messageBody"
                         visible: text.length > 0 && !root.showsDecryptingSkeleton
+                        // Media rows suppress a body that is just the
+                        // filename echo; a genuinely different body renders
+                        // once, styled as a caption below the card.
+                        readonly property bool isMediaRow:
+                            model.isImage
+                            || model.isSticker === true
+                            || model.isVideo === true
+                            || model.isAudio === true
+                            || model.isFile === true
+                        readonly property bool isMediaCaption: {
+                            if (!isMediaRow) return false
+                            var body = (model.body || "").trim()
+                            var name = (model.mediaFilename || "").trim()
+                            return body.length > 0 && name.length > 0
+                                   && body.toLowerCase() !== name.toLowerCase()
+                        }
                         text: {
                             if (model.redacted) return qsTr("[message deleted]")
                             // The poll card presents the question; the body
                             // is only the MSC1767 fallback for old clients.
                             if (model.isPoll === true) return ""
-                            // Media rows already show the filename in their
-                            // media block; skip duplicating it as the body.
-                            // Files included: a plain file's body equals its
-                            // filename (Rust falls back body -> filename), so
-                            // it would otherwise print twice — the card and a
-                            // duplicate line beneath. A genuine caption
-                            // (filename set, body differs) still renders.
-                            var mediaRow = model.isImage
-                                           || model.isSticker === true
-                                           || model.isVideo === true
-                                           || model.isAudio === true
-                                           || model.isFile === true
-                            if (mediaRow && model.body === model.mediaFilename) return ""
+                            // Filename echoes never print twice. MSC2530
+                            // senders (Element) put the caption in body and
+                            // the real name in filename — compare loosely so
+                            // case/whitespace variants of the same name are
+                            // still recognized as echoes, not captions.
+                            if (isMediaRow && !isMediaCaption) return ""
                             // Formatted messages (mentions, rich text) render
                             // their sanitized HTML directly — it is already a
                             // safe RichText subset from MessageHtml::sanitize,
@@ -588,13 +597,15 @@ Item {
                         }
                         color: model.undecryptable === true
                                ? AppTheme.muted
+                               : bodyLabel.isMediaCaption ? AppTheme.textSecondary
                                : root.bubbleMode && model.isOwn === true
                                  ? AppTheme.ownBubbleText : AppTheme.text
                         // TextEdit does not inherit the Controls font; the
                         // message body must follow the selected UI family.
                         font.family: AppTheme.uiFont
                         font.pixelSize: AppTheme.scaled(
-                            root.compactMode || root.inThreadPanel
+                            bodyLabel.isMediaCaption ? 12
+                            : root.compactMode || root.inThreadPanel
                             ? 13 : AppTheme.fontSizeM)
                         font.italic: model.redacted || model.undecryptable === true
                         wrapMode: Text.Wrap
@@ -1305,20 +1316,25 @@ Item {
                 ? app.mediaBridge.previewImageSource(p.imageSource || "",
                                                      p.imageMime || "") : ""
             implicitWidth: Math.min(400, bubble.width - 8)
-            implicitHeight: cardCol.implicitHeight + AppTheme.spacingS * 2
-            color: AppTheme.surfaceElevated
-            radius: AppTheme.radiusSm
+            // Gate/loading/failed keep a monotonic reserved height so the
+            // consent click and a failure never reflow the row under the
+            // reader; only the loaded preview re-measures.
+            property real reservedH: 0
+            readonly property real naturalH:
+                cardCol.implicitHeight + AppTheme.spacingS * 2
+            onNaturalHChanged: {
+                if (st !== "loaded")
+                    reservedH = Math.max(reservedH, naturalH)
+            }
+            implicitHeight: st === "loaded" ? naturalH
+                                            : Math.max(naturalH, reservedH)
+            color: cardHover.hovered && card.st === "loaded"
+                   ? AppTheme.hover : AppTheme.surfaceElevated
+            radius: AppTheme.radiusMd
             border.color: AppTheme.border
             border.width: 1
 
-            Rectangle {
-                anchors.left: parent.left
-                anchors.top: parent.top
-                anchors.bottom: parent.bottom
-                width: 3
-                color: AppTheme.accent
-                radius: AppTheme.radiusSm
-            }
+            HoverHandler { id: cardHover }
 
             // Whole card opens the URL (loaded state only).
             MouseArea {
@@ -1344,31 +1360,37 @@ Item {
                     visible: card.st === "requires_action"
                     Layout.fillWidth: true
                     spacing: 4
-                    Label {
-                        text: qsTr("Link preview")
-                        color: AppTheme.textMuted
-                        font.pixelSize: 10
-                        font.weight: Font.DemiBold
-                    }
-                    Label {
-                        text: card.p.host || ""
-                        color: AppTheme.link
-                        font.pixelSize: 12
-                        elide: Label.ElideRight
+                    RowLayout {
                         Layout.fillWidth: true
+                        spacing: AppTheme.spacing6
+                        Icon {
+                            name: "link"
+                            size: 15
+                            color: AppTheme.textMuted
+                        }
+                        Label {
+                            text: card.p.host || ""
+                            color: AppTheme.link
+                            font.pixelSize: 12
+                            font.weight: Font.DemiBold
+                            elide: Label.ElideRight
+                            Layout.fillWidth: true
+                        }
                     }
                     Label {
-                        visible: root.roomEncrypted
-                        text: qsTr("Loading this preview contacts the linked "
-                                   + "website directly and may reveal your IP address.")
-                        color: AppTheme.warning
+                        text: root.roomEncrypted
+                              ? qsTr("Loading this preview contacts the linked "
+                                     + "website directly and may reveal your IP address.")
+                              : qsTr("Previews load from the linked website.")
+                        color: root.roomEncrypted ? AppTheme.warning
+                                                  : AppTheme.textMuted
                         font.pixelSize: 10
                         wrapMode: Text.WordWrap
                         Layout.fillWidth: true
                     }
-                    Button {
-                        text: qsTr("Load link preview")
-                        font.pixelSize: 11
+                    AppButton {
+                        objectName: "linkPreviewLoadButton"
+                        text: qsTr("Show preview")
                         Layout.topMargin: 2
                         onClicked: app.linkPreviews.requestPreviewForEvent(
                                        root.previewRoomId, root.actionKey)
@@ -1410,24 +1432,28 @@ Item {
                 ColumnLayout {
                     visible: card.st === "failed"
                     Layout.fillWidth: true
-                    spacing: 2
-                    Label {
-                        text: qsTr("Preview unavailable")
-                        color: AppTheme.textMuted
-                        font.pixelSize: 11
+                    spacing: 4
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: AppTheme.spacing6
+                        Icon {
+                            name: "error"
+                            size: 15
+                            color: AppTheme.textMuted
+                        }
+                        Label {
+                            text: qsTr("Preview unavailable")
+                            color: AppTheme.textMuted
+                            font.pixelSize: 11
+                            Layout.fillWidth: true
+                        }
                     }
-                    Label {
+                    AppButton {
+                        objectName: "linkPreviewRetryButton"
                         visible: card.p.retryable === true
                         text: qsTr("Retry")
-                        color: AppTheme.link
-                        font.pixelSize: 11
-                        font.underline: true
-                        MouseArea {
-                            anchors.fill: parent
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: app.linkPreviews.retryForEvent(
-                                           root.previewRoomId, root.actionKey)
-                        }
+                        onClicked: app.linkPreviews.retryForEvent(
+                                       root.previewRoomId, root.actionKey)
                     }
                 }
 
@@ -2080,23 +2106,77 @@ Item {
     Component {
         id: fileComponent
         Rectangle {
-            width: parent.width
-            implicitWidth: Math.min(320, bubble.width)
-            implicitHeight: fileRow.implicitHeight + 10
+            id: fileCard
+            objectName: "fileCard"
+            implicitWidth: Math.min(340, bubble.width)
+            implicitHeight: fileRow.implicitHeight + 16
             color: AppTheme.surfaceElevated
-            radius: AppTheme.radiusSm
+            radius: AppTheme.radiusMd
             border.color: AppTheme.border
             border.width: 1
+
+            // Save state, keyed by this card's media so pooled delegate
+            // reuse and unrelated downloads can never cross-talk. The view
+            // exposes the keys only in the main timeline; thread-panel
+            // delegates fall back to stateless presentation.
+            readonly property var tlView: root.ListView.view
+            readonly property bool saving:
+                tlView && tlView.saveInFlightKey !== undefined
+                && (model.mediaKey || "") !== ""
+                && tlView.saveInFlightKey === model.mediaKey
+            readonly property bool savedFlash:
+                tlView && tlView.lastSavedKey !== undefined
+                && (model.mediaKey || "") !== ""
+                && tlView.lastSavedKey === model.mediaKey
+            readonly property bool savedOk:
+                savedFlash && tlView.lastSaveOk === true
+
+            function fileTypeIcon(mime) {
+                var m = (mime || "").toLowerCase()
+                if (m.indexOf("image/") === 0) return "image"
+                if (m.indexOf("video/") === 0) return "videocam"
+                if (m.indexOf("audio/") === 0) return "graphic_eq"
+                if (m.indexOf("text/") === 0
+                        || m === "application/pdf") return "description"
+                return "attach_file"
+            }
+            function fileTypeLabel(mime) {
+                // "application/x-zip-compressed" → "ZIP", "application/pdf"
+                // → "PDF": the subtype tail reads better than a raw MIME.
+                var m = (mime || "")
+                var slash = m.indexOf("/")
+                if (slash < 0) return m
+                var sub = m.substring(slash + 1)
+                var plus = sub.lastIndexOf("+")
+                if (plus >= 0) sub = sub.substring(plus + 1)
+                if (sub.indexOf("x-") === 0) sub = sub.substring(2)
+                if (sub === "octet-stream") return qsTr("File")
+                return sub.length <= 12 ? sub.toUpperCase() : sub
+            }
+
             RowLayout {
                 id: fileRow
-                anchors.fill: parent
-                anchors.margins: 6
-                spacing: 8
-                Icon {
-                    name: "attach_file"
-                    size: 20
-                    color: AppTheme.text
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.leftMargin: 8
+                anchors.rightMargin: 8
+                spacing: 10
+
+                // File-type identity chip.
+                Rectangle {
+                    Layout.preferredWidth: 38
+                    Layout.preferredHeight: 38
+                    radius: AppTheme.radiusMd
+                    color: AppTheme.accentSoft
+                    Icon {
+                        anchors.centerIn: parent
+                        name: fileCard.fileTypeIcon(model.mediaMimetype)
+                        size: 20
+                        color: AppTheme.accent
+                    }
                 }
+
                 ColumnLayout {
                     Layout.fillWidth: true
                     spacing: 1
@@ -2104,7 +2184,7 @@ Item {
                         text: model.mediaFilename || model.body || qsTr("File")
                         color: AppTheme.text
                         font.pixelSize: 12
-                        font.weight: Font.Medium
+                        font.weight: Font.DemiBold
                         elide: Label.ElideMiddle
                         Layout.fillWidth: true
                     }
@@ -2113,35 +2193,71 @@ Item {
                             var kb = model.mediaSize / 1024
                             var size = kb < 1024 ? kb.toFixed(1) + " KB"
                                                  : (kb / 1024).toFixed(1) + " MB"
-                            return model.mediaMimetype
-                                ? size + " • " + model.mediaMimetype
-                                : size
+                            var kind = fileCard.fileTypeLabel(model.mediaMimetype)
+                            var status = fileCard.saving ? qsTr("Saving…")
+                                       : fileCard.savedFlash
+                                         ? (fileCard.savedOk ? qsTr("Saved")
+                                                             : qsTr("Save failed"))
+                                         : ""
+                            var base = kind ? size + " • " + kind : size
+                            return status ? base + " • " + status : base
                         }
-                        color: model.isOwn ? AppTheme.onAccentMuted : AppTheme.textMuted
+                        color: fileCard.savedFlash && !fileCard.savedOk
+                               ? AppTheme.danger
+                               : fileCard.savedFlash ? AppTheme.success
+                               : AppTheme.textMuted
                         font.pixelSize: 10
+                        elide: Label.ElideRight
+                        Layout.fillWidth: true
                     }
                 }
-                // v0.5.9: explicit Save As through the media bridge (SDK
-                // decrypts encrypted attachments; the file is written only
-                // to the user-chosen destination and never opened).
-                ToolButton {
+
+                // Download / save state action. MediaBridge saves are
+                // atomic (no progress or cancel API) — the in-flight state
+                // is honest-indeterminate, never a fake percentage.
+                BusyIndicator {
+                    visible: fileCard.saving
+                    running: visible
+                    Layout.preferredWidth: 26
+                    Layout.preferredHeight: 26
+                }
+                Icon {
+                    visible: fileCard.savedFlash && !fileCard.saving
+                    name: fileCard.savedOk ? "check_circle" : "error"
+                    size: 20
+                    color: fileCard.savedOk ? AppTheme.success : AppTheme.danger
+                }
+                IconButton {
+                    objectName: "fileSaveButton"
                     visible: model.mediaSourceAvailable === true
-                             && app.mediaBridge.supported
-                    text: qsTr("Save")
-                    Accessible.name: qsTr("Save %1 as…").arg(model.mediaFilename || qsTr("file"))
+                             && app.mediaBridge.supported && !fileCard.saving
+                    iconName: fileCard.savedFlash && !fileCard.savedOk
+                              ? "refresh" : "download"
+                    iconSize: 18
+                    implicitWidth: 30; implicitHeight: 30
+                    Accessible.name: qsTr("Save %1 as…")
+                        .arg(model.mediaFilename || qsTr("file"))
+                    ToolTip.text: fileCard.savedFlash && !fileCard.savedOk
+                                  ? qsTr("Retry save") : qsTr("Save as…")
+                    ToolTip.visible: hovered
+                    ToolTip.delay: 600
                     onClicked: {
                         if (root.ListView.view && root.ListView.view.saveMedia)
                             root.ListView.view.saveMedia(model.mediaKey || "",
-                                                         model.mediaFilename || "download")
+                                                         model.mediaFilename
+                                                         || "download")
                     }
                 }
                 // HTTP backend keeps its external-open path (plain media).
-                ToolButton {
+                IconButton {
                     visible: !(model.mediaSourceAvailable === true)
                              && (model.mediaUrl
                                  ? model.mediaUrl.toString().length > 0
                                  : false)
-                    text: qsTr("Open")
+                    iconName: "open_in_full"
+                    iconSize: 18
+                    implicitWidth: 30; implicitHeight: 30
+                    Accessible.name: qsTr("Open file")
                     onClicked: app.media.openExternal(model.mediaUrl)
                 }
             }

@@ -4,13 +4,16 @@ import QtQuick.Dialogs
 import QtQuick.Layouts
 import MatrixClient
 
-// v0.5.9 (Phase 15): in-app image viewer. Full-window scrim, fit-to-window,
-// wheel/keyboard zoom with pan, previous/next across the images currently
-// loaded in the room timeline (no history is fetched), Save As through the
-// media bridge, animated GIF playback. Escape or a click on the scrim
-// closes. The SDK timeline itself is untouched — this is a pure overlay.
+// In-app image viewer. Full-window scrim, pointer-centered wheel zoom,
+// drag panning with grab cursors, double-click fit/actual toggling,
+// previous/next across the images currently loaded in the room timeline
+// (no history is fetched), Save As through the media bridge, animated GIF
+// playback, and a floating shared-control toolbar that fades while idle.
+// Escape or a click on the scrim closes. The SDK timeline is untouched —
+// this is a pure overlay.
 Popup {
     id: viewer
+    objectName: "imageViewerOverlay"
     parent: Overlay.overlay
     anchors.centerIn: parent
     width: parent ? parent.width : 800
@@ -27,13 +30,23 @@ Popup {
         (currentIndex >= 0 && currentIndex < entries.length)
         ? entries[currentIndex] : null
 
-    // Zoom/pan state.
+    // Zoom model: `zoom` is relative to the fit-to-window base size, so
+    // 1.0 always means "fits the viewport". `naturalWidth/Height` are the
+    // decoded dimensions; actualSizeZoom shows one image pixel per logical
+    // pixel.
     property real zoom: 1.0
-    readonly property real minZoom: 0.2
-    readonly property real maxZoom: 8.0
-    // Fit-to-window base size, computed when the image loads.
+    readonly property real minZoom: 0.1
+    readonly property real maxZoom: 10.0
     property real baseWidth: 0
     property real baseHeight: 0
+    property real naturalWidth: 0
+    property real naturalHeight: 0
+    readonly property real actualSizeZoom:
+        (baseWidth > 0 && naturalWidth > 0) ? naturalWidth / baseWidth : 1.0
+    readonly property int percentZoom:
+        baseWidth > 0 && naturalWidth > 0
+        ? Math.round(zoom * baseWidth / naturalWidth * 100)
+        : Math.round(zoom * 100)
 
     // Bridge source plumbing (mirrors MessageDelegate's pattern).
     readonly property bool usesBridge:
@@ -45,6 +58,10 @@ Popup {
     property bool bridgeFailed: false
     readonly property bool isGif:
         current !== null && current.mime === "image/gif"
+    // The viewer is explicit user intent: GIFs animate unless autoplay is
+    // globally Never (2). Matches the timeline's tri-state policy instead
+    // of the legacy boolean.
+    readonly property bool animateGifs: app.settings.gifAutoplay !== 2
 
     function openFor(mediaKey, httpUrl) {
         entries = app.timeline.imageEntries()
@@ -64,12 +81,15 @@ Popup {
         resetView()
         open()
         loadCurrent()
+        chrome.wake()
     }
 
     function resetView() {
         zoom = 1.0
         baseWidth = 0
         baseHeight = 0
+        naturalWidth = 0
+        naturalHeight = 0
         bridgeSource = ""
         animatedSource = ""
         bridgeFailed = false
@@ -79,7 +99,7 @@ Popup {
         if (!usesBridge || current === null)
             return
         bridgeFailed = false
-        if (isGif && app.settings.animateGifPreviews)
+        if (isGif && animateGifs)
             animatedSource = app.mediaBridge.animatedSource(current.mediaKey)
         else
             bridgeSource = app.mediaBridge.mediaSource(current.mediaKey, "full")
@@ -91,15 +111,59 @@ Popup {
         currentIndex = index
         resetView()
         loadCurrent()
+        chrome.wake()
     }
 
     function fitImage(w, h) {
         if (w <= 0 || h <= 0) return
+        naturalWidth = w
+        naturalHeight = h
         var availW = viewer.width - 32
         var availH = viewer.height - 120 // header + footer chrome
         var scale = Math.min(1.0, Math.min(availW / w, availH / h))
         baseWidth = w * scale
         baseHeight = h * scale
+    }
+    // Window resizes keep the image sensibly placed: the fit base follows
+    // the new viewport while the relative zoom is preserved.
+    onWidthChanged: if (opened && naturalWidth > 0) fitImage(naturalWidth, naturalHeight)
+    onHeightChanged: if (opened && naturalWidth > 0) fitImage(naturalWidth, naturalHeight)
+
+    // Pointer-centered zoom: the image point under `viewportPoint` (in
+    // flick viewport coordinates) stays put across the scale change.
+    function zoomAt(viewportPoint, newZoom) {
+        newZoom = Math.min(maxZoom, Math.max(minZoom, newZoom))
+        if (baseWidth <= 0 || newZoom === zoom) {
+            zoom = newZoom
+            return
+        }
+        var z0 = zoom
+        var img0w = baseWidth * z0
+        var img0h = baseHeight * z0
+        var off0x = Math.max(0, (flick.width - img0w) / 2)
+        var off0y = Math.max(0, (flick.height - img0h) / 2)
+        var ux = (flick.contentX + viewportPoint.x - off0x) / z0
+        var uy = (flick.contentY + viewportPoint.y - off0y) / z0
+        zoom = newZoom
+        var img1w = baseWidth * newZoom
+        var img1h = baseHeight * newZoom
+        var off1x = Math.max(0, (flick.width - img1w) / 2)
+        var off1y = Math.max(0, (flick.height - img1h) / 2)
+        var holderW = Math.max(flick.width, img1w)
+        var holderH = Math.max(flick.height, img1h)
+        flick.contentX = Math.max(0, Math.min(holderW - flick.width,
+            off1x + ux * newZoom - viewportPoint.x))
+        flick.contentY = Math.max(0, Math.min(holderH - flick.height,
+            off1y + uy * newZoom - viewportPoint.y))
+    }
+    function zoomStep(factor) {
+        zoomAt(Qt.point(flick.width / 2, flick.height / 2), zoom * factor)
+    }
+    function fitView() { zoomAt(Qt.point(flick.width / 2, flick.height / 2), 1.0) }
+    function actualSize(point) {
+        zoomAt(point !== undefined ? point
+                                   : Qt.point(flick.width / 2, flick.height / 2),
+               actualSizeZoom)
     }
 
     Connections {
@@ -146,14 +210,18 @@ Popup {
         Keys.onLeftPressed: viewer.showAt(viewer.currentIndex - 1)
         Keys.onRightPressed: viewer.showAt(viewer.currentIndex + 1)
         Keys.onPressed: (event) => {
+            chrome.wake()
             if (event.key === Qt.Key_Plus || event.key === Qt.Key_Equal) {
-                viewer.zoom = Math.min(viewer.zoom * 1.2, viewer.maxZoom)
+                viewer.zoomStep(1.2)
                 event.accepted = true
             } else if (event.key === Qt.Key_Minus) {
-                viewer.zoom = Math.max(viewer.zoom / 1.2, viewer.minZoom)
+                viewer.zoomStep(1 / 1.2)
                 event.accepted = true
             } else if (event.key === Qt.Key_0) {
-                viewer.zoom = 1.0
+                viewer.actualSize()
+                event.accepted = true
+            } else if (event.key === Qt.Key_F) {
+                viewer.fitView()
                 event.accepted = true
             }
         }
@@ -163,62 +231,369 @@ Popup {
             onTapped: viewer.close()
         }
 
-        ColumnLayout {
-            anchors.fill: parent
-            spacing: 0
+        // Toolbar/chrome auto-hide: fades after idle while the pointer is
+        // still; wakes on movement, keys, navigation, errors, and while
+        // any control is hovered. Reduced motion keeps chrome always on.
+        QtObject {
+            id: chrome
+            property bool shown: true
+            function wake() {
+                shown = true
+                if (!AppTheme.reducedMotion)
+                    idleTimer.restart()
+            }
+        }
+        Timer {
+            id: idleTimer
+            interval: 2600
+            onTriggered: {
+                if (!AppTheme.reducedMotion && !toolbarHover.hovered
+                        && !viewer.bridgeFailed)
+                    chrome.shown = false
+            }
+        }
+        HoverHandler {
+            // Any pointer movement over the viewer wakes the chrome.
+            onPointChanged: chrome.wake()
+        }
 
-            // ── Header: filename + actions ────────────────────────────────
-            RowLayout {
-                Layout.fillWidth: true
-                Layout.margins: AppTheme.spacing12
-                spacing: AppTheme.spacing8
-                ColumnLayout {
-                    Layout.fillWidth: true
-                    spacing: 0
-                    Label {
-                        Layout.fillWidth: true
-                        text: viewer.current !== null ? viewer.current.filename : ""
-                        color: "#F8FAFC"
-                        font.pixelSize: AppTheme.fontSizeM
-                        font.weight: Font.DemiBold
-                        elide: Label.ElideMiddle
+        // ── Image area (fills the window; chrome floats above) ───────────
+        Item {
+            anchors.fill: parent
+
+            Flickable {
+                id: flick
+                anchors.fill: parent
+                contentWidth: imageHolder.width
+                contentHeight: imageHolder.height
+                clip: true
+                boundsBehavior: Flickable.StopAtBounds
+                // Panning only when zoomed beyond the viewport — otherwise
+                // drags cannot accidentally nudge a fitted image.
+                interactive: imageHolder.width > width + 0.5
+                             || imageHolder.height > height + 0.5
+
+                Item {
+                    id: imageHolder
+                    width: Math.max(flick.width, viewer.baseWidth * viewer.zoom)
+                    height: Math.max(flick.height, viewer.baseHeight * viewer.zoom)
+
+                    // Consume single taps over the image so only scrim
+                    // clicks close; double-click toggles fit/actual size
+                    // centered at the click point.
+                    TapHandler {
+                        id: imageTap
+                        gesturePolicy: TapHandler.WithinBounds
+                        onTapped: {
+                            chrome.wake()
+                            if (imageTap.tapCount !== 2)
+                                return
+                            var p = imageTap.point.position
+                            var vp = imageHolder.mapToItem(
+                                flick.contentItem, p.x, p.y)
+                            var viewport = Qt.point(vp.x - flick.contentX,
+                                                    vp.y - flick.contentY)
+                            if (Math.abs(viewer.zoom - 1.0) < 0.01) {
+                                // Fit → actual size (or a useful 2x when
+                                // the image is smaller than the viewport).
+                                viewer.zoomAt(viewport,
+                                    viewer.actualSizeZoom > 1.01
+                                        ? viewer.actualSizeZoom : 2.0)
+                            } else {
+                                viewer.fitView()
+                            }
+                        }
                     }
-                    Label {
-                        Layout.fillWidth: true
-                        text: viewer.current !== null
-                              ? qsTr("%1 · %2")
-                                    .arg(viewer.current.sender)
-                                    .arg(Qt.formatDateTime(viewer.current.timestamp,
-                                                           "d MMM yyyy hh:mm"))
-                              : ""
-                        color: "#94A3B8"
-                        font.pixelSize: AppTheme.fontSizeXS
-                        elide: Label.ElideRight
+                    // Grab cursors while pannable.
+                    HoverHandler {
+                        cursorShape: flick.interactive
+                                     ? (flick.dragging ? Qt.ClosedHandCursor
+                                                       : Qt.OpenHandCursor)
+                                     : Qt.ArrowCursor
+                    }
+
+                    // Static image path.
+                    Image {
+                        id: staticImage
+                        visible: !viewer.isGif || !viewer.animateGifs
+                        anchors.centerIn: parent
+                        width: viewer.baseWidth * viewer.zoom
+                        height: viewer.baseHeight * viewer.zoom
+                        fillMode: Image.PreserveAspectFit
+                        // High-quality scaling at any zoom without a
+                        // permanent re-rasterization of the source.
+                        smooth: true
+                        mipmap: true
+                        asynchronous: true
+                        cache: false
+                        source: visible
+                                ? (viewer.usesBridge ? viewer.bridgeSource
+                                                     : (viewer.current !== null
+                                                        ? viewer.current.httpUrl : ""))
+                                : ""
+                        onStatusChanged: {
+                            if (status === Image.Ready && viewer.baseWidth === 0)
+                                viewer.fitImage(implicitWidth, implicitHeight)
+                        }
+                    }
+                    // Animated GIF path.
+                    AnimatedImage {
+                        id: animatedImage
+                        visible: viewer.isGif && viewer.animateGifs
+                                 && viewer.animatedSource.length > 0
+                        anchors.centerIn: parent
+                        width: viewer.baseWidth * viewer.zoom
+                        height: viewer.baseHeight * viewer.zoom
+                        fillMode: Image.PreserveAspectFit
+                        smooth: true
+                        cache: false
+                        playing: visible && viewer.opened
+                        source: visible ? viewer.animatedSource : ""
+                        onStatusChanged: {
+                            if (status === Image.Ready && viewer.baseWidth === 0)
+                                viewer.fitImage(implicitWidth, implicitHeight)
+                        }
                     }
                 }
-                ToolButton {
-                    text: "−"
-                    Accessible.name: qsTr("Zoom out")
-                    onClicked: viewer.zoom = Math.max(viewer.zoom / 1.2, viewer.minZoom)
+
+                WheelHandler {
+                    target: null
+                    // Pointer-centered wheel zoom: the image point under
+                    // the cursor stays fixed.
+                    onWheel: (event) => {
+                        chrome.wake()
+                        const factor = event.angleDelta.y > 0 ? 1.2 : 1 / 1.2
+                        viewer.zoomAt(Qt.point(event.x, event.y),
+                                      viewer.zoom * factor)
+                    }
+                }
+            }
+
+            BusyIndicator {
+                anchors.centerIn: parent
+                running: viewer.opened && !viewer.bridgeFailed
+                         && ((viewer.usesBridge && viewer.bridgeSource === ""
+                              && viewer.animatedSource === "")
+                             || staticImage.status === Image.Loading
+                             || animatedImage.status === Image.Loading)
+                visible: running
+            }
+            ColumnLayout {
+                anchors.centerIn: parent
+                visible: viewer.bridgeFailed
+                         || staticImage.status === Image.Error
+                         || animatedImage.status === Image.Error
+                spacing: AppTheme.spacing8
+                Label {
+                    text: qsTr("The image could not be loaded.")
+                    color: "#F8FAFC"
+                }
+                AppButton {
+                    Layout.alignment: Qt.AlignHCenter
+                    text: qsTr("Retry")
+                    onClicked: viewer.loadCurrent()
+                }
+            }
+
+            // Previous / next navigation.
+            IconButton {
+                objectName: "viewerPrevButton"
+                anchors.left: parent.left
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.leftMargin: AppTheme.spacing12
+                visible: viewer.currentIndex > 0 && chrome.shown
+                iconName: "chevron_left"
+                iconSize: 26
+                implicitWidth: 40; implicitHeight: 40
+                iconColorOverride: "#FFFFFF"
+                background: Rectangle {
+                    radius: 20
+                    color: "#66000000"
+                }
+                Accessible.name: qsTr("Previous image")
+                onClicked: viewer.showAt(viewer.currentIndex - 1)
+            }
+            IconButton {
+                objectName: "viewerNextButton"
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.rightMargin: AppTheme.spacing12
+                visible: viewer.currentIndex < viewer.entries.length - 1
+                         && chrome.shown
+                iconName: "chevron_right"
+                iconSize: 26
+                implicitWidth: 40; implicitHeight: 40
+                iconColorOverride: "#FFFFFF"
+                background: Rectangle {
+                    radius: 20
+                    color: "#66000000"
+                }
+                Accessible.name: qsTr("Next image")
+                onClicked: viewer.showAt(viewer.currentIndex + 1)
+            }
+        }
+
+        // ── Header: filename + sender/time (floats over the image) ───────
+        RowLayout {
+            id: headerRow
+            anchors.top: parent.top
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.margins: AppTheme.spacing12
+            spacing: AppTheme.spacing8
+            visible: opacity > 0
+            opacity: chrome.shown ? 1.0 : 0.0
+            Behavior on opacity {
+                enabled: !AppTheme.reducedMotion
+                NumberAnimation { duration: 180 }
+            }
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: 0
+                Label {
+                    Layout.fillWidth: true
+                    text: viewer.current !== null ? viewer.current.filename : ""
+                    color: "#F8FAFC"
+                    font.pixelSize: AppTheme.fontSizeM
+                    font.weight: Font.DemiBold
+                    elide: Label.ElideMiddle
                 }
                 Label {
-                    text: Math.round(viewer.zoom * 100) + "%"
-                    color: "#CBD5E1"
+                    Layout.fillWidth: true
+                    text: viewer.current !== null
+                          ? qsTr("%1 · %2")
+                                .arg(viewer.current.sender)
+                                .arg(Qt.formatDateTime(viewer.current.timestamp,
+                                                       "d MMM yyyy hh:mm"))
+                          : ""
+                    color: "#94A3B8"
+                    font.pixelSize: AppTheme.fontSizeXS
+                    elide: Label.ElideRight
+                }
+            }
+            IconButton {
+                objectName: "viewerCloseButton"
+                iconName: "close"
+                iconSize: 20
+                implicitWidth: 36; implicitHeight: 36
+                iconColorOverride: "#FFFFFF"
+                Accessible.name: qsTr("Close image viewer")
+                onClicked: viewer.close()
+            }
+        }
+
+        // ── Floating toolbar: zoom cluster + actions ─────────────────────
+        Rectangle {
+            id: toolbar
+            objectName: "viewerToolbar"
+            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.bottom: parent.bottom
+            anchors.bottomMargin: AppTheme.spacing16
+            width: toolbarRow.implicitWidth + AppTheme.spacing12 * 2
+            height: 44
+            radius: 22
+            color: "#D9111111"
+            border.width: 1
+            border.color: "#33FFFFFF"
+            visible: opacity > 0
+            opacity: chrome.shown ? 1.0 : 0.0
+            Behavior on opacity {
+                enabled: !AppTheme.reducedMotion
+                NumberAnimation { duration: 180 }
+            }
+            HoverHandler { id: toolbarHover }
+
+            RowLayout {
+                id: toolbarRow
+                anchors.centerIn: parent
+                spacing: 2
+                IconButton {
+                    objectName: "viewerZoomOutButton"
+                    iconName: "zoom_out"
+                    iconSize: 20
+                    implicitWidth: 32; implicitHeight: 32
+                    iconColorOverride: "#FFFFFF"
+                    Accessible.name: qsTr("Zoom out")
+                    onClicked: viewer.zoomStep(1 / 1.2)
+                }
+                Label {
+                    objectName: "viewerZoomLabel"
+                    text: viewer.percentZoom + "%"
+                    color: "#E6FFFFFF"
                     font.pixelSize: AppTheme.fontSizeS
+                    font.weight: Font.DemiBold
+                    horizontalAlignment: Text.AlignHCenter
+                    Layout.minimumWidth: 44
                 }
-                ToolButton {
-                    text: "＋"
+                IconButton {
+                    objectName: "viewerZoomInButton"
+                    iconName: "zoom_in"
+                    iconSize: 20
+                    implicitWidth: 32; implicitHeight: 32
+                    iconColorOverride: "#FFFFFF"
                     Accessible.name: qsTr("Zoom in")
-                    onClicked: viewer.zoom = Math.min(viewer.zoom * 1.2, viewer.maxZoom)
+                    onClicked: viewer.zoomStep(1.2)
                 }
-                ToolButton {
-                    text: qsTr("Fit")
-                    Accessible.name: qsTr("Reset zoom")
-                    onClicked: viewer.zoom = 1.0
+                Rectangle {
+                    width: 1; height: 22
+                    color: "#33FFFFFF"
+                    Layout.leftMargin: 4
+                    Layout.rightMargin: 4
                 }
-                ToolButton {
+                IconButton {
+                    objectName: "viewerFitButton"
+                    iconName: "fit_screen"
+                    iconSize: 20
+                    implicitWidth: 32; implicitHeight: 32
+                    iconColorOverride: "#FFFFFF"
+                    Accessible.name: qsTr("Fit to window")
+                    ToolTip.text: qsTr("Fit to window (F)")
+                    ToolTip.visible: hovered
+                    ToolTip.delay: 600
+                    onClicked: viewer.fitView()
+                }
+                AbstractButton {
+                    id: actualSizeButton
+                    objectName: "viewerActualSizeButton"
+                    implicitWidth: 34; implicitHeight: 32
+                    focusPolicy: Qt.TabFocus
+                    Accessible.role: Accessible.Button
+                    Accessible.name: qsTr("Actual size")
+                    ToolTip.text: qsTr("Actual size (0)")
+                    ToolTip.visible: hovered
+                    ToolTip.delay: 600
+                    onClicked: viewer.actualSize()
+                    background: Rectangle {
+                        radius: AppTheme.radiusSm
+                        color: actualSizeButton.hovered ? "#33FFFFFF"
+                                                        : "transparent"
+                        border.width: actualSizeButton.visualFocus ? 2 : 0
+                        border.color: AppTheme.focusRing
+                    }
+                    contentItem: Label {
+                        text: "1:1"
+                        color: "#E6FFFFFF"
+                        font.pixelSize: AppTheme.fontSizeS
+                        font.weight: Font.Bold
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                }
+                Rectangle {
+                    width: 1; height: 22
+                    color: "#33FFFFFF"
+                    Layout.leftMargin: 4
+                    Layout.rightMargin: 4
                     visible: viewer.usesBridge
-                    text: qsTr("Save as…")
+                }
+                IconButton {
+                    objectName: "viewerSaveButton"
+                    visible: viewer.usesBridge
+                    iconName: "download"
+                    iconSize: 20
+                    implicitWidth: 32; implicitHeight: 32
+                    iconColorOverride: "#FFFFFF"
+                    Accessible.name: qsTr("Save image as…")
                     onClicked: {
                         if (viewer.current !== null) {
                             saveDialog.currentFile =
@@ -227,156 +602,40 @@ Popup {
                         }
                     }
                 }
-                ToolButton {
-                    text: "✕"
-                    Accessible.name: qsTr("Close image viewer")
-                    onClicked: viewer.close()
+            }
+        }
+
+        // ── Footer: save feedback + position ─────────────────────────────
+        RowLayout {
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            anchors.margins: AppTheme.spacing8
+            visible: opacity > 0
+            opacity: chrome.shown ? 1.0 : 0.0
+            Behavior on opacity {
+                enabled: !AppTheme.reducedMotion
+                NumberAnimation { duration: 180 }
+            }
+            Label {
+                id: saveNotice
+                property bool ok: true
+                visible: text.length > 0
+                color: ok ? AppTheme.success : AppTheme.danger
+                font.pixelSize: AppTheme.fontSizeS
+                Timer {
+                    id: saveNoticeTimer
+                    interval: 5000
+                    onTriggered: saveNotice.text = ""
                 }
             }
-
-            // ── Image area ────────────────────────────────────────────────
-            Item {
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-
-                Flickable {
-                    id: flick
-                    anchors.fill: parent
-                    contentWidth: imageHolder.width
-                    contentHeight: imageHolder.height
-                    clip: true
-                    boundsBehavior: Flickable.StopAtBounds
-
-                    Item {
-                        id: imageHolder
-                        width: Math.max(flick.width, viewer.baseWidth * viewer.zoom)
-                        height: Math.max(flick.height, viewer.baseHeight * viewer.zoom)
-
-                        // Consume taps over the image so only scrim clicks close.
-                        TapHandler { onTapped: {} }
-
-                        // Static image path.
-                        Image {
-                            id: staticImage
-                            visible: !viewer.isGif || !app.settings.animateGifPreviews
-                            anchors.centerIn: parent
-                            width: viewer.baseWidth * viewer.zoom
-                            height: viewer.baseHeight * viewer.zoom
-                            fillMode: Image.PreserveAspectFit
-                            asynchronous: true
-                            cache: false
-                            source: visible
-                                    ? (viewer.usesBridge ? viewer.bridgeSource
-                                                         : (viewer.current !== null
-                                                            ? viewer.current.httpUrl : ""))
-                                    : ""
-                            onStatusChanged: {
-                                if (status === Image.Ready && viewer.baseWidth === 0)
-                                    viewer.fitImage(implicitWidth, implicitHeight)
-                            }
-                        }
-                        // Animated GIF path.
-                        AnimatedImage {
-                            id: animatedImage
-                            visible: viewer.isGif && app.settings.animateGifPreviews
-                                     && viewer.animatedSource.length > 0
-                            anchors.centerIn: parent
-                            width: viewer.baseWidth * viewer.zoom
-                            height: viewer.baseHeight * viewer.zoom
-                            fillMode: Image.PreserveAspectFit
-                            cache: false
-                            playing: visible && viewer.opened
-                            source: visible ? viewer.animatedSource : ""
-                            onStatusChanged: {
-                                if (status === Image.Ready && viewer.baseWidth === 0)
-                                    viewer.fitImage(implicitWidth, implicitHeight)
-                            }
-                        }
-                    }
-
-                    WheelHandler {
-                        target: null
-                        onWheel: (event) => {
-                            const factor = event.angleDelta.y > 0 ? 1.2 : 1 / 1.2
-                            viewer.zoom = Math.min(Math.max(viewer.zoom * factor,
-                                                            viewer.minZoom),
-                                                   viewer.maxZoom)
-                        }
-                    }
-                }
-
-                BusyIndicator {
-                    anchors.centerIn: parent
-                    running: viewer.opened && !viewer.bridgeFailed
-                             && ((viewer.usesBridge && viewer.bridgeSource === "")
-                                 || staticImage.status === Image.Loading
-                                 || animatedImage.status === Image.Loading)
-                    visible: running
-                }
-                ColumnLayout {
-                    anchors.centerIn: parent
-                    visible: viewer.bridgeFailed
-                             || staticImage.status === Image.Error
-                             || animatedImage.status === Image.Error
-                    spacing: AppTheme.spacing8
-                    Label {
-                        text: qsTr("The image could not be loaded.")
-                        color: "#F8FAFC"
-                    }
-                    Button {
-                        Layout.alignment: Qt.AlignHCenter
-                        text: qsTr("Retry")
-                        onClicked: viewer.loadCurrent()
-                    }
-                }
-
-                // Previous / next navigation.
-                ToolButton {
-                    anchors.left: parent.left
-                    anchors.verticalCenter: parent.verticalCenter
-                    anchors.leftMargin: AppTheme.spacing8
-                    visible: viewer.currentIndex > 0
-                    text: "‹"
-                    font.pixelSize: 28
-                    Accessible.name: qsTr("Previous image")
-                    onClicked: viewer.showAt(viewer.currentIndex - 1)
-                }
-                ToolButton {
-                    anchors.right: parent.right
-                    anchors.verticalCenter: parent.verticalCenter
-                    anchors.rightMargin: AppTheme.spacing8
-                    visible: viewer.currentIndex < viewer.entries.length - 1
-                    text: "›"
-                    font.pixelSize: 28
-                    Accessible.name: qsTr("Next image")
-                    onClicked: viewer.showAt(viewer.currentIndex + 1)
-                }
-            }
-
-            // ── Footer: save feedback + position ─────────────────────────
-            RowLayout {
-                Layout.fillWidth: true
-                Layout.margins: AppTheme.spacing8
-                Label {
-                    id: saveNotice
-                    property bool ok: true
-                    visible: text.length > 0
-                    color: ok ? AppTheme.success : AppTheme.danger
-                    font.pixelSize: AppTheme.fontSizeS
-                    Timer {
-                        id: saveNoticeTimer
-                        interval: 5000
-                        onTriggered: saveNotice.text = ""
-                    }
-                }
-                Item { Layout.fillWidth: true }
-                Label {
-                    visible: viewer.entries.length > 1
-                    text: qsTr("%1 of %2").arg(viewer.currentIndex + 1)
-                                          .arg(viewer.entries.length)
-                    color: "#94A3B8"
-                    font.pixelSize: AppTheme.fontSizeS
-                }
+            Item { Layout.fillWidth: true }
+            Label {
+                visible: viewer.entries.length > 1
+                text: qsTr("%1 of %2").arg(viewer.currentIndex + 1)
+                                      .arg(viewer.entries.length)
+                color: "#94A3B8"
+                font.pixelSize: AppTheme.fontSizeS
             }
         }
     }
