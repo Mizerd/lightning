@@ -258,6 +258,11 @@ AppController::AppController(Backend backend, QObject *parent)
                 [this](Qt::ApplicationState state) {
             m_readReceipts->setWindowActive(state == Qt::ApplicationActive);
         });
+        // Orderly shutdown: stop media players and the sync loop while the
+        // window / event dispatcher are still valid, before the QML engine and
+        // windows are destroyed. Fires from inside app.exec().
+        connect(guiApp, &QGuiApplication::aboutToQuit, this,
+                &AppController::prepareForShutdown);
         // v0.5.11: re-emit when the platform light/dark preference changes so
         // the "System" theme repaints live.
         if (auto *hints = guiApp->styleHints()) {
@@ -780,6 +785,26 @@ AppController::AppController(Backend backend, QObject *parent)
 }
 
 AppController::~AppController() = default;
+
+void AppController::prepareForShutdown()
+{
+    if (m_shuttingDown)
+        return;
+    m_shuttingDown = true;
+
+    // Stop the Qt Multimedia players first: on Windows their Media Foundation
+    // worker threads deliver state through queued signals, a prime candidate
+    // for the "Invalid window handle" wake-up if they run into teardown. This
+    // also happens before the QML engine destroys the per-card players.
+    if (m_playback)
+        m_playback->stopAll();
+
+    // Stop the sync loop / poll timer so no further backend callback is
+    // scheduled onto the main loop during teardown. The client's own
+    // destructor still performs the bounded Rust task join.
+    if (m_client)
+        m_client->stopSync();
+}
 
 bool AppController::loggedIn() const
 {

@@ -364,7 +364,12 @@ function(lightning_configure_qml_app target)
         Qt6::Widgets
         Qt6::Multimedia
     )
-    if(TARGET Qt6::DBus)
+    # DBus is a Linux/BSD desktop concept: freedesktop notifications and the
+    # session bus. Gate on platform as well as availability, so a Windows Qt
+    # that happens to ship the Qt6 DBus module does NOT compile the DBus path in
+    # and try to autolaunch a session bus at startup (the "dbus-1" lookup noise
+    # observed on native Windows). NotificationManager degrades to a no-op.
+    if(TARGET Qt6::DBus AND NOT WIN32 AND NOT APPLE)
         target_link_libraries(${target} PRIVATE Qt6::DBus)
         target_compile_definitions(${target} PRIVATE HAVE_QT_DBUS=1)
     endif()

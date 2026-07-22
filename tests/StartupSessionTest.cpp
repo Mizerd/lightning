@@ -102,6 +102,25 @@ private Q_SLOTS:
         qunsetenv("LIGHTNING_MOCK_FAIL_RESTORE");
     }
 
+    // prepareForShutdown() must quiesce media playback and sync before teardown
+    // and be idempotent. The actual Windows "Invalid window handle" race is
+    // native-only (NOT TESTED here); this proves the ordering hook runs.
+    void prepareForShutdownStopsWorkersIdempotently()
+    {
+        AppController app(AppController::MockBackend);
+        QVERIFY(!app.isShuttingDown());
+        const int stopGen0 = app.playback()->stopGeneration();
+
+        app.prepareForShutdown();
+        QVERIFY(app.isShuttingDown());
+        QVERIFY(app.playback()->stopGeneration() > stopGen0); // stopAll ran
+
+        // A second call is a no-op: no further stop, no crash.
+        const int stopGen1 = app.playback()->stopGeneration();
+        app.prepareForShutdown();
+        QCOMPARE(app.playback()->stopGeneration(), stopGen1);
+    }
+
     // A valid saved session boots through the restoration state straight
     // to the main shell; the LoginScreen value never appears.
     void validSessionNeverShowsLogin()

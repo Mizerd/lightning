@@ -179,6 +179,14 @@ public:
     explicit AppController(Backend backend = HttpBackend, QObject *parent = nullptr);
     ~AppController() override;
 
+    // Quiesce background work (media playback, sync) while the window and the
+    // platform event dispatcher are still valid, so no worker posts an event
+    // after teardown begins. Wired to QGuiApplication::aboutToQuit; idempotent.
+    // Addresses the Windows "QEventDispatcherWin32: Failed to post a message
+    // (Invalid window handle.)" seen on close. Safe to call with no GUI.
+    void prepareForShutdown();
+    bool isShuttingDown() const { return m_shuttingDown; }
+
     Screen currentScreen() const { return m_currentScreen; }
     QString currentRoomId() const { return m_currentRoomId; }
     bool loggedIn() const;
@@ -440,6 +448,7 @@ private:
     // be wired to it before any code touches accessToken() / hasSession().
     std::unique_ptr<SecretStore> m_secretStore;
     std::unique_ptr<SettingsManager> m_settings;
+    bool m_shuttingDown = false;
     std::unique_ptr<MatrixClient> m_client;
     std::unique_ptr<AccountManager> m_accounts;
     std::unique_ptr<AuthManager> m_auth;
