@@ -101,8 +101,65 @@ must mount a fresh procfs inside its user namespace, which Docker's default
 masked /proc forbids; the Docker daemon rejects a raw
 `systempaths=unconfined` security-opt (it is a CLI-only alias), and GitLab
 Runner exposes no masked-paths knob, so privileged is the only available
-mechanism. Windows exe/msi formats are blocked and documented in
-`docs/windows-packaging.md` — no fake Windows jobs are wired.
+mechanism. Windows EXE/MSI work uses a separate project-7-only runner on the
+main GitLab VM and never uses these Linux package pools.
+
+## Windows unsigned test packaging
+
+`windows-package-test` is an explicitly enabled **Linux cross-build**, not a
+native Windows job. Its dedicated runner has only the tags `windows-cross` and
+`windows-package`, resides on `10.195.35.2`, and accepts no untagged or
+unprotected work. Build tools remain inside the pinned
+`lightning-windows-builder:fedora44-qt6.11.1-rust1.95.0-v1` image; the job does
+not receive the host Docker socket.
+
+Start a new pipeline from project 7's protected default branch with exactly:
+
+```text
+BUILD_WINDOWS_PACKAGES=true
+BUILD_FORMATS=none
+PUBLISH_PACKAGES=false
+SOURCE_REF=<full 40-character project-6 commit SHA>
+RELEASE_VERSION=
+RELEASE_NOTES_B64=
+```
+
+Resolve the source SHA before starting. A running pipeline never follows
+project-6 `main` and must not use a mutable local project-6 checkout; the same
+full SHA is rechecked by source resolution and the Windows builder, then
+recorded in filenames and `build-info.json`.
+
+Web and API pipeline sources are accepted. A branch, tag, short SHA, merge
+request, non-default project-7 ref, publication input, release input, or Linux
+format selection excludes the Windows job. `BUILD_FORMATS=none` also excludes
+every Linux package build, so an intended Windows-only test cannot consume the
+regular fleet accidentally.
+
+The job produces seven-day, developer-visible CI artifacts only:
+
+- `Lightning-<version>-<source-short-sha>-windows-x86_64.msi`
+- `Lightning-<version>-<source-short-sha>-windows-x86_64-setup.exe`
+- `Lightning-<version>-<source-short-sha>-windows-x86_64-portable.zip`
+- `SHA256SUMS-windows.txt`, the staged deployment tree, and validation reports
+
+They are unsigned test artifacts, not a release. The job has no package upload,
+release, release-link, or tag action. It builds the unchanged project-6 source
+with the real Rust backend for `x86_64-pc-windows-gnu`, stages a dependency-
+closed Qt 6.11.1 runtime, creates a per-user NSIS installer and x64 MSI, inspects
+every PE and the MSI tables, scans for credentials/private build paths, and
+runs portable plus silent install/uninstall tests in disposable Wine prefixes.
+Wine smoke coverage is supplemental and is never described as native Windows
+acceptance.
+
+Native Windows 10/11 install, graphics, multimedia, Credential Manager,
+SmartScreen/Defender, DPI, tray/notification, long-path/non-ASCII profile,
+MSI repair/upgrade, and Add/Remove Programs behavior remain **NOT TESTED**.
+Project 6 currently has no Windows Credential Manager implementation and uses
+its warned QSettings fallback there; code signing is also absent. Those are
+release blockers, not properties hidden by the packaging pipeline. See
+[`docs/windows-packaging.md`](docs/windows-packaging.md) for the architecture
+decision and [`docs/windows-runner-operations.md`](docs/windows-runner-operations.md)
+for operations, rollback, cache, and troubleshooting.
 
 ### Build caching
 
