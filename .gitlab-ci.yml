@@ -34,6 +34,10 @@ variables:
   BUILD_FORMATS:
     value: "all"
     description: "Build-only format selection: 'all' or a comma list from deb,rpm,flatpak,appimage,snap (snap also requires appimage in the list). Publishing pipelines always build every format."
+  BUILD_WINDOWS_PACKAGES:
+    value: "false"
+    options: ["false", "true"]
+    description: "Safe default false. Enables unsigned Windows cross-package test artifacts only with BUILD_FORMATS=none on the protected default branch."
   RELEASE_NOTES_B64:
     value: ""
     description: "create only: base64-encoded Markdown notes. Otherwise a tracked docs/releases/vX.Y.Z.md is used."
@@ -66,6 +70,15 @@ variables:
     PUBLISH_API_BASE: "http://10.195.35.2/api/v4"
   rules:
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $PUBLISH_PACKAGES == "true"'
+      when: on_success
+    - when: never
+
+# Dedicated Docker-socket runner security gate. A Windows test job is present
+# only for a manually created pipeline on the protected default branch with a
+# fully pinned project-6 commit and every publication/release input disabled.
+.windows-test-rules:
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE =~ /^(web|api)$/ && $BUILD_WINDOWS_PACKAGES == "true" && $PUBLISH_PACKAGES == "false" && $BUILD_FORMATS == "none" && $SOURCE_REF =~ /^[0-9a-f]{40}$/ && $RELEASE_VERSION == "" && $RELEASE_NOTES_B64 == ""'
       when: on_success
     - when: never
 
@@ -294,6 +307,40 @@ build-snap:
       ca-certificates file jq python3 python3-yaml squashfs-tools zstd
   script:
     - ./scripts/build-snap.sh
+
+windows-package-test:
+  extends: .windows-test-rules
+  stage: build
+  image:
+    name: lightning-windows-builder:fedora44-qt6.11.1-rust1.95.0-v1
+    pull_policy: if-not-present
+  tags: [windows-cross, windows-package]
+  resource_group: lightning-windows-cross-package
+  interruptible: true
+  timeout: 2h
+  needs:
+    - job: resolve-source
+      artifacts: true
+  variables:
+    CARGO_HOME: "/cache/cargo-windows"
+    BUILD_JOBS: "4"
+  before_script:
+    - test "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH"
+    - test "$BUILD_WINDOWS_PACKAGES" = "true"
+    - test "$PUBLISH_PACKAGES" = "false"
+    - test "$BUILD_FORMATS" = "none"
+    - test -z "$RELEASE_VERSION"
+    - test -z "$RELEASE_NOTES_B64"
+  script:
+    - ./scripts/prepare-pinned-source.sh
+    - ./scripts/build-windows.sh
+  artifacts:
+    name: "lightning-windows-test-${CI_PIPELINE_ID}"
+    when: always
+    access: developer
+    expire_in: 7 days
+    paths:
+      - dist/windows/
 
 validate-deb:
   # Build-only pipelines may select formats via BUILD_FORMATS;

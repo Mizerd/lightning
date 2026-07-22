@@ -43,6 +43,7 @@ required_jobs = [
     "validate-deb", "validate-rpm",
     "validate-flatpak", "validate-appimage", "validate-snap",
     "publish-packages", "verify-published-packages", "finalize-release",
+    "windows-package-test",
 ]
 for job in required_jobs:
     check(job in doc, f"job {job} is defined")
@@ -289,6 +290,52 @@ check(all(build_included(f, v) for f in all_fmts),
 for fmt in all_fmts:
     check(doc["validate-" + fmt].get("rules") == doc["build-" + fmt].get("rules"),
           f"validate-{fmt} carries the same selection rules as its build")
+
+# --- Windows is a separate, restrictive, non-publishing manual test path ---
+windows = resolve_extends("windows-package-test")
+check(set(windows.get("tags", [])) == {"windows-cross", "windows-package"},
+      "Windows job uses only the dedicated cross-package runner tags")
+image = windows.get("image", {})
+check(isinstance(image, dict)
+      and image.get("name") == "lightning-windows-builder:fedora44-qt6.11.1-rust1.95.0-v1"
+      and image.get("pull_policy") == "if-not-present",
+      "Windows job uses the pinned local builder image")
+windows_rule_text = yaml.dump(windows.get("rules", []))
+for required in ("CI_DEFAULT_BRANCH", "CI_PIPELINE_SOURCE", "BUILD_WINDOWS_PACKAGES",
+                 "PUBLISH_PACKAGES", "BUILD_FORMATS", "SOURCE_REF",
+                 "RELEASE_VERSION", "RELEASE_NOTES_B64"):
+    check(required in windows_rule_text, f"Windows gate constrains {required}")
+check("release:" not in yaml.dump(doc["windows-package-test"]),
+      "Windows job has no GitLab release action")
+check(windows.get("artifacts", {}).get("expire_in") == "7 days",
+      "Windows test artifacts expire in seven days")
+check(windows.get("artifacts", {}).get("access") == "developer",
+      "Windows test artifacts are limited to developers")
+
+windows_gate = windows["rules"]
+windows_vars = {
+    "CI_COMMIT_BRANCH": "main", "CI_DEFAULT_BRANCH": "main",
+    "CI_PIPELINE_SOURCE": "web", "BUILD_WINDOWS_PACKAGES": "true",
+    "PUBLISH_PACKAGES": "false", "BUILD_FORMATS": "none",
+    "SOURCE_REF": "5" * 40, "RELEASE_VERSION": "", "RELEASE_NOTES_B64": "",
+}
+check(evaluate(windows_gate, windows_vars),
+      "trusted default-branch Windows-only request includes the Windows job")
+for key, value in (("CI_COMMIT_BRANCH", "feature"),
+                   ("CI_PIPELINE_SOURCE", "merge_request_event"),
+                   ("BUILD_WINDOWS_PACKAGES", "false"),
+                   ("PUBLISH_PACKAGES", "true"),
+                   ("BUILD_FORMATS", "all"),
+                   ("SOURCE_REF", "main"),
+                   ("RELEASE_VERSION", "0.6.2"),
+                   ("RELEASE_NOTES_B64", "bm90ZXM=")):
+    rejected = dict(windows_vars)
+    rejected[key] = value
+    check(not evaluate(windows_gate, rejected),
+          f"Windows gate rejects unsafe {key}={value}")
+check(not any(build_included(fmt, {"PUBLISH_PACKAGES": "false", "BUILD_FORMATS": "none"})
+              for fmt in all_fmts),
+      "BUILD_FORMATS=none excludes every Linux package build")
 
 if errors:
     print(f"\nPipeline config tests FAILED ({len(errors)})", file=sys.stderr)
