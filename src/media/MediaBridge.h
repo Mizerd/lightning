@@ -40,7 +40,13 @@ public:
     // otherwise dispatches a fetch and returns an empty string; QML retries
     // from the mediaCached(cacheKey) signal. kind: "thumb" or "full".
     Q_INVOKABLE QString mediaSource(const QString &mediaKey, const QString &kind);
-    // Avatar thumbnails by plain mxc URI, server-side scaled.
+    // Avatar thumbnails by plain mxc URI. v0.7.1: every avatar identity is
+    // fetched at ONE canonical server-side edge (kAvatarCanonicalEdge)
+    // regardless of the requested render size, so the cache key —
+    // "mxc:<edge>:<uri>" — is size-independent: the room list, room header,
+    // timeline rows, popovers and rail all share a single fetch, a single
+    // cache entry, and a single failure mark per identity. QML scales the
+    // decoded bitmap down at render time.
     Q_INVOKABLE QString avatarSource(const QString &mxcUri, int size);
     // Provider URL for an already-cached key ("" when evicted meanwhile).
     Q_INVOKABLE QString cachedSource(const QString &cacheKey) const;
@@ -78,7 +84,19 @@ public:
     // startup — recovers on its own with at most one re-dispatch per
     // interval. Validation failures ("rejected", "invalid_gif") stay
     // permanent until an explicit retry().
+    //
+    // v0.7.1: expiry is ACTIVE, not merely passive: the watchdog tick sweeps
+    // expired transient marks and emits mediaRetryable(cacheKey), so an
+    // Avatar instantiated while its key was failure-marked recovers without
+    // any user interaction. Anti-hammering is preserved — a mark re-arms its
+    // retry window on every failed attempt, bounding retries to one
+    // dispatch per interval per key.
     Q_INVOKABLE QString failureCategory(const QString &cacheKey) const;
+    // Synchronous, non-expiring failure lookup by plain mxc URI (the
+    // canonical avatar cache key is derived internally). Lets Avatar.qml
+    // render honest initials instead of an eternal skeleton when
+    // avatarSource() returns "" because the key is failure-marked.
+    Q_INVOKABLE QString avatarFailureCategory(const QString &mxcUri) const;
     Q_INVOKABLE void retry(const QString &cacheKey);
     void setFailureRetryMsForTest(qint64 ms) { m_failureRetryMs = ms; }
 
@@ -115,13 +133,22 @@ public:
     // Shared with MediaImageProvider (called from the QML render thread).
     QByteArray cachedBytes(const QString &cacheKey) const;
 
-    // Cache cap; exposed for tests.
+    // Cache caps; exposed for tests. Avatar-class entries ("mxc:" keys)
+    // have their own reserved byte budget so churning timeline media can
+    // never evict every avatar over a long session; both budgets are hard
+    // bounds, so total memory stays bounded.
     void setCacheLimitBytes(qint64 bytes) { m_cacheLimit = bytes; }
+    void setAvatarCacheLimitBytes(qint64 bytes) { m_avatarCacheLimit = bytes; }
     qint64 cacheBytesUsed() const;
 
 Q_SIGNALS:
     void supportedChanged();
     void mediaCached(const QString &cacheKey);
+    // v0.7.1: an expired TRANSIENT failure mark was swept by the watchdog;
+    // consumers holding a fallback for this key may re-request it now
+    // (bounded: one sweep emission per failure cycle, and a re-failed
+    // attempt re-arms its window before the next emission).
+    void mediaRetryable(const QString &cacheKey);
     void animatedMediaReady(const QString &cacheKey);
     // v0.7: a requested playable (video/audio) payload was validated and
     // materialized; QML re-calls playableSource(cacheKey) for the URL.
@@ -162,6 +189,13 @@ private:
     // True while the key's failure mark still blocks a new dispatch;
     // expires transient marks as a side effect.
     bool failureBlocks(const QString &cacheKey);
+    // Watchdog-driven active expiry: removes expired transient marks and
+    // emits mediaRetryable for each, so QML recovers without repolling.
+    void sweepExpiredFailureMarks();
+    // Validation failures reported by the backend never fix themselves;
+    // everything else (network, timeout, unavailable, …) is transient.
+    static bool isPermanentCategory(const QString &category);
+    static bool isAvatarClassKey(const QString &cacheKey);
     void dispatch(const Pending &request);
     void pump();
     bool alreadyPending(const QString &cacheKey) const;
@@ -176,8 +210,21 @@ private:
 
     mutable QMutex m_cacheMutex;
     QHash<QString, QByteArray> m_cache;
-    mutable QList<QString> m_lru; // front = most recent
+    // Two LRU lists over the one byte store: avatar-class entries ("mxc:"
+    // keys) are evicted only against their own reserved budget, so timeline
+    // media churn cannot push avatars out over a long session (and vice
+    // versa). front = most recent.
+    mutable QList<QString> m_lru;
+    mutable QList<QString> m_avatarLru;
     qint64 m_cacheLimit = 64 * 1024 * 1024;
+    qint64 m_avatarCacheLimit = 8 * 1024 * 1024;
+    // v0.7.1: per-key content revision, bumped ONLY on an actual byte
+    // insert (insertCache) and appended to provider URLs as "?r=<n>".
+    // A re-cached key therefore always yields a NEW source string, so a QML
+    // Image stuck in Error (e.g. the cache-hit-then-evicted race) reloads;
+    // cache hits keep an identical string so pixmap-cache dedup survives.
+    // Guarded by m_cacheMutex; survives eviction, cleared with the cache.
+    QHash<QString, quint32> m_revision;
 
     QHash<quint64, Pending> m_inflight;
     QQueue<Pending> m_queue;
@@ -232,6 +279,10 @@ private:
     // bound; excess requests queue and pump as fetches complete.
     static constexpr int kMaxConcurrent = 8;
     static constexpr int kMaxFailureMarks = 512;
+    // One server-side thumbnail edge for every avatar surface (largest
+    // consumer is the 96px popover at 2x DPR = 192; 224 covers it with
+    // headroom). All render sizes downscale from this single decode.
+    static constexpr int kAvatarCanonicalEdge = 224;
     static constexpr qint64 kAnimatedCacheBytes = 64 * 1024 * 1024;
     static constexpr int kAnimatedCacheEntries = 64;
     static constexpr qint64 kPlayableCacheBytes = 256 * 1024 * 1024;

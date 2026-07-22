@@ -165,6 +165,11 @@ QVariantMap RoomListModel::findRoom(const QString &roomId) const
                 { QStringLiteral("encrypted"), r.encrypted },
                 { QStringLiteral("unreadCount"), r.unreadCount },
                 { QStringLiteral("isSpace"),   r.isSpace },
+                // The room header binds currentRoom.isDirect for the
+                // people-are-circles shape rule (and the composer for the
+                // DM bubble layout); omitting it made every DM header
+                // avatar render as a rounded square.
+                { QStringLiteral("isDirect"),  r.isDirect },
             };
         }
     }

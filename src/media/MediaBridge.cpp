@@ -107,14 +107,25 @@ bool MediaBridge::supported() const
     return m_client && m_client->supportsMediaBridge();
 }
 
+bool MediaBridge::isAvatarClassKey(const QString &cacheKey)
+{
+    return cacheKey.startsWith(QLatin1String("mxc:"));
+}
+
 QString MediaBridge::cachedSource(const QString &cacheKey) const
 {
     QMutexLocker lock(&m_cacheMutex);
     if (!m_cache.contains(cacheKey))
         return {};
     touch(cacheKey);
+    // The "?r=<revision>" suffix (bumped only on an actual byte insert)
+    // guarantees a re-cached payload produces a DIFFERENT source string, so
+    // a QML Image that reached Error on the previous string reloads;
+    // MediaImageProvider strips it before the key lookup.
     return QStringLiteral("image://lightning-media/")
-        + QString::fromUtf8(QUrl::toPercentEncoding(cacheKey));
+        + QString::fromUtf8(QUrl::toPercentEncoding(cacheKey))
+        + QStringLiteral("?r=")
+        + QString::number(m_revision.value(cacheKey, 1));
 }
 
 QByteArray MediaBridge::cachedBytes(const QString &cacheKey) const
@@ -139,21 +150,34 @@ qint64 MediaBridge::cacheBytesUsed() const
 void MediaBridge::touch(const QString &cacheKey) const
 {
     // Caller holds m_cacheMutex.
-    m_lru.removeOne(cacheKey);
-    m_lru.prepend(cacheKey);
+    QList<QString> &lru = isAvatarClassKey(cacheKey) ? m_avatarLru : m_lru;
+    lru.removeOne(cacheKey);
+    lru.prepend(cacheKey);
 }
 
 void MediaBridge::insertCache(const QString &cacheKey, const QByteArray &bytes)
 {
     QMutexLocker lock(&m_cacheMutex);
     m_cache.insert(cacheKey, bytes);
+    // An actual byte insert is the ONLY revision bump: cache hits keep an
+    // identical provider URL (pixmap-cache dedup survives), a re-fetch
+    // after eviction or replacement produces a new one.
+    ++m_revision[cacheKey];
     touch(cacheKey);
-    // Evict least-recently-used entries beyond the byte cap.
+    // Evict least-recently-used entries beyond the inserted key's class
+    // budget. Classes are disjoint and each bounded, so an avatar insert
+    // can never evict timeline media and timeline churn can never evict
+    // avatars; total memory stays bounded by the sum of both caps.
+    const bool avatarClass = isAvatarClassKey(cacheKey);
+    QList<QString> &lru = avatarClass ? m_avatarLru : m_lru;
+    const qint64 limit = avatarClass ? m_avatarCacheLimit : m_cacheLimit;
     qint64 total = 0;
-    for (const QByteArray &entry : m_cache)
-        total += entry.size();
-    while (total > m_cacheLimit && m_lru.size() > 1) {
-        const QString victim = m_lru.takeLast();
+    for (auto it = m_cache.cbegin(); it != m_cache.cend(); ++it) {
+        if (isAvatarClassKey(it.key()) == avatarClass)
+            total += it.value().size();
+    }
+    while (total > limit && lru.size() > 1) {
+        const QString victim = lru.takeLast();
         if (victim == cacheKey)
             continue;
         total -= m_cache.value(victim).size();
@@ -179,9 +203,28 @@ QString MediaBridge::failureCategory(const QString &cacheKey) const
     return m_failed.value(cacheKey).category;
 }
 
+QString MediaBridge::avatarFailureCategory(const QString &mxcUri) const
+{
+    if (!mxcUri.startsWith(QLatin1String("mxc://")))
+        return {};
+    return failureCategory(mxcCacheKey(mxcUri, kAvatarCanonicalEdge));
+}
+
 void MediaBridge::retry(const QString &cacheKey)
 {
     m_failed.remove(cacheKey);
+}
+
+bool MediaBridge::isPermanentCategory(const QString &category)
+{
+    // Only validation failures the backend actually reported are permanent
+    // ("rejected" media, "invalid_gif" payloads): they never fix
+    // themselves, so only an explicit retry() may re-dispatch them.
+    // Everything else — network, timeout, and the local "unavailable"
+    // dispatch failure (opId==0 while the session restores/switches or the
+    // media item is not known yet) — is transient and expires.
+    return category == QLatin1String("rejected")
+        || category == QLatin1String("invalid_gif");
 }
 
 bool MediaBridge::failureBlocks(const QString &cacheKey)
@@ -189,17 +232,38 @@ bool MediaBridge::failureBlocks(const QString &cacheKey)
     const auto it = m_failed.find(cacheKey);
     if (it == m_failed.end())
         return false;
-    // Validation failures never fix themselves; only an explicit retry()
-    // may re-dispatch them.
-    const bool permanent = it->category == QLatin1String("rejected")
-        || it->category == QLatin1String("invalid_gif");
-    if (permanent)
+    if (isPermanentCategory(it->category))
         return true;
     if (m_failureClock.elapsed() - it->markedAtMs >= m_failureRetryMs) {
         m_failed.erase(it);
         return false;
     }
     return true;
+}
+
+void MediaBridge::sweepExpiredFailureMarks()
+{
+    if (m_failed.isEmpty())
+        return;
+    const qint64 now = m_failureClock.elapsed();
+    // Collect first: the mediaRetryable handlers re-enter the bridge
+    // (refresh → avatarSource → dispatch → markFailed on a re-failure),
+    // which mutates m_failed.
+    QStringList retryable;
+    for (auto it = m_failed.begin(); it != m_failed.end();) {
+        if (!isPermanentCategory(it->category)
+            && now - it->markedAtMs >= m_failureRetryMs) {
+            retryable.append(it.key());
+            it = m_failed.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    for (const QString &cacheKey : std::as_const(retryable)) {
+        qCDebug(lcMedia, "retryable %s (transient mark expired)",
+                qUtf8Printable(keyTag(cacheKey)));
+        Q_EMIT mediaRetryable(cacheKey);
+    }
 }
 
 QString MediaBridge::mediaSource(const QString &mediaKey, const QString &kind)
@@ -393,9 +457,14 @@ QString MediaBridge::previewImageSource(const QString &dataSource,
 
 QString MediaBridge::avatarSource(const QString &mxcUri, int size)
 {
+    // One canonical fetch per identity: the requested render size never
+    // reaches the cache key, so every surface (room list, header, timeline,
+    // popover, rail) shares a single request, entry, and failure mark, and
+    // is consistent by construction. QML scales down at render time.
+    Q_UNUSED(size);
     if (!mxcUri.startsWith(QLatin1String("mxc://")) || !supported())
         return {};
-    const int edge = qBound(16, size, 512);
+    const int edge = kAvatarCanonicalEdge;
     const QString cacheKey = mxcCacheKey(mxcUri, edge);
     const QString cached = cachedSource(cacheKey);
     if (!cached.isEmpty()) {
@@ -448,11 +517,18 @@ void MediaBridge::dispatch(const Pending &request)
         opId = m_client->fetchMedia(tracked.mediaKey, tracked.kind,
                                     tracked.timeoutClass);
     if (opId == 0) {
+        // The backend could not even start the fetch — typically the
+        // session is restoring/switching or the media item is not known
+        // yet. That is a TRANSIENT condition: marking it permanent would
+        // poison the key for the whole account session (the "room-header
+        // avatar skeleton forever" failure). The normal retry window plus
+        // the watchdog sweep recover it without interaction.
         ++m_statFailed;
-        qCWarning(lcMedia, "fetch %s rejected by backend (opId=0)",
+        qCWarning(lcMedia, "fetch %s unavailable (backend returned opId=0)",
                   qUtf8Printable(keyTag(tracked.cacheKey)));
-        markFailed(tracked, QStringLiteral("rejected"));
-        Q_EMIT mediaFetchFailed(tracked.cacheKey, QStringLiteral("rejected"));
+        markFailed(tracked, QStringLiteral("unavailable"));
+        Q_EMIT mediaFetchFailed(tracked.cacheKey,
+                                QStringLiteral("unavailable"));
         if (tracked.saveRequest)
             Q_EMIT saveFinished(false, tr("The file could not be downloaded."));
         return;
@@ -472,6 +548,12 @@ void MediaBridge::pump()
 
 void MediaBridge::checkInflightTimeouts()
 {
+    // Active failure-mark expiry rides the same tick: without it, an
+    // avatar whose key was failure-marked when its ONLY consumer called
+    // avatarSource() has no recovery channel once the app quiesces (QML
+    // does not repoll on its own — the old "click to make avatars appear"
+    // behaviour was new Avatar instances passively expiring marks).
+    sweepExpiredFailureMarks();
     if (m_inflight.isEmpty())
         return;
     const qint64 now = m_failureClock.elapsed();
@@ -772,6 +854,10 @@ void MediaBridge::clear()
                 static_cast<long long>(m_inflight.size()));
         m_cache.clear();
         m_lru.clear();
+        m_avatarLru.clear();
+        // Account isolation + bounded memory: revisions restart with the
+        // session (a fresh session's first insert is revision 1 again).
+        m_revision.clear();
     }
     m_inflight.clear();
     m_queue.clear();

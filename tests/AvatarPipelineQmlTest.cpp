@@ -17,6 +17,7 @@
 #include <QImage>
 #include <QPainter>
 #include <QQmlApplicationEngine>
+#include <QQmlComponent>
 #include <QQmlContext>
 #include <QQmlProperty>
 #include <QQuickItem>
@@ -170,8 +171,10 @@ private:
         QStringList warnings;
     };
 
-    bool createAvatar(Harness &h, int size, const QString &mxc,
-                      const QString &name, const QString &colorKey)
+    // Core stack without any Avatar yet: needed by the tests that must
+    // manipulate the bridge (pre-marked failures) or spawn several Avatars
+    // against ONE bridge (canonical-fetch sharing, churn soak).
+    bool prepareCore(Harness &h)
     {
         h.client = std::make_unique<FakeClient>();
         h.bridge = std::make_unique<MediaBridge>();
@@ -186,6 +189,14 @@ private:
         h.engine->addImageProvider(QStringLiteral("lightning-media"),
                                    new MediaImageProvider(h.bridge.get()));
         h.engine->rootContext()->setContextProperty("app", h.shim.get());
+        h.window = std::make_unique<QQuickWindow>();
+        h.window->setColor(kSurface);
+        return true;
+    }
+
+    bool loadAvatar(Harness &h, int size, const QString &mxc,
+                    const QString &name, const QString &colorKey)
+    {
         QSignalSpy createdSpy(h.engine.get(),
                               &QQmlApplicationEngine::objectCreated);
         // Initial properties mirror production: the delegate binds
@@ -205,9 +216,7 @@ private:
             createdSpy.at(0).at(0).value<QObject *>());
         if (!h.avatar)
             return false;
-        h.window = std::make_unique<QQuickWindow>();
         h.window->resize(size + 40, size + 40);
-        h.window->setColor(kSurface);
         h.avatar->setParentItem(h.window->contentItem());
         h.avatar->setPosition(QPointF(20, 20));
         h.window->show();
@@ -215,21 +224,51 @@ private:
         return true;
     }
 
+    bool createAvatar(Harness &h, int size, const QString &mxc,
+                      const QString &name, const QString &colorKey)
+    {
+        return prepareCore(h) && loadAvatar(h, size, mxc, name, colorKey);
+    }
+
+    // Additional Avatar instances against the SAME engine/bridge (delegate
+    // churn, shared-fetch tests).
+    static QQuickItem *spawnAvatar(Harness &h, QQmlComponent &component,
+                                   int size, const QString &mxc,
+                                   const QString &name,
+                                   const QString &colorKey)
+    {
+        QObject *object = component.createWithInitialProperties(
+            {
+                { QStringLiteral("size"), size },
+                { QStringLiteral("name"), name },
+                { QStringLiteral("colorKey"), colorKey },
+                { QStringLiteral("mxc"), mxc },
+            },
+            h.engine->rootContext());
+        auto *item = qobject_cast<QQuickItem *>(object);
+        if (!item) {
+            delete object;
+            return nullptr;
+        }
+        item->setParentItem(h.window->contentItem());
+        return item;
+    }
+
     static QString state(const Harness &h)
     {
         return h.avatar->property("presentationState").toString();
     }
 
-    // Initial-property application order can legitimately request interim
-    // edge sizes (distinct cache keys, same behaviour as a delegate resize).
-    // The fetch that matters is the one for the avatar's final edge.
+    // v0.7.1: every avatar identity is fetched at ONE canonical edge
+    // regardless of the requested render size, so there is exactly one
+    // fetch per identity; the helper keeps its call shape for clarity.
     static int finalEdgeFetchIndex(const Harness &h, const QString &mxc,
                                    int size)
     {
-        const int edge = qMax(32, size * 2);
+        Q_UNUSED(size);
         for (int i = h.client->fetches.size() - 1; i >= 0; --i) {
             const auto &f = h.client->fetches.at(i);
-            if (f.key == mxc && f.width == edge)
+            if (f.key == mxc && f.width == 224)
                 return i;
         }
         return -1;
@@ -371,6 +410,186 @@ private Q_SLOTS:
                  qPrintable(QStringLiteral("expected user B blue, got %1")
                                 .arg(center.name())));
         QCOMPARE(h.warnings, QStringList{});
+    }
+
+    // v0.7.1 live regression: an Avatar instantiated WHILE its cache key is
+    // failure-marked (the room-header case — another surface's failed fetch
+    // poisoned the key before this Avatar ever existed) must show honest
+    // initials immediately, never an eternal skeleton, and must recover to
+    // ready on its own once the transient window expires — with ZERO user
+    // interaction.
+    void avatarCreatedUnderFailureMarkShowsInitialsThenAutoRecovers()
+    {
+        Harness h;
+        QVERIFY(prepareCore(h));
+        const QString mxc = QStringLiteral("mxc://x/marked");
+        h.bridge->avatarSource(mxc, 32);
+        QCOMPARE(h.client->fetches.size(), 1);
+        h.client->fail(h.client->fetches.at(0).opId,
+                       QStringLiteral("network"));
+
+        QVERIFY(loadAvatar(h, 32, mxc, QStringLiteral("Matas"),
+                           QStringLiteral("@matas:x")));
+        // Immediately "failed" (initials) — the suppressed avatarSource()
+        // returned "" but avatarFailureCategory reported the mark.
+        QCOMPARE(state(h), QStringLiteral("failed"));
+        auto *initials = h.avatar->findChild<QQuickItem *>(
+            QStringLiteral("avatarInitials"));
+        QVERIFY(initials && initials->isVisible());
+
+        // Autonomous recovery: the watchdog sweep emits mediaRetryable,
+        // the Avatar re-dispatches, the fetch succeeds.
+        h.bridge->setFailureRetryMsForTest(1);
+        QTest::qWait(5);
+        h.bridge->checkInflightTimeouts();
+        QTRY_COMPARE_WITH_TIMEOUT(h.client->fetches.size(), 2, 5000);
+        h.client->succeed(h.client->fetches.at(1).opId,
+                          solidPng(64, QColor(40, 40, 200)));
+        QTRY_COMPARE_WITH_TIMEOUT(state(h), QStringLiteral("ready"), 5000);
+        QCOMPARE(h.warnings, QStringList{});
+    }
+
+    // v0.7.1: one identity rendered at four different sizes against one
+    // bridge is exactly ONE client fetch, and every consumer reaches ready
+    // from that single canonical-edge payload.
+    void oneIdentityAtManySizesSharesOneFetchAndAllReachReady()
+    {
+        Harness h;
+        QVERIFY(prepareCore(h));
+        h.window->resize(400, 400);
+        h.window->show();
+        QQmlComponent component(h.engine.get());
+        component.loadFromModule(QStringLiteral("MatrixClient"),
+                                 QStringLiteral("Avatar"));
+        QVERIFY2(!component.isError(),
+                 qPrintable(component.errorString()));
+
+        const QString mxc = QStringLiteral("mxc://x/shared");
+        QList<QQuickItem *> avatars;
+        for (int size : { 30, 34, 48, 56 }) {
+            auto *item = spawnAvatar(h, component, size, mxc,
+                                     QStringLiteral("Matas"),
+                                     QStringLiteral("@matas:x"));
+            QVERIFY(item);
+            avatars.append(item);
+        }
+        QCoreApplication::processEvents();
+        QCOMPARE(h.client->fetches.size(), 1); // one canonical fetch
+        QCOMPARE(h.client->fetches.first().width, 224);
+
+        h.client->succeed(h.client->fetches.first().opId,
+                          halfTransparentPng(224));
+        for (auto *item : std::as_const(avatars)) {
+            QTRY_COMPARE_WITH_TIMEOUT(
+                item->property("presentationState").toString(),
+                QStringLiteral("ready"), 5000);
+        }
+        QCOMPARE(h.client->fetches.size(), 1); // still exactly one
+        QCOMPARE(h.warnings, QStringList{});
+        qDeleteAll(avatars);
+    }
+
+    // v0.7.1 mini-soak: delegate-reuse churn (create/destroy/mxc-swap)
+    // against injected failures and stranded (watchdog-reclaimed) fetches.
+    // After quiescing, ZERO avatars may remain in "loading", and the
+    // bridge's in-flight and queue counts must both be zero — the
+    // "reliability degrades the longer the app runs" regression.
+    void delegateChurnQuiescesWithNoEternalLoading()
+    {
+        Harness h;
+        QVERIFY(prepareCore(h));
+        h.window->resize(300, 300);
+        h.window->show();
+        QQmlComponent component(h.engine.get());
+        component.loadFromModule(QStringLiteral("MatrixClient"),
+                                 QStringLiteral("Avatar"));
+        QVERIFY2(!component.isError(),
+                 qPrintable(component.errorString()));
+
+        const QByteArray png = solidPng(64, QColor(80, 120, 200));
+        constexpr int kIdentities = 8;
+        const auto mxcFor = [](int n) {
+            return QStringLiteral("mxc://x/churn%1").arg(n);
+        };
+
+        QList<QQuickItem *> live;
+        int resolved = 0;
+        // Deterministic mixed outcomes: most succeed, some fail, some are
+        // stranded for the watchdog to reclaim.
+        const auto resolveOutcomes = [&](bool strandSome, bool failSome) {
+            while (resolved < h.client->fetches.size()) {
+                const auto &f = h.client->fetches.at(resolved);
+                if (failSome && resolved % 5 == 2)
+                    h.client->fail(f.opId, QStringLiteral("network"));
+                else if (strandSome && resolved % 7 == 3)
+                    ; // never answered — reclaimed by the watchdog
+                else
+                    h.client->succeed(f.opId, png);
+                ++resolved;
+            }
+        };
+
+        for (int i = 0; i < 300; ++i) {
+            // Delegate reuse: swap an existing avatar to another identity.
+            if (!live.isEmpty() && i % 3 == 0) {
+                live[i % live.size()]->setProperty(
+                    "mxc", mxcFor((i + 1) % kIdentities));
+            }
+            auto *item = spawnAvatar(
+                h, component, 24 + (i % 4) * 8, mxcFor(i % kIdentities),
+                QStringLiteral("U%1").arg(i % kIdentities),
+                QStringLiteral("@u%1:x").arg(i % kIdentities));
+            QVERIFY(item);
+            live.append(item);
+            while (live.size() > 6) {
+                auto *victim = live.takeFirst();
+                victim->setParentItem(nullptr);
+                victim->deleteLater();
+            }
+            resolveOutcomes(true, true);
+            if (i % 25 == 24) {
+                // Reclaim stranded slots (transient timeout marks), then
+                // resolve whatever the pump re-dispatched.
+                h.bridge->setInflightTimeoutMsForTest(0);
+                h.bridge->checkInflightTimeouts();
+                h.bridge->setInflightTimeoutMsForTest(45 * 1000);
+                resolveOutcomes(false, false);
+                QCoreApplication::processEvents();
+            }
+        }
+        QCoreApplication::processEvents();
+
+        // Quiesce. First reclaim the fetches stranded since the last
+        // boundary (0ms timeout also reclaims whatever the sweep inside
+        // this call re-dispatched — the rounds below recover those), then
+        // sweep-and-resolve with the NORMAL in-flight timeout so live
+        // re-dispatches are answered, not reclaimed.
+        h.bridge->setFailureRetryMsForTest(0);
+        h.bridge->setInflightTimeoutMsForTest(0);
+        h.bridge->checkInflightTimeouts();
+        h.bridge->setInflightTimeoutMsForTest(45 * 1000);
+        for (int round = 0; round < 10; ++round) {
+            h.bridge->checkInflightTimeouts(); // sweep → re-dispatch
+            resolveOutcomes(false, false);
+            QCoreApplication::processEvents();
+        }
+
+        QCOMPARE(h.bridge->inflightCountForTest(), 0);
+        QCOMPARE(h.bridge->queuedCountForTest(), 0);
+        for (auto *item : std::as_const(live)) {
+            QTRY_VERIFY2_WITH_TIMEOUT(
+                item->property("presentationState").toString()
+                    != QStringLiteral("loading"),
+                "an avatar stayed in eternal loading after quiescing", 5000);
+        }
+        // With every mark swept and every fetch answered, the survivors
+        // all reach the real bitmap.
+        for (auto *item : std::as_const(live)) {
+            QTRY_COMPARE_WITH_TIMEOUT(
+                item->property("presentationState").toString(),
+                QStringLiteral("ready"), 5000);
+        }
+        qDeleteAll(live);
     }
 };
 

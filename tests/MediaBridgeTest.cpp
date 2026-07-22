@@ -1,8 +1,14 @@
 // v0.5.11: tests for the shared avatar/media request layer — identical
-// request deduplication, per-size cache keys, bounded LRU eviction,
-// stale-result rejection after sign-out (account separation), avatar-URI
-// change handling, failure marking with explicit retry, missing-avatar
-// no-op, and concurrency-bounded queue pumping.
+// request deduplication, bounded LRU eviction, stale-result rejection after
+// sign-out (account separation), avatar-URI change handling, failure marking
+// with explicit retry, missing-avatar no-op, and concurrency-bounded queue
+// pumping.
+//
+// v0.7.1 avatar reliability: avatars use ONE canonical fetch edge per
+// identity (size-independent cache keys), a reserved avatar-class cache
+// budget, active transient-failure expiry via mediaRetryable, a transient
+// "unavailable" category for opId==0 dispatch failures, and per-key
+// revision-suffixed provider URLs bumped only on actual byte inserts.
 
 #include "matrix/MatrixClient.h"
 #include "media/MediaBridge.h"
@@ -115,17 +121,33 @@ private Q_SLOTS:
         QCOMPARE(client.fetches.size(), 2); // one per distinct key
     }
 
-    void differentSizesAreDistinctRequests()
+    // v0.7.1: every requested render size maps onto ONE canonical fetch
+    // edge, so one identity shown at ~10 different sizes across the app is
+    // exactly one network request, one cache entry, one failure mark — and
+    // every surface becomes consistent by construction.
+    void allAvatarSizesShareOneCanonicalFetch()
     {
         FakeClient client;
         MediaBridge bridge;
         bridge.setClient(&client);
 
-        bridge.avatarSource(kMxc, 32);
-        bridge.avatarSource(kMxc, 128);
-        QCOMPARE(client.fetches.size(), 2);
-        QCOMPARE(client.fetches.at(0).width, 32);
-        QCOMPARE(client.fetches.at(1).width, 128);
+        for (int size : { 30, 34, 48, 56 })
+            QCOMPARE(bridge.avatarSource(kMxc, size), QString());
+        QCOMPARE(client.fetches.size(), 1);
+        QCOMPARE(client.fetches.first().width, 224);
+        QCOMPARE(client.fetches.first().height, 224);
+
+        client.succeed(client.fetches.first().opId, QByteArray("pixels"));
+        QString shared;
+        for (int size : { 30, 34, 48, 56 }) {
+            const QString source = bridge.avatarSource(kMxc, size);
+            QVERIFY(source.startsWith(QStringLiteral("image://lightning-media/")));
+            if (shared.isEmpty())
+                shared = source;
+            else
+                QCOMPARE(source, shared); // identical string at every size
+        }
+        QCOMPARE(client.fetches.size(), 1); // still exactly one fetch
     }
 
     void completedFetchIsServedFromCache()
@@ -154,9 +176,9 @@ private Q_SLOTS:
         bridge.setCacheLimitBytes(10);
         QSignalSpy cached(&bridge, &MediaBridge::mediaCached);
 
-        bridge.avatarSource(kMxc, 32);
+        bridge.mediaSource(QStringLiteral("$lru-a"), QStringLiteral("thumb"));
         client.succeed(client.fetches.at(0).opId, QByteArray(8, 'a'));
-        bridge.avatarSource(kMxc, 64);
+        bridge.mediaSource(QStringLiteral("$lru-b"), QStringLiteral("thumb"));
         client.succeed(client.fetches.at(1).opId, QByteArray(8, 'b'));
 
         const QString firstKey = cached.at(0).at(0).toString();
@@ -164,6 +186,60 @@ private Q_SLOTS:
         QVERIFY(bridge.cachedBytes(firstKey).isEmpty());   // evicted
         QCOMPARE(bridge.cachedBytes(secondKey), QByteArray(8, 'b'));
         QVERIFY(bridge.cacheBytesUsed() <= 10);
+    }
+
+    // v0.7.1: avatar-class entries ("mxc:" keys) evict only against their
+    // own reserved budget.
+    void avatarClassEvictionIsBoundedLru()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        bridge.setAvatarCacheLimitBytes(10);
+        QSignalSpy cached(&bridge, &MediaBridge::mediaCached);
+
+        bridge.avatarSource(kMxc, 64);
+        client.succeed(client.fetches.at(0).opId, QByteArray(8, 'a'));
+        bridge.avatarSource(QStringLiteral("mxc://example.org/avatar2"), 64);
+        client.succeed(client.fetches.at(1).opId, QByteArray(8, 'b'));
+
+        const QString firstKey = cached.at(0).at(0).toString();
+        const QString secondKey = cached.at(1).at(0).toString();
+        QVERIFY(bridge.cachedBytes(firstKey).isEmpty());   // evicted
+        QCOMPARE(bridge.cachedBytes(secondKey), QByteArray(8, 'b'));
+        QVERIFY(bridge.cacheBytesUsed() <= 10);
+    }
+
+    // v0.7.1: the long-session degradation fix — churning timeline media
+    // through the main budget can never evict a cached avatar, so avatars
+    // stay reliable no matter how much media scrolls past.
+    void timelineChurnNeverEvictsAvatars()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        bridge.setCacheLimitBytes(24); // tiny main budget, heavy churn
+        QSignalSpy cached(&bridge, &MediaBridge::mediaCached);
+
+        bridge.avatarSource(kMxc, 64);
+        client.succeed(client.fetches.at(0).opId, QByteArray(12, 'a'));
+        const QString avatarKey = cached.at(0).at(0).toString();
+
+        for (int i = 0; i < 20; ++i) {
+            bridge.mediaSource(QStringLiteral("$churn%1").arg(i),
+                               QStringLiteral("thumb"));
+            client.succeed(client.fetches.last().opId, QByteArray(16, 'x'));
+        }
+
+        QCOMPARE(bridge.cachedBytes(avatarKey), QByteArray(12, 'a'));
+        QVERIFY(!bridge.avatarSource(kMxc, 64).isEmpty()); // still a hit
+        int avatarFetches = 0;
+        for (const auto &f : client.fetches) {
+            if (f.key == kMxc)
+                ++avatarFetches;
+        }
+        QCOMPARE(avatarFetches, 1); // never re-fetched
+        QVERIFY(bridge.cacheBytesUsed() <= 24 + 12); // both bounds hold
     }
 
     void staleResultAfterSignOutIsRejected()
@@ -210,10 +286,16 @@ private Q_SLOTS:
         QCOMPARE(failed.count(), 1);
         const QString cacheKey = failed.first().at(0).toString();
         QCOMPARE(bridge.failureCategory(cacheKey), QStringLiteral("network"));
+        // The mxc-keyed synchronous lookup QML uses for honest initials.
+        QCOMPARE(bridge.avatarFailureCategory(kMxc), QStringLiteral("network"));
+        QVERIFY(bridge.avatarFailureCategory(
+                    QStringLiteral("mxc://example.org/other")).isEmpty());
 
-        // Repolling the failed source must not hammer the backend.
-        bridge.avatarSource(kMxc, 64);
+        // Repolling the failed source must not hammer the backend, and the
+        // suppressed "" still reports its category synchronously.
+        QCOMPARE(bridge.avatarSource(kMxc, 64), QString());
         QCOMPARE(client.fetches.size(), 1);
+        QCOMPARE(bridge.avatarFailureCategory(kMxc), QStringLiteral("network"));
 
         // An explicit retry re-dispatches once.
         bridge.retry(cacheKey);
@@ -272,17 +354,112 @@ private Q_SLOTS:
         QCOMPARE(client.fetches.size(), 2);
     }
 
-    void rejectedDispatchReportsFailure()
+    // v0.7.1 regression: the backend returns opId==0 while the session is
+    // restoring/switching (or the media item is not known yet). Marking
+    // that PERMANENT poisoned the key for the whole account session — the
+    // "room-header avatar skeleton forever" failure. It is now the
+    // transient "unavailable" category with the normal retry window.
+    void unavailableDispatchIsTransientAndRecovers()
     {
         FakeClient client;
         client.rejectFetches = true;
         MediaBridge bridge;
         bridge.setClient(&client);
         QSignalSpy failed(&bridge, &MediaBridge::mediaFetchFailed);
+        QSignalSpy retryable(&bridge, &MediaBridge::mediaRetryable);
 
         bridge.avatarSource(kMxc, 64);
         QCOMPARE(failed.count(), 1);
-        QCOMPARE(failed.first().at(1).toString(), QStringLiteral("rejected"));
+        QCOMPARE(failed.first().at(1).toString(),
+                 QStringLiteral("unavailable"));
+        QCOMPARE(bridge.avatarFailureCategory(kMxc),
+                 QStringLiteral("unavailable"));
+
+        // While the window is armed, repolling cannot hammer the backend.
+        QCOMPARE(bridge.avatarSource(kMxc, 64), QString());
+        QCOMPARE(failed.count(), 1);
+        QCOMPARE(client.fetches.size(), 0);
+
+        // The backend becomes usable; the sweep announces the expiry and
+        // the next request dispatches for real.
+        client.rejectFetches = false;
+        bridge.setFailureRetryMsForTest(0);
+        bridge.checkInflightTimeouts();
+        QCOMPARE(retryable.count(), 1);
+        QVERIFY(retryable.first().at(0).toString()
+                    .endsWith(QLatin1Char(':') + kMxc));
+        bridge.avatarSource(kMxc, 64);
+        QCOMPARE(client.fetches.size(), 1);
+        client.succeed(client.fetches.first().opId, QByteArray("pixels"));
+        QVERIFY(!bridge.avatarSource(kMxc, 64).isEmpty());
+    }
+
+    // v0.7.1: active expiry. The watchdog tick sweeps expired TRANSIENT
+    // marks and emits mediaRetryable so a quiesced UI recovers without any
+    // interaction; permanent validation categories are never swept.
+    void sweepEmitsMediaRetryableForExpiredTransientMarks()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        QSignalSpy retryable(&bridge, &MediaBridge::mediaRetryable);
+
+        bridge.avatarSource(kMxc, 64);
+        client.fail(client.fetches.first().opId, QStringLiteral("network"));
+
+        // Inside the window nothing expires.
+        bridge.checkInflightTimeouts();
+        QCOMPARE(retryable.count(), 0);
+        QCOMPARE(bridge.avatarFailureCategory(kMxc), QStringLiteral("network"));
+
+        bridge.setFailureRetryMsForTest(1);
+        QTest::qWait(5);
+        bridge.checkInflightTimeouts();
+        QCOMPARE(retryable.count(), 1);
+        QVERIFY(retryable.first().at(0).toString()
+                    .endsWith(QLatin1Char(':') + kMxc));
+        QVERIFY(bridge.avatarFailureCategory(kMxc).isEmpty()); // mark swept
+        bridge.avatarSource(kMxc, 64);
+        QCOMPARE(client.fetches.size(), 2); // re-dispatch allowed
+
+        // A permanent validation failure is never swept or re-announced.
+        client.fail(client.fetches.at(1).opId, QStringLiteral("rejected"));
+        QTest::qWait(5);
+        bridge.checkInflightTimeouts();
+        QCOMPARE(retryable.count(), 1);
+        QCOMPARE(bridge.avatarFailureCategory(kMxc), QStringLiteral("rejected"));
+        bridge.avatarSource(kMxc, 64);
+        QCOMPARE(client.fetches.size(), 2); // still blocked
+    }
+
+    // v0.7.1: provider URLs carry a per-key revision bumped ONLY on an
+    // actual byte insert. Cache hits keep the identical string (QML
+    // pixmap-cache dedup survives); a re-fetch after eviction produces a
+    // new string, so an Image stuck in Error reloads (the cache-hit-then-
+    // evicted race between avatarSource() and the provider's later read).
+    void revisionChangesExactlyOnByteInsert()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        bridge.setAvatarCacheLimitBytes(10);
+
+        bridge.avatarSource(kMxc, 64);
+        client.succeed(client.fetches.at(0).opId, QByteArray(6, 'a'));
+        const QString url1 = bridge.avatarSource(kMxc, 64);
+        QVERIFY(url1.contains(QStringLiteral("?r=")));
+        QCOMPARE(bridge.avatarSource(kMxc, 64), url1); // hit: identical
+
+        // Eviction race analog: the key was served (cache hit above), then
+        // LRU eviction empties it before the provider read.
+        bridge.avatarSource(QStringLiteral("mxc://example.org/avatar2"), 64);
+        client.succeed(client.fetches.at(1).opId, QByteArray(8, 'b'));
+        QCOMPARE(bridge.avatarSource(kMxc, 64), QString()); // miss → dispatch
+        QCOMPARE(client.fetches.size(), 3);
+        client.succeed(client.fetches.at(2).opId, QByteArray(6, 'a'));
+        const QString url2 = bridge.avatarSource(kMxc, 64);
+        QVERIFY(!url2.isEmpty());
+        QVERIFY2(url2 != url1, "re-cached bytes must yield a NEW source string");
     }
 
     // v0.7.1 regression: an op the backend never completes must not pin its

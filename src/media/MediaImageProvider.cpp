@@ -74,6 +74,13 @@ QImage MediaImageProvider::requestImage(const QString &id, QSize *size,
         }
     }
 
+    // Strip the cache-revision suffix MediaBridge appends to provider URLs
+    // ("?r=<n>", bumped on every byte re-insert so a QML Image stuck in
+    // Error gets a fresh source string). It is not part of the cache key.
+    const int revisionPos = cacheKey.lastIndexOf(QLatin1String("?r="));
+    if (revisionPos >= 0)
+        cacheKey.truncate(revisionPos);
+
     QByteArray bytes = m_bridge->cachedBytes(cacheKey);
     if (bytes.isEmpty())
         return {};

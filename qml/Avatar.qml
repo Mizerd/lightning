@@ -93,8 +93,22 @@ Rectangle {
     property string src: ""
 
     function refresh() {
-        src = hasImage ? app.mediaBridge.avatarSource(mxc, Math.max(32, size * 2))
-                       : ""
+        if (!hasImage) {
+            src = ""
+            return
+        }
+        // The bridge fetches every avatar at one canonical server-side
+        // edge regardless of the render size (a single request, cache
+        // entry, and failure mark per identity); the Image scales down.
+        var s = app.mediaBridge.avatarSource(mxc, size)
+        src = s
+        // "" is either "fetch in flight" (loading) or "suppressed by a
+        // failure mark". The mark case has NO later signal of its own, so
+        // ask synchronously and show honest initials instead of an
+        // eternal skeleton; mediaRetryable promotes it back once the
+        // transient window expires.
+        if (s === "" && app.mediaBridge.avatarFailureCategory(mxc) !== "")
+            fetchFailed = true
     }
     onMxcChanged: {
         // A new identity is a new load attempt; the old failure (and any
@@ -104,6 +118,11 @@ Rectangle {
         refresh()
     }
     onSizeChanged: refresh()
+    // Covers app.mediaBridge.supported flipping after a late setClient
+    // (session restore/account switch): the avatar re-resolves the moment
+    // the bridge becomes usable instead of staying empty until an
+    // unrelated poke.
+    onHasImageChanged: refresh()
     Component.onCompleted: refresh()
 
     Connections {
@@ -119,6 +138,13 @@ Rectangle {
         function onMediaFetchFailed(cacheKey, category) {
             if (cacheKey.endsWith(":" + root.mxc))
                 root.fetchFailed = true
+        }
+        function onMediaRetryable(cacheKey) {
+            // An expired transient failure mark: re-resolve exactly like a
+            // cache completion (bounded — the bridge re-arms the mark on a
+            // failed attempt, so this cannot hammer the backend).
+            if (cacheKey.endsWith(":" + root.mxc))
+                root.refresh()
         }
     }
 
@@ -164,5 +190,14 @@ Rectangle {
         cache: true
         // Only shown once fully decoded — no broken-image glyph, no flash.
         visible: img.status === Image.Ready
+        // Self-heal the cache-hit-then-evicted race: avatarSource() saw the
+        // bytes, but the provider read after LRU eviction and returned
+        // empty → Error. refresh() re-dispatches; the re-cached bytes get a
+        // NEW revision URL, so this Image actually reloads. Bounded: a
+        // cache hit returns the identical string (no reload, no loop).
+        onStatusChanged: {
+            if (status === Image.Error)
+                root.refresh()
+        }
     }
 }
