@@ -113,6 +113,7 @@ bool CryptoBootstrapModel::canRequestKeys() const
     if (m_ownIdentity == QLatin1String("unverified"))
         return false;
     return m_phase == WaitingForKeys || m_phase == SecretsPending
+        || m_phase == SecretReceived
         || m_phase == ManualRecoveryRequired;
 }
 
@@ -120,8 +121,12 @@ void CryptoBootstrapModel::onWaitTimeout()
 {
     // Backstop only: the coordinator's explicit "exhausted" report is the
     // primary escalation. Only escalate if we are still idly waiting — any
-    // real progress moved us on and stopped the timer.
-    if (m_phase != WaitingForKeys && m_phase != SecretsPending)
+    // real progress moved us on and stopped the timer. SecretReceived is
+    // part of the timed wait: an answer that never turns into backup
+    // progress must not disable the escalation (review finding: a stray
+    // unrequested m.secret.send could otherwise wedge this phase forever).
+    if (m_phase != WaitingForKeys && m_phase != SecretsPending
+        && m_phase != SecretReceived)
         return;
     qCInfo(lcCryptoBootstrap)
         << "bootstrap phase" << phaseName(m_phase) << "-> manual_recovery"
@@ -159,14 +164,19 @@ void CryptoBootstrapModel::applyEvent(const QString &kind,
         // verified sessions (never identifiers).
         m_requestState = state;
         m_eligibleDevices = static_cast<int>(qMin<quint64>(count, 1000));
+        // Any attempt that still finds secrets missing invalidates a
+        // stale "answer received, processing…" state — the received
+        // secret evidently did not complete recovery.
+        if (state != QLatin1String("none_missing"))
+            m_secretReceived = false;
         if (state == QLatin1String("requested")) {
             m_requestAttempts += 1;
             // A genuinely new request restarts the bounded wait and may
             // leave an earlier escalated state once.
             m_secretsExhausted = false;
-            m_secretReceived = false;
             m_rearmed = true;
-            if (m_phase == WaitingForKeys || m_phase == SecretsPending)
+            if (m_phase == WaitingForKeys || m_phase == SecretsPending
+                || m_phase == SecretReceived)
                 m_waitTimer.start(m_waitTimeoutMs);
         } else if (state == QLatin1String("none_missing")) {
             m_secretsPending = false;
@@ -226,12 +236,15 @@ void CryptoBootstrapModel::recompute()
             // would mislead; a repeated verification (or the recovery key)
             // is the honest remedy.
             next = IdentityIncomplete;
+        } else if (m_secretsExhausted) {
+            // Exhaustion outranks a received-but-unhelpful answer: the
+            // coordinator finished its ladder with secrets still missing,
+            // so manual recovery is the honest state (review finding).
+            next = ManualRecoveryRequired;
         } else if (m_secretReceived) {
             // v0.7.2: an answer arrived; the SDK is processing it. Backup
             // enablement (or the next request attempt) moves us on.
             next = SecretReceived;
-        } else if (m_secretsExhausted) {
-            next = ManualRecoveryRequired;
         } else {
             // Secret requests are on their way (recovery unknown or
             // incomplete, backup not yet enabled). The coordinator's
@@ -248,23 +261,27 @@ void CryptoBootstrapModel::recompute()
         && !m_rearmed)
         next = ManualRecoveryRequired;
     m_rearmed = false;
-    const bool wasWaiting =
-        m_phase == WaitingForKeys || m_phase == SecretsPending;
-    const bool nextWaiting =
-        next == WaitingForKeys || next == SecretsPending;
+    // SecretReceived stays inside the TIMED waiting family: the backstop
+    // must be able to escalate an answer that never turns into backup
+    // progress (review finding — a stray m.secret.send could otherwise
+    // park the model forever with the timer stopped).
+    const bool wasWaiting = m_phase == WaitingForKeys
+        || m_phase == SecretsPending || m_phase == SecretReceived;
+    const bool nextWaiting = next == WaitingForKeys
+        || next == SecretsPending || next == SecretReceived;
     // Any non-waiting outcome consumes the pending report, so a later
     // re-entry into the waiting phase starts from the plain copy again.
-    if (!nextWaiting)
+    if (!nextWaiting) {
         m_secretsPending = false;
-    // Leaving the receive-processing state consumes the arrival flag.
-    if (m_phase == SecretReceived && next != SecretReceived)
+        // Leaving the waiting family also consumes the arrival flag.
         m_secretReceived = false;
+    }
     if (next == m_phase)
         return;
     // Arm the bounded wait when ENTERING the waiting family; keep it running
-    // across the WaitingForKeys -> SecretsPending refinement (same wait,
-    // same escalation bound); cancel it on any real progress or terminal
-    // state so a late timeout can never override them.
+    // across the WaitingForKeys -> SecretsPending -> SecretReceived
+    // refinements (same wait, same escalation bound); cancel it on any real
+    // progress or terminal state so a late timeout can never override them.
     if (nextWaiting && !wasWaiting)
         m_waitTimer.start(m_waitTimeoutMs);
     else if (!nextWaiting)
@@ -307,10 +324,11 @@ void CryptoBootstrapModel::rearmAfterManualRequest()
     // Leave the escalated state honestly (the coordinator's events will
     // refine or re-escalate) and restart the backstop bound.
     if (m_phase != ManualRecoveryRequired && m_phase != WaitingForKeys
-        && m_phase != SecretsPending)
+        && m_phase != SecretsPending && m_phase != SecretReceived)
         return;
     m_secretsExhausted = false;
     m_secretsPending = false;
+    m_secretReceived = false;
     m_rearmed = true;
     qCInfo(lcCryptoBootstrap)
         << "bootstrap manual re-request from phase" << phaseName(m_phase);

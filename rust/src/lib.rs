@@ -1028,6 +1028,12 @@ async fn run_crypto_bootstrap_observer(
     let mut retry_attempt: usize = 0;
     let mut retry_deadline: Option<tokio::time::Instant> = None;
     let mut recheck_deadline: Option<tokio::time::Instant> = None;
+    // Cap on secret-ARRIVAL-driven re-arms of an exhausted ladder (review
+    // finding: a hostile device spamming decryptable m.secret.send events
+    // must not keep the ladder alive forever). Reset by every genuine
+    // arming edge (startup-verified, Verified edge, SAS Done, manual).
+    const MAX_ARRIVAL_REARMS: u32 = 2;
+    let mut arrival_rearms: u32 = 0;
 
     // Baseline snapshot so C++ has a coherent starting state.
     emit_crypto_bootstrap(
@@ -1054,6 +1060,7 @@ async fn run_crypto_bootstrap_observer(
             .await;
         retry_attempt = 0;
         retry_deadline = secret_retry_deadline(retry_attempt);
+        arrival_rearms = 0;
     }
     if verified
         && matches!(
@@ -1089,6 +1096,7 @@ async fn run_crypto_bootstrap_observer(
                         // actively re-requesting wait.
                         retry_attempt = 0;
                         retry_deadline = secret_retry_deadline(retry_attempt);
+                        arrival_rearms = 0;
                         // v0.7.1 idempotency fix: verification completing
                         // AFTER the backup key is already usable (manual
                         // recovery first, verification second) previously
@@ -1156,12 +1164,18 @@ async fn run_crypto_bootstrap_observer(
                 .await
                 {
                     retry_deadline = None;
-                } else if verified && retry_deadline.is_none() {
+                } else if verified
+                    && retry_deadline.is_none()
+                    && arrival_rearms < MAX_ARRIVAL_REARMS
+                {
                     // A secret arrived but recovery is still incomplete
                     // (e.g. the SDK refused it, or the gossiped backup key
                     // did not match the active version and was discarded).
                     // Re-arm one bounded follow-up round instead of
-                    // stalling forever on an exhausted ladder.
+                    // stalling forever on an exhausted ladder — capped so
+                    // hostile unrequested m.secret.send spam cannot keep
+                    // the ladder alive indefinitely.
+                    arrival_rearms += 1;
                     retry_attempt = 1;
                     retry_deadline = secret_retry_deadline(retry_attempt);
                 }
@@ -1181,6 +1195,7 @@ async fn run_crypto_bootstrap_observer(
                         .await;
                         retry_attempt = 0;
                         retry_deadline = secret_retry_deadline(retry_attempt);
+                        arrival_rearms = 0;
                     }
                     RecoveryNudge::ManualRequest => {
                         probe_backup_exists(
@@ -1194,6 +1209,7 @@ async fn run_crypto_bootstrap_observer(
                             );
                             continue;
                         }
+                        arrival_rearms = 0;
                         let outcome = attempt_secret_recovery(
                             &client, &events, lifecycle, backup_exists,
                         )

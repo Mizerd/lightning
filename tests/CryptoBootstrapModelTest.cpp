@@ -452,6 +452,53 @@ private Q_SLOTS:
         QCOMPARE(m.phase(), CryptoBootstrapModel::ManualRecoveryRequired);
     }
 
+    // Review finding: a received answer that never turns into backup
+    // progress must NOT wedge the model. Exhaustion outranks the received
+    // state, a still-missing attempt clears it, and the backstop timer
+    // keeps running through it.
+    void secretReceivedCannotWedgeTheModel()
+    {
+        CryptoBootstrapModel m;
+        apply(m, "verification_state", "verified");
+        apply(m, "backup_exists", "true");
+        apply(m, "secret_response", "received", 1);
+        QCOMPARE(m.phase(), CryptoBootstrapModel::SecretReceived);
+        // The genuine re-request action stays available here.
+        QVERIFY(m.canRequestKeys());
+
+        // The coordinator's exhaustion report escalates even though an
+        // answer was seen.
+        apply(m, "secrets_pending", "exhausted");
+        QCOMPARE(m.phase(), CryptoBootstrapModel::ManualRecoveryRequired);
+        QVERIFY(m.needsRecoveryKey());
+
+        // A later attempt that still finds secrets missing clears the
+        // stale received flag instead of resurrecting SecretReceived.
+        apply(m, "secret_request", "requested", 1);
+        QCOMPARE(m.phase(), CryptoBootstrapModel::WaitingForKeys);
+        apply(m, "secret_response", "received", 1);
+        QCOMPARE(m.phase(), CryptoBootstrapModel::SecretReceived);
+        apply(m, "secret_request", "already_pending", 1);
+        QCOMPARE(m.phase(), CryptoBootstrapModel::WaitingForKeys);
+    }
+
+    // Review finding: the local backstop must be able to escalate a
+    // SecretReceived state the coordinator never resolves.
+    void secretReceivedStillEscalatesOnTheBackstop()
+    {
+        CryptoBootstrapModel m;
+        m.setWaitTimeoutMsForTest(30);
+        apply(m, "verification_state", "verified");
+        apply(m, "backup_exists", "true");
+        apply(m, "secret_response", "received", 1);
+        QCOMPARE(m.phase(), CryptoBootstrapModel::SecretReceived);
+
+        QSignalSpy changed(&m, &CryptoBootstrapModel::changed);
+        QVERIFY(changed.wait(2000));
+        QCOMPARE(m.phase(), CryptoBootstrapModel::ManualRecoveryRequired);
+        QVERIFY(m.needsRecoveryKey());
+    }
+
     // v0.7.2: reset drops every coordinator diagnostic.
     void resetClearsCoordinatorDiagnostics()
     {
