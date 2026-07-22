@@ -511,7 +511,7 @@ int main(int argc, char *argv[])
     QGuiApplication::setWindowIcon(QIcon::fromTheme(
         QStringLiteral("lightning"),
         QIcon(QStringLiteral(
-            ":/qt/qml/MatrixClient/data/icons/hicolor/192x192/apps/lightning.png"))));
+            ":/qt/qml/MatrixClient/data/icons/hicolor/256x256/apps/lightning.png"))));
 
     // Bundled UI fonts (OFL). AppTheme's family lists put them first;
     // failure to load only means the platform fallbacks apply. The v0.7

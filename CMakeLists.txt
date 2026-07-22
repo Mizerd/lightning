@@ -378,8 +378,10 @@ function(lightning_configure_qml_app target)
             # scripts/generate-icon-font.sh and qml/Icon.qml).
             data/fonts/MaterialSymbolsRounded-subset.ttf
             # Window icon for source runs (installed builds also get the
-            # hicolor theme icon).
-            data/icons/hicolor/192x192/apps/lightning.png
+            # hicolor theme icon). 256px so the title-bar/taskbar fallback
+            # stays crisp on high-DPI and on Windows, where there is no icon
+            # theme to supply a larger size.
+            data/icons/hicolor/256x256/apps/lightning.png
         RESOURCE_PREFIX /qt/qml
         # Every Qt-executable target that calls qt_add_qml_module registers
         # its own independent compiled copy of the same "MatrixClient" URI;
@@ -1439,7 +1441,7 @@ install(TARGETS matrix-client
 include(GNUInstallDirs)
 install(FILES data/lightning.desktop
     DESTINATION "${CMAKE_INSTALL_DATADIR}/applications")
-foreach(_icon_size 16 32 48 64 128 192)
+foreach(_icon_size 16 32 48 64 128 192 256 512)
     install(FILES
         "data/icons/hicolor/${_icon_size}x${_icon_size}/apps/lightning.png"
         DESTINATION

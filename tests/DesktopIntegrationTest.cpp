@@ -46,7 +46,7 @@ private Q_SLOTS:
 
     void hicolorIconsExistAndMatchDeclaredSizes()
     {
-        const QList<int> sizes = {16, 32, 48, 64, 128, 192};
+        const QList<int> sizes = {16, 32, 48, 64, 128, 192, 256, 512};
         for (int size : sizes) {
             const QString path = QStringLiteral(
                 SOURCE_DIR "/data/icons/hicolor/%1x%1/apps/lightning.png")
@@ -73,7 +73,7 @@ private Q_SLOTS:
         // The window icon is bundled into the QML module resources so a
         // source run gets it without an installed icon theme.
         QVERIFY(cmake.contains(QStringLiteral(
-            "data/icons/hicolor/192x192/apps/lightning.png")));
+            "data/icons/hicolor/256x256/apps/lightning.png")));
     }
 
     void qtIdentityIsWired()
@@ -87,7 +87,7 @@ private Q_SLOTS:
         // Themed icon with the bundled fallback.
         QVERIFY(main.contains(QStringLiteral("QIcon::fromTheme")));
         QVERIFY(main.contains(QStringLiteral(
-            "icons/hicolor/192x192/apps/lightning.png")));
+            "icons/hicolor/256x256/apps/lightning.png")));
     }
 
     // Qt routes logging to the systemd journal when stderr is not a TTY,
