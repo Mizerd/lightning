@@ -1,0 +1,92 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=./scripts/lib.sh
+source "$SCRIPT_DIR/lib.sh"
+
+DIST="${1:?usage: smoke-windows-wine.sh DIST_WINDOWS_DIR}"
+STAGE="$DIST/Lightning"
+REPORTS="$DIST/reports"
+version="$(jq -er '.version' "$STAGE/build-info.json")"
+msi="$(find "$DIST" -maxdepth 1 -type f -name 'Lightning-*-windows-x86_64.msi' -print -quit)"
+setup="$(find "$DIST" -maxdepth 1 -type f -name 'Lightning-*-windows-x86_64-setup.exe' -print -quit)"
+[[ -n "$msi" && -n "$setup" ]] || die "installer artifacts are missing"
+
+prefixes=()
+cleanup() {
+    wineserver -k >/dev/null 2>&1 || true
+    local prefix
+    for prefix in "${prefixes[@]}"; do
+        [[ "$prefix" == /tmp/lightning-wine.* ]] && rm -rf -- "$prefix"
+    done
+}
+trap cleanup EXIT
+export WINEARCH=win64 WINEDEBUG=-all WINEDLLOVERRIDES='winemenubuilder.exe=d'
+
+new_prefix() {
+    WINEPREFIX="$(mktemp -d /tmp/lightning-wine.XXXXXX)"
+    prefixes+=("$WINEPREFIX")
+    export WINEPREFIX
+    timeout 90s wineboot -u >/dev/null 2>&1
+}
+
+finish_prefix() {
+    wineserver -k >/dev/null 2>&1 || true
+    timeout 30s wineserver -w >/dev/null 2>&1 || true
+    [[ "$WINEPREFIX" == /tmp/lightning-wine.* ]] || die "unsafe Wine prefix cleanup path"
+    rm -rf -- "$WINEPREFIX"
+}
+
+run_version() {
+    local exe="$1" log="$2"
+    timeout 60s wine64 "$exe" --version >"$log" 2>&1
+    grep -Fq "matrix-client $version" "$log" || die "Wine --version output mismatch: $exe"
+}
+
+new_prefix
+run_version "$STAGE/Lightning.exe" "$REPORTS/wine-portable-version.log"
+finish_prefix
+
+new_prefix
+marker="$WINEPREFIX/drive_c/users/root/AppData/Local/MatrixClient/preserve-test.marker"
+mkdir -p "$(dirname "$marker")"
+printf 'preserve\n' >"$marker"
+msi_windows="$(winepath -w "$msi")"
+timeout 120s wine64 msiexec /i "$msi_windows" /qn /norestart \
+    >"$REPORTS/wine-msi-install.log" 2>&1
+wineserver -w
+msi_exe="$(find "$WINEPREFIX/drive_c/users" -type f -path '*/AppData/Local/Programs/Lightning/Lightning.exe' -print -quit)"
+[[ -n "$msi_exe" ]] || die "MSI Wine install did not create Lightning.exe"
+run_version "$msi_exe" "$REPORTS/wine-msi-version.log"
+timeout 120s wine64 msiexec /x "$msi_windows" /qn /norestart \
+    >"$REPORTS/wine-msi-uninstall.log" 2>&1
+wineserver -w
+[[ ! -e "$msi_exe" ]] || die "MSI Wine uninstall left Lightning.exe behind"
+[[ -f "$marker" ]] || die "MSI uninstall removed simulated user data"
+finish_prefix
+
+new_prefix
+marker="$WINEPREFIX/drive_c/users/root/AppData/Local/MatrixClient/preserve-test.marker"
+mkdir -p "$(dirname "$marker")"
+printf 'preserve\n' >"$marker"
+timeout 180s wine64 "$setup" /S >"$REPORTS/wine-nsis-install.log" 2>&1
+wineserver -w
+nsis_exe="$(find "$WINEPREFIX/drive_c/users" -type f -path '*/AppData/Local/Programs/Lightning/Lightning.exe' -print -quit)"
+[[ -n "$nsis_exe" ]] || die "NSIS Wine install did not create Lightning.exe"
+run_version "$nsis_exe" "$REPORTS/wine-nsis-version.log"
+uninstaller="$(find "$(dirname "$nsis_exe")" -maxdepth 1 -type f -iname 'Uninstall.exe' -print -quit)"
+[[ -n "$uninstaller" ]] || die "NSIS uninstaller is missing"
+timeout 120s wine64 "$uninstaller" /S >"$REPORTS/wine-nsis-uninstall.log" 2>&1
+wineserver -w
+[[ ! -e "$nsis_exe" ]] || die "NSIS Wine uninstall left Lightning.exe behind"
+[[ -f "$marker" ]] || die "NSIS uninstall removed simulated user data"
+finish_prefix
+
+jq -n \
+    --arg version "$version" \
+    '{wine_version_tested:true, native_windows_tested:false,
+      application_version:$version, portable_version:true,
+      msi_install_version_uninstall:true, nsis_install_version_uninstall:true,
+      simulated_user_data_preserved:true}' >"$REPORTS/wine-smoke.json"
+printf 'Wine supplemental smoke passed (portable, MSI, NSIS); native Windows NOT TESTED\n'
