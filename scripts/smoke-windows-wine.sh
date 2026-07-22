@@ -52,9 +52,13 @@ run_version() {
 run_build_info() {
     local exe="$1" log="$2"
     timeout 60s wine64 "$exe" --build-info >"$log" 2>&1
-    grep -Eq '^default_backend: rust$' "$log" || die "build-info default_backend is not rust: $exe"
-    grep -Eq '^secret_store: windows-credential-manager$' "$log" || die "build-info secret_store is not windows-credential-manager: $exe"
-    grep -Eq '^backends: .*rust' "$log" || die "build-info does not list the rust backend: $exe"
+    # The GUI-subsystem PE prints Windows CRLF line endings, so strip the
+    # trailing CR before anchored matching (a bare ^...$ would miss "rust\r").
+    local clean
+    clean="$(tr -d '\r' <"$log")"
+    grep -Eq '^default_backend: rust$' <<<"$clean" || die "build-info default_backend is not rust: $exe"
+    grep -Eq '^secret_store: windows-credential-manager$' <<<"$clean" || die "build-info secret_store is not windows-credential-manager: $exe"
+    grep -Eq '^backends: .*rust' <<<"$clean" || die "build-info does not list the rust backend: $exe"
 }
 
 new_prefix
