@@ -1,4 +1,5 @@
 #include "app/AppController.h"
+#include "app/BackendSelection.h"
 #include "app/StartupChecks.h"
 #include "gif/GifProviderSelfTest.h"
 #include "media/MediaImageProvider.h"
@@ -27,31 +28,8 @@
 
 namespace {
 
-// Resolve --backend=NAME (case-insensitive). Returns HttpBackend on unknown
-// values and reports the ambiguity via *ok.
-AppController::Backend backendFromName(const QString &name, bool *ok)
-{
-    if (ok) *ok = true;
-    const QString v = name.trimmed().toLower();
-    if (v == QLatin1String("mock"))
-        return AppController::MockBackend;
-    if (v == QLatin1String("http"))
-        return AppController::HttpBackend;
-    if (v == QLatin1String("rust"))
-        return AppController::RustBackend;
-    if (ok) *ok = false;
-    return AppController::HttpBackend;
-}
-
-QString backendNameFor(AppController::Backend backend)
-{
-    switch (backend) {
-    case AppController::MockBackend: return QStringLiteral("mock");
-    case AppController::HttpBackend: return QStringLiteral("http");
-    case AppController::RustBackend: return QStringLiteral("rust");
-    }
-    return QStringLiteral("http");
-}
+using lightning::backendFromName;
+using lightning::backendNameFor;
 
 // Simple pre-flight CLI parser that runs *before* QGuiApplication is
 // constructed. Bad --backend values or --help are handled here so a Qt
@@ -69,7 +47,10 @@ struct PreflightResult {
         RunGifSelfTest, // --gif-selftest: bounded live provider request
     };
     Action action = Continue;
-    AppController::Backend backend = AppController::HttpBackend;
+    // Compile-time default (Rust when the SDK backend is built, else HTTP). A
+    // packaged desktop launcher passes no --backend flag, so this is what a
+    // normal double-click selects; --backend=... overrides it.
+    AppController::Backend backend = lightning::defaultBackend();
     bool backendExplicit = false;
     bool mockAliasUsed = false;
     bool smokeTestRequested = false;
@@ -97,10 +78,12 @@ PreflightResult preflightParse(int argc, char *argv[])
                 "                       use --backend=http / --backend=rust instead.\n"
                 "  --backend=NAME       Backend to use. NAME is one of:\n"
                 "                         mock  — in-memory, hardcoded rooms\n"
-                "                         http  — Matrix Client-Server HTTP API (default)\n"
-                "                         rust  — Matrix Rust SDK backend foundation;\n"
+                "                         http  — Matrix Client-Server HTTP API\n"
+                "                                 (development/diagnostic; no E2EE)\n"
+                "                         rust  — Matrix Rust SDK backend (E2EE);\n"
                 "                                 requires -DENABLE_RUST_SDK_BACKEND=ON\n"
                 "                                 at build time)\n"
+                "                       Default for this build: %1.\n"
                 "  --reset-crypto-store Delete per-account Rust SDK stores under\n"
                 "                       ${XDG_DATA_HOME}/MatrixClient/matrix-client/*/matrix-rust-sdk-store.\n"
                 "                       It never touches cache.sqlite or SecretStore tokens.\n"
@@ -116,7 +99,8 @@ PreflightResult preflightParse(int argc, char *argv[])
                 "                       request per configured provider. Exit 0 only if\n"
                 "                       every provider is configured and responds.\n"
                 "\n"
-                "See docs/build-and-test.md and docs/backend-contract.md for details.\n");
+                "See docs/build-and-test.md and docs/backend-contract.md for details.\n")
+                .arg(backendNameFor(lightning::defaultBackend()));
             return r;
         }
         if (a == QLatin1String("-v") || a == QLatin1String("--version")) {
@@ -430,7 +414,7 @@ int main(int argc, char *argv[])
     parser.setApplicationDescription(
         QGuiApplication::translate("main",
             "Native Qt/QML Matrix client. Backend: --backend={mock,http,rust}. "
-            "Default: http."));
+            "Default: rust (http in builds without the Rust SDK)."));
     parser.addHelpOption();
     parser.addVersionOption();
     QCommandLineOption mockOpt(
@@ -441,9 +425,10 @@ int main(int argc, char *argv[])
     QCommandLineOption backendOpt(
         QStringList{ QStringLiteral("backend") },
         QGuiApplication::translate("main",
-            "Backend to run: mock, http, or rust. Default: http."),
+            "Backend to run: mock, http, or rust. "
+            "Default: rust (http in builds without the Rust SDK)."),
         QStringLiteral("name"),
-        QStringLiteral("http"));
+        backendNameFor(lightning::defaultBackend()));
     parser.addOption(backendOpt);
     parser.process(app);
 

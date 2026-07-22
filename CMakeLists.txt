@@ -1232,6 +1232,23 @@ if(BUILD_TESTING)
     target_link_libraries(startup-checks-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME startup-checks COMMAND startup-checks-test)
 
+    # Compiled default backend (Rust when the SDK backend is built, else HTTP)
+    # and --backend=NAME parsing. Includes AppController.h for the enum only —
+    # no app sources are linked, just the header's inline/constexpr helpers.
+    qt_add_executable(backend-selection-test
+        tests/BackendSelectionTest.cpp
+        src/app/BackendSelection.h
+    )
+    target_include_directories(backend-selection-test PRIVATE src "${LIGHTNING_GENERATED_DIR}")
+    target_link_libraries(backend-selection-test PRIVATE
+        Qt6::Core Qt6::Gui Qt6::Qml Qt6::Quick Qt6::QuickControls2
+        Qt6::Network Qt6::Sql Qt6::Widgets Qt6::Multimedia Qt6::Test)
+    target_compile_definitions(backend-selection-test PRIVATE APP_VERSION="${APP_VERSION_LABEL}")
+    if(ENABLE_RUST_SDK_BACKEND)
+        target_compile_definitions(backend-selection-test PRIVATE ENABLE_RUST_SDK_BACKEND=1)
+    endif()
+    add_test(NAME backend-selection COMMAND backend-selection-test)
+
     # Composer formatting toolbar: markdown wrap/unwrap, line prefixes, link
     # scaffold, selection integrity, and active-state detection.
     qt_add_executable(markdown-format-test
