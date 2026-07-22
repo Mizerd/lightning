@@ -718,8 +718,9 @@ impl TimelineRegistry {
                         Some(reply_to) => {
                             let mut content =
                                 RoomMessageEventContentWithoutRelation::text_markdown(
-                                    body,
+                                    &body,
                                 );
+                            set_mention_plain_body(&mut content.msgtype, &body);
                             if let Some(mentions) = mentions {
                                 content = content.add_mentions(mentions);
                             }
@@ -727,7 +728,8 @@ impl TimelineRegistry {
                         }
                         None => {
                             let mut message =
-                                RoomMessageEventContent::text_markdown(body);
+                                RoomMessageEventContent::text_markdown(&body);
+                            set_mention_plain_body(&mut message.msgtype, &body);
                             if let Some(mentions) = mentions {
                                 message = message.add_mentions(mentions);
                             }
@@ -1123,7 +1125,8 @@ impl TimelineRegistry {
         let registry = Arc::clone(self);
         let events = Arc::clone(&self.events);
         runtime.spawn(async move {
-            let mut message = RoomMessageEventContent::text_markdown(body);
+            let mut message = RoomMessageEventContent::text_markdown(&body);
+            set_mention_plain_body(&mut message.msgtype, &body);
             if let Some(mentions) = mentions {
                 message = message.add_mentions(mentions);
             }
@@ -1228,7 +1231,8 @@ impl TimelineRegistry {
         let events = Arc::clone(&self.events);
         runtime.spawn(async move {
             let mut content =
-                RoomMessageEventContentWithoutRelation::text_markdown(body);
+                RoomMessageEventContentWithoutRelation::text_markdown(&body);
+            set_mention_plain_body(&mut content.msgtype, &body);
             if let Some(mentions) = mentions {
                 content = content.add_mentions(mentions);
             }
@@ -1352,7 +1356,8 @@ impl TimelineRegistry {
             // the top-level content carries only the newly added mentions, so
             // attach them to the WithoutRelation content before wrapping it.
             let mut message =
-                RoomMessageEventContentWithoutRelation::text_markdown(new_body);
+                RoomMessageEventContentWithoutRelation::text_markdown(&new_body);
+            set_mention_plain_body(&mut message.msgtype, &new_body);
             if let Some(mentions) = mentions {
                 message = message.add_mentions(mentions);
             }
@@ -2781,6 +2786,70 @@ fn downsample_waveform(raw: &[u64], max: u64) -> Vec<u64> {
 /// Pure so the shape is unit-testable. Answer ids are opaque, unique within
 /// the poll (timestamp + index); ruma enforces the 1..=20 answer bound and
 /// Lightning additionally requires two answers, matching the creation UI.
+/// Reduce matrix.to USER links in outgoing markdown to their label for the
+/// PLAIN body: the plain body is the fallback other clients render in room
+/// lists and notifications, and Element's mention pills serialize their
+/// display text there too — never the raw `[label](https://matrix.to/…)`
+/// source. `formatted_body` keeps the full anchor; user-typed markdown and
+/// room/event permalinks pass through untouched. Escaped label characters
+/// ("\\]", "\\\\") unescape. Best-effort on pathological labels containing
+/// an unescaped '[' (the rightmost bracket wins) — this feeds a display
+/// fallback, never protocol state.
+pub(crate) fn mention_plain_body(markdown: &str) -> String {
+    const TARGET: &str = "](https://matrix.to/#/";
+    let mut out = String::with_capacity(markdown.len());
+    let mut rest = markdown;
+    loop {
+        let Some(mid) = rest.find(TARGET) else {
+            out.push_str(rest);
+            break;
+        };
+        let head = &rest[..mid];
+        let after = &rest[mid + TARGET.len()..];
+        let (Some(open), Some(close)) = (head.rfind('['), after.find(')'))
+        else {
+            out.push_str(&rest[..mid + TARGET.len()]);
+            rest = after;
+            continue;
+        };
+        let url_frag = &after[..close];
+        let is_user = (url_frag.starts_with("%40") || url_frag.starts_with('@'))
+            && !url_frag.contains(char::is_whitespace);
+        let consumed = mid + TARGET.len() + close + 1;
+        if !is_user {
+            out.push_str(&rest[..consumed]);
+            rest = &rest[consumed..];
+            continue;
+        }
+        out.push_str(&head[..open]);
+        let mut chars = head[open + 1..].chars();
+        while let Some(c) = chars.next() {
+            if c == '\\' {
+                if let Some(n) = chars.next() {
+                    out.push(n);
+                }
+            } else {
+                out.push(c);
+            }
+        }
+        rest = &rest[consumed..];
+    }
+    out
+}
+
+/// Apply the mention plain-body reduction to a just-built markdown message:
+/// the SDK derived `formatted_body` from the full markdown already; only the
+/// plain fallback is rewritten.
+fn set_mention_plain_body(msgtype: &mut MessageType, markdown: &str) {
+    let plain = mention_plain_body(markdown);
+    if plain == markdown {
+        return;
+    }
+    if let MessageType::Text(text) = msgtype {
+        text.body = plain;
+    }
+}
+
 /// The MSC1767 fallback body lists the question and numbered answers so
 /// clients without poll support show something honest.
 pub(crate) fn build_poll_start_content(
@@ -3147,6 +3216,57 @@ mod tests {
         let plain = RoomMessageEventContent::text_markdown("hi");
         let plain_value = serde_json::to_value(&plain).expect("serialize");
         assert!(plain_value.get("m.mentions").is_none());
+    }
+
+    // Outgoing mention sends: the PLAIN body carries the display text (the
+    // fallback other clients show in room lists/notifications), while
+    // formatted_body keeps the full matrix.to anchor.
+    #[test]
+    fn mention_plain_body_reduces_user_links_only() {
+        use super::mention_plain_body;
+        assert_eq!(
+            mention_plain_body(
+                "[@test](https://matrix.to/#/%40test%3Amatrix.example.org) hi"
+            ),
+            "@test hi"
+        );
+        assert_eq!(
+            mention_plain_body(
+                "[@a](https://matrix.to/#/%40a%3Ax) and [@b](https://matrix.to/#/@b:x)"
+            ),
+            "@a and @b"
+        );
+        // Room/event permalinks and ordinary markdown are untouched.
+        let room = "[room](https://matrix.to/#/%23room%3Ax) **bold**";
+        assert_eq!(mention_plain_body(room), room);
+        let site = "[site](https://example.org/page)";
+        assert_eq!(mention_plain_body(site), site);
+        // Escaped label characters unescape.
+        assert_eq!(
+            mention_plain_body("[@A\\]B](https://matrix.to/#/%40a%3Ax)"),
+            "@A]B"
+        );
+        assert_eq!(mention_plain_body("no links"), "no links");
+    }
+
+    #[test]
+    fn outgoing_mention_body_is_display_text_with_formatted_anchor() {
+        use matrix_sdk::ruma::events::room::message::{
+            MessageType, RoomMessageEventContent,
+        };
+        let markdown =
+            "[@test](https://matrix.to/#/%40test%3Amatrix.example.org) hello";
+        let mut message = RoomMessageEventContent::text_markdown(markdown);
+        super::set_mention_plain_body(&mut message.msgtype, markdown);
+        match message.msgtype {
+            MessageType::Text(text) => {
+                assert_eq!(text.body, "@test hello");
+                let formatted = text.formatted.expect("formatted body");
+                assert!(formatted.body.contains("https://matrix.to/#/"));
+                assert!(formatted.body.contains("@test"));
+            }
+            other => panic!("unexpected msgtype: {other:?}"),
+        }
     }
 
     // ---- v0.7 polls -----------------------------------------------------
