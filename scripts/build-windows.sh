@@ -109,6 +109,28 @@ EOF
 /opt/rust/cargo/bin/cargo fetch --locked --target x86_64-pc-windows-gnu \
     --manifest-path "$SOURCE_DIR/rust/Cargo.toml"
 
+# GIF provider keys: embed the project-7 protected+masked CI variables
+# GIPHY_API_KEY / KLIPY_API_KEY into this Windows build using the SAME mechanism
+# as official release packages (the CMake generator reads the build-only
+# LIGHTNING_BUILD_* names and writes them into an untracked build-tree header —
+# never a compiler command line, CMakeCache, install rule, package, or log; the
+# masked values do not appear in job output). This lets the test binary browse
+# GIFs with no local env file or variable on the tester's PC. When the CI
+# variables are absent the build stays keyless (the picker shows unconfigured),
+# preserving the previous behaviour. A key compiled into a distributed binary is
+# ultimately extractable — these test artifacts are developer-scoped and expire.
+gif_require=OFF
+gif_keys_embedded=false
+if [[ -n "${GIPHY_API_KEY:-}" && -n "${KLIPY_API_KEY:-}" ]]; then
+    export LIGHTNING_BUILD_GIPHY_API_KEY="$GIPHY_API_KEY"
+    export LIGHTNING_BUILD_KLIPY_API_KEY="$KLIPY_API_KEY"
+    gif_require=ON
+    gif_keys_embedded=true
+    printf 'Embedding GIF provider keys from CI variables (require=ON)\n'
+else
+    printf 'GIF provider keys not supplied; building keyless\n'
+fi
+
 cmake -S "$SOURCE_DIR" -B "$BUILD_DIR" -G Ninja \
     -DCMAKE_TOOLCHAIN_FILE="$ROOT/packaging/windows/toolchain-mingw64.cmake" \
     -DCMAKE_BUILD_TYPE=Release \
@@ -116,10 +138,13 @@ cmake -S "$SOURCE_DIR" -B "$BUILD_DIR" -G Ninja \
     -DCMAKE_EXE_LINKER_FLAGS="$BUILD_DIR/lightning-version.o" \
     -DBUILD_TESTING=OFF \
     -DENABLE_RUST_SDK_BACKEND=ON \
-    -DLIGHTNING_REQUIRE_GIF_KEYS=OFF \
+    -DLIGHTNING_REQUIRE_GIF_KEYS="$gif_require" \
     -DLIGHTNING_SOURCE_SHA="$SOURCE_SHA" \
     -DLIGHTNING_BUILD_TARGET="x86_64-pc-windows-gnu" \
     -DLIGHTNING_ARTIFACT_KIND="unsigned-test"
+# The generator has written the header; drop the key values from the build
+# environment so nothing downstream (compile, staging, packaging) sees them.
+unset LIGHTNING_BUILD_GIPHY_API_KEY LIGHTNING_BUILD_KLIPY_API_KEY 2>/dev/null || true
 # The production matrix-client is a GUI-subsystem PE on Windows (WIN32_EXECUTABLE
 # set in the app CMake); --version / --help / --build-info still print to a
 # parent console. No subsystem flag is passed here.
@@ -135,11 +160,13 @@ jq -n \
     --arg source_commit "$SOURCE_SHA" \
     --arg packaging_commit "$PACKAGING_SHA" \
     --arg timestamp "$(date -u -d "@$SOURCE_DATE_EPOCH" +%Y-%m-%dT%H:%M:%SZ)" \
+    --argjson gif_keys_embedded "$gif_keys_embedded" \
     '{version:$version, source_commit:$source_commit,
       packaging_commit:$packaging_commit, target:"x86_64-pc-windows-gnu",
       build_kind:"unsigned-test", runner_kind:"linux-cross",
       qt_version:"6.11.1", rust_version:"1.95.0", build_timestamp:$timestamp,
-      native_windows_tested:false}' >"$STAGE_DIR/build-info.json"
+      gif_keys_embedded:$gif_keys_embedded, native_windows_tested:false}' \
+    >"$STAGE_DIR/build-info.json"
 cp /usr/local/share/lightning-windows-rpms.txt "$REPORT_DIR/builder-rpms.txt"
 
 # Sign the staged executable BEFORE it is captured into the portable ZIP / MSI /

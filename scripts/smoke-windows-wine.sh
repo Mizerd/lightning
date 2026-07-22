@@ -9,6 +9,7 @@ DIST="${1:?usage: smoke-windows-wine.sh DIST_WINDOWS_DIR}"
 STAGE="$DIST/Lightning"
 REPORTS="$DIST/reports"
 version="$(jq -er '.version' "$STAGE/build-info.json")"
+gif_embedded="$(jq -r '.gif_keys_embedded // false' "$STAGE/build-info.json")"
 msi="$(find "$DIST" -maxdepth 1 -type f -name 'Lightning-*-windows-x86_64.msi' -print -quit)"
 setup="$(find "$DIST" -maxdepth 1 -type f -name 'Lightning-*-windows-x86_64-setup.exe' -print -quit)"
 [[ -n "$msi" && -n "$setup" ]] || die "installer artifacts are missing"
@@ -61,9 +62,28 @@ run_build_info() {
     grep -Eq '^backends: .*rust' <<<"$clean" || die "build-info does not list the rust backend: $exe"
 }
 
+# When GIF keys were embedded from CI variables, prove the EMBEDDED key works by
+# clearing every runtime override so only the build-embedded key can report
+# "configured: yes". --gif-status prints booleans only and never the key; we
+# also assert nothing that looks like a key/URL leaked.
+run_gif_status() {
+    local exe="$1" log="$2"
+    timeout 60s env -u LIGHTNING_GIPHY_API_KEY -u LIGHTNING_KLIPY_API_KEY \
+        -u LIGHTNING_BUILD_GIPHY_API_KEY -u LIGHTNING_BUILD_KLIPY_API_KEY \
+        -u LIGHTNING_GIF_ENV_FILE \
+        wine64 "$exe" --gif-status >"$log" 2>&1
+    local clean; clean="$(tr -d '\r' <"$log")"
+    grep -Eiq 'GIPHY configured: yes' <<<"$clean" || die "embedded GIPHY key not configured: $exe"
+    grep -Eiq 'KLIPY configured: yes' <<<"$clean" || die "embedded KLIPY key not configured: $exe"
+    if grep -Eq 'api_key=|://' <<<"$clean"; then die "gif-status leaked a key or URL: $exe"; fi
+}
+
 new_prefix
 run_version "$STAGE/Lightning.exe" "$REPORTS/wine-portable-version.log"
 run_build_info "$STAGE/Lightning.exe" "$REPORTS/wine-portable-build-info.log"
+if [[ "$gif_embedded" == "true" ]]; then
+    run_gif_status "$STAGE/Lightning.exe" "$REPORTS/wine-portable-gif-status.log"
+fi
 finish_prefix
 
 new_prefix
@@ -104,9 +124,12 @@ finish_prefix
 
 jq -n \
     --arg version "$version" \
+    --argjson gif_embedded "$gif_embedded" \
     '{wine_version_tested:true, wine_build_info_tested:true,
       build_info_default_backend_rust:true,
       build_info_secret_store_windows_credential_manager:true,
+      gif_keys_embedded:$gif_embedded,
+      gif_status_embedded_key_ok:$gif_embedded,
       native_windows_tested:false,
       application_version:$version, portable_version:true,
       msi_install_version_uninstall:true, nsis_install_version_uninstall:true,
