@@ -474,6 +474,49 @@ private Q_SLOTS:
         QCOMPARE(client.loadOlderCalls, 3); // user gesture still allowed
     }
 
+    void automaticNearTopBackfillIsBoundedButUserGestureReArms()
+    {
+        FakeClient client;
+        PaginationController controller;
+        controller.setClient(&client);
+        controller.setRoomId(kRoomA);
+
+        // One completed initial fill so later NearTop is not redirected to fill.
+        controller.requestViewportFill();
+        client.beginLoading(kRoomA);
+        client.completeBatch(kRoomA, 3, false);
+        const int afterInitial = client.loadOlderCalls; // == 1
+
+        // Automatic near-top pages that all add nothing are allowed only up to
+        // the cap; each dispatched empty page is completed to advance strikes.
+        int dispatched = 0;
+        for (int i = 0; i < 12; ++i) {
+            controller.requestNearTop(/*userInitiated=*/false);
+            if (client.loadOlderCalls > afterInitial + dispatched) {
+                ++dispatched;
+                client.beginLoading(kRoomA);
+                client.completeBatch(kRoomA, 0, false); // empty (filtered) page
+            }
+        }
+        QCOMPARE(dispatched, 4); // kMaxNearTopEmptyStrikes
+
+        // Further automatic requests are refused (no spinning).
+        const int capped = client.loadOlderCalls;
+        controller.requestNearTop(false);
+        QCOMPARE(client.loadOlderCalls, capped);
+
+        // A genuine user scroll gesture re-arms the cap and dispatches again.
+        controller.requestNearTop(true);
+        QCOMPARE(client.loadOlderCalls, capped + 1);
+
+        // An inserting page also re-arms the cap for subsequent automatic use.
+        client.beginLoading(kRoomA);
+        client.completeBatch(kRoomA, 2, false); // added content -> strikes reset
+        const int afterInsert = client.loadOlderCalls;
+        controller.requestNearTop(false);
+        QCOMPARE(client.loadOlderCalls, afterInsert + 1);
+    }
+
     void progressResetsNoProgressStrikes()
     {
         FakeClient client;

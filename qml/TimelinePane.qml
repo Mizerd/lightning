@@ -803,8 +803,37 @@ Rectangle {
                 // contentY programmatically, so Flickable.moving stays false.
                 function updateStickAndPaginate() {
                     stickToBottom = atBottomEdge()
+                    // Active user scroll (wheel/pixel/keyboard) — re-arms the
+                    // automatic backfill cap.
                     if (contentY < height * 0.5 && !stickToBottom)
-                        app.pagination.requestNearTop()
+                        maybeRequestNearTop(true)
+                }
+
+                // Coalesce near-top backfill onto the next event-loop turn, the
+                // same way maybeFillViewport() does. contentY / atYBeginning fire
+                // every animation frame while scrolling and every time the
+                // pagination header toggles its height, so dispatching directly
+                // produced a burst of near_top requests (single-flighted, but
+                // one fresh request per completed empty page). One coalesced
+                // dispatch per turn collapses that churn; each call site keeps
+                // its own trigger condition, and the controller still
+                // single-flights the dispatch and bounds consecutive empty
+                // (filtered-only) pages.
+                property bool nearTopCheckScheduled: false
+                property bool nearTopCheckUserInitiated: false
+                function maybeRequestNearTop(userInitiated) {
+                    if (userInitiated)
+                        nearTopCheckUserInitiated = true
+                    if (nearTopCheckScheduled)
+                        return
+                    nearTopCheckScheduled = true
+                    Qt.callLater(function() {
+                        nearTopCheckScheduled = false
+                        var ui = nearTopCheckUserInitiated
+                        nearTopCheckUserInitiated = false
+                        if (app.currentRoomId !== "")
+                            app.pagination.requestNearTop(ui)
+                    })
                 }
 
                 function cancelWheelMotion() {
@@ -1174,9 +1203,9 @@ Rectangle {
                     if (!moving && !wheelAnimating) return
                     stickToBottom = atBottomEdge()
                     // Trigger backfill before hitting the exact top so history
-                    // is ready as the user approaches it.
+                    // is ready as the user approaches it (user drag/flick/wheel).
                     if (contentY < height * 0.5 && !stickToBottom)
-                        app.pagination.requestNearTop()
+                        maybeRequestNearTop(true)
                 }
                 onCountChanged: {
                     // A new event arrived (or the timeline reset). Follow the
@@ -1242,8 +1271,10 @@ Rectangle {
                 // Duplicate and reached-start suppression live in the
                 // controller.
                 onAtYBeginningChanged: {
+                    // Passive geometry toggle (the header height flips this as
+                    // it enters/leaves Loading) — bounded by the automatic cap.
                     if (atYBeginning)
-                        app.pagination.requestNearTop()
+                        maybeRequestNearTop(false)
                 }
 
                 // v0.5.11: the header shows only transient loading / failure

@@ -92,6 +92,7 @@ void PaginationController::resetPerRoomState()
     m_fillRequests = 0;
     m_noProgressStrikes = 0;
     m_fillStopped = false;
+    m_nearTopEmptyStrikes = 0;
 }
 
 bool PaginationController::busy() const
@@ -192,10 +193,13 @@ void PaginationController::requestViewportFill()
     request(Reason::ViewportFill);
 }
 
-void PaginationController::requestNearTop()
+void PaginationController::requestNearTop(bool userInitiated)
 {
     if (failed() || m_autoRetryTimer.isActive())
         return;
+    // A genuine user scroll gesture toward the top re-arms automatic backfill.
+    if (userInitiated)
+        m_nearTopEmptyStrikes = 0;
     // ListView reports atYBeginning during its first empty/incubating frame.
     // Treat that first signal as initial-history fill so a transient failure
     // receives the bounded automatic policy instead of requiring a click.
@@ -203,6 +207,12 @@ void PaginationController::requestNearTop()
         requestViewportFill();
         return;
     }
+    // Bound passive, geometry-driven backfill: after a run of automatic pages
+    // that added no visible events (e.g. filtered thread-only history), stop
+    // auto-requesting so header/atYBeginning churn near the top cannot spin.
+    // A user gesture (above), an inserting batch, or reaching start re-arms it.
+    if (!userInitiated && m_nearTopEmptyStrikes >= kMaxNearTopEmptyStrikes)
+        return;
     request(Reason::NearTop);
 }
 
@@ -463,6 +473,16 @@ void PaginationController::finishBatch(bool hitStart)
         } else {
             m_noProgressStrikes = 0;
         }
+    }
+
+    // Same no-progress accounting for automatic NearTop backfill: consecutive
+    // empty pages accumulate toward the cap; any inserting page or reaching
+    // start re-arms it. (A user gesture re-arms it in requestNearTop.)
+    if (reason == Reason::NearTop) {
+        if (inserted == 0 && !hitStart)
+            ++m_nearTopEmptyStrikes;
+        else
+            m_nearTopEmptyStrikes = 0;
     }
 
     // m_requestActive just dropped to false above, which is what busy() and

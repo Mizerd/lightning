@@ -98,8 +98,11 @@ public:
     // Budget-limited and no-progress-guarded; safe to call repeatedly from
     // QML size-change handlers.
     Q_INVOKABLE void requestViewportFill();
-    // Ask for one more batch because the user scrolled near the top.
-    Q_INVOKABLE void requestNearTop();
+    // Ask for one more batch because the user scrolled near the top. A genuine
+    // user scroll gesture (userInitiated=true) re-arms the automatic backfill
+    // cap; passive geometry-driven calls (userInitiated=false) are bounded so a
+    // long run of no-op (filtered thread-only) pages cannot spin near the top.
+    Q_INVOKABLE void requestNearTop(bool userInitiated = false);
     // Clear a failure and request again (user pressed Retry).
     Q_INVOKABLE void retry();
     Q_INVOKABLE void jumpToEvent(const QString &eventId);
@@ -188,6 +191,10 @@ private:
     int m_maxFillRequests = 8;
     int m_noProgressStrikes = 0;
     bool m_fillStopped = false;
+    // Consecutive automatic (non-user) NearTop batches that added no visible
+    // events. Bounds passive geometry-driven backfill; reset by a user gesture,
+    // any batch that adds content, reaching the start, or a room (re)open.
+    int m_nearTopEmptyStrikes = 0;
 
     NavigationPurpose m_navigationPurpose = NavigationPurpose::None;
     QString m_navigationEventId;
@@ -200,6 +207,7 @@ private:
     int m_highlightDurationMs = 1800;
 
     static constexpr int kMaxNoProgressStrikes = 2;
+    static constexpr int kMaxNearTopEmptyStrikes = 4;
     static constexpr int kMaxNavigationBatches = 8;
     static constexpr int kMaxScrollAnchors = 64;
 };
