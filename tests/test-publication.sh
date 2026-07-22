@@ -38,6 +38,15 @@ EOF
     printf 'flatpak-bytes-%s\n' "$RANDOM" >"$TR/dist/lightning_${VER}_amd64.flatpak"
     printf 'appimage-bytes-%s\n' "$RANDOM" >"$TR/dist/Lightning-${VER}-x86_64.AppImage"
     printf 'snap-bytes-%s\n' "$RANDOM" >"$TR/dist/lightning_${VER}_amd64.snap"
+    # Windows artifacts (names carry the 7-char source SHA, as build-windows.sh
+    # produces them) live under dist/windows/.
+    mkdir -p "$TR/dist/windows"
+    printf 'win-portable-%s\n' "$RANDOM" \
+        >"$TR/dist/windows/Lightning-${VER}-${SHA:0:7}-windows-x86_64-portable.zip"
+    printf 'win-msi-%s\n' "$RANDOM" \
+        >"$TR/dist/windows/Lightning-${VER}-${SHA:0:7}-windows-x86_64.msi"
+    printf 'win-setup-%s\n' "$RANDOM" \
+        >"$TR/dist/windows/Lightning-${VER}-${SHA:0:7}-windows-x86_64-setup.exe"
     MSTATE="$TR/mockstate"; mkdir -p "$MSTATE"
     MLOG="$TR/curl.log"; : >"$MLOG"
     export CI_PROJECT_DIR="$TR"
@@ -73,7 +82,7 @@ printf '== manifest ==\n'
 setup; export RELEASE_ACTION=attach-existing SOURCE_REF=v$VER
 run "$ROOT/scripts/write-manifest.sh" || bad "manifest build failed"
 M="$TR/dist/manifest.json"
-[[ "$($JQ '.entries|length' "$M")" == 5 ]] && note "manifest has 5 entries" || bad "manifest entry count"
+[[ "$($JQ '.entries|length' "$M")" == 9 ]] && note "manifest has 9 entries" || bad "manifest entry count"
 [[ "$($JQ -r '.entries[0].filename' "$M")" == "lightning_${VER}_amd64.deb" ]] && note "deb filename" || bad "deb filename"
 [[ "$($JQ -r '.entries[1].filename' "$M")" == "lightning-${VER}-1.x86_64.rpm" ]] && note "rpm filename" || bad "rpm filename"
 [[ "$($JQ -r '.entries[2].filename' "$M")" == "lightning_${VER}_amd64.flatpak" ]] && note "flatpak filename" || bad "flatpak filename"
@@ -81,17 +90,17 @@ M="$TR/dist/manifest.json"
 [[ "$($JQ -r '.entries[4].filename' "$M")" == "lightning_${VER}_amd64.snap" ]] && note "snap filename" || bad "snap filename"
 # Registry layout: every file shares one package name + version (extensible).
 [[ "$($JQ -r '[.entries[].version]|unique|length' "$M")" == 1 ]] && note "single version layout" || bad "version layout"
-[[ "$($JQ -r '.entries[]|.asset_path' "$M" | grep -c "^/packages/${VER}/")" == 5 ]] && note "asset paths under /packages/<version>/" || bad "asset paths"
+[[ "$($JQ -r '.entries[]|.asset_path' "$M" | grep -c "^/packages/${VER}/")" == 9 ]] && note "asset paths under /packages/<version>/" || bad "asset paths"
 # Full metadata present on each entry (extension-ready schema).
-[[ "$($JQ -r '[.entries[]|select(.sha256 and .size and .architecture and .source_sha and .registry_url and .asset_name)]|length' "$M")" == 5 ]] && note "entries carry full metadata" || bad "entry metadata"
+[[ "$($JQ -r '[.entries[]|select(.sha256 and .size and .architecture and .source_sha and .registry_url and .asset_name)]|length' "$M")" == 9 ]] && note "entries carry full metadata" || bad "entry metadata"
 
 printf '== publish ==\n'
 setup; export RELEASE_ACTION=attach-existing SOURCE_REF=v$VER
 run "$ROOT/scripts/write-manifest.sh" && run "$ROOT/scripts/publish-packages.sh" || bad "publish failed"
-[[ "$(grep -c '^PUT .*/packages/generic/lightning/' "$MLOG")" == 5 ]] && note "5 uploads" || bad "upload count"
-[[ "$($JQ '.entries|length' "$TR/dist/publication.json")" == 5 ]] && note "publication.json" || bad "publication.json"
+[[ "$(grep -c '^PUT .*/packages/generic/lightning/' "$MLOG")" == 9 ]] && note "9 uploads" || bad "upload count"
+[[ "$($JQ '.entries|length' "$TR/dist/publication.json")" == 9 ]] && note "publication.json" || bad "publication.json"
 # only the five package files are ever PUT (no logs/metadata)
-[[ "$(grep -c '^PUT ' "$MLOG")" == 5 ]] && note "only manifest files uploaded" || bad "extra uploads"
+[[ "$(grep -c '^PUT ' "$MLOG")" == 9 ]] && note "only manifest files uploaded" || bad "extra uploads"
 
 printf '== internal API base override (PUBLISH_API_BASE) ==\n'
 setup; export RELEASE_ACTION=attach-existing SOURCE_REF=v$VER
@@ -100,7 +109,7 @@ run "$ROOT/scripts/write-manifest.sh" && run "$ROOT/scripts/publish-packages.sh"
 MO="$TR/dist/manifest.json"
 [[ "$($JQ -r '[.entries[].registry_url] | all(startswith("https://gitlab.example/api/v4/"))' "$MO")" == true ]] \
     && note "manifest registry URLs stay canonical/public" || bad "manifest URLs not canonical"
-[[ "$(grep -c '^PUT https://internal.example/api/v4/' "$MLOG")" == 5 ]] \
+[[ "$(grep -c '^PUT https://internal.example/api/v4/' "$MLOG")" == 9 ]] \
     && note "uploads routed through the internal API base" || bad "uploads not routed internally"
 [[ "$(grep -c '^PUT https://gitlab.example/' "$MLOG")" == 0 ]] \
     && note "no upload used the public host" || bad "upload leaked to the public host"
@@ -132,7 +141,7 @@ if run "$ROOT/scripts/publish-packages.sh"; then bad "partial upload succeeded";
 # retry now succeeds
 unset MOCK_FAIL_UPLOAD; : >"$MLOG"
 run "$ROOT/scripts/publish-packages.sh" && note "retry published both" || bad "retry failed"
-[[ "$(grep -c '^PUT ' "$MLOG")" == 5 ]] && note "retry uploaded all files" || bad "retry upload count"
+[[ "$(grep -c '^PUT ' "$MLOG")" == 9 ]] && note "retry uploaded all files" || bad "retry upload count"
 
 printf '== verify published ==\n'
 setup; export RELEASE_ACTION=attach-existing SOURCE_REF=v$VER
@@ -151,7 +160,7 @@ setup; export RELEASE_ACTION=attach-existing SOURCE_REF=v$VER MOCK_TAG_EXISTS=tr
 run "$ROOT/scripts/write-manifest.sh" && run "$ROOT/scripts/publish-packages.sh" && run "$ROOT/scripts/verify-published-packages.sh"
 : >"$MLOG"
 run "$ROOT/scripts/finalize-release.sh" && note "attach-existing succeeded" || bad "attach-existing failed"
-[[ "$(grep -c '^POST .*/assets/links' "$MLOG")" == 5 ]] && note "5 links created" || bad "link count"
+[[ "$(grep -c '^POST .*/assets/links' "$MLOG")" == 9 ]] && note "9 links created" || bad "link count"
 # duplicate: rerun -> 0 new POSTs
 : >"$MLOG"; run "$ROOT/scripts/finalize-release.sh" && note "rerun idempotent" || bad "rerun failed"
 [[ "$(grep -c '^POST .*/assets/links' "$MLOG")" == 0 ]] && note "no duplicate links" || bad "duplicate links created"
