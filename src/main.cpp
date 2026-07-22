@@ -503,6 +503,18 @@ int main(int argc, char *argv[])
     QCoreApplication::setApplicationName("matrix-client");
     QCoreApplication::setApplicationVersion(APP_VERSION);
 
+#ifdef Q_OS_WIN
+    // Pin the Qt Multimedia FFmpeg backend on Windows so inline video decodes
+    // reliably. The Windows Media Foundation backend delivers the first
+    // buffered frames and then stalls the video surface; the packaged build
+    // ships ffmpegmediaplugin.dll + the FFmpeg runtime DLLs, and packaging
+    // validation fails closed if they are absent. Respect an explicit user
+    // override. No effect on other platforms (FFmpeg is already Qt's default
+    // on the pinned Linux qtmultimedia).
+    if (!qEnvironmentVariableIsSet("QT_MEDIA_BACKEND"))
+        qputenv("QT_MEDIA_BACKEND", "ffmpeg");
+#endif
+
     QGuiApplication app(argc, argv);
     // Wayland compositors match the window to its launcher entry through
     // the desktop-file name (app_id "lightning" ↔ lightning.desktop); X11
