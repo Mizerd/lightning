@@ -121,11 +121,19 @@ Item {
                 }
                 AppTextField {
                     id: homeserverField
+                    objectName: "homeserverField"
                     Layout.fillWidth: true
-                    text: app.settings.homeserverUrl
+                    // Prefill ONCE from the account-independent login prefill,
+                    // then let the user edit freely — no live binding to a
+                    // settings getter. Binding text to homeserverUrl (which
+                    // returns the ACTIVE account's server during the
+                    // add-account flow) re-asserted itself and reverted typed
+                    // input back to "your own" homeserver, making it
+                    // impossible to point the field at a different one.
+                    Component.onCompleted: text = app.settings.loginHomeserverPrefill
                     placeholderText: "https://matrix.org"
                     Accessible.name: qsTr("Homeserver URL")
-                    onEditingFinished: app.settings.homeserverUrl = text
+                    onEditingFinished: app.settings.loginHomeserverPrefill = text
                     KeyNavigation.tab: userField
                 }
 

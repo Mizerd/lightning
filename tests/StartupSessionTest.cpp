@@ -167,6 +167,55 @@ private Q_SLOTS:
         window->close();
     }
 
+    // The login homeserver field prefills from the account-independent login
+    // prefill and is FREELY EDITABLE — a typed value must not be reverted.
+    // The previous live binding to homeserverUrl (the active account's server)
+    // re-asserted itself and made the field impossible to point at a
+    // different homeserver.
+    void loginHomeserverFieldPrefillsAndStaysEditable()
+    {
+        // No saved account: the app lands on the login screen.
+        AppController app(AppController::MockBackend);
+        QTRY_COMPARE(app.currentScreen(), AppController::LoginScreen);
+
+        QQmlApplicationEngine engine;
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this,
+                [&warnings](const QList<QQmlError> &errors) {
+                    for (const auto &e : errors)
+                        warnings << e.toString();
+                });
+        engine.rootContext()->setContextProperty("app", &app);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("Main"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(5000));
+        auto *window = qobject_cast<QQuickWindow *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(window != nullptr);
+
+        QQuickItem *field = nullptr;
+        QTRY_VERIFY((field = window->findChild<QQuickItem *>(
+                         QStringLiteral("homeserverField"))) != nullptr);
+
+        // Prefilled from the account-independent login prefill.
+        QCOMPARE(field->property("text").toString(),
+                 app.settings()->loginHomeserverPrefill());
+
+        // Typing a new server sticks — and a settings change (which the old
+        // live binding reacted to) must not revert it.
+        QVERIFY(field->setProperty("text",
+                                   QStringLiteral("https://typed.example")));
+        Q_EMIT app.settings()->homeserverUrlChanged();
+        Q_EMIT app.settings()->loginHomeserverPrefillChanged();
+        QCoreApplication::processEvents();
+        QCOMPARE(field->property("text").toString(),
+                 QStringLiteral("https://typed.example"));
+        QCOMPARE(warnings, QStringList{});
+        window->close();
+    }
+
     // No saved account: the genuine unauthenticated state shows Login
     // directly (no restoration detour).
     void noAccountShowsLoginDirectly()

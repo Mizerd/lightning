@@ -12,6 +12,15 @@ class SettingsManager : public QObject
     Q_OBJECT
 
     Q_PROPERTY(QString homeserverUrl READ homeserverUrl WRITE setHomeserverUrl NOTIFY homeserverUrlChanged)
+    // Login-screen homeserver prefill. Deliberately account-INDEPENDENT: the
+    // add-account flow keeps the current account active, so binding the login
+    // field to homeserverUrl (which returns the active account's server)
+    // meant the field always reverted to "your own" server and could not be
+    // pointed at a different homeserver. This reads/writes the same global
+    // prefill key so the field reflects exactly what the user types.
+    Q_PROPERTY(QString loginHomeserverPrefill READ loginHomeserverPrefill
+                   WRITE setLoginHomeserverPrefill
+                   NOTIFY loginHomeserverPrefillChanged)
     Q_PROPERTY(Theme theme READ theme WRITE setTheme NOTIFY themeChanged)
     // Design Appearance page: message layout (0 = Modern, 1 = Bubbles for
     // direct-message timelines, 2 = Compact/IRC) and text scale (percent,
@@ -106,6 +115,9 @@ public:
 
     QString homeserverUrl() const;
     void setHomeserverUrl(const QString &url);
+
+    QString loginHomeserverPrefill() const;
+    void setLoginHomeserverPrefill(const QString &url);
 
     Theme theme() const;
     void setTheme(Theme t);
@@ -241,6 +253,7 @@ public:
 
 Q_SIGNALS:
     void homeserverUrlChanged();
+    void loginHomeserverPrefillChanged();
     void themeChanged();
     void messageLayoutChanged();
     void textScaleChanged();

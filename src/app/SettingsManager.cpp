@@ -353,6 +353,26 @@ void SettingsManager::setHomeserverUrl(const QString &url)
     Q_EMIT homeserverUrlChanged();
 }
 
+QString SettingsManager::loginHomeserverPrefill() const
+{
+    // Account-independent prefill: the raw global value, never the active
+    // account's server. This is what the login field must read so the
+    // add-account flow can target a different homeserver.
+    return m_store->value(kHomeserver, QStringLiteral("https://matrix.org"))
+        .toString();
+}
+
+void SettingsManager::setLoginHomeserverPrefill(const QString &url)
+{
+    if (loginHomeserverPrefill() == url)
+        return;
+    m_store->setValue(kHomeserver, url);
+    Q_EMIT loginHomeserverPrefillChanged();
+    // The active-account view may also observe the global key when no
+    // per-account server is stored yet, so keep that binding coherent.
+    Q_EMIT homeserverUrlChanged();
+}
+
 QVariant SettingsManager::appearanceValue(const char *globalKey,
                                           const QVariant &fallback) const
 {

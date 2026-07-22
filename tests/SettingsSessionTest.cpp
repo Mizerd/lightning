@@ -84,6 +84,7 @@ private Q_SLOTS:
     void messageLayoutAndTextScalePersistAndClamp();
     void appearanceIsPerAccountWithGlobalFallback();
     void uiFontPersistsPerAccountAndValidates();
+    void loginHomeserverPrefillIsAccountIndependent();
 
 private:
     QTemporaryDir m_configHome;
@@ -475,6 +476,45 @@ void SettingsSessionTest::uiFontPersistsPerAccountAndValidates()
     SettingsManager reopened;
     reopened.setSecretStore(&secrets);
     QCOMPARE(reopened.uiFont(), QStringLiteral("IBM Plex Sans"));
+}
+
+// The login-screen homeserver field must be freely editable during the
+// add-account flow (which keeps the current account active). homeserverUrl()
+// follows the ACTIVE account, so binding the field to it reverted every
+// keystroke back to "your own" server. loginHomeserverPrefill reads/writes
+// the account-independent global key, so the typed value sticks and the
+// active account's stored server is left untouched.
+void SettingsSessionTest::loginHomeserverPrefillIsAccountIndependent()
+{
+    FakeSecretStore secrets;
+    SettingsManager settings;
+    settings.setSecretStore(&secrets);
+
+    // No accounts yet: the prefill is the neutral default.
+    QCOMPARE(settings.loginHomeserverPrefill(),
+             QStringLiteral("https://matrix.org"));
+
+    const QString alice = QStringLiteral("@alice:matrix.example");
+    settings.saveSession(QStringLiteral("https://matrix.example"), alice,
+                         QStringLiteral("ALICEDEVICE"),
+                         QStringLiteral("alice-token-fixture"));
+    settings.setActiveAccountUserId(alice);
+    // The active account's own server drives homeserverUrl()...
+    QCOMPARE(settings.homeserverUrl(),
+             QStringLiteral("https://matrix.example"));
+
+    // ...but the login field can be pointed at a different homeserver and it
+    // STICKS (getter/setter share the global key) rather than reverting.
+    QSignalSpy spy(&settings,
+                   &SettingsManager::loginHomeserverPrefillChanged);
+    settings.setLoginHomeserverPrefill(
+        QStringLiteral("https://other.example"));
+    QCOMPARE(settings.loginHomeserverPrefill(),
+             QStringLiteral("https://other.example"));
+    QVERIFY(spy.count() >= 1);
+    // The active account's stored server is untouched by the login prefill.
+    QCOMPARE(settings.homeserverUrl(),
+             QStringLiteral("https://matrix.example"));
 }
 
 QTEST_MAIN(SettingsSessionTest)
