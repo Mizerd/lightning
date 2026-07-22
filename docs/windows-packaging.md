@@ -1,61 +1,76 @@
-# Windows .exe / .msi packaging — blocker record (2026-07-19)
+# Windows test packaging architecture decision (2026-07-22)
 
-Windows installer formats were requested alongside Flatpak, AppImage, and
-Snap. The three Linux formats are implemented; the two Windows formats are
-**blocked** at the application and infrastructure level. This file records
-the real state so nothing is falsely reported as working. No Windows CI job
-is wired: a job with a `windows` tag would sit permanently stuck in the
-queue, and a Linux runner must never be labelled as a Windows one.
+This pass selects a **containerized Linux cross-build runner** (Option A). It
+does not claim to be a native Windows runner. The dedicated GitLab Runner
+manager and every build tool remain in containers on the main GitLab VM
+(`10.195.35.2`). Nothing is installed or changed on the runner-only VM
+(`10.195.35.6`). Artifacts are unsigned, manually requested test artifacts
+with seven-day CI retention; they are never published or attached to a
+release.
 
-## Blockers (all three must be resolved, in this order)
+## Evidence and feasibility
 
-1. **No Windows secret storage in the application.** The source tree
-   (`src/storage/`) implements exactly two SecretStore backends: libsecret
-   (Freedesktop Secret Service) and the insecure QSettings fallback. There
-   is no Windows Credential Manager / DPAPI backend, so a Windows build
-   could persist the Matrix access token only through the plaintext
-   fallback. That is not shippable. This is an upstream (project 6)
-   feature decision, deliberately deferred until the Linux path is stable.
+The first verified source was immutable project-6 commit
+`55ce43798583fe36fc6af8d9e42745e3e18f6e51`, fetched into a separate
+temporary source tree rather than built from a mutable developer checkout.
+Every artifact filename and `build-info.json` records that commit. The source
+requires Qt Core, Gui, Qml, Quick, Quick Controls 2, Network, Sql, Widgets, and
+Multimedia
+(minimum Qt 6.5). Qt DBus and libsecret are optional. The current development
+shell uses Qt 6.11.1 and Rust 1.95.0. Fedora 44 provides a coherent Qt 6.11.1
+MinGW cross-toolchain, so this image does not downgrade Qt. Rust officially
+supports cross-compiling the Tier-1 `x86_64-pc-windows-gnu` target, and the
+source's Unix-only permission APIs are protected by `cfg(unix)`.
 
-2. **No Windows runner.** The whole fleet (`/srv/gitlab-package-runners`)
-   is Docker-outside-of-Docker on a Debian VM; it cannot build or validate
-   Windows binaries. Resolving this means a dedicated Windows VM in the
-   XCP-ng pool running gitlab-runner with the shell or docker-windows
-   executor, registered as its own instance-scoped runner (suggested tags:
-   `[windows, exe, package]` / a shared `windows` selector), following the
-   same token-handoff workflow as the Linux fleet. A cross-compile
-   (mingw/MSVC-wine) pipeline without a Windows host could produce
-   binaries but could not honestly validate an installer, so it is not an
-   acceptable substitute for release artifacts.
+The Rust-enabled build is required. Project 7 supplies only a Cargo invocation
+adapter: Cargo builds the unchanged project-6 manifest for the Windows GNU
+target and mirrors its static-library output into the location that the
+unchanged project-6 CMake file imports. SQLite, Qt, MinGW, and Rust all target
+the same x86-64 Windows GNU ABI. A real build, PE import audit, and Wine smoke
+test must still pass before the application artifact can be called successful.
 
-3. **No code-signing certificate.** No signing material exists among the
-   project's CI variables. Unsigned installers trigger SmartScreen; a
-   distributable exe/msi needs an Authenticode certificate stored as a
-   protected+masked CI variable (never committed or logged) and a
-   `signtool` step on the Windows runner. Until then any Windows build
-   would have to ship explicitly marked as unsigned.
+Fedora's MinGW QtMultimedia package has the target library and Windows Media
+Foundation backend but omits the `QtMultimedia` QML import used by Lightning.
+The builder verifies the official Qt 6.11.1 qtmultimedia source archive by
+SHA-256 and cross-builds that matching QML module. Runtime staging then copies
+the QML imports, explicit Qt plugins, and the recursively closed PE DLL graph;
+it does not copy the Qt SDK.
 
-## Planned shape once unblocked (not implemented)
+The EXE installer uses NSIS and the MSI uses `wixl`/msitools. PE and MSI table
+inspection are structural cross-platform validation. Clean Wine prefixes add
+portable launch and silent install/uninstall smoke coverage, but Wine is not
+native Windows acceptance.
 
-- Qt for Windows (MSVC) + the Rust bridge for `x86_64-pc-windows-msvc`,
-  bundled with `windeployqt`; GIF keys embedded through the existing
-  build-only environment-variable pattern.
-- `packaging/windows/` with an NSIS (or Inno Setup) script producing
-  `Lightning-<version>-setup-x64.exe` (primary, per-user installer) and a
-  WiX project producing `Lightning-<version>-x64.msi` (enterprise/GPO
-  deployment) from the same payload, sharing one signing step and a stable
-  MSI upgrade code.
-- Validation on the Windows runner: silent install, `--version` +
-  offscreen-equivalent smoke run, GIF status/selftest, silent uninstall,
-  clean-removal check.
-- One manifest entry and one release link per format, exactly like the
-  Linux formats ("Lightning <version> — Windows x64 installer" / "… MSI").
+## Verified cross-build result
 
-## Status
+The pre-runner feasibility pass built the unchanged Rust-enabled source as a
+62 MiB PE32+ x86-64 console application. The complete staged runtime contained
+149 x86-64 PE executables/DLLs; dependency closure, required QML imports and
+plugins, path/secret scans, portable ZIP inspection, x64 MSI table inspection,
+and amd64 NSIS inspection passed. Separate clean Wine prefixes passed portable
+`--version`, silent MSI install/run/uninstall, and silent NSIS
+install/run/uninstall while preserving simulated user data. Those are
+cross-platform and Wine results only, not native Windows acceptance.
 
-| Item | State |
-| --- | --- |
-| Windows SecretStore backend | **Blocked** — absent in project 6 |
-| Windows runner | **Blocked** — no Windows host in the fleet |
-| Code-signing certificate | **Blocked** — no signing material |
-| exe/msi build, validation, publication | Not started (gated on all three) |
+## Security decision
+
+The Docker socket is required by the runner manager's Docker executor and is
+therefore a root-equivalent boundary. The runner must be project-7-only,
+protected, locked, tagged only `windows-cross` and `windows-package`, refuse
+untagged jobs, and have concurrency one. The Windows job exists only for a
+web/API pipeline on project 7's protected default branch when
+`BUILD_WINDOWS_PACKAGES=true`, `PUBLISH_PACKAGES=false`, and `SOURCE_REF` is a
+full source commit. The job uses a prebuilt local image; it does not build a
+Dockerfile from a user-selected source ref and does not receive the host socket.
+
+## Known limitations
+
+Project 6 still has no Windows Credential Manager/DPAPI SecretStore; the
+Windows build falls back to the application's explicitly warned insecure
+QSettings store. That makes these artifacts unsuitable for production and is
+a concrete upstream requirement before release. There is no Authenticode
+certificate. Native Windows 10/11 installation, Credential Manager,
+SmartScreen/Defender, GUI/Direct3D, multimedia, notifications, tray behavior,
+DPI, long paths, non-ASCII profiles, MSI repair/upgrade, and Add/Remove Programs
+presentation remain **NOT TESTED**. A real authorized Windows host is still
+required for those checks and for any release claim.
