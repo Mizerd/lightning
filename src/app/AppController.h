@@ -48,6 +48,11 @@ class AppController : public QObject
     Q_PROPERTY(QString currentRoomId READ currentRoomId WRITE setCurrentRoomId NOTIFY currentRoomIdChanged)
     Q_PROPERTY(bool loggedIn READ loggedIn NOTIFY loggedInChanged)
     Q_PROPERTY(QString appVersion READ appVersion CONSTANT)
+    // Development-only screenshot/demo mode indicator (see beginScreenshotDemo).
+    // Always present so QML bindings resolve in every build; only ever true in a
+    // build compiled with LIGHTNING_ENABLE_SCREENSHOT_DEMO and launched with
+    // --screenshot-demo.
+    Q_PROPERTY(bool screenshotDemoActive READ screenshotDemoActive CONSTANT)
     Q_PROPERTY(QString backendName READ backendName CONSTANT)
     Q_PROPERTY(QString connectionStatus READ connectionStatus NOTIFY connectionStatusChanged)
     Q_PROPERTY(QString syncModeLabel READ syncModeLabel NOTIFY syncModeChanged)
@@ -191,6 +196,13 @@ public:
     QString currentRoomId() const { return m_currentRoomId; }
     bool loggedIn() const;
     QString appVersion() const { return QStringLiteral(APP_VERSION); }
+    bool screenshotDemoActive() const { return m_screenshotDemoActive; }
+    // Development-only: enter screenshot/demo mode. Enriches the mock scene,
+    // marks screenshotDemoActive, and auto-logs-in the deterministic demo
+    // account so the app opens directly into the real chat UI. A no-op unless
+    // the active backend is the in-memory mock (guaranteed by preflight, which
+    // forces --screenshot-demo to the mock backend). Never networks.
+    void beginScreenshotDemo();
     QString backendName() const;
     QString connectionStatus() const { return m_connectionStatus; }
     QString syncModeLabel() const;
@@ -449,6 +461,10 @@ private:
     std::unique_ptr<SecretStore> m_secretStore;
     std::unique_ptr<SettingsManager> m_settings;
     bool m_shuttingDown = false;
+    // Development-only screenshot/demo mode (never true in a release build; the
+    // compile option that enables beginScreenshotDemo cannot coexist with a
+    // Rust-only release).
+    bool m_screenshotDemoActive = false;
     std::unique_ptr<MatrixClient> m_client;
     std::unique_ptr<AccountManager> m_accounts;
     std::unique_ptr<AuthManager> m_auth;

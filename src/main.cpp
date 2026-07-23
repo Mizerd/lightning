@@ -128,6 +128,15 @@ QString buildInfoString()
     out += QStringLiteral("http_backend_compiled: %1\n").arg(yn(httpMockCompiled));
     out += QStringLiteral("mock_backend_compiled: %1\n").arg(yn(httpMockCompiled));
     out += QStringLiteral("gif_keys_embedded: %1\n").arg(yn(gifKeysEmbedded));
+    // Development-only screenshot/demo mode. A release build must report false;
+    // CI asserts this to prove the demo cannot be reached in a shipped binary.
+    const bool screenshotDemoCompiled =
+#ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO
+        true;
+#else
+        false;
+#endif
+    out += QStringLiteral("screenshot_demo_compiled: %1\n").arg(yn(screenshotDemoCompiled));
     out += QStringLiteral("secret_store: %1\n").arg(secretStore);
     out += QStringLiteral("artifact_kind: %1\n").arg(QLatin1String(LIGHTNING_ARTIFACT_KIND));
     return out;
@@ -157,6 +166,10 @@ struct PreflightResult {
     bool mockAliasUsed = false;
     bool smokeTestRequested = false;
     bool consoleRequested = false;   // Windows: force a visible console.
+    // Development-only screenshot/demo mode (compile option
+    // LIGHTNING_ENABLE_SCREENSHOT_DEMO). Rejected in preflight when the option
+    // is not compiled in, so a production binary never reaches it.
+    bool screenshotDemo = false;
     QString stderrMsg;
     QString stdoutMsg;
 };
@@ -202,6 +215,12 @@ PreflightResult preflightParse(int argc, char *argv[])
                 "                       (Rust-enabled build only). Reads credentials from\n"
                 "                       LIGHTNING_TEST_HOMESERVER / LIGHTNING_TEST_USER /\n"
                 "                       LIGHTNING_TEST_PASSWORD. See docs/build-and-test.md.\n"
+                "  --screenshot-demo    Development builds only: boot the real UI on\n"
+                "                       the in-memory mock backend with deterministic\n"
+                "                       fake accounts/rooms for screenshots. No network,\n"
+                "                       isolated storage. Rejected unless compiled with\n"
+                "                       -DLIGHTNING_ENABLE_SCREENSHOT_DEMO=ON (never a\n"
+                "                       release build). See docs/screenshot-demo.md.\n"
                 "  --gif-status         Print 'GIPHY/KLIPY configured: yes|no' and exit.\n"
                 "                       Booleans only; never prints keys. No network.\n"
                 "  --gif-selftest       As --gif-status plus a bounded live trending\n"
@@ -236,6 +255,29 @@ PreflightResult preflightParse(int argc, char *argv[])
         if (a == QLatin1String("--rust-sdk-smoke-test")) {
             r.smokeTestRequested = true;
             continue;
+        }
+        if (a == QLatin1String("--screenshot-demo")) {
+#ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO
+            // Development build: boot the real UI on the in-memory mock backend
+            // with deterministic fake data. Force the mock backend and mark the
+            // run so main() can isolate storage and auto-login.
+            r.screenshotDemo = true;
+            r.backend = AppController::MockBackend;
+            r.backendExplicit = true;
+            continue;
+#else
+            // Production/normal build: the option was not compiled in. Reject
+            // here in preflight (before QGuiApplication) so a shipped binary
+            // has no reachable path into demo mode, and so the rejection is
+            // testable headlessly.
+            r.action = PreflightResult::ExitError;
+            r.stderrMsg = QStringLiteral(
+                "matrix-client: --screenshot-demo is a development-only build "
+                "option that is not compiled into this binary.\n"
+                "Rebuild with -DLIGHTNING_ENABLE_SCREENSHOT_DEMO=ON (never a "
+                "release build) to use it.\n");
+            return r;
+#endif
         }
         if (a == QLatin1String("--gif-status")) {
             r.action = PreflightResult::RunGifStatus;
@@ -503,6 +545,19 @@ int main(int argc, char *argv[])
     QCoreApplication::setApplicationName("matrix-client");
     QCoreApplication::setApplicationVersion(APP_VERSION);
 
+#ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO
+    // Storage isolation: a distinct applicationName redirects EVERY default
+    // QSettings store (theme/appearance/account registry, GIF favourites, the
+    // insecure token fallback) to a separate file, so the demo never reads or
+    // writes the developer's real Lightning configuration. The mock backend
+    // touches no other store (no cache.sqlite, Rust store, or SecretStore).
+    // run-screenshot-demo.sh additionally points XDG_{DATA,CONFIG,CACHE}_HOME at
+    // a dedicated demo directory for belt-and-suspenders full isolation.
+    if (pf.screenshotDemo)
+        QCoreApplication::setApplicationName(
+            QStringLiteral("matrix-client-screenshot-demo"));
+#endif
+
 #ifdef Q_OS_WIN
     // Pin the Qt Multimedia FFmpeg backend on Windows so inline video decodes
     // reliably. The Windows Media Foundation backend delivers the first
@@ -562,6 +617,18 @@ int main(int argc, char *argv[])
         QGuiApplication::translate("main",
             "Compatibility alias for --backend=mock."));
     parser.addOption(mockOpt);
+#ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO
+    // Preflight already consumed --screenshot-demo (a development-only build);
+    // register it here so QCommandLineParser::process does not reject it as an
+    // unknown option. In a normal/release build the flag never reaches this
+    // parser — preflight exits first.
+    QCommandLineOption screenshotDemoOpt(
+        QStringLiteral("screenshot-demo"),
+        QGuiApplication::translate("main",
+            "Development-only: boot the mock backend with deterministic demo "
+            "data for screenshots."));
+    parser.addOption(screenshotDemoOpt);
+#endif
     QCommandLineOption backendOpt(
         QStringList{ QStringLiteral("backend") },
         QGuiApplication::translate("main",
@@ -580,6 +647,19 @@ int main(int argc, char *argv[])
     QQuickStyle::setStyle("Basic");
 
     AppController controller(pf.backend);
+
+#ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO
+    // Development screenshot mode: enrich the mock scene and auto-login into the
+    // deterministic demo account so the app opens straight into the real chat
+    // UI (no login form, no network). beginScreenshotDemo() is a no-op unless
+    // the mock backend is active.
+    if (pf.screenshotDemo) {
+        controller.beginScreenshotDemo();
+        QTextStream(stdout)
+            << "matrix-client: screenshot demo mode active — mock backend, "
+               "isolated storage, no network.\n";
+    }
+#endif
 
     // v0.7: the selected UI font applies before the first frame and follows
     // the setting live (font choices are validated inside SettingsManager;

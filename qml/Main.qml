@@ -11,7 +11,13 @@ ApplicationWindow {
     minimumWidth: 640
     minimumHeight: 420
     visible: true
-    title: qsTr("Lightning %1").arg(app.appVersion)
+    // Development screenshot mode gets a clear window-title suffix so a demo
+    // window is never mistaken for a real account. `demoTitleSuffix` lets the
+    // developer drop it for a final clean screenshot (see the demo badge).
+    property bool demoTitleSuffix: true
+    title: (app.screenshotDemoActive && demoTitleSuffix)
+           ? qsTr("Lightning — Screenshot Demo")
+           : qsTr("Lightning %1").arg(app.appVersion)
 
     color: AppTheme.background
 
@@ -231,6 +237,58 @@ ApplicationWindow {
         z: 5
         sourceComponent: SettingsScreen {}
         onLoaded: item.forceActiveFocus()
+    }
+
+    // ── Development-only screenshot-demo badge ───────────────────────────
+    // A floating pill that identifies demo data so a demo window is never
+    // confused with a real account. It is an overlay child of the window (not
+    // in any layout), so hiding it leaves NO gap. `app.screenshotDemoActive` is
+    // always false in a normal/release binary, so this never appears in
+    // production. Hide it for a clean final screenshot; Ctrl+Shift+D restores.
+    property bool demoControlsVisible: true
+    Shortcut {
+        sequence: "Ctrl+Shift+D"
+        enabled: app.screenshotDemoActive
+        onActivated: window.demoControlsVisible = !window.demoControlsVisible
+    }
+    Rectangle {
+        id: demoBadge
+        visible: app.screenshotDemoActive && window.demoControlsVisible
+        z: 100
+        anchors.top: parent.top
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.topMargin: 10
+        width: demoBadgeRow.implicitWidth + 24
+        height: 30
+        radius: 15
+        color: AppTheme.accent
+        Row {
+            id: demoBadgeRow
+            anchors.centerIn: parent
+            spacing: 10
+            Label {
+                text: qsTr("● Screenshot Demo — fake data")
+                color: "#FFFFFF"
+                font.family: AppTheme.uiFont
+                font.pixelSize: 12
+                font.weight: Font.DemiBold
+                anchors.verticalCenter: parent.verticalCenter
+            }
+            Label {
+                text: qsTr("Hide")
+                color: "#FFFFFF"
+                opacity: 0.9
+                font.family: AppTheme.uiFont
+                font.pixelSize: 11
+                font.weight: Font.DemiBold
+                anchors.verticalCenter: parent.verticalCenter
+                MouseArea {
+                    anchors.fill: parent
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: window.demoControlsVisible = false
+                }
+            }
+        }
     }
 
     // Slim status strip: shown only while something needs attention

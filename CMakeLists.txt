@@ -69,6 +69,28 @@ if(LIGHTNING_RUST_ONLY AND NOT ENABLE_RUST_SDK_BACKEND)
 endif()
 
 # ---------------------------------------------------------------------------
+# Development-only screenshot/demo mode. Compiles the --screenshot-demo entry
+# point that boots the real UI on the in-memory mock backend with deterministic
+# fake accounts/rooms/timelines for promotional screenshots. It is DEVELOPMENT
+# ONLY and must be impossible to reach in a shipped binary:
+#   * default OFF;
+#   * a LIGHTNING_RUST_ONLY release FORCES it off (fatal error if combined) —
+#     the mock backend it needs is not even compiled into a release binary;
+#   * when OFF the matrix-client binary has no --screenshot-demo flag (preflight
+#     never parses it) and --build-info reports screenshot_demo_compiled:false.
+# The guarded code lives behind #ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO in
+# main.cpp / AppController, so a default/release build compiles it to nothing.
+# ---------------------------------------------------------------------------
+option(LIGHTNING_ENABLE_SCREENSHOT_DEMO
+    "Development only: compile the --screenshot-demo mode (never in a release)" OFF)
+if(LIGHTNING_ENABLE_SCREENSHOT_DEMO AND LIGHTNING_RUST_ONLY)
+    message(FATAL_ERROR
+        "LIGHTNING_ENABLE_SCREENSHOT_DEMO=ON conflicts with LIGHTNING_RUST_ONLY=ON: "
+        "the screenshot demo is a development-only feature and must never be "
+        "compiled into a Rust-only release binary.")
+endif()
+
+# ---------------------------------------------------------------------------
 # Build-only GIF provider keys. Official release packages embed application
 # GIPHY/KLIPY keys so installed clients work without user configuration. The
 # key VALUES are read from the environment by a dedicated -P script and written
@@ -551,6 +573,13 @@ lightning_configure_qml_app(matrix-client)
 # #ifdef guards in AppController and the --build-info self-report.
 if(LIGHTNING_RUST_ONLY)
     target_compile_definitions(matrix-client PRIVATE LIGHTNING_RUST_ONLY=1)
+endif()
+# Development-only screenshot demo: drives the #ifdef guards in main.cpp /
+# AppController and the --build-info self-report. Only ever set on the shipped
+# target in a dedicated development build (never a release; the option guard
+# above rejects combining it with LIGHTNING_RUST_ONLY).
+if(LIGHTNING_ENABLE_SCREENSHOT_DEMO)
+    target_compile_definitions(matrix-client PRIVATE LIGHTNING_ENABLE_SCREENSHOT_DEMO=1)
 endif()
 
 # On Windows the production binary is a GUI-subsystem PE so a normal
@@ -1344,6 +1373,23 @@ if(BUILD_TESTING)
         target_compile_definitions(backend-selection-test PRIVATE ENABLE_RUST_SDK_BACKEND=1)
     endif()
     add_test(NAME backend-selection COMMAND backend-selection-test)
+
+    # Production-exclusion contract for the development-only screenshot demo:
+    # runs the real matrix-client binary and asserts --build-info's
+    # screenshot_demo_compiled line and (when the option is OFF, i.e. every
+    # release/default build) that --screenshot-demo is rejected in preflight.
+    qt_add_executable(screenshot-demo-exclusion-test
+        tests/ScreenshotDemoExclusionTest.cpp
+    )
+    target_link_libraries(screenshot-demo-exclusion-test PRIVATE Qt6::Core Qt6::Test)
+    target_compile_definitions(screenshot-demo-exclusion-test PRIVATE
+        "SCREENSHOT_DEMO_BINARY=\"$<TARGET_FILE:matrix-client>\"")
+    if(LIGHTNING_ENABLE_SCREENSHOT_DEMO)
+        target_compile_definitions(screenshot-demo-exclusion-test PRIVATE
+            LIGHTNING_TEST_DEMO_COMPILED=1)
+    endif()
+    add_dependencies(screenshot-demo-exclusion-test matrix-client)
+    add_test(NAME screenshot-demo-exclusion COMMAND screenshot-demo-exclusion-test)
 
     # Composer formatting toolbar: markdown wrap/unwrap, line prefixes, link
     # scaffold, selection integrity, and active-state detection.

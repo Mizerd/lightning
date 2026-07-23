@@ -846,6 +846,27 @@ QString AppController::backendName() const
 
 SettingsManager *AppController::settings() const { return m_settings.get(); }
 AuthManager *AppController::auth() const { return m_auth.get(); }
+
+void AppController::beginScreenshotDemo()
+{
+#ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO
+    // Only ever runs on the in-memory mock backend (preflight forces it). Fail
+    // closed on any other backend so this can never touch a real session.
+    if (m_backend != MockBackend) {
+        qCWarning(lcApp)
+            << "beginScreenshotDemo ignored: active backend is not the mock";
+        return;
+    }
+    m_screenshotDemoActive = true;
+
+    // Restoration state, not an unauthenticated one: show the boot surface (not
+    // the login form) while the mock "restores", then land on MainScreen via
+    // the normal loginSucceeded path. No network; no real credentials.
+    setCurrentScreen(BootScreen);
+    m_auth->login(QStringLiteral("https://lightning.chat"),
+                  QStringLiteral("alex"), QStringLiteral("demo"));
+#endif
+}
 AccountManager *AppController::accounts() const { return m_accounts.get(); }
 RoomListModel *AppController::roomList() const { return m_roomList.get(); }
 QuickSwitcherModel *AppController::quickSwitcher() const
