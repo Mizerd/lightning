@@ -131,8 +131,15 @@ Rectangle {
         function onMediaCached(cacheKey) {
             // Cache keys end with the mxc URI ("mxc:<edge>:<uri>") — only
             // this avatar's own completion needs a refresh, not every
-            // media byte fetched anywhere in the app.
-            if (cacheKey.endsWith(":" + root.mxc))
+            // media byte fetched anywhere in the app. Skip it once already
+            // resolved: every continuation row of a sender shares one mxc, so
+            // an un-guarded fan-out re-resolves every already-shown same-sender
+            // avatar on each completion — the repeated avatar cache=hit churn
+            // seen while paginating a dense conversation. onMxcChanged /
+            // Component.onCompleted still resolve unconditionally (new identity
+            // / new instance); a failed avatar (fetchFailed) still retries.
+            if (cacheKey.endsWith(":" + root.mxc)
+                && (root.src === "" || root.fetchFailed))
                 root.refresh()
         }
         function onMediaFetchFailed(cacheKey, category) {
