@@ -13,10 +13,27 @@
 #include "matrix/MatrixClient.h"
 #include "media/MediaBridge.h"
 
+#include <QLoggingCategory>
 #include <QSignalSpy>
 #include <QtTest/QtTest>
 
 namespace {
+
+// Log capture for cacheHitTraceIsSilentByDefault: a QtMessageHandler is a bare
+// function pointer, so the sink is a file-scope static. qCDebug consults the
+// category's enabled state BEFORE invoking the handler, so a message routed to
+// a default-off category (lightning.media.trace) never reaches this at all —
+// exactly the "hit is silent" property under test.
+QStringList &capturedLines()
+{
+    static QStringList lines;
+    return lines;
+}
+void captureHandler(QtMsgType, const QMessageLogContext &ctx, const QString &msg)
+{
+    capturedLines() << (QString::fromUtf8(ctx.category ? ctx.category : "")
+                        + QLatin1Char(' ') + msg);
+}
 
 class FakeClient final : public MatrixClient
 {
@@ -166,6 +183,46 @@ private Q_SLOTS:
         QCOMPARE(client.fetches.size(), 1); // no second network fetch
         const QString cacheKey = cached.first().at(0).toString();
         QCOMPARE(bridge.cachedBytes(cacheKey), QByteArray("pixels"));
+    }
+
+    // Touchpad pass: the per-call cache=HIT trace must be silent by default so
+    // scrolling never emits a GUI-thread log storm, while the real media
+    // diagnostics (miss/dispatch/failure on `lightning.media`) stay available.
+    // mediaSource()/avatarSource() run from QML bindings and re-fire on every
+    // pooled-delegate rebind, so a hit logged at debug level flooded the
+    // journal each frame during a scroll.
+    void cacheHitTraceIsSilentByDefault()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+
+        // Prime the cache with a completed avatar fetch.
+        bridge.avatarSource(kMxc, 64);
+        client.succeed(client.fetches.first().opId, QByteArray("pixels"));
+
+        auto &captured = capturedLines();
+        captured.clear();
+        QtMessageHandler prev = qInstallMessageHandler(&captureHandler);
+        // Cache HIT — the hot path that QML bindings re-run on every pooled
+        // delegate rebind while scrolling. Must emit no log on the default
+        // configuration.
+        const QString hit = bridge.avatarSource(kMxc, 64);
+        // Cache MISS on a fresh identity — a real, bounded diagnostic that
+        // must stay visible on the default-on `lightning.media` category.
+        bridge.avatarSource(QStringLiteral("mxc://mock.local/second"), 64);
+        qInstallMessageHandler(prev);
+
+        QVERIFY(hit.startsWith(QStringLiteral("image://lightning-media/")));
+        bool sawMiss = false;
+        for (const QString &line : captured) {
+            QVERIFY2(!line.contains(QStringLiteral("cache=hit")),
+                     qUtf8Printable("unexpected cache=hit storm line: " + line));
+            if (line.contains(QStringLiteral("cache=miss")))
+                sawMiss = true;
+        }
+        QVERIFY2(sawMiss,
+                 "media cache=miss diagnostic must remain on lightning.media");
     }
 
     void evictionIsBoundedLru()

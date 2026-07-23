@@ -20,6 +20,20 @@
 // sanitized cache-key tag below, byte counts, coarse MIME, and timings.
 Q_LOGGING_CATEGORY(lcMedia, "lightning.media")
 
+// Cache-HIT trace — the hot path. mediaSource()/avatarSource() are called
+// from QML delegate bindings and re-run on every pooled-delegate rebind while
+// scrolling, so a cache hit (the boring, expected case) logged one line per
+// media row PER SCROLL FRAME. Since `lightning.media` is not a `qt.*` category
+// its debug output is ON by default, so a plain source run (run-dev.sh, no
+// QT_LOGGING_RULES) emitted that storm on the GUI thread during every scroll —
+// string formatting + journal/stderr I/O competing with the frame, and the
+// "cache=hit log storm" the touchpad pass had to eliminate. Cache MISS,
+// dispatch, failure and retry stay on `lightning.media` (bounded: one per real
+// fetch). Only the high-frequency hit is demoted to this default-OFF category
+// (QtWarningMsg minimum ⇒ qCDebug suppressed unless explicitly enabled with
+//   QT_LOGGING_RULES="lightning.media.trace.debug=true").
+Q_LOGGING_CATEGORY(lcMediaTrace, "lightning.media.trace", QtWarningMsg)
+
 namespace {
 QString mediaCacheKey(const QString &mediaKey, int kind)
 {
@@ -275,7 +289,8 @@ QString MediaBridge::mediaSource(const QString &mediaKey, const QString &kind)
     const QString cached = cachedSource(cacheKey);
     if (!cached.isEmpty()) {
         ++m_statCacheHit;
-        qCDebug(lcMedia, "media %s cache=hit", qUtf8Printable(keyTag(cacheKey)));
+        qCDebug(lcMediaTrace, "media %s cache=hit",
+                qUtf8Printable(keyTag(cacheKey)));
         return cached;
     }
     // A marked failure blocks re-dispatch (transient marks expire; see
@@ -469,7 +484,7 @@ QString MediaBridge::avatarSource(const QString &mxcUri, int size)
     const QString cached = cachedSource(cacheKey);
     if (!cached.isEmpty()) {
         ++m_statCacheHit;
-        qCDebug(lcMedia, "avatar %s edge=%d cache=hit",
+        qCDebug(lcMediaTrace, "avatar %s edge=%d cache=hit",
                 qUtf8Printable(keyTag(cacheKey)), edge);
         return cached;
     }
