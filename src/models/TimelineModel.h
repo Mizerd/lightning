@@ -5,6 +5,7 @@
 #include <QAbstractListModel>
 #include <QList>
 #include <QStringList>
+#include <QTimer>
 #include <QVariantList>
 #include <QVariantMap>
 
@@ -274,6 +275,13 @@ private:
     int stateGroupLeaderRow(int row) const;
     QVariantList stateGroupEntriesFrom(int leaderRow) const;
     void emitPresentationGroupingChanged();
+    // Coalesce presentation-grouping refreshes. Grouping roles are computed
+    // live in data(), so the whole-model grouping dataChanged is only a
+    // "re-read" notification; a page of N single-item prepend diffs (the SDK
+    // delivers backward pagination one push_front at a time) must not fire N
+    // whole-model relayouts. scheduleGroupingRefresh() collapses a burst of
+    // structural mutations in one event-loop turn into a single emit.
+    void scheduleGroupingRefresh();
     QString senderDisplayName(const TimelineEvent &event) const;
     QString senderInitials(const TimelineEvent &event) const;
     bool isVisualMessage(const TimelineEvent &event) const;
@@ -293,6 +301,13 @@ private:
     QString m_selfUserId;
     QList<TimelineEvent> m_events;
     QString m_typingText;
+
+    // Fires once on the next event-loop turn to emit one coalesced
+    // whole-model grouping dataChanged. Restarting an already-active
+    // single-shot timer collapses a prepend-page burst into one refresh;
+    // model resets stop it so no stale refresh chases a cleared/reloaded
+    // timeline.
+    QTimer m_groupingRefreshTimer;
 
     // v0.6.1 loaded-timeline search (memory-only; never persisted).
     bool m_searchActive = false;

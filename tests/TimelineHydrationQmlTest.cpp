@@ -337,14 +337,19 @@ private Q_SLOTS:
                  QStringLiteral("Resolved Name"));
 
         // A grouping-relevant change (new sender) still refreshes the
-        // neighbourhood presentation roles.
+        // neighbourhood presentation roles — but the whole-model grouping
+        // dataChanged is now coalesced onto the next event-loop turn, so a
+        // 20-diff pagination page fires it once instead of per row. The
+        // row-scoped change itself still lands synchronously.
         changed.clear();
         TimelineEvent senderChange = updated;
         senderChange.sender = QStringLiteral("@carol:mock.local");
         mock->changeEventAtForTest(kRoom, 3, senderChange);
-        QVERIFY(changed.count() >= 2);
+        QCOMPARE(changed.count(), 1);
         QCOMPARE(changed.at(0).at(0).toModelIndex().row(), 3);
         QCOMPARE(changed.at(0).at(1).toModelIndex().row(), 3);
+        // The coalesced grouping refresh follows one turn later.
+        QTRY_VERIFY(changed.count() >= 2);
     }
 
     // The visible sender label never falls back to the complete Matrix ID

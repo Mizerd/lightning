@@ -34,6 +34,15 @@ TimelineModel::TimelineModel(QObject *parent)
     connect(this, &QAbstractItemModel::rowsRemoved, this, resync);
     connect(this, &QAbstractItemModel::modelReset, this, resync);
     connect(this, &QAbstractItemModel::dataChanged, this, resync);
+
+    // One coalesced grouping refresh per event-loop turn (see
+    // scheduleGroupingRefresh). Interval 0 fires as soon as control returns
+    // to the event loop — after the whole poll-drain of prepend diffs has
+    // been applied — so a page of older messages relayouts grouping once.
+    m_groupingRefreshTimer.setSingleShot(true);
+    m_groupingRefreshTimer.setInterval(0);
+    connect(&m_groupingRefreshTimer, &QTimer::timeout, this,
+            [this] { emitPresentationGroupingChanged(); });
 }
 
 QString TimelineModel::senderDisplayName(const TimelineEvent &event) const
@@ -401,6 +410,20 @@ void TimelineModel::emitPresentationGroupingChanged()
                          EndsSenderGroupRole, ShowSenderIdentityRole });
 }
 
+void TimelineModel::scheduleGroupingRefresh()
+{
+    if (m_events.isEmpty())
+        return;
+    // Restarting the single-shot 0-timer coalesces every mutation in this
+    // event-loop turn — the whole 20-diff backward-pagination page, or a
+    // burst of live events — into ONE whole-model grouping dataChanged.
+    // Grouping is recomputed live in data(), so newly inserted rows already
+    // render correctly; existing rows only need this one re-read once the
+    // burst has settled. Deferring avoids the per-diff full-model relayout
+    // storm that made scrolling jitter while older messages loaded.
+    m_groupingRefreshTimer.start();
+}
+
 QVariant TimelineModel::data(const QModelIndex &index, int role) const
 {
     if (!index.isValid() || index.row() < 0 || index.row() >= m_events.size())
@@ -743,7 +766,7 @@ void TimelineModel::onEventAppended(const QString &roomId, const TimelineEvent &
     m_events.append(event);
     endInsertRows();
     Q_EMIT countChanged();
-    emitPresentationGroupingChanged();
+    scheduleGroupingRefresh();
 }
 
 void TimelineModel::onEventReplaced(const QString &roomId,
@@ -760,7 +783,7 @@ void TimelineModel::onEventReplaced(const QString &roomId,
     const auto idx = index(row);
     Q_EMIT dataChanged(idx, idx);
     if (groupingChanged)
-        emitPresentationGroupingChanged();
+        scheduleGroupingRefresh();
 }
 
 void TimelineModel::onEventStatusChanged(const QString &roomId,
@@ -805,7 +828,7 @@ void TimelineModel::onEventRedacted(const QString &roomId, const QString &eventI
     m_events[row].body.clear();
     const auto idx = index(row);
     Q_EMIT dataChanged(idx, idx, { BodyRole, RedactedRole, ReactionsRole });
-    emitPresentationGroupingChanged();
+    scheduleGroupingRefresh();
 }
 
 void TimelineModel::onReactionsChanged(const QString &roomId, const QString &eventId)
@@ -835,7 +858,7 @@ void TimelineModel::onEventsPrepended(const QString &roomId,
         m_events.prepend(events.at(i));
     endInsertRows();
     Q_EMIT countChanged();
-    emitPresentationGroupingChanged();
+    scheduleGroupingRefresh();
     // v0.5.11: scroll-anchor hook. A backward-pagination prepend shifts
     // every existing row down by `count`; QML re-anchors on the stable id
     // it captured before requesting the batch.
@@ -863,7 +886,7 @@ void TimelineModel::onEventInsertedAt(const QString &roomId, int index,
     m_events.insert(index, event);
     endInsertRows();
     Q_EMIT countChanged();
-    emitPresentationGroupingChanged();
+    scheduleGroupingRefresh();
 }
 
 void TimelineModel::onEventChangedAt(const QString &roomId, int index,
@@ -885,7 +908,7 @@ void TimelineModel::onEventChangedAt(const QString &roomId, int index,
     const auto idx = this->index(index);
     Q_EMIT dataChanged(idx, idx);
     if (groupingChanged)
-        emitPresentationGroupingChanged();
+        scheduleGroupingRefresh();
 }
 
 void TimelineModel::onEventRemovedAt(const QString &roomId, int index)
@@ -900,7 +923,7 @@ void TimelineModel::onEventRemovedAt(const QString &roomId, int index)
     m_events.removeAt(index);
     endRemoveRows();
     Q_EMIT countChanged();
-    emitPresentationGroupingChanged();
+    scheduleGroupingRefresh();
 }
 
 void TimelineModel::onEventsTruncatedTo(const QString &roomId, int length)
@@ -918,11 +941,12 @@ void TimelineModel::onEventsTruncatedTo(const QString &roomId, int length)
         m_events.removeLast();
     endRemoveRows();
     Q_EMIT countChanged();
-    emitPresentationGroupingChanged();
+    scheduleGroupingRefresh();
 }
 
 void TimelineModel::onLoggedOut()
 {
+    m_groupingRefreshTimer.stop();
     beginResetModel();
     m_events.clear();
     m_roomId.clear();
@@ -1228,6 +1252,11 @@ void TimelineModel::retryDecryption()
 
 void TimelineModel::reload()
 {
+    // A full reset re-reads every role at delegate (re)creation, so any
+    // pending coalesced grouping refresh for the previous contents is moot;
+    // drop it so it cannot fire a spurious whole-model dataChanged against
+    // the freshly reloaded rows.
+    m_groupingRefreshTimer.stop();
     beginResetModel();
     m_events = (m_client && !m_roomId.isEmpty())
                    ? m_client->timeline(m_roomId)

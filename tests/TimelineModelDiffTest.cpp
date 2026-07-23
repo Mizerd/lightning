@@ -122,6 +122,7 @@ private Q_SLOTS:
     void senderGroupingBoundariesAreDeterministic();
     void readMarkerDoesNotBreakSenderGroupButVisibleRowsDo();
     void mediaAndPaginationPreserveSenderGrouping();
+    void groupingRefreshCoalescesAcrossPrependBurst();
     void memberProfileUpdateEmitsIdentityRoles();
     void clientSwitchDoesNotLeakSenderProfile();
     void messageActionsUseStableIdentityAndSafeMetadata();
@@ -644,6 +645,72 @@ void TimelineModelDiffTest::mediaAndPaginationPreserveSenderGrouping()
     m_client->mirror[1] = remoteEcho;
     Q_EMIT m_client->eventReplaced(kRoom, QStringLiteral("$image"), remoteEcho);
     QVERIFY(m_model->data(m_model->index(1), TimelineModel::ContinuesSenderGroupRole).toBool());
+}
+
+void TimelineModelDiffTest::groupingRefreshCoalescesAcrossPrependBurst()
+{
+    // A backward-pagination page is delivered by the SDK as many single-item
+    // push_front diffs (PAGINATION_BATCH=20), each arriving as its own
+    // eventsPrepended inside ONE poll-drain turn (drain cap 64 >= 20). The
+    // whole-model grouping dataChanged that keeps sender/state grouping
+    // correct must fire ONCE for the whole burst, not once per event —
+    // otherwise every page triggers N full-model relayouts and scrolling
+    // jitters while older history loads.
+    const QDateTime base = QDateTime::fromMSecsSinceEpoch(1700000000000);
+    auto isGroupingChange = [](const QList<QVariant> &args) {
+        const auto roles = args.at(2).value<QList<int>>();
+        return roles.contains(TimelineModel::BeginsSenderGroupRole);
+    };
+    QSignalSpy changed(m_model, &QAbstractItemModel::dataChanged);
+    auto countGrouping = [&] {
+        int n = 0;
+        for (const auto &sig : changed)
+            if (isGroupingChange(sig))
+                ++n;
+        return n;
+    };
+
+    // 12 separate single-item prepends, back to back (one synchronous drain),
+    // exactly like RustSdkMatrixClient::handleTimelineDiff emitting per diff.
+    const int kPage = 12;
+    for (int i = kPage - 1; i >= 0; --i) {
+        auto older = makeEvent(QStringLiteral("$old%1").arg(i),
+                               QStringLiteral("o%1").arg(i));
+        older.timestamp = base.addSecs(-60 * (kPage - i));
+        m_client->mirror.prepend(older);
+        Q_EMIT m_client->eventsPrepended(kRoom, QList<TimelineEvent>{ older });
+    }
+    QCOMPARE(m_model->rowCount(), 2 + kPage);
+
+    // Synchronously the rows are all in, but NOT ONE whole-model grouping
+    // dataChanged has fired — it is coalesced onto the next event-loop turn.
+    QCOMPARE(countGrouping(), 0);
+    // Grouping still reads correctly from data() (computed live, uncached).
+    QCOMPARE(m_model->data(m_model->index(0), TimelineModel::EventIdRole)
+                 .toString(),
+             QStringLiteral("$old0"));
+
+    // One turn later: exactly ONE coalesced whole-model grouping refresh
+    // spanning every row, however many prepend diffs arrived.
+    QTRY_COMPARE(countGrouping(), 1);
+    QModelIndex tl, br;
+    for (const auto &sig : changed) {
+        if (isGroupingChange(sig)) {
+            tl = sig.at(0).toModelIndex();
+            br = sig.at(1).toModelIndex();
+        }
+    }
+    QCOMPARE(tl.row(), 0);
+    QCOMPARE(br.row(), m_model->rowCount() - 1);
+
+    // The coalescer re-arms: a later mutation still refreshes grouping once.
+    changed.clear();
+    auto live = makeEvent(QStringLiteral("$live"), QStringLiteral("live"));
+    live.timestamp = base.addSecs(120);
+    m_client->mirror.append(live);
+    Q_EMIT m_client->eventAppended(kRoom, live);
+    QCOMPARE(countGrouping(), 0);
+    QTRY_COMPARE(countGrouping(), 1);
 }
 
 void TimelineModelDiffTest::memberProfileUpdateEmitsIdentityRoles()
