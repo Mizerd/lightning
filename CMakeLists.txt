@@ -372,6 +372,13 @@ set(APP_QML_FILES
     qml/AppTheme.qml
 )
 
+# Development-only: the screenshot-demo control panel QML is added to the module
+# ONLY when the demo option is on, so a normal/release module never contains it
+# (Main.qml's Loader references it by a runtime string, never a compiled type).
+if(LIGHTNING_ENABLE_SCREENSHOT_DEMO)
+    list(APPEND APP_QML_FILES qml/DemoControlPanel.qml)
+endif()
+
 # Strip the "qml/" prefix so QML files sit at the module root and can be
 # resolved via QQmlApplicationEngine::loadFromModule("MatrixClient", "Main").
 foreach(_qml_file IN LISTS APP_QML_FILES)
@@ -1514,6 +1521,23 @@ if(BUILD_TESTING)
         add_test(NAME screenshot-demo-scenario
             COMMAND screenshot-demo-scenario-test)
         set_tests_properties(screenshot-demo-scenario PROPERTIES
+            ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+        # Development-only screenshot-demo CONTROL PANEL contract in a real
+        # (offscreen) QML window: the panel loads with no QML warnings and no
+        # layout gap, the boot scenario and window presets resize the actual
+        # window, and hide/restore works.
+        qt_add_executable(screenshot-demo-panel-qml-test
+            tests/ScreenshotDemoPanelQmlTest.cpp
+            ${APP_LIB_SOURCES}
+        )
+        lightning_configure_qml_app(screenshot-demo-panel-qml-test)
+        target_compile_definitions(screenshot-demo-panel-qml-test PRIVATE
+            LIGHTNING_ENABLE_SCREENSHOT_DEMO=1)
+        target_link_libraries(screenshot-demo-panel-qml-test PRIVATE Qt6::Test)
+        add_test(NAME screenshot-demo-panel-qml
+            COMMAND screenshot-demo-panel-qml-test)
+        set_tests_properties(screenshot-demo-panel-qml PROPERTIES
             ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     endif()
 

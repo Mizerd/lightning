@@ -28,6 +28,9 @@ class ScreenshotDemoController : public QObject
 
     Q_PROPERTY(QString currentScenario READ currentScenario NOTIFY currentScenarioChanged)
     Q_PROPERTY(QString currentAccount READ currentAccount NOTIFY stateChanged)
+    // The active account's non-space rooms ({id, name}), for the panel's Room
+    // selector. Refreshes on any state change (account/room switch).
+    Q_PROPERTY(QVariantList currentRooms READ currentRooms NOTIFY stateChanged)
     Q_PROPERTY(QString currentAccountName READ currentAccountName NOTIFY stateChanged)
     Q_PROPERTY(QString currentRoom READ currentRoom NOTIFY stateChanged)
     Q_PROPERTY(int currentTheme READ currentTheme NOTIFY stateChanged)
@@ -55,6 +58,7 @@ public:
     QString currentAccount() const;
     QString currentAccountName() const;
     QString currentRoom() const;
+    QVariantList currentRooms() const;
     int currentTheme() const;
     QString currentSizeLabel() const { return m_sizeLabel; }
     int requestedWidth() const { return m_requestedWidth; }

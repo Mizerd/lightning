@@ -307,6 +307,14 @@ Rectangle {
                 x: parent.width + AppTheme.spacing8
                 y: -implicitHeight + parent.height
             }
+            // Development-only: the screenshot-demo "account-switching" scenario
+            // opens the real account switcher popover. Null target in a
+            // non-demo build makes this an inert no-op.
+            Connections {
+                target: app.demo
+                enabled: app.screenshotDemoActive
+                function onAccountSwitcherRequested() { railAccountMenu.open() }
+            }
         }
     }
 }

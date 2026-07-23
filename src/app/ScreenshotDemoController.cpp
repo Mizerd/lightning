@@ -271,6 +271,23 @@ QString ScreenshotDemoController::currentRoom() const
     return m_app ? m_app->currentRoomId() : QString();
 }
 
+QVariantList ScreenshotDemoController::currentRooms() const
+{
+    QVariantList out;
+    if (!m_mock)
+        return out;
+    for (const RoomInfo &r : m_mock->rooms()) {
+        if (r.isSpace)
+            continue;   // the Room selector lists rooms, not Spaces
+        QVariantMap m;
+        m.insert(QStringLiteral("id"), r.id);
+        m.insert(QStringLiteral("name"),
+                 r.name.isEmpty() ? r.id : r.name);
+        out.append(m);
+    }
+    return out;
+}
+
 int ScreenshotDemoController::currentTheme() const
 {
     return m_app && m_app->settings() ? int(m_app->settings()->theme()) : 0;
