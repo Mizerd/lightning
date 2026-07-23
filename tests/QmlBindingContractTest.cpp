@@ -376,15 +376,21 @@ private Q_SLOTS:
         QVERIFY(!pane.contains(QStringLiteral("contentY + height === contentHeight")));
     }
 
-    // Regression: the TOUCHPAD (pixelDelta) scroll path must keep the view
-    // anchor live on every delta, and wheel-motion settle must refresh it too.
-    // The touchpad path runs with moving=false AND wheelAnimating=false, so it
-    // is invisible to maintainViewAnchor's guard; without a live anchor the
-    // async delegate-height compensator yanks contentY back to a >250ms-stale
-    // row — the touchpad jitter / resist-upward / pull-back-down defect. The
-    // offscreen QPA does not incubate ListView delegates, so the pixel outcome
-    // is only provable on a physical touchpad; this scan guards the wiring.
-    void touchpadScrollKeepsViewAnchorLive()
+    // Native-touchpad architecture: the deferred anchor correction must NEVER
+    // run while the user's gesture owns the position, and the touchpad hot path
+    // must NOT do per-delta geometry work.
+    //   * The pixelDelta branch must NOT call captureViewAnchor() — the old
+    //     per-delta indexAt/itemAtIndex/stableIdAt scan is gone; it must keep
+    //     the scroll session alive with scrollSettleTimer.restart().
+    //   * maintainViewAnchor() must be gated on userScrollActive, so async
+    //     row-height changes (media, decryption, previews) mid-gesture cannot
+    //     write contentY and fight the finger.
+    //   * The anchor is (re)captured once the gesture settles — on the mouse
+    //     path via onWheelMotionSettled and universally via scrollSettleTimer.
+    // The offscreen QPA does not incubate ListView delegates, so the pixel
+    // outcome is only provable on a physical touchpad; this scan guards the
+    // wiring so a future edit cannot silently reintroduce the mid-gesture fight.
+    void touchpadScrollDefersAnchorToGestureSettle()
     {
         const QString pane = read(QStringLiteral("TimelinePane.qml"));
 
@@ -395,13 +401,31 @@ private Q_SLOTS:
             QStringLiteral("else if (event.angleDelta.y !== 0)"), pixelBranch);
         QVERIFY(angleBranch > pixelBranch);
         const QString touchpad = pane.mid(pixelBranch, angleBranch - pixelBranch);
-        QVERIFY(touchpad.contains(QStringLiteral("timeline.captureViewAnchor()")));
+        // No per-delta anchor scan on the touchpad hot path.
+        QVERIFY(!touchpad.contains(QStringLiteral("captureViewAnchor()")));
+        // The session stays alive for the whole gesture.
+        QVERIFY(touchpad.contains(QStringLiteral("scrollSettleTimer.restart()")));
 
+        // The deferred correction is gated on the scroll session.
+        const int maintain =
+            pane.indexOf(QStringLiteral("function maintainViewAnchor()"));
+        QVERIFY(maintain >= 0);
+        const int maintainEnd =
+            pane.indexOf(QStringLiteral("desired = it.y + viewAnchorOffset"),
+                         maintain);
+        QVERIFY(maintainEnd > maintain);
+        const QString maintainGuard = pane.mid(maintain, maintainEnd - maintain);
+        QVERIFY(maintainGuard.contains(QStringLiteral("if (userScrollActive)")));
+
+        // userScrollActive covers the touchpad path via the settle timer, since
+        // moving/wheelAnimating are both false there.
+        QVERIFY(pane.contains(QStringLiteral(
+            "moving || wheelAnimating || scrollSettleTimer.running")));
+
+        // The anchor is captured on gesture settle (mouse path + settle timer).
         const int settled =
             pane.indexOf(QStringLiteral("function onWheelMotionSettled()"));
         QVERIFY(settled >= 0);
-        // Scope to the function body (its own trailing scrollSettleTimer.restart)
-        // so this cannot spuriously match the settle timer's captureViewAnchor.
         const int settledEnd =
             pane.indexOf(QStringLiteral("scrollSettleTimer.restart()"), settled);
         QVERIFY(settledEnd > settled);
