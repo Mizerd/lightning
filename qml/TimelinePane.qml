@@ -1294,28 +1294,63 @@ Rectangle {
                         maybeRequestNearTop(false)
                 }
 
-                // v0.5.11: the header shows only transient loading / failure
-                // states. The beginning of history is rendered by the virtual
-                // "Beginning of conversation" row (eventType 9), so there is no
-                // permanent "scroll up" placeholder that lingers when the
-                // viewport cannot scroll.
-                header: Item {
-                    // Exposed for TimelinePaneQmlTest.cpp so the pagination
-                    // presentation surface can be located and asserted on
-                    // without a fragile visual/coordinate probe.
-                    objectName: "paginationHeader"
-                    width: timeline.width
-                    // PaginationController is the single semantic state
-                    // source. Do not mirror this in a local property that can
-                    // be re-entered by ListView geometry notifications.
-                    height: app.pagination.presentationState
-                            === PaginationController.Hidden ? 0 : 32
+                // v0.6.4: the transient loading / failure indicator is NOT a
+                // ListView header. As list content its 0<->32 height toggle
+                // changed contentHeight every time pagination entered/left
+                // Loading, shoving the reader's viewport (uncompensated during
+                // the busy window) and flipping atYBeginning into extra
+                // near-top requests. It now lives as a top overlay (see
+                // paginationHeader, a sibling of this ListView) so the loading
+                // state never perturbs timeline geometry. The beginning of
+                // history is still the virtual "Beginning of conversation" row
+                // (eventType 9), so there is no lingering "scroll up"
+                // placeholder.
+
+                ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+
+                Label {
+                    anchors.centerIn: parent
+                    // The no-room state is now the Home surface below; this
+                    // label only covers an empty selected room.
+                    visible: app.currentRoomId !== ""
+                             && timeline.count === 0 && timeline.presentationReady
+                    text: qsTr("No messages yet")
+                    color: AppTheme.textMuted
+                }
+            }
+
+            // v0.6.4: pagination loading / failure indicator — a TOP OVERLAY,
+            // never ListView content, so entering or leaving Loading cannot
+            // change the timeline's contentHeight or flip atYBeginning. Its
+            // height still tracks the single semantic PaginationController
+            // state (the contract test enforces "Hidden ? 0 : 32" and forbids
+            // a re-entrant local mirror). Exposed as objectName
+            // "paginationHeader" so TimelinePaneQmlTest.cpp can locate and
+            // assert the presentation surface without a coordinate probe.
+            Item {
+                objectName: "paginationHeader"
+                anchors.top: parent.top
+                anchors.left: parent.left
+                anchors.right: parent.right
+                z: 15
+                clip: true
+                height: app.pagination.presentationState
+                        === PaginationController.Hidden ? 0 : 32
+                visible: app.currentRoomId !== ""
+                         && app.pagination.presentationState
+                            !== PaginationController.Hidden
+                Rectangle {
+                    anchors.centerIn: parent
+                    height: 26
+                    width: paginationPill.implicitWidth + 20
+                    radius: 13
+                    color: AppTheme.cardElevated
+                    border.width: 1
+                    border.color: AppTheme.border
                     Row {
-                        id: paginationHeader
+                        id: paginationPill
                         anchors.centerIn: parent
                         spacing: 6
-                        visible: app.pagination.presentationState
-                                 !== PaginationController.Hidden
                         BusyIndicator {
                             width: 16; height: 16
                             anchors.verticalCenter: parent.verticalCenter
@@ -1349,18 +1384,6 @@ Rectangle {
                             }
                         }
                     }
-                }
-
-                ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
-
-                Label {
-                    anchors.centerIn: parent
-                    // The no-room state is now the Home surface below; this
-                    // label only covers an empty selected room.
-                    visible: app.currentRoomId !== ""
-                             && timeline.count === 0 && timeline.presentationReady
-                    text: qsTr("No messages yet")
-                    color: AppTheme.textMuted
                 }
             }
 

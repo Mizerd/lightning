@@ -64,6 +64,15 @@ private Q_SLOTS:
         QVERIFY(!pane.isEmpty());
         QVERIFY(pane.contains(QStringLiteral("app.pagination.presentationState")));
         QVERIFY(pane.contains(QStringLiteral("PaginationController.Hidden ? 0 : 32")));
+        // v0.6.4: the loading / failure indicator is a TOP OVERLAY, not
+        // ListView content. As a ListView header its 0<->32 height toggle
+        // changed contentHeight and shoved the reader's viewport (and flipped
+        // atYBeginning into extra near-top requests) every time pagination
+        // started or stopped. The overlay keeps the semantic-state height but
+        // never perturbs timeline geometry.
+        QVERIFY(!pane.contains(QStringLiteral("header: Item {")));
+        QVERIFY(pane.contains(QStringLiteral("objectName: \"paginationHeader\"")));
+        QVERIFY(pane.contains(QStringLiteral("anchors.top: parent.top")));
         QVERIFY(pane.contains(QStringLiteral("restoreScrollAnchor(app.currentRoomId)")));
         QVERIFY(pane.contains(QStringLiteral("saveScrollAnchor(")));
         QVERIFY(pane.contains(QStringLiteral("eventIdAt(row)")));
