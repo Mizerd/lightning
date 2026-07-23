@@ -64,6 +64,35 @@ Everything else is the normal application: switch themes and appearance through
 **Settings → Appearance**, navigate Spaces/rooms, open threads and profiles,
 resize the window for narrow/wide layouts — all against the fake data.
 
+## The demo scene
+
+Enabled by `MockMatrixClient::setScreenshotDemoMode(true)` (development-only;
+never called by tests, so the shared mock fixtures are untouched). It is fully
+deterministic — a fixed clock (Thursday 23 July 2026, ~10:24), stable event ids,
+fixed unread counts — so screenshots reproduce across launches.
+
+Signed-in account: **Alex Morgan** (`@alex:lightning.example`). Cast: Maya Chen,
+Jordan Lee, Sam Rivera, Aisha Khan, Noah Williams, Priya Shah, Leo Novak — all
+fictional `*.example` identities.
+
+Spaces and rooms:
+
+| Room | Space | For a screenshot of… |
+|---|---|---|
+| **Design Lounge** | Creative Studio | Main group chat: reply, reactions, a mention, an edited message, an image, unread |
+| **Maya Chen** (DM) | Friends | Encrypted 1:1: reply, shared image, reaction |
+| **Lightning Development** | Lightning Community | Code block + inline code, a file, and a **thread** (root + 4 replies) |
+| **Product Feedback** | Lightning Community | A **poll** (Midnight/Ocean/Violet/Light, votes, one selected) |
+| **Photography** | Creative Studio | Media room: landscape / portrait / square images |
+| **Release Announcements** | Lightning Community | Announcement with reactions |
+| **Music Discovery** | Friends | A quiet favourite-style room |
+| **Founders Lounge** | — | A pending **invite** (Accept / Decline) |
+
+> Image rows currently reserve their aspect-ratio box and show a skeleton — the
+> bundled local media fixtures that make them render as real pictures are a
+> follow-on (see Roadmap). All text, code, poll, thread, reaction, reply, and
+> receipt content renders fully today.
+
 ## Isolation guarantees
 
 - **Storage.** The app runs with a distinct `applicationName`
@@ -103,7 +132,16 @@ demo assets that release packages exclude.
 
 ## Roadmap (not yet implemented)
 
-The current foundation launches an isolated, production-excluded demo on the
-existing mock scene. Planned follow-ups: an enriched multi-account/room/media
-dataset, an in-app scenario/theme/window-size control panel, and bundled demo
-media fixtures.
+The demo boots an isolated, production-excluded, deterministic rich scene for
+the primary account. Planned follow-ups:
+
+- **Local media fixtures** — small, license-clear, release-excluded images
+  served through the real media components, so image rows render as pictures.
+- **In-app scenario/theme/window-size control panel** — upgrade the badge into a
+  selector (the badge is the anchor point).
+- **Multi-account switcher** — three accounts (Alex / Taylor / Nova) in the real
+  account switcher. This needs an isolation-safe registration path: `saveSession`
+  writes the access token to the SecretStore (libsecret), which is **not**
+  isolated by the demo's applicationName, so it must not be used as-is; the demo
+  should force the insecure-QSettings SecretStore (which the applicationName
+  override does isolate) before registering fictional accounts.

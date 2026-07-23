@@ -859,11 +859,19 @@ void AppController::beginScreenshotDemo()
     }
     m_screenshotDemoActive = true;
 
+    // Enable the rich, deterministic demo scene on the mock (fictional people,
+    // Spaces, polished conversations, a poll, media placeholders, fixed
+    // timestamps). Tests never call this, so the shared mock fixtures they
+    // assert on are unchanged.
+    if (auto *mock = qobject_cast<MockMatrixClient *>(m_client.get()))
+        mock->setScreenshotDemoMode(true);
+
     // Restoration state, not an unauthenticated one: show the boot surface (not
     // the login form) while the mock "restores", then land on MainScreen via
-    // the normal loginSucceeded path. No network; no real credentials.
+    // the normal loginSucceeded path. No network; no real credentials. The
+    // login user id must match the demo dataset's self account.
     setCurrentScreen(BootScreen);
-    m_auth->login(QStringLiteral("https://lightning.chat"),
+    m_auth->login(QStringLiteral("https://lightning.example"),
                   QStringLiteral("alex"), QStringLiteral("demo"));
 #endif
 }

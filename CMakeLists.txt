@@ -1391,6 +1391,26 @@ if(BUILD_TESTING)
     add_dependencies(screenshot-demo-exclusion-test matrix-client)
     add_test(NAME screenshot-demo-exclusion COMMAND screenshot-demo-exclusion-test)
 
+    # Development-only screenshot-demo DATASET contract: structure (Spaces,
+    # required room types, poll, thread), determinism (stable ids + fixed
+    # clock), and safety (only fictional *.example identities). Exercises
+    # MockMatrixClient::setScreenshotDemoMode directly.
+    qt_add_executable(screenshot-demo-data-test
+        tests/ScreenshotDemoDataTest.cpp
+        src/matrix/MatrixClient.h
+        src/matrix/MatrixClient.cpp
+        src/matrix/MockMatrixClient.h
+        src/matrix/MockMatrixClient.cpp
+        src/matrix/MediaHelpers.h
+        src/matrix/MediaHelpers.cpp
+        src/app/SettingsManager.cpp
+        src/storage/AppDataPaths.cpp
+    )
+    target_include_directories(screenshot-demo-data-test PRIVATE src)
+    target_link_libraries(screenshot-demo-data-test PRIVATE
+        Qt6::Core Qt6::Gui Qt6::Qml Qt6::Test)
+    add_test(NAME screenshot-demo-data COMMAND screenshot-demo-data-test)
+
     # Composer formatting toolbar: markdown wrap/unwrap, line prefixes, link
     # scaffold, selection integrity, and active-state detection.
     qt_add_executable(markdown-format-test

@@ -4,6 +4,7 @@
 #include "matrix/MediaHelpers.h"
 
 #include <QDateTime>
+#include <QTimeZone>
 #include <QFileInfo>
 #include <QTimer>
 #include <QUrl>
@@ -1133,6 +1134,355 @@ void MockMatrixClient::seedMockData()
         makeEvent(dm.id, QStringLiteral("@bob:mock.local"), "Bob",
                   QStringLiteral("See you tomorrow."), 3600),
     };
+}
+
+void MockMatrixClient::setScreenshotDemoMode(bool on)
+{
+    if (m_screenshotDemoMode == on)
+        return;
+    m_screenshotDemoMode = on;
+    if (on)
+        seedScreenshotDemoData();
+}
+
+// Development-only: a polished, fully deterministic scene for promotional
+// screenshots. Overwrites the compact shared test fixtures (m_rooms /
+// m_timelines) — never called by tests, so those fixtures are unchanged.
+// Everything (timestamps, event ids, ordering, unread counts) is fixed, so
+// screenshots are reproducible across launches. No network; no real stores.
+void MockMatrixClient::seedScreenshotDemoData()
+{
+    // Deterministic clock (NOT wall-clock) so relative timestamps are stable.
+    const QDateTime base(QDate(2026, 7, 23), QTime(10, 24), QTimeZone::UTC);
+    m_eventCounter = 0;              // deterministic $mock-N event ids
+    m_rooms.clear();
+    m_timelines.clear();
+    m_paginationRemaining.clear();
+
+    const QString self = QStringLiteral("@alex:lightning.example");
+
+    // ── Fictional cast (stable ids / names) ─────────────────────────────
+    struct Person { QString id; QString name; };
+    const Person maya  { QStringLiteral("@maya:lightning.example"),   QStringLiteral("Maya Chen") };
+    const Person jordan{ QStringLiteral("@jordan:lightning.example"), QStringLiteral("Jordan Lee") };
+    const Person sam   { QStringLiteral("@sam:lightning.example"),    QStringLiteral("Sam Rivera") };
+    const Person aisha { QStringLiteral("@aisha:lightning.example"),  QStringLiteral("Aisha Khan") };
+    const Person noah  { QStringLiteral("@noah:lightning.example"),   QStringLiteral("Noah Williams") };
+    const Person priya { QStringLiteral("@priya:lightning.example"),  QStringLiteral("Priya Shah") };
+    const Person leo   { QStringLiteral("@leo:lightning.example"),    QStringLiteral("Leo Novak") };
+    const Person alex  { self,                                        QStringLiteral("Alex Morgan") };
+
+    auto mem = [](QHash<QString, MemberInfo> &m, const Person &p) {
+        MemberInfo mi; mi.userId = p.id; mi.displayName = p.name;
+        m.insert(p.id, mi);
+    };
+
+    // Per-room deterministic timeline builder.
+    auto text = [&](const QString &room, const Person &p, const QString &body,
+                    int minsAgo) {
+        TimelineEvent e;
+        e.eventId = nextEventId();
+        e.roomId = room;
+        e.sender = p.id;
+        e.senderDisplayName = p.name;
+        e.body = body;
+        e.timestamp = base.addSecs(-minsAgo * 60);
+        e.type = TimelineEvent::TextMessage;
+        return e;
+    };
+
+    // ── Spaces ──────────────────────────────────────────────────────────
+    RoomInfo friends;
+    friends.id = QStringLiteral("!space-friends:lightning.example");
+    friends.name = QStringLiteral("Friends");
+    friends.topic = QStringLiteral("People I actually know");
+    friends.isSpace = true;
+    friends.lastActivity = base.addSecs(-8 * 60);
+
+    RoomInfo studio;
+    studio.id = QStringLiteral("!space-studio:lightning.example");
+    studio.name = QStringLiteral("Creative Studio");
+    studio.topic = QStringLiteral("Design, photography and music");
+    studio.isSpace = true;
+    studio.lastActivity = base.addSecs(-2 * 60);
+
+    RoomInfo community;
+    community.id = QStringLiteral("!space-community:lightning.example");
+    community.name = QStringLiteral("Lightning Community");
+    community.topic = QStringLiteral("Building a native Matrix client");
+    community.isSpace = true;
+    community.lastActivity = base.addSecs(-30 * 60);
+
+    // ── Design Lounge — the main polished group chat ────────────────────
+    RoomInfo design;
+    design.id = QStringLiteral("!design-lounge:lightning.example");
+    design.name = QStringLiteral("Design Lounge");
+    design.topic = QStringLiteral("Where the launch visuals come together");
+    design.spaceId = studio.id;
+    design.lastActivity = base.addSecs(-2 * 60);
+    design.lastMessagePreview = QStringLiteral("The dark theme looks great for the hero shot.");
+    design.unreadCount = 3;
+    design.highlightCount = 1;
+    design.hasUnreadMessages = true;
+    mem(design.members, alex); mem(design.members, maya);
+    mem(design.members, jordan); mem(design.members, sam);
+    mem(design.members, aisha);
+    design.typingUserIds << maya.id;
+
+    {
+        auto e1 = text(design.id, jordan, QStringLiteral(
+            "Morning! Ready to lock the launch screenshots today?"), 34);
+        auto e2 = text(design.id, maya, QStringLiteral(
+            "Yes — I pulled the room list, timeline and thread views into a board so we can compare them side by side."), 31);
+        auto e3 = text(design.id, sam, QStringLiteral(
+            "The new layout feels much faster. I especially like how calm the room list is now."), 27);
+        auto e4 = text(design.id, jordan, QStringLiteral(
+            "Should we shoot the blue or the violet theme for the hero image?"), 22);
+        e4.replyToEventId = e3.eventId;
+        e4.replyToSender = sam.name;
+        e4.replyToPreview = QStringLiteral("The new layout feels much faster…");
+        auto e5 = text(design.id, maya, QStringLiteral(
+            "The dark theme looks great for the hero shot — deep background, the accent really pops."), 18);
+        e5.reactions = {
+            { QStringLiteral("👍"), 3, true, nextEventId() },
+            { QStringLiteral("🔥"), 2, false, QString() },
+        };
+        auto e6 = text(design.id, aisha, QStringLiteral(
+            "Agreed. @alex can you export the timeline at 1440×900 so the composer is fully visible?"), 12);
+        e6.mentionsMe = true;
+        auto e7 = text(design.id, alex, QStringLiteral(
+            "On it — I'll grab Modern layout with the accent theme."), 8);
+        e7.edited = true;
+        auto e8 = text(design.id, maya, QStringLiteral("shot-timeline-dark.png"), 4);
+        e8.type = TimelineEvent::Image;
+        e8.body = QStringLiteral("shot-timeline-dark.png");
+        e8.mediaMimetype = QStringLiteral("image/png");
+        e8.mediaFilename = QStringLiteral("shot-timeline-dark.png");
+        e8.mediaMxcUrl = QStringLiteral("mxc://lightning.example/shot-timeline");
+        e8.mediaWidth = 1280; e8.mediaHeight = 800; e8.mediaSize = 284000;
+        m_timelines[design.id] = { e1, e2, e3, e4, e5, e6, e7, e8 };
+    }
+    m_paginationRemaining[design.id] = 2;
+
+    // ── Maya Chen — encrypted direct message ────────────────────────────
+    RoomInfo dmMaya;
+    dmMaya.id = QStringLiteral("!dm-maya:lightning.example");
+    dmMaya.name = maya.name;
+    dmMaya.isDirect = true;
+    dmMaya.directUserId = maya.id;
+    dmMaya.directUserIds = { maya.id };
+    dmMaya.encrypted = true;
+    dmMaya.spaceId = friends.id;
+    dmMaya.lastActivity = base.addSecs(-40 * 60);
+    dmMaya.lastMessagePreview = QStringLiteral("Perfect, thank you! 🙌");
+    mem(dmMaya.members, alex); mem(dmMaya.members, maya);
+    {
+        auto d1 = text(dmMaya.id, maya, QStringLiteral(
+            "Hey! Did the reference board come through?"), 52);
+        auto d2 = text(dmMaya.id, alex, QStringLiteral(
+            "Just landed — the palette is exactly what we talked about."), 49);
+        auto d3 = text(dmMaya.id, maya, QStringLiteral("palette.png"), 45);
+        d3.type = TimelineEvent::Image;
+        d3.body = QStringLiteral("palette.png");
+        d3.mediaMimetype = QStringLiteral("image/png");
+        d3.mediaFilename = QStringLiteral("palette.png");
+        d3.mediaMxcUrl = QStringLiteral("mxc://lightning.example/palette");
+        d3.mediaWidth = 900; d3.mediaHeight = 900; d3.mediaSize = 120000;
+        auto d4 = text(dmMaya.id, alex, QStringLiteral(
+            "Love it. I'll wire it into the theme presets tonight."), 42);
+        d4.replyToEventId = d3.eventId;
+        d4.replyToSender = maya.name;
+        d4.replyToPreview = QStringLiteral("palette.png");
+        d4.reactions = { { QStringLiteral("❤️"), 1, false, QString() } };
+        auto d5 = text(dmMaya.id, maya, QStringLiteral("Perfect, thank you! 🙌"), 40);
+        m_timelines[dmMaya.id] = { d1, d2, d3, d4, d5 };
+    }
+    m_paginationRemaining[dmMaya.id] = 0;
+
+    // ── Lightning Development — code, file, and a thread ────────────────
+    RoomInfo dev;
+    dev.id = QStringLiteral("!dev:lightning.example");
+    dev.name = QStringLiteral("Lightning Development");
+    dev.topic = QStringLiteral("Native Qt/QML + Rust Matrix SDK");
+    dev.spaceId = community.id;
+    dev.lastActivity = base.addSecs(-30 * 60);
+    dev.lastMessagePreview = QStringLiteral("Shipped: smooth touchpad scrolling.");
+    dev.unreadCount = 5;
+    dev.hasUnreadMessages = true;
+    mem(dev.members, alex); mem(dev.members, sam);
+    mem(dev.members, noah); mem(dev.members, priya); mem(dev.members, leo);
+    QString threadRootId;
+    {
+        auto c1 = text(dev.id, noah, QStringLiteral(
+            "The timeline anchor rewrite is in. Scrolling is 1:1 with the touchpad now."), 92);
+        auto c2 = text(dev.id, priya, QStringLiteral(
+            "Nice. For the release notes, the key change is:"), 88);
+        auto c3 = text(dev.id, priya, QStringLiteral(
+            "```\n- Defer anchor corrections until the gesture settles\n- Drop per-delta geometry scans\n```"), 87);
+        c3.formattedBody = QStringLiteral(
+            "<pre><code>- Defer anchor corrections until the gesture settles\n"
+            "- Drop per-delta geometry scans</code></pre>");
+        auto c4 = text(dev.id, sam, QStringLiteral(
+            "Use `userScrollActive` as the gate — that's the load-bearing bit."), 80);
+        c4.formattedBody = QStringLiteral(
+            "Use <code>userScrollActive</code> as the gate — that's the load-bearing bit.");
+        auto c5 = text(dev.id, noah, QStringLiteral("release-notes-0.6.4.md"), 74);
+        c5.type = TimelineEvent::File;
+        c5.body = QStringLiteral("release-notes-0.6.4.md");
+        c5.mediaMimetype = QStringLiteral("text/markdown");
+        c5.mediaFilename = QStringLiteral("release-notes-0.6.4.md");
+        c5.mediaMxcUrl = QStringLiteral("mxc://lightning.example/relnotes");
+        c5.mediaSize = 4210;
+        // A thread root with replies.
+        auto root = text(dev.id, leo, QStringLiteral(
+            "Should we backport the scroll fix to 0.6.x or hold for 0.7?"), 64);
+        threadRootId = root.eventId;
+        root.isThreadRoot = true;
+        root.threadReplyCount = 4;
+        root.threadLatestPreview = QStringLiteral("Agreed — backport it.");
+        root.threadLatestKind = QStringLiteral("text");
+        root.threadLatestSender = sam.id;
+        root.threadLatestSenderDisplayName = sam.name;
+        root.threadLatestTimestamp = base.addSecs(-58 * 60);
+        auto c7 = text(dev.id, sam, QStringLiteral(
+            "Shipped: smooth touchpad scrolling. Tagging it for the changelog."), 30);
+        c7.reactions = {
+            { QStringLiteral("🚀"), 4, true, nextEventId() },
+            { QStringLiteral("🎉"), 2, false, QString() },
+        };
+        // Thread replies live in the ROOM timeline with threadRootId set: the
+        // model filters true m.thread replies out of the main view, and
+        // openThread() rebuilds the thread panel from them (root pinned first).
+        auto tr = [&](const Person &p, const QString &body, int minsAgo) {
+            TimelineEvent e = text(dev.id, p, body, minsAgo);
+            e.threadRootId = threadRootId;
+            return e;
+        };
+        m_timelines[dev.id] = {
+            c1, c2, c3, c4, c5, root, c7,
+            tr(priya, QStringLiteral("It's low-risk and user-visible."), 62),
+            tr(noah, QStringLiteral("Tests are green on both configs."), 61),
+            tr(alex, QStringLiteral("I can cut 0.6.4 this week."), 60),
+            tr(sam, QStringLiteral("Agreed — backport it."), 58),
+        };
+    }
+    m_paginationRemaining[dev.id] = 1;
+
+    // ── Product Feedback — a poll ───────────────────────────────────────
+    RoomInfo feedback;
+    feedback.id = QStringLiteral("!feedback:lightning.example");
+    feedback.name = QStringLiteral("Product Feedback");
+    feedback.topic = QStringLiteral("What should we build next?");
+    feedback.spaceId = community.id;
+    feedback.lastActivity = base.addSecs(-70 * 60);
+    feedback.lastMessagePreview = QStringLiteral("Poll: Which theme for the release screenshots?");
+    mem(feedback.members, alex); mem(feedback.members, maya);
+    mem(feedback.members, sam); mem(feedback.members, priya);
+    {
+        auto p1 = text(feedback.id, priya, QStringLiteral(
+            "Quick vote before we finalise the store listing:"), 75);
+        TimelineEvent poll = text(feedback.id, priya, QString(), 74);
+        poll.type = TimelineEvent::Poll;
+        poll.pollQuestion = QStringLiteral(
+            "Which theme should we use for the release screenshots?");
+        poll.pollKind = QStringLiteral("disclosed");
+        poll.pollMaxSelections = 1;
+        poll.pollTotalVoters = 9;
+        poll.pollAnswers = {
+            { QStringLiteral("a1"), QStringLiteral("Midnight"), 4, true },
+            { QStringLiteral("a2"), QStringLiteral("Ocean"),    3, false },
+            { QStringLiteral("a3"), QStringLiteral("Violet"),   2, false },
+            { QStringLiteral("a4"), QStringLiteral("Light"),    0, false },
+        };
+        m_timelines[feedback.id] = { p1, poll };
+    }
+    m_paginationRemaining[feedback.id] = 0;
+
+    // ── Photography — a media-heavy room ────────────────────────────────
+    RoomInfo photo;
+    photo.id = QStringLiteral("!photography:lightning.example");
+    photo.name = QStringLiteral("Photography");
+    photo.topic = QStringLiteral("Shots from the weekend");
+    photo.spaceId = studio.id;
+    photo.lastActivity = base.addSecs(-3 * 60 * 60);
+    photo.lastMessagePreview = QStringLiteral("Golden hour by the coast 🌅");
+    mem(photo.members, alex); mem(photo.members, aisha); mem(photo.members, jordan);
+    {
+        auto ph = [&](const Person &p, const QString &caption,
+                      const QString &key, int w, int h, int minsAgo) {
+            TimelineEvent e = text(photo.id, p, caption, minsAgo);
+            e.type = TimelineEvent::Image;
+            e.mediaMimetype = QStringLiteral("image/jpeg");
+            e.mediaFilename = key + QStringLiteral(".jpg");
+            e.mediaMxcUrl = QStringLiteral("mxc://lightning.example/") + key;
+            e.mediaWidth = w; e.mediaHeight = h; e.mediaSize = 320000;
+            return e;
+        };
+        m_timelines[photo.id] = {
+            ph(aisha, QStringLiteral("Golden hour by the coast 🌅"),
+               QStringLiteral("coast"), 1600, 1000, 200),
+            ph(jordan, QStringLiteral("Portrait test, natural light"),
+               QStringLiteral("portrait"), 800, 1200, 190),
+            ph(aisha, QStringLiteral("Album cover crop"),
+               QStringLiteral("square"), 1000, 1000, 185),
+        };
+        m_timelines[photo.id][0].reactions = {
+            { QStringLiteral("😍"), 3, false, QString() } };
+    }
+    m_paginationRemaining[photo.id] = 0;
+
+    // ── Release Announcements — announcement room ───────────────────────
+    RoomInfo announce;
+    announce.id = QStringLiteral("!announce:lightning.example");
+    announce.name = QStringLiteral("Release Announcements");
+    announce.topic = QStringLiteral("What's new in Lightning");
+    announce.spaceId = community.id;
+    announce.lastActivity = base.addSecs(-6 * 60 * 60);
+    announce.lastMessagePreview = QStringLiteral("Lightning 0.6.3 is out 🎉");
+    mem(announce.members, alex); mem(announce.members, priya);
+    {
+        auto a1 = text(announce.id, priya, QStringLiteral(
+            "Lightning 0.6.3 is out 🎉 Smoother scrolling, reliable video, and a refreshed room list."), 360);
+        a1.reactions = { { QStringLiteral("🎉"), 8, true, nextEventId() },
+                         { QStringLiteral("⚡"), 5, false, QString() } };
+        m_timelines[announce.id] = { a1 };
+    }
+    m_paginationRemaining[announce.id] = 0;
+
+    // ── Music Discovery — favourite room ────────────────────────────────
+    RoomInfo music;
+    music.id = QStringLiteral("!music:lightning.example");
+    music.name = QStringLiteral("Music Discovery");
+    music.topic = QStringLiteral("Share what you're listening to");
+    music.spaceId = friends.id;
+    music.lastActivity = base.addSecs(-5 * 60 * 60);
+    music.lastMessagePreview = QStringLiteral("This album is on repeat all week.");
+    mem(music.members, alex); mem(music.members, jordan); mem(music.members, noah);
+    m_timelines[music.id] = {
+        text(music.id, jordan, QStringLiteral("This album is on repeat all week."), 300),
+    };
+    m_paginationRemaining[music.id] = 0;
+
+    // ── An invite ───────────────────────────────────────────────────────
+    RoomInfo invite;
+    invite.id = QStringLiteral("!invite-founders:lightning.example");
+    invite.name = QStringLiteral("Founders Lounge");
+    invite.topic = QStringLiteral("Private space for the founding team");
+    invite.membership = RoomInfo::Invited;
+    invite.invitePending = true;
+    invite.inviterUserId = sam.id;
+    invite.inviterDisplayName = sam.name;
+    invite.lastActivity = base.addSecs(-9 * 60 * 60);
+
+    // Space membership.
+    friends.childRoomIds   = { dmMaya.id, music.id };
+    studio.childRoomIds    = { design.id, photo.id };
+    community.childRoomIds  = { dev.id, feedback.id, announce.id };
+
+    // Room-list order: Spaces first, then rooms by recency, DM, invite.
+    m_rooms = { friends, studio, community,
+                design, dev, dmMaya, feedback, photo, announce, music,
+                invite };
 }
 
 void MockMatrixClient::setState(ConnectionState s)

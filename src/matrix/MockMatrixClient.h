@@ -27,6 +27,15 @@ public:
     // v0.7: lets the mock restore/switch sessions from the persisted
     // account registry so account-switch lifecycle tests can run offline.
     void setSettings(SettingsManager *settings) { m_settings = settings; }
+
+    // Development-only screenshot/demo dataset. When enabled, rooms()/timeline()
+    // serve a richer, fully deterministic scene (fictional people, Spaces,
+    // polished conversations, a poll, media placeholders, fixed timestamps)
+    // instead of the compact shared test fixtures. Enabled ONLY by
+    // AppController::beginScreenshotDemo (never by tests), so the fixtures the
+    // mock tests assert on are unchanged. No network; no real stores.
+    void setScreenshotDemoMode(bool on);
+    bool screenshotDemoMode() const { return m_screenshotDemoMode; }
     bool isLoggedIn() const override { return m_loggedIn; }
     QString currentUserId() const override { return m_userId; }
     QString homeserverUrl() const override { return m_homeserver; }
@@ -174,6 +183,8 @@ public:
 
 private:
     void seedMockData();
+    void seedScreenshotDemoData();     // development-only rich demo scene
+    bool m_screenshotDemoMode = false;
     void setState(ConnectionState s);
     QString nextEventId();
     QString nextTxnId();
