@@ -83,6 +83,15 @@ private Q_SLOTS:
         QVERIFY(pane.contains(QStringLiteral("viewportFillCheckScheduled")));
         QVERIFY(pane.contains(QStringLiteral("Qt.callLater(function()")));
         QVERIFY(pane.contains(QStringLiteral("app.pagination.requestViewportFill()")));
+        // v0.6.4: near-top pagination is EDGE-triggered with hysteresis, so a
+        // reader sitting near the top cannot re-send userInitiated requests
+        // every frame and spin the zero-progress loop. The user-scroll trigger
+        // sites go through checkNearTopEdge (latched between an enter and a
+        // wider exit band); the passive atYBeginning fill trigger stays.
+        QVERIFY(pane.contains(QStringLiteral("function checkNearTopEdge(")));
+        QVERIFY(pane.contains(QStringLiteral("nearTopArmed")));
+        QVERIFY(pane.contains(QStringLiteral("nearTopEnterY")));
+        QVERIFY(pane.contains(QStringLiteral("nearTopExitY")));
         QVERIFY(!pane.contains(QStringLiteral(
             "readonly property int paginationState")));
         QVERIFY(!pane.contains(QStringLiteral("showPaginationStatus")));

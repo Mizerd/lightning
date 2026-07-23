@@ -803,10 +803,10 @@ Rectangle {
                 // contentY programmatically, so Flickable.moving stays false.
                 function updateStickAndPaginate() {
                     stickToBottom = atBottomEdge()
-                    // Active user scroll (wheel/pixel/keyboard) — re-arms the
-                    // automatic backfill cap.
-                    if (contentY < height * 0.5 && !stickToBottom)
-                        maybeRequestNearTop(true)
+                    // Active user scroll (wheel/pixel/keyboard): edge-latched so
+                    // reaching the top re-arms the bounded backfill exactly once
+                    // per approach, not on every settle.
+                    checkNearTopEdge(true)
                 }
 
                 // Coalesce near-top backfill onto the next event-loop turn, the
@@ -834,6 +834,37 @@ Rectangle {
                         if (app.currentRoomId !== "")
                             app.pagination.requestNearTop(ui)
                     })
+                }
+
+                // v0.6.4: near-top pagination is EDGE-triggered with
+                // hysteresis, not level-triggered. While the reader sits near
+                // the top, updateStickAndPaginate / onContentYChanged / settle
+                // fire continuously; the old level test (`contentY < height*0.5`)
+                // re-sent a userInitiated near-top request on every one, which
+                // reset the controller's zero-progress strike bound and let a
+                // run of filtered (thread-only) history spin as a request loop.
+                // Latch on region ENTRY and only re-arm after the reader leaves
+                // a WIDER exit band, so one deliberate approach to the top = at
+                // most one user request; the controller owns the bounded
+                // continuation through filtered pages. A successful visible
+                // prepend pushes the reader well below the exit band (older rows
+                // now sit above), which naturally re-arms for the next approach.
+                readonly property real nearTopEnterY: height * 0.5
+                readonly property real nearTopExitY: height * 0.9
+                property bool nearTopArmed: true
+                function checkNearTopEdge(userInitiated) {
+                    if (stickToBottom) {
+                        nearTopArmed = true
+                        return
+                    }
+                    if (contentY <= nearTopEnterY) {
+                        if (nearTopArmed) {
+                            nearTopArmed = false
+                            maybeRequestNearTop(userInitiated)
+                        }
+                    } else if (contentY >= nearTopExitY) {
+                        nearTopArmed = true
+                    }
                 }
 
                 function cancelWheelMotion() {
@@ -1219,10 +1250,10 @@ Rectangle {
                     // restore) which manages follow-latest itself.
                     if (!moving && !wheelAnimating) return
                     stickToBottom = atBottomEdge()
-                    // Trigger backfill before hitting the exact top so history
-                    // is ready as the user approaches it (user drag/flick/wheel).
-                    if (contentY < height * 0.5 && !stickToBottom)
-                        maybeRequestNearTop(true)
+                    // Trigger backfill as the user approaches the top
+                    // (drag/flick/wheel), edge-latched with hysteresis so it
+                    // fires once per approach rather than every frame.
+                    checkNearTopEdge(true)
                 }
                 onCountChanged: {
                     // A new event arrived (or the timeline reset). Follow the
@@ -1265,6 +1296,10 @@ Rectangle {
                         timeline.anchorContentHeight = 0
                         timeline.viewAnchorId = ""
                         timeline.viewAnchorOffset = 0
+                        // Fresh room opens at the bottom: re-arm the near-top
+                        // edge so the first genuine approach to the top of the
+                        // new room triggers backfill.
+                        timeline.nearTopArmed = true
                         timeline.expandedStateGroups = ({})
                         // Re-engage the presentation gate for the fresh
                         // snapshot. Recompute only after this whole signal
@@ -1288,8 +1323,14 @@ Rectangle {
                 // Duplicate and reached-start suppression live in the
                 // controller.
                 onAtYBeginningChanged: {
-                    // Passive geometry toggle (the header height flips this as
-                    // it enters/leaves Loading) — bounded by the automatic cap.
+                    // Reaching the exact top is a PASSIVE geometry signal (also
+                    // the first empty/incubating frame that kicks off the
+                    // initial-history fill). It stays userInitiated=false so it
+                    // never resets the controller's filtered-page bound, and the
+                    // controller now bounds passive requests too — so this can
+                    // neither defeat the loop stop nor be the loop. It is NOT
+                    // edge-latched because the fresh-room fill must fire even
+                    // while stickToBottom is still true.
                     if (atYBeginning)
                         maybeRequestNearTop(false)
                 }

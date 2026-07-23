@@ -487,34 +487,123 @@ private Q_SLOTS:
         client.completeBatch(kRoomA, 3, false);
         const int afterInitial = client.loadOlderCalls; // == 1
 
-        // Automatic near-top pages that all add nothing are allowed only up to
-        // the cap; each dispatched empty page is completed to advance strikes.
+        // A SINGLE near-top approach now drives a controller-owned, strictly
+        // bounded continuation through filtered (zero-visible-row) pages: each
+        // completed empty page schedules exactly one more, up to
+        // kMaxNearTopEmptyStrikes, then latches. Complete each dispatched page
+        // empty and count them; the loop terminates when no further page is
+        // auto-dispatched.
+        controller.requestNearTop(/*userInitiated=*/true);
         int dispatched = 0;
-        for (int i = 0; i < 12; ++i) {
-            controller.requestNearTop(/*userInitiated=*/false);
-            if (client.loadOlderCalls > afterInitial + dispatched) {
-                ++dispatched;
-                client.beginLoading(kRoomA);
-                client.completeBatch(kRoomA, 0, false); // empty (filtered) page
-            }
+        for (int guard = 0; guard < 20
+                            && client.loadOlderCalls > afterInitial + dispatched;
+             ++guard) {
+            ++dispatched;
+            client.beginLoading(kRoomA);
+            client.completeBatch(kRoomA, 0, false); // empty (filtered) page
+            QCoreApplication::processEvents();      // fire the continuation
         }
-        QCOMPARE(dispatched, 4); // kMaxNearTopEmptyStrikes
+        QCOMPARE(dispatched, 4); // kMaxNearTopEmptyStrikes: one approach, 4 pages
 
-        // Further automatic requests are refused (no spinning).
+        // The continuation has latched: no further automatic dispatch spins.
         const int capped = client.loadOlderCalls;
         controller.requestNearTop(false);
+        QCoreApplication::processEvents();
         QCOMPARE(client.loadOlderCalls, capped);
 
-        // A genuine user scroll gesture re-arms the cap and dispatches again.
+        // A genuine user scroll gesture (a deliberate NEW approach to the top)
+        // re-arms the bound and dispatches again.
         controller.requestNearTop(true);
         QCOMPARE(client.loadOlderCalls, capped + 1);
 
-        // An inserting page also re-arms the cap for subsequent automatic use.
+        // An inserting page re-arms the bound for subsequent automatic use.
         client.beginLoading(kRoomA);
         client.completeBatch(kRoomA, 2, false); // added content -> strikes reset
+        QCoreApplication::processEvents();
         const int afterInsert = client.loadOlderCalls;
         controller.requestNearTop(false);
         QCOMPARE(client.loadOlderCalls, afterInsert + 1);
+    }
+
+    // The reported defect: reaching the top starts a rapid loop of
+    // "completed added=0 reached_start=false -> requested reason=near_top".
+    // A single approach must dispatch a BOUNDED number of filtered pages and
+    // then STOP on its own, without any further user or geometry input.
+    void zeroProgressNearTopPagesDoNotLoopForever()
+    {
+        FakeClient client;
+        PaginationController controller;
+        controller.setClient(&client);
+        controller.setRoomId(kRoomA);
+
+        controller.requestViewportFill();
+        client.beginLoading(kRoomA);
+        client.completeBatch(kRoomA, 5, false); // initial visible history
+        const int afterInitial = client.loadOlderCalls;
+
+        // One near-top approach, then let the controller drive itself: every
+        // dispatched page returns zero visible rows and is NOT at the start
+        // (the SDK is paging through thread-only history). Simulate the async
+        // completion of whatever the controller dispatches, but issue NO
+        // further requestNearTop — the loop, if any, must be the controller's.
+        controller.requestNearTop(true);
+        int pages = 0;
+        for (int guard = 0; guard < 50; ++guard) {
+            if (!client.states[kRoomA].loading
+                && client.loadOlderCalls > afterInitial + pages) {
+                ++pages;
+                client.beginLoading(kRoomA);
+                client.completeBatch(kRoomA, 0, false);
+            }
+            QCoreApplication::processEvents();
+            if (!controller.busy()
+                && client.loadOlderCalls == afterInitial + pages)
+                break; // settled: no new dispatch pending
+        }
+        // Strictly bounded — it stopped on its own well under a spin.
+        QVERIFY2(pages <= 4,
+                 qPrintable(QStringLiteral("filtered pages=%1").arg(pages)));
+        QVERIFY(pages >= 1); // it did try at least once
+
+        // And it stays stopped with no further input.
+        const int settled = client.loadOlderCalls;
+        for (int i = 0; i < 5; ++i)
+            QCoreApplication::processEvents();
+        QCOMPARE(client.loadOlderCalls, settled);
+    }
+
+    // Bounded continuation still SURFACES visible history: a run of filtered
+    // pages followed by a page that adds visible events resets the bound and
+    // stops the continuation (the reader now sees older messages).
+    void nearTopContinuationSurfacesVisibleHistoryAndResets()
+    {
+        FakeClient client;
+        PaginationController controller;
+        controller.setClient(&client);
+        controller.setRoomId(kRoomA);
+
+        controller.requestViewportFill();
+        client.beginLoading(kRoomA);
+        client.completeBatch(kRoomA, 5, false);
+        const int afterInitial = client.loadOlderCalls;
+
+        controller.requestNearTop(true);
+        // First dispatched page is filtered (0 visible)...
+        QCOMPARE(client.loadOlderCalls, afterInitial + 1);
+        client.beginLoading(kRoomA);
+        client.completeBatch(kRoomA, 0, false);
+        QCoreApplication::processEvents();
+        // ...the controller auto-continues once...
+        QCOMPARE(client.loadOlderCalls, afterInitial + 2);
+        client.beginLoading(kRoomA);
+        client.completeBatch(kRoomA, 3, false); // visible history surfaces
+        QCoreApplication::processEvents();
+        // ...and stops: visible progress cleared the bound, no auto-continue.
+        const int afterVisible = client.loadOlderCalls;
+        QCOMPARE(afterVisible, afterInitial + 2);
+        for (int i = 0; i < 5; ++i)
+            QCoreApplication::processEvents();
+        QCOMPARE(client.loadOlderCalls, afterVisible);
     }
 
     void progressResetsNoProgressStrikes()

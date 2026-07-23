@@ -197,7 +197,11 @@ void PaginationController::requestNearTop(bool userInitiated)
 {
     if (failed() || m_autoRetryTimer.isActive())
         return;
-    // A genuine user scroll gesture toward the top re-arms automatic backfill.
+    // A deliberate NEW approach to the top re-arms the bounded continuation.
+    // QML edge-latches this (one request per genuine top-approach, not per
+    // contentY/settle signal), so it is not re-sent while the reader merely
+    // sits near the top. It does NOT bypass the bound below — reaching the top
+    // must not itself spin.
     if (userInitiated)
         m_nearTopEmptyStrikes = 0;
     // ListView reports atYBeginning during its first empty/incubating frame.
@@ -207,11 +211,14 @@ void PaginationController::requestNearTop(bool userInitiated)
         requestViewportFill();
         return;
     }
-    // Bound passive, geometry-driven backfill: after a run of automatic pages
-    // that added no visible events (e.g. filtered thread-only history), stop
-    // auto-requesting so header/atYBeginning churn near the top cannot spin.
-    // A user gesture (above), an inserting batch, or reaching start re-arms it.
-    if (!userInitiated && m_nearTopEmptyStrikes >= kMaxNearTopEmptyStrikes)
+    // Bound consecutive filtered (zero-visible-row) pages regardless of who
+    // asked. matrix-rust-sdk keeps advancing its back-pagination cursor through
+    // thread-only / hidden history, returning reached_start=false with no
+    // visible rows; without this bound the timeline hammers the homeserver for
+    // as long as the reader stays at the top — the reported near_top loop.
+    // finishBatch() drives the bounded continuation itself, so this guard is
+    // what stops it and what a stale geometry re-trigger hits.
+    if (m_nearTopEmptyStrikes >= kMaxNearTopEmptyStrikes)
         return;
     request(Reason::NearTop);
 }
@@ -475,14 +482,31 @@ void PaginationController::finishBatch(bool hitStart)
         }
     }
 
-    // Same no-progress accounting for automatic NearTop backfill: consecutive
-    // empty pages accumulate toward the cap; any inserting page or reaching
-    // start re-arms it. (A user gesture re-arms it in requestNearTop.)
+    // NearTop progress classification and BOUNDED continuation:
+    //   * visible rows added        -> VisibleProgress: clear strikes, stop
+    //     auto-continuation (the reader now sees older history and is pushed
+    //     off the top edge, so QML re-arms on the next deliberate approach);
+    //   * reached start             -> EndOfHistory: clear strikes, stop;
+    //   * zero visible rows, not at start -> BackendProgressWithoutVisibleRows:
+    //     the SDK advanced its cursor through filtered (thread-only / hidden)
+    //     history. Continue a STRICTLY bounded number of times to surface
+    //     visible events, then latch and stop until the reader deliberately
+    //     re-approaches the top. This replaces the old QML-geometry-driven loop
+    //     that could spin for as long as the reader sat at the top.
     if (reason == Reason::NearTop) {
-        if (inserted == 0 && !hitStart)
-            ++m_nearTopEmptyStrikes;
-        else
+        if (hitStart || inserted > 0) {
             m_nearTopEmptyStrikes = 0;
+        } else {
+            ++m_nearTopEmptyStrikes;
+            if (m_nearTopEmptyStrikes < kMaxNearTopEmptyStrikes) {
+                scheduleNearTopContinuation();
+            } else {
+                qCInfo(lcPagination)
+                    << "timeline pagination near-top continuation latched after"
+                    << m_nearTopEmptyStrikes
+                    << "filtered pages generation=" << m_generation;
+            }
+        }
     }
 
     // m_requestActive just dropped to false above, which is what busy() and
@@ -495,6 +519,23 @@ void PaginationController::finishBatch(bool hitStart)
     Q_EMIT paginationCompleted(inserted, hitStart);
     if (m_navigationPurpose != NavigationPurpose::None)
         continueNavigation(hitStart);
+}
+
+void PaginationController::scheduleNearTopContinuation()
+{
+    const quint64 generation = m_generation;
+    // Defer to the next event-loop turn so this batch's completion, anchor
+    // restore, and stateChanged settle first; network latency then paces the
+    // bounded continuation (it is not a tight spin). The generation / active /
+    // room / bound re-checks make a room switch, sign-out, or a re-arm that
+    // landed meanwhile cancel it cleanly.
+    QTimer::singleShot(0, this, [this, generation] {
+        if (generation != m_generation || m_requestActive || m_roomId.isEmpty())
+            return;
+        if (m_nearTopEmptyStrikes >= kMaxNearTopEmptyStrikes)
+            return;
+        request(Reason::NearTop);
+    });
 }
 
 void PaginationController::onTimelineReset(const QString &roomId)

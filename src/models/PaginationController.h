@@ -158,6 +158,12 @@ private:
     void request(Reason reason);
     void resetPerRoomState();
     void finishBatch(bool reachedStart);
+    // Bounded auto-continuation after a NearTop page that advanced the SDK
+    // back-pagination cursor but produced no visible rows (thread-only /
+    // hidden history). Schedules exactly one more NearTop request on the next
+    // event-loop turn while under the empty-strike bound, so filtered history
+    // is paged through a strictly bounded number of times instead of spinning.
+    void scheduleNearTopContinuation();
     void scheduleAutomaticRetry();
     void continueNavigation(bool reachedStart);
     void failNavigation();
