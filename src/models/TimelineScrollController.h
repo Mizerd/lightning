@@ -67,6 +67,14 @@ class TimelineScrollController : public QObject
     // programmatic contentY changes as user-intent for follow-latest /
     // pagination without waiting for Flickable.moving.
     Q_PROPERTY(bool motionActive READ motionActive NOTIFY motionActiveChanged)
+    // Bounded per-gesture scroll diagnostics, off unless the environment
+    // variable LIGHTNING_SCROLL_TRACE is set. When on, TimelinePane emits ONE
+    // summarized line per wheel/touchpad gesture at settle (never per event):
+    // event count, device mix, net contentY movement, content-height churn,
+    // and — the load-bearing number — how many times a deferred anchor
+    // correction actually wrote the position while the gesture owned it (must
+    // be 0). Read once at construction; never logs message content or ids.
+    Q_PROPERTY(bool scrollTraceEnabled READ scrollTraceEnabled CONSTANT)
 
 public:
     // Persisted as a stable integer (see SettingsManager). Order matters:
@@ -86,6 +94,7 @@ public:
     Q_INVOKABLE void setWheelSpeedValue(int value);
 
     bool motionActive() const { return m_motionActive; }
+    bool scrollTraceEnabled() const { return m_scrollTraceEnabled; }
 
     // Pixels one full wheel notch (angleDelta.y == 120) scrolls at the active
     // speed, given the current viewport height. Bounded so tiny viewports
@@ -183,6 +192,10 @@ private:
 
     // Touchpad pixel scaling. 1.0 == native; kept mild and tunable.
     double m_pixelFactor = 1.0;
+
+    // Bounded per-gesture scroll diagnostics gate (env LIGHTNING_SCROLL_TRACE),
+    // read once at construction.
+    bool m_scrollTraceEnabled = false;
 
     // Frame ticker; parented to this, running only while motion is active.
     QAbstractAnimation *m_ticker = nullptr;

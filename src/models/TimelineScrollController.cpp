@@ -88,6 +88,7 @@ private:
 
 TimelineScrollController::TimelineScrollController(QObject *parent)
     : QObject(parent)
+    , m_scrollTraceEnabled(qEnvironmentVariableIsSet("LIGHTNING_SCROLL_TRACE"))
 {
 }
 

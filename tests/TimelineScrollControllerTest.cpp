@@ -210,6 +210,22 @@ private Q_SLOTS:
         QCOMPARE(spy.count(), 2);        // true → false
     }
 
+    // The bounded per-gesture scroll diagnostics gate follows the
+    // LIGHTNING_SCROLL_TRACE environment variable, read once at construction.
+    // Off by default so a normal run never emits the trace; on when set so a
+    // physical tester can capture one summary line per gesture.
+    void scrollTraceGateFollowsEnvironment()
+    {
+        qunsetenv("LIGHTNING_SCROLL_TRACE");
+        TimelineScrollController off;
+        QVERIFY(!off.scrollTraceEnabled());
+
+        qputenv("LIGHTNING_SCROLL_TRACE", "1");
+        TimelineScrollController on;
+        QVERIFY(on.scrollTraceEnabled());
+        qunsetenv("LIGHTNING_SCROLL_TRACE");
+    }
+
     // An out-of-range persisted value falls back to Fast rather than an
     // undefined speed.
     void invalidSpeedFallsBackToFast()

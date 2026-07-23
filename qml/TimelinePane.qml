@@ -669,8 +669,15 @@ Rectangle {
                     var lo = wheelMinY()
                     var hi = wheelMaxY()
                     desired = desired < lo ? lo : (desired > hi ? hi : desired)
-                    if (Math.abs(contentY - desired) > 0.5)
+                    if (Math.abs(contentY - desired) > 0.5) {
+                        // Diagnostics: a correction reaching this write while a
+                        // gesture is in flight is the fight we eliminated. The
+                        // userScrollActive guard above should keep this at 0
+                        // during a gesture; count it so a trace can prove it.
+                        if (diagActive)
+                            diagAnchorCorrections += 1
                         contentY = desired
+                    }
                 }
 
                 // v0.6.0: MessageDelegate view contract — the room timeline
@@ -827,6 +834,57 @@ Rectangle {
                 // (`moving` already covers both dragging and flicking.)
                 readonly property bool userScrollActive:
                     moving || wheelAnimating || scrollSettleTimer.running
+
+                // ── Bounded per-gesture scroll diagnostics ───────────────
+                // Off unless LIGHTNING_SCROLL_TRACE is set (read once in
+                // TimelineScrollController). When on, ONE summary line is
+                // emitted per wheel/touchpad gesture at settle — never one per
+                // event — so a physical tester can capture a real trace and
+                // send it back. The load-bearing field is anchorCorrections:
+                // the number of times a deferred anchor correction wrote the
+                // position WHILE the gesture owned it. That must be 0 — any
+                // non-zero value is the "application competing with the
+                // touchpad" fight. No message content, ids, or URLs are logged.
+                readonly property bool scrollTrace: app.timelineScroll.scrollTraceEnabled
+                property bool diagActive: false
+                property int diagEvents: 0
+                property int diagPixelEvents: 0
+                property int diagAngleEvents: 0
+                property int diagAnchorCorrections: 0
+                property real diagStartY: 0
+                property real diagStartHeight: 0
+                function diagNoteEvent(isPixel) {
+                    if (!scrollTrace)
+                        return
+                    if (!diagActive) {
+                        diagActive = true
+                        diagEvents = 0
+                        diagPixelEvents = 0
+                        diagAngleEvents = 0
+                        diagAnchorCorrections = 0
+                        diagStartY = contentY
+                        diagStartHeight = contentHeight
+                    }
+                    diagEvents += 1
+                    if (isPixel)
+                        diagPixelEvents += 1
+                    else
+                        diagAngleEvents += 1
+                }
+                function diagFlushGesture() {
+                    if (!scrollTrace || !diagActive)
+                        return
+                    diagActive = false
+                    console.info("scroll-gesture"
+                        + " events=" + diagEvents
+                        + " pixel=" + diagPixelEvents
+                        + " angle=" + diagAngleEvents
+                        + " netY=" + Math.round(contentY - diagStartY)
+                        + " dContentH=" + Math.round(contentHeight - diagStartHeight)
+                        + " anchorCorrections=" + diagAnchorCorrections
+                        + " stick=" + (stickToBottom ? 1 : 0)
+                        + " nearTop=" + (contentY <= nearTopEnterY ? 1 : 0))
+                }
 
                 // Valid contentY range for this ListView, accounting for the
                 // scroll margins, the pagination header, and a prepend-shifted
@@ -1023,6 +1081,10 @@ Rectangle {
                         timeline.updateStickAndPaginate()
                         timeline.saveRoomPosition()
                         timeline.captureViewAnchor()
+                        // The single gesture-settle point for both the touchpad
+                        // and mouse-engine paths (the engine's settle restarts
+                        // this timer): emit one bounded diagnostic summary.
+                        timeline.diagFlushGesture()
                     }
                 }
 
@@ -1064,6 +1126,7 @@ Rectangle {
                             // pure cost on the touchpad hot path, worst near the
                             // top and over tall media rows — is gone. The anchor
                             // is captured ONCE when the gesture settles.
+                            timeline.diagNoteEvent(true)
                             scrollSettleTimer.restart()
                         } else if (event.angleDelta.y !== 0) {
                             // Discrete mouse wheel: the C++ engine coalesces
@@ -1076,6 +1139,7 @@ Rectangle {
                             // Any upward intent leaves follow-latest.
                             if (event.angleDelta.y > 0)
                                 timeline.stickToBottom = false
+                            timeline.diagNoteEvent(false)
                             scrollSettleTimer.restart()
                         }
                         event.accepted = true
