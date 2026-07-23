@@ -1270,6 +1270,85 @@ private Q_SLOTS:
         QCOMPARE(warnings, QStringList{});
     }
 
+    // Native-touchpad architecture pass: a high-resolution touchpad gesture
+    // must open a scroll SESSION (userScrollActive) that gates every deferred
+    // position correction, and that session must CLEAR once input stops so
+    // corrections resume. Qt's QML WheelEvent exposes no scroll phase and no
+    // device type (phase begin/end is macOS-only even in C++), so the session
+    // is inferred from the settle timer restarted on each delta — this proves
+    // that heuristic works: active during input, cleared ~250ms after the last
+    // event. While the session is active, maintainViewAnchor() must be a no-op
+    // (the guard returns before any geometry work), so an async row-height
+    // change mid-gesture cannot write contentY and fight the finger — the
+    // "application competing with the touchpad" defect.
+    void touchpadGestureOpensScrollSessionThatGatesCorrections()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        controller.setCurrentRoomId(QStringLiteral("!general:mock.local"));
+
+        QQmlApplicationEngine engine;
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this,
+                [&warnings](const QList<QQmlError> &errors) {
+                    for (const auto &e : errors) warnings << e.toString();
+                });
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("TimelinePane"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(root != nullptr);
+        QObject *timeline = root->findChild<QObject *>(
+            QStringLiteral("timelineListView"));
+        QVERIFY(timeline != nullptr);
+
+        QQuickWindow window;
+        window.resize(640, 480);
+        root->setParentItem(window.contentItem());
+        root->setWidth(window.width());
+        root->setHeight(window.height());
+        window.show();
+        QCoreApplication::processEvents();
+
+        // Reader browsing history: not pinned to the bottom, no input yet.
+        QVERIFY(timeline->setProperty("stickToBottom", false));
+        QCoreApplication::processEvents();
+        QCOMPARE(timeline->property("userScrollActive").toBool(), false);
+
+        // A stream of touchpad pixel deltas (as KDE Wayland delivers them:
+        // pixelDelta set, no angle notch). Every delta must keep the session
+        // open; a mid-stream maintainViewAnchor() must never move contentY.
+        const QPointF pos(320, 300);
+        for (int i = 0; i < 6; ++i) {
+            QWheelEvent wheel(pos, window.mapToGlobal(pos.toPoint()),
+                              QPoint(0, 24), QPoint(0, 0), Qt::NoButton,
+                              Qt::NoModifier, Qt::ScrollUpdate, /*inverted=*/false);
+            QCoreApplication::sendEvent(&window, &wheel);
+            QCoreApplication::processEvents();
+            QVERIFY2(timeline->property("userScrollActive").toBool(),
+                     "touchpad delta must keep the scroll session active");
+
+            // Simulate a late async row-growth correction attempt mid-gesture:
+            // it must be gated off and leave the position owned by the input.
+            const double before = timeline->property("contentY").toDouble();
+            QMetaObject::invokeMethod(timeline, "maintainViewAnchor");
+            QCOMPARE(timeline->property("contentY").toDouble(), before);
+        }
+
+        // Upward intent left follow-latest, exactly like the mouse path.
+        QCOMPARE(timeline->property("stickToBottom").toBool(), false);
+
+        // The session clears once input stops (settle timer, ~250ms), so
+        // deferred anchor maintenance can resume for later async growth.
+        QTRY_VERIFY_WITH_TIMEOUT(
+            !timeline->property("userScrollActive").toBool(), 3000);
+        QCOMPARE(warnings, QStringList{});
+    }
+
     // Regression: once the reader has scrolled up (follow-latest left), later
     // content growth — new events AND asynchronous delegate-height settles —
     // must NOT re-pin to the bottom. Bottom-follow is latched to user intent

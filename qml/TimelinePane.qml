@@ -485,6 +485,14 @@ Rectangle {
                 spacing: 0
                 model: app.timeline
                 verticalLayoutDirection: ListView.TopToBottom
+                // Lightning owns the scroll position (wheel/pixel motion writes
+                // contentY directly, clamped to wheelMinY/wheelMaxY). Pin the
+                // Flickable's own bounds to that same range so that if a wheel
+                // event is ever also seen natively, it can neither overshoot nor
+                // rubber-band past the clamp — no bounce, no kinetic tail
+                // fighting the programmatic position. (Nheko uses the same
+                // StopAtBounds on its timeline.)
+                boundsBehavior: Flickable.StopAtBounds
                 topMargin: AppTheme.spacingM
                 bottomMargin: AppTheme.spacingM
                 leftMargin: AppTheme.spacingM
@@ -630,10 +638,24 @@ Rectangle {
                 function maintainViewAnchor() {
                     if (viewAnchorId === "" || stickToBottom)
                         return
-                    // User-driven motion owns contentY; recapture happens on
-                    // settle. The pagination prepend path owns re-anchoring
+                    // NEVER write contentY while a scroll session is active.
+                    // The user's gesture owns the position; a correction now is
+                    // the "application competing with the touchpad" defect.
+                    // Async row growth (media hydration, late decryption, link
+                    // previews, profile resolution) that lands mid-gesture is
+                    // deliberately NOT compensated in real time — it is absorbed
+                    // and the anchor is re-derived from the settled position
+                    // once input stops (scrollSettleTimer / onWheelMotionSettled).
+                    // This mirrors Element's ScrollPanel, which defers every
+                    // height correction until the scroll has been idle: reading
+                    // and re-writing the offset mid-scroll fights the input and
+                    // accumulates jitter. `userScrollActive` covers the touchpad
+                    // path too, where moving/wheelAnimating are both false
+                    // (contentY is written programmatically, so Flickable.moving
+                    // never turns true, and the pixel path cancels the wheel
+                    // engine). The pagination prepend path owns re-anchoring
                     // while its own capture is pending.
-                    if (moving || wheelAnimating)
+                    if (userScrollActive)
                         return
                     if (app.pagination.busy || anchorStableId !== "")
                         return
@@ -786,6 +808,25 @@ Rectangle {
                 // motion first, so restoration is never animated as if it
                 // were physical input.
                 property bool wheelAnimating: app.timelineScroll.motionActive
+
+                // ── Scroll-session state ─────────────────────────────────
+                // True while the user's input owns the viewport: a native
+                // drag/flick (moving/dragging), the mouse-wheel motion engine
+                // (wheelAnimating), OR a high-resolution touchpad gesture. The
+                // touchpad path writes contentY programmatically (so
+                // Flickable.moving never turns true) and cancels the wheel
+                // engine, so neither native flag detects it; the settle timer,
+                // restarted on every wheel/pixel delta, is the reliable
+                // "input seen within the last 250ms" signal. Qt's QML WheelEvent
+                // exposes no scroll phase and no device type (and phase
+                // begin/end is macOS-only even in C++), so a restarted quiet
+                // timer — not phases — is the portable gesture-active heuristic
+                // on KDE Wayland. While this is true, Lightning must not write
+                // the timeline position except through the one active input
+                // owner; deferred corrections wait for it to clear.
+                // (`moving` already covers both dragging and flicking.)
+                readonly property bool userScrollActive:
+                    moving || wheelAnimating || scrollSettleTimer.running
 
                 // Valid contentY range for this ListView, accounting for the
                 // scroll margins, the pagination header, and a prepend-shifted
@@ -1011,18 +1052,18 @@ Rectangle {
                             // content-height change teleported the view down.
                             if (event.pixelDelta.y > 0)
                                 timeline.stickToBottom = false
-                            // Keep the view anchor live on every touchpad delta.
-                            // The touchpad path runs with moving=false AND
-                            // wheelAnimating=false (cancelWheelMotion above), so
-                            // it is invisible to maintainViewAnchor's guard; if
-                            // the anchor is not refreshed here it stays frozen at
-                            // the last >250ms settle and the next async
-                            // content-height change yanks contentY back to that
-                            // stale row — the reported jitter / resist-upward /
-                            // pull-back-down defect. captureViewAnchor() reads
-                            // live content-space geometry and self-clears while
-                            // bottom-following, so downward re-engage stays correct.
-                            timeline.captureViewAnchor()
+                            // No per-delta anchor capture. Earlier code re-ran a
+                            // full indexAt/itemAtIndex/stableIdAt scan on EVERY
+                            // touchpad delta to keep the anchor "live" so a
+                            // mid-gesture content-height correction landed on the
+                            // right row. That correction no longer happens:
+                            // maintainViewAnchor is gated off while
+                            // userScrollActive (the settle timer is running for
+                            // the whole gesture), so there is nothing to keep a
+                            // fresh anchor for, and the per-frame geometry scan —
+                            // pure cost on the touchpad hot path, worst near the
+                            // top and over tall media rows — is gone. The anchor
+                            // is captured ONCE when the gesture settles.
                             scrollSettleTimer.restart()
                         } else if (event.angleDelta.y !== 0) {
                             // Discrete mouse wheel: the C++ engine coalesces
