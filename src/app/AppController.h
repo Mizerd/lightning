@@ -53,6 +53,9 @@ class AppController : public QObject
     // build compiled with LIGHTNING_ENABLE_SCREENSHOT_DEMO and launched with
     // --screenshot-demo.
     Q_PROPERTY(bool screenshotDemoActive READ screenshotDemoActive CONSTANT)
+    // Development-only demo-session controller (see demoController()). Always
+    // present so QML bindings resolve; null in every non-demo build.
+    Q_PROPERTY(QObject* demo READ demoController CONSTANT)
     Q_PROPERTY(QString backendName READ backendName CONSTANT)
     Q_PROPERTY(QString connectionStatus READ connectionStatus NOTIFY connectionStatusChanged)
     Q_PROPERTY(QString syncModeLabel READ syncModeLabel NOTIFY syncModeChanged)
@@ -181,7 +184,15 @@ public:
     // Rust backend was not compiled in.
     static bool isBackendCompiled(Backend backend);
 
-    explicit AppController(Backend backend = HttpBackend, QObject *parent = nullptr);
+    // `screenshotDemo` is only ever true in a build compiled with
+    // LIGHTNING_ENABLE_SCREENSHOT_DEMO and launched with --screenshot-demo (main
+    // forces the mock backend for it). It is injected here — not discovered
+    // later — so the constructor can (a) build an in-memory SecretStore instead
+    // of probing the production libsecret/keychain store, and (b) skip the
+    // normal startup session-restore and let beginScreenshotDemo drive it.
+    explicit AppController(Backend backend = HttpBackend,
+                           bool screenshotDemo = false,
+                           QObject *parent = nullptr);
     ~AppController() override;
 
     // Quiesce background work (media playback, sync) while the window and the
@@ -202,7 +213,11 @@ public:
     // account so the app opens directly into the real chat UI. A no-op unless
     // the active backend is the in-memory mock (guaranteed by preflight, which
     // forces --screenshot-demo to the mock backend). Never networks.
-    void beginScreenshotDemo();
+    void beginScreenshotDemo(const QString &initialAccount = QString());
+    // Development-only: the demo-session controller (scenarios, control panel,
+    // window presets, per-account selected-room memory). Null unless the
+    // screenshot demo is active. Exposed to QML as `app.demo`.
+    QObject *demoController() const { return m_demoController; }
     QString backendName() const;
     QString connectionStatus() const { return m_connectionStatus; }
     QString syncModeLabel() const;
@@ -433,6 +448,10 @@ private:
                                                     QObject *parent);
 
     Backend m_backend;
+    // Injected at construction (never discovered later): true only in a
+    // LIGHTNING_ENABLE_SCREENSHOT_DEMO build launched with --screenshot-demo.
+    // Gates the in-memory SecretStore and the skipped startup restore.
+    bool m_screenshotDemo = false;
     Screen m_currentScreen = LoginScreen;
     QString m_currentRoomId;
     QString m_requestedSettingsSection;
@@ -465,6 +484,11 @@ private:
     // compile option that enables beginScreenshotDemo cannot coexist with a
     // Rust-only release).
     bool m_screenshotDemoActive = false;
+    // Development-only demo-session controller (scenarios/panel/window presets).
+    // Parented to this AppController; null in non-demo builds. Owned as a raw
+    // QObject* so the concrete ScreenshotDemoController type stays behind the
+    // LIGHTNING_ENABLE_SCREENSHOT_DEMO compile guard and out of this header.
+    QObject *m_demoController = nullptr;
     std::unique_ptr<MatrixClient> m_client;
     std::unique_ptr<AccountManager> m_accounts;
     std::unique_ptr<AuthManager> m_auth;

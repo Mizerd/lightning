@@ -19,6 +19,10 @@
 #include "notifications/NotificationManager.h"
 #include "spaces/SpaceManager.h"
 #include "storage/SecretStore.h"
+#include "storage/InMemorySecretStore.h"
+#ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO
+#include "app/ScreenshotDemoController.h"
+#endif
 #include "threads/ThreadManager.h"
 
 #ifdef ENABLE_RUST_SDK_BACKEND
@@ -93,10 +97,19 @@ std::unique_ptr<MatrixClient> AppController::makeClient(Backend backend,
 #endif
 }
 
-AppController::AppController(Backend backend, QObject *parent)
+AppController::AppController(Backend backend, bool screenshotDemo,
+                             QObject *parent)
     : QObject(parent)
     , m_backend(backend)
-    , m_secretStore(SecretStore::createDefault(this))
+    , m_screenshotDemo(screenshotDemo)
+    // Screenshot-demo mode must never construct a production secure store: a
+    // libsecret/keychain store's constructor probes the real Secret Service and
+    // is not isolated by the demo applicationName. An in-memory store touches no
+    // libsecret, no keychain, and no file (see beginScreenshotDemo's assertion).
+    , m_secretStore(screenshotDemo
+                        ? std::unique_ptr<SecretStore>(
+                              std::make_unique<InMemorySecretStore>(this))
+                        : SecretStore::createDefault(this))
     , m_settings(std::make_unique<SettingsManager>(this))
 {
 #ifdef LIGHTNING_RUST_ONLY
@@ -796,9 +809,15 @@ AppController::AppController(Backend backend, QObject *parent)
     // the genuine login form. The mock backend restores from its account
     // registry (it has no real tokens), so the startup lifecycle is the
     // same on every backend and testable end to end.
-    const bool hasRestorableSession = m_settings->hasSession()
-        || (m_backend == MockBackend
-            && !m_settings->activeAccountUserId().isEmpty());
+    // Screenshot-demo mode drives its own deterministic restore from
+    // beginScreenshotDemo (which first registers the fictional accounts and
+    // enables the rich scene); the normal startup restore must not fire first
+    // and race it — especially on a persisted isolated demo profile whose
+    // account records already exist from a previous launch.
+    const bool hasRestorableSession = !m_screenshotDemo
+        && (m_settings->hasSession()
+            || (m_backend == MockBackend
+                && !m_settings->activeAccountUserId().isEmpty()));
     if (hasRestorableSession) {
         setCurrentScreen(BootScreen);
         if (!m_client->restoreSession())
@@ -847,7 +866,26 @@ QString AppController::backendName() const
 SettingsManager *AppController::settings() const { return m_settings.get(); }
 AuthManager *AppController::auth() const { return m_auth.get(); }
 
-void AppController::beginScreenshotDemo()
+#ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO
+// Map a launcher/CLI account hint ("personal"/"work"/"community", a display
+// alias, or a full user id) onto one of the three fictional demo user ids.
+static QString resolveDemoAccountId(const QString &hint)
+{
+    const QString h = hint.trimmed().toLower();
+    if (h.isEmpty() || h == QLatin1String("personal") || h == QLatin1String("alex")
+        || h == QLatin1String("@alex:lightning.example"))
+        return QStringLiteral("@alex:lightning.example");
+    if (h == QLatin1String("work") || h == QLatin1String("taylor")
+        || h == QLatin1String("@taylor:workplace.example"))
+        return QStringLiteral("@taylor:workplace.example");
+    if (h == QLatin1String("community") || h == QLatin1String("nova")
+        || h == QLatin1String("@nova:community.example"))
+        return QStringLiteral("@nova:community.example");
+    return QStringLiteral("@alex:lightning.example");
+}
+#endif
+
+void AppController::beginScreenshotDemo(const QString &initialAccount)
 {
 #ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO
     // Only ever runs on the in-memory mock backend (preflight forces it). Fail
@@ -857,22 +895,64 @@ void AppController::beginScreenshotDemo()
             << "beginScreenshotDemo ignored: active backend is not the mock";
         return;
     }
+    // Hard safety assertion: the demo must NOT have initialized a production
+    // secure secret store. The constructor injects an in-memory store for the
+    // demo (isSecure() == false); if a libsecret/keychain store ever reached
+    // here, fail closed rather than risk touching the real keychain.
+    if (m_secretStore && m_secretStore->isSecure())
+        qFatal("screenshot-demo: refusing to run on a production secure "
+               "SecretStore (libsecret/keychain must not be initialized)");
     m_screenshotDemoActive = true;
 
-    // Enable the rich, deterministic demo scene on the mock (fictional people,
-    // Spaces, polished conversations, a poll, media placeholders, fixed
-    // timestamps). Tests never call this, so the shared mock fixtures they
-    // assert on are unchanged.
-    if (auto *mock = qobject_cast<MockMatrixClient *>(m_client.get()))
+    // Enable the rich, deterministic three-account scene on the mock. Tests
+    // never call this, so the shared mock fixtures they assert on are unchanged.
+    MockMatrixClient *mock = qobject_cast<MockMatrixClient *>(m_client.get());
+    if (mock) {
         mock->setScreenshotDemoMode(true);
+        // The demo scenario / control-panel controller (app.demo), owned here.
+        if (!m_demoController)
+            m_demoController = new ScreenshotDemoController(this, mock, this);
+    }
+
+    // Register the three fictional accounts as NON-SECRET metadata only — no
+    // token, no SecretStore write — under the isolated demo QSettings profile.
+    // clearDemoAccounts first so a persisted profile re-registers deterministically.
+    m_settings->clearDemoAccounts();
+    struct DemoAcct { const char *hs; const char *uid; const char *name; const char *avatar; };
+    static const DemoAcct kAccounts[] = {
+        { "https://lightning.example", "@alex:lightning.example",
+          "Alex Morgan", "mxc://lightning.example/avatar-alex" },
+        { "https://workplace.example", "@taylor:workplace.example",
+          "Taylor Reed", "mxc://lightning.example/avatar-taylor" },
+        { "https://community.example", "@nova:community.example",
+          "Nova", "mxc://lightning.example/avatar-nova" },
+    };
+    int order = 1;
+    for (const auto &a : kAccounts) {
+        m_settings->registerDemoAccount(
+            QString::fromLatin1(a.hs), QString::fromLatin1(a.uid),
+            QString::fromLatin1(a.name), QString::fromLatin1(a.avatar), order++);
+    }
+
+    // Select the requested initial account (default Alex).
+    QString activeUid = resolveDemoAccountId(initialAccount);
+    if (!m_settings->hasSavedAccount(activeUid))
+        activeUid = QStringLiteral("@alex:lightning.example");
+    m_settings->setActiveAccountUserId(activeUid);
 
     // Restoration state, not an unauthenticated one: show the boot surface (not
     // the login form) while the mock "restores", then land on MainScreen via
-    // the normal loginSucceeded path. No network; no real credentials. The
-    // login user id must match the demo dataset's self account.
+    // the normal loginSucceeded path. No network; no real credentials. The mock
+    // restore reads the active account from settings and activates its scene.
     setCurrentScreen(BootScreen);
-    m_auth->login(QStringLiteral("https://lightning.example"),
-                  QStringLiteral("alex"), QStringLiteral("demo"));
+    if (!m_client->restoreSession()) {
+        // Extremely unlikely (settings has an active account) — fall back to a
+        // direct mock login into the active account so the demo still boots.
+        const QVariantMap rec = m_settings->accountRecord(activeUid);
+        m_auth->login(rec.value(QStringLiteral("homeserver")).toString(),
+                      activeUid.section(QLatin1Char(':'), 0, 0).mid(1),
+                      QStringLiteral("demo"));
+    }
 #endif
 }
 AccountManager *AppController::accounts() const { return m_accounts.get(); }

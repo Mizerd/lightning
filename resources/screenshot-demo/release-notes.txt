@@ -1,0 +1,7 @@
+Lightning 0.6.4 (demo release notes)
+
+- Deferred timeline anchor corrections until the gesture settles.
+- Dropped per-delta geometry scans during touchpad scrolling.
+- Refreshed the room list and media rows.
+
+(This is a fictional screenshot-demo fixture — not a real release.)

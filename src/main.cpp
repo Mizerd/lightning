@@ -646,7 +646,7 @@ int main(int argc, char *argv[])
     // themed instead of Fusion's beveled desktop look.
     QQuickStyle::setStyle("Basic");
 
-    AppController controller(pf.backend);
+    AppController controller(pf.backend, pf.screenshotDemo);
 
 #ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO
     // Development screenshot mode: enrich the mock scene and auto-login into the

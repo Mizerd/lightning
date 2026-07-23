@@ -308,6 +308,17 @@ if(ENABLE_RUST_SDK_BACKEND)
     )
 endif()
 
+# Development-only: the screenshot-demo scenario/control-panel controller.
+# Compiled into the app graph ONLY when the demo option is on, so it (and the
+# `app.demo` object it backs) is absent from every normal/release build. The
+# demo compile flag is applied per-target where these sources are used.
+if(LIGHTNING_ENABLE_SCREENSHOT_DEMO)
+    list(APPEND APP_SOURCES
+        src/app/ScreenshotDemoController.h
+        src/app/ScreenshotDemoController.cpp
+    )
+endif()
+
 # Everything except main.cpp — reused by timeline-pane-qml-test so it can
 # construct a real AppController and load the real QML module instead of
 # re-declaring a parallel object graph. Keeps mock/http so mock-based tests
@@ -374,6 +385,36 @@ endforeach()
 set_source_files_properties(qml/AppTheme.qml
     PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 
+# Development-only screenshot-demo media fixtures. Small, deterministic, license-
+# clear abstract images (see scripts/generate-demo-media.sh) bundled into the QML
+# module ONLY when the demo option is on, so they render through the real media
+# delegates. Excluded from every release artifact. Resolved at runtime as
+# :/qt/qml/MatrixClient/resources/screenshot-demo/<file>.
+set(DEMO_MEDIA_RESOURCES)
+if(LIGHTNING_ENABLE_SCREENSHOT_DEMO)
+    set(DEMO_MEDIA_RESOURCES
+        resources/screenshot-demo/avatar-alex.png
+        resources/screenshot-demo/avatar-taylor.png
+        resources/screenshot-demo/avatar-nova.png
+        resources/screenshot-demo/avatar-maya.png
+        resources/screenshot-demo/avatar-jordan.png
+        resources/screenshot-demo/avatar-sam.png
+        resources/screenshot-demo/avatar-aisha.png
+        resources/screenshot-demo/avatar-noah.png
+        resources/screenshot-demo/avatar-priya.png
+        resources/screenshot-demo/avatar-leo.png
+        resources/screenshot-demo/coast.png
+        resources/screenshot-demo/portrait.png
+        resources/screenshot-demo/square.png
+        resources/screenshot-demo/artwork.png
+        resources/screenshot-demo/shot-timeline.png
+        resources/screenshot-demo/palette.png
+        resources/screenshot-demo/timelapse.png
+        resources/screenshot-demo/loop.gif
+        resources/screenshot-demo/release-notes.txt
+    )
+endif()
+
 # Everything (app sources + compiled QML module) that a Qt executable needs
 # to run the real UI, factored into a function so timeline-pane-qml-test can
 # build a second binary wired up identically to matrix-client — a plain
@@ -404,6 +445,9 @@ function(lightning_configure_qml_app target)
             # stays crisp on high-DPI and on Windows, where there is no icon
             # theme to supply a larger size.
             data/icons/hicolor/256x256/apps/lightning.png
+            # Development-only demo media fixtures (empty list in a release
+            # build; see DEMO_MEDIA_RESOURCES above).
+            ${DEMO_MEDIA_RESOURCES}
         RESOURCE_PREFIX /qt/qml
         # Every Qt-executable target that calls qt_add_qml_module registers
         # its own independent compiled copy of the same "MatrixClient" URI;
@@ -1410,6 +1454,68 @@ if(BUILD_TESTING)
     target_link_libraries(screenshot-demo-data-test PRIVATE
         Qt6::Core Qt6::Gui Qt6::Qml Qt6::Test)
     add_test(NAME screenshot-demo-data COMMAND screenshot-demo-data-test)
+
+    # Development-only screenshot-demo MULTI-ACCOUNT contract: the three
+    # fictional accounts, deterministic order + *.example identities, account-
+    # local dataset isolation with mutation survival, deterministic reset, and
+    # the in-memory (never production/libsecret) SecretStore. Drives a real
+    # AppController(MockBackend, screenshotDemo=true) through beginScreenshotDemo
+    # and the real switchToAccount path, so it needs the full app graph and the
+    # demo compile flag. Only built when the demo option is on.
+    if(LIGHTNING_ENABLE_SCREENSHOT_DEMO)
+        qt_add_executable(screenshot-demo-accounts-test
+            tests/ScreenshotDemoAccountsTest.cpp
+            ${APP_LIB_SOURCES}
+        )
+        lightning_configure_qml_app(screenshot-demo-accounts-test)
+        target_compile_definitions(screenshot-demo-accounts-test PRIVATE
+            LIGHTNING_ENABLE_SCREENSHOT_DEMO=1)
+        target_link_libraries(screenshot-demo-accounts-test PRIVATE Qt6::Test)
+        add_test(NAME screenshot-demo-accounts
+            COMMAND screenshot-demo-accounts-test)
+        set_tests_properties(screenshot-demo-accounts PROPERTIES
+            ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+        # Development-only screenshot-demo MEDIA contract: every image/video/GIF
+        # row and avatar resolves to bundled fixture bytes through the mock media
+        # bridge, correct MIME, no network. Bundles the demo fixtures so the
+        # fetch path can resolve them. Only built when the demo option is on.
+        qt_add_executable(screenshot-demo-media-test
+            tests/ScreenshotDemoMediaTest.cpp
+            src/matrix/MatrixClient.h
+            src/matrix/MatrixClient.cpp
+            src/matrix/MockMatrixClient.h
+            src/matrix/MockMatrixClient.cpp
+            src/matrix/MediaHelpers.h
+            src/matrix/MediaHelpers.cpp
+            src/app/SettingsManager.cpp
+            src/storage/AppDataPaths.cpp
+        )
+        target_include_directories(screenshot-demo-media-test PRIVATE src)
+        qt_add_resources(screenshot-demo-media-test "demo-media"
+            PREFIX "/qt/qml/MatrixClient"
+            FILES ${DEMO_MEDIA_RESOURCES})
+        target_link_libraries(screenshot-demo-media-test PRIVATE
+            Qt6::Core Qt6::Gui Qt6::Qml Qt6::Test)
+        add_test(NAME screenshot-demo-media COMMAND screenshot-demo-media-test)
+
+        # Development-only screenshot-demo SCENARIO controller contract: every
+        # required scenario activates to the right account/room/page/thread/
+        # theme/window size; presets resolve; per-account selected rooms restore
+        # on switch-back; panel toggles reach the mock; reset restores defaults.
+        qt_add_executable(screenshot-demo-scenario-test
+            tests/ScreenshotDemoScenarioTest.cpp
+            ${APP_LIB_SOURCES}
+        )
+        lightning_configure_qml_app(screenshot-demo-scenario-test)
+        target_compile_definitions(screenshot-demo-scenario-test PRIVATE
+            LIGHTNING_ENABLE_SCREENSHOT_DEMO=1)
+        target_link_libraries(screenshot-demo-scenario-test PRIVATE Qt6::Test)
+        add_test(NAME screenshot-demo-scenario
+            COMMAND screenshot-demo-scenario-test)
+        set_tests_properties(screenshot-demo-scenario PROPERTIES
+            ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+    endif()
 
     # Composer formatting toolbar: markdown wrap/unwrap, line prefixes, link
     # scaffold, selection integrity, and active-state detection.

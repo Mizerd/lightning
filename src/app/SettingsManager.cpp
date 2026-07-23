@@ -295,6 +295,54 @@ void SettingsManager::updateAccountProfile(const QString &userId,
     Q_EMIT accountsChanged();
 }
 
+#ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO
+void SettingsManager::registerDemoAccount(const QString &homeserverUrl,
+                                          const QString &userId,
+                                          const QString &displayName,
+                                          const QString &avatarUrl,
+                                          int order)
+{
+    const QString uid = userId.trimmed();
+    const QString slug = matrix::app_data::safeUserSlug(uid);
+    if (slug.isEmpty())
+        return;
+    m_store->setValue(accountKey(slug, kAccountUserId), uid);
+    m_store->setValue(accountKey(slug, kAccountHomeserver), homeserverUrl);
+    // A stable fictional device id — this is metadata for the Sessions UI, not
+    // a credential. Deterministic so screenshots reproduce.
+    m_store->setValue(accountKey(slug, kAccountDeviceId),
+                      QStringLiteral("DEMODEVICE%1").arg(order));
+    m_store->setValue(accountKey(slug, kAccountDisplayName), displayName);
+    m_store->setValue(accountKey(slug, kAccountAvatarUrl), avatarUrl);
+    // Deterministic addedAt (NOT wall-clock) so savedAccountUserIds() orders the
+    // switcher rows identically on every launch, regardless of registration
+    // timing. Second-resolution ISO strings sort lexicographically = by order.
+    m_store->setValue(accountKey(slug, kAccountAddedAt),
+                      QStringLiteral("2026-07-23T09:%1:00")
+                          .arg(order, 2, 10, QLatin1Char('0')));
+    // Deliberately NO SecretStore write: demo accounts carry no token. The mock
+    // account-switch path is exempt from the token check, so none is needed.
+    Q_EMIT accountsChanged();
+}
+
+void SettingsManager::clearDemoAccounts()
+{
+    const QStringList ids = savedAccountUserIds();
+    m_store->beginGroup(QLatin1String(kAccountsGroup));
+    const QStringList groups = m_store->childGroups();
+    m_store->endGroup();
+    for (const QString &slug : groups)
+        m_store->remove(QLatin1String(kAccountsGroup) + QLatin1Char('/') + slug);
+    m_store->remove(kActiveAccount);
+    if (m_secretStore) {
+        for (const QString &uid : ids)
+            m_secretStore->clearAccountSecrets(uid);
+    }
+    Q_EMIT accountsChanged();
+    Q_EMIT sessionChanged();
+}
+#endif // LIGHTNING_ENABLE_SCREENSHOT_DEMO
+
 void SettingsManager::setSecretStore(SecretStore *store)
 {
     if (m_secretStore == store)

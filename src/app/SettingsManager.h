@@ -232,6 +232,21 @@ public:
                               const QString &displayName,
                               const QString &avatarUrl);
 
+#ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO
+    // Development-only (screenshot demo): register a fictional account as
+    // NON-SECRET metadata only — it never writes a token and never touches the
+    // SecretStore. `order` fixes a deterministic addedAt so the account-switcher
+    // ordering is stable across launches. Everything lands in the isolated demo
+    // QSettings profile (the demo applicationName). Compiled out of every
+    // normal/release build.
+    void registerDemoAccount(const QString &homeserverUrl, const QString &userId,
+                             const QString &displayName, const QString &avatarUrl,
+                             int order);
+    // Development-only: drop all fictional demo account records (used before a
+    // deterministic re-registration and by "reset all demo state").
+    void clearDemoAccounts();
+#endif
+
     // True iff the process is using a native, secure secret backend.
     bool secretsAreSecure() const;
     QString secretBackendName() const;

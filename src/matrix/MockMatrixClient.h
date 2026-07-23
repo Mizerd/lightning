@@ -36,6 +36,35 @@ public:
     // mock tests assert on are unchanged. No network; no real stores.
     void setScreenshotDemoMode(bool on);
     bool screenshotDemoMode() const { return m_screenshotDemoMode; }
+
+    // Development-only screenshot-demo multi-account support. Three fictional
+    // accounts (Alex / Taylor / Nova) each own a full, deterministic
+    // room/timeline scene. The active account's scene is the live working copy
+    // (m_rooms/m_timelines); switching snapshots it back and loads the target,
+    // so each account's local mutations (sends, reactions, votes, read/unread)
+    // survive a round trip. Everything is in-memory; no store, no network.
+    QStringList demoAccountUserIds() const { return m_demoAccountOrder; }
+    QString demoDefaultRoom(const QString &userId) const;
+    // Swap the live dataset to `userId`'s scene. Called by login/restoreSession
+    // (so the real account switcher works) and directly by tests. No-op outside
+    // demo mode or for an unknown account.
+    void activateDemoAccount(const QString &userId);
+    QString activeDemoAccount() const { return m_activeDemoUser; }
+    // Restore all three accounts (or one) to their deterministic initial state,
+    // discarding local mutations. Re-emits roomsChanged/timelineReset for the
+    // active account so the live UI rebuilds.
+    void resetDemoData();
+    void resetDemoAccount(const QString &userId);
+    // The first thread-root event id in a room (for scenario "open thread"),
+    // or empty if the room has no thread.
+    QString demoThreadRoot(const QString &roomId) const;
+    // Panel toggles: globally suppress the seeded typing indicators, and hide
+    // all room-list unread badges. Read-time filters (no data mutation), so they
+    // are fully reversible. Emit the relevant change signals.
+    void setDemoTypingSuppressed(bool suppressed);
+    void setDemoUnreadHidden(bool hidden);
+    bool demoTypingSuppressed() const { return m_demoTypingSuppressed; }
+    bool demoUnreadHidden() const { return m_demoHideUnread; }
     bool isLoggedIn() const override { return m_loggedIn; }
     QString currentUserId() const override { return m_userId; }
     QString homeserverUrl() const override { return m_homeserver; }
@@ -54,6 +83,17 @@ public:
     QUrl mediaDownloadUrl(const QString &mxcUrl) const override;
     QUrl mediaThumbnailUrl(const QString &mxcUrl,
                            int width, int height, bool crop) const override;
+
+    // Development-only screenshot-demo media bridge. When the demo scene is
+    // active the mock serves bundled local fixtures through the SAME
+    // MediaBridge → MediaImageProvider path the Rust backend uses, so image /
+    // video-poster / GIF rows and avatars render as real pictures (no network,
+    // no mxc fetch, no token). Off outside demo mode, so the shared mock
+    // fixtures and every other backend behaviour are unchanged.
+    bool supportsMediaBridge() const override { return m_screenshotDemoMode; }
+    quint64 fetchMedia(const QString &mediaKey, int kind,
+                       int timeoutClass = 0) override;
+    quint64 fetchMxcThumbnail(const QString &mxc, int width, int height) override;
 
     void sendTextMessage(const QString &roomId, const QString &body) override;
     void sendReply(const QString &roomId,
@@ -185,6 +225,35 @@ private:
     void seedMockData();
     void seedScreenshotDemoData();     // development-only rich demo scene
     bool m_screenshotDemoMode = false;
+
+    // One fictional demo account's complete, deterministic scene.
+    struct DemoAccount {
+        QString userId;
+        QString homeserver;
+        QString displayName;
+        QString avatarMxc;
+        QString defaultRoomId;          // deterministic initial selected room
+        QList<RoomInfo> rooms;
+        QHash<QString, QList<TimelineEvent>> timelines;
+        QHash<QString, int> paginationRemaining;
+    };
+    QHash<QString, DemoAccount> m_demoAccounts;   // keyed by full user id
+    QStringList m_demoAccountOrder;               // deterministic switcher order
+    QString m_activeDemoUser;                     // whose scene is live now
+    bool m_demoTypingSuppressed = false;          // panel: hide typing dots
+    bool m_demoHideUnread = false;                // panel: hide unread badges
+    DemoAccount buildDemoAccountAlex();
+    DemoAccount buildDemoAccountTaylor();
+    DemoAccount buildDemoAccountNova();
+    void loadDemoAccountIntoWorkingSet(const DemoAccount &acct);
+    void snapshotWorkingSetToActiveDemoAccount();
+    // Tag every image/video/sticker row with a media bridge key so the demo
+    // media path (fetchMedia/fetchMxcThumbnail) can resolve it to a fixture.
+    static void finalizeDemoMedia(DemoAccount &acct);
+    // Resolve a demo media key or avatar mxc segment to bundled fixture bytes.
+    static bool loadDemoFixture(const QString &key, QByteArray *bytes,
+                                QString *mime);
+    quint64 m_mediaOpCounter = 0;
     void setState(ConnectionState s);
     QString nextEventId();
     QString nextTxnId();

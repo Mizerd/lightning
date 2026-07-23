@@ -5,6 +5,8 @@
 
 #include <QDateTime>
 #include <QTimeZone>
+#include <QByteArray>
+#include <QFile>
 #include <QFileInfo>
 #include <QTimer>
 #include <QUrl>
@@ -55,6 +57,9 @@ void MockMatrixClient::login(const QString &homeserver,
     }
 
     m_userId = QStringLiteral("@%1:%2").arg(localpart, host);
+    // Demo mode: point the live dataset at this account's scene before sync.
+    if (m_screenshotDemoMode)
+        activateDemoAccount(m_userId);
     QTimer::singleShot(120, this, [this] {
         m_loggedIn = true;
         Q_EMIT loginSucceeded(m_userId);
@@ -91,6 +96,11 @@ bool MockMatrixClient::restoreSession()
     }
     m_homeserver = m_settings->homeserverUrl();
     m_userId = uid;
+    // Demo mode: swap the live dataset to this account's scene BEFORE the
+    // async loginSucceeded so startSync rebuilds the correct rooms/timelines.
+    // Preserves the previous account's local mutations (snapshot on switch).
+    if (m_screenshotDemoMode)
+        activateDemoAccount(uid);
     QTimer::singleShot(m_restoreDelayMs, this, [this] {
         m_loggedIn = true;
         Q_EMIT loginSucceeded(m_userId);
@@ -127,6 +137,17 @@ void MockMatrixClient::stopSync()
 
 QList<RoomInfo> MockMatrixClient::rooms() const
 {
+    if (m_screenshotDemoMode && m_demoHideUnread) {
+        // Panel "hide unread badges": a read-time filter, fully reversible.
+        QList<RoomInfo> out = m_rooms;
+        for (RoomInfo &r : out) {
+            r.unreadCount = 0;
+            r.highlightCount = 0;
+            r.hasUnreadMessages = false;
+            r.markedUnread = false;
+        }
+        return out;
+    }
     return m_rooms;
 }
 
@@ -161,6 +182,8 @@ QString MockMatrixClient::avatarMxcFor(const QString &roomId,
 
 QStringList MockMatrixClient::typingUsersFor(const QString &roomId) const
 {
+    if (m_screenshotDemoMode && m_demoTypingSuppressed)
+        return {};   // panel "hide typing indicators"
     for (const auto &r : m_rooms)
         if (r.id == roomId)
             return r.typingUserIds;
@@ -177,6 +200,100 @@ QUrl MockMatrixClient::mediaThumbnailUrl(const QString &mxcUrl,
                                          bool crop) const
 {
     return matrix::media::thumbnailUrl(m_homeserver, mxcUrl, width, height, crop);
+}
+
+// ── Development-only screenshot-demo media bridge ────────────────────────
+// Resolve a demo media key ("coast", "loop", "avatar-alex", …) to bundled
+// fixture bytes. The fixtures are QRC resources present only in a
+// LIGHTNING_ENABLE_SCREENSHOT_DEMO build; a miss (or any non-demo build) simply
+// returns false and the caller reports the fetch unavailable.
+bool MockMatrixClient::loadDemoFixture(const QString &key, QByteArray *bytes,
+                                       QString *mime)
+{
+    if (key.isEmpty())
+        return false;
+    QString file;
+    QString mimeType = QStringLiteral("image/png");
+    if (key == QLatin1String("loop")) {
+        file = QStringLiteral("loop.gif");
+        mimeType = QStringLiteral("image/gif");
+    } else if (key == QLatin1String("relnotes")) {
+        file = QStringLiteral("release-notes.txt");
+        mimeType = QStringLiteral("text/plain");
+    } else {
+        // Avatars ("avatar-<name>") and images ("coast"/"portrait"/… and the
+        // video poster "timelapse") are all PNG fixtures named by their key.
+        file = key + QStringLiteral(".png");
+    }
+    QFile f(QStringLiteral(
+                ":/qt/qml/MatrixClient/resources/screenshot-demo/") + file);
+    if (!f.open(QIODevice::ReadOnly))
+        return false;
+    if (bytes)
+        *bytes = f.readAll();
+    if (mime)
+        *mime = mimeType;
+    return true;
+}
+
+quint64 MockMatrixClient::fetchMedia(const QString &mediaKey, int kind,
+                                     int timeoutClass)
+{
+    Q_UNUSED(timeoutClass);
+    if (!m_screenshotDemoMode)
+        return 0;
+    QByteArray bytes;
+    QString mime;
+    if (!loadDemoFixture(mediaKey, &bytes, &mime))
+        return 0;   // unknown key → MediaBridge marks a transient "unavailable"
+    const quint64 op = ++m_mediaOpCounter;
+    const QString filename = mediaKey;
+    // Deliver on the event loop so the bridge's dispatch bookkeeping (which
+    // inserts the op AFTER fetchMedia returns) has recorded this op first.
+    QTimer::singleShot(0, this, [this, op, mediaKey, kind, bytes, mime, filename] {
+        Q_EMIT mediaReady(op, mediaKey, kind, bytes, mime, filename);
+    });
+    return op;
+}
+
+quint64 MockMatrixClient::fetchMxcThumbnail(const QString &mxc, int width,
+                                            int height)
+{
+    Q_UNUSED(width);
+    Q_UNUSED(height);
+    if (!m_screenshotDemoMode)
+        return 0;
+    // The avatar key is the mxc's last path segment ("avatar-alex").
+    const QString key = mxc.section(QLatin1Char('/'), -1);
+    QByteArray bytes;
+    QString mime;
+    if (!loadDemoFixture(key, &bytes, &mime))
+        return 0;
+    const quint64 op = ++m_mediaOpCounter;
+    QTimer::singleShot(0, this, [this, op, mxc, bytes, mime] {
+        // kind 2 == mxc thumbnail; only the op id is matched by the bridge.
+        Q_EMIT mediaReady(op, mxc, 2, bytes, mime, mxc);
+    });
+    return op;
+}
+
+void MockMatrixClient::finalizeDemoMedia(DemoAccount &acct)
+{
+    for (auto it = acct.timelines.begin(); it != acct.timelines.end(); ++it) {
+        for (TimelineEvent &e : it.value()) {
+            const bool imageLike = e.type == TimelineEvent::Image
+                || e.type == TimelineEvent::Video
+                || e.type == TimelineEvent::Sticker;
+            if (!imageLike || e.mediaMxcUrl.isEmpty())
+                continue;
+            // Route image/video/GIF rows through the demo media bridge: the key
+            // is the fixture name (mxc's last segment). File/audio rows are left
+            // metadata-only — their cards render without fetching bytes.
+            e.mediaKey = e.mediaMxcUrl.section(QLatin1Char('/'), -1);
+            e.mediaSourceAvailable = true;
+            e.mediaThumbAvailable = true;
+        }
+    }
 }
 
 TimelineEvent *MockMatrixClient::findEvent(const QString &roomId,
@@ -1145,46 +1262,85 @@ void MockMatrixClient::setScreenshotDemoMode(bool on)
         seedScreenshotDemoData();
 }
 
-// Development-only: a polished, fully deterministic scene for promotional
-// screenshots. Overwrites the compact shared test fixtures (m_rooms /
-// m_timelines) — never called by tests, so those fixtures are unchanged.
-// Everything (timestamps, event ids, ordering, unread counts) is fixed, so
-// screenshots are reproducible across launches. No network; no real stores.
+namespace {
+// A fictional demo participant. `avatarMxc` is a stable opaque id resolved to a
+// bundled fixture by the demo media path; empty until an avatar is assigned.
+struct DemoPerson {
+    QString id;
+    QString name;
+    QString avatarMxc;
+};
+void demoMem(QHash<QString, MemberInfo> &m, const DemoPerson &p)
+{
+    MemberInfo mi;
+    mi.userId = p.id;
+    mi.displayName = p.name;
+    mi.avatarMxcUrl = p.avatarMxc;
+    m.insert(p.id, mi);
+}
+QString demoAvatar(const QString &localpart)
+{
+    return QStringLiteral("mxc://lightning.example/avatar-") + localpart;
+}
+}
+
+// Development-only: three polished, fully deterministic fictional accounts for
+// promotional screenshots. Each account owns a complete scene; the active one is
+// mirrored into the live working copy (m_rooms/m_timelines). Never called by
+// tests, so the shared mock fixtures they assert on are unchanged. Everything
+// (timestamps, event ids, ordering, unread counts) is fixed, so screenshots are
+// reproducible across launches. No network; no real stores.
 void MockMatrixClient::seedScreenshotDemoData()
 {
-    // Deterministic clock (NOT wall-clock) so relative timestamps are stable.
+    m_demoAccounts.clear();
+    m_demoAccountOrder.clear();
+    auto add = [&](DemoAccount a) {
+        finalizeDemoMedia(a);   // tag media rows for the demo bridge
+        m_demoAccountOrder << a.userId;
+        m_demoAccounts.insert(a.userId, a);
+    };
+    add(buildDemoAccountAlex());
+    add(buildDemoAccountTaylor());
+    add(buildDemoAccountNova());
+    // Activate the primary account so tests that enable demo mode and read
+    // rooms()/timeline() straight away (with no login) still see Alex's scene.
+    m_activeDemoUser.clear();
+    activateDemoAccount(QStringLiteral("@alex:lightning.example"));
+}
+
+MockMatrixClient::DemoAccount MockMatrixClient::buildDemoAccountAlex()
+{
     const QDateTime base(QDate(2026, 7, 23), QTime(10, 24), QTimeZone::UTC);
-    m_eventCounter = 0;              // deterministic $mock-N event ids
-    m_rooms.clear();
-    m_timelines.clear();
-    m_paginationRemaining.clear();
+    const QString hs = QStringLiteral("lightning.example");
+    DemoAccount acct;
+    acct.userId = QStringLiteral("@alex:lightning.example");
+    acct.homeserver = hs;
+    acct.displayName = QStringLiteral("Alex Morgan");
+    acct.avatarMxc = demoAvatar(QStringLiteral("alex"));
+    acct.defaultRoomId = QStringLiteral("!design-lounge:lightning.example");
 
-    const QString self = QStringLiteral("@alex:lightning.example");
-
-    // ── Fictional cast (stable ids / names) ─────────────────────────────
-    struct Person { QString id; QString name; };
-    const Person maya  { QStringLiteral("@maya:lightning.example"),   QStringLiteral("Maya Chen") };
-    const Person jordan{ QStringLiteral("@jordan:lightning.example"), QStringLiteral("Jordan Lee") };
-    const Person sam   { QStringLiteral("@sam:lightning.example"),    QStringLiteral("Sam Rivera") };
-    const Person aisha { QStringLiteral("@aisha:lightning.example"),  QStringLiteral("Aisha Khan") };
-    const Person noah  { QStringLiteral("@noah:lightning.example"),   QStringLiteral("Noah Williams") };
-    const Person priya { QStringLiteral("@priya:lightning.example"),  QStringLiteral("Priya Shah") };
-    const Person leo   { QStringLiteral("@leo:lightning.example"),    QStringLiteral("Leo Novak") };
-    const Person alex  { self,                                        QStringLiteral("Alex Morgan") };
-
-    auto mem = [](QHash<QString, MemberInfo> &m, const Person &p) {
-        MemberInfo mi; mi.userId = p.id; mi.displayName = p.name;
-        m.insert(p.id, mi);
+    int n = 0;
+    auto eid = [&]() {
+        return QStringLiteral("$demo-alex-%1:%2").arg(++n).arg(hs);
     };
 
-    // Per-room deterministic timeline builder.
-    auto text = [&](const QString &room, const Person &p, const QString &body,
-                    int minsAgo) {
+    const DemoPerson maya  { QStringLiteral("@maya:lightning.example"),   QStringLiteral("Maya Chen"),     demoAvatar(QStringLiteral("maya")) };
+    const DemoPerson jordan{ QStringLiteral("@jordan:lightning.example"), QStringLiteral("Jordan Lee"),    demoAvatar(QStringLiteral("jordan")) };
+    const DemoPerson sam   { QStringLiteral("@sam:lightning.example"),    QStringLiteral("Sam Rivera"),    demoAvatar(QStringLiteral("sam")) };
+    const DemoPerson aisha { QStringLiteral("@aisha:lightning.example"),  QStringLiteral("Aisha Khan"),    demoAvatar(QStringLiteral("aisha")) };
+    const DemoPerson noah  { QStringLiteral("@noah:lightning.example"),   QStringLiteral("Noah Williams"), demoAvatar(QStringLiteral("noah")) };
+    const DemoPerson priya { QStringLiteral("@priya:lightning.example"),  QStringLiteral("Priya Shah"),    demoAvatar(QStringLiteral("priya")) };
+    const DemoPerson leo   { QStringLiteral("@leo:lightning.example"),    QStringLiteral("Leo Novak"),     demoAvatar(QStringLiteral("leo")) };
+    const DemoPerson alex  { acct.userId,                                 acct.displayName,                acct.avatarMxc };
+
+    auto text = [&](const QString &room, const DemoPerson &p,
+                    const QString &body, int minsAgo) {
         TimelineEvent e;
-        e.eventId = nextEventId();
+        e.eventId = eid();
         e.roomId = room;
         e.sender = p.id;
         e.senderDisplayName = p.name;
+        e.senderAvatarUrl = p.avatarMxc;
         e.body = body;
         e.timestamp = base.addSecs(-minsAgo * 60);
         e.type = TimelineEvent::TextMessage;
@@ -1224,9 +1380,9 @@ void MockMatrixClient::seedScreenshotDemoData()
     design.unreadCount = 3;
     design.highlightCount = 1;
     design.hasUnreadMessages = true;
-    mem(design.members, alex); mem(design.members, maya);
-    mem(design.members, jordan); mem(design.members, sam);
-    mem(design.members, aisha);
+    demoMem(design.members, alex); demoMem(design.members, maya);
+    demoMem(design.members, jordan); demoMem(design.members, sam);
+    demoMem(design.members, aisha);
     design.typingUserIds << maya.id;
 
     {
@@ -1244,7 +1400,7 @@ void MockMatrixClient::seedScreenshotDemoData()
         auto e5 = text(design.id, maya, QStringLiteral(
             "The dark theme looks great for the hero shot — deep background, the accent really pops."), 18);
         e5.reactions = {
-            { QStringLiteral("👍"), 3, true, nextEventId() },
+            { QStringLiteral("👍"), 3, true, eid() },
             { QStringLiteral("🔥"), 2, false, QString() },
         };
         auto e6 = text(design.id, aisha, QStringLiteral(
@@ -1260,14 +1416,36 @@ void MockMatrixClient::seedScreenshotDemoData()
         e8.mediaFilename = QStringLiteral("shot-timeline-dark.png");
         e8.mediaMxcUrl = QStringLiteral("mxc://lightning.example/shot-timeline");
         e8.mediaWidth = 1280; e8.mediaHeight = 800; e8.mediaSize = 284000;
-        m_timelines[design.id] = { e1, e2, e3, e4, e5, e6, e7, e8 };
+        acct.timelines[design.id] = { e1, e2, e3, e4, e5, e6, e7, e8 };
     }
-    m_paginationRemaining[design.id] = 2;
+    acct.paginationRemaining[design.id] = 2;
+
+    // ── Weekend Plans — a light casual group chat ───────────────────────
+    RoomInfo weekend;
+    weekend.id = QStringLiteral("!weekend:lightning.example");
+    weekend.name = QStringLiteral("Weekend Plans");
+    weekend.topic = QStringLiteral("Where are we going this weekend?");
+    weekend.spaceId = friends.id;
+    weekend.lastActivity = base.addSecs(-90 * 60);
+    weekend.lastMessagePreview = QStringLiteral("The coast trail it is 🥾");
+    demoMem(weekend.members, alex); demoMem(weekend.members, jordan);
+    demoMem(weekend.members, aisha);
+    {
+        auto w1 = text(weekend.id, jordan, QStringLiteral(
+            "Coast trail or the lake this Saturday?"), 140);
+        auto w2 = text(weekend.id, aisha, QStringLiteral(
+            "Coast — the light is perfect for photos in the morning."), 132);
+        w2.reactions = { { QStringLiteral("📸"), 2, true, eid() } };
+        auto w3 = text(weekend.id, alex, QStringLiteral("The coast trail it is 🥾"), 96);
+        acct.timelines[weekend.id] = { w1, w2, w3 };
+    }
+    acct.paginationRemaining[weekend.id] = 0;
 
     // ── Maya Chen — encrypted direct message ────────────────────────────
     RoomInfo dmMaya;
     dmMaya.id = QStringLiteral("!dm-maya:lightning.example");
     dmMaya.name = maya.name;
+    dmMaya.avatarUrl = maya.avatarMxc;
     dmMaya.isDirect = true;
     dmMaya.directUserId = maya.id;
     dmMaya.directUserIds = { maya.id };
@@ -1275,7 +1453,7 @@ void MockMatrixClient::seedScreenshotDemoData()
     dmMaya.spaceId = friends.id;
     dmMaya.lastActivity = base.addSecs(-40 * 60);
     dmMaya.lastMessagePreview = QStringLiteral("Perfect, thank you! 🙌");
-    mem(dmMaya.members, alex); mem(dmMaya.members, maya);
+    demoMem(dmMaya.members, alex); demoMem(dmMaya.members, maya);
     {
         auto d1 = text(dmMaya.id, maya, QStringLiteral(
             "Hey! Did the reference board come through?"), 52);
@@ -1295,9 +1473,30 @@ void MockMatrixClient::seedScreenshotDemoData()
         d4.replyToPreview = QStringLiteral("palette.png");
         d4.reactions = { { QStringLiteral("❤️"), 1, false, QString() } };
         auto d5 = text(dmMaya.id, maya, QStringLiteral("Perfect, thank you! 🙌"), 40);
-        m_timelines[dmMaya.id] = { d1, d2, d3, d4, d5 };
+        acct.timelines[dmMaya.id] = { d1, d2, d3, d4, d5 };
     }
-    m_paginationRemaining[dmMaya.id] = 0;
+    acct.paginationRemaining[dmMaya.id] = 0;
+
+    // ── Jordan Lee — a plain (unencrypted) direct message ───────────────
+    RoomInfo dmJordan;
+    dmJordan.id = QStringLiteral("!dm-jordan:lightning.example");
+    dmJordan.name = jordan.name;
+    dmJordan.avatarUrl = jordan.avatarMxc;
+    dmJordan.isDirect = true;
+    dmJordan.directUserId = jordan.id;
+    dmJordan.directUserIds = { jordan.id };
+    dmJordan.spaceId = friends.id;
+    dmJordan.lastActivity = base.addSecs(-150 * 60);
+    dmJordan.lastMessagePreview = QStringLiteral("See you at the studio 👋");
+    demoMem(dmJordan.members, alex); demoMem(dmJordan.members, jordan);
+    {
+        auto j1 = text(dmJordan.id, jordan, QStringLiteral(
+            "Are we still on for the studio review at 3?"), 170);
+        auto j2 = text(dmJordan.id, alex, QStringLiteral("Yep — bringing the new mockups."), 165);
+        auto j3 = text(dmJordan.id, jordan, QStringLiteral("See you at the studio 👋"), 150);
+        acct.timelines[dmJordan.id] = { j1, j2, j3 };
+    }
+    acct.paginationRemaining[dmJordan.id] = 0;
 
     // ── Lightning Development — code, file, and a thread ────────────────
     RoomInfo dev;
@@ -1309,8 +1508,8 @@ void MockMatrixClient::seedScreenshotDemoData()
     dev.lastMessagePreview = QStringLiteral("Shipped: smooth touchpad scrolling.");
     dev.unreadCount = 5;
     dev.hasUnreadMessages = true;
-    mem(dev.members, alex); mem(dev.members, sam);
-    mem(dev.members, noah); mem(dev.members, priya); mem(dev.members, leo);
+    demoMem(dev.members, alex); demoMem(dev.members, sam);
+    demoMem(dev.members, noah); demoMem(dev.members, priya); demoMem(dev.members, leo);
     QString threadRootId;
     {
         auto c1 = text(dev.id, noah, QStringLiteral(
@@ -1347,18 +1546,18 @@ void MockMatrixClient::seedScreenshotDemoData()
         auto c7 = text(dev.id, sam, QStringLiteral(
             "Shipped: smooth touchpad scrolling. Tagging it for the changelog."), 30);
         c7.reactions = {
-            { QStringLiteral("🚀"), 4, true, nextEventId() },
+            { QStringLiteral("🚀"), 4, true, eid() },
             { QStringLiteral("🎉"), 2, false, QString() },
         };
         // Thread replies live in the ROOM timeline with threadRootId set: the
         // model filters true m.thread replies out of the main view, and
         // openThread() rebuilds the thread panel from them (root pinned first).
-        auto tr = [&](const Person &p, const QString &body, int minsAgo) {
+        auto tr = [&](const DemoPerson &p, const QString &body, int minsAgo) {
             TimelineEvent e = text(dev.id, p, body, minsAgo);
             e.threadRootId = threadRootId;
             return e;
         };
-        m_timelines[dev.id] = {
+        acct.timelines[dev.id] = {
             c1, c2, c3, c4, c5, root, c7,
             tr(priya, QStringLiteral("It's low-risk and user-visible."), 62),
             tr(noah, QStringLiteral("Tests are green on both configs."), 61),
@@ -1366,7 +1565,7 @@ void MockMatrixClient::seedScreenshotDemoData()
             tr(sam, QStringLiteral("Agreed — backport it."), 58),
         };
     }
-    m_paginationRemaining[dev.id] = 1;
+    acct.paginationRemaining[dev.id] = 1;
 
     // ── Product Feedback — a poll ───────────────────────────────────────
     RoomInfo feedback;
@@ -1376,8 +1575,8 @@ void MockMatrixClient::seedScreenshotDemoData()
     feedback.spaceId = community.id;
     feedback.lastActivity = base.addSecs(-70 * 60);
     feedback.lastMessagePreview = QStringLiteral("Poll: Which theme for the release screenshots?");
-    mem(feedback.members, alex); mem(feedback.members, maya);
-    mem(feedback.members, sam); mem(feedback.members, priya);
+    demoMem(feedback.members, alex); demoMem(feedback.members, maya);
+    demoMem(feedback.members, sam); demoMem(feedback.members, priya);
     {
         auto p1 = text(feedback.id, priya, QStringLiteral(
             "Quick vote before we finalise the store listing:"), 75);
@@ -1394,11 +1593,11 @@ void MockMatrixClient::seedScreenshotDemoData()
             { QStringLiteral("a3"), QStringLiteral("Violet"),   2, false },
             { QStringLiteral("a4"), QStringLiteral("Light"),    0, false },
         };
-        m_timelines[feedback.id] = { p1, poll };
+        acct.timelines[feedback.id] = { p1, poll };
     }
-    m_paginationRemaining[feedback.id] = 0;
+    acct.paginationRemaining[feedback.id] = 0;
 
-    // ── Photography — a media-heavy room ────────────────────────────────
+    // ── Photography — a media-heavy room (landscape/portrait/square/…) ──
     RoomInfo photo;
     photo.id = QStringLiteral("!photography:lightning.example");
     photo.name = QStringLiteral("Photography");
@@ -1406,9 +1605,10 @@ void MockMatrixClient::seedScreenshotDemoData()
     photo.spaceId = studio.id;
     photo.lastActivity = base.addSecs(-3 * 60 * 60);
     photo.lastMessagePreview = QStringLiteral("Golden hour by the coast 🌅");
-    mem(photo.members, alex); mem(photo.members, aisha); mem(photo.members, jordan);
+    demoMem(photo.members, alex); demoMem(photo.members, aisha);
+    demoMem(photo.members, jordan);
     {
-        auto ph = [&](const Person &p, const QString &caption,
+        auto ph = [&](const DemoPerson &p, const QString &caption,
                       const QString &key, int w, int h, int minsAgo) {
             TimelineEvent e = text(photo.id, p, caption, minsAgo);
             e.type = TimelineEvent::Image;
@@ -1418,18 +1618,55 @@ void MockMatrixClient::seedScreenshotDemoData()
             e.mediaWidth = w; e.mediaHeight = h; e.mediaSize = 320000;
             return e;
         };
-        m_timelines[photo.id] = {
-            ph(aisha, QStringLiteral("Golden hour by the coast 🌅"),
-               QStringLiteral("coast"), 1600, 1000, 200),
-            ph(jordan, QStringLiteral("Portrait test, natural light"),
-               QStringLiteral("portrait"), 800, 1200, 190),
-            ph(aisha, QStringLiteral("Album cover crop"),
-               QStringLiteral("square"), 1000, 1000, 185),
-        };
-        m_timelines[photo.id][0].reactions = {
-            { QStringLiteral("😍"), 3, false, QString() } };
+        auto coast = ph(aisha, QStringLiteral("Golden hour by the coast 🌅"),
+                        QStringLiteral("coast"), 1600, 1000, 200);
+        coast.reactions = { { QStringLiteral("😍"), 3, false, QString() } };
+        auto portrait = ph(jordan, QStringLiteral("Portrait test, natural light"),
+                           QStringLiteral("portrait"), 800, 1200, 190);
+        auto square = ph(aisha, QStringLiteral("Album cover crop"),
+                         QStringLiteral("square"), 1000, 1000, 185);
+        // A GIF, a video (poster), an audio clip and a document round out the
+        // media gallery so every media row type renders.
+        auto artwork = ph(aisha, QStringLiteral("New wallpaper artwork"),
+                          QStringLiteral("artwork"), 1200, 1200, 178);
+        artwork.mediaMimetype = QStringLiteral("image/png");
+        artwork.mediaFilename = QStringLiteral("artwork.png");
+        auto gif = text(photo.id, jordan, QStringLiteral("loop-preview.gif"), 172);
+        gif.type = TimelineEvent::Image;
+        gif.body = QStringLiteral("loop-preview.gif");
+        gif.mediaMimetype = QStringLiteral("image/gif");
+        gif.mediaFilename = QStringLiteral("loop-preview.gif");
+        gif.mediaMxcUrl = QStringLiteral("mxc://lightning.example/loop");
+        gif.mediaWidth = 480; gif.mediaHeight = 480; gif.mediaSize = 90000;
+        auto video = text(photo.id, aisha, QStringLiteral("timelapse.mp4"), 166);
+        video.type = TimelineEvent::Video;
+        video.body = QStringLiteral("timelapse.mp4");
+        video.mediaMimetype = QStringLiteral("video/mp4");
+        video.mediaFilename = QStringLiteral("timelapse.mp4");
+        video.mediaMxcUrl = QStringLiteral("mxc://lightning.example/timelapse");
+        video.mediaWidth = 1280; video.mediaHeight = 720; video.mediaSize = 2400000;
+        video.mediaDurationMs = 12000;
+        auto audio = text(photo.id, jordan, QStringLiteral("field-recording.ogg"), 160);
+        audio.type = TimelineEvent::Audio;
+        audio.body = QStringLiteral("field-recording.ogg");
+        audio.mediaMimetype = QStringLiteral("audio/ogg");
+        audio.mediaFilename = QStringLiteral("field-recording.ogg");
+        audio.mediaMxcUrl = QStringLiteral("mxc://lightning.example/audio");
+        audio.mediaSize = 180000;
+        audio.mediaDurationMs = 9000;
+        audio.mediaWaveform = { 8, 22, 40, 55, 70, 62, 48, 66, 82, 74, 58, 44,
+                                60, 78, 90, 72, 50, 34, 46, 64, 80, 56, 30, 18 };
+        auto doc = text(photo.id, aisha, QStringLiteral("shot-list.pdf"), 154);
+        doc.type = TimelineEvent::File;
+        doc.body = QStringLiteral("shot-list.pdf");
+        doc.mediaMimetype = QStringLiteral("application/pdf");
+        doc.mediaFilename = QStringLiteral("shot-list.pdf");
+        doc.mediaMxcUrl = QStringLiteral("mxc://lightning.example/shotlist");
+        doc.mediaSize = 30240;
+        acct.timelines[photo.id] = { coast, portrait, square, artwork,
+                                     gif, video, audio, doc };
     }
-    m_paginationRemaining[photo.id] = 0;
+    acct.paginationRemaining[photo.id] = 0;
 
     // ── Release Announcements — announcement room ───────────────────────
     RoomInfo announce;
@@ -1439,15 +1676,15 @@ void MockMatrixClient::seedScreenshotDemoData()
     announce.spaceId = community.id;
     announce.lastActivity = base.addSecs(-6 * 60 * 60);
     announce.lastMessagePreview = QStringLiteral("Lightning 0.6.3 is out 🎉");
-    mem(announce.members, alex); mem(announce.members, priya);
+    demoMem(announce.members, alex); demoMem(announce.members, priya);
     {
         auto a1 = text(announce.id, priya, QStringLiteral(
             "Lightning 0.6.3 is out 🎉 Smoother scrolling, reliable video, and a refreshed room list."), 360);
-        a1.reactions = { { QStringLiteral("🎉"), 8, true, nextEventId() },
+        a1.reactions = { { QStringLiteral("🎉"), 8, true, eid() },
                          { QStringLiteral("⚡"), 5, false, QString() } };
-        m_timelines[announce.id] = { a1 };
+        acct.timelines[announce.id] = { a1 };
     }
-    m_paginationRemaining[announce.id] = 0;
+    acct.paginationRemaining[announce.id] = 0;
 
     // ── Music Discovery — favourite room ────────────────────────────────
     RoomInfo music;
@@ -1457,11 +1694,12 @@ void MockMatrixClient::seedScreenshotDemoData()
     music.spaceId = friends.id;
     music.lastActivity = base.addSecs(-5 * 60 * 60);
     music.lastMessagePreview = QStringLiteral("This album is on repeat all week.");
-    mem(music.members, alex); mem(music.members, jordan); mem(music.members, noah);
-    m_timelines[music.id] = {
+    demoMem(music.members, alex); demoMem(music.members, jordan);
+    demoMem(music.members, noah);
+    acct.timelines[music.id] = {
         text(music.id, jordan, QStringLiteral("This album is on repeat all week."), 300),
     };
-    m_paginationRemaining[music.id] = 0;
+    acct.paginationRemaining[music.id] = 0;
 
     // ── An invite ───────────────────────────────────────────────────────
     RoomInfo invite;
@@ -1475,14 +1713,674 @@ void MockMatrixClient::seedScreenshotDemoData()
     invite.lastActivity = base.addSecs(-9 * 60 * 60);
 
     // Space membership.
-    friends.childRoomIds   = { dmMaya.id, music.id };
+    friends.childRoomIds   = { dmMaya.id, dmJordan.id, music.id, weekend.id };
     studio.childRoomIds    = { design.id, photo.id };
     community.childRoomIds  = { dev.id, feedback.id, announce.id };
 
-    // Room-list order: Spaces first, then rooms by recency, DM, invite.
-    m_rooms = { friends, studio, community,
-                design, dev, dmMaya, feedback, photo, announce, music,
-                invite };
+    // Room-list order: Spaces first, then rooms by recency, DMs, invite.
+    acct.rooms = { friends, studio, community,
+                   design, dev, weekend, dmMaya, dmJordan, feedback,
+                   photo, announce, music, invite };
+    return acct;
+}
+
+MockMatrixClient::DemoAccount MockMatrixClient::buildDemoAccountTaylor()
+{
+    const QDateTime base(QDate(2026, 7, 23), QTime(10, 24), QTimeZone::UTC);
+    const QString hs = QStringLiteral("workplace.example");
+    DemoAccount acct;
+    acct.userId = QStringLiteral("@taylor:workplace.example");
+    acct.homeserver = hs;
+    acct.displayName = QStringLiteral("Taylor Reed");
+    acct.avatarMxc = demoAvatar(QStringLiteral("taylor"));
+    acct.defaultRoomId = QStringLiteral("!aurora:workplace.example");
+
+    int n = 0;
+    auto eid = [&]() {
+        return QStringLiteral("$demo-taylor-%1:%2").arg(++n).arg(hs);
+    };
+
+    const DemoPerson taylor{ acct.userId,                                  acct.displayName,                acct.avatarMxc };
+    const DemoPerson sam   { QStringLiteral("@sam:workplace.example"),     QStringLiteral("Sam Rivera"),    demoAvatar(QStringLiteral("sam")) };
+    const DemoPerson priya { QStringLiteral("@priya:workplace.example"),   QStringLiteral("Priya Shah"),    demoAvatar(QStringLiteral("priya")) };
+    const DemoPerson noah  { QStringLiteral("@noah:workplace.example"),    QStringLiteral("Noah Williams"), demoAvatar(QStringLiteral("noah")) };
+    const DemoPerson maya  { QStringLiteral("@maya:workplace.example"),    QStringLiteral("Maya Chen"),     demoAvatar(QStringLiteral("maya")) };
+
+    auto text = [&](const QString &room, const DemoPerson &p,
+                    const QString &body, int minsAgo) {
+        TimelineEvent e;
+        e.eventId = eid();
+        e.roomId = room;
+        e.sender = p.id;
+        e.senderDisplayName = p.name;
+        e.senderAvatarUrl = p.avatarMxc;
+        e.body = body;
+        e.timestamp = base.addSecs(-minsAgo * 60);
+        e.type = TimelineEvent::TextMessage;
+        return e;
+    };
+
+    // ── Spaces ──────────────────────────────────────────────────────────
+    RoomInfo product;
+    product.id = QStringLiteral("!space-product:workplace.example");
+    product.name = QStringLiteral("Product");
+    product.topic = QStringLiteral("Roadmap, design and delivery");
+    product.isSpace = true;
+    product.lastActivity = base.addSecs(-5 * 60);
+
+    RoomInfo engineering;
+    engineering.id = QStringLiteral("!space-engineering:workplace.example");
+    engineering.name = QStringLiteral("Engineering");
+    engineering.topic = QStringLiteral("Services, infra and releases");
+    engineering.isSpace = true;
+    engineering.lastActivity = base.addSecs(-12 * 60);
+
+    RoomInfo companySpace;
+    companySpace.id = QStringLiteral("!space-company:workplace.example");
+    companySpace.name = QStringLiteral("Company");
+    companySpace.topic = QStringLiteral("Everyone at Aurora");
+    companySpace.isSpace = true;
+    companySpace.lastActivity = base.addSecs(-45 * 60);
+
+    // ── Project Aurora — the main professional conversation ─────────────
+    RoomInfo aurora;
+    aurora.id = QStringLiteral("!aurora:workplace.example");
+    aurora.name = QStringLiteral("Project Aurora");
+    aurora.topic = QStringLiteral("Flagship Q3 launch");
+    aurora.spaceId = product.id;
+    aurora.lastActivity = base.addSecs(-5 * 60);
+    aurora.lastMessagePreview = QStringLiteral("Design sign-off is in — shipping Thursday.");
+    aurora.unreadCount = 2;
+    aurora.highlightCount = 1;
+    aurora.hasUnreadMessages = true;
+    demoMem(aurora.members, taylor); demoMem(aurora.members, sam);
+    demoMem(aurora.members, priya); demoMem(aurora.members, noah);
+    aurora.typingUserIds << sam.id;
+    {
+        auto a1 = text(aurora.id, priya, QStringLiteral(
+            "Status for the Aurora launch: design is sign-off pending, backend is green."), 46);
+        auto a2 = text(aurora.id, noah, QStringLiteral(
+            "QA finished the regression pass — no blockers, two cosmetic tickets filed."), 40);
+        auto a3 = text(aurora.id, taylor, QStringLiteral(
+            "Great. @sam can you confirm the rollout window with infra?"), 22);
+        a3.mentionsMe = false;
+        auto a4 = text(aurora.id, sam, QStringLiteral(
+            "Confirmed — Thursday 09:00, staged behind the feature flag."), 12);
+        a4.replyToEventId = a3.eventId;
+        a4.replyToSender = taylor.name;
+        a4.replyToPreview = QStringLiteral("can you confirm the rollout window…");
+        a4.reactions = { { QStringLiteral("✅"), 3, true, eid() } };
+        auto a5 = text(aurora.id, priya, QStringLiteral(
+            "Design sign-off is in — shipping Thursday."), 5);
+        acct.timelines[aurora.id] = { a1, a2, a3, a4, a5 };
+    }
+    acct.paginationRemaining[aurora.id] = 2;
+
+    // ── Product Design — technical/design room with an image ────────────
+    RoomInfo productDesign;
+    productDesign.id = QStringLiteral("!product-design:workplace.example");
+    productDesign.name = QStringLiteral("Product Design");
+    productDesign.topic = QStringLiteral("Design system and specs");
+    productDesign.spaceId = product.id;
+    productDesign.lastActivity = base.addSecs(-80 * 60);
+    productDesign.lastMessagePreview = QStringLiteral("Updated the spacing tokens.");
+    demoMem(productDesign.members, taylor); demoMem(productDesign.members, maya);
+    demoMem(productDesign.members, priya);
+    {
+        auto p1 = text(productDesign.id, maya, QStringLiteral(
+            "Pushed the refreshed component sheet:"), 84);
+        auto p2 = text(productDesign.id, maya, QStringLiteral("components.png"), 82);
+        p2.type = TimelineEvent::Image;
+        p2.body = QStringLiteral("components.png");
+        p2.mediaMimetype = QStringLiteral("image/png");
+        p2.mediaFilename = QStringLiteral("components.png");
+        p2.mediaMxcUrl = QStringLiteral("mxc://lightning.example/square");
+        p2.mediaWidth = 1000; p2.mediaHeight = 1000; p2.mediaSize = 210000;
+        auto p3 = text(productDesign.id, taylor, QStringLiteral("Updated the spacing tokens."), 80);
+        acct.timelines[productDesign.id] = { p1, p2, p3 };
+    }
+    acct.paginationRemaining[productDesign.id] = 0;
+
+    // ── Engineering — technical room with a code block ──────────────────
+    RoomInfo eng;
+    eng.id = QStringLiteral("!engineering:workplace.example");
+    eng.name = QStringLiteral("Engineering");
+    eng.topic = QStringLiteral("Backend and platform");
+    eng.spaceId = engineering.id;
+    eng.lastActivity = base.addSecs(-35 * 60);
+    eng.lastMessagePreview = QStringLiteral("Deploy is green on staging.");
+    eng.unreadCount = 4;
+    eng.hasUnreadMessages = true;
+    demoMem(eng.members, taylor); demoMem(eng.members, sam); demoMem(eng.members, noah);
+    {
+        auto e1 = text(eng.id, noah, QStringLiteral(
+            "Rolling the migration behind a flag. Config:"), 44);
+        auto e2 = text(eng.id, noah, QStringLiteral(
+            "```yaml\nrollout:\n  strategy: canary\n  percent: 10\n```"), 43);
+        e2.formattedBody = QStringLiteral(
+            "<pre><code>rollout:\n  strategy: canary\n  percent: 10</code></pre>");
+        auto e3 = text(eng.id, sam, QStringLiteral(
+            "Use `canary` first, then widen once error rate holds."), 36);
+        e3.formattedBody = QStringLiteral(
+            "Use <code>canary</code> first, then widen once error rate holds.");
+        auto e4 = text(eng.id, sam, QStringLiteral("Deploy is green on staging."), 30);
+        e4.reactions = { { QStringLiteral("🟢"), 2, false, QString() } };
+        acct.timelines[eng.id] = { e1, e2, e3, e4 };
+    }
+    acct.paginationRemaining[eng.id] = 1;
+
+    // ── Release Planning — favourite-style room ─────────────────────────
+    RoomInfo releasePlanning;
+    releasePlanning.id = QStringLiteral("!release-planning:workplace.example");
+    releasePlanning.name = QStringLiteral("Release Planning");
+    releasePlanning.topic = QStringLiteral("Cut dates and checklists");
+    releasePlanning.spaceId = engineering.id;
+    releasePlanning.lastActivity = base.addSecs(-2 * 60 * 60);
+    releasePlanning.lastMessagePreview = QStringLiteral("Cut is Thursday, freeze Wednesday EOD.");
+    demoMem(releasePlanning.members, taylor); demoMem(releasePlanning.members, priya);
+    acct.timelines[releasePlanning.id] = {
+        text(releasePlanning.id, priya,
+             QStringLiteral("Cut is Thursday, freeze Wednesday EOD."), 130),
+    };
+    acct.paginationRemaining[releasePlanning.id] = 0;
+
+    // ── Company Announcements — announcement room ───────────────────────
+    RoomInfo companyAnnounce;
+    companyAnnounce.id = QStringLiteral("!company-announce:workplace.example");
+    companyAnnounce.name = QStringLiteral("Company Announcements");
+    companyAnnounce.topic = QStringLiteral("Company-wide news");
+    companyAnnounce.spaceId = companySpace.id;
+    companyAnnounce.lastActivity = base.addSecs(-4 * 60 * 60);
+    companyAnnounce.lastMessagePreview = QStringLiteral("All-hands moved to Friday 10:00.");
+    demoMem(companyAnnounce.members, taylor); demoMem(companyAnnounce.members, priya);
+    {
+        auto a1 = text(companyAnnounce.id, priya, QStringLiteral(
+            "All-hands moved to Friday 10:00. Agenda in the doc."), 240);
+        a1.reactions = { { QStringLiteral("👍"), 12, false, QString() } };
+        acct.timelines[companyAnnounce.id] = { a1 };
+    }
+    acct.paginationRemaining[companyAnnounce.id] = 0;
+
+    // ── Team Lounge — muted, quiet room ─────────────────────────────────
+    RoomInfo teamLounge;
+    teamLounge.id = QStringLiteral("!team-lounge:workplace.example");
+    teamLounge.name = QStringLiteral("Team Lounge");
+    teamLounge.topic = QStringLiteral("Off-topic and coffee");
+    teamLounge.spaceId = companySpace.id;
+    teamLounge.lastActivity = base.addSecs(-8 * 60 * 60);
+    teamLounge.lastMessagePreview = QStringLiteral("New espresso machine works 🎉");
+    demoMem(teamLounge.members, taylor); demoMem(teamLounge.members, noah);
+    acct.timelines[teamLounge.id] = {
+        text(teamLounge.id, noah, QStringLiteral("New espresso machine works 🎉"), 480),
+    };
+    acct.paginationRemaining[teamLounge.id] = 0;
+
+    // ── Sam Rivera — an encrypted 1:1 DM (with a mention) ───────────────
+    RoomInfo dmSam;
+    dmSam.id = QStringLiteral("!dm-sam:workplace.example");
+    dmSam.name = sam.name;
+    dmSam.avatarUrl = sam.avatarMxc;
+    dmSam.isDirect = true;
+    dmSam.directUserId = sam.id;
+    dmSam.directUserIds = { sam.id };
+    dmSam.encrypted = true;
+    dmSam.spaceId = engineering.id;
+    dmSam.lastActivity = base.addSecs(-25 * 60);
+    dmSam.lastMessagePreview = QStringLiteral("Thanks — reviewing now.");
+    dmSam.unreadCount = 1;
+    dmSam.highlightCount = 1;
+    dmSam.hasUnreadMessages = true;
+    demoMem(dmSam.members, taylor); demoMem(dmSam.members, sam);
+    {
+        auto s1 = text(dmSam.id, sam, QStringLiteral(
+            "Can you review the infra PR before the freeze?"), 32);
+        auto s2 = text(dmSam.id, taylor, QStringLiteral("On it now."), 28);
+        auto s3 = text(dmSam.id, sam, QStringLiteral(
+            "@taylor thanks — reviewing now."), 25);
+        s3.mentionsMe = true;
+        acct.timelines[dmSam.id] = { s1, s2, s3 };
+    }
+    acct.paginationRemaining[dmSam.id] = 0;
+
+    // ── Incident Review — technical incident room ───────────────────────
+    RoomInfo incident;
+    incident.id = QStringLiteral("!incident-review:workplace.example");
+    incident.name = QStringLiteral("Incident Review");
+    incident.topic = QStringLiteral("Post-incident notes");
+    incident.spaceId = engineering.id;
+    incident.lastActivity = base.addSecs(-10 * 60 * 60);
+    incident.lastMessagePreview = QStringLiteral("Root cause: expired cert. Action items filed.");
+    demoMem(incident.members, taylor); demoMem(incident.members, sam);
+    demoMem(incident.members, noah);
+    acct.timelines[incident.id] = {
+        text(incident.id, noah,
+             QStringLiteral("Root cause: expired cert. Action items filed."), 600),
+    };
+    acct.paginationRemaining[incident.id] = 0;
+
+    // ── An invite ───────────────────────────────────────────────────────
+    RoomInfo invite;
+    invite.id = QStringLiteral("!invite-leadership:workplace.example");
+    invite.name = QStringLiteral("Leadership Sync");
+    invite.topic = QStringLiteral("Weekly leadership review");
+    invite.membership = RoomInfo::Invited;
+    invite.invitePending = true;
+    invite.inviterUserId = priya.id;
+    invite.inviterDisplayName = priya.name;
+    invite.lastActivity = base.addSecs(-11 * 60 * 60);
+
+    product.childRoomIds     = { aurora.id, productDesign.id };
+    engineering.childRoomIds = { eng.id, releasePlanning.id, incident.id, dmSam.id };
+    companySpace.childRoomIds = { companyAnnounce.id, teamLounge.id };
+
+    acct.rooms = { product, engineering, companySpace,
+                   aurora, eng, dmSam, productDesign, releasePlanning,
+                   companyAnnounce, teamLounge, incident, invite };
+    return acct;
+}
+
+MockMatrixClient::DemoAccount MockMatrixClient::buildDemoAccountNova()
+{
+    const QDateTime base(QDate(2026, 7, 23), QTime(10, 24), QTimeZone::UTC);
+    const QString hs = QStringLiteral("community.example");
+    DemoAccount acct;
+    acct.userId = QStringLiteral("@nova:community.example");
+    acct.homeserver = hs;
+    acct.displayName = QStringLiteral("Nova");
+    acct.avatarMxc = demoAvatar(QStringLiteral("nova"));
+    acct.defaultRoomId = QStringLiteral("!general:community.example");
+
+    int n = 0;
+    auto eid = [&]() {
+        return QStringLiteral("$demo-nova-%1:%2").arg(++n).arg(hs);
+    };
+
+    const DemoPerson nova  { acct.userId,                                 acct.displayName,                acct.avatarMxc };
+    const DemoPerson priya { QStringLiteral("@priya:community.example"),  QStringLiteral("Priya Shah"),    demoAvatar(QStringLiteral("priya")) };
+    const DemoPerson leo   { QStringLiteral("@leo:community.example"),    QStringLiteral("Leo Novak"),     demoAvatar(QStringLiteral("leo")) };
+    const DemoPerson maya  { QStringLiteral("@maya:community.example"),   QStringLiteral("Maya Chen"),     demoAvatar(QStringLiteral("maya")) };
+    const DemoPerson jordan{ QStringLiteral("@jordan:community.example"), QStringLiteral("Jordan Lee"),    demoAvatar(QStringLiteral("jordan")) };
+
+    auto text = [&](const QString &room, const DemoPerson &p,
+                    const QString &body, int minsAgo) {
+        TimelineEvent e;
+        e.eventId = eid();
+        e.roomId = room;
+        e.sender = p.id;
+        e.senderDisplayName = p.name;
+        e.senderAvatarUrl = p.avatarMxc;
+        e.body = body;
+        e.timestamp = base.addSecs(-minsAgo * 60);
+        e.type = TimelineEvent::TextMessage;
+        return e;
+    };
+
+    // ── Spaces ──────────────────────────────────────────────────────────
+    RoomInfo openSource;
+    openSource.id = QStringLiteral("!space-oss:community.example");
+    openSource.name = QStringLiteral("Open Source");
+    openSource.topic = QStringLiteral("The project and its contributors");
+    openSource.isSpace = true;
+    openSource.lastActivity = base.addSecs(-6 * 60);
+
+    RoomInfo communitySpace;
+    communitySpace.id = QStringLiteral("!space-community:community.example");
+    communitySpace.name = QStringLiteral("Community");
+    communitySpace.topic = QStringLiteral("Everyone welcome");
+    communitySpace.isSpace = true;
+    communitySpace.lastActivity = base.addSecs(-15 * 60);
+
+    RoomInfo supportSpace;
+    supportSpace.id = QStringLiteral("!space-support:community.example");
+    supportSpace.name = QStringLiteral("Support");
+    supportSpace.topic = QStringLiteral("Get help and give help");
+    supportSpace.isSpace = true;
+    supportSpace.lastActivity = base.addSecs(-20 * 60);
+
+    // ── General — the main public room ──────────────────────────────────
+    RoomInfo general;
+    general.id = QStringLiteral("!general:community.example");
+    general.name = QStringLiteral("General");
+    general.topic = QStringLiteral("Public lobby — say hello 👋");
+    general.spaceId = communitySpace.id;
+    general.lastActivity = base.addSecs(-6 * 60);
+    general.lastMessagePreview = QStringLiteral("Welcome to all the new folks!");
+    general.unreadCount = 7;
+    general.highlightCount = 1;
+    general.hasUnreadMessages = true;
+    demoMem(general.members, nova); demoMem(general.members, priya);
+    demoMem(general.members, leo); demoMem(general.members, maya);
+    demoMem(general.members, jordan);
+    general.typingUserIds << leo.id;
+    {
+        auto g1 = text(general.id, priya, QStringLiteral(
+            "Welcome to all the new folks! Introduce yourself here."), 30);
+        auto g2 = text(general.id, maya, QStringLiteral(
+            "Hi everyone — designer, happy to help with UI reviews."), 24);
+        g2.reactions = { { QStringLiteral("👋"), 6, true, eid() } };
+        auto g3 = text(general.id, jordan, QStringLiteral(
+            "Long-time lurker, first-time contributor 😄"), 18);
+        auto g4 = text(general.id, nova, QStringLiteral(
+            "Welcome! The Development room is a good place to start."), 10);
+        acct.timelines[general.id] = { g1, g2, g3, g4 };
+    }
+    acct.paginationRemaining[general.id] = 2;
+
+    // ── Development — thread-heavy technical room ───────────────────────
+    RoomInfo devel;
+    devel.id = QStringLiteral("!development:community.example");
+    devel.name = QStringLiteral("Development");
+    devel.topic = QStringLiteral("Contributing and internals");
+    devel.spaceId = openSource.id;
+    devel.lastActivity = base.addSecs(-22 * 60);
+    devel.lastMessagePreview = QStringLiteral("Merged — thanks for the review!");
+    devel.unreadCount = 3;
+    devel.hasUnreadMessages = true;
+    demoMem(devel.members, nova); demoMem(devel.members, leo);
+    demoMem(devel.members, priya); demoMem(devel.members, jordan);
+    QString develRoot;
+    {
+        auto d1 = text(devel.id, leo, QStringLiteral(
+            "Opened a PR for the plugin API. Feedback welcome."), 120);
+        auto d2 = text(devel.id, leo, QStringLiteral(
+            "```rust\npub fn register(plugin: Plugin) -> Result<()> {\n    registry().add(plugin)\n}\n```"), 118);
+        d2.formattedBody = QStringLiteral(
+            "<pre><code>pub fn register(plugin: Plugin) -&gt; Result&lt;()&gt; {\n"
+            "    registry().add(plugin)\n}</code></pre>");
+        auto root = text(devel.id, priya, QStringLiteral(
+            "Should the plugin registry be global or per-session?"), 100);
+        develRoot = root.eventId;
+        root.isThreadRoot = true;
+        root.threadReplyCount = 5;
+        root.threadLatestPreview = QStringLiteral("Merged — thanks for the review!");
+        root.threadLatestKind = QStringLiteral("text");
+        root.threadLatestSender = leo.id;
+        root.threadLatestSenderDisplayName = leo.name;
+        root.threadLatestTimestamp = base.addSecs(-22 * 60);
+        auto tr = [&](const DemoPerson &p, const QString &body, int minsAgo) {
+            TimelineEvent e = text(devel.id, p, body, minsAgo);
+            e.threadRootId = develRoot;
+            return e;
+        };
+        acct.timelines[devel.id] = {
+            d1, d2, root,
+            tr(nova, QStringLiteral("Per-session is safer for isolation."), 92),
+            tr(jordan, QStringLiteral("Agreed, global state bit us last time."), 88),
+            tr(leo, QStringLiteral("Per-session it is. Updating the PR."), 80),
+            tr(priya, QStringLiteral("LGTM once tests pass."), 40),
+            tr(leo, QStringLiteral("Merged — thanks for the review!"), 22),
+        };
+    }
+    acct.paginationRemaining[devel.id] = 1;
+
+    // ── Feature Requests — a poll ───────────────────────────────────────
+    RoomInfo features;
+    features.id = QStringLiteral("!feature-requests:community.example");
+    features.name = QStringLiteral("Feature Requests");
+    features.topic = QStringLiteral("Vote on what's next");
+    features.spaceId = communitySpace.id;
+    features.lastActivity = base.addSecs(-55 * 60);
+    features.lastMessagePreview = QStringLiteral("Poll: what should we prioritise next?");
+    demoMem(features.members, nova); demoMem(features.members, priya);
+    demoMem(features.members, jordan);
+    {
+        auto f1 = text(features.id, priya, QStringLiteral(
+            "Community poll — what should we prioritise next quarter?"), 58);
+        TimelineEvent poll = text(features.id, priya, QString(), 57);
+        poll.type = TimelineEvent::Poll;
+        poll.pollQuestion = QStringLiteral("What should we prioritise next?");
+        poll.pollKind = QStringLiteral("disclosed");
+        poll.pollMaxSelections = 1;
+        poll.pollTotalVoters = 24;
+        poll.pollAnswers = {
+            { QStringLiteral("b1"), QStringLiteral("Plugins"),       11, true },
+            { QStringLiteral("b2"), QStringLiteral("Themes"),         7, false },
+            { QStringLiteral("b3"), QStringLiteral("Mobile"),         4, false },
+            { QStringLiteral("b4"), QStringLiteral("Localization"),   2, false },
+        };
+        acct.timelines[features.id] = { f1, poll };
+    }
+    acct.paginationRemaining[features.id] = 0;
+
+    // ── Support — a support question room ───────────────────────────────
+    RoomInfo support;
+    support.id = QStringLiteral("!support:community.example");
+    support.name = QStringLiteral("Support");
+    support.topic = QStringLiteral("Ask for help here");
+    support.spaceId = supportSpace.id;
+    support.lastActivity = base.addSecs(-70 * 60);
+    support.lastMessagePreview = QStringLiteral("That fixed it — thank you! 🙏");
+    support.unreadCount = 2;
+    support.hasUnreadMessages = true;
+    demoMem(support.members, nova); demoMem(support.members, jordan);
+    demoMem(support.members, priya);
+    {
+        auto s1 = text(support.id, jordan, QStringLiteral(
+            "Build fails on Wayland with a missing plugin. Any ideas?"), 78);
+        auto s2 = text(support.id, nova, QStringLiteral(
+            "Install the platform plugin and set QT_QPA_PLATFORM=wayland."), 70);
+        s2.replyToEventId = s1.eventId;
+        s2.replyToSender = jordan.name;
+        s2.replyToPreview = QStringLiteral("Build fails on Wayland…");
+        auto s3 = text(support.id, jordan, QStringLiteral("That fixed it — thank you! 🙏"), 66);
+        s3.reactions = { { QStringLiteral("🙏"), 2, false, QString() } };
+        acct.timelines[support.id] = { s1, s2, s3 };
+    }
+    acct.paginationRemaining[support.id] = 0;
+
+    // ── Showcase — a media showcase room ────────────────────────────────
+    RoomInfo showcase;
+    showcase.id = QStringLiteral("!showcase:community.example");
+    showcase.name = QStringLiteral("Showcase");
+    showcase.topic = QStringLiteral("Show what you built");
+    showcase.spaceId = communitySpace.id;
+    showcase.lastActivity = base.addSecs(-2 * 60 * 60);
+    showcase.lastMessagePreview = QStringLiteral("My custom theme 🎨");
+    demoMem(showcase.members, nova); demoMem(showcase.members, maya);
+    demoMem(showcase.members, leo);
+    {
+        auto sh1 = text(showcase.id, maya, QStringLiteral("My custom theme 🎨"), 130);
+        auto sh2 = text(showcase.id, maya, QStringLiteral("theme.png"), 128);
+        sh2.type = TimelineEvent::Image;
+        sh2.body = QStringLiteral("theme.png");
+        sh2.mediaMimetype = QStringLiteral("image/png");
+        sh2.mediaFilename = QStringLiteral("theme.png");
+        sh2.mediaMxcUrl = QStringLiteral("mxc://lightning.example/coast");
+        sh2.mediaWidth = 1600; sh2.mediaHeight = 1000; sh2.mediaSize = 300000;
+        sh2.reactions = { { QStringLiteral("🎨"), 5, false, QString() } };
+        auto sh3 = text(showcase.id, leo, QStringLiteral("looks-great.gif"), 124);
+        sh3.type = TimelineEvent::Image;
+        sh3.body = QStringLiteral("looks-great.gif");
+        sh3.mediaMimetype = QStringLiteral("image/gif");
+        sh3.mediaFilename = QStringLiteral("looks-great.gif");
+        sh3.mediaMxcUrl = QStringLiteral("mxc://lightning.example/loop");
+        sh3.mediaWidth = 480; sh3.mediaHeight = 480; sh3.mediaSize = 90000;
+        acct.timelines[showcase.id] = { sh1, sh2, sh3 };
+    }
+    acct.paginationRemaining[showcase.id] = 0;
+
+    // ── Off Topic — quiet casual room ───────────────────────────────────
+    RoomInfo offTopic;
+    offTopic.id = QStringLiteral("!off-topic:community.example");
+    offTopic.name = QStringLiteral("Off Topic");
+    offTopic.topic = QStringLiteral("Anything goes");
+    offTopic.spaceId = communitySpace.id;
+    offTopic.lastActivity = base.addSecs(-5 * 60 * 60);
+    offTopic.lastMessagePreview = QStringLiteral("Coffee recommendations? ☕");
+    demoMem(offTopic.members, nova); demoMem(offTopic.members, jordan);
+    acct.timelines[offTopic.id] = {
+        text(offTopic.id, jordan, QStringLiteral("Coffee recommendations? ☕"), 300),
+    };
+    acct.paginationRemaining[offTopic.id] = 0;
+
+    // ── Priya Shah — a direct message ───────────────────────────────────
+    RoomInfo dmPriya;
+    dmPriya.id = QStringLiteral("!dm-priya:community.example");
+    dmPriya.name = priya.name;
+    dmPriya.avatarUrl = priya.avatarMxc;
+    dmPriya.isDirect = true;
+    dmPriya.directUserId = priya.id;
+    dmPriya.directUserIds = { priya.id };
+    dmPriya.spaceId = communitySpace.id;
+    dmPriya.lastActivity = base.addSecs(-48 * 60);
+    dmPriya.lastMessagePreview = QStringLiteral("Sounds good — I'll draft it.");
+    demoMem(dmPriya.members, nova); demoMem(dmPriya.members, priya);
+    {
+        auto p1 = text(dmPriya.id, priya, QStringLiteral(
+            "Want to co-write the release blog post?"), 60);
+        auto p2 = text(dmPriya.id, nova, QStringLiteral("Sounds good — I'll draft it."), 48);
+        acct.timelines[dmPriya.id] = { p1, p2 };
+    }
+    acct.paginationRemaining[dmPriya.id] = 0;
+
+    // ── Maintainers — private maintainer room ───────────────────────────
+    RoomInfo maintainers;
+    maintainers.id = QStringLiteral("!maintainers:community.example");
+    maintainers.name = QStringLiteral("Maintainers");
+    maintainers.topic = QStringLiteral("Core team only");
+    maintainers.spaceId = openSource.id;
+    maintainers.encrypted = true;
+    maintainers.lastActivity = base.addSecs(-3 * 60 * 60);
+    maintainers.lastMessagePreview = QStringLiteral("Let's tag the release Friday.");
+    demoMem(maintainers.members, nova); demoMem(maintainers.members, priya);
+    demoMem(maintainers.members, leo);
+    acct.timelines[maintainers.id] = {
+        text(maintainers.id, priya, QStringLiteral("Let's tag the release Friday."), 190),
+    };
+    acct.paginationRemaining[maintainers.id] = 0;
+
+    // ── An invite ───────────────────────────────────────────────────────
+    RoomInfo invite;
+    invite.id = QStringLiteral("!invite-translators:community.example");
+    invite.name = QStringLiteral("Translators");
+    invite.topic = QStringLiteral("Localization working group");
+    invite.membership = RoomInfo::Invited;
+    invite.invitePending = true;
+    invite.inviterUserId = maya.id;
+    invite.inviterDisplayName = maya.name;
+    invite.lastActivity = base.addSecs(-12 * 60 * 60);
+
+    openSource.childRoomIds     = { devel.id, maintainers.id };
+    communitySpace.childRoomIds = { general.id, features.id, showcase.id,
+                                    offTopic.id, dmPriya.id };
+    supportSpace.childRoomIds   = { support.id };
+
+    acct.rooms = { openSource, communitySpace, supportSpace,
+                   general, devel, features, support, showcase, offTopic,
+                   dmPriya, maintainers, invite };
+    return acct;
+}
+
+QString MockMatrixClient::demoDefaultRoom(const QString &userId) const
+{
+    const auto it = m_demoAccounts.constFind(userId);
+    return it != m_demoAccounts.constEnd() ? it->defaultRoomId : QString{};
+}
+
+void MockMatrixClient::snapshotWorkingSetToActiveDemoAccount()
+{
+    if (m_activeDemoUser.isEmpty())
+        return;
+    const auto it = m_demoAccounts.find(m_activeDemoUser);
+    if (it == m_demoAccounts.end())
+        return;
+    it->rooms = m_rooms;
+    it->timelines = m_timelines;
+    it->paginationRemaining = m_paginationRemaining;
+}
+
+void MockMatrixClient::loadDemoAccountIntoWorkingSet(const DemoAccount &acct)
+{
+    m_rooms = acct.rooms;
+    m_timelines = acct.timelines;
+    m_paginationRemaining = acct.paginationRemaining;
+    // Anything that pointed into the previous account's timelines is invalid.
+    m_openThreadTimelineId.clear();
+    m_openThreadListRoom.clear();
+    m_paginating.clear();
+    m_paginationFailed.clear();
+    m_transientPaginationFailures.clear();
+}
+
+void MockMatrixClient::activateDemoAccount(const QString &userId)
+{
+    if (!m_screenshotDemoMode)
+        return;
+    const auto it = m_demoAccounts.constFind(userId);
+    if (it == m_demoAccounts.constEnd())
+        return;
+    if (m_activeDemoUser == userId)
+        return;
+    snapshotWorkingSetToActiveDemoAccount();  // preserve local mutations
+    loadDemoAccountIntoWorkingSet(it.value());
+    m_activeDemoUser = userId;
+}
+
+void MockMatrixClient::resetDemoData()
+{
+    if (!m_screenshotDemoMode)
+        return;
+    const QString active = m_activeDemoUser;
+    seedScreenshotDemoData();          // rebuilds all three, activates Alex
+    m_activeDemoUser.clear();
+    activateDemoAccount(active.isEmpty()
+                            ? QStringLiteral("@alex:lightning.example")
+                            : active);
+    Q_EMIT roomsChanged();
+    for (const auto &r : m_rooms)
+        Q_EMIT timelineReset(r.id);
+}
+
+void MockMatrixClient::resetDemoAccount(const QString &userId)
+{
+    if (!m_screenshotDemoMode || !m_demoAccounts.contains(userId))
+        return;
+    DemoAccount fresh;
+    if (userId == QStringLiteral("@alex:lightning.example"))
+        fresh = buildDemoAccountAlex();
+    else if (userId == QStringLiteral("@taylor:workplace.example"))
+        fresh = buildDemoAccountTaylor();
+    else if (userId == QStringLiteral("@nova:community.example"))
+        fresh = buildDemoAccountNova();
+    else
+        return;
+    finalizeDemoMedia(fresh);
+    m_demoAccounts[userId] = fresh;
+    if (m_activeDemoUser == userId) {
+        loadDemoAccountIntoWorkingSet(fresh);
+        Q_EMIT roomsChanged();
+        for (const auto &r : m_rooms)
+            Q_EMIT timelineReset(r.id);
+    }
+}
+
+QString MockMatrixClient::demoThreadRoot(const QString &roomId) const
+{
+    const auto it = m_timelines.constFind(roomId);
+    if (it == m_timelines.constEnd())
+        return {};
+    for (const TimelineEvent &e : it.value())
+        if (e.isThreadRoot)
+            return e.eventId;
+    return {};
+}
+
+void MockMatrixClient::setDemoTypingSuppressed(bool suppressed)
+{
+    if (m_demoTypingSuppressed == suppressed)
+        return;
+    m_demoTypingSuppressed = suppressed;
+    for (const auto &r : m_rooms)
+        if (!r.typingUserIds.isEmpty())
+            Q_EMIT typingChanged(r.id);
+}
+
+void MockMatrixClient::setDemoUnreadHidden(bool hidden)
+{
+    if (m_demoHideUnread == hidden)
+        return;
+    m_demoHideUnread = hidden;
+    Q_EMIT roomsChanged();
 }
 
 void MockMatrixClient::setState(ConnectionState s)
@@ -1495,6 +2393,11 @@ void MockMatrixClient::setState(ConnectionState s)
 
 QString MockMatrixClient::nextEventId()
 {
+    // Demo mode must never emit the mock.local domain (the safety test rejects
+    // it); the deterministic seeded rows use their own $demo-<slug>-N ids, so
+    // this only stamps runtime demo sends.
+    if (m_screenshotDemoMode)
+        return QStringLiteral("$demo-live-%1:lightning.example").arg(++m_eventCounter);
     return QStringLiteral("$mock-%1:mock.local").arg(++m_eventCounter);
 }
 
