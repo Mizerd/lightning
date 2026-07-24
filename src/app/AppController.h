@@ -214,6 +214,12 @@ public:
     // the active backend is the in-memory mock (guaranteed by preflight, which
     // forces --screenshot-demo to the mock backend). Never networks.
     void beginScreenshotDemo(const QString &initialAccount = QString());
+    // Development-only: forward launcher/CLI demo options (scenario, theme,
+    // appearance, size, hide-controls) to the demo controller. A no-op unless
+    // the screenshot demo is active. Called by main() after beginScreenshotDemo.
+    void applyDemoLaunchOptions(const QString &scenario, const QString &theme,
+                                const QString &appearance, const QString &size,
+                                bool hideControls);
     // Development-only: the demo-session controller (scenarios, control panel,
     // window presets, per-account selected-room memory). Null unless the
     // screenshot demo is active. Exposed to QML as `app.demo`.

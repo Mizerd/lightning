@@ -1,6 +1,9 @@
 #include "app/AppController.h"
 #include "app/BackendSelection.h"
 #include "app/StartupChecks.h"
+#ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO
+#include "app/ScreenshotDemoController.h"  // demo CLI validation (dev builds only)
+#endif
 #include "gif/GifBuildKeys.h"
 #include "gif/GifProviderSelfTest.h"
 #include "media/MediaImageProvider.h"
@@ -170,6 +173,14 @@ struct PreflightResult {
     // LIGHTNING_ENABLE_SCREENSHOT_DEMO). Rejected in preflight when the option
     // is not compiled in, so a production binary never reaches it.
     bool screenshotDemo = false;
+    // Development-only demo launch options (see --demo-*). Empty/false in every
+    // normal build; a production binary rejects the flags as unknown options.
+    QString demoScenario;
+    QString demoAccount;
+    QString demoTheme;
+    QString demoAppearance;
+    QString demoSize;
+    bool demoHideControls = false;
     QString stderrMsg;
     QString stdoutMsg;
 };
@@ -279,6 +290,51 @@ PreflightResult preflightParse(int argc, char *argv[])
             return r;
 #endif
         }
+#ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO
+        // Development-only demo launch options. Parsed (and validated) only in a
+        // demo build; in any other build they fall through to QCommandLineParser,
+        // which rejects them as unknown options.
+        if (a.startsWith(QLatin1String("--demo-scenario="))) {
+            r.demoScenario = a.mid(QStringLiteral("--demo-scenario=").size());
+            if (!ScreenshotDemoController::isValidScenario(r.demoScenario)) {
+                r.action = PreflightResult::ExitError;
+                r.stderrMsg = QStringLiteral(
+                    "matrix-client: unknown --demo-scenario '%1'.\n"
+                    "Run scripts/run-screenshot-demo.sh --help for the list.\n")
+                    .arg(r.demoScenario);
+                return r;
+            }
+            continue;
+        }
+        if (a.startsWith(QLatin1String("--demo-account="))) {
+            r.demoAccount = a.mid(QStringLiteral("--demo-account=").size());
+            continue;
+        }
+        if (a.startsWith(QLatin1String("--demo-theme="))) {
+            r.demoTheme = a.mid(QStringLiteral("--demo-theme=").size());
+            continue;
+        }
+        if (a.startsWith(QLatin1String("--demo-appearance="))) {
+            r.demoAppearance = a.mid(QStringLiteral("--demo-appearance=").size());
+            continue;
+        }
+        if (a.startsWith(QLatin1String("--demo-size="))) {
+            r.demoSize = a.mid(QStringLiteral("--demo-size=").size());
+            int w = 0, h = 0;
+            if (!ScreenshotDemoController::sizeForPreset(r.demoSize, &w, &h)) {
+                r.action = PreflightResult::ExitError;
+                r.stderrMsg = QStringLiteral(
+                    "matrix-client: invalid --demo-size '%1' (use WxH within "
+                    "safe bounds, or a named preset).\n").arg(r.demoSize);
+                return r;
+            }
+            continue;
+        }
+        if (a == QLatin1String("--demo-hide-controls")) {
+            r.demoHideControls = true;
+            continue;
+        }
+#endif
         if (a == QLatin1String("--gif-status")) {
             r.action = PreflightResult::RunGifStatus;
             return r;
@@ -628,6 +684,21 @@ int main(int argc, char *argv[])
             "Development-only: boot the mock backend with deterministic demo "
             "data for screenshots."));
     parser.addOption(screenshotDemoOpt);
+    // Development-only demo launch options — registered so process() accepts
+    // them (preflight already consumed and validated them). Never reach this
+    // parser in a normal build (preflight exits on --screenshot-demo first).
+    for (const char *name : { "demo-scenario", "demo-account", "demo-theme",
+                              "demo-appearance", "demo-size" }) {
+        parser.addOption(QCommandLineOption(
+            QString::fromLatin1(name),
+            QGuiApplication::translate("main",
+                "Development-only screenshot-demo option."),
+            QStringLiteral("value")));
+    }
+    parser.addOption(QCommandLineOption(
+        QStringLiteral("demo-hide-controls"),
+        QGuiApplication::translate("main",
+            "Development-only: start with the demo controls hidden.")));
 #endif
     QCommandLineOption backendOpt(
         QStringList{ QStringLiteral("backend") },
@@ -654,7 +725,10 @@ int main(int argc, char *argv[])
     // UI (no login form, no network). beginScreenshotDemo() is a no-op unless
     // the mock backend is active.
     if (pf.screenshotDemo) {
-        controller.beginScreenshotDemo();
+        controller.beginScreenshotDemo(pf.demoAccount);
+        controller.applyDemoLaunchOptions(pf.demoScenario, pf.demoTheme,
+                                          pf.demoAppearance, pf.demoSize,
+                                          pf.demoHideControls);
         QTextStream(stdout)
             << "matrix-client: screenshot demo mode active — mock backend, "
                "isolated storage, no network.\n";

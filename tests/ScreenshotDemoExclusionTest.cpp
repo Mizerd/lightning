@@ -100,6 +100,50 @@ private Q_SLOTS:
         QVERIFY(r.out.contains(QStringLiteral("--screenshot-demo")));
         QVERIFY(r.out.contains(QStringLiteral("Development builds only")));
     }
+
+    // A production/normal build rejects every development-only demo argument.
+    void demoArgumentsRejectedWhenNotCompiled()
+    {
+        const QStringList args = {
+            QStringLiteral("--demo-scenario=main-chat"),
+            QStringLiteral("--demo-account=work"),
+            QStringLiteral("--demo-theme=ocean"),
+            QStringLiteral("--demo-appearance=dark"),
+            QStringLiteral("--demo-size=1440x900"),
+            QStringLiteral("--demo-hide-controls"),
+        };
+        for (const QString &a : args) {
+            const Run r = run({ a });
+            QVERIFY2(r.exitCode != 0,
+                     qUtf8Printable("expected rejection for " + a
+                                    + "; exit=" + QString::number(r.exitCode)));
+            // It must NOT have started the demo.
+            QVERIFY(!r.out.contains(QStringLiteral("screenshot demo mode active")));
+        }
+    }
+#endif
+
+#ifdef LIGHTNING_TEST_DEMO_COMPILED
+    // In a demo build, invalid demo values are rejected in preflight (exit 2)
+    // before any GUI/network/store access.
+    void invalidDemoScenarioRejectedInPreflight()
+    {
+        const Run r = run({ QStringLiteral("--screenshot-demo"),
+                            QStringLiteral("--demo-scenario=not-a-scenario") });
+        QCOMPARE(r.exitCode, 2);
+        QVERIFY2(r.err.contains(QStringLiteral("unknown --demo-scenario")),
+                 qUtf8Printable("got:\n" + r.err));
+        QVERIFY(!r.out.contains(QStringLiteral("screenshot demo mode active")));
+    }
+
+    void invalidDemoSizeRejectedInPreflight()
+    {
+        const Run r = run({ QStringLiteral("--screenshot-demo"),
+                            QStringLiteral("--demo-size=99999x1") });
+        QCOMPARE(r.exitCode, 2);
+        QVERIFY2(r.err.contains(QStringLiteral("invalid --demo-size")),
+                 qUtf8Printable("got:\n" + r.err));
+    }
 #endif
 };
 

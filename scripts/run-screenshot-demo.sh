@@ -3,9 +3,11 @@
 #
 # Builds a DEDICATED development build tree with the screenshot-demo compile
 # option enabled and launches the REAL Lightning UI on the in-memory mock
-# backend with deterministic fake accounts/rooms — for promotional screenshots.
+# backend with three deterministic fictional accounts — for promotional
+# screenshots.
 #
-#   * No network, no Matrix credentials, no real homeserver, no crypto store.
+#   * No network, no Matrix credentials, no real homeserver, no crypto store,
+#     no libsecret / production SecretStore.
 #   * Storage is isolated: XDG_{DATA,CONFIG,CACHE}_HOME point at a dedicated
 #     demo directory, so the demo NEVER reads or writes your real Lightning
 #     configuration. (The app additionally uses an isolated applicationName.)
@@ -13,8 +15,16 @@
 #     development-only and is rejected in a Rust-only release build.
 #
 # Usage:
-#   scripts/run-screenshot-demo.sh                 # build + launch demo
-#   scripts/run-screenshot-demo.sh --reset         # remove the demo profile
+#   scripts/run-screenshot-demo.sh                      # build + launch demo
+#   scripts/run-screenshot-demo.sh --reset              # remove the demo profile
+#   scripts/run-screenshot-demo.sh --scenario main-chat
+#   scripts/run-screenshot-demo.sh --theme ocean
+#   scripts/run-screenshot-demo.sh --appearance dark
+#   scripts/run-screenshot-demo.sh --size 1440x900
+#   scripts/run-screenshot-demo.sh --account work
+#   scripts/run-screenshot-demo.sh --hide-controls
+#   scripts/run-screenshot-demo.sh \
+#       --scenario main-chat --theme ocean --size 1440x900 --hide-controls
 #   scripts/run-screenshot-demo.sh -- <extra app args...>
 #
 # Environment:
@@ -28,9 +38,17 @@ DEMO_DIR="${LIGHTNING_DEMO_DIR:-$HOME/.local/share/lightning-screenshot-demo}"
 BUILD_DIR="${LIGHTNING_DEMO_BUILD:-build-demo}"
 MARKER=".lightning-screenshot-demo"
 
+# The valid screenshot scenarios (kept in sync with ScreenshotDemoController).
+VALID_SCENARIOS="home-overview main-chat direct-message development \
+media-gallery thread-view poll settings-themes account-switching security \
+invite work-overview community-overview responsive-chat"
+
+usage() {
+    sed -n '3,40p' "$0" | sed 's/^# \{0,1\}//'
+    exit "${1:-0}"
+}
+
 # --- Strong path validation before any deletion --------------------------
-# Refuse to delete anything that is not our own, clearly-named, absolute demo
-# directory living under $HOME. Never a broad/ambiguous recursive delete.
 validate_demo_dir() {
     case "$DEMO_DIR" in
         "$HOME"/*) : ;;
@@ -45,7 +63,7 @@ validate_demo_dir() {
     fi
 }
 
-if [ "${1:-}" = "--reset" ]; then
+do_reset() {
     validate_demo_dir
     if [ -d "$DEMO_DIR" ]; then
         if [ ! -e "$DEMO_DIR/$MARKER" ]; then
@@ -57,15 +75,65 @@ if [ "${1:-}" = "--reset" ]; then
     else
         echo "nothing to reset: $DEMO_DIR does not exist"
     fi
+}
+
+# --- Parse launcher arguments --------------------------------------------
+RESET=0
+SCENARIO=""
+THEME=""
+APPEARANCE=""
+SIZE=""
+ACCOUNT=""
+HIDE_CONTROLS=0
+EXTRA_ARGS=()
+
+need_value() {
+    if [ -z "${2:-}" ]; then
+        echo "error: $1 requires a value" >&2; exit 2
+    fi
+}
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -h|--help) usage 0 ;;
+        --reset) RESET=1; shift ;;
+        --scenario) need_value "$1" "${2:-}"; SCENARIO="$2"; shift 2 ;;
+        --theme) need_value "$1" "${2:-}"; THEME="$2"; shift 2 ;;
+        --appearance) need_value "$1" "${2:-}"; APPEARANCE="$2"; shift 2 ;;
+        --size) need_value "$1" "${2:-}"; SIZE="$2"; shift 2 ;;
+        --account) need_value "$1" "${2:-}"; ACCOUNT="$2"; shift 2 ;;
+        --hide-controls) HIDE_CONTROLS=1; shift ;;
+        --) shift; EXTRA_ARGS=("$@"); break ;;
+        *) echo "error: unknown argument '$1' (see --help)" >&2; exit 2 ;;
+    esac
+done
+
+if [ "$RESET" = 1 ]; then
+    do_reset
     exit 0
 fi
 
-# Pass-through extra app args after a literal `--`.
-EXTRA_ARGS=()
-if [ "${1:-}" = "--" ]; then
-    shift
-    EXTRA_ARGS=("$@")
+# --- Validate values -----------------------------------------------------
+if [ -n "$SCENARIO" ]; then
+    ok=0
+    for s in $VALID_SCENARIOS; do [ "$s" = "$SCENARIO" ] && ok=1 && break; done
+    if [ "$ok" = 0 ]; then
+        echo "error: unknown scenario '$SCENARIO'" >&2
+        echo "valid: $VALID_SCENARIOS" >&2
+        exit 2
+    fi
 fi
+if [ -n "$SIZE" ]; then
+    if [ "$SIZE" != "narrow" ] && [ "$SIZE" != "wide" ] \
+       && ! [[ "$SIZE" =~ ^[0-9]+x[0-9]+$ ]]; then
+        echo "error: invalid --size '$SIZE' (use WxH, e.g. 1440x900, or narrow/wide)" >&2
+        exit 2
+    fi
+fi
+case "$ACCOUNT" in
+    ""|personal|work|community|alex|taylor|nova) : ;;
+    *) echo "error: invalid --account '$ACCOUNT' (personal|work|community)" >&2; exit 2 ;;
+esac
 
 # --- Isolated storage ----------------------------------------------------
 validate_demo_dir
@@ -76,12 +144,28 @@ export XDG_CONFIG_HOME="$DEMO_DIR/config"
 export XDG_CACHE_HOME="$DEMO_DIR/cache"
 
 # --- Build the demo tree (development option ON; mock backend, no Rust) ---
-# The screenshot demo uses the in-memory mock backend, so the demo tree does
-# not need the Rust SDK — a plain mock/http build with the demo option is much
-# faster to configure and build.
 nix develop -c cmake -S . -B "$BUILD_DIR" -G Ninja \
     -DLIGHTNING_ENABLE_SCREENSHOT_DEMO=ON >/dev/null
 nix develop -c cmake --build "$BUILD_DIR" --target matrix-client
 
-echo "launching Lightning screenshot demo (isolated storage: $DEMO_DIR)"
-exec nix develop -c "./$BUILD_DIR/matrix-client" --screenshot-demo "${EXTRA_ARGS[@]}"
+# --- Assemble the development-only demo CLI args -------------------------
+APP_ARGS=(--screenshot-demo)
+[ -n "$SCENARIO" ]   && APP_ARGS+=("--demo-scenario=$SCENARIO")
+[ -n "$ACCOUNT" ]    && APP_ARGS+=("--demo-account=$ACCOUNT")
+[ -n "$THEME" ]      && APP_ARGS+=("--demo-theme=$THEME")
+[ -n "$APPEARANCE" ] && APP_ARGS+=("--demo-appearance=$APPEARANCE")
+[ -n "$SIZE" ]       && APP_ARGS+=("--demo-size=$SIZE")
+[ "$HIDE_CONTROLS" = 1 ] && APP_ARGS+=(--demo-hide-controls)
+
+# --- Concise summary before launch ---------------------------------------
+echo "── Lightning screenshot demo ───────────────────────────────"
+echo "  storage:     $DEMO_DIR (isolated; no network, no libsecret)"
+echo "  scenario:    ${SCENARIO:-home-overview (default)}"
+echo "  account:     ${ACCOUNT:-personal (default)}"
+echo "  theme:       ${THEME:-scenario default}"
+echo "  appearance:  ${APPEARANCE:-scenario default}"
+echo "  size:        ${SIZE:-scenario default}"
+echo "  controls:    $([ "$HIDE_CONTROLS" = 1 ] && echo hidden || echo visible) (Ctrl+Shift+D toggles)"
+echo "────────────────────────────────────────────────────────────"
+
+exec nix develop -c "./$BUILD_DIR/matrix-client" "${APP_ARGS[@]}" "${EXTRA_ARGS[@]}"

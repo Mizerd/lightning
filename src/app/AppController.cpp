@@ -955,6 +955,21 @@ void AppController::beginScreenshotDemo(const QString &initialAccount)
     }
 #endif
 }
+void AppController::applyDemoLaunchOptions(const QString &scenario,
+                                           const QString &theme,
+                                           const QString &appearance,
+                                           const QString &size,
+                                           bool hideControls)
+{
+#ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO
+    if (auto *d = qobject_cast<ScreenshotDemoController *>(m_demoController))
+        d->applyLaunchOptions(scenario, theme, appearance, size, hideControls);
+#else
+    Q_UNUSED(scenario); Q_UNUSED(theme); Q_UNUSED(appearance);
+    Q_UNUSED(size); Q_UNUSED(hideControls);
+#endif
+}
+
 AccountManager *AppController::accounts() const { return m_accounts.get(); }
 RoomListModel *AppController::roomList() const { return m_roomList.get(); }
 QuickSwitcherModel *AppController::quickSwitcher() const
