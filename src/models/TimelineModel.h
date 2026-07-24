@@ -220,7 +220,8 @@ public:
     // mentions degrade to plain internal links. Re-announces every row's
     // FormattedBodyRole so live theme switches restyle existing rows.
     Q_INVOKABLE void setMentionStyle(const QString &accentColor,
-                                     const QString &softColor);
+                                     const QString &softColor,
+                                     const QString &codeBackground = QString());
 
 Q_SIGNALS:
     void roomIdChanged();
@@ -319,4 +320,5 @@ private:
     // setMentionStyle). Empty until QML pushes the current theme.
     QString m_mentionAccentColor;
     QString m_mentionSoftColor;
+    QString m_codeBackgroundColor;
 };

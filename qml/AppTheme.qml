@@ -621,6 +621,16 @@ QtObject {
     readonly property int radiusLg:   12
     readonly property int radiusPill: 999
     readonly property int radius:     radiusMd
+    // Media (images/video/GIF) corner radius — matches the card radius so media
+    // reads as part of the message rather than pasted into the window.
+    readonly property int radiusMedia: 12
+
+    // ---- Layout constraints. ----
+    // Maximum width of a timeline message row's content (text, media, mention
+    // highlight). Keeps long messages readable and the timeline balanced on wide
+    // desktop windows instead of stretching edge to edge; narrow windows shrink
+    // below it responsively.
+    readonly property int timelineContentMaxWidth: 760
 
     // ---- Typography. ----
     readonly property int fontSizeXS:        11

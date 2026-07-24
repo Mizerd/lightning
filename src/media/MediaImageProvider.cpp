@@ -40,6 +40,32 @@ QImage roundedMasked(const QImage &src, bool circle, qreal radiusRatio)
     painter.end();
     return out;
 }
+
+// Round the corners of a message image WITHOUT cropping (aspect preserved).
+// radius = radiusRatio * min(w, h). Baked once per decoded image, cached by
+// source URL — no per-frame mask/effect. Used for timeline image/video media so
+// media reads as part of the message rather than a pasted-in rectangle.
+QImage roundedCorners(const QImage &src, qreal radiusRatio)
+{
+    if (src.isNull())
+        return src;
+    const int w = src.width();
+    const int h = src.height();
+    if (w <= 0 || h <= 0)
+        return src;
+    const QImage in = src.convertToFormat(QImage::Format_ARGB32_Premultiplied);
+    const qreal radius = radiusRatio * qMin(w, h);
+    QImage out(w, h, QImage::Format_ARGB32_Premultiplied);
+    out.fill(Qt::transparent);
+    QPainter painter(&out);
+    painter.setRenderHint(QPainter::Antialiasing);
+    QPainterPath path;
+    path.addRoundedRect(QRectF(0, 0, w, h), radius, radius);
+    painter.setClipPath(path);
+    painter.drawImage(0, 0, in);
+    painter.end();
+    return out;
+}
 } // namespace
 
 MediaImageProvider::MediaImageProvider(MediaBridge *bridge)
@@ -60,6 +86,7 @@ QImage MediaImageProvider::requestImage(const QString &id, QSize *size,
     // suffix is not part of the cache key; it selects the baked mask.
     bool maskCircle = false;
     qreal maskRatio = 0.0;
+    qreal roundRatio = 0.0;   // aspect-preserving corner rounding (message media)
     const int shapePos = cacheKey.lastIndexOf(QLatin1String("|shape:"));
     if (shapePos >= 0) {
         const QString shape = cacheKey.mid(shapePos + 7);
@@ -71,6 +98,11 @@ QImage MediaImageProvider::requestImage(const QString &id, QSize *size,
             const int permille = shape.mid(4).toInt(&ok);
             if (ok && permille > 0 && permille <= 500)
                 maskRatio = permille / 1000.0;
+        } else if (shape.startsWith(QLatin1String("round:"))) {
+            bool ok = false;
+            const int permille = shape.mid(6).toInt(&ok);
+            if (ok && permille > 0 && permille <= 300)
+                roundRatio = permille / 1000.0;
         }
     }
 
@@ -107,6 +139,8 @@ QImage MediaImageProvider::requestImage(const QString &id, QSize *size,
     QImage image = reader.read();
     if (!image.isNull() && (maskCircle || maskRatio > 0.0))
         image = roundedMasked(image, maskCircle, maskRatio);
+    else if (!image.isNull() && roundRatio > 0.0)
+        image = roundedCorners(image, roundRatio);
     if (size)
         *size = image.size();
     return image;

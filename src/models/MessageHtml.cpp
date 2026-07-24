@@ -265,10 +265,23 @@ QString MessageHtml::sanitize(
             continue; // drop any other markup inside a replaced mention
 
         if (allowedTags().contains(name)) {
-            if (t.closing)
+            if (t.closing) {
                 out += QStringLiteral("</") + name + QStringLiteral(">");
-            else
+            } else if (!mentionStyle.codeBackground.isEmpty()
+                       && (name == QLatin1String("code")
+                           || name == QLatin1String("pre"))) {
+                // Give inline `code` and ```code blocks``` a subtle boxed
+                // background so they read as code rather than blending into the
+                // chat text. The colour is a validated theme QColor, escaped
+                // again here so a style break-out is impossible; the plain
+                // </tag> emitted above closes it.
+                out += QStringLiteral("<") + name
+                    + QStringLiteral(" style=\"background-color:")
+                    + mentionStyle.codeBackground.toHtmlEscaped()
+                    + QStringLiteral("\">");
+            } else {
                 out += QStringLiteral("<") + name + QStringLiteral(">");
+            }
         }
         // Unknown tag: dropped; its text content still flows through.
     }

@@ -22,16 +22,18 @@ Item {
     function _pushMentionStyle() {
         var accent = "" + AppTheme.accent
         var soft = "" + AppTheme.accentSoft
+        var code = "" + AppTheme.codeBlock
         if (app.timeline && app.timeline.setMentionStyle)
-            app.timeline.setMentionStyle(accent, soft)
+            app.timeline.setMentionStyle(accent, soft, code)
         if (app.thread && app.thread.model && app.thread.model.setMentionStyle)
-            app.thread.model.setMentionStyle(accent, soft)
+            app.thread.model.setMentionStyle(accent, soft, code)
     }
     Component.onCompleted: _pushMentionStyle()
     Connections {
         target: AppTheme
         function onAccentChanged() { _pushMentionStyle() }
         function onAccentSoftChanged() { _pushMentionStyle() }
+        function onCodeBlockChanged() { _pushMentionStyle() }
     }
 
     SplitView {

@@ -32,8 +32,10 @@ namespace MessageHtml {
 // "no chip styling" and mentions render as plain internal links. Qt rich
 // text cannot round corners, so the chip is a soft rectangular highlight.
 struct MentionStyle {
-    QString accentColor; // chip ink
-    QString softColor;   // chip surface
+    QString accentColor;   // chip ink
+    QString softColor;     // chip surface
+    QString codeBackground; // subtle surface behind inline `code`/```blocks```
+                            // (empty = leave code unstyled)
 };
 
 // resolveDisplayName maps a Matrix user id to a room display name (empty or

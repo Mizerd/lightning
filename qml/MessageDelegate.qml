@@ -369,7 +369,11 @@ Item {
                        ? Math.min(bubbleContent.implicitWidth + root.bubblePad * 2,
                                   Math.max(60, parent.width
                                                - root.avatarGutterWidth - 40))
-                       : Math.max(1, parent.width - root.avatarGutterWidth)
+                         // Modern/Compact: full row width up to a readable max,
+                         // so long messages and media stay balanced on wide
+                         // desktop windows (narrow windows shrink below it).
+                       : Math.min(AppTheme.timelineContentMaxWidth,
+                                  Math.max(1, parent.width - root.avatarGutterWidth))
                 height: implicitHeight
                 implicitHeight: bubbleContent.implicitHeight + root.bubblePad * 2
                 // v0.6.0 checkpoint 11: mentions get a subtle accent tint —
@@ -1686,6 +1690,13 @@ Item {
                               && model.mediaThumbUrl.toString().length > 0
                               ? model.mediaThumbUrl
                               : (model.mediaUrl || ""))
+            // Round the corners of a media-bridge image via the provider's baked
+            // mask (no per-frame effect). Only the in-process provider path can
+            // carry the shape suffix; a plain http fallback URL is left as-is.
+            readonly property string roundedSource:
+                resolvedSource.indexOf("image://lightning-media/") === 0
+                ? resolvedSource + "|shape:round:35"
+                : resolvedSource
 
             // v0.7: image skeleton keeps the exact reserved rectangle while
             // bytes download/decrypt, and is replaced in place — no zero-size
@@ -1731,7 +1742,7 @@ Item {
                 anchors.fill: parent
                 visible: !imageBox.animateGif
                 fillMode: Image.PreserveAspectFit
-                source: imageBox.animateGif ? "" : imageBox.resolvedSource
+                source: imageBox.animateGif ? "" : imageBox.roundedSource
                 sourceSize.width: 640
                 asynchronous: true
                 cache: true
@@ -1979,7 +1990,13 @@ Item {
                 id: thumbImg
                 anchors.fill: parent
                 fillMode: Image.PreserveAspectCrop
-                source: videoBox.usesBridge ? videoBox.bridgeSource : ""
+                // Rounded via the provider's baked mask when served from the
+                // in-process media bridge (see the image path above).
+                source: videoBox.usesBridge
+                        ? (videoBox.bridgeSource.indexOf("image://lightning-media/") === 0
+                           ? videoBox.bridgeSource + "|shape:round:35"
+                           : videoBox.bridgeSource)
+                        : ""
                 sourceSize.width: 640
                 asynchronous: true
                 cache: true
@@ -2452,15 +2469,21 @@ Item {
                                 visible: pollCard.showCounts
                                 Layout.fillWidth: true
                                 Layout.leftMargin: 24
-                                implicitHeight: 4
-                                radius: 2
+                                implicitHeight: 7
+                                radius: height / 2
                                 color: AppTheme.hover
                                 Rectangle {
                                     anchors.left: parent.left
                                     anchors.top: parent.top
                                     anchors.bottom: parent.bottom
-                                    width: parent.width * answerRow.voteShare
-                                    radius: 2
+                                    // A rounded pill: give any non-zero share at
+                                    // least its own height so it never renders as
+                                    // a thin sliver; zero votes show no fill.
+                                    width: answerRow.voteShare > 0
+                                           ? Math.max(height,
+                                                      parent.width * answerRow.voteShare)
+                                           : 0
+                                    radius: height / 2
                                     color: modelData.byMe === true
                                            ? AppTheme.accent : AppTheme.accentSoft
                                     Behavior on width {

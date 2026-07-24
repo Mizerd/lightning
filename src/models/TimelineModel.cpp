@@ -452,7 +452,8 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
             },
             m_selfUserId,
             MessageHtml::MentionStyle{m_mentionAccentColor,
-                                      m_mentionSoftColor});
+                                      m_mentionSoftColor,
+                                      m_codeBackgroundColor});
     }
     case TimestampRole:          return e.timestamp;
     case TypeRole:               return static_cast<int>(e.type);
@@ -725,23 +726,28 @@ QVariantList TimelineModel::mediaEntries() const
 }
 
 void TimelineModel::setMentionStyle(const QString &accentColor,
-                                    const QString &softColor)
+                                    const QString &softColor,
+                                    const QString &codeBackground)
 {
     // Only hex color literals may enter the sanitizer's style attribute
     // (defense in depth against style break-out; the values normally come
     // straight from AppTheme, whose colors stringify as #rrggbb/#aarrggbb).
     static const QRegularExpression hexColor(
         QStringLiteral("^#(?:[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"));
-    QString nextAccent, nextSoft;
+    QString nextAccent, nextSoft, nextCode;
     if (hexColor.match(accentColor).hasMatch()
         && hexColor.match(softColor).hasMatch()) {
         nextAccent = accentColor.toLower();
         nextSoft = softColor.toLower();
     }
-    if (nextAccent == m_mentionAccentColor && nextSoft == m_mentionSoftColor)
+    if (hexColor.match(codeBackground).hasMatch())
+        nextCode = codeBackground.toLower();
+    if (nextAccent == m_mentionAccentColor && nextSoft == m_mentionSoftColor
+        && nextCode == m_codeBackgroundColor)
         return;
     m_mentionAccentColor = nextAccent;
     m_mentionSoftColor = nextSoft;
+    m_codeBackgroundColor = nextCode;
     if (!m_events.isEmpty()) {
         Q_EMIT dataChanged(index(0), index(m_events.size() - 1),
                            {FormattedBodyRole});
@@ -1109,7 +1115,9 @@ QString TimelineModel::sanitizedHtmlForEvent(const QString &eventId) const
         [client, roomId](const QString &userId) {
             return client ? client->displayNameFor(roomId, userId) : QString();
         },
-        m_selfUserId);
+        m_selfUserId,
+        MessageHtml::MentionStyle{m_mentionAccentColor, m_mentionSoftColor,
+                                  m_codeBackgroundColor});
 }
 
 QString TimelineModel::messagePermalink(const QString &eventId) const
