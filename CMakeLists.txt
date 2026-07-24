@@ -1506,6 +1506,27 @@ if(BUILD_TESTING)
             Qt6::Core Qt6::Gui Qt6::Qml Qt6::Test)
         add_test(NAME screenshot-demo-media COMMAND screenshot-demo-media-test)
 
+        # Development-only screenshot-demo local-interactions contract: poll vote
+        # change, invite accept/reject, mark unread, reactions and message send
+        # mutate the in-memory demo scene through the real backend interface;
+        # reset restores it; all are no-ops outside demo mode.
+        qt_add_executable(screenshot-demo-interactions-test
+            tests/ScreenshotDemoInteractionsTest.cpp
+            src/matrix/MatrixClient.h
+            src/matrix/MatrixClient.cpp
+            src/matrix/MockMatrixClient.h
+            src/matrix/MockMatrixClient.cpp
+            src/matrix/MediaHelpers.h
+            src/matrix/MediaHelpers.cpp
+            src/app/SettingsManager.cpp
+            src/storage/AppDataPaths.cpp
+        )
+        target_include_directories(screenshot-demo-interactions-test PRIVATE src)
+        target_link_libraries(screenshot-demo-interactions-test PRIVATE
+            Qt6::Core Qt6::Gui Qt6::Qml Qt6::Test)
+        add_test(NAME screenshot-demo-interactions
+            COMMAND screenshot-demo-interactions-test)
+
         # Development-only screenshot-demo SCENARIO controller contract: every
         # required scenario activates to the right account/room/page/thread/
         # theme/window size; presets resolve; per-account selected rooms restore

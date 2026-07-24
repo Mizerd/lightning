@@ -2383,6 +2383,84 @@ void MockMatrixClient::setDemoUnreadHidden(bool hidden)
     Q_EMIT roomsChanged();
 }
 
+// ── Development-only local interactions ──────────────────────────────────
+
+void MockMatrixClient::sendPollResponse(const QString &roomId,
+                                        const QString &threadRootId,
+                                        const QString &pollStartEventId,
+                                        const QStringList &answerIds)
+{
+    Q_UNUSED(threadRootId);
+    if (!m_screenshotDemoMode)
+        return;
+    auto it = m_timelines.find(roomId);
+    if (it == m_timelines.end())
+        return;
+    for (int i = 0; i < it->size(); ++i) {
+        TimelineEvent &e = (*it)[i];
+        if (e.eventId != pollStartEventId || e.type != TimelineEvent::Poll)
+            continue;
+        // Move the local vote: decrement the previously-selected answer(s),
+        // increment the newly-selected. An empty answerIds retracts the vote.
+        for (PollAnswer &a : e.pollAnswers) {
+            const bool nowSelected = answerIds.contains(a.id);
+            if (nowSelected && !a.byMe) { a.count += 1; a.byMe = true; }
+            else if (!nowSelected && a.byMe) { a.count = qMax(0, a.count - 1);
+                                               a.byMe = false; }
+        }
+        Q_EMIT eventChangedAt(roomId, i, e);
+        return;
+    }
+}
+
+void MockMatrixClient::acceptInvite(const QString &roomId)
+{
+    if (!m_screenshotDemoMode)
+        return;
+    for (RoomInfo &r : m_rooms) {
+        if (r.id != roomId)
+            continue;
+        r.membership = RoomInfo::Joined;
+        r.invitePending = false;
+        if (r.lastMessagePreview.isEmpty())
+            r.lastMessagePreview = tr("You joined the room.");
+        if (!m_timelines.contains(roomId))
+            m_timelines[roomId] = {};
+        Q_EMIT roomUpdated(roomId);
+        Q_EMIT roomsChanged();
+        Q_EMIT timelineReset(roomId);
+        return;
+    }
+}
+
+void MockMatrixClient::rejectInvite(const QString &roomId)
+{
+    if (!m_screenshotDemoMode)
+        return;
+    for (int i = 0; i < m_rooms.size(); ++i) {
+        if (m_rooms[i].id != roomId)
+            continue;
+        m_rooms.removeAt(i);
+        m_timelines.remove(roomId);
+        Q_EMIT roomsChanged();
+        return;
+    }
+}
+
+void MockMatrixClient::setRoomMarkedUnread(const QString &roomId, bool unread)
+{
+    if (!m_screenshotDemoMode)
+        return;
+    for (RoomInfo &r : m_rooms) {
+        if (r.id != roomId)
+            continue;
+        r.markedUnread = unread;
+        r.hasUnreadMessages = unread || r.unreadCount > 0;
+        Q_EMIT roomUpdated(roomId);
+        return;
+    }
+}
+
 void MockMatrixClient::setState(ConnectionState s)
 {
     if (m_state == s)

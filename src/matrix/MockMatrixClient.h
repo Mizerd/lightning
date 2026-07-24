@@ -65,6 +65,20 @@ public:
     void setDemoUnreadHidden(bool hidden);
     bool demoTypingSuppressed() const { return m_demoTypingSuppressed; }
     bool demoUnreadHidden() const { return m_demoHideUnread; }
+
+    // Development-only local interactions on the demo scene. Each mutates the
+    // in-memory working set and emits the change signal the real UI listens to,
+    // so poll voting, invite accept/reject and mark-unread all work locally;
+    // resetDemoData/resetDemoAccount restore the deterministic state. All are
+    // gated on demo mode, so the shared mock fixtures (and every other backend)
+    // are unchanged.
+    bool supportsPolls() const override { return m_screenshotDemoMode; }
+    void sendPollResponse(const QString &roomId, const QString &threadRootId,
+                          const QString &pollStartEventId,
+                          const QStringList &answerIds) override;
+    void acceptInvite(const QString &roomId) override;
+    void rejectInvite(const QString &roomId) override;
+    void setRoomMarkedUnread(const QString &roomId, bool unread) override;
     bool isLoggedIn() const override { return m_loggedIn; }
     QString currentUserId() const override { return m_userId; }
     QString homeserverUrl() const override { return m_homeserver; }
