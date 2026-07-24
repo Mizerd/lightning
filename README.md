@@ -1,176 +1,180 @@
 # Lightning
 
-A native, modern Matrix desktop client built with Qt and the official Rust Matrix SDK.
+**A fast, native Matrix desktop client built with Qt and the official Rust Matrix SDK.**
 
-> **Development status:** Lightning is under active development. Features may be
-> incomplete and bugs should be expected.
+Lightning is a Linux-first desktop [Matrix](https://matrix.org/) client. The
+interface is written in Qt 6 / QML with C++ for the application layer, and the
+official [`matrix-rust-sdk`](https://github.com/matrix-org/matrix-rust-sdk)
+provides synchronisation, timelines, end-to-end encryption, threads, and media.
+
+> **Status:** under active development (0.6.x). It is usable day-to-day but not
+> formally audited or certified — expect rough edges and occasional regressions.
 
 [![Licence: GPL-3.0-or-later](https://img.shields.io/badge/licence-GPL--3.0--or--later-blue.svg)](LICENSE)
-[![Matrix](https://img.shields.io/badge/protocol-Matrix-000000.svg)](https://matrix.org/)
-[![Qt 6](https://img.shields.io/badge/Qt-6-41CD52.svg)](https://www.qt.io/)
-[![Rust](https://img.shields.io/badge/Rust-SDK-000000.svg)](https://www.rust-lang.org/)
-[![Linux](https://img.shields.io/badge/platform-Linux-FCC624.svg)](https://www.kernel.org/)
-![Active development](https://img.shields.io/badge/status-active%20development-orange.svg)
+[![Latest release](https://img.shields.io/badge/release-v0.6.3-2f6be0.svg)](https://gitlab.smetonis.net/Mizerd/lightning/-/releases)
+[![Qt 6](https://img.shields.io/badge/Qt-6.5%2B-41CD52.svg)](https://www.qt.io/)
+[![matrix-rust-sdk](https://img.shields.io/badge/matrix--rust--sdk-0.18-000000.svg)](https://github.com/matrix-org/matrix-rust-sdk)
+[![Platform: Linux](https://img.shields.io/badge/platform-Linux-FCC624.svg)](https://www.kernel.org/)
+![Status: active development](https://img.shields.io/badge/status-active%20development-orange.svg)
+
+<p align="center">
+  <img src="docs/screenshots/lightning-main-chat.png"
+       alt="Lightning main chat: a room timeline with replies, reactions, a mention, an edited message, an image, and a typing indicator"
+       width="900">
+</p>
+
+> The screenshots on this page are taken from Lightning's development-only
+> [screenshot-demo mode](#screenshot-demo-mode) and show fictional `*.example`
+> accounts and locally generated media — not real conversations.
 
 ## Contents
 
 - [Overview](#overview)
-- [Feature highlights](#feature-highlights)
-- [GIF support](#gif-support)
+- [Features](#features)
 - [Screenshots](#screenshots)
+- [Installation](#installation)
+- [Building from source](#building-from-source)
+- [Screenshot-demo mode](#screenshot-demo-mode)
 - [Architecture](#architecture)
-- [Building](#building)
-- [Running](#running)
-- [Testing](#testing)
-- [Packaging and releases](#packaging-and-releases)
 - [Security and privacy](#security-and-privacy)
-- [Project maturity](#project-maturity)
-- [Repository access and contributing](#repository-access-and-contributing)
+- [Project status](#project-status)
+- [Development and testing](#development-and-testing)
+- [Contributing](#contributing)
+- [Packaging and releases](#packaging-and-releases)
 - [Licence](#licence)
-- [Project link](#project-link)
-- [Contact](#contact)
 
 ## Overview
 
-Lightning is a Linux-first native Matrix desktop client. Its interface is
-written in Qt 6 and QML, with C++ providing the application layer and the
-official Rust Matrix SDK providing Matrix synchronisation, timelines,
-encryption, and media operations.
+Lightning aims to be a responsive, native desktop Matrix experience rather than
+a web view: a four-pane shell (Spaces rail, room list, timeline, side panel),
+SDK-backed encryption, modern room and thread workflows, efficient timeline
+navigation, and native desktop integration — all under an open-source licence.
 
-The project aims to provide a responsive native desktop experience, secure
-SDK-backed Matrix encryption, modern room and thread workflows, efficient
-timeline navigation, open-source development, and compatibility with the
-wider Matrix ecosystem.
+Matrix behaviour (login, sync, timelines, E2EE, media) is owned entirely by the
+official Rust Matrix SDK; Lightning does not implement its own Matrix
+cryptography.
 
-## Feature highlights
+## Features
 
-The following features are present in the current codebase. Because Lightning
-is still developing, some workflows remain experimental.
+Everything below is implemented in the current codebase. Because Lightning is
+still developing, some workflows remain experimental.
 
-### Accounts, rooms, and spaces
+### Accounts, rooms and Spaces
 
-- Matrix password login, persistent sessions, session restoration, and logout
-- Persistent multi-account support: several signed-in accounts (any mix of
-  homeservers) with fast in-app switching from the account menu — no login
-  form between accounts, each account in its own isolated SDK and encryption
-  store; only the selected account syncs
-- Scoped account removal and logout that never touch other accounts; logging
-  out continues with the most recently added remaining account
-- Joined-room, invitation, and direct-message navigation
-- Matrix-native direct-message detection and Space hierarchy navigation
-- Keyboard quick switching between rooms, direct messages, Spaces, and invites
-
-### Encryption and recovery
-
-- Encrypted room sending and receiving through the official Rust Matrix SDK
-- Automatic key handling, late decryption, and in-place decryption retry
-- SAS emoji device verification and read-only session trust information
-- Secure Backup recovery-key or passphrase restore and encrypted room-key import
-- Encryption health, recovery, and manual retry controls
+- Password login, persistent sessions and restoration, and logout
+- **Multi-account**: several signed-in accounts across any mix of homeservers,
+  with fast in-app switching and no login form between them; each account keeps
+  its own isolated SDK and encryption store, and only the active account syncs
+- Scoped account removal and logout that never touch other accounts
+- Joined rooms, direct messages, invites, and Matrix Space hierarchy navigation
+- Room creation, member lists and roles, room-profile editing, and invites
+- Keyboard quick-switch (Ctrl-K) across rooms, DMs, Spaces, and invites, plus
+  search across the currently loaded timeline
 
 ### Messaging and timelines
 
-- Live room timelines with replies, edits, reactions, redactions, typing
+- Live timelines with replies, edits, reactions, redactions, mentions, typing
   indicators, and read receipts
-- Text, image, and file attachment sending, including encrypted media
-- Backward pagination, first-unread navigation, jump-to-latest, and stable reply
-  navigation
-- Search across the currently loaded timeline without a persistent plaintext
-  message index
-- Smooth physical-wheel scrolling, touchpad handling, and keyboard timeline
-  navigation
-- Animated GIF attachment playback and validated inline rendering for direct
-  raster links
+- **MSC3381 polls** — vote, change your vote, and see live tallies
+- Unread and mention states, marked-unread, first-unread and jump-to-latest
+  navigation, and backward pagination
+- Member profile popovers and room-details panel
+- Smooth mouse-wheel and touchpad scrolling with per-room position preservation
 
 ### Threads
 
 - SDK-backed Matrix thread timelines, replies, and threaded read receipts
-- Per-room Threads view, thread panels, follow/unfollow controls, and pagination
-- Compact Element-style thread summary cards on room timeline roots
+- Per-room Threads view, a dedicated thread panel, follow/unfollow, and pagination
+- Compact Element-style thread summary cards on room-timeline roots
 - Text, image, and file attachments in threads, including encrypted rooms
 
-### Desktop experience
+### Media
 
-- A four-pane design shell (spaces rail, room list, timeline, side panel)
-  implemented from the Lightning design handoff, with bundled Manrope and
-  JetBrains Mono fonts
-- Ten complete semantic themes — Moss Light, Indigo Night, Deep Teal (the
-  design-handoff set that System follows), Lightning Light/Dark, Graphite,
-  Midnight, Nordic, Purple Dusk, and Warm — all persistent, live-switching,
-  and WCAG-AA contrast tested
-- A real application icon and desktop entry installed by the build (hicolor
-  set, Wayland app-id and X11 WM_CLASS association)
-- Native freedesktop notifications, mentions, and active-room suppression
-- Global and per-room notification privacy controls
-- Local Unicode emoji picker for composing messages and reactions
+- Images, files, and clipboard images, including encrypted attachments
+- Inline **video and audio playback** with posters, duration, and waveforms
+- Animated GIF attachments and a multi-provider GIF browser (GIPHY and KLIPY):
+  trending, search, categories, favourites, recents, safe-search, and autoplay
+  policy, sending as real Matrix media into rooms and threads
+- Client-side link previews with encrypted-room privacy controls
+- Image viewer with save, and validated inline rendering of direct raster links
 
-## GIF support
+### Encryption and account security
 
-Lightning includes a multi-provider GIF browser alongside its existing animated
-GIF attachment playback and validated inline rendering of direct GIF media. The
-browser is actively developed but is now feature-complete for everyday use.
+- Encrypted send/receive through the Rust Matrix SDK, with automatic key
+  handling, late in-place decryption, and manual retry
+- SAS emoji device verification and read-only session-trust information
+- Secure Backup recovery-key or passphrase restore and encrypted room-key import
+- Crypto health, recovery, and diagnostics controls in Settings
 
-- GIPHY and KLIPY provider tabs, with per-provider attribution shown in the
-  picker
-- Trending results, debounced search, and client-side category shortcuts
-- Pagination and infinite scrolling as results are browsed
-- Favourites and a bounded local recent-GIF history
-- Safe-search rating selection and a configurable autoplay policy
-- Keyboard-navigable, accessible tiles shared by the room and thread composers
-- Sending a chosen GIF as real Matrix media into a room or a thread; thread
-  sends always land as true `m.thread` replies, and encrypted rooms use the SDK
-  media-encryption path exactly like other attachments
+### Desktop experience and personalization
 
-Provider access resolves in this order:
-
-1. a runtime override — `LIGHTNING_GIPHY_API_KEY` / `LIGHTNING_KLIPY_API_KEY`;
-2. an application key embedded into an official release build;
-3. otherwise the provider shows the unconfigured (missing-key) state.
-
-**For users:** official Lightning packages include application-level GIF-provider
-configuration, so the GIF browser works immediately after install — you do not
-need to create provider keys or set any environment variable. GIF searches are
-sent to the selected external provider; provider availability and rate limits
-remain that provider's dependency.
-
-**For developers:** a build from source has no embedded key and shows the
-missing-key state until you supply a runtime override
-(`LIGHTNING_GIPHY_API_KEY` / `LIGHTNING_KLIPY_API_KEY`); these are read at
-runtime, so exporting them — for example from a local env file — enables the
-browser without rebuilding. Official-package keys are injected by protected CI at
-build time. An application key compiled into a distributed desktop binary is
-ultimately extractable and is not a Matrix credential; treat it accordingly.
-
-When provider integration is enabled, only the user's search term is sent to the
-explicitly selected provider — Matrix room, event, thread, and user identifiers
-are never sent. Downloaded provider media is fetched over HTTPS only, with
-revalidated redirects, a bounded download size, and GIF magic and dimension
-validation before it is uploaded through Matrix rather than sent as a bare
-provider URL. Keys are never logged, exposed to QML, or committed to the
-repository.
+- Ten complete, WCAG-AA-tested semantic themes — Moss Light, Indigo Night, Deep
+  Teal (the design-handoff set that *System* follows), plus Lightning Light/Dark,
+  Graphite, Midnight, Nordic, Purple Dusk, and Warm — persistent and
+  live-switching, with a message-layout selector and text-size scaling (all
+  per-account)
+- Bundled Manrope and JetBrains Mono fonts and five selectable UI fonts
+- Native freedesktop notifications with mentions, per-room modes, active-room
+  suppression, privacy modes, and sounds
+- Responsive layouts from narrow to wide, a local Unicode emoji picker, an
+  installed application icon and desktop entry, and accessible keyboard navigation
 
 ## Screenshots
 
-Screenshots will be added as the interface continues to mature.
+<table>
+  <tr>
+    <td width="50%">
+      <img src="docs/screenshots/lightning-media-gallery.png" alt="Media room with images, a video poster, an audio clip and a file attachment"><br>
+      <sub><b>Media</b> — images, video posters, audio and files render inline.</sub>
+    </td>
+    <td width="50%">
+      <img src="docs/screenshots/lightning-thread-view.png" alt="A thread panel open beside the main timeline"><br>
+      <sub><b>Threads</b> — a dedicated thread panel beside the room.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <img src="docs/screenshots/lightning-account-switcher.png" alt="Account switcher popover listing three signed-in accounts"><br>
+      <sub><b>Multi-account</b> — switch signed-in accounts in place.</sub>
+    </td>
+    <td width="50%">
+      <img src="docs/screenshots/lightning-settings.png" alt="Settings Appearance page with theme cards and layout options"><br>
+      <sub><b>Settings</b> — themes, message layout, and text size.</sub>
+    </td>
+  </tr>
+</table>
 
-## Architecture
+<p align="center">
+  <img src="docs/screenshots/lightning-responsive.png"
+       alt="Lightning at a narrow window width, showing the responsive layout"
+       width="380"><br>
+  <sub><b>Responsive</b> — the layout adapts down to narrow desktop windows.</sub>
+</p>
 
-Lightning keeps presentation, application state, and Matrix behaviour
-separate:
+## Installation
 
-- **QML** owns visual presentation and interaction.
-- **C++** owns application state, Qt-facing models, controllers, and lifecycle.
-- The **official Rust Matrix SDK** owns Matrix protocol behaviour,
-  synchronisation, timelines, encryption, and media operations.
+Prebuilt packages are attached to the project's
+[**Releases**](https://gitlab.smetonis.net/Mizerd/lightning/-/releases) page and
+published to its GitLab Package Registry.
 
-Lightning does not implement its own Matrix cryptography.
+- **Linux** (primary platform): `.deb`, `.rpm`, Flatpak, AppImage, and Snap.
+- **Windows** (x86-64, available since v0.6.3): a portable `.zip`, an `.msi`
+  installer, and a `-setup.exe` installer. These packages are currently
+  **unsigned**, so Windows may show an "unknown publisher" / SmartScreen warning.
+- **macOS** is not currently supported.
 
-## Building
+The authoritative per-release list of artifacts is the release notes — for
+example [`docs/releases/v0.6.3.md`](docs/releases/v0.6.3.md) — and the Releases
+page itself. Packaging, cross-platform builds, publishing, and verification are
+maintained in a separate automation project,
+[**lightning-deploy**](https://gitlab.smetonis.net/Mizerd/lightning-deploy); this
+repository holds only the application source. If no package is available for your
+platform, build from source (below).
 
-The verified development workflow uses the repository's Nix flake. Linux is
-the currently supported development target documented by the project.
+## Building from source
 
-Clone the public source and enter the development shell:
+The verified development workflow uses the repository's Nix flake on Linux, with
+Qt 6.5+ and a Rust toolchain (Rust 2021 edition) provided by the dev shell.
 
 ```sh
 git clone https://gitlab.smetonis.net/Mizerd/lightning.git
@@ -178,123 +182,143 @@ cd lightning
 nix develop
 ```
 
-Configure and build the Rust SDK-backed client:
+**Production build** — the Rust SDK backend (real Matrix, E2EE, threads):
 
 ```sh
-nix develop -c cmake -S . -B build-rust -G Ninja \
-  -DENABLE_RUST_SDK_BACKEND=ON
+nix develop -c cmake -S . -B build-rust -G Ninja -DENABLE_RUST_SDK_BACKEND=ON
 nix develop -c cmake --build build-rust
+nix develop -c ./build-rust/matrix-client --backend=rust
 ```
 
-A non-Rust build is also available for the mock and experimental HTTP
-backends:
+**Developer build** — a lighter tree with the in-memory mock/experimental HTTP
+backends, for UI work and tests without a homeserver:
 
 ```sh
 nix develop -c cmake -S . -B build -G Ninja
 nix develop -c cmake --build build
 ```
 
-The Rust backend is required for the SDK-backed Matrix, encryption, and thread
-features described above.
+The Rust backend is required for real Matrix, encryption, and thread features.
+Release binaries are Rust-only (`-DLIGHTNING_RUST_ONLY=ON`); the mock and HTTP
+backends are development-only and are compiled out of release builds.
 
-## Running
+See [`docs/build-and-test.md`](docs/build-and-test.md) for the full details.
 
-Launch the Rust SDK-backed client from the repository root:
+## Screenshot-demo mode
 
-```sh
-nix develop -c ./build-rust/matrix-client --backend=rust
-```
-
-Lightning is actively developed, so unfinished behaviour and regressions may
-be encountered.
-
-## Testing
-
-Run the Rust tests:
+A development-only mode boots the **real** UI on the in-memory mock backend with
+three fictional accounts, locally generated media, and deterministic scenarios —
+no network, no Matrix credentials, no real stores. It is how the screenshots on
+this page were produced, and it is impossible to reach in a shipped binary.
 
 ```sh
-nix develop -c cargo test --manifest-path rust/Cargo.toml
+scripts/run-screenshot-demo.sh --scenario main-chat --theme midnight \
+  --size 1440x900 --hide-controls
 ```
 
-Run the Rust-backed C++/QML test suite:
+See [`docs/screenshot-demo.md`](docs/screenshot-demo.md) for accounts, scenarios,
+window presets, and the full option list.
 
-```sh
-nix develop -c ctest \
-  --test-dir build-rust \
-  --output-on-failure
+## Architecture
+
+Lightning keeps presentation, application state, and Matrix behaviour separate:
+
+```text
+Qt 6 / QML  ──  visual presentation, interaction, theming, layout
+     │
+C++         ──  application state, Qt-facing models/controllers, lifecycle,
+     │          account/room/thread isolation, navigation, notification policy
+Rust bridge ──  FFI to…
+     │
+matrix-rust-sdk  ──  login/sync, timelines, threads, event cache, media,
+                     Olm/Megolm E2EE, verification, key backup, receipts
 ```
 
-The non-Rust build has its own test suite:
-
-```sh
-nix develop -c ctest \
-  --test-dir build \
-  --output-on-failure
-```
-
-Build the corresponding tree before running its tests.
-
-## Packaging and releases
-
-This repository contains the Lightning application source. The Debian and RPM
-packages are built, tested on a clean system, published to this project's
-Package Registry, and attached to its GitLab Releases by a separate
-package-building and release-automation project,
-[lightning-deploy](https://gitlab.smetonis.net/Mizerd/lightning-deploy).
-
-Official packages are still published under this main Lightning project and
-attached to its releases; `lightning-deploy` only holds the pipeline and
-automation logic. For package-pipeline details, see that project.
+- **QML** owns presentation and interaction only — never protocol, credentials,
+  crypto, or persistence.
+- **C++** owns the safe Qt-facing boundary and application state.
+- The **official Rust Matrix SDK** owns all Matrix protocol and cryptography.
+- The development-only mock and screenshot-demo backends are compiled out of
+  release builds. See [`docs/architecture.md`](docs/architecture.md).
 
 ## Security and privacy
 
-Matrix encryption is handled by the official Rust Matrix SDK; Lightning does
-not implement custom Matrix cryptography. Sensitive cryptographic material
-must not be logged, and decrypted private messages should not be stored in
-plaintext application caches.
+- End-to-end encryption is handled entirely by the official Rust Matrix SDK;
+  Lightning implements no custom Matrix cryptography.
+- Encrypted-room plaintext is kept in memory only and is not written to
+  application caches; cryptographic material, tokens, recovery keys, and message
+  bodies are never logged.
+- Access tokens are stored in the OS secret service (libsecret / Windows
+  Credential Manager) where available, with a clearly-flagged insecure fallback.
+- The screenshot-demo mode never touches real accounts, stores, libsecret, or the
+  network, and cannot exist in a release binary.
 
-When GIF-provider integration is enabled, external searches are sent to the
-selected provider. Provider API keys and other secrets must never be committed
-to the repository. Security-sensitive changes, especially changes involving
-end-to-end encryption, require careful review and testing.
+Lightning has **not** been formally security audited. Security-sensitive changes —
+especially anything touching E2EE — require careful review, explicit reasoning,
+and tests. See [`docs/threat-model.md`](docs/threat-model.md).
 
-Lightning has not been presented as formally security audited.
+## Project status
 
-## Project maturity
+Lightning is under active development. Linux is the primary development and
+support target; official Windows (x86-64) packages are published as of v0.6.3.
+APIs, UI, and behaviour may change, some features are experimental (for example,
+voice-message *recording* is not yet implemented, and message search covers the
+loaded timeline rather than the full server-side history), and Matrix
+interoperability should be verified rather than assumed. It should not be treated
+as a finished or certified product.
 
-Lightning is under active development. APIs, interface design, and behaviour
-may change; some features are experimental; and bugs or Matrix interoperability
-issues may exist. Users should not treat the client as formally audited or
-certified.
+## Development and testing
 
-## Repository access and contributing
+```sh
+# Rust SDK tests
+nix develop -c cargo test --manifest-path rust/Cargo.toml
 
-Lightning's source code is publicly readable and may be cloned and studied
-under the GPL-3.0-or-later licence. Direct repository access and write
-permissions are currently limited to Rokas Smetonis. Public registration,
-public forks, or direct merge-request submission may not currently be
-available on this GitLab instance. Open-source licensing does not grant direct
-write access to the canonical repository.
+# C++/QML/controller tests for a built tree (build the tree first)
+nix develop -c ctest --test-dir build-rust --output-on-failure
+nix develop -c ctest --test-dir build       --output-on-failure
+```
 
-People interested in contributing, testing, reporting bugs, or requesting
-repository access should contact the maintainer. Focused, tested contributions
-are encouraged. Changes affecting end-to-end encryption require particular
-care, explicit security reasoning, and appropriate tests.
+Compilation and launch are not feature validation; live Matrix behaviour
+(interoperability, decryption, notifications, physical scrolling) must be tested
+on a real homeserver and reported honestly. See
+[`docs/build-and-test.md`](docs/build-and-test.md).
+
+## Contributing
+
+Issues, focused merge requests, testing, and bug reports are welcome. Please:
+
+- keep commits scoped and coherent, and run the relevant tests;
+- keep security- and crypto-related changes especially focused, with explicit
+  reasoning and tests;
+- never commit credentials, provider keys, private stores, or real conversations.
+
+The source is publicly readable under GPL-3.0-or-later. Direct write access to
+the canonical repository is currently limited to the maintainer, and public
+registration, forks, or merge-request submission may not be enabled on this
+GitLab instance — contact the maintainer for access. `CLAUDE.md` documents the
+repository's operating conventions (primarily for coding agents).
+
+## Packaging and releases
+
+This repository contains the Lightning **application source**. Packaging,
+cross-platform package builds, release publishing, and artifact verification are
+maintained separately in
+[**lightning-deploy**](https://gitlab.smetonis.net/Mizerd/lightning-deploy).
+Official packages are still published under this main Lightning project's Package
+Registry and attached to its
+[Releases](https://gitlab.smetonis.net/Mizerd/lightning/-/releases);
+`lightning-deploy` holds only the pipeline and automation logic. Releases are
+package-first: the tag and GitLab Release are created only after the packages are
+built, validated on a clean system, published, and verified.
 
 ## Licence
 
-Copyright © 2026 Rokas Smetonis
+Copyright © 2026 Rokas Smetonis.
 
-Lightning is free software licensed under the GNU General Public License v3.0
-or later. See [LICENSE](LICENSE) for details.
+Lightning is free software licensed under the GNU General Public License v3.0 or
+later. See [LICENSE](LICENSE).
 
-## Project link
+---
 
-Public source: <https://gitlab.smetonis.net/Mizerd/lightning>
-
-## Contact
-
-For contribution enquiries, bug reports, testing feedback, or repository
-access requests, contact:
-
-**Rokas Smetonis** — [antrasrokas@gmail.com](mailto:antrasrokas@gmail.com)
+**Maintainer:** Rokas Smetonis — [antrasrokas@gmail.com](mailto:antrasrokas@gmail.com)
+· Public source: <https://gitlab.smetonis.net/Mizerd/lightning>
