@@ -63,7 +63,11 @@ void MockMatrixClient::login(const QString &homeserver,
     QTimer::singleShot(120, this, [this] {
         m_loggedIn = true;
         Q_EMIT loginSucceeded(m_userId);
-        setState(Disconnected);
+        // startSync() (triggered synchronously by loginSucceeded) set Syncing;
+        // the demo presents as a healthy "Connected" client (so the status
+        // footer stays quiet for clean screenshots) rather than dropping to the
+        // mock's usual idle state.
+        setState(m_screenshotDemoMode ? Syncing : Disconnected);
     });
 }
 
@@ -104,7 +108,8 @@ bool MockMatrixClient::restoreSession()
     QTimer::singleShot(m_restoreDelayMs, this, [this] {
         m_loggedIn = true;
         Q_EMIT loginSucceeded(m_userId);
-        setState(Disconnected);
+        // Demo presents as "Connected" (see login()); other backends idle.
+        setState(m_screenshotDemoMode ? Syncing : Disconnected);
     });
     return true;
 }
@@ -1296,6 +1301,9 @@ void MockMatrixClient::seedScreenshotDemoData()
     m_demoAccountOrder.clear();
     auto add = [&](DemoAccount a) {
         finalizeDemoMedia(a);   // tag media rows for the demo bridge
+        // No backward-pagination in the demo: scrolling up must never reveal the
+        // mock's generic "Older message #N (page N)" filler in a screenshot.
+        a.paginationRemaining.clear();
         m_demoAccountOrder << a.userId;
         m_demoAccounts.insert(a.userId, a);
     };
@@ -1707,7 +1715,6 @@ MockMatrixClient::DemoAccount MockMatrixClient::buildDemoAccountAlex()
     invite.name = QStringLiteral("Founders Lounge");
     invite.topic = QStringLiteral("Private space for the founding team");
     invite.membership = RoomInfo::Invited;
-    invite.invitePending = true;
     invite.inviterUserId = sam.id;
     invite.inviterDisplayName = sam.name;
     invite.lastActivity = base.addSecs(-9 * 60 * 60);
@@ -1964,7 +1971,6 @@ MockMatrixClient::DemoAccount MockMatrixClient::buildDemoAccountTaylor()
     invite.name = QStringLiteral("Leadership Sync");
     invite.topic = QStringLiteral("Weekly leadership review");
     invite.membership = RoomInfo::Invited;
-    invite.invitePending = true;
     invite.inviterUserId = priya.id;
     invite.inviterDisplayName = priya.name;
     invite.lastActivity = base.addSecs(-11 * 60 * 60);
@@ -2255,7 +2261,6 @@ MockMatrixClient::DemoAccount MockMatrixClient::buildDemoAccountNova()
     invite.name = QStringLiteral("Translators");
     invite.topic = QStringLiteral("Localization working group");
     invite.membership = RoomInfo::Invited;
-    invite.invitePending = true;
     invite.inviterUserId = maya.id;
     invite.inviterDisplayName = maya.name;
     invite.lastActivity = base.addSecs(-12 * 60 * 60);
@@ -2345,6 +2350,7 @@ void MockMatrixClient::resetDemoAccount(const QString &userId)
     else
         return;
     finalizeDemoMedia(fresh);
+    fresh.paginationRemaining.clear();
     m_demoAccounts[userId] = fresh;
     if (m_activeDemoUser == userId) {
         loadDemoAccountIntoWorkingSet(fresh);

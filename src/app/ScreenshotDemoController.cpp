@@ -365,6 +365,14 @@ QStringList ScreenshotDemoController::scenarioIds()
     return ids;
 }
 
+QString ScreenshotDemoController::scenarioAccount(const QString &id)
+{
+    for (const Scenario &s : catalogue())
+        if (s.id == id)
+            return s.account;
+    return {};
+}
+
 const ScreenshotDemoController::Scenario *
 ScreenshotDemoController::findScenario(const QString &id) const
 {

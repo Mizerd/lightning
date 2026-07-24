@@ -22,6 +22,11 @@
 #include <QGuiApplication>
 #include <QIcon>
 #include <QQmlApplicationEngine>
+#ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO
+#include <QQuickWindow>   // headless --demo-capture (dev builds only)
+#include <QImage>
+#include <QTimer>
+#endif
 #include <QQmlContext>
 #include <QQuickStyle>
 #include <QStringList>
@@ -181,6 +186,10 @@ struct PreflightResult {
     QString demoAppearance;
     QString demoSize;
     bool demoHideControls = false;
+    // Development-only: grab the window to a PNG once the scene settles, then
+    // quit — for headless screenshot regeneration/verification.
+    QString demoCapture;
+    int demoCaptureDelayMs = 1400;
     QString stderrMsg;
     QString stdoutMsg;
 };
@@ -332,6 +341,20 @@ PreflightResult preflightParse(int argc, char *argv[])
         }
         if (a == QLatin1String("--demo-hide-controls")) {
             r.demoHideControls = true;
+            continue;
+        }
+        if (a.startsWith(QLatin1String("--demo-capture="))) {
+            // --demo-capture=PATH.png[,delayMs]
+            const QString v = a.mid(QStringLiteral("--demo-capture=").size());
+            const int comma = v.indexOf(QLatin1Char(','));
+            if (comma > 0) {
+                r.demoCapture = v.left(comma);
+                bool ok = false;
+                const int d = v.mid(comma + 1).toInt(&ok);
+                if (ok && d >= 0) r.demoCaptureDelayMs = d;
+            } else {
+                r.demoCapture = v;
+            }
             continue;
         }
 #endif
@@ -688,7 +711,7 @@ int main(int argc, char *argv[])
     // them (preflight already consumed and validated them). Never reach this
     // parser in a normal build (preflight exits on --screenshot-demo first).
     for (const char *name : { "demo-scenario", "demo-account", "demo-theme",
-                              "demo-appearance", "demo-size" }) {
+                              "demo-appearance", "demo-size", "demo-capture" }) {
         parser.addOption(QCommandLineOption(
             QString::fromLatin1(name),
             QGuiApplication::translate("main",
@@ -725,7 +748,17 @@ int main(int argc, char *argv[])
     // UI (no login form, no network). beginScreenshotDemo() is a no-op unless
     // the mock backend is active.
     if (pf.screenshotDemo) {
-        controller.beginScreenshotDemo(pf.demoAccount);
+        // Restore the launch scenario's own account directly (a cross-account
+        // scenario then lands instantly, with no visible switch), falling back
+        // to the explicit --demo-account, then the default.
+        QString initialAccount = pf.demoAccount;
+        if (!pf.demoScenario.isEmpty()) {
+            const QString scenarioAcct =
+                ScreenshotDemoController::scenarioAccount(pf.demoScenario);
+            if (!scenarioAcct.isEmpty())
+                initialAccount = scenarioAcct;
+        }
+        controller.beginScreenshotDemo(initialAccount);
         controller.applyDemoLaunchOptions(pf.demoScenario, pf.demoTheme,
                                           pf.demoAppearance, pf.demoSize,
                                           pf.demoHideControls);
@@ -759,6 +792,33 @@ int main(int argc, char *argv[])
     QObject::connect(
         &engine, &QQmlApplicationEngine::objectCreationFailed,
         &app, []() { QCoreApplication::exit(-1); }, Qt::QueuedConnection);
+
+#ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO
+    // Development-only: once the demo window is up and the scene has settled
+    // (media fetched, layout done), grab it to a PNG and quit. Headless
+    // screenshot regeneration for the visual-review workflow. Never in a
+    // release binary (the whole block is compiled out).
+    if (pf.screenshotDemo && !pf.demoCapture.isEmpty()) {
+        const QString capturePath = pf.demoCapture;
+        const int captureDelay = pf.demoCaptureDelayMs;
+        QObject::connect(&engine, &QQmlApplicationEngine::objectCreated, &app,
+            [capturePath, captureDelay](QObject *obj, const QUrl &) {
+                auto *win = qobject_cast<QQuickWindow *>(obj);
+                if (!win)
+                    return;
+                QTimer::singleShot(captureDelay, win, [win, capturePath] {
+                    const QImage img = win->grabWindow();
+                    if (!img.isNull() && img.save(capturePath))
+                        QTextStream(stdout) << "demo-capture: wrote "
+                                            << capturePath << "\n";
+                    else
+                        QTextStream(stderr) << "demo-capture: FAILED "
+                                            << capturePath << "\n";
+                    QCoreApplication::quit();
+                });
+            });
+    }
+#endif
 
     engine.loadFromModule("MatrixClient", "Main");
 

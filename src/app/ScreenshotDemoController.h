@@ -76,6 +76,10 @@ public:
     static bool sizeForPreset(const QString &preset, int *w, int *h);
     static bool isValidScenario(const QString &id);
     static QStringList scenarioIds();
+    // The account a scenario runs on (full user id), or empty if unknown. Lets
+    // the launcher restore that account directly at boot so a cross-account
+    // launch scenario lands instantly instead of switching after the fact.
+    static QString scenarioAccount(const QString &id);
 
     // Apply the launcher/CLI-provided initial demo options once, after the
     // first frame is up. Empty strings are ignored.

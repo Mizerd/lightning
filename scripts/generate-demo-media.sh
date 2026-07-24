@@ -51,47 +51,56 @@ avatar noah   "#8fb04a" "#4f6f1f" "N"
 avatar priya  "#ef7b5b" "#a8431f" "P"
 avatar leo    "#5b6bef" "#2b358f" "L"
 
-# ── Message images (aspect ratio matches the mock's declared media sizes) ─
-# Landscape (Photography "coast") — 8:5.
-mk -size 720x450 "gradient:#0f2a4a-#e08a4a" \
-    -fill "#ffffff22" -draw "circle 540,110 540,55" \
-    "$OUT/coast.png"
-# Portrait — 2:3.
-mk -size 480x720 "gradient:#3a1f6f-#e05b9c" \
-    -fill "#ffffff1a" -draw "rectangle 70,420 410,456" \
-    "$OUT/portrait.png"
-# Square artwork — 1:1.
-mk -size 600x600 "gradient:#1f6f8f-#7be0c0" \
-    -fill "#ffffff22" -draw "circle 300,300 300,130" \
-    "$OUT/square.png"
-# Photo-style abstract illustration (concentric) — 1:1.
-mk -size 600x600 "radial-gradient:#e0c04a-#8f2b5a" \
-    -fill none -stroke "#ffffff33" -strokewidth 8 \
-    -draw "circle 300,300 300,150" -draw "circle 300,300 300,90" \
+# ── Message images ───────────────────────────────────────────────────────
+# Tasteful abstract art: smooth 3-corner (barycentric) gradients — modern
+# "gradient wallpaper" look that compresses cleanly with no banding — plus a few
+# crisp geometric accents. Real-looking pictures, never grey UI bars. Aspect
+# ratios match the mock's declared media sizes. `bary` fills a diagonal blend
+# from three corner colours.
+bary() { # W H tlColor trColor blColor out
+    "$CONVERT" -strip -size "$1x$2" xc: -sparse-color barycentric \
+        "0,0 $3  $1,0 $4  0,$2 $5" "$6"
+}
+
+# Landscape "Golden hour by the coast" — 8:5 sunset, with a calm sea band.
+bary 720 450 "#123a63" "#f2a24e" "#e86a3a" "$OUT/coast.png"
+mk "$OUT/coast.png" -fill "#0c1c33" -draw "rectangle 0,372 720,450" \
+    -fill "#0c1c3366" -draw "rectangle 0,356 720,372" "$OUT/coast.png"
+# Portrait "natural light" — 2:3 warm duotone.
+bary 480 720 "#3a2160" "#ef9bc0" "#8a4dd6" "$OUT/portrait.png"
+# Square "album cover crop" — 1:1 vivid, with a thin ring.
+bary 600 600 "#0f5c66" "#8fe0a6" "#146a8f" "$OUT/square.png"
+mk "$OUT/square.png" -fill none -stroke "#ffffff40" -strokewidth 9 \
+    -draw "circle 300,300 300,158" "$OUT/square.png"
+# Abstract illustration "wallpaper artwork" — 1:1 concentric aurora.
+mk -size 600x600 "radial-gradient:#c05be0-#141a44" \
+    -fill none -stroke "#ffffff33" -strokewidth 6 \
+    -draw "circle 300,300 300,150" -draw "circle 300,300 300,96" \
     "$OUT/artwork.png"
-# "Screenshot-of-the-app" hero shot (dark UI-ish bars) — 8:5.
-mk -size 720x450 "gradient:#12151c-#1c2230" \
-    -fill "#5b8def55" -draw "rectangle 34,34 686,68" \
-    -fill "#ffffff14" -draw "rectangle 34,100 350,136" \
-    -draw "rectangle 34,170 506,206" -draw "rectangle 34,240 426,276" \
+# "shot-timeline-dark.png" — the dark-theme hero shot: deep indigo→blue→violet
+# so the accent "pops", NOT grey UI bars.
+bary 720 450 "#3b2f8c" "#2f6be0" "#7a3bd0" "$OUT/shot-timeline.png"
+mk "$OUT/shot-timeline.png" \
+    -fill "#0f122688" -draw "rectangle 0,0 720,450" \
     "$OUT/shot-timeline.png"
-# Colour palette board (theme swatches) — 1:1.
-mk -size 600x600 xc:"#12151c" \
-    -fill "#1a2740" -draw "rectangle 300,0 600,300" \
-    -fill "#3a2b6f" -draw "rectangle 0,300 300,600" \
-    -fill "#f5f5f7" -draw "rectangle 300,300 600,600" \
+# "palette.png" — the theme swatches, a clean 2x2 board.
+mk -size 600x600 xc:"#0d1020" \
+    -fill "#12213f" -draw "roundrectangle 30,30 288,288 16,16" \
+    -fill "#154b52" -draw "roundrectangle 312,30 570,288 16,16" \
+    -fill "#3a2b6f" -draw "roundrectangle 30,312 288,570 16,16" \
+    -fill "#eef1f7" -draw "roundrectangle 312,312 570,570 16,16" \
     "$OUT/palette.png"
-# Video poster (16:9) with a play triangle.
-mk -size 640x360 "gradient:#1a3a5a-#e0a04a" \
-    -fill "#00000033" -draw "circle 320,180 320,140" \
-    -fill "#ffffffcc" -draw "polygon 305,160 305,200 345,180" \
+# Video poster (16:9) — a calm landscape (NO baked play button; the video card
+# overlays its own play control).
+bary 640 360 "#1a3f66" "#eab066" "#123452" "$OUT/timelapse.png"
+mk "$OUT/timelapse.png" -fill "#0c1f36" -draw "rectangle 0,306 640,360" \
     "$OUT/timelapse.png"
 
 # ── Short animated GIF (3 frames, loops) ─────────────────────────────────
 mk -delay 30 -loop 0 \
-    -size 360x360 "gradient:#5b8def-#7be0c0" \
-    -size 360x360 "gradient:#7b5bef-#ef5b9c" \
-    -size 360x360 "gradient:#4ac0a0-#efc14a" \
+    -size 360x360 "radial-gradient:#6b9bf0-#274a8f" \
+    -size 360x360 "radial-gradient:#a06bf0-#5a2a8f" \
+    -size 360x360 "radial-gradient:#4ac0a0-#1f7a6f" \
     "$OUT/loop.gif"
 
 # ── Small document attachment (text) ─────────────────────────────────────
@@ -105,10 +114,14 @@ Lightning 0.6.4 (demo release notes)
 (This is a fictional screenshot-demo fixture — not a real release.)
 DOC
 
-# ── Shrink: quantize smooth gradients + max PNG compression (stable bytes) ─
-"$MOGRIFY" -strip -colors 64 \
+# ── Shrink: reduce to a smooth palette with dithering OFF (+dither) so there is
+# no grain to bloat the PNG, then max compression (stable bytes). 160 colours
+# keeps the smooth gradients clean. Avatars re-quantize to a small palette.
+"$MOGRIFY" -strip +dither -colors 160 \
     -define png:compression-level=9 -define png:compression-strategy=0 \
     "$OUT"/*.png
+"$MOGRIFY" -strip +dither -colors 48 \
+    -define png:compression-level=9 "$OUT"/avatar-*.png
 
 echo "generated demo media in $OUT:"
 ls -1 "$OUT"

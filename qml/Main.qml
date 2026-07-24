@@ -265,9 +265,13 @@ ApplicationWindow {
     // "Connected" state stays quiet per the design's low-noise shell.
     footer: Rectangle {
         color: AppTheme.surface
-        visible: app.currentScreen !== 1
-                 || app.connectionStatus !== qsTr("Connected")
-                 || statusBar.lastError !== ""
+        // The screenshot demo runs on the mock backend; its connection footer
+        // ("Mock backend • …") is meaningless there and only clutters clean
+        // promotional screenshots, so it is suppressed in demo mode only.
+        visible: !app.screenshotDemoActive
+                 && (app.currentScreen !== 1
+                     || app.connectionStatus !== qsTr("Connected")
+                     || statusBar.lastError !== "")
         implicitHeight: visible
                         ? statusRow.implicitHeight + AppTheme.spacingS * 2 : 0
         RowLayout {

@@ -70,7 +70,8 @@ private Q_SLOTS:
         const RoomInfo invite =
             roomById(rooms, QStringLiteral("!invite-founders:lightning.example"));
         QCOMPARE(invite.membership, RoomInfo::Invited);
-        QVERIFY(invite.invitePending);
+        // Actionable (not mid-accept/reject), so Accept/Reject are enabled.
+        QVERIFY(!invite.invitePending);
         QVERIFY(!invite.inviterDisplayName.isEmpty());
 
         // Unread + mention states for the room list.

@@ -92,7 +92,8 @@ private Q_SLOTS:
         c.setScreenshotDemoMode(true);
         const QString invite = QStringLiteral("!invite-founders:lightning.example");
         QCOMPARE(room(c, invite).membership, RoomInfo::Invited);
-        QVERIFY(room(c, invite).invitePending);
+        // Actionable (not mid-operation), so Accept/Reject are enabled.
+        QVERIFY(!room(c, invite).invitePending);
 
         c.acceptInvite(invite);
         QCOMPARE(room(c, invite).membership, RoomInfo::Joined);
