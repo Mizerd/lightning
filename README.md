@@ -11,7 +11,7 @@ provides synchronisation, timelines, end-to-end encryption, threads, and media.
 > formally audited or certified — expect rough edges and occasional regressions.
 
 [![Licence: GPL-3.0-or-later](https://img.shields.io/badge/licence-GPL--3.0--or--later-blue.svg)](LICENSE)
-[![Latest release](https://img.shields.io/badge/release-v0.6.3-2f6be0.svg)](https://gitlab.smetonis.net/Mizerd/lightning/-/releases)
+[![Latest release](https://img.shields.io/badge/release-v0.6.4-2f6be0.svg)](https://gitlab.smetonis.net/Mizerd/lightning/-/releases)
 [![Qt 6](https://img.shields.io/badge/Qt-6.5%2B-41CD52.svg)](https://www.qt.io/)
 [![matrix-rust-sdk](https://img.shields.io/badge/matrix--rust--sdk-0.18-000000.svg)](https://github.com/matrix-org/matrix-rust-sdk)
 [![Platform: Linux](https://img.shields.io/badge/platform-Linux-FCC624.svg)](https://www.kernel.org/)
@@ -164,7 +164,7 @@ published to its GitLab Package Registry.
 - **macOS** is not currently supported.
 
 The authoritative per-release list of artifacts is the release notes — for
-example [`docs/releases/v0.6.3.md`](docs/releases/v0.6.3.md) — and the Releases
+example [`docs/releases/v0.6.4.md`](docs/releases/v0.6.4.md) — and the Releases
 page itself. Packaging, cross-platform builds, publishing, and verification are
 maintained in a separate automation project,
 [**lightning-deploy**](https://gitlab.smetonis.net/Mizerd/lightning-deploy); this
