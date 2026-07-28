@@ -112,6 +112,7 @@ Rectangle {
             timeline.anchorStableId = ""
             timeline.anchorOffset = 0
             timeline.anchorContentHeight = 0
+            timeline.anchorItemY = 0
             timeline.viewAnchorId = ""
             timeline.viewAnchorOffset = 0
             // A room switch collapses the right side: no panel from the
@@ -844,13 +845,22 @@ Rectangle {
                 // the number of times a deferred anchor correction wrote the
                 // position WHILE the gesture owned it. That must be 0 — any
                 // non-zero value is the "application competing with the
-                // touchpad" fight. No message content, ids, or URLs are logged.
+                // touchpad" fight. paginationRestores is the same idea for
+                // the backward-pagination anchor restore (restoreCapturedAnchor):
+                // it counts restores that landed while userScrollActive was
+                // true, i.e. a prepend arrived mid-gesture. That is expected
+                // to be non-zero on a real near-top scroll — it is not itself
+                // a bug — but before the concurrent-scroll fix it correlated
+                // with a visible jump/reverse and was invisible to
+                // anchorCorrections, which only covers maintainViewAnchor.
+                // No message content, ids, or URLs are logged.
                 readonly property bool scrollTrace: app.timelineScroll.scrollTraceEnabled
                 property bool diagActive: false
                 property int diagEvents: 0
                 property int diagPixelEvents: 0
                 property int diagAngleEvents: 0
                 property int diagAnchorCorrections: 0
+                property int diagPaginationRestores: 0
                 property real diagStartY: 0
                 property real diagStartHeight: 0
                 function diagNoteEvent(isPixel) {
@@ -862,6 +872,7 @@ Rectangle {
                         diagPixelEvents = 0
                         diagAngleEvents = 0
                         diagAnchorCorrections = 0
+                        diagPaginationRestores = 0
                         diagStartY = contentY
                         diagStartHeight = contentHeight
                     }
@@ -882,6 +893,7 @@ Rectangle {
                         + " netY=" + Math.round(contentY - diagStartY)
                         + " dContentH=" + Math.round(contentHeight - diagStartHeight)
                         + " anchorCorrections=" + diagAnchorCorrections
+                        + " paginationRestores=" + diagPaginationRestores
                         + " stick=" + (stickToBottom ? 1 : 0)
                         + " nearTop=" + (contentY <= nearTopEnterY ? 1 : 0))
                 }
@@ -1235,6 +1247,13 @@ Rectangle {
                 property string anchorStableId: ""
                 property real anchorOffset: 0
                 property real anchorContentHeight: 0
+                // The anchor row's own content-space y at capture time. Used
+                // by restoreCapturedAnchor() to compute how far the prepend
+                // shifted the anchor row itself, rather than recomputing an
+                // absolute target from the stale pre-fetch contentY (see
+                // restoreCapturedAnchor for why that goes wrong under a
+                // concurrent gesture).
+                property real anchorItemY: 0
 
                 function captureAnchor() {
                     var row = indexAt(width / 2, contentY + topMargin + 1)
@@ -1256,10 +1275,29 @@ Rectangle {
                     anchorStableId = app.timeline.stableIdAt(row)
                     anchorOffset = it ? (contentY - it.y) : 0
                     anchorContentHeight = contentHeight
+                    anchorItemY = it ? it.y : 0
                 }
                 function restoreCapturedAnchor() {
                     if (anchorStableId === "")
                         return false
+                    // Read the CURRENT position before anything below moves
+                    // the view. Backward pagination is a real async SDK
+                    // round-trip (PaginationController::finishBatch), so the
+                    // reader may have kept scrolling (most commonly via an
+                    // in-flight touchpad gesture, which sets neither `moving`
+                    // nor `wheelAnimating`) between captureAnchor() and here.
+                    // The restore below is a RELATIVE shift applied to
+                    // beforeY, never an absolute jump back to the stale
+                    // pre-fetch contentY — discarding concurrent scrolling is
+                    // exactly the "jump / reverse while history is loading"
+                    // defect this replaces.
+                    var beforeY = contentY
+                    // Captured before cancelWheelMotion() below, which can
+                    // itself flip wheelAnimating (part of userScrollActive)
+                    // off — the diagnostic must reflect whether the reader's
+                    // gesture actually owned the view at the moment this
+                    // restore fired, not after we cancel it.
+                    var wasScrollActive = userScrollActive
                     // A programmatic re-anchor must never be finished off by a
                     // lingering wheel animation.
                     cancelWheelMotion()
@@ -1268,9 +1306,26 @@ Rectangle {
                         anchorStableId = ""
                         return false
                     }
+                    // Forces the anchor delegate to be created so its
+                    // geometry below is real, not an averaged
+                    // ListView.contentHeight estimate for uncreated rows.
                     positionViewAtIndex(newRow, ListView.Beginning)
                     var it = itemAtIndex(newRow)
-                    if (it) contentY = it.y + anchorOffset
+                    if (it) {
+                        if (diagActive && wasScrollActive)
+                            diagPaginationRestores += 1
+                        // shift = how far the prepend moved the anchor row's
+                        // own y. Applying it to beforeY (not a recomputed
+                        // absolute position) keeps any concurrent scroll
+                        // intact. Static-case equivalence: when the reader
+                        // did not scroll during the fetch, beforeY equals the
+                        // contentY captureAnchor() saw, and anchorOffset was
+                        // defined as (that contentY - anchorItemY), so
+                        // beforeY + (it.y - anchorItemY) === it.y +
+                        // anchorOffset — byte-identical to the prior formula.
+                        var shift = it.y - anchorItemY
+                        contentY = beforeY + shift
+                    }
                     anchorStableId = ""
                     // The prepend moved every row; the persistent viewport
                     // anchor must re-derive from the restored position.
@@ -1305,6 +1360,7 @@ Rectangle {
                             timeline.anchorStableId = ""
                             timeline.anchorOffset = 0
                             timeline.anchorContentHeight = 0
+                            timeline.anchorItemY = 0
                         }
                         wasBusy = app.pagination.busy
                     }
@@ -1399,6 +1455,7 @@ Rectangle {
                         timeline.anchorStableId = ""
                         timeline.anchorOffset = 0
                         timeline.anchorContentHeight = 0
+                        timeline.anchorItemY = 0
                         timeline.viewAnchorId = ""
                         timeline.viewAnchorOffset = 0
                         // Fresh room opens at the bottom: re-arm the near-top
