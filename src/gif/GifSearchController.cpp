@@ -320,6 +320,18 @@ void GifSearchController::reset()
     Q_EMIT queryChanged();
 }
 
+void GifSearchController::notifyPickerOpening(const QString &target)
+{
+    // Stateless on purpose: nothing here needs to remember which target is
+    // currently open (each GifPicker instance tracks its own Popup.opened),
+    // so this is just a synchronous fan-out. Every listener runs before this
+    // call returns (direct connection, same thread), so by the time the
+    // caller's onAboutToShow continues past this line, any sibling picker
+    // has already closed (Popup.close() -> onClosed -> reset(), above) and
+    // there is nothing stale left in `results` for it to have raced with.
+    Q_EMIT pickerOpenRequested(target);
+}
+
 bool GifSearchController::toggleFavorite(const QVariantMap &resultMap)
 {
     const bool now = m_favorites->toggle(resultMap);

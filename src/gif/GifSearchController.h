@@ -108,6 +108,14 @@ public:
     Q_INVOKABLE void loadMore();
     Q_INVOKABLE void reset();  // cancel + clear (picker closed / logout)
 
+    // Mutual exclusion between independently-visible pickers that share
+    // this one controller (the room composer and the thread panel each own
+    // their own GifPicker, both bound to app.gif). A picker calls this as
+    // it opens; every OTHER open picker is expected to close itself on
+    // pickerOpenRequested (see GifPicker.qml) before touching `results`,
+    // so only one picker ever mutates the shared browse state at a time.
+    Q_INVOKABLE void notifyPickerOpening(const QString &target);
+
     // Favorite the search/favorites/recent result described by `resultMap`
     // (a GifResultModel role map). Returns the new favorite state. Refreshes
     // the grids so the star updates without a rebuild.
@@ -119,6 +127,10 @@ Q_SIGNALS:
     // Provider key availability was re-resolved (labels and enabled states
     // must re-read providerConfigured()).
     void providerConfigurationChanged();
+    // A picker identified by `target` ("room"/"thread") is opening. Any
+    // OTHER picker instance bound to this controller must close itself —
+    // see notifyPickerOpening().
+    void pickerOpenRequested(const QString &target);
     void availableChanged();
     void providerChanged();
     void stateChanged();

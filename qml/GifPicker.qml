@@ -51,17 +51,25 @@ Popup {
             : Math.max(AppTheme.spacingS, anchorPoint.y - height - AppTheme.spacingXS)
     }
 
-    // Send the clicked tile of the model the user is actually LOOKING AT.
-    // This must read activeModel: reading gif.results here sent the first
-    // Trending item when a favorite was clicked (the Favorites grid shows
-    // gif.favorites while gif.results still holds the browse content).
-    // The row resolves synchronously against the visible model and the
-    // result carries its own provider-qualified identity and send URL —
-    // never a cross-model index, never an index-zero substitute.
-    function choose(row) {
-        if (row < 0 || row >= activeModel.count)
-            return
-        var result = activeModel.get(row)
+    // Send the exact tile the user acted on — never a re-resolved index.
+    // `resultOrRow` is normally an already-captured result map: a mouse
+    // click hands over the delegate's OWN current data (see tile.snapshot()
+    // below), taken from the exact delegate the user clicked, so it can
+    // never drift from what was on screen. Keyboard activation has no
+    // delegate to snapshot from, so it passes a plain row number instead;
+    // that row is resolved against activeModel IMMEDIATELY, in this same
+    // call — never stored and resolved later. Storing a row for later
+    // resolution is exactly what let a debounced search response replacing
+    // the grid, or a favorite/recent reorder, swap in a different item
+    // under a stale currentIndex/grid.currentIndex.
+    //
+    // Reading activeModel (not gif.results) matters too: gif.results is the
+    // browse grid, but Favorites/Recent show a different model, and a row
+    // must never be resolved against the wrong one.
+    function choose(resultOrRow) {
+        var result = (typeof resultOrRow === "number")
+            ? activeModel.get(resultOrRow)
+            : resultOrRow
         if (!result || !result.provider || !result.gifId)
             return
         picker.gifChosen(result)
@@ -76,16 +84,34 @@ Popup {
     Connections {
         target: picker.gif
         function onProviderConfigurationChanged() { picker.cfgRevision++ }
+        // "The active target closes the other picker" (see the comment at
+        // the top of this file): the room composer and the thread panel
+        // each own an independent GifPicker instance, but both are bound to
+        // this one shared controller. Popup.CloseOnPressOutside does NOT
+        // close a sibling reached without a mouse press outside it — e.g.
+        // Tab + Space/Enter onto the other composer's GIF button — so two
+        // pickers can legitimately both be open, sharing one live results
+        // grid; a search/page/provider change in either would then silently
+        // swap what the other is showing. Whichever picker opens last wins:
+        // every other one closes itself here (and resets, via onClosed
+        // below) before it can touch shared state again.
+        function onPickerOpenRequested(target) {
+            if (target !== picker.target && picker.opened)
+                picker.close()
+        }
     }
     onAboutToShow: {
+        gif.notifyPickerOpening(picker.target)
         gif.refreshProviderKeys()
         placeInsideWindow()
         section = "browse"
+        grid.currentIndex = -1
         if (gif.results.count === 0)
             gif.showTrending()
         Qt.callLater(searchField.forceActiveFocus)
     }
     onClosed: gif.reset()
+    onSectionChanged: grid.currentIndex = -1
 
     // Toggle favorite for the tile at `row` of the currently shown model,
     // without sending. Refreshes the browse grid's star state.
@@ -139,6 +165,7 @@ Popup {
 
             AppTextField {
                 id: searchField
+                objectName: "gifSearchField"
                 Layout.fillWidth: true
                 searchIcon: true
                 clearButton: true
@@ -156,8 +183,18 @@ Popup {
                         grid.currentIndex = 0
                 }
                 Keys.onReturnPressed: {
-                    if (grid.count > 0)
-                        picker.choose(0)
+                    // Never send from here: setQueryText() is debounced, so
+                    // an Enter pressed right after typing must not fall
+                    // through to row 0 of the PREVIOUS query (or trending)
+                    // before the new query has even been dispatched. Flush
+                    // the pending query immediately and hand off to the
+                    // grid — the same hand-off Down already does — so the
+                    // user picks explicitly once real results for THIS
+                    // query have landed.
+                    picker.gif.searchNow(searchField.text)
+                    grid.forceActiveFocus()
+                    if (grid.currentIndex < 0 && grid.count > 0)
+                        grid.currentIndex = 0
                 }
             }
 
@@ -236,6 +273,7 @@ Popup {
         // ── Result grid ─────────────────────────────────────────────
         GridView {
             id: grid
+            objectName: "gifResultGrid"
             Layout.fillWidth: true
             Layout.fillHeight: true
             clip: true
@@ -246,6 +284,33 @@ Popup {
             currentIndex: -1
             keyNavigationEnabled: true
             boundsBehavior: Flickable.StopAtBounds
+
+            // A highlighted/keyboard-selected row is just an int — Qt does
+            // not remap it when the model changes underneath. A full
+            // replace (a fresh search/category/provider-switch landing, or
+            // Favorites/Recent reloading) invalidates every existing row,
+            // so drop the highlight rather than let Return later resolve it
+            // against unrelated content. A row shifting because something
+            // was inserted/removed/moved AT OR BEFORE it is invalidated the
+            // same way — a favorite/recent re-prepend, for example.
+            // Pagination only ever appends AFTER the current end, so it
+            // leaves an existing highlight untouched (see onRowsInserted).
+            Connections {
+                target: picker.activeModel
+                function onModelReset() { grid.currentIndex = -1 }
+                function onRowsInserted(parent, first) {
+                    if (first <= grid.currentIndex)
+                        grid.currentIndex = -1
+                }
+                function onRowsRemoved(parent, first) {
+                    if (first <= grid.currentIndex)
+                        grid.currentIndex = -1
+                }
+                function onRowsMoved(parent, start) {
+                    if (start <= grid.currentIndex)
+                        grid.currentIndex = -1
+                }
+            }
 
             // Infinite scroll: only the network-backed browse view paginates;
             // Favorites/Recent are complete local lists.
@@ -261,11 +326,41 @@ Popup {
                 width: grid.cellWidth
                 height: grid.cellHeight
                 required property int index
+                required property string provider
+                required property string gifId
+                required property string title
+                required property string rating
                 required property string previewUrl
                 required property string stillUrl
-                required property string title
+                required property string gifUrl
+                required property int gifWidth
+                required property int gifHeight
+                required property int previewWidth
+                required property int previewHeight
                 required property bool favorite
                 readonly property bool current: GridView.isCurrentItem
+
+                // The exact record this delegate is rendering right now,
+                // captured from its OWN bound properties rather than
+                // re-queried from the model by index. This is what a click
+                // sends: it cannot drift from what is on screen under this
+                // tile, regardless of what the model does afterward.
+                function snapshot() {
+                    return {
+                        provider: tile.provider,
+                        gifId: tile.gifId,
+                        title: tile.title,
+                        rating: tile.rating,
+                        previewUrl: tile.previewUrl,
+                        stillUrl: tile.stillUrl,
+                        gifUrl: tile.gifUrl,
+                        gifWidth: tile.gifWidth,
+                        gifHeight: tile.gifHeight,
+                        previewWidth: tile.previewWidth,
+                        previewHeight: tile.previewHeight,
+                        favorite: tile.favorite,
+                    }
+                }
 
                 Rectangle {
                     anchors.fill: parent
@@ -316,7 +411,7 @@ Popup {
                             if (mouse.button === Qt.RightButton)
                                 picker.toggleFavorite(tile.index)
                             else
-                                picker.choose(tile.index)
+                                picker.choose(tile.snapshot())
                         }
                     }
 

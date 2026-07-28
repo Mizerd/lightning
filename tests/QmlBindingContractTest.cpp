@@ -151,12 +151,84 @@ private Q_SLOTS:
         // choose() sent the first Trending item when a favorite was
         // clicked. The chosen record must carry its own provider-qualified
         // identity; an unidentifiable row is dropped, never substituted.
+        //
+        // v0.7 follow-up (live bug, thread composer): a stale currentIndex
+        // or a debounce-racing Enter could still resolve a DIFFERENT model
+        // row than the one the user acted on, even though every row was
+        // individually identified correctly. choose() now accepts either an
+        // already-captured result map (the mouse path hands over the exact
+        // delegate's own snapshot(), so it can never drift) or a bare row
+        // number (the keyboard path, resolved against activeModel
+        // immediately in the same call — never stored for later). Pin the
+        // STRONGER contract at each of its three points instead of one
+        // brittle whole-line literal.
+        {
+            // (1) The keyboard path still resolves a row against
+            // activeModel — never gif.results directly, so a numeric
+            // activation can never cross into the wrong section's model.
+            const int chooseStart =
+                picker.indexOf(QStringLiteral("function choose(resultOrRow)"));
+            const int chooseEnd = picker.indexOf(
+                QStringLiteral("property int cfgRevision: 0"), chooseStart);
+            QVERIFY(chooseStart >= 0 && chooseEnd > chooseStart);
+            const QString chooseBlock =
+                picker.mid(chooseStart, chooseEnd - chooseStart);
+            QVERIFY(chooseBlock.contains(
+                QStringLiteral("activeModel.get(resultOrRow)")));
+            QVERIFY(!chooseBlock.contains(QStringLiteral("gif.results.get(")));
+            QVERIFY(chooseBlock.contains(QStringLiteral(
+                "if (!result || !result.provider || !result.gifId)")));
+            QVERIFY(chooseBlock.contains(
+                QStringLiteral("picker.gifChosen(result)")));
+        }
+        // (2) The mouse path hands choose() a captured snapshot, never a
+        // bare index the picker would have to re-resolve later.
         QVERIFY(picker.contains(
-            QStringLiteral("var result = activeModel.get(row)")));
-        QVERIFY(picker.contains(QStringLiteral(
-            "if (!result || !result.provider || !result.gifId)")));
+            QStringLiteral("picker.choose(tile.snapshot())")));
+        QVERIFY(picker.contains(QStringLiteral("function snapshot()")));
+        {
+            // (3) The snapshot itself carries provider-qualified identity —
+            // an unidentifiable row is still dropped by the choose() guard
+            // above, never substituted.
+            const int snapStart =
+                picker.indexOf(QStringLiteral("function snapshot()"));
+            const int snapEnd =
+                picker.indexOf(QStringLiteral("Rectangle {"), snapStart);
+            QVERIFY(snapStart >= 0 && snapEnd > snapStart);
+            const QString snapshotBlock =
+                picker.mid(snapStart, snapEnd - snapStart);
+            QVERIFY(snapshotBlock.contains(
+                QStringLiteral("provider: tile.provider")));
+            QVERIFY(snapshotBlock.contains(
+                QStringLiteral("gifId: tile.gifId")));
+        }
         QVERIFY(!picker.contains(
             QStringLiteral("picker.gifChosen(gif.results.get(row))")));
+        // v0.7 follow-up: the search field's Enter must never fall through
+        // to a stale row while setQueryText()'s debounce is still pending —
+        // it flushes the query and hands off focus to the grid, exactly
+        // like the existing Down-arrow hand-off, and sends nothing itself.
+        {
+            const int returnStart = picker.indexOf(
+                QStringLiteral("Keys.onReturnPressed: {"));
+            const int returnEnd =
+                picker.indexOf(QStringLiteral("IconButton {"), returnStart);
+            QVERIFY(returnStart >= 0 && returnEnd > returnStart);
+            const QString searchReturnBlock =
+                picker.mid(returnStart, returnEnd - returnStart);
+            QVERIFY(!searchReturnBlock.contains(QStringLiteral("picker.choose(")));
+            QVERIFY(searchReturnBlock.contains(
+                QStringLiteral("picker.gif.searchNow(searchField.text)")));
+            QVERIFY(searchReturnBlock.contains(
+                QStringLiteral("grid.forceActiveFocus()")));
+        }
+        // v0.7 follow-up: a highlighted row is plain mutable state that
+        // outlives a model replacement (Qt does not remap it), so it must
+        // be invalidated whenever the model contents are reset underneath
+        // the grid — otherwise a later Return could resolve against
+        // unrelated content that landed after a debounced search response.
+        QVERIFY(picker.contains(QStringLiteral(
+            "function onModelReset() { grid.currentIndex = -1 }")));
         // Favorite toggles without sending; recents are handed off in Phase 7.
         QVERIFY(picker.contains(QStringLiteral("gif.toggleFavorite(")));
         // Previews animate only while visible (offscreen/hidden → paused).
