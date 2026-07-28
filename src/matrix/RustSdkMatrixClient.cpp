@@ -2359,10 +2359,18 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
             event.value(QStringLiteral("message")).toString());
         return;
     }
-    // verification_ready / verification_sas_started are informational —
-    // handled by the sas_ready / done / cancelled path. Ignore.
-    if (type == QLatin1String("verification_ready")
-        || type == QLatin1String("verification_sas_started"))
+    if (type == QLatin1String("verification_ready")) {
+        // Surfacing this is what lets the UI distinguish "the peer has not
+        // answered yet" from "the handshake is running". Dropping it meant
+        // an accepted request looked identical to an unanswered one until
+        // the emoji arrived — or, on a stall, forever.
+        Q_EMIT verificationReady(
+            event.value(QStringLiteral("flow_id")).toString());
+        return;
+    }
+    // verification_sas_started is informational — the sas_ready / done /
+    // cancelled path carries every state the UI acts on. Ignore.
+    if (type == QLatin1String("verification_sas_started"))
         return;
 
     if (type == QLatin1String("sync_error")) {

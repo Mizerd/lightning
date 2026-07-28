@@ -1854,7 +1854,11 @@ Item {
                                 RowLayout {
                                     Layout.fillWidth: true
                                     spacing: AppTheme.spacing8
+                                    // Mirror of the active-flow card's
+                                    // condition, so the start row and the flow
+                                    // card are never both shown.
                                     visible: !app.verificationActive
+                                            && app.verificationState === ""
                                     AppButton {
                                         text: app.sessionTrustState === "Verified"
                                             ? qsTr("Verify again")
@@ -1878,7 +1882,18 @@ Item {
                                 // Active SAS flow card.
                                 Pane {
                                     Layout.fillWidth: true
+                                    // NOT just verificationActive: that is
+                                    // !flowId.isEmpty(), and startOwnVerification()
+                                    // clears the flow id before setting
+                                    // "starting". Every failure raised before a
+                                    // flow id exists — no cross-signing
+                                    // identity, request send failed, not signed
+                                    // in — therefore landed in a hidden card,
+                                    // so clicking "Verify this session" did
+                                    // visibly nothing at all. Any non-empty
+                                    // state must show the card.
                                     visible: app.verificationActive
+                                            || app.verificationState !== ""
                                     background: Rectangle {
                                         color: AppTheme.surfaceAlt
                                         border.color: AppTheme.accent
@@ -1907,6 +1922,7 @@ Item {
                                                 visible: running
                                                 running: app.verificationState === "confirming"
                                                          || app.verificationState === "waiting_for_peer"
+                                                         || app.verificationState === "ready"
                                             }
                                             Label {
                                                 objectName: "verificationStatusLabel"
@@ -1927,6 +1943,10 @@ Item {
                                                     if (app.verificationState === "requested")
                                                         return qsTr("Incoming verification request from %1")
                                                             .arg(app.verificationOtherUser)
+                                                    if (app.verificationState === "ready")
+                                                        return qsTr(
+                                                            "Both sessions accepted. Exchanging keys — " +
+                                                            "the emojis will appear here shortly.")
                                                     if (app.verificationState === "sas_ready")
                                                         return qsTr(
                                                             "Compare all seven emojis with the other " +
@@ -2023,15 +2043,22 @@ Item {
                                             }
                                             AppButton {
                                                 text: qsTr("Cancel verification")
-                                                // Cancel stays available while
-                                                // confirming and while waiting
-                                                // for the peer.
-                                                visible: app.verificationState === "requested"
-                                                        || app.verificationState === "sas_ready"
-                                                        || app.verificationState === "confirming"
-                                                        || app.verificationState === "waiting_for_peer"
-                                                        || app.verificationState === "waiting_for_other_session"
-                                                        || app.verificationState === "starting"
+                                                // Cancel must exist in EVERY
+                                                // non-terminal state. Listing
+                                                // states positively meant a
+                                                // newly added one ("ready")
+                                                // silently lost the only way
+                                                // out: that card shows a
+                                                // spinner and no buttons at
+                                                // all, so a peer that never
+                                                // advertised m.sas.v1 pinned
+                                                // the user to it. Inverted so
+                                                // the next added state cannot
+                                                // drop the escape hatch again.
+                                                visible: app.verificationState !== ""
+                                                        && app.verificationState !== "done"
+                                                        && app.verificationState !== "cancelled"
+                                                        && !app.verificationState.startsWith("failed")
                                                 onClicked: app.cancelVerification()
                                             }
                                             AppButton {

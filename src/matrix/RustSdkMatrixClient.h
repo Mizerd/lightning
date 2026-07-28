@@ -352,6 +352,13 @@ Q_SIGNALS:
                                      const QString &otherUserId,
                                      const QString &otherDeviceId,
                                      bool isSelfVerification);
+    // Both sides have exchanged m.key.verification.ready and the SDK is
+    // driving the m.key.verification.start/accept/key exchange. This used
+    // to be dropped on the floor as "informational", which left the UI
+    // parked on "Incoming verification request" — Accept still offered —
+    // for the whole handshake, with no way to tell progress from a stall.
+    // Flow id only; no key, MAC or SAS material crosses this boundary.
+    void verificationReady(const QString &flowId);
     void verificationSasReady(const QString &flowId,
                               const QVariantList &emojis,
                               const QVariantList &decimals);

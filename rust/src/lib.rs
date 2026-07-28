@@ -23,7 +23,9 @@ use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use matrix_sdk::{
     authentication::matrix::MatrixSession,
     config::SyncSettings,
-    encryption::verification::{SasState, SasVerification, VerificationRequest},
+    encryption::verification::{
+        SasState, SasVerification, VerificationRequest, VerificationRequestState,
+    },
     room::MessagesOptions,
     ruma::{
         api::{error::ErrorKind, FeatureFlag},
@@ -2287,13 +2289,25 @@ pub unsafe extern "C" fn mx_rust_accept_verification(
         std::thread::spawn(move || {
             let runtime_events = Arc::clone(&events);
             run_async(runtime_events, "verification_accept", async move {
-                if let Err(err) = request.accept().await {
+                // Advertise ONLY what this client can actually perform.
+                // `accept()` would use the SDK's SUPPORTED_METHODS, which
+                // includes `m.reciprocate.v1` (matrix-sdk-crypto
+                // verification/requests.rs) — telling the peer we can scan a
+                // QR code it shows us. Lightning builds without the `qrcode`
+                // feature and has no scanner, so that invites a QR/reciprocate
+                // start we can never answer. The outgoing path already
+                // advertises SasV1 only; this keeps both directions honest.
+                if let Err(err) = request
+                    .accept_with_methods(vec![VerificationMethod::SasV1])
+                    .await
+                {
                     enqueue(&events, json!({
                         "type": "verification_failed",
                         "flow_id": request.flow_id().to_string(),
                         "message": format_matrix_error(
                             "Matrix Rust SDK verification accept failed", err),
                     }));
+                    if let Ok(mut g) = request_slot.lock() { *g = None; }
                     return;
                 }
                 enqueue(&events, json!({
@@ -2301,29 +2315,70 @@ pub unsafe extern "C" fn mx_rust_accept_verification(
                     "flow_id": request.flow_id().to_string(),
                 }));
 
-                // Wait for the request to transition into SasV1; poll
-                // for up to 60s. matrix-sdk drives the handshake
-                // automatically after accept().
-                let sas: Option<SasVerification> = {
-                    let mut sas: Option<SasVerification> = None;
-                    for _ in 0..120 {
-                        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-                        if let Some(v) = client
-                            .encryption()
-                            .get_verification(request.other_user_id(),
-                                              request.flow_id())
-                            .await
-                        {
-                            if let matrix_sdk::encryption::verification::Verification::SasV1(s) = v {
-                                sas = Some(s);
+                // Once both sides are Ready, SOMEONE has to send
+                // `m.key.verification.start`. matrix-sdk does NOT do it for
+                // us — `VerificationRequest::start_sas()` is the only thing
+                // that emits it. This path used to just poll
+                // `get_verification()` waiting for a SAS to appear, on the
+                // assumption that the SDK drove the handshake after accept().
+                // It does not, and Element X also waits for the start, so both
+                // peers parked in Ready forever: Element X sat on "Starting
+                // verification" while this flow eventually timed out.
+                //
+                // Start it ourselves. `Ok(None)` means either that the peer
+                // got there first or that it never advertised `m.sas.v1`; both
+                // resolve through the same bounded poll below, which ends in a
+                // surfaced failure rather than a silent hang.
+                // The peer may already have started while our accept was still
+                // in flight. `start_sas()` is NOT idempotent: in the
+                // Transitioned state matrix-sdk-crypto builds a SECOND Sas and
+                // emits a competing `.start`, overwriting the peer's SAS in the
+                // verification cache. If we then lose the spec's lexicographic
+                // tie-break the peer keeps its own flow — the one we just threw
+                // away — and neither side ever exchanges keys. Adopt theirs
+                // instead, exactly as the outbound path does.
+                let peer_started: Option<SasVerification> = match request.state() {
+                    matrix_sdk::encryption::verification::VerificationRequestState::Transitioned {
+                        verification,
+                    } => verification.sas(),
+                    _ => None,
+                };
+                let sas: Option<SasVerification> = match peer_started {
+                    Some(s) => Some(s),
+                    None => match request.start_sas().await {
+                    Ok(Some(s)) => Some(s),
+                    Ok(None) => {
+                        let mut found: Option<SasVerification> = None;
+                        for _ in 0..120 {
+                            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                            if let Some(v) = client
+                                .encryption()
+                                .get_verification(request.other_user_id(),
+                                                  request.flow_id())
+                                .await
+                            {
+                                if let matrix_sdk::encryption::verification::Verification::SasV1(s) = v {
+                                    found = Some(s);
+                                    break;
+                                }
+                            }
+                            if request.is_cancelled() {
                                 break;
                             }
                         }
-                        if request.is_cancelled() {
-                            break;
-                        }
+                        found
                     }
-                    sas
+                    Err(err) => {
+                        enqueue(&events, json!({
+                            "type": "verification_failed",
+                            "flow_id": request.flow_id().to_string(),
+                            "message": format_matrix_error(
+                                "SAS start failed", err),
+                        }));
+                        if let Ok(mut g) = request_slot.lock() { *g = None; }
+                        return;
+                    }
+                    },
                 };
                 let Some(sas) = sas else {
                     enqueue(&events, json!({
@@ -2331,9 +2386,16 @@ pub unsafe extern "C" fn mx_rust_accept_verification(
                         "flow_id": request.flow_id().to_string(),
                         "message": "Timed out waiting for SAS handshake.",
                     }));
+                    // Never leave a zombie flow parked in the single-flow
+                    // slot: the next attempt must be able to take it.
+                    if let Ok(mut g) = request_slot.lock() { *g = None; }
                     return;
                 };
-                // Start the SAS flow with the SDK's default settings.
+                // Send `m.key.verification.accept` with the SDK's default
+                // settings. This is a no-op when WE started the SAS above:
+                // matrix-sdk-crypto's `Sas::accept()` returns None outside
+                // `SasState::Started`, so it only fires in the peer-started
+                // branch, which is exactly where the accept belongs.
                 let sas_flow_id = request.flow_id().to_string();
                 if let Err(err) = sas.accept().await {
                     enqueue(&events, json!({
@@ -2342,6 +2404,11 @@ pub unsafe extern "C" fn mx_rust_accept_verification(
                         "message": format_matrix_error(
                             "SAS accept failed", err),
                     }));
+                    // Same zombie-slot rule as the branches above: this exit
+                    // must not park a dead flow in the single-flow slot, or
+                    // every later attempt is refused with "already in
+                    // progress" until the app restarts.
+                    if let Ok(mut g) = request_slot.lock() { *g = None; }
                     return;
                 }
                 if let Ok(mut g) = sas_slot.lock() {
@@ -2550,7 +2617,25 @@ pub unsafe extern "C" fn mx_rust_start_own_verification(
         let Some(client) = bridge.client.lock().ok().and_then(|g| g.clone()) else {
             return Ok("error: Rust SDK session is not logged in.".to_owned());
         };
-        // Reject a duplicate start if a flow is already active.
+        // Reject a duplicate start only if a flow is genuinely LIVE. A
+        // presence-only check bricked verification for the rest of the process
+        // whenever a dead request stayed parked — an incoming request occupies
+        // the slot with no user action at all, and nothing releases it when the
+        // SDK request expires, the peer cancels, or a driver task dies. Testing
+        // liveness (and clearing what is dead) makes every future exit path
+        // safe by construction rather than by remembering to release.
+        if let Ok(mut g) = bridge.active_request.lock() {
+            if g.as_ref().is_some_and(|r| {
+                r.is_cancelled() || r.is_done() || r.is_passive()
+            }) {
+                *g = None;
+            }
+        }
+        if let Ok(mut g) = bridge.active_sas.lock() {
+            if g.as_ref().is_some_and(|(_, s)| s.is_cancelled() || s.is_done()) {
+                *g = None;
+            }
+        }
         let has_active = bridge.active_request.lock().ok().and_then(|g| g.clone()).is_some()
             || bridge.active_sas.lock().ok().and_then(|g| g.clone()).is_some();
         if has_active {
@@ -2639,18 +2724,44 @@ pub unsafe extern "C" fn mx_rust_start_own_verification(
                     "is_self_verification": is_self,
                 }));
 
-                // Wait for the request to become ready (the peer accepts).
-                // Poll for up to 5 minutes so the user can pick up the
-                // request in Element without racing our timer.
+                // Wait for the peer to answer. Poll for up to 5 minutes so
+                // the user can pick the request up in Element without
+                // racing our timer.
+                //
+                // Watch the STATE, not `is_ready()`. That accessor is a
+                // bare `matches!(*self.inner.read(), InnerRequest::Ready(_))`
+                // (matrix-sdk-crypto verification/requests.rs), so it is
+                // true only while the request sits in Ready. The moment the
+                // peer's `m.key.verification.start` lands, the request moves
+                // to Transitioned and `is_ready()` is false FOREVER. A peer
+                // that sends `.ready` and `.start` inside one 500 ms sample
+                // window therefore used to leave this loop polling a
+                // predicate that could never become true again: five silent
+                // minutes, then a cancel. Element X waits for us so it never
+                // tripped this, but any client that starts on its own does.
+                let mut peer_started: Option<SasVerification> = None;
                 let mut ready = false;
                 for _ in 0..600 {
                     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-                    if request.is_cancelled() || request.is_done() {
-                        break;
-                    }
-                    if request.is_ready() {
-                        ready = true;
-                        break;
+                    match request.state() {
+                        VerificationRequestState::Ready { .. } => {
+                            ready = true;
+                            break;
+                        }
+                        // The peer started first. Its SAS is authoritative:
+                        // calling `start_sas()` again here would build a
+                        // SECOND Sas and emit a competing `.start`, because
+                        // the SDK accepts that call in Transitioned too
+                        // (matrix-sdk-crypto verification/requests.rs).
+                        VerificationRequestState::Transitioned { verification } => {
+                            peer_started = verification.sas();
+                            ready = true;
+                            break;
+                        }
+                        VerificationRequestState::Done
+                        | VerificationRequestState::Cancelled(_) => break,
+                        VerificationRequestState::Created { .. }
+                        | VerificationRequestState::Requested { .. } => {}
                     }
                 }
                 if !ready {
@@ -2671,10 +2782,14 @@ pub unsafe extern "C" fn mx_rust_start_own_verification(
                     "flow_id": flow_id.clone(),
                 }));
 
-                // Start SAS exactly once. `start_sas` returns None when the
-                // peer has already started; in that case fetch the current
-                // Verification via get_verification and continue.
-                let sas = match request.start_sas().await {
+                // Start SAS exactly once — and only if the peer has not
+                // already done it. `peer_started` carries the SDK's own
+                // SasVerification from the Transitioned state above, which
+                // is authoritative; re-deriving it here would emit a second,
+                // competing `m.key.verification.start`.
+                let sas = match peer_started {
+                    Some(sas) => sas,
+                    None => match request.start_sas().await {
                     Ok(Some(sas)) => sas,
                     Ok(None) => {
                         let mut found: Option<SasVerification> = None;
@@ -2714,6 +2829,7 @@ pub unsafe extern "C" fn mx_rust_start_own_verification(
                         if let Ok(mut g) = request_slot.lock() { *g = None; }
                         return;
                     }
+                    },
                 };
 
                 if let Ok(mut g) = sas_slot.lock() {

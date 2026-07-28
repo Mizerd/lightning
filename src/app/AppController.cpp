@@ -597,6 +597,21 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             m_verificationDecimals.clear();
             Q_EMIT verificationStateChanged();
         });
+        // Both sides are Ready and the SAS handshake is in flight. This is
+        // strictly a progress report: it may only advance the pre-emoji
+        // states, so a late or duplicated ready can never pull a flow back
+        // out of sas_ready/confirming/done/cancelled/failed.
+        connect(rust, &RustSdkMatrixClient::verificationReady,
+                this, [this](const QString &flowId) {
+            if (flowId != m_verificationFlowId) return;
+            if (m_verificationState != QLatin1String("requested")
+                && m_verificationState != QLatin1String("starting")
+                && m_verificationState
+                       != QLatin1String("waiting_for_other_session"))
+                return;
+            m_verificationState = QStringLiteral("ready");
+            Q_EMIT verificationStateChanged();
+        });
         connect(rust, &RustSdkMatrixClient::verificationSasReady,
                 this, [this](const QString &flowId,
                              const QVariantList &emojis,
@@ -1248,10 +1263,20 @@ void AppController::mismatchVerification()
 void AppController::cancelVerification()
 {
 #ifdef ENABLE_RUST_SDK_BACKEND
-    if (m_backend != RustBackend || !m_client || m_verificationFlowId.isEmpty())
+    if (m_backend != RustBackend || !m_client)
         return;
-    if (auto *rust = qobject_cast<RustSdkMatrixClient *>(m_client.get()))
-        rust->cancelVerification(m_verificationFlowId);
+    // A failure raised BEFORE any flow id exists (no cross-signing identity,
+    // request send failed, not signed in) still puts the card into a
+    // "failed:…" state. Returning early on an empty flow id left Dismiss and
+    // Cancel doing nothing at all, so that card could never be closed. Only
+    // the SDK cancel needs a real flow; clearing local presentation state is
+    // always safe and is what lets the user start over.
+    if (!m_verificationFlowId.isEmpty()) {
+        if (auto *rust = qobject_cast<RustSdkMatrixClient *>(m_client.get()))
+            rust->cancelVerification(m_verificationFlowId);
+    } else if (m_verificationState.isEmpty()) {
+        return; // nothing in flight and nothing displayed
+    }
     m_verificationFlowId.clear();
     m_verificationState.clear();
     m_verificationEmojis.clear();
