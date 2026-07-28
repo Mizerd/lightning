@@ -145,6 +145,13 @@ main
 .claude/
 ```
 
+The one carve-out is `.claude/agents/*.md`. Those four portable role
+definitions are deliberately tracked (see section 18) and may be staged and
+committed like any other source file. Everything else under `.claude/` —
+`settings.local.json` and its backups, `scheduled_tasks.lock`, `worktrees/`,
+and any runtime team or session state — stays protected and untracked, and
+must never be staged.
+
 Begin every task with this baseline inspection:
 
 ```sh
@@ -722,3 +729,53 @@ Every completion report must include:
 
 Never imply a test happened when it did not. A concise honest report is more
 valuable than a broad unsupported claim.
+
+## 18. Multi-agent review protocol
+
+Substantive code changes in this repository go through one independent review
+before they are committed. The reusable role definitions live in
+`.claude/agents/`:
+
+```text
+.claude/agents/lightning-verification-specialist.md
+.claude/agents/lightning-gif-thread-specialist.md
+.claude/agents/lightning-touchpad-scroll-specialist.md
+.claude/agents/lightning-independent-reviewer.md
+```
+
+Rules:
+
+- Use agents only for genuinely independent, substantial work. A single
+  focused edit does not need a team.
+- Keep the number of agents low. Do not spawn extra agents for redundant
+  verification; one meaningful review gate beats a cycle of ceremonial
+  double-checking.
+- Assign **exclusive file ownership** before any implementation begins. Two
+  agents must never edit the same file concurrently. When two workstreams need
+  the same file, serialize them: one agent owns the file, the other supplies
+  findings only. Shared integration files (for example `CMakeLists.txt`) are
+  owned by the lead.
+- Run the relevant tests **before** review, so the reviewer judges real
+  evidence rather than intentions.
+- Require one **non-author** independent review of the cumulative diff before
+  committing substantive code. The reviewer must be read-only: it may read,
+  grep, inspect Git history, build, and run tests, but it has no `Edit` or
+  `Write` and never authors the code it reviews. Corrections are made by the
+  original author, and the reviewer then rechecks only the affected diff.
+- The reviewer reports every substantiated finding, grouped by severity, each
+  with `file:line`, evidence, impact, and the requested correction. The lead
+  classifies each finding as *must fix*, *accepted follow-up*, or *rejected
+  with evidence*. All correctness, security, data-loss, interoperability, and
+  regression findings are fixed before approval.
+- The review ends with exactly `APPROVED` or `CHANGES_REQUESTED`. No commit or
+  push happens before `APPROVED`.
+- Stage exact files only — never `git add .` or `git add -A`.
+- Never force-push, amend a pushed commit, rewrite history, `git reset --hard`,
+  `git clean`, or stash another agent's work.
+- Never create a release or tag, bump the version, or trigger packaging unless
+  Rokas explicitly requests release work.
+
+Runtime team state belongs to Claude Code itself and is never committed. Only
+the portable role definitions above and this protocol are tracked; they must
+contain no credentials, tokens, absolute user-specific paths, private
+endpoints, or machine-specific values.

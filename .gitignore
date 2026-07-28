@@ -40,4 +40,10 @@ matrix-client-cache/
 sessions.json
 session.json
 tokens.json
+# Claude Code runtime state. The portable role definitions in
+# .claude/agents/*.md are deliberately tracked; everything else here is
+# machine-local and must never be committed.
 .claude/settings.local.json
+.claude/settings.local.json.backup.*
+.claude/scheduled_tasks.lock
+.claude/worktrees/
