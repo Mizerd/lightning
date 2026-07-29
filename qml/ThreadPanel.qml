@@ -614,6 +614,109 @@ Rectangle {
                 }
                 Component.onDestruction: app.threadScroll.cancel()
 
+                // v0.7: scroll-anchor preservation across a backward prepend
+                // into this thread's reply list. requestOlder() (below and in
+                // afterWheelSettled) inserts older replies AT THE TOP of this
+                // same plain ListView pattern TimelinePane.qml documents: "a
+                // fixed contentY would make the whole conversation jump."
+                // Ported from TimelinePane.qml's captureAnchor()/
+                // restoreCapturedAnchor(), including 9a0e41a's fix — the
+                // restore reads the LIVE contentY at restore time and applies
+                // a RELATIVE shift, rather than recomputing an absolute
+                // target from state captured when the request started, so a
+                // reader still scrolling when the page lands (routine on a
+                // touchpad, whose round-trip-length gestures overlap the
+                // async fetch) is never snapped back to a stale position.
+                // Deliberately duplicated rather than shared: TimelinePane's
+                // timeline and this replyList are independent ListViews with
+                // independent scroll engines (app.timelineScroll vs
+                // app.threadScroll) and independent pagination models
+                // (PaginationController vs TimelineModel.requestOlder());
+                // unifying them into one shared implementation is a larger,
+                // riskier refactor than this checkpoint's scope.
+                property string anchorStableId: ""
+                property real anchorOffset: 0
+                property real anchorContentHeight: 0
+                property real anchorItemY: 0
+                function captureAnchor() {
+                    var row = indexAt(width / 2, contentY + topMargin + 1)
+                    if (row < 0) { anchorStableId = ""; return }
+                    var it = itemAtIndex(row)
+                    // Room-activity rows may collapse during a presentation
+                    // toggle (see TimelinePane.qml); skip to the first
+                    // loaded non-activity row so the anchor still has
+                    // height. Thread replies are not expected to carry
+                    // activity rows today, but MessageDelegate is the same
+                    // shared component, so this stays defensive.
+                    for (var probe = row; probe < count; ++probe) {
+                        var candidate = itemAtIndex(probe)
+                        if (!candidate)
+                            break
+                        if (!candidate.isStateActivity) {
+                            row = probe
+                            it = candidate
+                            break
+                        }
+                    }
+                    anchorStableId = app.thread.model.stableIdAt(row)
+                    anchorOffset = it ? (contentY - it.y) : 0
+                    anchorContentHeight = contentHeight
+                    anchorItemY = it ? it.y : 0
+                }
+                function restoreCapturedAnchor() {
+                    // A followLatest reader (e.g. one who jumped to the
+                    // bottom while the fetch was in flight) must not be
+                    // pulled back up to a now-irrelevant anchor.
+                    if (anchorStableId === "" || followLatest) {
+                        anchorStableId = ""
+                        return
+                    }
+                    // Read the CURRENT position before anything below moves
+                    // the view — requestOlder() is a real async SDK round
+                    // trip, so the reader may have kept scrolling (most
+                    // commonly an in-flight touchpad gesture) between
+                    // captureAnchor() and here. The restore is a RELATIVE
+                    // shift applied to THIS value, never an absolute jump
+                    // back to the stale pre-fetch contentY.
+                    var beforeY = contentY
+                    // A programmatic re-anchor must never be finished off by
+                    // a lingering wheel animation.
+                    app.threadScroll.cancel()
+                    var newRow = app.thread.model.rowForStableId(anchorStableId)
+                    if (newRow < 0) {
+                        var delta = contentHeight - anchorContentHeight
+                        if (delta > 0) contentY += delta
+                        anchorStableId = ""
+                        return
+                    }
+                    // Forces the anchor delegate to be created so its
+                    // geometry below is real, not an averaged
+                    // ListView.contentHeight estimate for uncreated rows.
+                    positionViewAtIndex(newRow, ListView.Beginning)
+                    var it = itemAtIndex(newRow)
+                    if (it) {
+                        var shift = it.y - anchorItemY
+                        contentY = beforeY + shift
+                    }
+                    anchorStableId = ""
+                }
+                Connections {
+                    target: app.thread.model
+                    property bool wasPaginating: false
+                    function onPaginationChanged() {
+                        var busy = app.thread.model.paginating
+                        if (busy && !wasPaginating && !replyList.followLatest)
+                            replyList.captureAnchor()
+                        if (wasPaginating && !busy) {
+                            if (app.thread.model.paginationFailed)
+                                replyList.anchorStableId = ""
+                            else
+                                Qt.callLater(replyList.restoreCapturedAnchor)
+                        }
+                        wasPaginating = busy
+                    }
+                }
+
                 property bool followLatest: true
                 // Bottom-follow is latched to user intent (see the room
                 // timeline's atBottomEdge): a sub-line slack means scrolling

@@ -62,6 +62,19 @@ void GifSendController::sendToThread(const QString &roomId,
     start(std::move(p));
 }
 
+bool GifSendController::hasIdenticalPending(const Pending &candidate) const
+{
+    for (auto it = m_pending.constBegin(); it != m_pending.constEnd(); ++it) {
+        const Pending &p = it.value();
+        if (p.roomId == candidate.roomId && p.isThread == candidate.isThread
+            && p.rootId == candidate.rootId
+            && p.result.provider == candidate.result.provider
+            && p.result.id == candidate.result.id)
+            return true;
+    }
+    return false;
+}
+
 void GifSendController::start(Pending pending)
 {
     if (!m_client || pending.roomId.isEmpty()
@@ -77,6 +90,12 @@ void GifSendController::start(Pending pending)
         Q_EMIT sendFailed(QStringLiteral("unavailable"), pending.isThread);
         return;
     }
+    // De-duplication backstop — see hasIdenticalPending's declaration
+    // comment. Silently dropped, not surfaced as sendFailed: the first,
+    // identical, still-in-flight request already owns this send, so
+    // nothing has actually failed.
+    if (hasIdenticalPending(pending))
+        return;
     const quint64 opId = m_client->gifDownload(pending.result.gifUrl);
     if (opId == 0) {
         Q_EMIT sendFailed(QStringLiteral("unavailable"), pending.isThread);

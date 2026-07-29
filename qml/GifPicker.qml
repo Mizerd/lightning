@@ -66,12 +66,29 @@ Popup {
     // Reading activeModel (not gif.results) matters too: gif.results is the
     // browse grid, but Favorites/Recent show a different model, and a row
     // must never be resolved against the wrong one.
+    //
+    // `activated` is a one-shot latch, not a per-input-path flag: every
+    // activation surface (mouse click on a tile, Return/Enter on the grid)
+    // calls this SAME function, so gating choose() itself — rather than,
+    // say, disabling the MouseArea — closes every path with one guard
+    // instead of one per input device. It matters because close() starts an
+    // exit transition rather than tearing the popup down synchronously, so
+    // a second activation (e.g. two clicks landing inside Qt's
+    // double-click interval, which QML's MouseArea delivers as two separate
+    // "clicked" signals) can still reach this function while the popup is
+    // still visually closing. Reset only on the NEXT open, not on close, so
+    // a close triggered by anything other than a genuine send (Escape,
+    // press-outside) still leaves a fresh latch next time.
+    property bool activated: false
     function choose(resultOrRow) {
+        if (activated)
+            return
         var result = (typeof resultOrRow === "number")
             ? activeModel.get(resultOrRow)
             : resultOrRow
         if (!result || !result.provider || !result.gifId)
             return
+        activated = true
         picker.gifChosen(result)
         close()
     }
@@ -106,6 +123,7 @@ Popup {
         placeInsideWindow()
         section = "browse"
         grid.currentIndex = -1
+        activated = false
         if (gif.results.count === 0)
             gif.showTrending()
         Qt.callLater(searchField.forceActiveFocus)

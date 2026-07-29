@@ -62,6 +62,21 @@ private:
     };
 
     void start(Pending pending);
+    // Authoritative de-duplication backstop: true if an IDENTICAL send
+    // (same destination + same provider-qualified GIF) is already in
+    // flight. GifPicker.qml's own one-shot `activated` latch is the first
+    // line of defense and closes the common case (a second click/Return
+    // landing while the popup is still visually closing), but that latch
+    // is QML-local, per-picker-instance state — it says nothing about any
+    // OTHER caller of sendToRoom()/sendToThread() (a future call site, a
+    // test, or two independently-instantiated pickers racing on the same
+    // shared GifSearchController). This check is what actually holds
+    // regardless of caller: two calls for the same target+GIF while the
+    // first is still downloading/sending collapse into one network
+    // operation. It does NOT block a genuine repeat send after the first
+    // one has already resolved (succeeded or failed) — that is normal user
+    // intent, not a duplicate activation.
+    bool hasIdenticalPending(const Pending &candidate) const;
     void onGifDownloadFinished(quint64 opId, bool ok, const QByteArray &bytes,
                                const QString &mime, int width, int height,
                                qint64 size, const QString &category);

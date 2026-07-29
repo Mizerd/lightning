@@ -763,6 +763,68 @@ if(BUILD_TESTING)
     target_link_libraries(gif-key-config-test PRIVATE Qt6::Core Qt6::Qml Qt6::Test)
     add_test(NAME gif-key-config COMMAND gif-key-config-test)
 
+    # One activation must produce exactly one send. The picker latch closes
+    # the common case (a second click or Return landing while the popup is
+    # still closing); this suite pins the controller-side backstop, which
+    # holds regardless of caller — identical in-flight destination+GIF is
+    # dropped, while a deliberate repeat after the first resolves is not.
+    qt_add_executable(gif-send-controller-dedup-test
+        tests/GifSendControllerDedupTest.cpp
+        src/gif/GifSendController.h
+        src/gif/GifSendController.cpp
+        src/gif/GifResponseParser.h
+        src/gif/GifResponseParser.cpp
+        src/gif/GifResultModel.h
+        src/gif/GifResultModel.cpp
+        src/gif/GifStoredModel.h
+        src/gif/GifStoredModel.cpp
+        src/gif/GifRecentModel.h
+        src/gif/GifRecentModel.cpp
+        src/matrix/MatrixClient.h
+        src/matrix/MatrixClient.cpp
+        src/matrix/MockMatrixClient.h
+        src/matrix/MockMatrixClient.cpp
+        src/matrix/MediaHelpers.h
+        src/matrix/MediaHelpers.cpp
+        src/app/SettingsManager.cpp
+        src/storage/AppDataPaths.cpp
+    )
+    target_include_directories(gif-send-controller-dedup-test PRIVATE src)
+    target_link_libraries(gif-send-controller-dedup-test PRIVATE
+        Qt6::Core Qt6::Gui Qt6::Qml Qt6::Test)
+    add_test(NAME gif-send-controller-dedup COMMAND gif-send-controller-dedup-test)
+
+    # NOT COVERED: history landing during an ACTIVE wheel animation.
+    #
+    # 9a0e41a's own regression test only simulates a direct contentY write, so
+    # it never exercises the momentum-vs-pagination race. An attempt to cover
+    # it here was withdrawn: the offscreen harness could be driven to keep the
+    # motion engine animating across a pagination round trip, but the anchor
+    # delegate then fell outside the ListView's created range and the test
+    # could not read the geometry it needed to assert on. Rather than weaken
+    # the assertion into something that passes on a settled engine — green
+    # while covering nothing, which is the exact gap that prompted the test —
+    # the case is left uncovered and recorded as NOT TESTED.
+    #
+    # The fix itself is sound by inspection: restoreCapturedAnchor() reads the
+    # LIVE contentY and applies a relative shift, and does not branch on
+    # whether a gesture or an animation is in flight, so momentum and touchpad
+    # travel the same code path. That is reasoning, not evidence.
+
+    # Threads use the same prepend-on-requestOlder pattern as the main
+    # timeline but had no anchor mechanism at all, so loading older replies
+    # while scrolled up teleported the view.
+    qt_add_executable(thread-panel-pagination-anchor-qml-test
+        tests/ThreadPanelPaginationAnchorQmlTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_app(thread-panel-pagination-anchor-qml-test)
+    target_link_libraries(thread-panel-pagination-anchor-qml-test PRIVATE Qt6::Test)
+    add_test(NAME thread-panel-pagination-anchor-qml
+             COMMAND thread-panel-pagination-anchor-qml-test)
+    set_tests_properties(thread-panel-pagination-anchor-qml PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
     # P0 regression suite: the account-identity <-> SDK-store binding. The
     # store path used to create a session must equal the one used to restore
     # it; adoption of a divergent-case store must be unambiguous, idempotent

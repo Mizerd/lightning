@@ -509,6 +509,105 @@ private Q_SLOTS:
         QCOMPARE(warnings, QStringList{});
     }
 
+    // Regression: one user activation must produce exactly one send. Before
+    // the fix, nothing stopped a second activation reaching choose() while
+    // the popup was still visually closing — MouseArea delivers a fast
+    // double-click as TWO separate "clicked" signals, and Popup.close()
+    // only starts an exit transition, it does not synchronously tear the
+    // content down. The `activated` one-shot latch (qml/GifPicker.qml)
+    // gates choose() itself, so it covers every activation surface (mouse
+    // AND the grid's Return/Enter keyboard path) with one guard rather than
+    // one per input device.
+    //
+    // Uses the same minimal harness as staleCurrentIndexAfterModelResetCan-
+    // notSendWrongItem/searchFieldEnterWithPendingDebounceSendsNothing above
+    // (a raw GifSearchController + FakeGifApp, default "browse" section,
+    // results injected directly) rather than the two-picker
+    // ApplicationWindow/kTwoPickerScene harness openingOnePickerClosesThe-
+    // Other uses: that combination — a real Popup open()/close()/reopen
+    // cycle together with a "favorites" section switch — segfaulted deep in
+    // Qt's own event-posting machinery
+    // (QCoreApplicationPrivate::lockThreadPostEventList) in a way that
+    // survived waiting for the close transition to finish before reopening,
+    // and is not a combination any OTHER test in this file exercises. The
+    // guard itself only needs choose() to be called twice in a row with no
+    // event-loop turn between them — reachable without a real popup
+    // lifecycle or the favorites section at all.
+    void secondActivationBeforeCloseCompletesSendsExactlyOne()
+    {
+        GifSearchController gif;
+        FakeGifApp fakeApp(&gif);
+
+        QQmlApplicationEngine engine;
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this,
+                [&warnings](const QList<QQmlError> &errors) {
+                    for (const auto &e : errors)
+                        warnings << e.toString();
+                });
+        engine.rootContext()->setContextProperty("app", &fakeApp);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("GifPicker"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        auto *picker = createdSpy.at(0).at(0).value<QObject *>();
+        QVERIFY(picker != nullptr);
+
+        QQuickWindow window;
+        window.resize(600, 640);
+        if (auto *item = qobject_cast<QQuickItem *>(picker))
+            item->setParentItem(window.contentItem());
+        else if (auto *popupItem =
+                     picker->property("contentItem").value<QQuickItem *>())
+            popupItem->setParentItem(window.contentItem());
+        window.show();
+        QCoreApplication::processEvents();
+
+        gif.results()->reset(
+            { safeResult(QStringLiteral("giphy"),
+                        QStringLiteral("dupactivation1")) });
+        QCOMPARE(gif.results()->count(), 1);
+
+        QSignalSpy chosen(picker, SIGNAL(gifChosen(QVariant)));
+        // Two activations of the SAME row, back to back, with no event-loop
+        // turn between them — the worst case the race allows.
+        QVERIFY(QMetaObject::invokeMethod(picker, "choose", Q_ARG(QVariant, 0)));
+        QVERIFY(QMetaObject::invokeMethod(picker, "choose", Q_ARG(QVariant, 0)));
+        QCOMPARE(chosen.count(), 1);
+        const QVariantMap result = chosen.at(0).at(0).toMap();
+        QCOMPARE(result.value(QStringLiteral("provider")).toString(),
+                 QStringLiteral("giphy"));
+        QCOMPARE(result.value(QStringLiteral("gifId")).toString(),
+                 QStringLiteral("dupactivation1"));
+        QCOMPARE(warnings, QStringList{});
+    }
+
+    // NOT COVERED, and a PRE-EXISTING CRASH worth its own pass.
+    //
+    // The latch's RELEASE path (onAboutToShow's `activated = false`) has no
+    // automated coverage, because the only scene that exercises it segfaults
+    // for reasons that have nothing to do with this checkpoint.
+    //
+    // Reproduction: drive a two-picker scene matching production
+    // (MessageComposerBar.qml and ThreadPanel.qml each instantiate one
+    // GifPicker), then open() -> section = "favorites" -> choose() ->
+    // close() -> reopen(). That crashes in
+    // QCoreApplicationPrivate::lockThreadPostEventList, and waiting for the
+    // close transition to finish first does not avoid it.
+    //
+    // It is NOT caused by the double-activation guard. Verified empirically:
+    // with origin/main's qml/GifPicker.qml swapped in, the same sequence
+    // still segfaults, while secondActivationBeforeCloseCompletes... fails
+    // as expected without the guard. So the crash is a pre-existing
+    // fragility in GifPicker.qml's real Popup/favorites lifecycle, reachable
+    // by an ordinary user sequence, and it survived this long only because
+    // nothing had ever driven that sequence.
+    //
+    // A test asserting the crash was deliberately NOT committed: a red suite
+    // helps nobody. Fixing the lifecycle, and then covering the latch reset,
+    // belongs in a dedicated checkpoint.
+
 private:
     QTemporaryDir m_configHome;
 };
