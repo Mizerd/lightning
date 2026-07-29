@@ -1964,8 +1964,26 @@ Item {
                                                             "state and requesting encryption keys.")
                                                     if (app.verificationState === "cancelled")
                                                         return qsTr("Verification cancelled.")
-                                                    if (app.verificationState.indexOf("failed") === 0)
+                                                    if (app.verificationState.indexOf("failed") === 0) {
+                                                        // The reason is the
+                                                        // whole value of this
+                                                        // line: "no
+                                                        // cross-signing
+                                                        // identity" tells the
+                                                        // user what to do,
+                                                        // "Verification
+                                                        // failed." does not.
+                                                        // AppController stores
+                                                        // it as "failed:<msg>".
+                                                        var reason =
+                                                            app.verificationState
+                                                                .substring(7)
+                                                        if (reason.length > 0)
+                                                            return qsTr(
+                                                                "Verification failed: %1")
+                                                                .arg(reason)
                                                         return qsTr("Verification failed.")
+                                                    }
                                                     return qsTr("Waiting…")
                                                 }
                                             }

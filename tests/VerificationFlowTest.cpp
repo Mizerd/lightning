@@ -389,6 +389,235 @@ private Q_SLOTS:
 #endif
     }
 
+    // "They do not match" is a report to the SDK, not a verdict the model
+    // may render itself. Only the SDK's own cancellation moves the card —
+    // otherwise the UI would claim an outcome the crypto layer never
+    // reached.
+    void mismatchNeedsAFlowAndNeverPromotesStateItself()
+    {
+#ifndef ENABLE_RUST_SDK_BACKEND
+        QSKIP("SAS verification exists on the Rust backend only.");
+#else
+        AppController app(AppController::RustBackend);
+        auto *rust = rustClient(app);
+        QVERIFY(rust);
+
+        // Nothing in flight: must not fabricate a flow.
+        QSignalSpy changed(&app, &AppController::verificationStateChanged);
+        app.mismatchVerification();
+        QCOMPARE(changed.count(), 0);
+        QCOMPARE(app.verificationState(), QString());
+
+        reachSasReady(app, rust, QStringLiteral("flow-mismatch"));
+        changed.clear();
+        app.mismatchVerification();
+        QCOMPARE(changed.count(), 0);
+        QCOMPARE(app.verificationState(), QStringLiteral("sas_ready"));
+
+        // The SDK cancels with MismatchedSas; that is what terminates it.
+        Q_EMIT rust->verificationCancelled(QStringLiteral("flow-mismatch"),
+                                           QStringLiteral("MismatchedSas"));
+        QCOMPARE(app.verificationState(), QStringLiteral("cancelled"));
+#endif
+    }
+
+    // One flow at a time, enforced without wrecking the live one: a second
+    // start must be refused outright, leaving the visible flow exactly as
+    // it was.
+    void startingASecondFlowIsRefusedAndLeavesTheLiveOneIntact()
+    {
+#ifndef ENABLE_RUST_SDK_BACKEND
+        QSKIP("SAS verification exists on the Rust backend only.");
+#else
+        AppController app(AppController::RustBackend);
+        auto *rust = rustClient(app);
+        QVERIFY(rust);
+        reachSasReady(app, rust, QStringLiteral("flow-live"));
+
+        QSignalSpy errors(&app, &AppController::errorReported);
+        QSignalSpy changed(&app, &AppController::verificationStateChanged);
+        app.startOwnVerification();
+
+        QCOMPARE(errors.count(), 1);
+        QCOMPARE(changed.count(), 0);
+        QCOMPARE(app.verificationState(), QStringLiteral("sas_ready"));
+        QCOMPARE(app.verificationFlowId(), QStringLiteral("flow-live"));
+        QCOMPARE(app.verificationEmojis().size(), 1);
+#endif
+    }
+
+    // The complement: every TERMINAL state must allow a fresh attempt.
+    // A finished, cancelled or failed flow that kept blocking new starts is
+    // exactly the brick this pass removed on the Rust side too.
+    void aTerminalFlowNeverBlocksTheNextAttempt()
+    {
+#ifndef ENABLE_RUST_SDK_BACKEND
+        QSKIP("SAS verification exists on the Rust backend only.");
+#else
+        const QList<QString> terminal{QStringLiteral("done"),
+                                      QStringLiteral("cancelled"),
+                                      QStringLiteral("failed")};
+        for (const QString &kind : terminal) {
+            AppController app(AppController::RustBackend);
+            auto *rust = rustClient(app);
+            QVERIFY(rust);
+            reachSasReady(app, rust, QStringLiteral("flow-term"));
+            if (kind == QLatin1String("done"))
+                Q_EMIT rust->verificationDone(QStringLiteral("flow-term"));
+            else if (kind == QLatin1String("cancelled"))
+                Q_EMIT rust->verificationCancelled(
+                    QStringLiteral("flow-term"), QStringLiteral("User"));
+            else
+                Q_EMIT rust->verificationFailed(
+                    QStringLiteral("flow-term"), QStringLiteral("sanitized"));
+
+            QSignalSpy errors(&app, &AppController::errorReported);
+            app.startOwnVerification();
+
+            // Not refused. Without a live backend handle the attempt fails
+            // immediately with a flow-id-less error, which is precisely the
+            // path that must stay visible and dismissable.
+            QCOMPARE(errors.count(), 0);
+            QVERIFY2(app.verificationState().startsWith(
+                         QStringLiteral("failed")),
+                     qPrintable(QStringLiteral("state=%1 after %2")
+                                    .arg(app.verificationState(), kind)));
+            QVERIFY(app.verificationFlowId().isEmpty());
+            QVERIFY(app.verificationEmojis().isEmpty());
+        }
+#endif
+    }
+
+    // The bridge now refuses to surface a second request while a flow is
+    // live (it cancels the newcomer instead), so this should not happen in
+    // practice. If it ever does, the model must adopt ONE flow cleanly
+    // rather than blend two: no stale emoji, and the orphaned flow's
+    // events must be inert.
+    void aSecondIncomingRequestReplacesTheFlowWithoutMixingState()
+    {
+#ifndef ENABLE_RUST_SDK_BACKEND
+        QSKIP("SAS verification exists on the Rust backend only.");
+#else
+        AppController app(AppController::RustBackend);
+        auto *rust = rustClient(app);
+        QVERIFY(rust);
+        reachSasReady(app, rust, QStringLiteral("flow-first"));
+        QCOMPARE(app.verificationEmojis().size(), 1);
+
+        Q_EMIT rust->verificationRequestReceived(
+            QStringLiteral("flow-second"), QStringLiteral("@self:example.org"),
+            QStringLiteral("OTHERDEV"), true);
+        QCOMPARE(app.verificationState(), QStringLiteral("requested"));
+        QCOMPARE(app.verificationFlowId(), QStringLiteral("flow-second"));
+        QCOMPARE(app.verificationOtherDevice(), QStringLiteral("OTHERDEV"));
+        // The previous flow's short auth string must not survive into a
+        // different flow's card.
+        QVERIFY(app.verificationEmojis().isEmpty());
+
+        // Nothing the orphaned flow says may touch the visible one.
+        Q_EMIT rust->verificationSasReady(QStringLiteral("flow-first"),
+                                          sampleEmojis(), QVariantList{});
+        QCOMPARE(app.verificationState(), QStringLiteral("requested"));
+        Q_EMIT rust->verificationDone(QStringLiteral("flow-first"));
+        QCOMPARE(app.verificationState(), QStringLiteral("requested"));
+        QCOMPARE(app.verificationFlowId(), QStringLiteral("flow-second"));
+#endif
+    }
+
+    // Whatever reason the bridge reports — a peer cancel, a user cancel, or
+    // the outgoing path's peer-wait timeout — the card must land in one
+    // honest terminal state and never keep spinning.
+    void everyCancellationReasonTerminatesTheFlow()
+    {
+#ifndef ENABLE_RUST_SDK_BACKEND
+        QSKIP("SAS verification exists on the Rust backend only.");
+#else
+        const QList<QString> reasons{
+            QStringLiteral("cancelled"),
+            QStringLiteral("timed_out_waiting_for_peer"),
+            QStringLiteral("User"),
+            QStringLiteral("MismatchedSas"),
+        };
+        for (const QString &reason : reasons) {
+            AppController app(AppController::RustBackend);
+            auto *rust = rustClient(app);
+            QVERIFY(rust);
+            Q_EMIT rust->verificationRequestStarted(
+                QStringLiteral("flow-cancel"),
+                QStringLiteral("@self:example.org"), true);
+            QCOMPARE(app.verificationState(),
+                     QStringLiteral("waiting_for_other_session"));
+
+            Q_EMIT rust->verificationCancelled(QStringLiteral("flow-cancel"),
+                                               reason);
+            QVERIFY2(app.verificationState() == QLatin1String("cancelled"),
+                     qPrintable(QStringLiteral("state=%1 for reason=%2")
+                                    .arg(app.verificationState(), reason)));
+        }
+#endif
+    }
+
+    // Poll batches deliver SDK state in order, but the model must not
+    // depend on it: a missing intermediate report may never strand the
+    // card, and a late one may never rewind a flow that moved on.
+    void outOfOrderReportsNeverStrandOrRewindTheFlow()
+    {
+#ifndef ENABLE_RUST_SDK_BACKEND
+        QSKIP("SAS verification exists on the Rust backend only.");
+#else
+        {
+            // Emoji without a preceding ready.
+            AppController app(AppController::RustBackend);
+            auto *rust = rustClient(app);
+            QVERIFY(rust);
+            Q_EMIT rust->verificationRequestStarted(
+                QStringLiteral("flow-ooo1"),
+                QStringLiteral("@self:example.org"), true);
+            Q_EMIT rust->verificationSasReady(QStringLiteral("flow-ooo1"),
+                                              sampleEmojis(), QVariantList{});
+            QCOMPARE(app.verificationState(), QStringLiteral("sas_ready"));
+            // A ready that arrives afterwards cannot pull it back.
+            Q_EMIT rust->verificationReady(QStringLiteral("flow-ooo1"));
+            QCOMPARE(app.verificationState(), QStringLiteral("sas_ready"));
+        }
+        {
+            // Done without any emoji ever being shown. The SDK is the only
+            // authority on success, so this still terminates as done.
+            AppController app(AppController::RustBackend);
+            auto *rust = rustClient(app);
+            QVERIFY(rust);
+            Q_EMIT rust->verificationRequestStarted(
+                QStringLiteral("flow-ooo2"),
+                QStringLiteral("@self:example.org"), true);
+            Q_EMIT rust->verificationDone(QStringLiteral("flow-ooo2"));
+            QCOMPARE(app.verificationState(), QStringLiteral("done"));
+            QVERIFY(app.verificationEmojis().isEmpty());
+        }
+        {
+            // A duplicated terminal report is idempotent.
+            AppController app(AppController::RustBackend);
+            auto *rust = rustClient(app);
+            QVERIFY(rust);
+            reachSasReady(app, rust, QStringLiteral("flow-ooo3"));
+            Q_EMIT rust->verificationDone(QStringLiteral("flow-ooo3"));
+            QCOMPARE(app.verificationState(), QStringLiteral("done"));
+            // A duplicate terminal report is idempotent: re-notifying is
+            // allowed, moving the flow is not. Also prove no OTHER terminal
+            // report can overwrite a completed one — a late cancellation
+            // must never turn a finished verification into a failed-looking
+            // card.
+            Q_EMIT rust->verificationDone(QStringLiteral("flow-ooo3"));
+            QCOMPARE(app.verificationState(), QStringLiteral("done"));
+            Q_EMIT rust->verificationCancelled(QStringLiteral("flow-ooo3"),
+                                               QStringLiteral("Accepted"));
+            QCOMPARE(app.verificationState(), QStringLiteral("done"));
+            Q_EMIT rust->verificationFailed(QStringLiteral("flow-ooo3"),
+                                            QStringLiteral("late failure"));
+            QCOMPARE(app.verificationState(), QStringLiteral("done"));
+        }
+#endif
+    }
+
     void logoutClearsTheVerificationStateCache()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND

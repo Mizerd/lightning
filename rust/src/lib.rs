@@ -129,12 +129,25 @@ struct RustClient {
     receipt_serial: Arc<tokio::sync::Mutex<()>>,
     invite_actions: Arc<Mutex<BTreeSet<String>>>,
     // v0.5.0: SAS verification state. Single active flow at a time keeps
-    // the FFI simple; if a second request arrives we cancel the first.
-    // Both slots are cleared when the flow reaches Done or Cancelled.
+    // the FFI simple; a second request arriving while one is live is
+    // cancelled on the wire rather than silently evicting the live flow.
+    // Both slots are released by `FlowSlotGuard` when the driver ends for
+    // ANY reason, and only ever for the flow that owns them.
     active_request: Arc<Mutex<Option<VerificationRequest>>>,
     // (flow_id, sas) — SasVerification has no flow_id() accessor on
     // matrix-sdk 0.18, so we track it externally.
     active_sas: Arc<Mutex<Option<(String, SasVerification)>>>,
+    // v0.7.3: managed SAS driver tasks. These hold an Arc<Client> for THIS
+    // account, so one still polling after the handle is destroyed keeps the
+    // account's SQLite crypto store open while sign-out deletes it — the
+    // same hazard the room-key import task is already joined for. Joined
+    // (not abandoned) by shutdown_managed_tasks.
+    verification_tasks: Mutex<Vec<tokio::task::JoinHandle<()>>>,
+    // Cooperative stop for those drivers. Every poll tick checks it, so a
+    // normal exit lands well inside the join budget and the abort below
+    // stays a last-resort error boundary. Set only by teardown; the handle
+    // is always destroyed immediately afterwards.
+    verification_shutdown: Arc<AtomicBool>,
     // v0.5.6: encrypted room-key import is serialized per client — a
     // second attempt while one is in flight is rejected synchronously.
     // The flag is also read by C++ before sign-out to wait for a live
@@ -190,6 +203,8 @@ impl RustClient {
             invite_actions: Arc::new(Mutex::new(BTreeSet::new())),
             active_request: Arc::new(Mutex::new(None)),
             active_sas: Arc::new(Mutex::new(None)),
+            verification_tasks: Mutex::new(Vec::new()),
+            verification_shutdown: Arc::new(AtomicBool::new(false)),
             import_active: Arc::new(AtomicBool::new(false)),
             media_results: Arc::new(Mutex::new(HashMap::new())),
             command_events: Arc::new(Mutex::new(VecDeque::new())),
@@ -244,6 +259,61 @@ impl RustClient {
     /// under it), then the sync loop. A bounded timeout remains only as a
     /// last-resort error boundary after the deterministic join.
     fn shutdown_managed_tasks(&self) -> (bool, bool) {
+        // v0.7.3: SAS drivers first. They are the only managed tasks that
+        // hold an Arc<Client> purely to poll verification state, so one left
+        // running keeps this account's crypto store open across
+        // mx_rust_destroy — and `finishSignOut` deletes that store moments
+        // later. Signal, join, and only then fall back to abort.
+        self.verification_shutdown.store(true, Ordering::SeqCst);
+        let verifications = self
+            .verification_tasks
+            .lock()
+            .ok()
+            .map(|mut guard| std::mem::take(&mut *guard))
+            .unwrap_or_default();
+        if !verifications.is_empty() {
+            self.runtime.block_on(async {
+                let mut handles = verifications;
+                let all = futures_util::future::join_all(handles.iter_mut());
+                if tokio::time::timeout(
+                    std::time::Duration::from_secs(timeline::SHUTDOWN_JOIN_TIMEOUT_SECS),
+                    all,
+                )
+                .await
+                .is_err()
+                {
+                    for handle in &handles {
+                        handle.abort();
+                    }
+                    let _ = tokio::time::timeout(
+                        std::time::Duration::from_secs(2),
+                        futures_util::future::join_all(handles.iter_mut()),
+                    )
+                    .await;
+                }
+            });
+        }
+        // Every driver has stopped, so whatever is still parked in the slots
+        // has nobody left to cancel it. That includes the case with no driver
+        // at all: an incoming request the user never answered sits here from
+        // the moment it arrives. Tell the peer before the session goes away —
+        // abandoning a flow silently leaves it waiting out matrix-sdk-crypto's
+        // 10-minute VERIFICATION_TIMEOUT.
+        //
+        // This is the ONLY place sign-out cancellation can live. Every
+        // teardown path runs `mx_rust_shutdown_tasks` first (see
+        // RustSdkMatrixClient::logout, which calls it before mx_rust_logout),
+        // so a cancel placed in the logout FFI would find both slots already
+        // empty and never run.
+        let (pending_sas, pending_request) =
+            take_pending_flows(&self.active_request, &self.active_sas);
+        if pending_sas.is_some() || pending_request.is_some() {
+            self.runtime.block_on(cancel_flow_best_effort(
+                pending_sas.as_ref(),
+                pending_request.as_ref(),
+            ));
+        }
+
         self.timelines.shutdown(&self.runtime);
 
         let actions = self.room_action_tasks.lock().ok()
@@ -321,6 +391,22 @@ impl RustClient {
         F: std::future::Future<Output = ()> + Send + 'static,
     {
         if let Ok(mut tasks) = self.room_action_tasks.lock() {
+            tasks.retain(|task| !task.is_finished());
+            tasks.push(self.runtime.spawn(future));
+        }
+    }
+
+    /// v0.7.3: run a SAS driver on the SHARED runtime as a joinable task.
+    ///
+    /// These used to be raw `std::thread::spawn` + a throwaway per-call
+    /// runtime, which nothing tracked and nothing joined: a driver survived
+    /// `mx_rust_destroy` by up to seven minutes (a 300 s peer wait plus a
+    /// 120 s completion poll) still holding this account's `Client`.
+    fn spawn_verification_task<F>(&self, future: F)
+    where
+        F: std::future::Future<Output = ()> + Send + 'static,
+    {
+        if let Ok(mut tasks) = self.verification_tasks.lock() {
             tasks.retain(|task| !task.is_finished());
             tasks.push(self.runtime.spawn(future));
         }
@@ -494,6 +580,7 @@ pub unsafe extern "C" fn mx_rust_login(
         let client_slot = Arc::clone(&bridge.client);
         let events = Arc::clone(&bridge.events);
         let active_request = Arc::clone(&bridge.active_request);
+        let active_sas = Arc::clone(&bridge.active_sas);
         // Shared runtime: the SDK's post-login E2EE initialization task
         // must outlive this call (see run_async_on).
         let shared_runtime = Arc::clone(&bridge.runtime);
@@ -506,6 +593,7 @@ pub unsafe extern "C" fn mx_rust_login(
                             &client,
                             Arc::clone(&events),
                             Arc::clone(&active_request),
+                            Arc::clone(&active_sas),
                         );
                         let login = client
                             .matrix_auth()
@@ -592,6 +680,7 @@ pub unsafe extern "C" fn mx_rust_restore_from_file(
         let client_slot = Arc::clone(&bridge.client);
         let events = Arc::clone(&bridge.events);
         let active_request = Arc::clone(&bridge.active_request);
+        let active_sas = Arc::clone(&bridge.active_sas);
         // Shared runtime: the SDK's post-restore E2EE initialization task
         // must outlive this call (see run_async_on).
         let shared_runtime = Arc::clone(&bridge.runtime);
@@ -645,6 +734,7 @@ pub unsafe extern "C" fn mx_rust_restore_from_file(
                             &client,
                             Arc::clone(&events),
                             Arc::clone(&active_request),
+                            Arc::clone(&active_sas),
                         );
                         if let Err(err) =
                             save_persistent_session(&session_file, &homeserver, &stored.session)
@@ -709,6 +799,7 @@ pub unsafe extern "C" fn mx_rust_restore(
         let client_slot = Arc::clone(&bridge.client);
         let events = Arc::clone(&bridge.events);
         let active_request = Arc::clone(&bridge.active_request);
+        let active_sas = Arc::clone(&bridge.active_sas);
         // Shared runtime: the SDK's post-restore E2EE initialization task
         // must outlive this call (see run_async_on).
         let shared_runtime = Arc::clone(&bridge.runtime);
@@ -723,6 +814,7 @@ pub unsafe extern "C" fn mx_rust_restore(
                             &client,
                             Arc::clone(&events),
                             Arc::clone(&active_request),
+                            Arc::clone(&active_sas),
                         );
                         if let Ok(mut guard) = client_slot.lock() {
                             *guard = Some(client);
@@ -761,6 +853,13 @@ pub unsafe extern "C" fn mx_rust_logout(ptr: *mut c_void) {
         bridge.stop_sync_and_wait();
         let client = bridge.client.lock().ok().and_then(|guard| guard.clone());
         let events = Arc::clone(&bridge.events);
+        // A pending verification is cancelled and released in
+        // `shutdown_managed_tasks`, which EVERY teardown path runs before
+        // this FFI (RustSdkMatrixClient::logout calls mx_rust_shutdown_tasks
+        // first). Doing it here as well would be dead code: both slots are
+        // already empty by the time this runs, so the cancel would silently
+        // never fire and the peer would still wait out the SDK's 10-minute
+        // timeout — exactly the bug it would appear to fix.
         if let Some(client) = client {
             std::thread::spawn(move || {
                 let runtime_events = Arc::clone(&events);
@@ -2250,16 +2349,409 @@ fn verification_sas_confirmed_event(flow_id: &str) -> serde_json::Value {
     })
 }
 
-/// SAS emoji verification — accept an incoming request and drive it to
-/// the KeysExchanged state (v0.5.0). Emits `verification_sas_ready` with
-/// the emoji list when the SDK finishes key exchange;
-/// `verification_sas_confirmed` when OUR confirmation is registered;
-/// `verification_done` / `verification_cancelled` when the flow reaches a
-/// terminal state.
+/// SAS state-poll cadence. matrix-sdk exposes both `state()` snapshots and
+/// `changes()` streams; polling the REQUEST keeps one code path for the
+/// request and the SAS, because the request is what owns which `Sas` the
+/// flow is currently using.
+const VERIFICATION_POLL_MS: u64 = 500;
+/// Bounded wait for an `m.key.verification.start` to land when neither
+/// side has produced a SAS yet (60 s).
+const SAS_HANDSHAKE_TICKS: u32 = 120;
+/// Bounded wait for a started SAS to reach a terminal state (120 s).
+const SAS_COMPLETION_TICKS: u32 = 240;
+/// Bounded wait for the peer to answer our request (5 minutes). Shorter
+/// than matrix-sdk-crypto's own 10-minute VERIFICATION_TIMEOUT so the user
+/// gets an answer rather than a hang.
+const VERIFICATION_PEER_TICKS: u32 = 600;
+/// How long a teardown-time cancellation may spend on the wire. Kept well
+/// under `timeline::SHUTDOWN_JOIN_TIMEOUT_SECS` so cancelling and joining
+/// together stay inside the existing shutdown budget: telling the peer is
+/// worth a short wait, never a stalled sign-out.
+const VERIFICATION_CANCEL_TIMEOUT_SECS: u64 = 3;
+
+/// Best-effort, bounded cancellation for a session that is going away.
 ///
-/// Poll-based state watching (500 ms cadence, 120 s cap) is used
-/// deliberately instead of a futures Stream so we don't introduce a
-/// direct futures-util dep — matrix-sdk exposes state() as a snapshot.
+/// A flow abandoned without a cancel leaves the peer waiting out
+/// matrix-sdk-crypto's 10-minute `VERIFICATION_TIMEOUT` with no signal at
+/// all, so shutdown still owes the peer this message. It is best-effort by
+/// design: teardown may not block on a network round trip, and a cancel
+/// that cannot complete in the budget is dropped rather than allowed to
+/// stall sign-out. Both levels are attempted because each SDK cancel is
+/// idempotent and either one may be the live half of the flow.
+async fn cancel_flow_best_effort(
+    sas: Option<&SasVerification>,
+    request: Option<&VerificationRequest>,
+) {
+    let budget = std::time::Duration::from_secs(VERIFICATION_CANCEL_TIMEOUT_SECS);
+    if let Some(sas) = sas {
+        if !sas.is_cancelled() && !sas.is_done() {
+            let _ = tokio::time::timeout(budget, sas.cancel()).await;
+        }
+    }
+    if let Some(request) = request {
+        if !request.is_cancelled() && !request.is_done() {
+            let _ = tokio::time::timeout(budget, request.cancel()).await;
+        }
+    }
+}
+
+/// The SAS this request is currently using, straight from SDK state.
+///
+/// This — not a cached handle — is authoritative. When both peers send
+/// `m.key.verification.start` at once, matrix-sdk-crypto applies the spec
+/// tie-break and REPLACES the losing `Sas` in its verification cache
+/// (`receive_start` -> `replace_sas`, verification/requests.rs). A handle
+/// captured before that point shares no state with the survivor: it never
+/// changes state again, so polling it reports a timeout while the real
+/// flow is alive, and confirming it does nothing.
+fn sas_from_request(request: &VerificationRequest) -> Option<SasVerification> {
+    match request.state() {
+        VerificationRequestState::Transitioned { verification } => verification.sas(),
+        _ => None,
+    }
+}
+
+/// Can this flow handle still make progress?
+///
+/// Abstracted purely so the single-flow slot rules below can be unit
+/// tested: matrix-sdk's `VerificationRequest` and `SasVerification` have
+/// crate-private constructors, so a test can never build a real one, and
+/// these rules are exactly where the "verification is already in progress"
+/// brick and the newer-flow clobber lived.
+trait FlowLiveness {
+    fn is_finished(&self) -> bool;
+}
+
+/// Which flow a slot occupant belongs to, for compare-and-clear.
+trait FlowIdentity {
+    fn flow_key(&self) -> &str;
+}
+
+impl FlowLiveness for VerificationRequest {
+    fn is_finished(&self) -> bool {
+        // `is_passive` means another of our own sessions answered this
+        // request; it can never progress here either.
+        self.is_cancelled() || self.is_done() || self.is_passive()
+    }
+}
+
+impl FlowIdentity for VerificationRequest {
+    fn flow_key(&self) -> &str {
+        self.flow_id()
+    }
+}
+
+impl FlowLiveness for SasVerification {
+    fn is_finished(&self) -> bool {
+        self.is_cancelled() || self.is_done()
+    }
+}
+
+/// True when the single-flow slots still hold a LIVE flow.
+///
+/// Dead occupants (cancelled, done, or answered by another of our
+/// sessions) are cleared in passing, so the slots are self-healing instead
+/// of sticky: an abandoned request can never refuse every later attempt
+/// for the rest of the process lifetime.
+fn flow_slots_are_live<R, S>(
+    request_slot: &Arc<Mutex<Option<R>>>,
+    sas_slot: &Arc<Mutex<Option<(String, S)>>>,
+) -> bool
+where
+    R: FlowLiveness,
+    S: FlowLiveness,
+{
+    if let Ok(mut guard) = request_slot.lock() {
+        if guard.as_ref().is_some_and(|request| request.is_finished()) {
+            *guard = None;
+        }
+    }
+    if let Ok(mut guard) = sas_slot.lock() {
+        if guard.as_ref().is_some_and(|(_, sas)| sas.is_finished()) {
+            *guard = None;
+        }
+    }
+    let request_live = request_slot.lock().map(|g| g.is_some()).unwrap_or(false);
+    let sas_live = sas_slot.lock().map(|g| g.is_some()).unwrap_or(false);
+    request_live || sas_live
+}
+
+/// Release the single-flow slots, but ONLY where they still hold this flow.
+///
+/// The unconditional `*g = None` this replaces meant a terminating flow
+/// wiped whatever occupied the slot — including a NEWER request that had
+/// arrived in the meantime, whose Accept then failed with "no active
+/// verification request".
+fn release_flow_slots<R, S>(
+    request_slot: &Arc<Mutex<Option<R>>>,
+    sas_slot: &Arc<Mutex<Option<(String, S)>>>,
+    flow_id: &str,
+) where
+    R: FlowIdentity,
+{
+    if let Ok(mut guard) = sas_slot.lock() {
+        if guard.as_ref().is_some_and(|(stored, _)| stored == flow_id) {
+            *guard = None;
+        }
+    }
+    if let Ok(mut guard) = request_slot.lock() {
+        if guard.as_ref().is_some_and(|r| r.flow_key() == flow_id) {
+            *guard = None;
+        }
+    }
+}
+
+/// Take whatever is parked in the single-flow slots, leaving them empty.
+///
+/// Teardown must TAKE before it clears. The slots are the only handle on a
+/// flow the peer is still waiting for, so clearing them first throws away
+/// the ability to cancel it — which is exactly how an earlier version of
+/// this change ended up with a cancel that could never fire, because
+/// `shutdown_managed_tasks` emptied the slots before `mx_rust_logout` (the
+/// function that held the cancel) ever ran.
+fn take_pending_flows<R, S>(
+    request_slot: &Arc<Mutex<Option<R>>>,
+    sas_slot: &Arc<Mutex<Option<(String, S)>>>,
+) -> (Option<S>, Option<R>) {
+    let sas = sas_slot
+        .lock()
+        .ok()
+        .and_then(|mut guard| guard.take())
+        .map(|(_, sas)| sas);
+    let request = request_slot.lock().ok().and_then(|mut guard| guard.take());
+    (sas, request)
+}
+
+/// Releases this flow's slots when its driver ends for ANY reason —
+/// normal exit, early return, cooperative shutdown, or a panic.
+///
+/// Releasing by hand at every exit is what previously leaked: several
+/// early returns kept `active_request` occupied and
+/// `mx_rust_start_own_verification` then refused outright, so one failed
+/// attempt bricked verification until the app restarted. Cleanup on drop
+/// makes future exits safe by construction rather than by remembering.
+struct FlowSlotGuard<R: FlowIdentity, S> {
+    request_slot: Arc<Mutex<Option<R>>>,
+    sas_slot: Arc<Mutex<Option<(String, S)>>>,
+    flow_id: String,
+}
+
+impl<R: FlowIdentity, S> FlowSlotGuard<R, S> {
+    fn new(
+        request_slot: Arc<Mutex<Option<R>>>,
+        sas_slot: Arc<Mutex<Option<(String, S)>>>,
+        flow_id: String,
+    ) -> Self {
+        Self { request_slot, sas_slot, flow_id }
+    }
+}
+
+impl<R: FlowIdentity, S> Drop for FlowSlotGuard<R, S> {
+    fn drop(&mut self) {
+        release_flow_slots(&self.request_slot, &self.sas_slot, &self.flow_id);
+    }
+}
+
+/// Drive a ready verification request through the SAS flow to a terminal
+/// state. Shared by BOTH directions, because both need exactly the same
+/// sequence once `m.key.verification.ready` has been exchanged.
+///
+/// Emits `verification_sas_started`, `verification_sas_ready` (emoji +
+/// decimals), `verification_sas_confirmed`, and finally `verification_done`
+/// / `verification_cancelled` / `verification_failed`. Never reports
+/// success unless the SDK reached `SasState::Done`.
+#[allow(clippy::too_many_arguments)]
+async fn drive_sas_flow(
+    client: &Client,
+    request: &VerificationRequest,
+    flow_id: &str,
+    events: &Arc<Mutex<VecDeque<String>>>,
+    sas_slot: &Arc<Mutex<Option<(String, SasVerification)>>>,
+    nudges: &RecoveryNudgeSlot,
+    shutdown: &Arc<AtomicBool>,
+) {
+    let poll = std::time::Duration::from_millis(VERIFICATION_POLL_MS);
+    let fail = |message: String| {
+        enqueue(events, json!({
+            "type": "verification_failed",
+            "flow_id": flow_id,
+            "message": message,
+        }));
+    };
+
+    // Someone has to send `m.key.verification.start`; matrix-sdk does NOT
+    // do it for us, and a peer that also waits leaves both sides parked in
+    // Ready. `start_sas()` is the only emitter — but it is NOT idempotent:
+    // in Transitioned it builds a SECOND Sas and emits a competing start
+    // (verification/requests.rs `start_sas` -> `start_sas_helper`). So
+    // adopt whatever the SDK already has before starting anything.
+    let sas: Option<SasVerification> = match sas_from_request(request) {
+        Some(sas) => Some(sas),
+        None => match request.start_sas().await {
+            Ok(Some(sas)) => Some(sas),
+            // `Ok(None)` means the peer never advertised `m.sas.v1` or the
+            // request left Ready. Give a start that is already in flight a
+            // bounded chance to land, then fail visibly rather than hang.
+            Ok(None) => {
+                let mut found: Option<SasVerification> = None;
+                for _ in 0..SAS_HANDSHAKE_TICKS {
+                    if shutdown.load(Ordering::SeqCst) {
+                        // No SAS exists yet, but the request does, and the
+                        // peer is waiting on it.
+                        cancel_flow_best_effort(None, Some(request)).await;
+                        return;
+                    }
+                    tokio::time::sleep(poll).await;
+                    if let Some(sas) = sas_from_request(request) {
+                        found = Some(sas);
+                        break;
+                    }
+                    if let Some(verification) = client
+                        .encryption()
+                        .get_verification(request.other_user_id(), request.flow_id())
+                        .await
+                    {
+                        if let Some(sas) = verification.sas() {
+                            found = Some(sas);
+                            break;
+                        }
+                    }
+                    if request.is_cancelled() || request.is_done() {
+                        break;
+                    }
+                }
+                found
+            }
+            Err(err) => {
+                fail(format_matrix_error("SAS start failed", err));
+                return;
+            }
+        },
+    };
+    let Some(mut sas) = sas else {
+        fail("Timed out waiting for SAS handshake.".to_owned());
+        return;
+    };
+
+    // A peer-started SAS arrives in `SasState::Started` and needs OUR
+    // `m.key.verification.accept` before either side can send a key.
+    // `Sas::accept()` returns None outside Started (verification/sas/mod.rs)
+    // so this is a no-op on the branch where WE started the flow. The
+    // outgoing path used to skip it entirely: it adopted the peer's SAS and
+    // then polled a flow it had never accepted, which stalled to the
+    // completion timeout — the same "both peers parked" symptom as before,
+    // one handshake step later.
+    if let Err(err) = sas.accept().await {
+        fail(format_matrix_error("SAS accept failed", err));
+        return;
+    }
+    if let Ok(mut guard) = sas_slot.lock() {
+        *guard = Some((flow_id.to_owned(), sas.clone()));
+    }
+    enqueue(events, json!({
+        "type": "verification_sas_started",
+        "flow_id": flow_id,
+    }));
+
+    let mut emitted_emojis = false;
+    let mut emitted_confirmed = false;
+    for _ in 0..SAS_COMPLETION_TICKS {
+        if shutdown.load(Ordering::SeqCst) {
+            // The session is going away mid-flow. Cancelling both levels is
+            // what stops the peer sitting on an emoji screen for ten
+            // minutes; the slot sweep in shutdown_managed_tasks only covers
+            // flows this driver no longer owns.
+            cancel_flow_best_effort(Some(&sas), Some(request)).await;
+            return;
+        }
+        tokio::time::sleep(poll).await;
+
+        // Re-derive every tick: the SDK, not this snapshot, owns which Sas
+        // the flow uses, and a tie-break replacement would otherwise leave
+        // us polling a dead object. Keeping the slot in step also means
+        // confirm/mismatch always act on the live one.
+        if let Some(current) = sas_from_request(request) {
+            sas = current;
+            if let Ok(mut guard) = sas_slot.lock() {
+                *guard = Some((flow_id.to_owned(), sas.clone()));
+            }
+        }
+
+        // Classify inside a block so the SasState snapshot is dropped
+        // before any await — nothing SDK-owned is held across a suspend
+        // point.
+        let needs_accept = {
+            match sas.state() {
+                // Reachable when the peer's start lands after ours was sent
+                // and the SDK substitutes theirs. Accepting moves it out of
+                // Started, so this cannot spin.
+                SasState::Started { .. } => true,
+                SasState::KeysExchanged { .. } if !emitted_emojis => {
+                    emitted_emojis = true;
+                    let mut emoji_list: Vec<serde_json::Value> = Vec::new();
+                    if let Some(emojis) = sas.emoji() {
+                        for e in emojis.iter() {
+                            emoji_list.push(json!({
+                                "symbol": e.symbol,
+                                "description": e.description,
+                            }));
+                        }
+                    }
+                    let dec = sas.decimals().map(|(a, b, c)| json!([a, b, c]))
+                        .unwrap_or(json!([]));
+                    enqueue(events, json!({
+                        "type": "verification_sas_ready",
+                        "flow_id": flow_id,
+                        "emojis": emoji_list,
+                        "decimals": dec,
+                    }));
+                    false
+                }
+                SasState::Done { .. } => {
+                    enqueue(events, json!({
+                        "type": "verification_done",
+                        "flow_id": flow_id,
+                    }));
+                    notify_recovery_nudge(nudges, RecoveryNudge::VerificationDone);
+                    return;
+                }
+                SasState::Cancelled(info) => {
+                    enqueue(events, json!({
+                        "type": "verification_cancelled",
+                        "flow_id": flow_id,
+                        "message": format!("{:?}", info.reason()),
+                    }));
+                    return;
+                }
+                // v0.7.1: OUR confirmation registered; Done still requires
+                // the peer's MAC. Surface it once so the UI can leave the
+                // frozen emoji screen honestly.
+                SasState::Confirmed if !emitted_confirmed => {
+                    emitted_confirmed = true;
+                    enqueue(events, verification_sas_confirmed_event(flow_id));
+                    false
+                }
+                _ => false,
+            }
+        };
+        if needs_accept {
+            if let Err(err) = sas.accept().await {
+                fail(format_matrix_error("SAS accept failed", err));
+                return;
+            }
+        }
+    }
+    fail("Timed out waiting for SAS completion.".to_owned());
+}
+
+/// SAS emoji verification — accept an incoming request and drive it to a
+/// terminal state (v0.5.0). Emits `verification_ready` once both sides have
+/// exchanged `m.key.verification.ready`, then hands off to the shared
+/// `drive_sas_flow` driver for the start/accept/key/mac sequence.
+///
+/// The flow's single-flow slots are released by `FlowSlotGuard` on every
+/// exit path, including a panic, so a failed attempt can never refuse the
+/// next one.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_accept_verification(
     ptr: *mut c_void,
@@ -2280,217 +2772,57 @@ pub unsafe extern "C" fn mx_rust_accept_verification(
             return Ok("error: verification flow id mismatch.".to_owned());
         }
         let Some(client) = bridge.client.lock().ok().and_then(|g| g.clone()) else {
+            // Nothing can drive this flow any more. Release the slot rather
+            // than parking a dead request that would refuse every later
+            // attempt for the rest of the process lifetime.
+            release_flow_slots(&bridge.active_request, &bridge.active_sas, &flow_id);
             return Ok("error: Rust SDK session is not logged in.".to_owned());
         };
         let events = Arc::clone(&bridge.events);
         let sas_slot = Arc::clone(&bridge.active_sas);
         let request_slot = Arc::clone(&bridge.active_request);
         let nudges = Arc::clone(&bridge.recovery_nudges);
-        std::thread::spawn(move || {
-            let runtime_events = Arc::clone(&events);
-            run_async(runtime_events, "verification_accept", async move {
-                // Advertise ONLY what this client can actually perform.
-                // `accept()` would use the SDK's SUPPORTED_METHODS, which
-                // includes `m.reciprocate.v1` (matrix-sdk-crypto
-                // verification/requests.rs) — telling the peer we can scan a
-                // QR code it shows us. Lightning builds without the `qrcode`
-                // feature and has no scanner, so that invites a QR/reciprocate
-                // start we can never answer. The outgoing path already
-                // advertises SasV1 only; this keeps both directions honest.
-                if let Err(err) = request
-                    .accept_with_methods(vec![VerificationMethod::SasV1])
-                    .await
-                {
-                    enqueue(&events, json!({
-                        "type": "verification_failed",
-                        "flow_id": request.flow_id().to_string(),
-                        "message": format_matrix_error(
-                            "Matrix Rust SDK verification accept failed", err),
-                    }));
-                    if let Ok(mut g) = request_slot.lock() { *g = None; }
-                    return;
-                }
-                enqueue(&events, json!({
-                    "type": "verification_ready",
-                    "flow_id": request.flow_id().to_string(),
-                }));
+        let shutdown = Arc::clone(&bridge.verification_shutdown);
+        bridge.spawn_verification_task(async move {
+            let _slots = FlowSlotGuard::new(
+                Arc::clone(&request_slot),
+                Arc::clone(&sas_slot),
+                flow_id.clone(),
+            );
 
-                // Once both sides are Ready, SOMEONE has to send
-                // `m.key.verification.start`. matrix-sdk does NOT do it for
-                // us — `VerificationRequest::start_sas()` is the only thing
-                // that emits it. This path used to just poll
-                // `get_verification()` waiting for a SAS to appear, on the
-                // assumption that the SDK drove the handshake after accept().
-                // It does not, and Element X also waits for the start, so both
-                // peers parked in Ready forever: Element X sat on "Starting
-                // verification" while this flow eventually timed out.
-                //
-                // Start it ourselves. `Ok(None)` means either that the peer
-                // got there first or that it never advertised `m.sas.v1`; both
-                // resolve through the same bounded poll below, which ends in a
-                // surfaced failure rather than a silent hang.
-                // The peer may already have started while our accept was still
-                // in flight. `start_sas()` is NOT idempotent: in the
-                // Transitioned state matrix-sdk-crypto builds a SECOND Sas and
-                // emits a competing `.start`, overwriting the peer's SAS in the
-                // verification cache. If we then lose the spec's lexicographic
-                // tie-break the peer keeps its own flow — the one we just threw
-                // away — and neither side ever exchanges keys. Adopt theirs
-                // instead, exactly as the outbound path does.
-                let peer_started: Option<SasVerification> = match request.state() {
-                    matrix_sdk::encryption::verification::VerificationRequestState::Transitioned {
-                        verification,
-                    } => verification.sas(),
-                    _ => None,
-                };
-                let sas: Option<SasVerification> = match peer_started {
-                    Some(s) => Some(s),
-                    None => match request.start_sas().await {
-                    Ok(Some(s)) => Some(s),
-                    Ok(None) => {
-                        let mut found: Option<SasVerification> = None;
-                        for _ in 0..120 {
-                            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-                            if let Some(v) = client
-                                .encryption()
-                                .get_verification(request.other_user_id(),
-                                                  request.flow_id())
-                                .await
-                            {
-                                if let matrix_sdk::encryption::verification::Verification::SasV1(s) = v {
-                                    found = Some(s);
-                                    break;
-                                }
-                            }
-                            if request.is_cancelled() {
-                                break;
-                            }
-                        }
-                        found
-                    }
-                    Err(err) => {
-                        enqueue(&events, json!({
-                            "type": "verification_failed",
-                            "flow_id": request.flow_id().to_string(),
-                            "message": format_matrix_error(
-                                "SAS start failed", err),
-                        }));
-                        if let Ok(mut g) = request_slot.lock() { *g = None; }
-                        return;
-                    }
-                    },
-                };
-                let Some(sas) = sas else {
-                    enqueue(&events, json!({
-                        "type": "verification_failed",
-                        "flow_id": request.flow_id().to_string(),
-                        "message": "Timed out waiting for SAS handshake.",
-                    }));
-                    // Never leave a zombie flow parked in the single-flow
-                    // slot: the next attempt must be able to take it.
-                    if let Ok(mut g) = request_slot.lock() { *g = None; }
-                    return;
-                };
-                // Send `m.key.verification.accept` with the SDK's default
-                // settings. This is a no-op when WE started the SAS above:
-                // matrix-sdk-crypto's `Sas::accept()` returns None outside
-                // `SasState::Started`, so it only fires in the peer-started
-                // branch, which is exactly where the accept belongs.
-                let sas_flow_id = request.flow_id().to_string();
-                if let Err(err) = sas.accept().await {
-                    enqueue(&events, json!({
-                        "type": "verification_failed",
-                        "flow_id": sas_flow_id,
-                        "message": format_matrix_error(
-                            "SAS accept failed", err),
-                    }));
-                    // Same zombie-slot rule as the branches above: this exit
-                    // must not park a dead flow in the single-flow slot, or
-                    // every later attempt is refused with "already in
-                    // progress" until the app restarts.
-                    if let Ok(mut g) = request_slot.lock() { *g = None; }
-                    return;
-                }
-                if let Ok(mut g) = sas_slot.lock() {
-                    *g = Some((sas_flow_id.clone(), sas.clone()));
-                }
-                enqueue(&events, json!({
-                    "type": "verification_sas_started",
-                    "flow_id": sas_flow_id,
-                }));
-
-                // Poll state for up to 120 s waiting for KeysExchanged /
-                // Confirmed / Done / Cancelled. matrix-sdk emits emojis at
-                // KeysExchanged.
-                let mut emitted_emojis = false;
-                let mut emitted_confirmed = false;
-                for _ in 0..240 {
-                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-                    let state = sas.state();
-                    match state {
-                        SasState::KeysExchanged { .. } if !emitted_emojis => {
-                            emitted_emojis = true;
-                            let mut emoji_list: Vec<serde_json::Value> = Vec::new();
-                            if let Some(emojis) = sas.emoji() {
-                                for e in emojis.iter() {
-                                    emoji_list.push(json!({
-                                        "symbol": e.symbol,
-                                        "description": e.description,
-                                    }));
-                                }
-                            }
-                            let dec = sas.decimals().map(|(a, b, c)| json!([a, b, c]))
-                                .unwrap_or(json!([]));
-                            enqueue(&events, json!({
-                                "type": "verification_sas_ready",
-                                "flow_id": sas_flow_id,
-                                "emojis": emoji_list,
-                                "decimals": dec,
-                            }));
-                        }
-                        SasState::Done { .. } => {
-                            enqueue(&events, json!({
-                                "type": "verification_done",
-                                "flow_id": sas_flow_id,
-                            }));
-                            notify_recovery_nudge(
-                                &nudges, RecoveryNudge::VerificationDone,
-                            );
-                            if let Ok(mut g) = sas_slot.lock() { *g = None; }
-                            if let Ok(mut g) = request_slot.lock() { *g = None; }
-                            return;
-                        }
-                        SasState::Cancelled(info) => {
-                            enqueue(&events, json!({
-                                "type": "verification_cancelled",
-                                "flow_id": sas_flow_id,
-                                "message": format!("{:?}", info.reason()),
-                            }));
-                            if let Ok(mut g) = sas_slot.lock() { *g = None; }
-                            if let Ok(mut g) = request_slot.lock() { *g = None; }
-                            return;
-                        }
-                        // v0.7.1: OUR confirmation registered; Done still
-                        // requires the peer's MAC. Surface it once so the
-                        // UI can leave the frozen emoji screen honestly.
-                        SasState::Confirmed if !emitted_confirmed => {
-                            emitted_confirmed = true;
-                            enqueue(
-                                &events,
-                                verification_sas_confirmed_event(&sas_flow_id),
-                            );
-                        }
-                        _ => {}
-                    }
-                }
+            // Advertise ONLY what this client can actually perform.
+            // `accept()` would use the SDK's SUPPORTED_METHODS, which
+            // includes `m.reciprocate.v1` (matrix-sdk-crypto
+            // verification/requests.rs) — telling the peer we can scan a QR
+            // code it shows us. Lightning builds without the `qrcode`
+            // feature and has no scanner, so that invites a reciprocate
+            // start we can never answer. Worse, without that feature the
+            // SDK's `receive_start` has no ReciprocateV1 arm at all: it
+            // warns and returns, sending no cancel, so the peer waits out
+            // the full 10-minute timeout. Both directions advertise SAS
+            // only.
+            if let Err(err) = request
+                .accept_with_methods(vec![VerificationMethod::SasV1])
+                .await
+            {
                 enqueue(&events, json!({
                     "type": "verification_failed",
-                    "flow_id": sas_flow_id,
-                    "message": "Timed out waiting for SAS completion.",
+                    "flow_id": flow_id,
+                    "message": format_matrix_error(
+                        "Matrix Rust SDK verification accept failed", err),
                 }));
-                if let Ok(mut g) = sas_slot.lock() { *g = None; }
-                if let Ok(mut g) = request_slot.lock() { *g = None; }
-            });
+                return;
+            }
+            enqueue(&events, json!({
+                "type": "verification_ready",
+                "flow_id": flow_id,
+            }));
+
+            drive_sas_flow(
+                &client, &request, &flow_id, &events, &sas_slot, &nudges,
+                &shutdown,
+            )
+            .await;
         });
         Ok(String::new())
     })
@@ -2517,17 +2849,17 @@ fn ffi_sas_action(
             return Ok("error: SAS verification flow id mismatch.".to_owned());
         }
         let events = Arc::clone(&bridge.events);
-        std::thread::spawn(move || {
-            let runtime_events = Arc::clone(&events);
-            run_async(runtime_events, label, async move {
-                if let Err(err) = action(sas.clone()).await {
-                    enqueue(&events, json!({
-                        "type": "verification_failed",
-                        "flow_id": stored_flow,
-                        "message": format_matrix_error(label, err),
-                    }));
-                }
-            });
+        // v0.7.3: joinable like the drivers. `confirm()` uploads a signature
+        // and writes to the crypto store, so it must not still be running
+        // when sign-out deletes that store.
+        bridge.spawn_verification_task(async move {
+            if let Err(err) = action(sas.clone()).await {
+                enqueue(&events, json!({
+                    "type": "verification_failed",
+                    "flow_id": stored_flow,
+                    "message": format_matrix_error(label, err),
+                }));
+            }
         });
         Ok(String::new())
     })
@@ -2558,7 +2890,13 @@ pub unsafe extern "C" fn mx_rust_cancel_verification(
     ptr: *mut c_void,
     flow_id: *const c_char,
 ) -> *mut c_char {
-    // Try SAS-level cancel first; if no active SAS, fall back to request-level.
+    // Cancel at BOTH levels. Each SDK cancel is idempotent (it returns no
+    // outgoing request once the flow is already cancelled or done), so
+    // running both is safe — and necessary. These used to be `if` /
+    // `else if`, which meant an `active_sas` belonging to some OTHER flow
+    // suppressed the request-level cancel entirely: nothing reached the
+    // wire, the peer waited out matrix-sdk-crypto's 10-minute
+    // VERIFICATION_TIMEOUT, and both slots were cleared regardless.
     ffi_string(|| {
         let bridge = unsafe { bridge(ptr)? };
         let flow_id = unsafe { cstr_arg(flow_id) }?;
@@ -2567,31 +2905,35 @@ pub unsafe extern "C" fn mx_rust_cancel_verification(
         let events = Arc::clone(&bridge.events);
         let sas_slot = Arc::clone(&bridge.active_sas);
         let request_slot = Arc::clone(&bridge.active_request);
-        std::thread::spawn(move || {
-            let runtime_events = Arc::clone(&events);
-            run_async(runtime_events, "verification_cancel", async move {
-                if let Some((stored_flow, sas)) = sas_entry {
-                    if stored_flow == flow_id {
+        bridge.spawn_verification_task(async move {
+            let mut cancelled = false;
+            if let Some((stored_flow, sas)) = sas_entry {
+                if stored_flow == flow_id {
+                    if !sas.is_cancelled() && !sas.is_done() {
                         let _ = sas.cancel().await;
-                        enqueue(&events, json!({
-                            "type": "verification_cancelled",
-                            "flow_id": flow_id,
-                            "message": "cancelled",
-                        }));
                     }
-                } else if let Some(request) = request {
-                    if request.flow_id() == flow_id {
-                        let _ = request.cancel().await;
-                        enqueue(&events, json!({
-                            "type": "verification_cancelled",
-                            "flow_id": flow_id,
-                            "message": "cancelled",
-                        }));
-                    }
+                    cancelled = true;
                 }
-                if let Ok(mut g) = sas_slot.lock() { *g = None; }
-                if let Ok(mut g) = request_slot.lock() { *g = None; }
-            });
+            }
+            if let Some(request) = request {
+                if request.flow_id() == flow_id {
+                    if !request.is_cancelled() && !request.is_done() {
+                        let _ = request.cancel().await;
+                    }
+                    cancelled = true;
+                }
+            }
+            // Report only a cancellation that actually applied to this
+            // flow, and release only this flow's slots — clearing them
+            // unconditionally used to evict a newer request's handle.
+            if cancelled {
+                enqueue(&events, json!({
+                    "type": "verification_cancelled",
+                    "flow_id": flow_id,
+                    "message": "cancelled",
+                }));
+            }
+            release_flow_slots(&request_slot, &sas_slot, &flow_id);
         });
         Ok(String::new())
     })
@@ -2602,12 +2944,11 @@ pub unsafe extern "C" fn mx_rust_cancel_verification(
 /// account. Advertises SAS as the only method so the SDK does not
 /// send an m.qr_code.* request Lightning cannot follow through.
 ///
-/// Emits `verification_request_started` synchronously (before the SDK
-/// finishes sending) so the QML side can flip to "Waiting…"
-/// immediately. Subsequent `verification_ready` / `verification_sas_ready`
-/// / `verification_done` / `verification_cancelled` events follow the
-/// same shape as the receive-first path — the C++ SAS state machine
-/// is shared.
+/// Emits `verification_request_started` as soon as the SDK has sent the
+/// request, then `verification_ready` once the peer answers, and hands
+/// off to the shared `drive_sas_flow` driver — the same one the
+/// receive-first path uses, so both directions perform the identical
+/// start/accept/key/mac sequence.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_start_own_verification(
     ptr: *mut c_void,
@@ -2620,25 +2961,9 @@ pub unsafe extern "C" fn mx_rust_start_own_verification(
         // Reject a duplicate start only if a flow is genuinely LIVE. A
         // presence-only check bricked verification for the rest of the process
         // whenever a dead request stayed parked — an incoming request occupies
-        // the slot with no user action at all, and nothing releases it when the
-        // SDK request expires, the peer cancels, or a driver task dies. Testing
-        // liveness (and clearing what is dead) makes every future exit path
-        // safe by construction rather than by remembering to release.
-        if let Ok(mut g) = bridge.active_request.lock() {
-            if g.as_ref().is_some_and(|r| {
-                r.is_cancelled() || r.is_done() || r.is_passive()
-            }) {
-                *g = None;
-            }
-        }
-        if let Ok(mut g) = bridge.active_sas.lock() {
-            if g.as_ref().is_some_and(|(_, s)| s.is_cancelled() || s.is_done()) {
-                *g = None;
-            }
-        }
-        let has_active = bridge.active_request.lock().ok().and_then(|g| g.clone()).is_some()
-            || bridge.active_sas.lock().ok().and_then(|g| g.clone()).is_some();
-        if has_active {
+        // the slot with no user action at all. Testing liveness (and clearing
+        // what is dead) keeps the slot self-healing.
+        if flow_slots_are_live(&bridge.active_request, &bridge.active_sas) {
             return Ok("error: A verification is already in progress.".to_owned());
         }
 
@@ -2646,35 +2971,24 @@ pub unsafe extern "C" fn mx_rust_start_own_verification(
         let request_slot = Arc::clone(&bridge.active_request);
         let sas_slot = Arc::clone(&bridge.active_sas);
         let nudges = Arc::clone(&bridge.recovery_nudges);
-        std::thread::spawn(move || {
-            let runtime_events = Arc::clone(&events);
-            run_async(runtime_events, "verification_start_own", async move {
-                let Some(user_id) = client.user_id().map(|u| u.to_owned()) else {
-                    enqueue(&events, json!({
-                        "type": "verification_failed",
-                        "flow_id": "",
-                        "message": "Rust SDK client has no user id yet.",
-                    }));
-                    return;
-                };
+        let shutdown = Arc::clone(&bridge.verification_shutdown);
+        bridge.spawn_verification_task(async move {
+            let Some(user_id) = client.user_id().map(|u| u.to_owned()) else {
+                enqueue(&events, json!({
+                    "type": "verification_failed",
+                    "flow_id": "",
+                    "message": "Rust SDK client has no user id yet.",
+                }));
+                return;
+            };
 
-                // Look up own identity locally first; if missing, force a
-                // /keys/query to refresh it (matches Element's flow).
-                let identity_res = client.encryption().get_user_identity(&user_id).await;
-                let identity = match identity_res {
-                    Ok(Some(id)) => Some(id),
-                    Ok(None) => match client.encryption().request_user_identity(&user_id).await {
-                        Ok(id) => id,
-                        Err(err) => {
-                            enqueue(&events, json!({
-                                "type": "verification_failed",
-                                "flow_id": "",
-                                "message": format_matrix_error(
-                                    "own identity lookup failed", err),
-                            }));
-                            return;
-                        }
-                    },
+            // Look up own identity locally first; if missing, force a
+            // /keys/query to refresh it (matches Element's flow).
+            let identity_res = client.encryption().get_user_identity(&user_id).await;
+            let identity = match identity_res {
+                Ok(Some(id)) => Some(id),
+                Ok(None) => match client.encryption().request_user_identity(&user_id).await {
+                    Ok(id) => id,
                     Err(err) => {
                         enqueue(&events, json!({
                             "type": "verification_failed",
@@ -2684,231 +2998,157 @@ pub unsafe extern "C" fn mx_rust_start_own_verification(
                         }));
                         return;
                     }
-                };
-                let Some(identity) = identity else {
+                },
+                Err(err) => {
                     enqueue(&events, json!({
                         "type": "verification_failed",
                         "flow_id": "",
-                        "message": "This Matrix account has no cross-signing identity. Sign in with a session that has cross-signing set up first.",
+                        "message": format_matrix_error(
+                            "own identity lookup failed", err),
                     }));
                     return;
-                };
-
-                let request = match identity
-                    .request_verification_with_methods(vec![VerificationMethod::SasV1])
-                    .await
-                {
-                    Ok(r) => r,
-                    Err(err) => {
-                        enqueue(&events, json!({
-                            "type": "verification_failed",
-                            "flow_id": "",
-                            "message": format_matrix_error(
-                                "verification request send failed", err),
-                        }));
-                        return;
-                    }
-                };
-
-                let flow_id = request.flow_id().to_string();
-                let other_user = request.other_user_id().to_string();
-                let is_self = request.is_self_verification();
-
-                if let Ok(mut g) = request_slot.lock() {
-                    *g = Some(request.clone());
                 }
-                enqueue(&events, json!({
-                    "type": "verification_request_started",
-                    "flow_id": flow_id.clone(),
-                    "other_user_id": other_user,
-                    "is_self_verification": is_self,
-                }));
-
-                // Wait for the peer to answer. Poll for up to 5 minutes so
-                // the user can pick the request up in Element without
-                // racing our timer.
-                //
-                // Watch the STATE, not `is_ready()`. That accessor is a
-                // bare `matches!(*self.inner.read(), InnerRequest::Ready(_))`
-                // (matrix-sdk-crypto verification/requests.rs), so it is
-                // true only while the request sits in Ready. The moment the
-                // peer's `m.key.verification.start` lands, the request moves
-                // to Transitioned and `is_ready()` is false FOREVER. A peer
-                // that sends `.ready` and `.start` inside one 500 ms sample
-                // window therefore used to leave this loop polling a
-                // predicate that could never become true again: five silent
-                // minutes, then a cancel. Element X waits for us so it never
-                // tripped this, but any client that starts on its own does.
-                let mut peer_started: Option<SasVerification> = None;
-                let mut ready = false;
-                for _ in 0..600 {
-                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-                    match request.state() {
-                        VerificationRequestState::Ready { .. } => {
-                            ready = true;
-                            break;
-                        }
-                        // The peer started first. Its SAS is authoritative:
-                        // calling `start_sas()` again here would build a
-                        // SECOND Sas and emit a competing `.start`, because
-                        // the SDK accepts that call in Transitioned too
-                        // (matrix-sdk-crypto verification/requests.rs).
-                        VerificationRequestState::Transitioned { verification } => {
-                            peer_started = verification.sas();
-                            ready = true;
-                            break;
-                        }
-                        VerificationRequestState::Done
-                        | VerificationRequestState::Cancelled(_) => break,
-                        VerificationRequestState::Created { .. }
-                        | VerificationRequestState::Requested { .. } => {}
-                    }
-                }
-                if !ready {
-                    if !request.is_cancelled() && !request.is_done() {
-                        let _ = request.cancel().await;
-                    }
-                    enqueue(&events, json!({
-                        "type": "verification_cancelled",
-                        "flow_id": flow_id,
-                        "message": "timed_out_waiting_for_peer",
-                    }));
-                    if let Ok(mut g) = request_slot.lock() { *g = None; }
-                    return;
-                }
-
-                enqueue(&events, json!({
-                    "type": "verification_ready",
-                    "flow_id": flow_id.clone(),
-                }));
-
-                // Start SAS exactly once — and only if the peer has not
-                // already done it. `peer_started` carries the SDK's own
-                // SasVerification from the Transitioned state above, which
-                // is authoritative; re-deriving it here would emit a second,
-                // competing `m.key.verification.start`.
-                let sas = match peer_started {
-                    Some(sas) => sas,
-                    None => match request.start_sas().await {
-                    Ok(Some(sas)) => sas,
-                    Ok(None) => {
-                        let mut found: Option<SasVerification> = None;
-                        for _ in 0..20 {
-                            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
-                            if let Some(v) = client
-                                .encryption()
-                                .get_verification(request.other_user_id(), request.flow_id())
-                                .await
-                            {
-                                if let matrix_sdk::encryption::verification::Verification::SasV1(s) = v {
-                                    found = Some(s);
-                                    break;
-                                }
-                            }
-                        }
-                        match found {
-                            Some(s) => s,
-                            None => {
-                                enqueue(&events, json!({
-                                    "type": "verification_failed",
-                                    "flow_id": flow_id,
-                                    "message": "SAS did not become available.",
-                                }));
-                                if let Ok(mut g) = request_slot.lock() { *g = None; }
-                                return;
-                            }
-                        }
-                    }
-                    Err(err) => {
-                        enqueue(&events, json!({
-                            "type": "verification_failed",
-                            "flow_id": flow_id,
-                            "message": format_matrix_error(
-                                "SAS start failed", err),
-                        }));
-                        if let Ok(mut g) = request_slot.lock() { *g = None; }
-                        return;
-                    }
-                    },
-                };
-
-                if let Ok(mut g) = sas_slot.lock() {
-                    *g = Some((flow_id.clone(), sas.clone()));
-                }
-                enqueue(&events, json!({
-                    "type": "verification_sas_started",
-                    "flow_id": flow_id.clone(),
-                }));
-
-                let mut emitted_emojis = false;
-                let mut emitted_confirmed = false;
-                for _ in 0..240 {
-                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-                    let state = sas.state();
-                    match state {
-                        SasState::KeysExchanged { .. } if !emitted_emojis => {
-                            emitted_emojis = true;
-                            let mut emoji_list: Vec<serde_json::Value> = Vec::new();
-                            if let Some(emojis) = sas.emoji() {
-                                for e in emojis.iter() {
-                                    emoji_list.push(json!({
-                                        "symbol": e.symbol,
-                                        "description": e.description,
-                                    }));
-                                }
-                            }
-                            let dec = sas.decimals().map(|(a, b, c)| json!([a, b, c]))
-                                .unwrap_or(json!([]));
-                            enqueue(&events, json!({
-                                "type": "verification_sas_ready",
-                                "flow_id": flow_id.clone(),
-                                "emojis": emoji_list,
-                                "decimals": dec,
-                            }));
-                        }
-                        SasState::Done { .. } => {
-                            enqueue(&events, json!({
-                                "type": "verification_done",
-                                "flow_id": flow_id,
-                            }));
-                            notify_recovery_nudge(
-                                &nudges, RecoveryNudge::VerificationDone,
-                            );
-                            if let Ok(mut g) = sas_slot.lock() { *g = None; }
-                            if let Ok(mut g) = request_slot.lock() { *g = None; }
-                            return;
-                        }
-                        SasState::Cancelled(info) => {
-                            enqueue(&events, json!({
-                                "type": "verification_cancelled",
-                                "flow_id": flow_id,
-                                "message": format!("{:?}", info.reason()),
-                            }));
-                            if let Ok(mut g) = sas_slot.lock() { *g = None; }
-                            if let Ok(mut g) = request_slot.lock() { *g = None; }
-                            return;
-                        }
-                        // v0.7.1: OUR confirmation registered; Done still
-                        // requires the peer's MAC. Surface it once so the
-                        // UI can leave the frozen emoji screen honestly.
-                        SasState::Confirmed if !emitted_confirmed => {
-                            emitted_confirmed = true;
-                            enqueue(
-                                &events,
-                                verification_sas_confirmed_event(&flow_id),
-                            );
-                        }
-                        _ => {}
-                    }
-                }
+            };
+            let Some(identity) = identity else {
                 enqueue(&events, json!({
                     "type": "verification_failed",
-                    "flow_id": flow_id,
-                    "message": "Timed out waiting for SAS completion.",
+                    "flow_id": "",
+                    "message": "This Matrix account has no cross-signing identity. Sign in with a session that has cross-signing set up first.",
                 }));
-                if let Ok(mut g) = sas_slot.lock() { *g = None; }
-                if let Ok(mut g) = request_slot.lock() { *g = None; }
-            });
+                return;
+            };
+
+            let request = match identity
+                .request_verification_with_methods(vec![VerificationMethod::SasV1])
+                .await
+            {
+                Ok(r) => r,
+                Err(err) => {
+                    enqueue(&events, json!({
+                        "type": "verification_failed",
+                        "flow_id": "",
+                        "message": format_matrix_error(
+                            "verification request send failed", err),
+                    }));
+                    return;
+                }
+            };
+
+            let flow_id = request.flow_id().to_string();
+            let other_user = request.other_user_id().to_string();
+            let is_self = request.is_self_verification();
+
+            // Claim the slot only if nothing live took it while our request
+            // was in flight — an incoming request can land in exactly that
+            // window, and the liveness gate above does not reserve anything.
+            // Losing the race must cancel OUR request, never evict theirs.
+            let claimed = match request_slot.lock() {
+                Ok(mut guard) => {
+                    let occupied = guard.as_ref().is_some_and(|r| {
+                        !(r.is_cancelled() || r.is_done() || r.is_passive())
+                    });
+                    if occupied {
+                        false
+                    } else {
+                        *guard = Some(request.clone());
+                        true
+                    }
+                }
+                Err(_) => false,
+            };
+            if !claimed {
+                let _ = request.cancel().await;
+                enqueue(&events, json!({
+                    "type": "verification_failed",
+                    "flow_id": "",
+                    "message": "Another verification started first. Finish or cancel it, then try again.",
+                }));
+                return;
+            }
+            let _slots = FlowSlotGuard::new(
+                Arc::clone(&request_slot),
+                Arc::clone(&sas_slot),
+                flow_id.clone(),
+            );
+
+            enqueue(&events, json!({
+                "type": "verification_request_started",
+                "flow_id": flow_id.clone(),
+                "other_user_id": other_user,
+                "is_self_verification": is_self,
+            }));
+
+            // Wait for the peer to answer. Poll for up to 5 minutes so the
+            // user can pick the request up in Element without racing our
+            // timer.
+            //
+            // Watch the STATE, not `is_ready()`. That accessor is a bare
+            // `matches!(*self.inner.read(), InnerRequest::Ready(_))`
+            // (matrix-sdk-crypto verification/requests.rs), so it is true
+            // only while the request sits in Ready. The moment the peer's
+            // `m.key.verification.start` lands, the request moves to
+            // Transitioned and `is_ready()` is false FOREVER. A peer that
+            // sends `.ready` and `.start` inside one sample window would
+            // otherwise leave this loop polling a predicate that can never
+            // become true again.
+            let mut ready = false;
+            for _ in 0..VERIFICATION_PEER_TICKS {
+                if shutdown.load(Ordering::SeqCst) {
+                    // We asked the peer to verify and are now walking away;
+                    // withdraw the request instead of leaving it pending.
+                    cancel_flow_best_effort(None, Some(&request)).await;
+                    return;
+                }
+                tokio::time::sleep(
+                    std::time::Duration::from_millis(VERIFICATION_POLL_MS),
+                ).await;
+                match request.state() {
+                    // Both are "the peer answered". The driver adopts the
+                    // peer's SAS from the request itself, so Transitioned
+                    // needs no separate handling here.
+                    VerificationRequestState::Ready { .. }
+                    | VerificationRequestState::Transitioned { .. } => {
+                        ready = true;
+                        break;
+                    }
+                    // Passive (answered by another of our sessions) maps to
+                    // Cancelled(Accepted) in matrix-sdk-crypto, so it lands
+                    // here rather than spinning out the full five minutes.
+                    VerificationRequestState::Done
+                    | VerificationRequestState::Cancelled(_) => break,
+                    VerificationRequestState::Created { .. }
+                    | VerificationRequestState::Requested { .. } => {}
+                }
+            }
+            if !ready {
+                // Report what actually happened. Calling every exit here a
+                // timeout mislabelled a peer-side or user-side cancellation.
+                let was_cancelled = request.is_cancelled();
+                if !was_cancelled && !request.is_done() {
+                    let _ = request.cancel().await;
+                }
+                enqueue(&events, json!({
+                    "type": "verification_cancelled",
+                    "flow_id": flow_id,
+                    "message": if was_cancelled {
+                        "cancelled"
+                    } else {
+                        "timed_out_waiting_for_peer"
+                    },
+                }));
+                return;
+            }
+
+            enqueue(&events, json!({
+                "type": "verification_ready",
+                "flow_id": flow_id.clone(),
+            }));
+
+            drive_sas_flow(
+                &client, &request, &flow_id, &events, &sas_slot, &nudges,
+                &shutdown,
+            )
+            .await;
         });
         Ok(String::new())
     })
@@ -4484,6 +4724,7 @@ fn install_event_handlers(
     client: &Client,
     events: Arc<Mutex<VecDeque<String>>>,
     active_request: Arc<Mutex<Option<VerificationRequest>>>,
+    active_sas: Arc<Mutex<Option<(String, SasVerification)>>>,
 ) {
     // v0.5.0: SAS emoji verification, receive-first. matrix-sdk 0.18 does
     // NOT expose a public `recv_verification_requests` stream, so we
@@ -4499,11 +4740,13 @@ fn install_event_handlers(
     // by SAS design).
     let verif_events = Arc::clone(&events);
     let verif_slot = Arc::clone(&active_request);
+    let verif_sas_slot = Arc::clone(&active_sas);
     let client_clone = client.clone();
     client.add_event_handler(
         move |ev: ToDeviceKeyVerificationRequestEvent| {
             let events = Arc::clone(&verif_events);
             let slot = Arc::clone(&verif_slot);
+            let sas_slot = Arc::clone(&verif_sas_slot);
             let client = client_clone.clone();
             async move {
                 let flow_id = ev.content.transaction_id.to_string();
@@ -4514,17 +4757,42 @@ fn install_event_handlers(
                 else {
                     return;
                 };
-                let other_device = request
-                    .their_supported_methods()
-                    .map(|_| String::new())
-                    .unwrap_or_default();
+
+                // Never evict a live flow. This slot used to be overwritten
+                // unconditionally, so a second request silently orphaned
+                // whatever was in progress: its driver kept polling a flow
+                // the FFI could no longer reach, and that driver's terminal
+                // cleanup then cleared the NEWCOMER's handle, leaving Accept
+                // with "no active verification request". A dead occupant is
+                // cleared in passing. Tell the peer rather than leaving it
+                // to the SDK's 10-minute timeout; the flow already on screen
+                // owns the single-flow UI, so this one is not surfaced.
+                if flow_slots_are_live(&slot, &sas_slot) {
+                    let _ = request.cancel().await;
+                    return;
+                }
+
+                // The peer's device id is real, public metadata and is what
+                // tells the user WHICH session is asking. It is carried by
+                // the request state, not by `their_supported_methods()` —
+                // that accessor only reports methods, and mapping it to a
+                // string produced an always-empty field.
+                let (other_device_id, other_device_name) = match request.state() {
+                    VerificationRequestState::Requested { other_device_data, .. }
+                    | VerificationRequestState::Ready { other_device_data, .. } => (
+                        other_device_data.device_id().to_string(),
+                        other_device_data.display_name().unwrap_or_default().to_owned(),
+                    ),
+                    _ => (String::new(), String::new()),
+                };
                 enqueue(
                     &events,
                     json!({
                         "type": "verification_request_received",
                         "flow_id": request.flow_id().to_string(),
                         "other_user_id": request.other_user_id().to_string(),
-                        "other_device_id": other_device,
+                        "other_device_id": other_device_id,
+                        "other_device_name": other_device_name,
                         "is_self_verification": request.is_self_verification(),
                         "we_started": request.we_started(),
                     }),
@@ -5488,6 +5756,248 @@ mod tests {
         assert_eq!(obj.len(), 2);
         assert_eq!(obj["type"], "verification_sas_confirmed");
         assert_eq!(obj["flow_id"], "flow-abc123");
+    }
+
+    // ── Single-flow slot discipline ────────────────────────────────────
+    //
+    // These pin the rules that made verification look permanently dead:
+    // a slot that stayed occupied refused every later attempt, and a
+    // terminating flow's unconditional clear evicted a NEWER request's
+    // handle. matrix-sdk's VerificationRequest/SasVerification cannot be
+    // constructed outside that crate, so the rules are exercised through
+    // the same FlowLiveness/FlowIdentity traits production uses.
+    mod flow_slots {
+        use std::sync::{Arc, Mutex};
+
+        use crate::{FlowIdentity, FlowLiveness, FlowSlotGuard};
+
+        #[derive(Debug)]
+        struct FakeFlow {
+            flow_id: String,
+            finished: bool,
+        }
+
+        impl FakeFlow {
+            fn live(flow_id: &str) -> Self {
+                Self { flow_id: flow_id.to_owned(), finished: false }
+            }
+            fn finished(flow_id: &str) -> Self {
+                Self { flow_id: flow_id.to_owned(), finished: true }
+            }
+        }
+
+        impl FlowLiveness for FakeFlow {
+            fn is_finished(&self) -> bool {
+                self.finished
+            }
+        }
+
+        impl FlowIdentity for FakeFlow {
+            fn flow_key(&self) -> &str {
+                &self.flow_id
+            }
+        }
+
+        type RequestSlot = Arc<Mutex<Option<FakeFlow>>>;
+        type SasSlot = Arc<Mutex<Option<(String, FakeFlow)>>>;
+
+        fn slots() -> (RequestSlot, SasSlot) {
+            (Arc::new(Mutex::new(None)), Arc::new(Mutex::new(None)))
+        }
+
+        fn request_flow(slot: &RequestSlot) -> Option<String> {
+            slot.lock().unwrap().as_ref().map(|f| f.flow_id.clone())
+        }
+
+        fn sas_flow(slot: &SasSlot) -> Option<String> {
+            slot.lock().unwrap().as_ref().map(|(id, _)| id.clone())
+        }
+
+        #[test]
+        fn empty_slots_are_not_live() {
+            let (request, sas) = slots();
+            assert!(!crate::flow_slots_are_live(&request, &sas));
+        }
+
+        #[test]
+        fn a_live_request_blocks_a_second_start() {
+            let (request, sas) = slots();
+            *request.lock().unwrap() = Some(FakeFlow::live("flow-a"));
+            assert!(crate::flow_slots_are_live(&request, &sas));
+            // Still there: a live flow must not be silently evicted.
+            assert_eq!(request_flow(&request).as_deref(), Some("flow-a"));
+        }
+
+        // The brick: an incoming request occupies the slot with no user
+        // action at all, and nothing released it when the flow died. A
+        // presence-only gate then refused every later attempt for the rest
+        // of the process lifetime.
+        #[test]
+        fn a_finished_occupant_is_cleared_and_does_not_block() {
+            let (request, sas) = slots();
+            *request.lock().unwrap() = Some(FakeFlow::finished("flow-dead"));
+            *sas.lock().unwrap() =
+                Some(("flow-dead".to_owned(), FakeFlow::finished("flow-dead")));
+
+            assert!(!crate::flow_slots_are_live(&request, &sas));
+            assert_eq!(request_flow(&request), None);
+            assert_eq!(sas_flow(&sas), None);
+        }
+
+        #[test]
+        fn a_live_sas_alone_still_counts_as_live() {
+            let (request, sas) = slots();
+            *sas.lock().unwrap() =
+                Some(("flow-b".to_owned(), FakeFlow::live("flow-b")));
+            assert!(crate::flow_slots_are_live(&request, &sas));
+            assert_eq!(sas_flow(&sas).as_deref(), Some("flow-b"));
+        }
+
+        #[test]
+        fn releasing_clears_only_the_owning_flow() {
+            let (request, sas) = slots();
+            *request.lock().unwrap() = Some(FakeFlow::live("flow-mine"));
+            *sas.lock().unwrap() =
+                Some(("flow-mine".to_owned(), FakeFlow::live("flow-mine")));
+
+            crate::release_flow_slots(&request, &sas, "flow-mine");
+            assert_eq!(request_flow(&request), None);
+            assert_eq!(sas_flow(&sas), None);
+        }
+
+        // The clobber: a terminating driver used to run `*g = None`
+        // unconditionally, wiping whichever flow happened to occupy the
+        // slot — including a request that arrived after it. Accept then
+        // failed with "no active verification request".
+        #[test]
+        fn releasing_never_evicts_a_newer_flow() {
+            let (request, sas) = slots();
+            *request.lock().unwrap() = Some(FakeFlow::live("flow-new"));
+            *sas.lock().unwrap() =
+                Some(("flow-new".to_owned(), FakeFlow::live("flow-new")));
+
+            // The OLD flow terminates and releases.
+            crate::release_flow_slots(&request, &sas, "flow-old");
+
+            assert_eq!(request_flow(&request).as_deref(), Some("flow-new"));
+            assert_eq!(sas_flow(&sas).as_deref(), Some("flow-new"));
+        }
+
+        #[test]
+        fn the_guard_releases_on_a_normal_exit() {
+            let (request, sas) = slots();
+            *request.lock().unwrap() = Some(FakeFlow::live("flow-guarded"));
+            {
+                let _guard = FlowSlotGuard::new(
+                    Arc::clone(&request),
+                    Arc::clone(&sas),
+                    "flow-guarded".to_owned(),
+                );
+            }
+            assert_eq!(request_flow(&request), None);
+        }
+
+        // A driver that panicked used to leak both slots: `run_async`
+        // reported the panic and nothing cleaned up, so a request parked in
+        // Ready blocked verification until the app restarted.
+        #[test]
+        fn the_guard_releases_on_a_panic() {
+            let (request, sas) = slots();
+            *request.lock().unwrap() = Some(FakeFlow::live("flow-panic"));
+            let req = Arc::clone(&request);
+            let sasc = Arc::clone(&sas);
+
+            let result = std::panic::catch_unwind(move || {
+                let _guard =
+                    FlowSlotGuard::new(req, sasc, "flow-panic".to_owned());
+                panic!("driver blew up");
+            });
+
+            assert!(result.is_err());
+            assert_eq!(request_flow(&request), None);
+        }
+
+        // Teardown's cancellation can only work if the flow is still in the
+        // slots when it runs. The first attempt at this fix put the cancel in
+        // mx_rust_logout, which the C++ side calls AFTER
+        // mx_rust_shutdown_tasks had already emptied both slots — so it took
+        // None every time and the peer still waited out the SDK's 10-minute
+        // timeout. This pins take-then-clear as one step.
+        //
+        // What it does NOT prove: that the cancel reaches the peer. That is a
+        // network round trip through SDK types no test can construct.
+        #[test]
+        fn teardown_takes_the_parked_flow_instead_of_discarding_it() {
+            let (request, sas) = slots();
+            *request.lock().unwrap() = Some(FakeFlow::live("flow-teardown"));
+            *sas.lock().unwrap() =
+                Some(("flow-teardown".to_owned(), FakeFlow::live("flow-teardown")));
+
+            let (taken_sas, taken_request) =
+                crate::take_pending_flows(&request, &sas);
+
+            // Handed to the caller so it still has something to cancel...
+            assert_eq!(
+                taken_request.as_ref().map(|f| f.flow_id.as_str()),
+                Some("flow-teardown")
+            );
+            assert_eq!(
+                taken_sas.as_ref().map(|f| f.flow_id.as_str()),
+                Some("flow-teardown")
+            );
+            // ...and the slots are empty, so nothing can act on it again.
+            assert_eq!(request_flow(&request), None);
+            assert_eq!(sas_flow(&sas), None);
+        }
+
+        #[test]
+        fn teardown_has_nothing_to_cancel_when_no_flow_is_parked() {
+            let (request, sas) = slots();
+            let (taken_sas, taken_request) =
+                crate::take_pending_flows(&request, &sas);
+            assert!(taken_sas.is_none());
+            assert!(taken_request.is_none());
+        }
+
+        // An incoming request the user never answered has no driver at all,
+        // so the slot sweep is the only thing that can tell that peer we are
+        // gone.
+        #[test]
+        fn teardown_takes_a_request_that_never_had_a_driver() {
+            let (request, sas) = slots();
+            *request.lock().unwrap() = Some(FakeFlow::live("flow-unanswered"));
+
+            let (taken_sas, taken_request) =
+                crate::take_pending_flows(&request, &sas);
+
+            assert!(taken_sas.is_none());
+            assert_eq!(
+                taken_request.as_ref().map(|f| f.flow_id.as_str()),
+                Some("flow-unanswered")
+            );
+            assert_eq!(request_flow(&request), None);
+        }
+
+        #[test]
+        fn the_guard_leaves_a_newer_flow_alone_on_a_panic() {
+            let (request, sas) = slots();
+            let req = Arc::clone(&request);
+            let sasc = Arc::clone(&sas);
+
+            let result = std::panic::catch_unwind(move || {
+                let _guard = FlowSlotGuard::new(
+                    Arc::clone(&req),
+                    Arc::clone(&sasc),
+                    "flow-old".to_owned(),
+                );
+                // A newer request claims the slot before we die.
+                *req.lock().unwrap() = Some(FakeFlow::live("flow-new"));
+                panic!("driver blew up");
+            });
+
+            assert!(result.is_err());
+            assert_eq!(request_flow(&request).as_deref(), Some("flow-new"));
+        }
     }
 
     // v0.7.1 secrets watchdog: the sanitized event matches the shared
