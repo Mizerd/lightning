@@ -24,15 +24,18 @@ frontend.
 
 ## 2. Current release and development state
 
-The state verified on 2026-07-20 is:
+Release facts, verified on 2026-07-29:
 
-- Latest published release: **Lightning 0.6.2**
-- Published tag: `v0.6.2` -> `fe3b85f` (created by the project-7 packaging
-  pipeline after all five packages published and verified; pipeline 63)
-- Previous releases: `v0.6.1` -> `86d30b4` and `v0.6.0` -> `2157194`
-  (immutable, unchanged)
-- Application version: **0.6.2** in `CMakeLists.txt`, `rust/Cargo.toml`, and
+- Latest published release: **Lightning 0.6.4** (`v0.6.4` -> `e719bbe`)
+- Previous releases: `v0.6.3` -> `97f10b7`, `v0.6.2` -> `fe3b85f`,
+  `v0.6.1` -> `86d30b4`, `v0.6.0` -> `2157194` (all immutable, unchanged)
+- Application version: **0.6.4** in `CMakeLists.txt`, `rust/Cargo.toml`, and
   the Rust/HTTP user agent
+
+The narrative below describes the 0.6.2-era checkpoints and has not been
+rewritten for every release since. Treat it as background, not as the current
+inventory: source and `git log` are authoritative, and this section will be
+stale again before it is next read.
 - The 2026-07-20 stability checkpoints (`790a75b`..`fe3b85f`) delivered:
   the initial-timeline presentation gate + persistent scroll anchoring
   (bottom-pinned and scrolled-up) with row-scoped Set-diff application;
@@ -229,6 +232,26 @@ modern Matrix, E2EE, or SDK-thread behavior.
 - Never render untrusted SVG as active content. Keep SVG excluded from inline
   preview/media paths unless a separately reviewed safe design lands.
 - Never commit or log GIF-provider API keys.
+- The store an account uses is **recorded**, never re-derived twice. A store
+  path computed from a typed login name and a record persisted under the
+  server-canonical user id will disagree, and the app then deletes, orphans,
+  or fails to clean the wrong account's crypto store. Persist the mapping and
+  read it everywhere: restore, logout, reset, removal, and the orphan check.
+- Never treat "no readable access token" as "no account". A locked keyring or
+  an unavailable session bus is a transient credential-backend failure, not
+  evidence that a store is orphaned. Destructive cleanup keys on the *record*
+  being absent, never on a secret being unreadable.
+- Local debug logs may carry `safeUserSlug()` and account-scoped paths — that
+  is the existing, deliberate practice, and those logs stay on the user's own
+  machine. Anything the user is invited to **share** is held to a stricter
+  bar: the support-diagnostics export carries hashed account identifiers and
+  no paths at all, because a store path contains the Matrix localpart.
+- Never report a cleanup as successful when it removed nothing. "Target
+  absent" and "reset completed" are different outcomes, and conflating them
+  hides a no-op repair behind a success message.
+- Sign-out and account removal must delete the store that was actually in
+  use. Leaving Megolm and device keys on disk after the user asked for the
+  account to be gone is a data-at-rest defect.
 
 Use sanitized categories, counts, stable public Matrix identifiers where
 needed, and presentation-safe metadata at the Rust/C++ boundary. Do not weaken
@@ -563,11 +586,13 @@ Use the category that matches the evidence:
 
 - **Unit tests:** focused pure C++/Qt behavior.
 - **Rust tests:** SDK bridge, parser, timeline, recovery, and Rust behavior.
-- **CTest:** registered C++/Qt/QML/controller/bridge tests. The current CMake
-  registers 45 tests in each configured build tree (including the
-  account-registry, account-switch, desktop-integration, button-system,
-  composer-qml, settings-shell-qml, markdown-format, gif-key-config,
-  control-system, and design-acceptance suites).
+- **CTest:** registered C++/Qt/QML/controller/bridge tests. Five
+  screenshot-demo suites are gated behind `LIGHTNING_ENABLE_SCREENSHOT_DEMO`
+  and are absent from a default tree. Never quote a test count from this
+  file — it goes stale the moment a suite is added, which it repeatedly has.
+  Run `ctest --test-dir <tree> -N` and quote that. Note that `-N` counts
+  *registered* tests and is not evidence that any of them passed; never
+  report a registration count as a pass rate.
 - **QML tests:** contract scans and real offscreen module/component loading.
 - **Bridge/controller tests:** generation isolation, diff ingestion, media,
   thread, notification, and application policy.
@@ -737,13 +762,23 @@ before they are committed. The reusable role definitions live in
 `.claude/agents/`:
 
 ```text
+.claude/agents/lightning-session-store-specialist.md
 .claude/agents/lightning-verification-specialist.md
+.claude/agents/lightning-account-security-ui-specialist.md
+.claude/agents/lightning-integration-regression-specialist.md
 .claude/agents/lightning-gif-thread-specialist.md
 .claude/agents/lightning-touchpad-scroll-specialist.md
 .claude/agents/lightning-independent-reviewer.md
 ```
 
 Rules:
+
+- **Exactly one agent builds at a time.** `cmake --build`, `ctest`,
+  `cargo build` and `cargo test` all write into the same build trees; two
+  concurrent `ninja` runs in one tree race on object files and `.ninja_deps`
+  and produce a result that looks like evidence but is not. The lead holds a
+  build lock and hands it to one agent at a time. Writing code and tests
+  needs no compiler — implement while waiting.
 
 - Use agents only for genuinely independent, substantial work. A single
   focused edit does not need a team.

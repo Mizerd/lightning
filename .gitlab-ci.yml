@@ -1,0 +1,109 @@
+# Lightning application CI (project 6).
+#
+# TEST ONLY. This pipeline never publishes, never tags, never creates a
+# release, never writes to a package registry, and never triggers the
+# packaging project (project 7). Packaging and release remain manually
+# triggered on lightning-deploy exactly as documented in CLAUDE.md §14.
+#
+# Runner: the `nix` tag selects package-runner-nix, the only registered runner
+# that can enter the project's Nix dev shell. It is shared with packaging, so
+# every job is `interruptible` and the whole pipeline sits in one
+# `resource_group` — an application pipeline must never occupy the runner in
+# parallel with itself, and a superseded push should yield immediately.
+#
+# Deliberately NOT gates:
+#   * `cargo fmt --check` — the tree is not rustfmt-clean today (pre-existing
+#     diffs in rust/src/bin/generate_emoji_catalog.rs and elsewhere). Adding a
+#     job that is red on arrival teaches everyone to ignore CI. Making the
+#     tree clean is separate, deliberate work.
+#   * `cargo clippy -D warnings` — same reason; unproven on this tree.
+# Both are worth adding once a dedicated pass has made them green.
+
+stages:
+  - test
+
+workflow:
+  rules:
+    # Scoped to the application project. This file must never drive a
+    # pipeline anywhere else.
+    - if: '$CI_PROJECT_ID != "6"'
+      when: never
+    - if: '$CI_COMMIT_TAG'
+      when: never          # tags are created by packaging; nothing to do here
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - if: '$CI_PIPELINE_SOURCE == "web"'
+    - when: never
+
+default:
+  tags: [nix]
+  interruptible: true
+  timeout: 2h
+
+variables:
+  GIT_DEPTH: "50"
+  GIT_SUBMODULE_STRATEGY: none
+  # Keep parallelism below the host's capacity: this runner also serves the
+  # packaging project.
+  CMAKE_BUILD_PARALLEL_LEVEL: "4"
+  CARGO_BUILD_JOBS: "4"
+  CARGO_TERM_COLOR: "never"
+  # Must be inside the build directory for the cache below to see it; the
+  # default ~/.cargo lives outside CI_PROJECT_DIR and would never be cached.
+  CARGO_HOME: "$CI_PROJECT_DIR/.cargo-home"
+
+.nix-job:
+  resource_group: lightning-app-ci
+  before_script:
+    - command -v nix >/dev/null 2>&1 || { echo "nix is unavailable on this runner"; exit 1; }
+    - nix develop -c cmake --version
+
+# Whitespace errors and conflict markers, the CI equivalent of the
+# `git diff --check` step in the local checkpoint workflow.
+whitespace:
+  extends: .nix-job
+  stage: test
+  resource_group: null
+  script:
+    - git diff --check "$(git merge-base HEAD origin/$CI_DEFAULT_BRANCH || echo HEAD~1)" HEAD
+
+rust-tests:
+  extends: .nix-job
+  stage: test
+  script:
+    - nix develop -c cargo test --manifest-path rust/Cargo.toml
+  cache:
+    key: "cargo-$CI_COMMIT_REF_SLUG"
+    paths:
+      - .cargo-home/
+      - rust/target/
+    policy: pull-push
+
+# Rust-enabled tree: the configuration Lightning actually ships.
+qt-rust-tree:
+  extends: .nix-job
+  stage: test
+  script:
+    - nix develop -c cmake -S . -B build-rust -G Ninja -DENABLE_RUST_SDK_BACKEND=ON
+    - nix develop -c cmake --build build-rust
+    - nix develop -c ctest --test-dir build-rust --output-on-failure
+  artifacts:
+    when: on_failure
+    expire_in: 3 days
+    paths:
+      - build-rust/Testing/
+    # Never publish build products; failure logs only, and they expire.
+
+# Mock/HTTP tree: keeps the non-Rust build honest (CLAUDE.md §5).
+qt-mock-tree:
+  extends: .nix-job
+  stage: test
+  script:
+    - nix develop -c cmake -S . -B build -G Ninja
+    - nix develop -c cmake --build build
+    - nix develop -c ctest --test-dir build --output-on-failure
+  artifacts:
+    when: on_failure
+    expire_in: 3 days
+    paths:
+      - build/Testing/
