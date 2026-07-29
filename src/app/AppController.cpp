@@ -2,6 +2,7 @@
 
 #include <algorithm>
 
+#include "app/SessionDiagnostics.h"
 #include "app/SettingsManager.h"
 #include "auth/AccountManager.h"
 #include "auth/AuthManager.h"
@@ -29,11 +30,17 @@
 #include "matrix/RustSdkMatrixClient.h"
 #endif
 
+// Pure failure classification, no Rust dependency: compiled into every
+// configuration so the repair policy answers the same way in all of them.
+#include "matrix/RustSessionPolicy.h"
+
 #include "matrix/MatrixClient.h"
 #include "storage/AppDataPaths.h"
 
+#include <QClipboard>
 #include <QDir>
 #include <QGuiApplication>
+#include <QSysInfo>
 #include <QPalette>
 #include <QStyleHints>
 #include <QLoggingCategory>
@@ -663,15 +670,28 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             // with it.
             refreshCryptoHealth();
         });
+        // A completed verification is FINAL for its flow. A late cancellation
+        // or failure carrying the same flow id must not repaint a successful
+        // verification as cancelled — the user confirmed matching emoji and
+        // the SDK reported Done, and telling them otherwise afterwards is
+        // simply false. Ordering happens to prevent this today (the Rust
+        // driver returns on SasState::Done, and cancelVerification() clears
+        // the flow id first), but relying on two remote invariants for a
+        // user-visible correctness property is how it silently breaks.
+        //
+        // Only `done` is sticky. Trust itself is never taken from this
+        // string — it comes from SDK state via refreshOwnDeviceStatus().
         connect(rust, &RustSdkMatrixClient::verificationCancelled,
                 this, [this](const QString &flowId, const QString &) {
             if (flowId != m_verificationFlowId) return;
+            if (m_verificationState == QLatin1String("done")) return;
             m_verificationState = QStringLiteral("cancelled");
             Q_EMIT verificationStateChanged();
         });
         connect(rust, &RustSdkMatrixClient::verificationFailed,
                 this, [this](const QString &flowId, const QString &msg) {
             if (flowId != m_verificationFlowId) return;
+            if (m_verificationState == QLatin1String("done")) return;
             m_verificationState = QStringLiteral("failed:%1").arg(msg);
             Q_EMIT verificationStateChanged();
         });
@@ -797,17 +817,32 @@ AppController::AppController(Backend backend, bool screenshotDemo,
         });
 
         connect(rust, &RustSdkMatrixClient::localSessionResetRequired,
-                this, [this](const QString &) {
+                this, [this](const QString &reasonCode, const QString &userId,
+                             const QString &homeserver) {
+            // Record WHICH account failed and WHY, then let QML choose the
+            // copy and the valid actions. Five distinct causes used to share
+            // one sentence, and the repair could not run at all because it
+            // was driven from a login form the user had not filled in.
+            setLocalSessionFailure(reasonCode, userId, homeserver);
             setLocalRustResetRequired(true);
-            Q_EMIT storeDeviceMismatchDetected(tr(
-                "This local Lightning Rust SDK store belongs to a different "
-                "Matrix session or device. Reset the local Lightning session "
-                "for this account, then sign in again. This does not delete "
-                "server messages or Element data."));
+        });
+        // Same payload, but for conditions a local reset cannot repair: a
+        // missing store, a revoked token, contestable ownership. The repair
+        // card still explains what happened and offers the actions that are
+        // valid for that reason — it just never arms the destructive one,
+        // because deleting local data would not fix any of them and, for a
+        // revoked token, would throw away the only local copy of room keys.
+        connect(rust, &RustSdkMatrixClient::localSessionBlocked,
+                this, [this](const QString &reasonCode, const QString &userId,
+                             const QString &homeserver) {
+            setLocalSessionFailure(reasonCode, userId, homeserver);
+            setLocalRustResetRequired(false);
         });
         connect(rust, &RustSdkMatrixClient::localSessionCleanupFinished,
                 this, [this](bool ok, const QString &message) {
             setLocalRustResetRequired(!ok);
+            if (ok)
+                clearLocalSessionFailure();
             if (m_resetResultPending) {
                 m_resetResultPending = false;
                 Q_EMIT localRustStoreResetResult(ok, message);
@@ -1480,8 +1515,14 @@ void AppController::resetLocalRustSession(const QString &homeserver,
     auto *rust = qobject_cast<RustSdkMatrixClient *>(m_client.get());
     QString message;
     const bool ok = rust && rust->resetLocalSession(identity, &message);
-    setLocalRustResetRequired(!ok);
+    // A failed reset re-arms the destructive action only when the backend
+    // still believes one would help. The "nothing matched, nothing deleted"
+    // outcome deliberately does NOT re-arm it — offering the same no-op
+    // again is how the old dead end kept the user in a loop — so let the
+    // backend's own signal drive the flag rather than inverting `ok` here.
     if (ok) {
+        setLocalRustResetRequired(false);
+        clearLocalSessionFailure();
         m_auth->clearLastError();
         Q_EMIT errorReported(QString{});
     }
@@ -1498,8 +1539,150 @@ void AppController::resetLocalRustSession(const QString &homeserver,
 #endif
 }
 
+void AppController::setLocalSessionFailure(const QString &reasonCode,
+                                           const QString &userId,
+                                           const QString &homeserver)
+{
+    if (m_localSessionFailureReason == reasonCode
+        && m_localSessionFailureUserId == userId
+        && m_localSessionFailureHomeserver == homeserver) {
+        return;
+    }
+    m_localSessionFailureReason = reasonCode;
+    m_localSessionFailureUserId = userId;
+    m_localSessionFailureHomeserver = homeserver;
+    Q_EMIT localSessionFailureChanged();
+}
+
+bool AppController::localResetHelpsFor(const QString &reasonCode) const
+{
+    // Deliberately NOT gated on ENABLE_RUST_SDK_BACKEND. RustSessionPolicy is
+    // pure classification with no Rust dependency and is compiled into every
+    // configuration; gating it made the same reason code answer differently
+    // per build, so the repair UI silently lost all its actions on the
+    // non-Rust tree. Whether a local reset can repair a failure is a property
+    // of the failure, not of which backend is compiled in.
+    return matrix::rust_session::suggestsLocalResetForCode(reasonCode);
+}
+
+void AppController::repairLocalSession()
+{
+#ifdef ENABLE_RUST_SDK_BACKEND
+    // The account captured when the failure was DETECTED wins over anything
+    // derived from settings. During an add-account attempt the settings'
+    // active account is still the previously signed-in one, so a
+    // settings-derived repair would quarantine the wrong account's store.
+    // The invariant "no destructive local reset for a reason a reset cannot
+    // repair" lives HERE, not in a QML label binding. QML decides which
+    // actions to *show*; this decides what may actually run. Without it the
+    // guarantee depended on a per-reason list maintained by hand in QML, and
+    // on the dialog still describing the same failure it was opened for — a
+    // failure can change underneath an open confirmation.
+    if (!m_localSessionFailureReason.isEmpty()
+        && !matrix::rust_session::suggestsLocalResetForCode(
+               m_localSessionFailureReason)) {
+        qCWarning(lcApp) << "refusing destructive repair for a reason a reset "
+                            "cannot fix"
+                         << "reason=" << m_localSessionFailureReason;
+        Q_EMIT localRustStoreResetResult(false, tr(
+            "Clearing this device's local data would not fix this, and it "
+            "would destroy encryption keys you still need."));
+        return;
+    }
+
+    QString homeserver = m_localSessionFailureHomeserver;
+    QString user = m_localSessionFailureUserId;
+    if (user.isEmpty()) {
+        // No failure in flight: the Settings danger-zone case, where the
+        // signed-in account is the right target.
+        resetLocalRustStore();
+        return;
+    }
+    if (homeserver.isEmpty())
+        homeserver = m_settings->homeserverUrl();
+    resetLocalRustSession(homeserver, user);
+#else
+    Q_EMIT localRustStoreResetResult(false,
+        tr("This build has no Rust SDK backend."));
+#endif
+}
+
+QString AppController::sessionDiagnosticsText() const
+{
+    // One fresh salt per report: identifiers stay correlatable inside this
+    // bundle and useless outside it.
+    const QByteArray salt = matrix::app_diagnostics::newReportSalt();
+    const auto hashIdentifier = [&salt](const QString &value) {
+        return matrix::app_diagnostics::hashIdentifier(value, salt);
+    };
+    matrix::app_diagnostics::Report r;
+
+    r.appVersion = QCoreApplication::applicationVersion();
+    r.qtVersion = QString::fromLatin1(qVersion());
+    r.backendName = backendName();
+#ifdef QT_DEBUG
+    r.buildType = QStringLiteral("debug");
+#else
+    r.buildType = QStringLiteral("release");
+#endif
+#ifdef ENABLE_RUST_SDK_BACKEND
+    if (auto *rust = qobject_cast<RustSdkMatrixClient *>(m_client.get()))
+        r.rustSdkVersion = rust->rustBackendVersion();
+#endif
+
+    r.osProduct = QSysInfo::prettyProductName();
+    r.kernelVersion = QSysInfo::kernelVersion();
+    r.desktopSession = qEnvironmentVariable("XDG_CURRENT_DESKTOP");
+    r.sessionType = qEnvironmentVariable("XDG_SESSION_TYPE");
+
+    if (m_settings) {
+        const QStringList ids = m_settings->savedAccountUserIds();
+        r.accountCount = int(ids.size());
+        for (const QString &uid : ids)
+            r.accountHashes.append(hashIdentifier(uid));
+        r.activeAccountHash = hashIdentifier(m_settings->activeAccountUserId());
+        if (auto *secrets = m_settings->secretStore()) {
+            r.secretStoreBackend = secrets->backendName();
+            r.secretStoreSecure = secrets->isSecure();
+        }
+    }
+    // The on-disk layout is per-account roots under primaryRoot(); the path
+    // itself is deliberately not reported because the slug is the localpart.
+    r.storeLayoutVersion = QStringLiteral("per-account-root/v1");
+
+    r.connectionStatus = m_connectionStatus;
+    r.syncMode = syncModeLabel();
+    r.loginStage = m_auth ? m_auth->loginStage() : QString{};
+    r.initialSyncDone = initialSyncDone();
+    r.localSessionFailureReason = m_localSessionFailureReason;
+    r.localSessionFailureAccountHash =
+        hashIdentifier(m_localSessionFailureUserId);
+
+    r.sessionTrustState = m_sessionTrustState;
+    r.verificationState = m_verificationState;
+    if (m_cryptoHealth) {
+        r.crossSigningAvailable = m_cryptoHealth->crossSigningAvailable();
+        r.keyBackupUsable = m_cryptoHealth->keyBackupUsable();
+        r.cryptoStatusSummary = m_cryptoHealth->statusSummary();
+    }
+
+    return matrix::app_diagnostics::renderReport(r);
+}
+
+void AppController::copySessionDiagnostics()
+{
+    if (auto *clipboard = QGuiApplication::clipboard())
+        clipboard->setText(sessionDiagnosticsText());
+}
+
 void AppController::setLocalRustResetRequired(bool required)
 {
+    // Deliberately does NOT clear the classified failure. The two are
+    // independent: `localSessionBlocked` reports a real failure whose remedy
+    // is NOT a local reset, so it sets a reason code while leaving this flag
+    // false. Coupling them meant that call cleared the very failure it had
+    // just recorded. Callers that genuinely resolve a failure clear it
+    // explicitly via clearLocalSessionFailure().
     if (m_localRustResetRequired == required)
         return;
     m_localRustResetRequired = required;
@@ -1540,6 +1723,7 @@ void AppController::onLoginSucceeded()
         clearCrossAccountCaches();
     m_accounts->setActiveUser(uid);
     setLocalRustResetRequired(false);
+    clearLocalSessionFailure();
     m_switchFallbackUserId.clear();
     setAccountSwitching(false);
     m_client->startSync();
@@ -1727,18 +1911,48 @@ void AppController::removeAccount(const QString &userId)
 
     // Background (or signed-out) account: delete its local state without
     // touching the active session.
-    const QString hs = m_settings->accountRecord(target)
-                           .value(QStringLiteral("homeserver")).toString();
+    //
+    // Resolve from the SAVED record, which binds the store slug this account
+    // actually uses. Re-deriving the identity from the user id would delete
+    // the canonical path and leave a store written under a divergent slug
+    // sitting on disk — Megolm and device keys surviving an explicit
+    // "remove account", while the cleanup reports success.
     matrix::app_data::AccountIdentity identity;
-    if (matrix::app_data::resolveAccountIdentity(hs, target, &identity)) {
+    bool resolved = m_settings->resolveSavedIdentity(target, &identity);
+    if (!resolved) {
+        // Never leave everything behind because the record was unreadable:
+        // fall back to the canonical layout so a removal still removes
+        // something rather than silently succeeding.
+        const QString hs = m_settings->accountRecord(target)
+                               .value(QStringLiteral("homeserver")).toString();
+        resolved = matrix::app_data::resolveAccountIdentity(hs, target, &identity);
+    }
+    if (resolved) {
         const auto removed = matrix::app_data::removeAccountRustState(identity);
-        QDir accountDir(identity.accountRoot);
-        if (accountDir.exists())
-            accountDir.removeRecursively();
+        // A divergent store slug means this account owns TWO directories: the
+        // recorded one holding the SDK store, and the canonical one, which is
+        // where CacheStore::openFor() unconditionally puts cache.sqlite
+        // (derived from accountRoot(userId), never from the recording).
+        // Removing only one leaves the other behind — room ids, unencrypted
+        // bodies and display names surviving a removal that told the user
+        // its local data was deleted from this computer.
+        QStringList roots{identity.accountRoot};
+        const QString canonical = matrix::app_data::accountRoot(identity.userId);
+        if (!canonical.isEmpty() && !roots.contains(canonical))
+            roots.append(canonical);
+        for (const QString &root : roots) {
+            QDir accountDir(root);
+            if (accountDir.exists())
+                accountDir.removeRecursively();
+        }
         qCInfo(lcApp) << "removed account local state"
                       << "slug=" << identity.slug
+                      << "roots=" << roots.size()
                       << "rust_deleted=" << removed.deleted
                       << "failed=" << removed.failed;
+    } else {
+        qCWarning(lcApp) << "removal could not resolve an account layout"
+                         << "slug=" << matrix::app_data::safeUserSlug(target);
     }
     m_accounts->removeAccount(target); // record + secrets
     if (isActive)

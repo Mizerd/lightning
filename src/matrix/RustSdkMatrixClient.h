@@ -1,6 +1,7 @@
 #pragma once
 
 #include "matrix/MatrixClient.h"
+#include "matrix/RustSessionPolicy.h"
 #include "matrix/RustTimelineIngest.h"
 #include "matrix/SessionLifecycleGuard.h"
 #include "storage/AppDataPaths.h"
@@ -416,7 +417,25 @@ Q_SIGNALS:
     void roomKeysApplied(const QString &roomId, int sessionCount);
 
     // Structured lifecycle state consumed by AppController/QML.
-    void localSessionResetRequired(const QString &reasonCode);
+    //
+    // `userId`/`homeserver` identify the account whose local session actually
+    // failed to open, which is NOT always the one the settings currently
+    // point at (an add-account attempt fails while settings still describe
+    // the previously active account). Carrying the identity is what lets the
+    // UI repair the right account without asking the user to retype their
+    // Matrix ID. Either may be empty when the failure is precisely that no
+    // usable identity could be resolved.
+    void localSessionResetRequired(const QString &reasonCode,
+                                   const QString &userId,
+                                   const QString &homeserver);
+    // A local session could not be opened, but deleting local data is NOT the
+    // remedy — a missing store, a revoked access token, contestable store
+    // ownership. Same payload as above; kept separate so the destructive
+    // recovery UI is never armed for a condition it cannot fix. The accurate
+    // explanation reaches the user through loginFailed().
+    void localSessionBlocked(const QString &reasonCode,
+                             const QString &userId,
+                             const QString &homeserver);
     void localSessionCleanupFinished(bool ok, const QString &message);
 
 private:
@@ -436,13 +455,37 @@ private:
     void clearLocalState();
     void ensurePollTimer();
     bool ensureRustHandleForUser(const QString &userIdForStore);
+    // Preferred entry point: opens the account's RECORDED store directory.
+    bool ensureRustHandleForIdentity(
+        const matrix::app_data::AccountIdentity &identity);
+    bool ensureRustHandleForStorePath(const QString &storePath,
+                                      const QString &slug);
     void releaseRustHandle();
     QString rustStorePathForUser(const QString &userIdForStore) const;
     void pollRustEvents();
     void handleRustEvent(const QJsonObject &event, quint64 eventGeneration);
     void finishSignOut(const QString &serverResult, const QString &serverMessage);
-    bool clearPersistedAccount(const matrix::app_data::AccountIdentity &identity);
-    void requireLocalReset(const QString &reasonCode);
+    bool clearPersistedAccount(const matrix::app_data::AccountIdentity &identity,
+                               bool *matchedRecord = nullptr);
+    void requireLocalReset(const QString &reasonCode,
+                           const matrix::app_data::AccountIdentity &identity);
+    // Report a blocked open with its own accurate message instead of the one
+    // "belongs to a different session or device" string every condition used
+    // to share.
+    void failWithBlockReason(matrix::rust_session::StoreBlockReason reason,
+                             const matrix::app_data::AccountIdentity &identity);
+    // Adopt a store an older build wrote under the TYPED localpart casing so
+    // a saved account can be restored instead of dead-ending on a store that
+    // was never at the canonical path. Adoption RECORDS the directory and
+    // rebinds `identity` to it — nothing on disk is moved or deleted, and the
+    // SDK's own account-ownership check remains the authority on whether the
+    // adoption was correct. Refuses whenever ownership is contestable.
+    bool adoptDivergentStoreIfUnambiguous(
+        matrix::app_data::AccountIdentity *identity,
+        matrix::rust_session::StoreBlockReason *refusal);
+    // Persist where this session's store really is, taken from the directory
+    // that was actually opened rather than re-derived from the user id.
+    void recordStoreLocation(const matrix::app_data::AccountIdentity &identity);
     void handleRoomsEvent(const QJsonArray &rooms);
     void handleRoomListDiff(const QJsonObject &event);
     void handleSpacesEvent(const QJsonArray &spaces);
@@ -495,6 +538,11 @@ private:
     // before the attempt; a failure removes that fresh store so it cannot
     // poison later logins. Cleared on login_ok.
     matrix::app_data::AccountIdentity m_freshLoginIdentity;
+    // The account whose store this client is currently opening. Set by
+    // login()/restoreSession() before the handle exists, so a failure can name
+    // the right account even when m_userId is still empty and the settings
+    // point somewhere else.
+    matrix::app_data::AccountIdentity m_openingIdentity;
     QString m_sessionFilePath;
     QString m_homeserver;
     QString m_userId;

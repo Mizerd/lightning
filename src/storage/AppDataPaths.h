@@ -30,12 +30,26 @@ namespace matrix::app_data {
 struct AccountIdentity {
     QString homeserver;
     QString userId;
+    // Canonical identity slug: always safeUserSlug(userId).
     QString slug;
+    // Where this account's SDK store ACTUALLY lives. Normally identical to
+    // `slug`, but it is recorded per account at login rather than re-derived,
+    // because the two rules that used to derive it disagree:
+    // resolveAccountIdentity() keeps the localpart the user typed, while the
+    // homeserver answers a login with its own canonical user id (and, under
+    // .well-known delegation, its own server name). Recording the real
+    // location is what keeps restore, logout, reset and removal pointed at
+    // one directory instead of two. Empty means "same as slug".
+    QString storeSlug;
     QString accountRoot;
     QString rustStorePath;
     QString rustSmokeSessionPath;
 
     bool isValid() const;
+    // The slug the on-disk paths are built from.
+    QString effectiveStoreSlug() const {
+        return storeSlug.isEmpty() ? slug : storeSlug;
+    }
 };
 
 struct RemovalSummary {
@@ -44,6 +58,11 @@ struct RemovalSummary {
     int failed = 0;
 
     bool ok() const { return failed == 0; }
+    // "We actually removed something." ok() alone is NOT evidence of work:
+    // a target that never existed counts as `missing`, which keeps cleanup
+    // idempotent but must never be reported to the user as a completed
+    // reset (see resetLocalSession in RustSdkMatrixClient).
+    bool removedAnything() const { return deleted > 0; }
 };
 
 // Same path QStandardPaths::AppLocalDataLocation resolves to at runtime
@@ -101,6 +120,34 @@ bool isSafeAccountIdentity(const AccountIdentity &identity);
 // count as successful/idempotent cleanup.
 RemovalSummary removeAccountRustState(const AccountIdentity &identity);
 
+// Account-local cleanup for a REPAIR: the SDK store is moved aside by
+// quarantineRustStore() rather than deleted, while the smoke-session sidecars
+// (which carry an access token, not key material) are removed outright.
+//
+// This is the counterpart to removeAccountRustState(), and the difference is
+// intent. A repair acts on the app's BELIEF that a store is unusable or
+// foreign — a belief that has been wrong — so it must stay reversible. An
+// explicit sign-out or account removal acts on the user's stated intent that
+// the account be gone, where leaving Megolm and device keys on disk would be
+// a data-at-rest defect; that path keeps deleting.
+//
+// A successfully quarantined store counts as `deleted` (removed from
+// service), so removedAnything() still distinguishes real work from a no-op.
+RemovalSummary quarantineAccountRustState(const AccountIdentity &identity);
+
+// Move an account's SDK store aside instead of deleting it, as
+// `<rustStorePath>.orphaned-<UTC timestamp>` in the same account directory.
+// Returns the new path, or empty when there was nothing to move or the
+// rename failed.
+//
+// Used where the app believes a store is unclaimed. That belief has been
+// wrong before — a store whose account record was keyed under a different
+// slug looked orphaned and was recursively deleted, taking Megolm keys that
+// existed nowhere else. A verdict that can be wrong must not be irreversible,
+// so the store is renamed (one atomic same-directory rename) and left for the
+// user to recover or remove.
+QString quarantineRustStore(const AccountIdentity &identity);
+
 // Legacy roots that pre-fix builds may have created directories under.
 // Currently just the "no org prefix" variant that the old reset code
 // scanned. Never overlaps with `primaryRoot()`.
@@ -115,5 +162,46 @@ QStringList allRoots();
 // exists. Never touches the filesystem beyond `stat` and one directory
 // listing.
 QStringList findRustStoresIn(const QString &root);
+
+// Point an identity's on-disk paths at an explicitly recorded store slug
+// instead of the one derived from its user id. Returns false (leaving the
+// identity untouched) when the slug is not a safe, correctly scoped direct
+// child of primaryRoot(). Passing an empty slug rebinds to the canonical
+// location, which is how a recording is dropped.
+bool bindStoreSlug(AccountIdentity *identity, const QString &storeSlug);
+
+// Account slugs under primaryRoot() that hold a real Rust SDK store and whose
+// name differs from `identity.slug` ONLY by ASCII case. This is the recovery
+// set for stores written by builds that derived the store path from the TYPED
+// login name while persisting the account record under the server-canonical
+// user id.
+//
+// The exact-case slug is never returned — this lists only the divergent
+// siblings. More than one entry means ownership is contestable and the caller
+// MUST refuse to adopt rather than guess which store belongs to the account.
+//
+// Adoption itself is performed by RECORDING the chosen slug (see
+// bindStoreSlug and SettingsManager::setStoreSlugFor), never by relocating a
+// directory: the store holds the user's only copy of their Megolm keys, and
+// the SDK's own account-ownership check is the authority on whether the
+// adoption was right.
+QStringList findCaseVariantStoreSlugs(const AccountIdentity &identity);
+
+// The slug an older build would have produced for this account when the user
+// typed a BARE LOCALPART against a delegated homeserver.
+//
+// `resolveAccountIdentity` pairs a bare localpart with the homeserver URL's
+// host, but under .well-known delegation the server answers with its real
+// server name: typing "alice" at https://matrix.example.com yields the store
+// slug `alice_matrix.example.com` while the record is saved as
+// `@alice:example.com`. That divergence involves no casing at all, so
+// findCaseVariantStoreSlugs() cannot see it.
+//
+// This is an exact reconstruction of what the old code computed from
+// `identity.homeserver` — not a similarity heuristic. Returns empty when it
+// would equal the canonical slug (no delegation in play). The caller still
+// has to establish that the directory exists, that no other account claims
+// it, and that the SDK accepts it.
+QString delegatedHomeserverStoreSlug(const AccountIdentity &identity);
 
 } // namespace matrix::app_data

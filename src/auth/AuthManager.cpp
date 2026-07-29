@@ -11,6 +11,7 @@ AuthManager::AuthManager(MatrixClient *client, QObject *parent)
     connect(m_client, &MatrixClient::loginSucceeded, this, [this](const QString &) {
         setLoggingIn(false);
         setLastError({});
+        setLoginStage(QStringLiteral("starting_sync"));
         Q_EMIT isLoggedInChanged();
         Q_EMIT loginSucceeded();
     });
@@ -18,14 +19,29 @@ AuthManager::AuthManager(MatrixClient *client, QObject *parent)
     connect(m_client, &MatrixClient::loginFailed, this, [this](const QString &reason) {
         setLoggingIn(false);
         setLastError(reason);
+        setLoginStage(QStringLiteral("idle"));
         Q_EMIT loginFailed(reason);
     });
 
     connect(m_client, &MatrixClient::loggedOut, this, [this] {
         setLoggingIn(false);
         setLastError({});
+        setLoginStage(QStringLiteral("idle"));
         Q_EMIT isLoggedInChanged();
         Q_EMIT loggedOut();
+    });
+
+    // The backend reaches Connecting only AFTER the SDK handle and the local
+    // store have been opened (RustSdkMatrixClient::login() calls
+    // ensureRustHandleForUser() first, then setState(Connecting)), so this
+    // transition is the honest store-open → credentials-in-flight boundary.
+    // Syncing is only reported once a real sync loop is running.
+    connect(m_client, &MatrixClient::connectionStateChanged,
+            this, [this](MatrixClient::ConnectionState state) {
+        if (state == MatrixClient::Connecting && m_loggingIn)
+            setLoginStage(QStringLiteral("authenticating"));
+        else if (state == MatrixClient::Syncing)
+            setLoginStage(QStringLiteral("ready"));
     });
 }
 
@@ -47,6 +63,7 @@ void AuthManager::login(const QString &homeserver,
         return;
     setLoggingIn(true);
     setLastError({});
+    setLoginStage(QStringLiteral("connecting"));
     m_client->login(homeserver, user, password);
 }
 
@@ -100,4 +117,12 @@ void AuthManager::setLastError(const QString &err)
         return;
     m_lastError = err;
     Q_EMIT lastErrorChanged();
+}
+
+void AuthManager::setLoginStage(const QString &stage)
+{
+    if (m_loginStage == stage)
+        return;
+    m_loginStage = stage;
+    Q_EMIT loginStageChanged();
 }

@@ -27,11 +27,16 @@ public:
     bool clearAccountSecrets(const QString &userId) override;
 
     QString lastError() const override { return m_lastError; }
+    bool lastReadFailed() const override { return m_lastReadFailed; }
 
 private:
     void probe();
     void setError(const QString &err) const { m_lastError = err; }
 
     bool m_available = false;
+    // Set by readSecret() when the backend itself could not answer;
+    // cleared on a read that completed, whether or not it found
+    // anything. Mutable because readSecret() is const.
+    mutable bool m_lastReadFailed = false;
     mutable QString m_lastError;
 };

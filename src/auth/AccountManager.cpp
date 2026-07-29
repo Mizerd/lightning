@@ -44,9 +44,44 @@ QVariantList AccountManager::accounts() const
         record.remove(QStringLiteral("deviceId"));
         record.remove(QStringLiteral("addedAt"));
         record.insert(QStringLiteral("isActive"), uid == active);
+        record.insert(QStringLiteral("needsSignIn"), needsSignIn(uid));
         list.append(record);
     }
     return list;
+}
+
+bool AccountManager::needsSignIn(const QString &userId) const
+{
+    // Derived on demand, never persisted: an account row is only "needs sign
+    // in" when there is nothing left that could restore it. Live crypto or
+    // verification health for an INACTIVE account is deliberately not
+    // reported — the SDK only exposes that for the account it is currently
+    // attached to, so anything else here would be a stale guess.
+    if (!m_settings)
+        return false;
+    if (!m_settings->hasSavedAccount(userId))
+        return true;
+    // An unreadable secret backend is NOT evidence that an account lost its
+    // sign-in. A locked keyring or an unavailable session bus makes every
+    // lookup come back empty, which would otherwise paint every row in the
+    // switcher as broken — the same "no readable token means no account"
+    // conflation that let the login path delete a real crypto store. When
+    // the backend cannot answer, report nothing rather than a wrong answer.
+    // Read FIRST, then ask whether the backend could answer: the unavailable
+    // signal reflects the outcome of the most recent read, so checking it
+    // beforehand would test a stale result.
+    const bool tokenEmpty = m_settings->accessTokenFor(userId).isEmpty();
+    if (secretBackendUnavailable())
+        return false;
+    return tokenEmpty;
+}
+
+bool AccountManager::secretBackendUnavailable() const
+{
+    // Delegates rather than re-deriving: the login path keys destructive
+    // decisions on the same question, and two copies of "can the secret
+    // backend answer?" would eventually disagree.
+    return !m_settings || m_settings->secretBackendUnavailable();
 }
 
 bool AccountManager::hasAccount(const QString &userId) const
@@ -60,6 +95,7 @@ QVariantMap AccountManager::account(const QString &userId) const
         return {};
     QVariantMap record = m_settings->accountRecord(userId);
     record.remove(QStringLiteral("deviceId"));
+    record.insert(QStringLiteral("needsSignIn"), needsSignIn(userId));
     return record;
 }
 

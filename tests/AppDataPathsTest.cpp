@@ -116,6 +116,19 @@ void AppDataPathsTest::canonicalIdentity_data()
         << QStringLiteral("test")
         << QStringLiteral("https://matrix.smetonis.net")
         << QStringLiteral("@test:matrix.smetonis.net");
+    // The server name is lowercased; the LOCALPART deliberately is not.
+    // Uppercase localparts are legal Matrix identities, so folding them would
+    // alias two real accounts onto one SDK store. The divergence this creates
+    // between a typed id and the server's canonical one is repaired by
+    // canonicalizing against the saved account records
+    // (SettingsManager::canonicalUserIdForTypedIdentity) and by RECORDING
+    // where the store really is (bindStoreSlug / storeSlugFor) — never by
+    // mangling the id and never by relocating a store.
+    QTest::newRow("uppercase-localpart-preserved")
+        << QStringLiteral("https://matrix.smetonis.net")
+        << QStringLiteral("@Mizerd:Matrix.Smetonis.Net")
+        << QStringLiteral("https://matrix.smetonis.net")
+        << QStringLiteral("@Mizerd:matrix.smetonis.net");
     QTest::newRow("trailing-slash-and-path")
         << QStringLiteral("https://matrix.example/proxy///")
         << QStringLiteral(" alice ")

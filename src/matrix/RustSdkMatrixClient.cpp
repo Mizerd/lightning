@@ -200,9 +200,34 @@ QString RustSdkMatrixClient::rustStorePathForUser(const QString &userIdForStore)
     return matrix::app_data::rustSdkStorePath(userIdForStore);
 }
 
+bool RustSdkMatrixClient::ensureRustHandleForIdentity(
+    const matrix::app_data::AccountIdentity &identity)
+{
+    // Open the RECORDED location, not one re-derived from the user id. These
+    // two disagreed for any account whose typed localpart casing (or whose
+    // delegated server name) differed from the homeserver's canonical answer,
+    // and that disagreement is the whole defect.
+    if (!m_storePathOverride.isEmpty())
+        return ensureRustHandleForStorePath(m_storePathOverride,
+                                            QStringLiteral("(override)"));
+    if (!identity.isValid())
+        return false;
+    return ensureRustHandleForStorePath(identity.rustStorePath,
+                                        identity.effectiveStoreSlug());
+}
+
 bool RustSdkMatrixClient::ensureRustHandleForUser(const QString &userIdForStore)
 {
-    const QString storePath = rustStorePathForUser(userIdForStore);
+    return ensureRustHandleForStorePath(
+        rustStorePathForUser(userIdForStore),
+        m_storePathOverride.isEmpty()
+            ? matrix::app_data::safeUserSlug(userIdForStore)
+            : QStringLiteral("(override)"));
+}
+
+bool RustSdkMatrixClient::ensureRustHandleForStorePath(const QString &storePath,
+                                                       const QString &slug)
+{
     if (storePath.isEmpty())
         return false;
     if (m_storePathOverride.isEmpty() && QFileInfo(storePath).isSymLink()) {
@@ -214,17 +239,12 @@ bool RustSdkMatrixClient::ensureRustHandleForUser(const QString &userIdForStore)
     // the ownership boundary that makes stale async callbacks unobservable.
     releaseRustHandle();
 
-    if (!QDir().mkpath(storePath)) {
-        Q_EMIT errorOccurred(tr("Failed to create Rust SDK store directory: %1").arg(storePath));
-        return false;
-    }
-
-    // Safe path diagnostic — paths only, never tokens/keys/bodies.
-    // Logged at INFO so users can grep matrix.rust: from the terminal
-    // when the SDK complains about crypto-store mismatches.
-    const QString slug = m_storePathOverride.isEmpty()
-        ? matrix::app_data::safeUserSlug(userIdForStore)
-        : QStringLiteral("(override)");
+    // Safe path diagnostic — paths only, never tokens/keys/bodies. Logged at
+    // INFO so users can grep matrix.rust: from the terminal when the SDK
+    // complains about crypto-store mismatches. Emitted BEFORE mkpath: the
+    // failure below deliberately keeps the path out of its user-visible
+    // message and points at the log instead, so the log line has to exist by
+    // then.
     qCInfo(lcRust) << "Rust SDK store path resolved"
                    << "base=" << matrix::app_data::primaryRoot()
                    << "slug=" << slug
@@ -233,6 +253,17 @@ bool RustSdkMatrixClient::ensureRustHandleForUser(const QString &userIdForStore)
                    << "mode=" << (m_storePathOverride.isEmpty()
                                   ? QStringLiteral("persistent")
                                   : QStringLiteral("temporary"));
+
+    if (!QDir().mkpath(storePath)) {
+        // The path is deliberately NOT in the message: it contains the
+        // account slug (the Matrix localpart) and the home directory, and
+        // this string is user-visible and copy-pasteable. The full path is
+        // already in the log line above for local debugging.
+        Q_EMIT errorOccurred(tr("Lightning could not create its local storage "
+                                "directory for this account. Check filesystem "
+                                "permissions and free space."));
+        return false;
+    }
 
     const QByteArray path = QFileInfo(storePath).absoluteFilePath().toUtf8();
     m_rustHandle = mx_rust_create(path.constData());
@@ -300,6 +331,57 @@ void RustSdkMatrixClient::login(const QString &homeserver,
         return;
     }
 
+    // Matrix localparts are case-sensitive, so resolveAccountIdentity() keeps
+    // the typed casing — but the homeserver answers a login with ITS canonical
+    // user id, and that is what gets saved. Typing "Mizerd" for the account
+    // saved as "@mizerd:…" therefore used to open a brand-new store under a
+    // second slug, leaving the saved session pointing at a store that never
+    // existed. Adopt the saved canonical id before any path is derived.
+    // The account whose store this login should open, if any: the saved
+    // canonical id when the typed casing maps onto one, else the typed id
+    // when it is itself saved. Used below to adopt a divergent store.
+    QString loginOwnerUserId;
+    if (m_settings) {
+        bool ambiguous = false;
+        const QString canonical =
+            m_settings->canonicalUserIdForTypedIdentity(identity.userId,
+                                                        &ambiguous);
+        if (ambiguous) {
+            qCWarning(lcRust) << "login refused: several saved accounts differ "
+                                 "only by localpart case";
+            Q_EMIT loginFailed(matrix::rust_session::userMessage(
+                matrix::rust_session::StoreBlockReason::AmbiguousStoreCandidates));
+            return;
+        }
+        // The match locates the STORE. It must NOT rewrite the identity sent
+        // to the homeserver: localparts are case-sensitive, so @alice and
+        // @Alice can be different people, and substituting one for the other
+        // means the user cannot sign into their own account and gets an
+        // unexplained auth failure. The server's own answer settles the
+        // mapping later, in login_ok -> recordStoreLocation.
+        matrix::app_data::AccountIdentity savedIdentity;
+        if (!canonical.isEmpty()
+            && m_settings->resolveSavedIdentity(canonical, &savedIdentity)) {
+            if (canonical != identity.userId) {
+                qCInfo(lcRust) << "login store located from saved account"
+                               << "typed_slug=" << identity.slug
+                               << "store_slug=" << savedIdentity.effectiveStoreSlug();
+            }
+            loginOwnerUserId = canonical;
+            matrix::app_data::bindStoreSlug(&identity,
+                                            savedIdentity.effectiveStoreSlug());
+        } else {
+            if (m_settings->hasSavedAccount(identity.userId))
+                loginOwnerUserId = identity.userId;
+            // An account signed in by an older build may hold its store under
+            // a divergent directory. Open the one that is recorded, not the
+            // one the user id happens to derive to.
+            matrix::app_data::bindStoreSlug(
+                &identity, m_settings->storeSlugFor(identity.userId));
+        }
+    }
+    m_openingIdentity = identity;
+
     // The slug flattening is not injective: refuse a login whose identity
     // collides with a DIFFERENT saved account before contacting the server,
     // since both would alias one settings record and one SDK store.
@@ -313,31 +395,98 @@ void RustSdkMatrixClient::login(const QString &homeserver,
         return;
     }
 
+    // Adoption must run on the LOGIN path too, not only on restore. With
+    // nothing recorded yet, an account whose real store sits under a
+    // divergent slug (typed localpart casing, or .well-known delegation)
+    // reaches login — a locked keyring makes hasSession() false, and
+    // "Add account" goes straight here — finds no store at the canonical
+    // path, is not blocked because a record exists, and then creates a
+    // BRAND-NEW EMPTY store while silently abandoning the only local copy of
+    // that account's Megolm keys. No deletion, but the same practical loss of
+    // encrypted history as the bug this whole change exists to fix, reached
+    // one route over. Adopting here also produces the correct downstream
+    // verdict, because the store then genuinely exists.
+    if (!pathExistsOrIsLink(identity.rustStorePath) && m_settings
+        && !loginOwnerUserId.isEmpty()) {
+        // Adopt against the SAVED identity, not the typed one. Two reasons,
+        // both of which made an earlier version of this block a no-op in
+        // exactly the case it exists for:
+        //
+        //  * `hasSavedAccount()` is an exact match, and at this point
+        //    `identity.userId` is still what the user TYPED (deliberately —
+        //    it must not be rewritten before it reaches the homeserver). A
+        //    record saved as "@mizerd:…" is not found by "@Mizerd:…", so the
+        //    gate never opened for the canonical case-variant scenario.
+        //  * The candidate scan excludes the identity's own slug. For the
+        //    typed identity that slug IS the divergent directory holding the
+        //    real store, so the one candidate that matters was excluded.
+        //
+        // The saved identity's slug is the canonical one, so the scan can see
+        // the typed-casing directory; the resulting store slug is then bound
+        // onto the typed identity, which keeps going to the server unchanged.
+        matrix::app_data::AccountIdentity adoptTarget;
+        if (m_settings->resolveSavedIdentity(loginOwnerUserId, &adoptTarget)) {
+            auto adoptionRefusal = matrix::rust_session::StoreBlockReason::None;
+            if (adoptDivergentStoreIfUnambiguous(&adoptTarget, &adoptionRefusal))
+                matrix::app_data::bindStoreSlug(&identity,
+                                                adoptTarget.effectiveStoreSlug());
+            if (adoptionRefusal != matrix::rust_session::StoreBlockReason::None) {
+                // Contestable ownership: refuse rather than guess, exactly as
+                // the restore path does. Nothing was moved or deleted.
+                failWithBlockReason(adoptionRefusal, identity);
+                return;
+            }
+        }
+    }
+
     bool storeExists = pathExistsOrIsLink(identity.rustStorePath);
     // v0.7 multi-account: only the TARGET account's own saved record is
     // consulted — other signed-in accounts never block a new login.
-    const bool targetHasSavedSession = m_settings
-        && m_settings->hasSavedAccount(identity.userId)
-        && !m_settings->accessTokenFor(identity.userId).isEmpty();
+    //
+    // Record existence and token readability are deliberately SEPARATE. They
+    // used to be one flag, which meant a SecretStore that could not be read —
+    // a locked keyring, an unreachable session bus, any libsecret error —
+    // looked exactly like "no account here" and sent a real user's crypto
+    // store into the orphan deletion below. A store is only ever deleted when
+    // no account record claims it.
+    //
+    // "Owner" is resolved from the STORE DIRECTORY, not from the typed user
+    // id. A record can be bound to a directory by its canonical slug, by a
+    // recorded storeSlug, or by the delegated reconstruction, and asking only
+    // "is there a record under the slug I derived?" answers none of those.
+    // Under .well-known delegation it answered "no" for a directory holding a
+    // real account's crypto store, and the branch below deleted it.
+    const QString storeOwner = m_settings
+        ? m_settings->accountOwningStoreSlug(identity.effectiveStoreSlug())
+        : QString{};
+    const QString recordUserId =
+        storeOwner.isEmpty() ? identity.userId : storeOwner;
+    const bool targetHasRecord =
+        m_settings && m_settings->hasSavedAccount(recordUserId);
+    const bool targetTokenReadable = targetHasRecord
+        && !m_settings->accessTokenFor(recordUserId).isEmpty();
+    const bool targetHasSavedSession = targetHasRecord && targetTokenReadable;
 
-    // An orphaned store — the directory exists but there is no saved
-    // session/token that could ever restore it — is unusable by definition.
-    // The classic source is an earlier failed or cancelled login attempt
-    // (the store directory is created before the server accepts the
-    // password). Clean it up instead of dead-ending the user on the
-    // "belongs to a different session or device" reset prompt.
-    if (storeExists && !targetHasSavedSession) {
-        const auto removed = matrix::app_data::removeAccountRustState(identity);
-        qCInfo(lcRust) << "removed orphaned store before login"
-                       << "slug=" << identity.slug
-                       << "deleted=" << removed.deleted
-                       << "failed=" << removed.failed;
+    // An orphaned store — the directory exists but no account record could
+    // ever restore it — is unusable by definition. The classic source is an
+    // earlier failed or cancelled login attempt (the store directory is
+    // created before the server accepts the password). Clean it up instead of
+    // dead-ending the user on the reset prompt.
+    if (storeExists && !targetHasRecord) {
+        // Moved aside, never deleted. This verdict has been wrong before, and
+        // the store may hold the only copy of someone's room keys, so it has
+        // to stay recoverable.
+        const QString quarantined =
+            matrix::app_data::quarantineRustStore(identity);
+        qCInfo(lcRust) << "quarantined unclaimed store before login"
+                       << "slug=" << identity.effectiveStoreSlug()
+                       << "moved=" << !quarantined.isEmpty();
         storeExists = pathExistsOrIsLink(identity.rustStorePath);
         if (storeExists) {
             setState(Error);
             Q_EMIT loginFailed(tr(
-                "An unusable local store for this account could not be "
-                "removed. Check filesystem permissions and try again."));
+                "An unusable local store for this account could not be moved "
+                "aside. Check filesystem permissions and try again."));
             return;
         }
     }
@@ -345,8 +494,23 @@ void RustSdkMatrixClient::login(const QString &homeserver,
     // itself instead of poisoning the next attempt.
     m_freshLoginIdentity = storeExists ? matrix::app_data::AccountIdentity{}
                                        : identity;
+    // A record exists and its store is here, but the secret backend cannot be
+    // read — a locked keyring, an unavailable session bus. The sign-in may be
+    // perfectly intact; we simply cannot ask. Classifying that as "store with
+    // no session metadata" routes the user to a destructive repair for a
+    // problem deletion cannot fix, and costs them their room keys. This is
+    // the same "unreadable token is not a missing account" rule the orphan
+    // branch above follows, applied to the classification.
+    if (storeExists && targetHasRecord && !targetTokenReadable
+        && m_settings->secretBackendUnavailable()) {
+        failWithBlockReason(
+            matrix::rust_session::StoreBlockReason::SecretBackendUnavailable,
+            identity);
+        return;
+    }
+
     const QString targetSavedDeviceId = m_settings
-        ? m_settings->accountRecord(identity.userId)
+        ? m_settings->accountRecord(recordUserId)
               .value(QStringLiteral("deviceId")).toString()
         : QString{};
     const auto block = matrix::rust_session::passwordLoginBlockReason(
@@ -356,26 +520,15 @@ void RustSdkMatrixClient::login(const QString &homeserver,
         // Not an error state: the account is already usable on this device.
         qCInfo(lcRust) << "login redirected to switch"
                        << "slug=" << identity.slug;
-        Q_EMIT loginFailed(tr(
-            "This account is already signed in on this device. Switch to it "
-            "from the account menu instead of signing in again."));
+        Q_EMIT loginFailed(matrix::rust_session::userMessage(block));
         return;
     }
     if (block != matrix::rust_session::StoreBlockReason::None) {
-        qCWarning(lcRust) << "login blocked reason=local_store_session_mismatch"
-                          << "detail=" << matrix::rust_session::diagnosticName(block)
-                          << "slug=" << identity.slug;
-        requireLocalReset(matrix::rust_session::diagnosticName(block));
-        setState(Error);
-        Q_EMIT loginFailed(tr(
-            "This local Lightning Rust SDK store belongs to a different "
-            "Matrix session or device. Reset the local Lightning session "
-            "for this account, then sign in again. This does not delete "
-            "server messages or Element data."));
+        failWithBlockReason(block, identity);
         return;
     }
 
-    if (!ensureRustHandleForUser(identity.userId)) {
+    if (!ensureRustHandleForIdentity(identity)) {
         setState(Error);
         Q_EMIT loginFailed(tr("Rust SDK backend could not be initialized."));
         return;
@@ -440,16 +593,27 @@ bool RustSdkMatrixClient::restoreSession()
         return false;
 
     matrix::app_data::AccountIdentity identity;
-    if (!matrix::app_data::resolveAccountIdentity(
+    // resolveSavedIdentity binds the RECORDED store location; the plain
+    // resolver is only the fallback for a session that predates recording.
+    if (!m_settings->resolveSavedIdentity(m_settings->userId(), &identity)
+        && !matrix::app_data::resolveAccountIdentity(
             m_settings->homeserverUrl(), m_settings->userId(), &identity)) {
-        requireLocalReset(QStringLiteral("invalid_saved_account_identity"));
-        Q_EMIT loginFailed(tr(
-            "This local Lightning Rust SDK store belongs to a different "
-            "Matrix session or device. Reset the local Lightning session "
-            "for this account, then sign in again. This does not delete "
-            "server messages or Element data."));
+        // No safe identity could be derived, so there is no account to name.
+        matrix::app_data::AccountIdentity unresolved;
+        unresolved.userId = m_settings->userId();
+        unresolved.homeserver = m_settings->homeserverUrl();
+        // "The saved account details cannot be parsed" is not "this store
+        // belongs to someone else". Emitting the latter sentence here is how
+        // one generic message came to cover six unrelated causes.
+        const auto reason =
+            matrix::rust_session::StoreBlockReason::InvalidSavedIdentity;
+        requireLocalReset(matrix::rust_session::diagnosticName(reason),
+                          unresolved);
+        setState(Error);
+        Q_EMIT loginFailed(matrix::rust_session::userMessage(reason));
         return false;
     }
+    m_openingIdentity = identity;
 
     const QString hs = identity.homeserver;
     const QString userId = m_settings->userId();
@@ -458,23 +622,27 @@ bool RustSdkMatrixClient::restoreSession()
     if (hs.isEmpty() || userId.isEmpty() || accessToken.isEmpty())
         return false;
 
-    const auto block = matrix::rust_session::restoreBlockReason(
-        identity, pathExistsOrIsLink(identity.rustStorePath), deviceId);
-    if (block != matrix::rust_session::StoreBlockReason::None) {
-        qCWarning(lcRust) << "restore blocked reason=local_store_session_mismatch"
-                          << "detail=" << matrix::rust_session::diagnosticName(block)
-                          << "slug=" << identity.slug;
-        requireLocalReset(matrix::rust_session::diagnosticName(block));
-        setState(Error);
-        Q_EMIT loginFailed(tr(
-            "This local Lightning Rust SDK store belongs to a different "
-            "Matrix session or device. Reset the local Lightning session "
-            "for this account, then sign in again. This does not delete "
-            "server messages or Element data."));
+    // Repair installs broken by the old typed-slug store path before deciding
+    // the store is missing: an older build may have left this account's real
+    // store one directory over, under the localpart casing the user typed.
+    auto refusal = matrix::rust_session::StoreBlockReason::None;
+    if (!pathExistsOrIsLink(identity.rustStorePath)) {
+        adoptDivergentStoreIfUnambiguous(&identity, &refusal);
+        m_openingIdentity = identity;
+    }
+    if (refusal != matrix::rust_session::StoreBlockReason::None) {
+        failWithBlockReason(refusal, identity);
         return false;
     }
 
-    if (!ensureRustHandleForUser(userId)) {
+    const auto block = matrix::rust_session::restoreBlockReason(
+        identity, pathExistsOrIsLink(identity.rustStorePath), deviceId);
+    if (block != matrix::rust_session::StoreBlockReason::None) {
+        failWithBlockReason(block, identity);
+        return false;
+    }
+
+    if (!ensureRustHandleForIdentity(identity)) {
         setState(Error);
         Q_EMIT loginFailed(tr("Rust SDK backend could not be initialized."));
         return false;
@@ -555,6 +723,104 @@ bool RustSdkMatrixClient::restoreSessionFromFile(const QString &homeserver,
     return true;
 }
 
+bool RustSdkMatrixClient::adoptDivergentStoreIfUnambiguous(
+    matrix::app_data::AccountIdentity *identity,
+    matrix::rust_session::StoreBlockReason *refusal)
+{
+    if (refusal)
+        *refusal = matrix::rust_session::StoreBlockReason::None;
+    // The smoke/test harness pins an absolute store path; there is no
+    // per-account layout to adopt within.
+    if (!identity || !m_storePathOverride.isEmpty() || !identity->isValid())
+        return false;
+
+    QStringList candidates =
+        matrix::app_data::findCaseVariantStoreSlugs(*identity);
+    // Case divergence is only one of the two ways the old code split a store
+    // from its record. The other is .well-known delegation, where a bare
+    // localpart was paired with the homeserver URL's host instead of the real
+    // server name — no casing involved, so the scan above cannot see it.
+    // Reconstruct that slug exactly and take it only if a store is really
+    // there.
+    const QString delegated =
+        matrix::app_data::delegatedHomeserverStoreSlug(*identity);
+    if (!delegated.isEmpty() && !candidates.contains(delegated)) {
+        matrix::app_data::AccountIdentity probe = *identity;
+        if (matrix::app_data::bindStoreSlug(&probe, delegated)
+            && QFileInfo(probe.rustStorePath).isDir()
+            && !QFileInfo(probe.rustStorePath).isSymLink()) {
+            candidates.append(delegated);
+        }
+    }
+    // A directory another saved account owns — by its canonical slug or by
+    // its own recorded store location — is that account's store, never ours.
+    // Uppercase localparts are valid Matrix identities.
+    if (m_settings) {
+        const QStringList saved = m_settings->savedAccountUserIds();
+        candidates.removeIf([&](const QString &slug) {
+            for (const QString &other : saved) {
+                if (other == identity->userId)
+                    continue;
+                if (matrix::app_data::safeUserSlug(other) == slug
+                    || m_settings->storeSlugFor(other) == slug) {
+                    return true;
+                }
+            }
+            return false;
+        });
+    }
+    if (candidates.isEmpty())
+        return false;
+    if (candidates.size() > 1) {
+        qCWarning(lcRust) << "store adoption refused: ambiguous ownership"
+                          << "slug=" << identity->slug
+                          << "candidates=" << candidates.size();
+        if (refusal)
+            *refusal = matrix::rust_session::StoreBlockReason::AmbiguousStoreCandidates;
+        return false;
+    }
+
+    const QString source = candidates.first();
+    matrix::app_data::AccountIdentity adopted = *identity;
+    if (!matrix::app_data::bindStoreSlug(&adopted, source)) {
+        qCWarning(lcRust) << "store adoption refused: unsafe candidate path"
+                          << "slug=" << identity->slug;
+        return false;
+    }
+
+    // Recording, not relocating. The store holds the only copy of this
+    // account's Megolm keys; pointing at it is reversible, moving it is not.
+    // mx_rust_restore renders the verdict — an SDK ownership rejection clears
+    // the recording again (see the login_failed handler).
+    qCInfo(lcRust) << "adopting store recorded under a divergent slug"
+                   << "from=" << source << "for=" << identity->slug;
+    if (m_settings)
+        m_settings->setStoreSlugFor(identity->userId, source);
+    *identity = adopted;
+    return true;
+}
+
+void RustSdkMatrixClient::recordStoreLocation(
+    const matrix::app_data::AccountIdentity &identity)
+{
+    if (!m_settings || !m_storePathOverride.isEmpty() || m_storePath.isEmpty()
+        || !identity.isValid()) {
+        return;
+    }
+    // Taken from the directory that was actually opened, never re-derived:
+    // deriving it a second time is what produced two locations for one
+    // account in the first place.
+    const QString opened = QFileInfo(m_storePath).absoluteFilePath();
+    const QString slug = QFileInfo(QFileInfo(opened).path()).fileName();
+    if (slug.isEmpty())
+        return;
+    if (slug != identity.slug) {
+        qCInfo(lcRust) << "recording divergent store location"
+                       << "account=" << identity.slug << "store=" << slug;
+    }
+    m_settings->setStoreSlugFor(identity.userId, slug);
+}
+
 bool RustSdkMatrixClient::resetRustStore()
 {
     const QString storePath = m_storePath;
@@ -571,15 +837,42 @@ bool RustSdkMatrixClient::resetRustStore()
 }
 
 bool RustSdkMatrixClient::clearPersistedAccount(
-    const matrix::app_data::AccountIdentity &identity)
+    const matrix::app_data::AccountIdentity &identity,
+    bool *matchedRecord)
 {
-    return !m_settings || m_settings->clearSessionForAccount(identity.userId);
+    if (matchedRecord)
+        *matchedRecord = false;
+    if (!m_settings)
+        return true;
+    return m_settings->clearSessionForAccount(identity.userId, matchedRecord);
 }
 
 bool RustSdkMatrixClient::resetLocalSession(
-    const matrix::app_data::AccountIdentity &identity,
+    const matrix::app_data::AccountIdentity &requested,
     QString *message)
 {
+    // Reset the store this account really uses. A caller that resolved the
+    // identity from a user id alone would otherwise delete the canonical slug
+    // and leave the divergent one — the exact failure that made "Local
+    // Lightning session reset" a lie.
+    matrix::app_data::AccountIdentity identity = requested;
+    if (m_settings && identity.isValid()) {
+        // clearSessionForAccount() matches a case variant against the saved
+        // record, so the store lookup has to use the same rule. Looking up
+        // storeSlugFor() with a non-exact id returns nothing, and the reset
+        // would then clear the record while leaving the store behind.
+        const QString canonical =
+            m_settings->canonicalUserIdForTypedIdentity(identity.userId);
+        matrix::app_data::AccountIdentity saved;
+        if (!canonical.isEmpty()
+            && m_settings->resolveSavedIdentity(canonical, &saved)) {
+            matrix::app_data::bindStoreSlug(&identity,
+                                            saved.effectiveStoreSlug());
+        } else {
+            matrix::app_data::bindStoreSlug(
+                &identity, m_settings->storeSlugFor(identity.userId));
+        }
+    }
     if (message)
         message->clear();
     if (!identity.isValid()) {
@@ -612,21 +905,50 @@ bool RustSdkMatrixClient::resetLocalSession(
     releaseRustHandle();
     m_storePath.clear();
     clearLocalState();
-    const bool sessionOk = clearPersistedAccount(identity);
-    const auto files = matrix::app_data::removeAccountRustState(identity);
-    const bool ok = sessionOk && files.ok();
+    bool matchedRecord = false;
+    const bool sessionOk = clearPersistedAccount(identity, &matchedRecord);
+    // Moved aside, not deleted. This is a REPAIR: it acts on the app's belief
+    // that the store is unusable or foreign, and for
+    // session_account_mismatch / sdk_store_ownership_mismatch that belief is
+    // precisely "this store belongs to someone else" — a verdict that has
+    // been wrong. The card offers "Quarantine and rebuild" and this is what
+    // makes that label true. Explicit sign-out and account removal still
+    // delete (finishSignOut), because there the user has stated the account
+    // should be gone and leaving key material would be a data-at-rest defect.
+    const auto files = matrix::app_data::quarantineAccountRustState(identity);
+    // A reset that matched no saved record AND deleted no store did nothing
+    // at all. It used to report success anyway — SecretStore backends treat a
+    // no-op clear as success and a store that was never there counts as
+    // `missing`, not `failed` — which is how a reset aimed at the wrong
+    // localpart casing could claim "you can sign in again" while the real
+    // record, token and store all survived untouched.
+    const bool didSomething = matchedRecord || files.removedAnything();
+    const bool ok = sessionOk && files.ok() && didSomething;
     qCInfo(lcRust) << "local Rust reset"
                    << "slug=" << identity.slug
+                   << "record=" << (matchedRecord ? "cleared" : "not_found")
                    << "deleted=" << files.deleted
                    << "missing=" << files.missing
                    << "failed=" << files.failed
                    << "session=" << (sessionOk ? "ok" : "failed");
 
     if (ok) {
-        if (message)
-            *message = tr("Local Lightning session reset. You can sign in again.");
+        if (message) {
+            *message = tr("Local Lightning session rebuilt. The previous "
+                          "encryption store was moved aside, not deleted, and "
+                          "is still in this account's data directory. You can "
+                          "sign in again.");
+        }
+    } else if (sessionOk && files.ok() && !didSomething) {
+        // Nothing was wrong with the filesystem — we simply do not know this
+        // account. Never arm the reset UI again for a no-op.
+        if (message) {
+            *message = tr("Lightning has no saved session or local data for "
+                          "that account, so there was nothing to reset. Check "
+                          "the Matrix user ID and try signing in.");
+        }
     } else {
-        requireLocalReset(QStringLiteral("cleanup_incomplete"));
+        requireLocalReset(QStringLiteral("cleanup_incomplete"), identity);
         if (message) {
             *message = tr("Lightning could not completely reset the local "
                           "session for this account. Check the application "
@@ -643,6 +965,19 @@ void RustSdkMatrixClient::logout()
 
     matrix::app_data::resolveAccountIdentity(
         m_homeserver, m_userId, &m_signOutIdentity);
+    // Delete the store this session actually opened, not one re-derived from
+    // the user id. Those disagreed for any account whose store slug diverged,
+    // and sign-out then reported success while leaving the real crypto store
+    // — Megolm and device keys — on disk. m_storePath is the authority; the
+    // recorded slug is the fallback when the handle is already gone.
+    if (m_storePathOverride.isEmpty() && !m_storePath.isEmpty()) {
+        const QString openedSlug = QFileInfo(
+            QFileInfo(m_storePath).absoluteFilePath()).dir().dirName();
+        matrix::app_data::bindStoreSlug(&m_signOutIdentity, openedSlug);
+    } else if (m_settings) {
+        matrix::app_data::bindStoreSlug(
+            &m_signOutIdentity, m_settings->storeSlugFor(m_signOutIdentity.userId));
+    }
     m_signOutDeviceId = m_deviceId;
     qCInfo(lcRust) << "rust sign-out started"
                    << "slug=" << m_signOutIdentity.slug
@@ -1826,10 +2161,37 @@ void RustSdkMatrixClient::pollRustEvents()
     }
 }
 
-void RustSdkMatrixClient::requireLocalReset(const QString &reasonCode)
+void RustSdkMatrixClient::requireLocalReset(
+    const QString &reasonCode,
+    const matrix::app_data::AccountIdentity &identity)
 {
-    qCWarning(lcRust) << "local session reset required reason=" << reasonCode;
-    Q_EMIT localSessionResetRequired(reasonCode);
+    // Slug only — the user id itself travels in the signal for the UI to
+    // target the repair with, but it never reaches the log.
+    qCWarning(lcRust) << "local session reset required reason=" << reasonCode
+                      << "slug=" << matrix::app_data::safeUserSlug(identity.userId);
+    Q_EMIT localSessionResetRequired(reasonCode, identity.userId,
+                                     identity.homeserver);
+}
+
+void RustSdkMatrixClient::failWithBlockReason(
+    matrix::rust_session::StoreBlockReason reason,
+    const matrix::app_data::AccountIdentity &identity)
+{
+    qCWarning(lcRust) << "local session open blocked"
+                      << "detail=" << matrix::rust_session::diagnosticName(reason)
+                      << "slug=" << identity.slug;
+    // Only conditions a local reset can actually repair arm the destructive
+    // recovery UI. A missing store has nothing to delete; a revoked token
+    // needs a new sign-in, not deletion.
+    if (matrix::rust_session::suggestsLocalReset(reason)) {
+        requireLocalReset(matrix::rust_session::diagnosticName(reason), identity);
+    } else {
+        Q_EMIT localSessionBlocked(
+            matrix::rust_session::diagnosticName(reason),
+            identity.userId, identity.homeserver);
+    }
+    setState(Error);
+    Q_EMIT loginFailed(matrix::rust_session::userMessage(reason));
 }
 
 void RustSdkMatrixClient::finishSignOut(const QString &serverResult,
@@ -1873,7 +2235,7 @@ void RustSdkMatrixClient::finishSignOut(const QString &serverResult,
         Q_EMIT localSessionCleanupFinished(
             true, tr("Local Lightning session reset. You can sign in again."));
     } else {
-        requireLocalReset(QStringLiteral("cleanup_incomplete"));
+        requireLocalReset(QStringLiteral("cleanup_incomplete"), identity);
         const QString failure = tr(
             "Lightning could not completely reset the local session for this "
             "account. Check the application logs and filesystem permissions, "
@@ -1929,6 +2291,17 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
             m_settings->saveSession(m_homeserver, m_userId, m_deviceId, accessToken);
             m_settings->setSyncToken({});
         }
+        // The homeserver, not the login form, decides the canonical user id,
+        // and a first-ever login has no saved record to canonicalize against.
+        // So the store may have just been created under the typed localpart
+        // casing (or, under .well-known delegation, under the URL host)
+        // while the record above went in under the server's answer. Record
+        // where the store REALLY is, now, before anything else derives a path
+        // from the record. Nothing is moved: the mapping is the fix.
+        if (m_loggedIn && !accessToken.isEmpty() && identity.isValid()
+            && identity.userId == m_userId) {
+            recordStoreLocation(identity);
+        }
         setState(Disconnected);
         if (m_loggedIn)
             Q_EMIT loginSucceeded(m_userId);
@@ -1958,12 +2331,33 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
         const QString message = event.value(QStringLiteral("message")).toString(
             tr("Rust SDK login failed."));
         if (matrix::rust_session::isStoreOwnershipMismatch(message)) {
-            requireLocalReset(QStringLiteral("sdk_store_ownership_mismatch"));
-            Q_EMIT loginFailed(tr(
-                "This local Lightning Rust SDK store belongs to a different "
-                "Matrix session or device. Reset the local Lightning session "
-                "for this account, then sign in again. This does not delete "
-                "server messages or Element data."));
+            // The SDK is the authority on store ownership. If we had adopted
+            // a divergent directory for this account, that recording is now
+            // demonstrably wrong — drop it so the next start re-evaluates
+            // instead of pointing at the same wrong store forever. Only the
+            // mapping is cleared; no store is touched.
+            if (m_settings && !m_openingIdentity.userId.isEmpty()
+                && m_openingIdentity.storeSlug != m_openingIdentity.slug) {
+                qCWarning(lcRust) << "clearing rejected store recording"
+                                  << "account=" << m_openingIdentity.slug;
+                m_settings->setStoreSlugFor(m_openingIdentity.userId, QString{});
+            }
+            requireLocalReset(QStringLiteral("sdk_store_ownership_mismatch"),
+                              m_openingIdentity);
+            Q_EMIT loginFailed(matrix::rust_session::userMessage(
+                matrix::rust_session::StoreBlockReason::DifferentAccount));
+        } else if (matrix::rust_session::isUnknownToken(message)) {
+            // The homeserver revoked this session. The local store is fine —
+            // offering to delete it would destroy the very key material the
+            // user still needs. Say what happened and let them sign in again.
+            qCInfo(lcRust) << "saved session rejected by the homeserver"
+                           << "slug=" << m_openingIdentity.slug;
+            Q_EMIT localSessionBlocked(
+                matrix::rust_session::diagnosticName(
+                    matrix::rust_session::StoreBlockReason::AccessTokenRevoked),
+                m_openingIdentity.userId, m_openingIdentity.homeserver);
+            Q_EMIT loginFailed(matrix::rust_session::userMessage(
+                matrix::rust_session::StoreBlockReason::AccessTokenRevoked));
         } else {
             Q_EMIT loginFailed(message);
         }

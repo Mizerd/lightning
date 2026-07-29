@@ -65,6 +65,27 @@ class AppController : public QObject
     Q_PROPERTY(bool initialSyncDone READ initialSyncDone NOTIFY initialSyncDoneChanged)
     Q_PROPERTY(bool localRustResetRequired READ localRustResetRequired
                NOTIFY localRustResetRequiredChanged)
+    // Machine-readable classification of the local-session failure that is
+    // currently blocking sign-in, plus the account it actually applies to.
+    // The reason code is the backend's own diagnostic token (see
+    // matrix::rust_session::diagnosticName); an empty code means "no
+    // failure". C++ deliberately does NOT author user-facing prose for these
+    // states — QML owns the copy, and a single generic sentence for five
+    // distinct causes is exactly what made the old login dead end unusable.
+    //
+    // The identity is captured at DETECTION time, not read from settings on
+    // demand: during an add-account attempt the settings' active account is
+    // still the previously signed-in one, so a settings-derived repair would
+    // target the wrong account.
+    Q_PROPERTY(QString localSessionFailureReasonCode
+               READ localSessionFailureReasonCode
+               NOTIFY localSessionFailureChanged)
+    Q_PROPERTY(QString localSessionFailureUserId
+               READ localSessionFailureUserId
+               NOTIFY localSessionFailureChanged)
+    Q_PROPERTY(QString localSessionFailureHomeserver
+               READ localSessionFailureHomeserver
+               NOTIFY localSessionFailureChanged)
     // v0.7: true while an account switch is in flight. QML disables sending
     // and shows the switching state; the previous account's session is
     // already detached, so nothing can route through it.
@@ -231,6 +252,24 @@ public:
     bool initialSyncDone() const;
     QString rustDeviceIdRedacted() const;
     bool localRustResetRequired() const { return m_localRustResetRequired; }
+    // Public so a C++ test can drive the classified-failure state directly on
+    // the controller. The real emitter is a Rust-backend rejection, which a
+    // MockBackend test cannot produce; exposing a QML-invokable debug hook
+    // instead would put a state-injection seam into the shipped UI surface.
+    void setLocalSessionFailure(const QString &reasonCode,
+                                const QString &userId,
+                                const QString &homeserver);
+    // Explicit, because only the caller knows whether a failure was actually
+    // resolved. Login success and a completed repair clear it; merely
+    // disarming the destructive action does not.
+    void clearLocalSessionFailure()
+    { setLocalSessionFailure(QString{}, QString{}, QString{}); }
+    QString localSessionFailureReasonCode() const
+    { return m_localSessionFailureReason; }
+    QString localSessionFailureUserId() const
+    { return m_localSessionFailureUserId; }
+    QString localSessionFailureHomeserver() const
+    { return m_localSessionFailureHomeserver; }
     bool accountSwitching() const { return m_accountSwitching; }
 
     SettingsManager *settings() const;
@@ -328,8 +367,36 @@ public Q_SLOTS:
 
     // Login-screen reset. Account identity is derived canonically in C++ from
     // the current form values; QML never computes paths or deletes files.
+    //
+    // Superseded by repairLocalSession() for the login screen and kept only
+    // for callers that genuinely have an explicit identity in hand. It must
+    // never be driven from raw form text again: the login form has no user
+    // field prefill, so a startup restore failure passed empty strings here
+    // and the repair could not run at all without the user retyping their
+    // Matrix ID from memory.
     Q_INVOKABLE void resetLocalRustSession(const QString &homeserver,
                                            const QString &user);
+
+    // Repair the local session for the account that ACTUALLY failed. Uses the
+    // identity captured when the failure was detected, falling back to the
+    // active account only when no failure is in flight (the Settings danger
+    // zone case). Takes no arguments precisely so no caller can point it at
+    // the wrong account.
+    Q_INVOKABLE void repairLocalSession();
+
+    // Whether clearing this device's local data can actually repair the given
+    // failure. QML binds the destructive action's visibility to THIS rather
+    // than to a per-reason list maintained by hand, so a card can never offer
+    // a button that repairLocalSession() will refuse. Unknown or empty codes
+    // answer false — the safe direction.
+    Q_INVOKABLE bool localResetHelpsFor(const QString &reasonCode) const;
+
+    // Sanitized, user-invoked support bundle for the clipboard. Contains
+    // versions, capability flags, session lifecycle state and error
+    // categories only — never tokens, keys, recovery material, message
+    // bodies, room identifiers, or filesystem paths.
+    Q_INVOKABLE QString sessionDiagnosticsText() const;
+    Q_INVOKABLE void copySessionDiagnostics();
 
     // v0.5.0-prep+11. Manually reload the current room's recent
     // timeline via matrix-sdk's Room::messages. Safe to call at any
@@ -395,17 +462,12 @@ Q_SIGNALS:
     void errorReported(const QString &message);
     void rustDeviceIdChanged();
     void localRustResetRequiredChanged();
+    void localSessionFailureChanged();
     // v0.5.0-prep+10. Fires once per requestRecoverFromBackup call.
     // `state`: "attempted" / "ok" / "failed". `message`: non-secret
     // detail for failures, empty on success. Never contains the
     // recovery key or imported key material.
     void recoveryStateChanged(const QString &state, const QString &message);
-
-    // v0.5.0-prep+11. Emitted when login/restore failed because the
-    // Rust SDK store on disk belongs to a different Matrix device.
-    // QML LoginScreen shows a "Reset local Lightning session" button
-    // in response.
-    void storeDeviceMismatchDetected(const QString &displayMessage);
 
     // v0.5.0-prep+11. Emitted after resetLocalRustStore() finishes.
     void localRustStoreResetResult(bool ok, const QString &message);
@@ -463,6 +525,9 @@ private:
     QString m_requestedSettingsSection;
     QString m_connectionStatus;
     bool m_localRustResetRequired = false;
+    QString m_localSessionFailureReason;
+    QString m_localSessionFailureUserId;
+    QString m_localSessionFailureHomeserver;
     bool m_resetResultPending = false;
     // v0.7 account switching.
     bool m_accountSwitching = false;

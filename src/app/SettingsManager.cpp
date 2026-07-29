@@ -58,6 +58,9 @@ constexpr auto kAccountDisplayName  = "displayName";
 constexpr auto kAccountAvatarUrl    = "avatarUrl";
 constexpr auto kAccountAddedAt      = "addedAt";
 constexpr auto kAccountSyncToken    = "syncToken";
+// The account's real on-disk SDK store directory name, recorded at login
+// instead of re-derived. See SettingsManager::storeSlugFor.
+constexpr auto kAccountStoreSlug    = "storeSlug";
 
 // SecretStore keys.
 constexpr auto kSecretAccessToken   = "accessToken";
@@ -101,6 +104,138 @@ bool SettingsManager::accountSlugConflicts(const QString &userId) const
     const QString stored =
         m_store->value(accountKey(slug, kAccountUserId)).toString();
     return !stored.isEmpty() && stored != uid;
+}
+
+QString SettingsManager::canonicalUserIdForTypedIdentity(
+    const QString &typedUserId, bool *ambiguous) const
+{
+    if (ambiguous)
+        *ambiguous = false;
+    const QString typed = typedUserId.trimmed();
+    if (typed.isEmpty())
+        return {};
+
+    // Exact match wins outright — no scan, and no chance of a
+    // case-insensitive sibling stealing a genuine uppercase-localpart
+    // account (those are legal on older homeservers).
+    if (!slugForSavedAccount(typed).isEmpty())
+        return typed;
+
+    const qsizetype colon = typed.indexOf(QLatin1Char(':'));
+    if (!typed.startsWith(QLatin1Char('@')) || colon <= 1)
+        return {};
+    const QString localpart = typed.mid(1, colon - 1);
+    const QString serverName = typed.mid(colon + 1);
+
+    QString match;
+    for (const QString &saved : savedAccountUserIds()) {
+        const qsizetype savedColon = saved.indexOf(QLatin1Char(':'));
+        if (!saved.startsWith(QLatin1Char('@')) || savedColon <= 1)
+            continue;
+        if (saved.mid(savedColon + 1) != serverName)
+            continue;
+        if (saved.mid(1, savedColon - 1)
+                .compare(localpart, Qt::CaseInsensitive) != 0) {
+            continue;
+        }
+        if (!match.isEmpty()) {
+            // Two saved accounts differ only by localpart case. Both are
+            // legitimate identities; picking one would hand this login the
+            // wrong store. Refuse.
+            if (ambiguous)
+                *ambiguous = true;
+            return {};
+        }
+        match = saved;
+    }
+    return match;
+}
+
+QString SettingsManager::storeSlugFor(const QString &userId) const
+{
+    const QString slug = slugForSavedAccount(userId);
+    if (slug.isEmpty())
+        return {};
+    return m_store->value(accountKey(slug, kAccountStoreSlug)).toString();
+}
+
+void SettingsManager::setStoreSlugFor(const QString &userId,
+                                      const QString &storeSlug)
+{
+    const QString slug = slugForSavedAccount(userId);
+    if (slug.isEmpty())
+        return;
+    const QString key = accountKey(slug, kAccountStoreSlug);
+    if (storeSlug.trimmed().isEmpty()) {
+        m_store->remove(key);
+    } else {
+        if (m_store->value(key).toString() == storeSlug)
+            return;
+        m_store->setValue(key, storeSlug);
+    }
+    // The store directory already exists on disk by the time this is called;
+    // the mapping to it must not be the thing that is lost in a crash.
+    m_store->sync();
+}
+
+bool SettingsManager::secretBackendUnavailable() const
+{
+    if (!m_secretStore)
+        return true;
+    // isAvailable() alone is not enough: it is a construction-time probe, and
+    // createDefault() only ever returns a backend that probed available, so it
+    // can never report a keyring that locks AFTER startup — which is the
+    // common case. lastReadFailed() reports the outcome of the actual read,
+    // which is what callers are really asking about when they are deciding
+    // whether an empty token means "no account" or "cannot tell".
+    return !m_secretStore->isAvailable() || m_secretStore->lastReadFailed();
+}
+
+QString SettingsManager::accountOwningStoreSlug(const QString &storeSlug) const
+{
+    const QString slug = storeSlug.trimmed();
+    if (slug.isEmpty())
+        return {};
+    for (const QString &userId : savedAccountUserIds()) {
+        if (matrix::app_data::safeUserSlug(userId) == slug)
+            return userId;
+        if (storeSlugFor(userId) == slug)
+            return userId;
+        // The delegated reconstruction: a bare-localpart login against a
+        // .well-known-delegated homeserver produced a slug built from the URL
+        // host, which matches neither of the above and involves no casing at
+        // all. Without this an account's real store looks unowned.
+        matrix::app_data::AccountIdentity identity;
+        if (resolveSavedIdentity(userId, &identity)
+            && matrix::app_data::delegatedHomeserverStoreSlug(identity) == slug) {
+            return userId;
+        }
+    }
+    return {};
+}
+
+bool SettingsManager::resolveSavedIdentity(
+    const QString &userId, matrix::app_data::AccountIdentity *out) const
+{
+    if (!out)
+        return false;
+    const QString slug = slugForSavedAccount(userId);
+    if (slug.isEmpty())
+        return false;
+    const QString hs =
+        m_store->value(accountKey(slug, kAccountHomeserver)).toString();
+    matrix::app_data::AccountIdentity identity;
+    if (!matrix::app_data::resolveAccountIdentity(hs, userId, &identity))
+        return false;
+    // A recorded store location always wins over the derived one. An
+    // unusable recording (unsafe or wrongly scoped) is ignored rather than
+    // applied — bindStoreSlug refuses instead of half-applying.
+    const QString recorded =
+        m_store->value(accountKey(slug, kAccountStoreSlug)).toString();
+    if (!recorded.isEmpty() && recorded != identity.slug)
+        matrix::app_data::bindStoreSlug(&identity, recorded);
+    *out = identity;
+    return true;
 }
 
 void SettingsManager::migrateLegacySessionRecord()
@@ -950,6 +1085,14 @@ void SettingsManager::saveSession(const QString &homeserverUrl_,
     // positions, and SecretStore tokens. (Pre-0.7 builds cleared the
     // previous user here, which made every login destroy the last session.)
 
+    // Flush now. The SDK store directory is created eagerly on disk before
+    // the server is even contacted, while QSettings otherwise only writes on
+    // destruction — so a crash here used to leave a store with no record,
+    // which the next login treats as an orphan and deletes. The store-path
+    // reconciliation that runs right after this also has to see a durable
+    // record.
+    m_store->sync();
+
     if (hsChanged)
         Q_EMIT homeserverUrlChanged();
     Q_EMIT sessionChanged();
@@ -981,6 +1124,14 @@ bool SettingsManager::clearSession()
 
 bool SettingsManager::clearSessionForAccount(const QString &uid)
 {
+    return clearSessionForAccount(uid, nullptr);
+}
+
+bool SettingsManager::clearSessionForAccount(const QString &uid,
+                                             bool *matchedRecord)
+{
+    if (matchedRecord)
+        *matchedRecord = false;
     const QString target = uid.trimmed();
     if (target.isEmpty())
         return false;
@@ -997,12 +1148,25 @@ bool SettingsManager::clearSessionForAccount(const QString &uid)
         if (matrix::app_data::resolveAccountIdentity(homeserverUrl(), target,
                                                      &identity)) {
             slug = slugForSavedAccount(identity.userId);
+            // resolveAccountIdentity preserves the localpart case, so this
+            // still misses an account saved under the server's canonical
+            // casing. Fall back to the case-insensitive lookup — otherwise a
+            // reset typed as "Mizerd" silently matches nothing while the real
+            // "@mizerd:…" record, its token and the active pointer survive.
+            if (slug.isEmpty()) {
+                const QString canonical =
+                    canonicalUserIdForTypedIdentity(identity.userId);
+                if (!canonical.isEmpty())
+                    slug = slugForSavedAccount(canonical);
+            }
             if (!slug.isEmpty()) {
                 recordUserId =
                     m_store->value(accountKey(slug, kAccountUserId)).toString();
             }
         }
     }
+    if (matchedRecord)
+        *matchedRecord = !slug.isEmpty();
 
     const bool activeAccount =
         !activeAccountUserId().isEmpty() && activeAccountUserId() == recordUserId;

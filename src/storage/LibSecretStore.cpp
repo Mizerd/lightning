@@ -120,6 +120,7 @@ QString LibSecretStore::readSecret(const QString &userId,
 {
     if (!m_available) {
         setError(QStringLiteral("libsecret unavailable"));
+        m_lastReadFailed = true;
         return {};
     }
     GError *err = nullptr;
@@ -135,9 +136,16 @@ QString LibSecretStore::readSecret(const QString &userId,
     if (err) {
         setError(QString::fromUtf8(err->message));
         g_error_free(err);
+        // The backend could not answer — a locked collection, a dropped
+        // session bus. NOT "no such secret". Callers must be able to tell
+        // these apart before treating an empty result as evidence that an
+        // account has no saved sign-in.
+        m_lastReadFailed = true;
         qCWarning(lcLibSecret) << "readSecret failed:" << m_lastError;
         return {};
     }
+    // The lookup completed. Absent is a real answer, not a failure.
+    m_lastReadFailed = false;
     if (!raw)
         return {};
     QString out = QString::fromUtf8(raw);

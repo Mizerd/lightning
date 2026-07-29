@@ -12,6 +12,7 @@ import MatrixClient
 // secret, or local path is ever displayed.
 Popup {
     id: root
+    objectName: "accountSwitcherPopover"
     modal: true
     padding: AppTheme.spacing8
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
@@ -115,9 +116,21 @@ Popup {
 
             ItemDelegate {
                 id: accountRow
+                objectName: "accountRow_" + (modelData.userId || "")
                 required property var modelData
                 Layout.fillWidth: true
                 enabled: !app.accountSwitching
+                // needsSignIn (any row): no saved session or no access
+                // token for this account — derived on demand, never
+                // persisted. Live crypto/verification health is only ever
+                // available for the ACTIVE row: the SDK only reports it for
+                // whichever account the running client is attached to.
+                readonly property bool activeHealthConcern:
+                    modelData.isActive === true
+                    && app.backendName === "rust"
+                    && app.cryptoHealth
+                    && app.cryptoHealth.cryptoError === true
+                readonly property bool needsSignIn: modelData.needsSignIn === true
                 Accessible.name: modelData.isActive
                                  ? qsTr("Active account %1").arg(modelData.userId)
                                  : qsTr("Switch to %1").arg(modelData.userId)
@@ -158,6 +171,21 @@ Popup {
                             font.pixelSize: AppTheme.fontCaption
                             elide: Label.ElideMiddle
                         }
+                    }
+                    Icon {
+                        id: healthIndicator
+                        objectName: "accountHealthIndicator_" + (accountRow.modelData.userId || "")
+                        visible: accountRow.needsSignIn || accountRow.activeHealthConcern
+                        name: accountRow.needsSignIn ? "error" : "warning"
+                        size: 14
+                        color: AppTheme.warning
+                        Accessible.name: accountRow.needsSignIn
+                                         ? qsTr("Needs sign-in")
+                                         : qsTr("Encryption needs attention")
+                        ToolTip.text: healthIndicator.Accessible.name
+                        ToolTip.visible: healthHover.hovered
+                        ToolTip.delay: 500
+                        HoverHandler { id: healthHover }
                     }
                     Icon {
                         visible: accountRow.modelData.isActive === true
@@ -207,6 +235,7 @@ Popup {
         }
 
         ItemDelegate {
+            objectName: "addAccountRow"
             Layout.fillWidth: true
             enabled: !app.accountSwitching
             Accessible.name: qsTr("Add account")
@@ -261,6 +290,7 @@ Popup {
 
         ItemDelegate {
             id: signOutItem
+            objectName: "signOutRow"
             Layout.fillWidth: true
             Accessible.name: qsTr("Sign out")
             contentItem: Label {
@@ -280,6 +310,7 @@ Popup {
     // local session, store, and token are deleted.
     Dialog {
         id: removeConfirm
+        objectName: "removeAccountConfirmDialog"
         property string targetUserId: ""
         parent: Overlay.overlay
         anchors.centerIn: parent
@@ -341,6 +372,7 @@ Popup {
     // Confirmation — Cancel is focused and the default safe action.
     Dialog {
         id: signOutConfirm
+        objectName: "signOutConfirmDialog"
         parent: Overlay.overlay
         anchors.centerIn: parent
         // Bound to the overlay, not to content implicitWidth: the content

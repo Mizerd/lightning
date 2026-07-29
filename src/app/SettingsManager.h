@@ -1,5 +1,7 @@
 #pragma once
 
+#include "storage/AppDataPaths.h"
+
 #include <QObject>
 #include <QSettings>
 #include <QString>
@@ -217,12 +219,69 @@ public:
     // would otherwise alias one settings record and one on-disk SDK store.
     // Logins for a colliding identity must be refused.
     bool accountSlugConflicts(const QString &userId) const;
+    // Map a TYPED login identity onto the server-canonical user id already
+    // saved for that account.
+    //
+    // Matrix localparts are case-sensitive, so `resolveAccountIdentity()`
+    // preserves the typed case while the homeserver answers a login with its
+    // own canonical id. A user who types "Mizerd" therefore produced a store
+    // under `Mizerd_<server>` and a record under `mizerd_<server>`, and every
+    // later restore looked for a store that was never there. Resolving the
+    // typed id against the saved records first makes repeat logins land on
+    // the account that already exists.
+    //
+    // Matching is exact on the (already normalized, lowercase) server name
+    // and case-insensitive on the localpart. Returns an empty string when no
+    // saved account matches OR when two or more do — an ambiguous match is
+    // never resolved by guessing. `ambiguous` distinguishes the two.
+    //
+    // Deliberately NOT folded into slugForSavedAccount()/hasSavedAccount():
+    // those must stay exact so deviceId(), syncToken() and the per-account
+    // appearance accessors cannot silently read another record.
+    QString canonicalUserIdForTypedIdentity(const QString &typedUserId,
+                                            bool *ambiguous = nullptr) const;
     // {userId, homeserver, deviceId, displayName, avatarUrl, addedAt}
     // — empty map when the account is unknown. syncToken is deliberately
     // not exposed here.
     QVariantMap accountRecord(const QString &userId) const;
     // Access token for a specific saved account (SecretStore lookup).
     QString accessTokenFor(const QString &userId) const;
+
+    // Where this account's Rust SDK store actually lives, as recorded at
+    // login from the directory that was really opened. Empty means "never
+    // recorded" — the canonical slug is then the best available guess.
+    //
+    // This mapping exists because it must NOT be derived twice: the store
+    // path used to come from the typed login name and the account record from
+    // the server-canonical user id, and when those disagreed (localpart
+    // casing, or a delegated .well-known server name) restore looked for a
+    // store that was never there, logout deleted a directory that did not
+    // exist while the real one survived, and reset cleared the wrong slug.
+    QString storeSlugFor(const QString &userId) const;
+    // The saved account that could legitimately own the store directory
+    // `storeSlug`, or empty when none can.
+    //
+    // Checks all three ways an account can be bound to a directory: its
+    // canonical slug, its recorded storeSlug, and the slug an older build
+    // would have derived for it from its homeserver URL
+    // (delegatedHomeserverStoreSlug). Anything that deletes a store MUST
+    // consult this first — "no record under the slug I derived" is not the
+    // same as "no account owns this directory", and treating them as
+    // equivalent is what destroyed a real crypto store.
+    QString accountOwningStoreSlug(const QString &storeSlug) const;
+    // True when the secret backend cannot answer AT ALL — no store injected,
+    // keyring locked, session bus unavailable. Distinct from "this account
+    // has no token": an unreadable backend makes every lookup come back
+    // empty, and treating that as "the sign-in is gone" is the same
+    // conflation that let the login path destroy a live crypto store.
+    // Anything that classifies a missing token MUST consult this first.
+    bool secretBackendUnavailable() const;
+    void setStoreSlugFor(const QString &userId, const QString &storeSlug);
+    // Resolve a saved account into a full identity whose on-disk paths point
+    // at the recorded store. Use this anywhere an account's files are read,
+    // deleted, or opened; re-deriving the path is the original defect.
+    bool resolveSavedIdentity(const QString &userId,
+                              matrix::app_data::AccountIdentity *out) const;
     QString activeAccountUserId() const;
     // Selects which saved account the session accessors describe. An empty
     // id or an id without a saved record clears the selection.
@@ -265,6 +324,13 @@ public:
     // secrets for `userId`, but removes the global active-session metadata
     // only when that metadata belongs to the same account.
     bool clearSessionForAccount(const QString &userId);
+    // Same, but reports whether a saved record was actually matched and
+    // removed. The plain overload cannot distinguish "cleared the account"
+    // from "matched nothing and did nothing": SecretStore backends treat a
+    // no-op clear as success, so a reset aimed at an unknown identity used to
+    // report "Local Lightning session reset" while the real record, token and
+    // active-account pointer stayed exactly where they were.
+    bool clearSessionForAccount(const QString &userId, bool *matchedRecord);
 
 Q_SIGNALS:
     void homeserverUrlChanged();

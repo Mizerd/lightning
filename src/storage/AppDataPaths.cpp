@@ -1,5 +1,6 @@
 #include "storage/AppDataPaths.h"
 
+#include <QDateTime>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -44,6 +45,30 @@ QString appDataBase()
                               envValue("LOCALAPPDATA"),
                               envValue("USERPROFILE"),
                               envValue("HOME"));
+}
+
+// ASCII-only case-insensitive equality. Qt::CaseInsensitive applies full
+// Unicode case folding, which can equate slugs built from distinct Matrix
+// localparts (Turkish dotless i, Kelvin sign, and friends). Store adoption
+// must only ever recognise the a-z/A-Z divergence the old code actually
+// produced, so the comparison is restricted to exactly that.
+bool equalsIgnoringAsciiCase(const QString &a, const QString &b)
+{
+    if (a.size() != b.size())
+        return false;
+    for (qsizetype i = 0; i < a.size(); ++i) {
+        QChar x = a.at(i);
+        QChar y = b.at(i);
+        if (x.unicode() < 128 && y.unicode() < 128) {
+            if (x.toLatin1() >= 'A' && x.toLatin1() <= 'Z')
+                x = QChar(x.unicode() + 32);
+            if (y.toLatin1() >= 'A' && y.toLatin1() <= 'Z')
+                y = QChar(y.unicode() + 32);
+        }
+        if (x != y)
+            return false;
+    }
+    return true;
 }
 
 bool isSafePathComponent(const QString &value)
@@ -228,6 +253,7 @@ bool resolveAccountIdentity(const QString &homeserver,
     out.homeserver = hs;
     out.userId = QStringLiteral("@%1:%2").arg(localpart, serverName);
     out.slug = safeUserSlug(out.userId);
+    out.storeSlug = out.slug;
     out.accountRoot = accountRoot(out.userId);
     out.rustStorePath = rustSdkStorePath(out.userId);
     out.rustSmokeSessionPath = rustSdkSmokeSessionPath(out.userId);
@@ -283,10 +309,16 @@ bool isSafeAccountIdentity(const AccountIdentity &identity)
     const QString session = QDir::cleanPath(
         QFileInfo(identity.rustSmokeSessionPath).absoluteFilePath());
     const QFileInfo rootInfo(root);
+    // The paths are built from the RECORDED store slug, which may legitimately
+    // differ from the canonical identity slug (see AccountIdentity::storeSlug).
+    // Both are still validated: the identity slug must match the user id, and
+    // the store slug must be a safe direct child of primaryRoot().
+    const QString storeSlug = identity.effectiveStoreSlug();
 
     if (root.isEmpty() || !isSafePathComponent(identity.slug)
+        || !isSafePathComponent(storeSlug)
         || safeUserSlug(identity.userId) != identity.slug
-        || account != root + QLatin1Char('/') + identity.slug
+        || account != root + QLatin1Char('/') + storeSlug
         || store != account + QLatin1Char('/') + kRustStoreName
         || session != account + QLatin1Char('/') + kSmokeSessionName
         || account == root || account == QDir::rootPath()
@@ -319,8 +351,91 @@ RemovalSummary removeAccountRustState(const AccountIdentity &identity)
     }
 
     removeFileOrLink(identity.rustSmokeSessionPath, &summary);
-    removeFileOrLink(rustSdkSmokeSessionTempPath(identity.userId), &summary);
+    // Derived from the identity's own (possibly recorded) session path, NOT
+    // re-derived from the user id: with a divergent store slug that pointed
+    // at a file in a different account's directory, and deleting it counted
+    // as `deleted` — which feeds removedAnything() and would let a reset
+    // that touched only a foreign sidecar report itself as completed.
+    removeFileOrLink(identity.rustSmokeSessionPath + QLatin1String(".tmp"),
+                     &summary);
+
+    // Quarantined stores are SIBLINGS of rustStorePath, so removing only that
+    // name leaves them behind. Each is a complete crypto store — Megolm
+    // sessions and the device's Olm identity — so a sign-out reporting
+    // success while they survived is exactly the data-at-rest defect this
+    // pass added a rule against. Every repair leaves one, so without this
+    // they also accumulate without bound.
+    const QFileInfo storePath(identity.rustStorePath);
+    QDir accountDir(storePath.absolutePath());
+    const QString quarantinePattern =
+        storePath.fileName() + QLatin1String(".orphaned-*");
+    const auto quarantined = accountDir.entryInfoList(
+        {quarantinePattern}, QDir::Dirs | QDir::NoDotAndDotDot);
+    for (const QFileInfo &entry : quarantined) {
+        if (entry.isSymLink())
+            removeFileOrLink(entry.absoluteFilePath(), &summary);
+        else if (QDir(entry.absoluteFilePath()).removeRecursively())
+            ++summary.deleted;
+        else
+            ++summary.failed;
+    }
     return summary;
+}
+
+RemovalSummary quarantineAccountRustState(const AccountIdentity &identity)
+{
+    RemovalSummary summary;
+    if (!isSafeAccountIdentity(identity)) {
+        summary.failed = 1;
+        return summary;
+    }
+
+    const QFileInfo storeInfo(identity.rustStorePath);
+    if (!storeInfo.exists() && !storeInfo.isSymLink()) {
+        ++summary.missing;
+    } else if (storeInfo.isSymLink()) {
+        // A symlink is not the store, it is a pointer at one. Removing the
+        // link destroys nothing.
+        removeFileOrLink(identity.rustStorePath, &summary);
+    } else if (storeInfo.isDir()) {
+        if (quarantineRustStore(identity).isEmpty())
+            ++summary.failed;
+        else
+            ++summary.deleted;
+    } else {
+        ++summary.failed;
+    }
+
+    // Sidecars carry an access token, not room keys; a repair should not
+    // leave a stale credential behind.
+    removeFileOrLink(identity.rustSmokeSessionPath, &summary);
+    removeFileOrLink(identity.rustSmokeSessionPath + QLatin1String(".tmp"),
+                     &summary);
+    return summary;
+}
+
+QString quarantineRustStore(const AccountIdentity &identity)
+{
+    if (!isSafeAccountIdentity(identity))
+        return {};
+    const QFileInfo storeInfo(identity.rustStorePath);
+    if (!storeInfo.exists() || !storeInfo.isDir() || storeInfo.isSymLink())
+        return {};
+
+    // A timestamped sibling inside the SAME account directory: still scoped by
+    // isSafeAccountIdentity, still trivially findable by the user, and it
+    // survives a wrong verdict. Deleting a store that turns out to have been
+    // someone's only copy of their room keys is not recoverable; this is.
+    const QString stamp = QDateTime::currentDateTimeUtc()
+                              .toString(QStringLiteral("yyyyMMdd-hhmmsszzz"));
+    const QString target = identity.rustStorePath
+        + QLatin1String(".orphaned-") + stamp;
+    if (QFileInfo::exists(target))
+        return {};
+    // Same directory, so this is one atomic rename(2).
+    if (!QDir().rename(identity.rustStorePath, target))
+        return {};
+    return target;
 }
 
 QStringList legacyRoots()
@@ -351,6 +466,103 @@ QStringList allRoots()
             out.append(r);
     }
     return out;
+}
+
+QStringList findCaseVariantStoreSlugs(const AccountIdentity &identity)
+{
+    QStringList out;
+    const QString root = primaryRoot();
+    if (root.isEmpty() || !isSafeAccountIdentity(identity))
+        return out;
+
+    QDir dir(root);
+    if (!dir.exists() || QFileInfo(root).isSymLink())
+        return out;
+
+    const auto accounts = dir.entryList(QDir::Dirs | QDir::NoDotAndDotDot,
+                                        QDir::Name);
+    for (const QString &slug : accounts) {
+        // Skip the directory the caller is ALREADY pointed at — that is the
+        // location being repaired, not a candidate for repairing it. Compare
+        // against the effective store slug rather than the canonical one: an
+        // identity can be bound to a recorded store, and excluding its
+        // canonical slug instead would exclude the divergent directory the
+        // caller is trying to find.
+        if (slug == identity.effectiveStoreSlug())
+            continue;
+        // NOTE: this comparison is deliberately case-insensitive while the
+        // QSettings account registry is NOT, on Linux. QSettings keys and
+        // groups are case-sensitive with the INI/conf backend but
+        // case-INSENSITIVE on Windows and macOS, so on those platforms the
+        // two slugs alias into one record instead of forming two. Either way
+        // the filesystem here keeps them apart, which is why the recovery
+        // set is computed from the directory listing and not from settings.
+        if (!equalsIgnoringAsciiCase(slug, identity.slug))
+            continue;
+        if (!isSafePathComponent(slug))
+            continue;
+        const QString accountPath = root + QLatin1Char('/') + slug;
+        if (QFileInfo(accountPath).isSymLink())
+            continue;
+        const QFileInfo storeInfo(accountPath + QLatin1Char('/') + kRustStoreName);
+        if (storeInfo.exists() && storeInfo.isDir() && !storeInfo.isSymLink())
+            out.append(slug);
+    }
+    return out;
+}
+
+QString delegatedHomeserverStoreSlug(const AccountIdentity &identity)
+{
+    if (identity.slug.isEmpty() || identity.homeserver.isEmpty())
+        return {};
+    const QString userId = identity.userId.trimmed();
+    const qsizetype colon = userId.indexOf(QLatin1Char(':'));
+    if (!userId.startsWith(QLatin1Char('@')) || colon <= 1)
+        return {};
+    const QString localpart = userId.mid(1, colon - 1);
+
+    // Exactly the pairing resolveAccountIdentity() performs for a bare
+    // localpart: the URL host (with port), lowercased.
+    const QString urlServer = serverNameForUrl(identity.homeserver);
+    if (urlServer.isEmpty() || !validServerName(urlServer)
+        || !validLocalpart(localpart)) {
+        return {};
+    }
+    const QString slug = safeUserSlug(
+        QStringLiteral("@%1:%2").arg(localpart, urlServer));
+    // No delegation in play — the URL host already is the server name.
+    return slug == identity.slug ? QString{} : slug;
+}
+
+bool bindStoreSlug(AccountIdentity *identity, const QString &storeSlug)
+{
+    if (!identity || identity->slug.isEmpty())
+        return false;
+
+    const QString root = primaryRoot();
+    if (root.isEmpty())
+        return false;
+
+    // Empty means "drop the recording and go back to the canonical layout".
+    const QString slug = storeSlug.trimmed().isEmpty() ? identity->slug
+                                                       : storeSlug.trimmed();
+    if (!isSafePathComponent(slug))
+        return false;
+
+    AccountIdentity probe = *identity;
+    probe.storeSlug = slug;
+    probe.accountRoot = root + QLatin1Char('/') + slug;
+    probe.rustStorePath =
+        probe.accountRoot + QLatin1Char('/') + kRustStoreName;
+    probe.rustSmokeSessionPath =
+        probe.accountRoot + QLatin1Char('/') + kSmokeSessionName;
+    // Refuse rather than half-apply: an identity that failed validation must
+    // never end up with paths pointing outside the per-account layout.
+    if (!isSafeAccountIdentity(probe))
+        return false;
+
+    *identity = probe;
+    return true;
 }
 
 QStringList findRustStoresIn(const QString &root)

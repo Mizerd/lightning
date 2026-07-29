@@ -172,6 +172,8 @@ set(APP_SOURCES
     src/app/ConversationController.cpp
     src/app/RoomInfoController.h
     src/app/RoomInfoController.cpp
+    src/app/SessionDiagnostics.h
+    src/app/SessionDiagnostics.cpp
     src/app/SettingsManager.h
     src/app/SettingsManager.cpp
 
@@ -760,6 +762,35 @@ if(BUILD_TESTING)
     target_include_directories(gif-key-config-test PRIVATE src "${LIGHTNING_GENERATED_DIR}")
     target_link_libraries(gif-key-config-test PRIVATE Qt6::Core Qt6::Qml Qt6::Test)
     add_test(NAME gif-key-config COMMAND gif-key-config-test)
+
+    # P0 regression suite: the account-identity <-> SDK-store binding. The
+    # store path used to create a session must equal the one used to restore
+    # it; adoption of a divergent-case store must be unambiguous, idempotent
+    # and non-destructive; a reset that matched nothing must say so; and each
+    # failure condition must carry its own reason code.
+    qt_add_executable(session-store-identity-test
+        tests/SessionStoreIdentityTest.cpp
+        src/app/SettingsManager.h
+        src/app/SettingsManager.cpp
+        src/matrix/RustSessionPolicy.cpp
+        src/storage/SecretStore.h
+        src/storage/AppDataPaths.cpp
+    )
+    target_include_directories(session-store-identity-test PRIVATE src)
+    target_link_libraries(session-store-identity-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME session-store-identity COMMAND session-store-identity-test)
+
+    # Support-diagnostics redaction: credential-shaped values are injected
+    # into every free-text field the export carries and must not survive,
+    # while the metadata that makes a bug report actionable must.
+    qt_add_executable(session-diagnostics-test
+        tests/SessionDiagnosticsTest.cpp
+        src/app/SessionDiagnostics.h
+        src/app/SessionDiagnostics.cpp
+    )
+    target_include_directories(session-diagnostics-test PRIVATE src)
+    target_link_libraries(session-diagnostics-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME session-diagnostics COMMAND session-diagnostics-test)
 
     # Provider-key resolution unit test (build-key fallback + precedence).
     qt_add_executable(gif-build-keys-test
@@ -1367,6 +1398,24 @@ if(BUILD_TESTING)
     target_link_libraries(settings-shell-qml-test PRIVATE Qt6::Test)
     add_test(NAME settings-shell-qml COMMAND settings-shell-qml-test)
     set_tests_properties(settings-shell-qml PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    # Login-screen session repair: the classified failure card replaces the
+    # old single-message dead end. Asserts the repair is invocable with ZERO
+    # typing (the old button read an empty user field and could not run),
+    # that it targets the account that actually failed rather than the active
+    # one, per-reason action sets, destructive confirmation naming the
+    # account, and that raw form text no longer drives a reset.
+    qt_add_executable(login-repair-qml-test
+        tests/LoginRepairQmlTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_app(login-repair-qml-test)
+    target_compile_definitions(login-repair-qml-test PRIVATE
+        QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
+    target_link_libraries(login-repair-qml-test PRIVATE Qt6::Test)
+    add_test(NAME login-repair-qml COMMAND login-repair-qml-test)
+    set_tests_properties(login-repair-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     # Rebuilt main composer (SPEC §2): one card, toolbar row over input row,

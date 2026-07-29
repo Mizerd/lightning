@@ -61,4 +61,19 @@ public:
 
     // Last error string. Empty when no error.
     virtual QString lastError() const = 0;
+
+    // True when the most recent readSecret() failed because the BACKEND could
+    // not answer — a locked collection, a dropped session bus — as opposed to
+    // returning empty because no such secret is stored.
+    //
+    // This distinction is load-bearing, not cosmetic. `isAvailable()` is a
+    // construction-time probe, and createDefault() only ever returns a
+    // backend that probed available, so it can never report a keyring that
+    // locks *after* startup. Without a read-outcome signal, "token unreadable"
+    // is indistinguishable from "no account", which is precisely the
+    // conflation that let a transient credential-backend failure be treated
+    // as a destructive verdict about the user's data.
+    //
+    // Default false: a backend that cannot fail this way need not override.
+    virtual bool lastReadFailed() const { return false; }
 };
