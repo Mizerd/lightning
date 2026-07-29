@@ -84,9 +84,22 @@ qt-rust-tree:
   extends: .nix-job
   stage: test
   script:
+    # CMake drives cargo with `--offline --locked` (see the add_custom_command
+    # in CMakeLists.txt), so every crate must already be in CARGO_HOME before
+    # the build starts. A fresh runner has an empty one, which fails as
+    # "no matching package named ... found" — a missing download, not a
+    # missing crate. Populate it explicitly rather than relying on a cache
+    # that may be cold on the first pipeline for a branch.
+    - nix develop -c cargo fetch --locked --manifest-path rust/Cargo.toml
     - nix develop -c cmake -S . -B build-rust -G Ninja -DENABLE_RUST_SDK_BACKEND=ON
     - nix develop -c cmake --build build-rust
     - nix develop -c ctest --test-dir build-rust --output-on-failure
+  cache:
+    key: "cargo-$CI_COMMIT_REF_SLUG"
+    paths:
+      - .cargo-home/
+      - rust/target/
+    policy: pull-push
   artifacts:
     when: on_failure
     expire_in: 3 days
