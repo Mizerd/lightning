@@ -6,8 +6,15 @@ import MatrixClient
 // a themed popup, and flat delegates with an accent-soft selected state.
 // Every visual part is owned here — no native gradient, no platform arrow,
 // no default popup chrome.
+//
+// Storm: the dropdown POPUP is always storm (every menu/popover is, per
+// SPEC-storm-language §5); `storm: true` additionally storms the closed
+// field for hosts that sit on storm surfaces (Settings). Themed hosts
+// (Room Information) keep the themed field.
 ComboBox {
     id: root
+
+    property bool storm: false
 
     implicitHeight: 32
     font.pixelSize: 13
@@ -18,7 +25,9 @@ ComboBox {
         rightPadding: 28
         text: root.displayText
         font: root.font
-        color: root.enabled ? AppTheme.textPrimary : AppTheme.textDisabled
+        color: root.storm
+               ? (root.enabled ? AppTheme.stormText : AppTheme.stormTextFaint)
+               : (root.enabled ? AppTheme.textPrimary : AppTheme.textDisabled)
         verticalAlignment: Text.AlignVCenter
         elide: Label.ElideRight
     }
@@ -28,18 +37,26 @@ ComboBox {
         anchors.verticalCenter: parent.verticalCenter
         name: "expand_more"
         size: 18
-        color: root.enabled ? AppTheme.icon : AppTheme.textDisabled
+        color: root.storm
+               ? (root.enabled ? AppTheme.stormTextMuted : AppTheme.stormTextFaint)
+               : (root.enabled ? AppTheme.icon : AppTheme.textDisabled)
         rotation: root.popup.visible ? 180 : 0
         Behavior on rotation { NumberAnimation { duration: 120 } }
     }
 
     background: Rectangle {
         radius: AppTheme.radiusMd
-        color: AppTheme.inputBackground
-        border.width: root.visualFocus ? 2 : 1
-        border.color: root.visualFocus ? AppTheme.focusRing
-                      : root.hovered ? AppTheme.borderStrong
-                      : AppTheme.border
+        color: root.storm ? AppTheme.stormInset : AppTheme.inputBackground
+        border.width: root.visualFocus ? (root.storm ? 1.5 : 2) : 1
+        border.color: {
+            if (root.storm)
+                return root.visualFocus ? AppTheme.bolt
+                     : root.hovered ? AppTheme.stormBorderStrong
+                     : AppTheme.stormBorder
+            return root.visualFocus ? AppTheme.focusRing
+                 : root.hovered ? AppTheme.borderStrong
+                 : AppTheme.border
+        }
     }
 
     delegate: ItemDelegate {
@@ -56,16 +73,19 @@ ComboBox {
                   ? entry.model[root.textRole]
                   : entry.model.display !== undefined ? entry.model.display
                                                       : String(entry.model.modelData)
+            font.family: AppTheme.menuFont
             font.pixelSize: 13
-            color: root.currentIndex === entry.index ? AppTheme.accentText
-                                                     : AppTheme.textPrimary
+            font.weight: Font.DemiBold
+            color: root.currentIndex === entry.index ? AppTheme.stormText
+                                                     : AppTheme.stormTextSecondary
             verticalAlignment: Text.AlignVCenter
             elide: Label.ElideRight
         }
         background: Rectangle {
             radius: 6
-            color: root.currentIndex === entry.index ? AppTheme.accentSoft
-                   : entry.highlighted || entry.hovered ? AppTheme.hover
+            color: root.currentIndex === entry.index ? AppTheme.stormSelection
+                   : entry.highlighted || entry.hovered
+                     ? Qt.alpha(AppTheme.stormSelection, 0.55)
                    : "transparent"
         }
     }
@@ -76,8 +96,8 @@ ComboBox {
         padding: 4
         implicitHeight: Math.min(contentItem.implicitHeight + 8, 320)
         background: Rectangle {
-            color: AppTheme.surface
-            border.color: AppTheme.borderStrong
+            color: AppTheme.stormPanel
+            border.color: AppTheme.stormBorder
             border.width: 1
             radius: AppTheme.radiusMd
         }

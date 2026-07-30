@@ -14,6 +14,10 @@ import MatrixClient
 // preferredTone is never read back by the grid's rendering (only recorded
 // for later, unused), so a global control would be presentational fiction —
 // the ONE shared per-emoji tone popup below is the real mechanism.
+//
+// Storm skin (SPEC-storm-language §4/2e): stormPanel chrome, storm search
+// field, bolt-underlined active category, stormSelection hover cells, bolt
+// mono footer preview. Colors/fonts only — structure and behavior unchanged.
 Popup {
     id: picker
     property string mode: "composer"
@@ -106,8 +110,8 @@ Popup {
     }
 
     background: Rectangle {
-        color: AppTheme.surface
-        border.color: AppTheme.borderStrong
+        color: AppTheme.stormPanel
+        border.color: AppTheme.stormBorder
         border.width: 1
         radius: AppTheme.menuRadius
     }
@@ -124,6 +128,7 @@ Popup {
             Layout.rightMargin: AppTheme.spacing12
             Layout.bottomMargin: AppTheme.spacing10
             searchIcon: true
+            storm: true
             placeholderText: qsTr("Search emoji")
             Accessible.name: qsTr("Search emoji by name or keyword")
             selectByMouse: true
@@ -184,14 +189,25 @@ Popup {
                             name: picker._categoryIcons[categoryCell.modelData]
                                   || "mood"
                             size: 18
-                            color: categoryCell.selected ? AppTheme.selectedText
-                                                         : AppTheme.icon
+                            color: categoryCell.selected ? AppTheme.bolt
+                                                         : AppTheme.stormTextMuted
                         }
                         background: Rectangle {
                             radius: AppTheme.radiusControl
-                            color: categoryCell.selected ? AppTheme.accentSoft
-                                   : categoryCell.hovered ? AppTheme.hover
-                                                          : "transparent"
+                            color: categoryCell.selected || categoryCell.hovered
+                                   ? AppTheme.stormSelection : "transparent"
+                            // 2e: the active category carries a 2px bolt
+                            // underline bar at the cell's bottom edge.
+                            Rectangle {
+                                visible: categoryCell.selected
+                                anchors.left: parent.left
+                                anchors.right: parent.right
+                                anchors.bottom: parent.bottom
+                                anchors.leftMargin: 2
+                                anchors.rightMargin: 2
+                                height: 2
+                                color: AppTheme.bolt
+                            }
                         }
                     }
                 }
@@ -200,7 +216,7 @@ Popup {
         Rectangle {
             Layout.fillWidth: true
             implicitHeight: 1
-            color: AppTheme.border
+            color: AppTheme.stormBorder
         }
 
         // ── Body: one section heading + the current bucket's grid ───
@@ -269,9 +285,9 @@ Popup {
                                 anchors.margins: 2
                                 radius: AppTheme.radiusControl
                                 color: cell.activeFocus || mouse.hovered
-                                       ? AppTheme.accentSoft : "transparent"
+                                       ? AppTheme.stormSelection : "transparent"
                                 border.width: cell.activeFocus ? 2 : 0
-                                border.color: AppTheme.focusRing
+                                border.color: AppTheme.bolt
                             }
                             Label {
                                 anchors.centerIn: parent
@@ -283,7 +299,7 @@ Popup {
                                 anchors.right: parent.right
                                 anchors.bottom: parent.bottom
                                 text: "◢"
-                                color: AppTheme.textMuted
+                                color: AppTheme.stormTextMuted
                                 font.pixelSize: 8
                             }
                             HoverHandler {
@@ -335,7 +351,7 @@ Popup {
                         visible: app.emojiCatalog.count === 0
                         text: app.emojiCatalog.category === "Recently Used" && search.text.length === 0
                               ? qsTr("No recently used emoji") : qsTr("No emoji found")
-                        color: AppTheme.textMuted
+                        color: AppTheme.stormTextMuted
                         Accessible.name: text
                     }
                 }
@@ -346,7 +362,7 @@ Popup {
         Rectangle {
             Layout.fillWidth: true
             implicitHeight: 1
-            color: AppTheme.border
+            color: AppTheme.stormBorder
         }
         Item {
             Layout.fillWidth: true
@@ -374,7 +390,10 @@ Popup {
                     font.family: AppTheme.monoFont
                     font.pixelSize: AppTheme.fontMonoSm
                     font.weight: Font.Bold
-                    color: AppTheme.textPrimary
+                    // 2e footer: the previewed emoji's mono line inks bolt
+                    // (the ":zap:" slot; this catalogue carries no shortcode
+                    // column, so the display name rides that treatment).
+                    color: AppTheme.bolt
                     elide: Label.ElideRight
                 }
             }
@@ -384,8 +403,11 @@ Popup {
                 verticalAlignment: Text.AlignVCenter
                 horizontalAlignment: Text.AlignHCenter
                 text: qsTr("Enter selects · Alt+V or right-click opens skin tones · Esc closes")
-                color: AppTheme.textMuted
-                font.pixelSize: AppTheme.fontCaption
+                color: AppTheme.stormTextMuted
+                font.family: AppTheme.monoFont
+                font.pixelSize: AppTheme.fontChip
+                font.weight: Font.Medium
+                elide: Label.ElideRight
             }
         }
     }
@@ -399,8 +421,8 @@ Popup {
         padding: 4
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
         background: Rectangle {
-            color: AppTheme.surfaceElevated
-            border.color: AppTheme.borderStrong
+            color: AppTheme.stormPanel
+            border.color: AppTheme.stormBorder
             radius: AppTheme.radiusSm
         }
         Grid {
@@ -408,10 +430,18 @@ Popup {
             Repeater {
                 model: tonePopup.variants
                 ToolButton {
+                    id: toneButton
                     required property var modelData
                     width: 42; height: 42
                     text: modelData.emoji
                     font.pixelSize: 22
+                    // Storm hover fill in place of the Basic style's
+                    // palette-derived flat highlight on the navy panel.
+                    background: Rectangle {
+                        radius: AppTheme.radiusControl
+                        color: toneButton.hovered || toneButton.visualFocus
+                               ? AppTheme.stormSelection : "transparent"
+                    }
                     Accessible.name: modelData.name
                     ToolTip.text: modelData.name
                     ToolTip.visible: hovered

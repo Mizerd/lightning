@@ -21,6 +21,11 @@ import MatrixClient
 // a "GIF" tile badge + optional byte-size overlay, and a "return to send"
 // footer hint. The nine choose()/snapshot()/latch/reset invariants below are
 // UNCHANGED — only their surrounding visual chrome moved.
+//
+// Storm skin (SPEC-storm-language §3): stormPanel chrome, storm search field,
+// bolt-filled selected section chip, stormInset category chips, bolt
+// keyboard-selection ring on tiles, faint mono footer. Colors/fonts only —
+// structure, behavior and the invariants above are unchanged.
 Popup {
     id: picker
 
@@ -157,8 +162,8 @@ Popup {
     }
 
     background: Rectangle {
-        color: AppTheme.surface
-        border.color: AppTheme.borderStrong
+        color: AppTheme.stormPanel
+        border.color: AppTheme.stormBorder
         border.width: 1
         radius: AppTheme.radiusLg
     }
@@ -185,6 +190,7 @@ Popup {
                 Layout.fillWidth: true
                 searchIcon: true
                 clearButton: true
+                storm: true
                 placeholderText: qsTr("Search %1").arg(picker.gif.providerName)
                 Accessible.name: qsTr("Search GIFs")
                 selectByMouse: true
@@ -226,7 +232,7 @@ Popup {
                 radius: AppTheme.radiusMd
                 color: "transparent"
                 border.width: 1.5
-                border.color: AppTheme.borderStrong
+                border.color: AppTheme.stormBorderStrong
                 Label {
                     id: gifHeaderBadgeLabel
                     anchors.centerIn: parent
@@ -234,11 +240,12 @@ Popup {
                     font.family: AppTheme.monoFont
                     font.pixelSize: AppTheme.fontChip + 1
                     font.weight: Font.Bold
-                    color: AppTheme.textSecondary
+                    color: AppTheme.stormTextMuted
                 }
             }
 
             IconButton {
+                storm: true
                 implicitWidth: 28; implicitHeight: 28
                 radius: 6
                 iconName: "close"
@@ -252,6 +259,7 @@ Popup {
         SegmentedControl {
             id: providerTabs
             objectName: "gifProviderTabs"
+            storm: true
             Layout.fillWidth: true
             // cfgRevision re-evaluates enabled/tip after a key refresh;
             // unavailable providers are disabled with an explanation —
@@ -315,32 +323,35 @@ Popup {
                             anchors.verticalCenter: parent.verticalCenter
                             name: sectionChip.modelData.icon
                             size: 13
-                            color: sectionChip.selected ? AppTheme.selectedText
-                                                        : AppTheme.textSecondary
+                            color: sectionChip.selected ? AppTheme.stormPanel
+                                                        : AppTheme.stormTextMuted
                         }
                         Label {
                             anchors.verticalCenter: parent.verticalCenter
                             text: sectionChip.modelData.label
-                            font.pixelSize: 12
-                            font.weight: Font.DemiBold
-                            color: sectionChip.selected ? AppTheme.selectedText
-                                                        : AppTheme.textSecondary
+                            // §3.7 scope/filter chip vocabulary: mono
+                            // UPPERCASE; selected = bolt pill with dark ink.
+                            font.family: AppTheme.monoFont
+                            font.pixelSize: AppTheme.fontChip
+                            font.weight: Font.Bold
+                            font.capitalization: Font.AllUppercase
+                            color: sectionChip.selected ? AppTheme.stormPanel
+                                                        : AppTheme.stormTextMuted
                         }
                     }
                     background: Rectangle {
                         radius: AppTheme.radiusPill
-                        color: sectionChip.selected ? AppTheme.accentSoft
+                        color: sectionChip.selected ? AppTheme.bolt
                                                     : "transparent"
-                        border.width: 1
-                        border.color: sectionChip.selected ? AppTheme.accentBorder
-                                                           : AppTheme.border
+                        border.width: sectionChip.selected ? 0 : 1
+                        border.color: AppTheme.stormBorderStrong
                     }
                     Rectangle {
                         anchors.fill: parent
                         anchors.margins: -3
                         radius: AppTheme.radiusPill
                         color: "transparent"
-                        border.color: AppTheme.focusRing
+                        border.color: AppTheme.bolt
                         border.width: 2
                         visible: sectionChip.visualFocus
                     }
@@ -370,15 +381,16 @@ Popup {
                     contentItem: Label {
                         id: chipLabel
                         text: categoryChip.text
+                        font.family: AppTheme.monoFont
                         font.pixelSize: 11
                         font.weight: Font.DemiBold
-                        color: AppTheme.textSecondary
+                        color: AppTheme.stormTextMuted
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
                     }
                     background: Rectangle {
-                        color: categoryChip.hovered ? AppTheme.hover
-                                                    : AppTheme.cardElevated
+                        color: categoryChip.hovered ? AppTheme.stormSelection
+                                                    : AppTheme.stormInset
                         radius: AppTheme.radiusPill
                     }
                     Rectangle {
@@ -386,7 +398,7 @@ Popup {
                         anchors.margins: -3
                         radius: AppTheme.radiusPill
                         color: "transparent"
-                        border.color: AppTheme.focusRing
+                        border.color: AppTheme.bolt
                         border.width: 2
                         visible: categoryChip.visualFocus
                     }
@@ -496,9 +508,9 @@ Popup {
                     anchors.fill: parent
                     anchors.margins: 3
                     radius: AppTheme.radiusThumb
-                    color: AppTheme.cardElevated
+                    color: AppTheme.stormInset
                     border.width: tile.current ? 2 : 0
-                    border.color: AppTheme.accent
+                    border.color: AppTheme.bolt
                     clip: true
 
                     // Still fallback shows immediately; the animation plays on
@@ -640,7 +652,7 @@ Popup {
             width: parent.width - AppTheme.spacingL * 2
             horizontalAlignment: Text.AlignHCenter
             wrapMode: Text.WordWrap
-            color: AppTheme.textMuted
+            color: AppTheme.stormTextMuted
             font.pixelSize: 13
             text: {
                 if (!picker.gif.available)
@@ -681,7 +693,8 @@ Popup {
         Label {
             id: attributionLabel
             Layout.fillWidth: true
-            color: AppTheme.textMuted
+            color: AppTheme.stormTextMuted
+            font.family: AppTheme.monoFont
             font.pixelSize: 9
             elide: Text.ElideRight
             // The narrower 330px design width has no room for the previous
@@ -698,7 +711,8 @@ Popup {
         }
         Label {
             text: qsTr("send")
-            color: AppTheme.textMuted
+            color: AppTheme.stormTextMuted
+            font.family: AppTheme.monoFont
             font.pixelSize: AppTheme.fontMicro
         }
     }

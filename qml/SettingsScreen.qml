@@ -157,7 +157,7 @@ Item {
         var lowerQ = escapeHtml(q).toLowerCase()
         var idx = lowerSafe.indexOf(lowerQ)
         if (idx === -1) return safe
-        return safe.slice(0, idx) + "<font color=\"" + AppTheme.accent + "\">"
+        return safe.slice(0, idx) + "<font color=\"" + AppTheme.bolt + "\">"
              + safe.slice(idx, idx + lowerQ.length) + "</font>"
              + safe.slice(idx + lowerQ.length)
     }
@@ -166,14 +166,15 @@ Item {
     component SettingsCard: Pane {
         Layout.fillWidth: true
         background: Rectangle {
-            color: AppTheme.surface
-            border.color: AppTheme.border
+            color: AppTheme.stormCanvas
+            border.color: AppTheme.stormBorder
             radius: AppTheme.radiusMd
         }
     }
 
-    // SPEC 1v nav row: icon + label, 32px, radiusTile, active row gets
-    // the soft-accent background with accent text.
+    // Storm §4 2f nav row: 32px, radiusTile; the active row fills
+    // stormSelection, brightens icon (bolt) and label (stormText), and
+    // carries the signature edge-bolt caret overhanging its left edge.
     component SettingsNavRow: ItemDelegate {
         id: navRow
         property string sectionKey: ""
@@ -182,6 +183,9 @@ Item {
         objectName: "settingsNavRow_" + sectionKey
         Layout.fillWidth: true
         implicitHeight: 32
+        // Constant content inset clearing the caret gutter (§3.2 — never
+        // active-only, so rows don't shift as the selection moves).
+        leftPadding: padding + 4
         // SPEC 1v: typing in the search field narrows the nav to sections
         // with at least one matching result.
         visible: root.settingsSearchQuery.trim().length === 0
@@ -194,27 +198,35 @@ Item {
             spacing: AppTheme.spacing8
             Icon {
                 name: navRow.iconName
-                size: 18
-                // R2/SPEC 1v: the active row inks in selectedText (the
-                // selection ink), not the on-accent-fill ink.
-                color: navRow.highlighted ? AppTheme.selectedText
-                                          : AppTheme.textSecondary
+                size: 16
+                color: navRow.highlighted ? AppTheme.bolt
+                                          : AppTheme.stormTextMuted
             }
             Label {
                 text: navRow.navLabel
                 Layout.fillWidth: true
-                color: navRow.highlighted ? AppTheme.selectedText
-                                          : AppTheme.textPrimary
-                font.pixelSize: AppTheme.fontBody
-                font.weight: navRow.highlighted ? Font.Bold : Font.Medium
+                color: navRow.highlighted ? AppTheme.stormText
+                                          : AppTheme.stormTextSecondary
+                font.family: AppTheme.menuFont
+                font.pixelSize: AppTheme.fontSecondary
+                font.weight: navRow.highlighted ? Font.Bold : Font.DemiBold
                 elide: Label.ElideRight
             }
         }
         background: Rectangle {
             radius: AppTheme.radiusTile
-            color: navRow.highlighted ? AppTheme.accentSoft
-                 : navRow.hovered ? AppTheme.hover
+            color: navRow.highlighted ? AppTheme.stormSelection
+                 : navRow.hovered ? Qt.alpha(AppTheme.stormSelection, 0.55)
                  : "transparent"
+            Icon {
+                visible: navRow.highlighted
+                name: "bolt"
+                size: 11
+                color: AppTheme.bolt
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.left: parent.left
+                anchors.leftMargin: -2
+            }
         }
     }
 
@@ -315,7 +327,7 @@ Item {
         }
     }
 
-    Rectangle { anchors.fill: parent; color: AppTheme.background }
+    Rectangle { anchors.fill: parent; color: AppTheme.stormDeep }
 
     ColumnLayout {
         anchors.fill: parent
@@ -327,7 +339,7 @@ Item {
             objectName: "settingsHeaderBar"
             Layout.fillWidth: true
             implicitHeight: 44
-            color: AppTheme.background
+            color: AppTheme.stormDeep
             RowLayout {
                 anchors.fill: parent
                 anchors.leftMargin: AppTheme.spacing24
@@ -336,18 +348,20 @@ Item {
                 Icon {
                     name: root.sectionIcon(root.section)
                     size: 22
-                    color: AppTheme.accent
+                    color: AppTheme.bolt
                 }
                 Label {
                     objectName: "settingsHeaderTitle"
                     text: qsTr("Settings — %1").arg(root.sectionTitle(root.section))
-                    color: AppTheme.textPrimary
+                    color: AppTheme.stormText
+                    font.family: AppTheme.menuFont
                     font.pixelSize: 15
                     font.weight: Font.ExtraBold
                     elide: Label.ElideRight
                     Layout.fillWidth: true
                 }
                 IconButton {
+                    storm: true
                     objectName: "settingsCloseButton"
                     iconName: "close"
                     iconSize: 20
@@ -359,7 +373,7 @@ Item {
                 }
             }
         }
-        Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: AppTheme.border }
+        Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: AppTheme.stormBorder }
 
         RowLayout {
             Layout.fillWidth: true
@@ -372,7 +386,7 @@ Item {
                 Layout.fillHeight: true
                 Layout.preferredWidth: 260
                 Layout.minimumWidth: 200
-                color: AppTheme.sidebar
+                color: AppTheme.stormCanvas
                 // Structural containment: nothing hosted in this column
                 // (search results, inline controls) may ever paint across
                 // the divider into the content pane, whatever its width.
@@ -383,18 +397,25 @@ Item {
                     anchors.margins: AppTheme.spacing12
                     spacing: 2
 
-                    // SPEC 1v: 17px/800 pane title with a tight 12px gap to
-                    // the search field — the previous 24px page-title size
-                    // and stacked margins pushed the section rows visibly
-                    // lower than the mock's rhythm.
-                    Label {
-                        text: qsTr("Settings")
-                        color: AppTheme.textPrimary
-                        font.pixelSize: AppTheme.fontNavTitle
-                        font.weight: Font.ExtraBold
+                    // Storm §4 2f pane title: filled-look bolt + Space
+                    // Grotesk 16-17/700, tight 12px gap to the search field.
+                    RowLayout {
+                        spacing: AppTheme.spacing8
                         Layout.leftMargin: AppTheme.spacing8
                         Layout.topMargin: AppTheme.spacing4
                         Layout.bottomMargin: AppTheme.spacing4
+                        Icon {
+                            name: "bolt"
+                            size: 15
+                            color: AppTheme.bolt
+                        }
+                        Label {
+                            text: qsTr("Settings")
+                            color: AppTheme.stormText
+                            font.family: AppTheme.menuFont
+                            font.pixelSize: AppTheme.fontNavTitle
+                            font.weight: Font.Bold
+                        }
                     }
 
                     // SPEC 1v: search field directly under the title, with a
@@ -409,6 +430,7 @@ Item {
                             Layout.fillWidth: true
                             searchIcon: true
                             clearButton: true
+                            storm: true
                             placeholderText: qsTr("Search settings…")
                             Accessible.name: qsTr("Search settings")
                             onTextChanged: root.settingsSearchQuery = text
@@ -433,7 +455,7 @@ Item {
                             visible: root.matchedSearchResults.length === 0
                             Layout.fillWidth: true
                             text: qsTr("No matching settings")
-                            color: AppTheme.textMuted
+                            color: AppTheme.stormTextMuted
                             font.pixelSize: AppTheme.fontSizeXS
                         }
 
@@ -446,7 +468,7 @@ Item {
                                 objectName: "settingsSearchResult_" + index
                                 Layout.fillWidth: true
                                 radius: AppTheme.radiusLg
-                                color: resultHover.hovered ? AppTheme.hover : "transparent"
+                                color: resultHover.hovered ? AppTheme.stormSelection : "transparent"
                                 implicitHeight: resultContent.implicitHeight
                                                 + AppTheme.spacing8
 
@@ -467,7 +489,7 @@ Item {
                                             text: root.highlightedTitle(
                                                 resultRow.modelData.title,
                                                 root.settingsSearchQuery)
-                                            color: AppTheme.textPrimary
+                                            color: AppTheme.stormText
                                             font.pixelSize: AppTheme.fontSecondary
                                             font.weight: Font.DemiBold
                                             elide: Label.ElideRight
@@ -475,7 +497,7 @@ Item {
                                         Label {
                                             Layout.fillWidth: true
                                             text: resultRow.modelData.breadcrumb
-                                            color: AppTheme.textMuted
+                                            color: AppTheme.stormTextMuted
                                             font.pixelSize: AppTheme.fontMonoSm
                                             elide: Label.ElideRight
                                         }
@@ -494,6 +516,7 @@ Item {
                                         // instead of letting it paint across
                                         // the nav divider into the pane.
                                         SegmentedControl {
+                                            storm: true
                                             objectName: "settingsSearchInlineMessageLayout_" + resultRow.index
                                             visible: resultRow.modelData.control === "messageLayout"
                                             dense: true
@@ -570,7 +593,7 @@ Item {
                                     required property string modelData
                                     radius: AppTheme.radiusPill
                                     color: quickChipHover.hovered
-                                           ? AppTheme.hover : AppTheme.cardElevated
+                                           ? AppTheme.stormSelection : AppTheme.stormInset
                                     implicitWidth: quickChipLabel.implicitWidth
                                                    + AppTheme.spacing12
                                     implicitHeight: quickChipLabel.implicitHeight
@@ -581,7 +604,7 @@ Item {
                                         text: quickChip.modelData
                                         font.family: AppTheme.monoFont
                                         font.pixelSize: AppTheme.fontChip
-                                        color: AppTheme.textSecondary
+                                        color: AppTheme.stormTextSecondary
                                     }
                                     HoverHandler { id: quickChipHover }
                                     TapHandler {
@@ -629,6 +652,45 @@ Item {
                         navLabel: qsTr("Labs")
                     }
                     Item { Layout.fillHeight: true }
+
+                    // Storm §4 2f: mono match counter pinned at the nav
+                    // bottom while a search narrows the rows.
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 0
+                        visible: root.settingsSearchQuery.trim().length > 0
+                        Rectangle {
+                            Layout.fillWidth: true
+                            implicitHeight: 1
+                            color: AppTheme.stormBorder
+                        }
+                        Label {
+                            objectName: "settingsSearchMatchCounter"
+                            Layout.fillWidth: true
+                            Layout.topMargin: AppTheme.spacing8
+                            Layout.bottomMargin: AppTheme.spacing4
+                            Layout.leftMargin: AppTheme.spacing8
+                            text: {
+                                var sections = 0
+                                for (var k in root.matchedSearchSections) {
+                                    if (root.matchedSearchSections[k] === true)
+                                        sections++
+                                }
+                                // Mock-style always-plural mono counter.
+                                return qsTr("Matches · %1 sections · %2 settings")
+                                       .arg(sections)
+                                       .arg(root.matchedSearchResults.length)
+                            }
+                            font.family: AppTheme.monoFont
+                            font.pixelSize: AppTheme.fontMicro
+                            font.weight: Font.Medium
+                            font.letterSpacing: 1.0
+                            font.capitalization: Font.AllUppercase
+                            color: AppTheme.stormTextFaint
+                            elide: Label.ElideRight
+                        }
+                    }
+
                     SettingsNavRow {
                         sectionKey: "about"
                         iconName: "info"
@@ -636,7 +698,7 @@ Item {
                     }
                 }
             }
-            Rectangle { Layout.fillHeight: true; implicitWidth: 1; color: AppTheme.border }
+            Rectangle { Layout.fillHeight: true; implicitWidth: 1; color: AppTheme.stormBorder }
 
             // ── Right content pane ───────────────────────────────────────
             Flickable {
@@ -667,7 +729,7 @@ Item {
 
                         Label {
                             text: qsTr("Appearance")
-                            color: AppTheme.textPrimary
+                            color: AppTheme.stormText
                             font.pixelSize: 19
                             font.weight: Font.ExtraBold
                         }
@@ -675,7 +737,7 @@ Item {
                             Layout.fillWidth: true
                             Layout.topMargin: -AppTheme.spacing8
                             text: qsTr("Theme, message layout and text size — per account.")
-                            color: AppTheme.textMuted
+                            color: AppTheme.stormTextMuted
                             font.pixelSize: AppTheme.fontSecondary
                             wrapMode: Text.WordWrap
                         }
@@ -683,10 +745,11 @@ Item {
                         Label {
                             Layout.topMargin: AppTheme.spacing8
                             text: qsTr("THEME")
-                            color: AppTheme.sectionLabelColor
+                            color: AppTheme.stormTextFaint
                             font.pixelSize: AppTheme.fontChip
-                            font.weight: Font.ExtraBold
-                            font.letterSpacing: AppTheme.trackingSection
+                            font.family: AppTheme.monoFont
+                            font.weight: Font.DemiBold
+                            font.letterSpacing: AppTheme.trackingStorm
                         }
                         // Three featured design themes with FIXED preview
                         // palettes (the one place the design allows
@@ -732,7 +795,7 @@ Item {
                                     // the preview's corners anyway — all it
                                     // did was shave the rings to corner
                                     // crescents and a protruding edge sliver.
-                                    color: AppTheme.surface
+                                    color: AppTheme.stormCanvas
                                     // The outline is drawn as an overlay
                                     // sibling BELOW (z above the children):
                                     // previewTop/cardFoot fill to the edges
@@ -757,7 +820,7 @@ Item {
                                         visible: themeCard.selectedTheme
                                         color: "transparent"
                                         border.width: 3
-                                        border.color: Qt.alpha(AppTheme.accent,
+                                        border.color: Qt.alpha(AppTheme.bolt,
                                                                0.18)
                                     }
                                     // Keyboard focus ring (shared treatment).
@@ -769,7 +832,7 @@ Item {
                                         visible: themeCard.activeFocus
                                         color: "transparent"
                                         border.width: 2
-                                        border.color: AppTheme.focusRing
+                                        border.color: AppTheme.bolt
                                     }
 
                                     // Preview top: 96px painted in the
@@ -835,7 +898,7 @@ Item {
                                         anchors.left: parent.left
                                         anchors.right: parent.right
                                         height: footRow.implicitHeight + 20
-                                        color: AppTheme.surface
+                                        color: AppTheme.stormCanvas
                                         // Follow the card's rounded bottom,
                                         // mirroring previewTop's top arcs.
                                         bottomLeftRadius: 11
@@ -851,21 +914,21 @@ Item {
                                                 implicitHeight: 14
                                                 radius: 7
                                                 color: themeCard.selectedTheme
-                                                       ? AppTheme.accent : "transparent"
+                                                       ? AppTheme.bolt : "transparent"
                                                 border.width: 2
                                                 border.color: themeCard.selectedTheme
-                                                              ? AppTheme.accent
-                                                              : AppTheme.textDisabled
+                                                              ? AppTheme.bolt
+                                                              : AppTheme.stormTextFaint
                                                 Rectangle {
                                                     anchors.centerIn: parent
                                                     width: 5; height: 5; radius: 2.5
                                                     visible: themeCard.selectedTheme
-                                                    color: AppTheme.accentText
+                                                    color: AppTheme.stormText
                                                 }
                                             }
                                             Label {
                                                 text: themeCard.modelData.name
-                                                color: AppTheme.textPrimary
+                                                color: AppTheme.stormText
                                                 font.pixelSize: 13
                                                 font.weight: Font.Bold
                                                 elide: Label.ElideRight
@@ -884,8 +947,8 @@ Item {
                                         color: "transparent"
                                         border.width: 1.5
                                         border.color: themeCard.selectedTheme
-                                                      ? AppTheme.accent
-                                                      : AppTheme.border
+                                                      ? AppTheme.bolt
+                                                      : AppTheme.stormBorder
                                     }
 
                                     TapHandler {
@@ -903,10 +966,11 @@ Item {
                         Label {
                             Layout.topMargin: AppTheme.spacing8
                             text: qsTr("MORE THEMES")
-                            color: AppTheme.sectionLabelColor
+                            color: AppTheme.stormTextFaint
                             font.pixelSize: AppTheme.fontChip
-                            font.weight: Font.ExtraBold
-                            font.letterSpacing: AppTheme.trackingSection
+                            font.family: AppTheme.monoFont
+                            font.weight: Font.DemiBold
+                            font.letterSpacing: AppTheme.trackingStorm
                         }
                         Flow {
                             Layout.fillWidth: true
@@ -924,11 +988,11 @@ Item {
                                     implicitWidth: miniRow.implicitWidth + 24
                                     implicitHeight: 34
                                     radius: 9
-                                    color: selectedTheme ? AppTheme.accentSoft
-                                           : miniHover.hovered ? AppTheme.hover
-                                                               : AppTheme.cardElevated
+                                    color: selectedTheme ? AppTheme.stormSelection
+                                           : miniHover.hovered ? AppTheme.stormSelection
+                                                               : AppTheme.stormInset
                                     border.width: selectedTheme ? 1.5 : 0
-                                    border.color: AppTheme.accent
+                                    border.color: AppTheme.bolt
                                     Accessible.role: Accessible.RadioButton
                                     Accessible.name: modelData.name
                                     Accessible.focusable: true
@@ -942,7 +1006,7 @@ Item {
                                         visible: miniThemeCard.activeFocus
                                         color: "transparent"
                                         border.width: 2
-                                        border.color: AppTheme.focusRing
+                                        border.color: AppTheme.bolt
                                     }
                                     RowLayout {
                                         id: miniRow
@@ -963,8 +1027,8 @@ Item {
                                         Label {
                                             text: miniThemeCard.modelData.name
                                             color: miniThemeCard.selectedTheme
-                                                   ? AppTheme.accentText
-                                                   : AppTheme.textSecondary
+                                                   ? AppTheme.stormText
+                                                   : AppTheme.stormTextSecondary
                                             font.pixelSize: 12
                                             font.weight: Font.Bold
                                         }
@@ -1006,7 +1070,7 @@ Item {
                                     implicitHeight: 20
                                     radius: 99
                                     color: app.settings.theme === 0
-                                           ? AppTheme.accent : AppTheme.textDisabled
+                                           ? AppTheme.bolt : AppTheme.stormTextFaint
                                     Rectangle {
                                         width: 16; height: 16; radius: 8
                                         color: "#FFFFFF"
@@ -1019,7 +1083,7 @@ Item {
                                 }
                                 Label {
                                     text: qsTr("Match system light/dark")
-                                    color: AppTheme.textSecondary
+                                    color: AppTheme.stormTextSecondary
                                     font.pixelSize: 13
                                 }
                             }
@@ -1030,7 +1094,7 @@ Item {
                                 radius: 8
                                 color: "transparent"
                                 border.width: 2
-                                border.color: AppTheme.focusRing
+                                border.color: AppTheme.bolt
                                 visible: matchSystemSwitch.visualFocus
                             }
                         }
@@ -1038,7 +1102,7 @@ Item {
                             Layout.fillWidth: true
                             Layout.leftMargin: AppTheme.spacing4
                             wrapMode: Text.WordWrap
-                            color: AppTheme.textMuted
+                            color: AppTheme.stormTextMuted
                             font.pixelSize: AppTheme.fontCaption
                             text: qsTr("When on, Lightning follows the system scheme: "
                                        + "Moss Light in light mode, Indigo Night in dark mode.")
@@ -1047,12 +1111,14 @@ Item {
                         Label {
                             Layout.topMargin: AppTheme.spacing8
                             text: qsTr("MESSAGE LAYOUT")
-                            color: AppTheme.sectionLabelColor
+                            color: AppTheme.stormTextFaint
                             font.pixelSize: AppTheme.fontChip
-                            font.weight: Font.ExtraBold
-                            font.letterSpacing: AppTheme.trackingSection
+                            font.family: AppTheme.monoFont
+                            font.weight: Font.DemiBold
+                            font.letterSpacing: AppTheme.trackingStorm
                         }
                         SegmentedControl {
+                            storm: true
                             objectName: "messageLayoutControl"
                             model: [
                                 { label: qsTr("Modern"), value: 0 },
@@ -1067,7 +1133,7 @@ Item {
                             Layout.fillWidth: true
                             Layout.leftMargin: AppTheme.spacing4
                             wrapMode: Text.WordWrap
-                            color: AppTheme.textMuted
+                            color: AppTheme.stormTextMuted
                             font.pixelSize: AppTheme.fontCaption
                             text: qsTr("Bubbles applies to direct messages; rooms keep "
                                        + "the Modern rows. Compact tightens every timeline.")
@@ -1076,17 +1142,18 @@ Item {
                         Label {
                             Layout.topMargin: AppTheme.spacing8
                             text: qsTr("TEXT SIZE")
-                            color: AppTheme.sectionLabelColor
+                            color: AppTheme.stormTextFaint
                             font.pixelSize: AppTheme.fontChip
-                            font.weight: Font.ExtraBold
-                            font.letterSpacing: AppTheme.trackingSection
+                            font.family: AppTheme.monoFont
+                            font.weight: Font.DemiBold
+                            font.letterSpacing: AppTheme.trackingStorm
                         }
                         RowLayout {
                             Layout.fillWidth: true
                             spacing: AppTheme.spacing12
                             Label {
                                 text: "A"
-                                color: AppTheme.textMuted
+                                color: AppTheme.stormTextMuted
                                 font.pixelSize: 12
                             }
                             Slider {
@@ -1108,13 +1175,13 @@ Item {
                                     width: textScaleSlider.availableWidth
                                     height: 4
                                     radius: 99
-                                    color: AppTheme.cardElevated
+                                    color: AppTheme.stormInset
                                     Rectangle {
                                         width: textScaleSlider.visualPosition
                                                * parent.width
                                         height: parent.height
                                         radius: 99
-                                        color: AppTheme.accent
+                                        color: AppTheme.bolt
                                     }
                                 }
                                 handle: Rectangle {
@@ -1137,12 +1204,12 @@ Item {
                                         color: "#40000000"
                                     }
                                     border.width: textScaleSlider.visualFocus ? 2 : 0
-                                    border.color: AppTheme.focusRing
+                                    border.color: AppTheme.bolt
                                 }
                             }
                             Label {
                                 text: "A"
-                                color: AppTheme.textMuted
+                                color: AppTheme.stormTextMuted
                                 font.pixelSize: 18
                             }
                         }
@@ -1150,7 +1217,7 @@ Item {
                             Layout.fillWidth: true
                             Layout.leftMargin: AppTheme.spacing4
                             wrapMode: Text.WordWrap
-                            color: AppTheme.textMuted
+                            color: AppTheme.stormTextMuted
                             font.pixelSize: AppTheme.fontCaption
                             text: qsTr("Scales message and list text. Interface chrome "
                                        + "and icons keep their size.")
@@ -1160,10 +1227,11 @@ Item {
                         Label {
                             Layout.topMargin: AppTheme.spacing8
                             text: qsTr("FONT")
-                            color: AppTheme.sectionLabelColor
+                            color: AppTheme.stormTextFaint
                             font.pixelSize: AppTheme.fontChip
-                            font.weight: Font.ExtraBold
-                            font.letterSpacing: AppTheme.trackingSection
+                            font.family: AppTheme.monoFont
+                            font.weight: Font.DemiBold
+                            font.letterSpacing: AppTheme.trackingStorm
                         }
                         ColumnLayout {
                             objectName: "uiFontSelector"
@@ -1186,16 +1254,16 @@ Item {
                                     background: Rectangle {
                                         radius: AppTheme.radiusMd
                                         color: fontRow.selected
-                                               ? AppTheme.accentSoft
+                                               ? AppTheme.stormSelection
                                                : fontRow.hovered
-                                                 ? AppTheme.hover
-                                                 : AppTheme.card
+                                                 ? AppTheme.stormSelection
+                                                 : AppTheme.stormInset
                                         border.width: 1
                                         border.color: fontRow.selected
-                                                      ? AppTheme.accentBorder
+                                                      ? AppTheme.stormBorderStrong
                                                       : fontRow.visualFocus
-                                                        ? AppTheme.focusRing
-                                                        : AppTheme.border
+                                                        ? AppTheme.bolt
+                                                        : AppTheme.stormBorder
                                     }
                                     contentItem: RowLayout {
                                         spacing: AppTheme.spacing12
@@ -1207,7 +1275,7 @@ Item {
                                                 font.family: fontRow.modelData
                                                 font.pixelSize: AppTheme.fontBody
                                                 font.weight: Font.DemiBold
-                                                color: AppTheme.textPrimary
+                                                color: AppTheme.stormText
                                             }
                                             // The sample previews the actual
                                             // family being offered.
@@ -1215,14 +1283,14 @@ Item {
                                                 text: qsTr("Messages, rooms and settings")
                                                 font.family: fontRow.modelData
                                                 font.pixelSize: AppTheme.fontSecondary
-                                                color: AppTheme.textMuted
+                                                color: AppTheme.stormTextMuted
                                             }
                                         }
                                         Icon {
                                             visible: fontRow.selected
                                             name: "check"
                                             size: 16
-                                            color: AppTheme.accent
+                                            color: AppTheme.bolt
                                         }
                                     }
                                 }
@@ -1232,7 +1300,7 @@ Item {
                             Layout.fillWidth: true
                             Layout.leftMargin: AppTheme.spacing4
                             wrapMode: Text.WordWrap
-                            color: AppTheme.textMuted
+                            color: AppTheme.stormTextMuted
                             font.pixelSize: AppTheme.fontCaption
                             text: qsTr("Applies to the whole interface. Code, Matrix "
                                        + "IDs, icons, and emoji keep their own fonts.")
@@ -1244,11 +1312,12 @@ Item {
                                 spacing: AppTheme.spacing8
                                 Label {
                                     text: qsTr("Timeline")
-                                    color: AppTheme.textSecondary
+                                    color: AppTheme.stormTextSecondary
                                     font.pixelSize: AppTheme.fontSecondary
                                     font.weight: Font.DemiBold
                                 }
                                 CheckBox {
+                                    palette.windowText: AppTheme.stormText
                                     objectName: "showRoomActivityCheck"
                                     text: qsTr("Show room activity")
                                     checked: app.settings.showRoomActivity
@@ -1260,7 +1329,7 @@ Item {
                                     Layout.fillWidth: true
                                     Layout.leftMargin: AppTheme.spacing4
                                     wrapMode: Text.WordWrap
-                                    color: AppTheme.textMuted
+                                    color: AppTheme.stormTextMuted
                                     font.pixelSize: AppTheme.fontCaption
                                     text: qsTr("Hide routine joins, leaves, profile changes, "
                                                + "and room setting updates. Messages and "
@@ -1269,10 +1338,11 @@ Item {
                                 Label {
                                     Layout.topMargin: AppTheme.spacing8
                                     text: qsTr("Mouse-wheel speed")
-                                    color: AppTheme.textSecondary
+                                    color: AppTheme.stormTextSecondary
                                     font.pixelSize: AppTheme.fontSecondary
                                 }
                                 AppComboBox {
+                                    storm: true
                                     id: wheelSpeedCombo
                                     objectName: "timelineWheelSpeedCombo"
                                     Layout.fillWidth: true
@@ -1307,7 +1377,7 @@ Item {
                                     Layout.fillWidth: true
                                     Layout.leftMargin: AppTheme.spacing4
                                     wrapMode: Text.WordWrap
-                                    color: AppTheme.textMuted
+                                    color: AppTheme.stormTextMuted
                                     font.pixelSize: AppTheme.fontCaption
                                     text: qsTr("How far one physical mouse-wheel notch moves "
                                                + "the timeline. Touchpad and precision scrolling "
@@ -1329,10 +1399,11 @@ Item {
                                 spacing: AppTheme.spacing8
                                 Label {
                                     text: qsTr("Language")
-                                    color: AppTheme.textSecondary
+                                    color: AppTheme.stormTextSecondary
                                     font.pixelSize: AppTheme.fontSecondary
                                 }
                                 AppComboBox {
+                                    storm: true
                                     Layout.fillWidth: true
                                     model: ["en", "lt"]
                                     currentIndex: Math.max(0, model.indexOf(app.settings.language))
@@ -1340,7 +1411,7 @@ Item {
                                 }
                                 Label {
                                     text: qsTr("Language switching requires an app restart.")
-                                    color: AppTheme.textMuted
+                                    color: AppTheme.stormTextMuted
                                     font.pixelSize: AppTheme.fontCaption
                                 }
                             }
@@ -1356,14 +1427,14 @@ Item {
 
                         Label {
                             text: qsTr("Privacy & security")
-                            color: AppTheme.textPrimary
+                            color: AppTheme.stormText
                             font.pixelSize: AppTheme.fontSectionTitle
                             font.weight: Font.ExtraBold
                         }
                         Label {
                             Layout.fillWidth: true
                             text: qsTr("Network privacy, encryption health, and recovery.")
-                            color: AppTheme.textMuted
+                            color: AppTheme.stormTextMuted
                             font.pixelSize: AppTheme.fontSecondary
                             wrapMode: Text.WordWrap
                         }
@@ -1371,7 +1442,7 @@ Item {
                         // v0.5.11: link-preview and GIF policy.
                         Label {
                             text: qsTr("Link previews & media")
-                            color: AppTheme.textPrimary
+                            color: AppTheme.stormText
                             font.pixelSize: AppTheme.fontSectionTitle
                             font.weight: Font.DemiBold
                             Layout.topMargin: AppTheme.spacing8
@@ -1382,47 +1453,64 @@ Item {
                                 spacing: AppTheme.spacing8
 
                                 CheckBox {
+                                    palette.windowText: AppTheme.stormText
                                     id: autoPreviewCheck
                                     text: qsTr("Automatically load previews in unencrypted rooms")
                                     checked: app.settings.autoLoadLinkPreviews
                                     onToggled: app.settings.autoLoadLinkPreviews = checked
                                 }
                                 CheckBox {
+                                    palette.windowText: AppTheme.stormText
                                     text: qsTr("Load previews in encrypted rooms")
                                     checked: app.settings.loadPreviewsInEncryptedRooms
                                     onToggled: app.settings.loadPreviewsInEncryptedRooms = checked
                                 }
-                                Label {
+                                // Privacy caution: a danger-ruled callout —
+                                // the RULE carries the caution semantics so
+                                // the copy itself stays readable body ink
+                                // (§1 keeps red text for live danger states).
+                                RowLayout {
                                     Layout.fillWidth: true
                                     Layout.leftMargin: AppTheme.spacing4
-                                    wrapMode: Text.WordWrap
-                                    color: AppTheme.warning
-                                    font.pixelSize: AppTheme.fontCaption
-                                    text: qsTr("Loading a preview contacts the linked website "
-                                               + "directly and may reveal your IP address and "
-                                               + "request timing. No JavaScript is executed. "
-                                               + "Encrypted-room previews are off by "
-                                               + "default; otherwise use each message's "
-                                               + "“Load link preview” action.")
+                                    spacing: AppTheme.spacing8
+                                    Rectangle {
+                                        Layout.fillHeight: true
+                                        implicitWidth: 2
+                                        radius: 1
+                                        color: AppTheme.stormDangerBorder
+                                    }
+                                    Label {
+                                        Layout.fillWidth: true
+                                        wrapMode: Text.WordWrap
+                                        color: AppTheme.stormTextSecondary
+                                        font.pixelSize: AppTheme.fontCaption
+                                        text: qsTr("Loading a preview contacts the linked website "
+                                                   + "directly and may reveal your IP address and "
+                                                   + "request timing. No JavaScript is executed. "
+                                                   + "Encrypted-room previews are off by "
+                                                   + "default; otherwise use each message's "
+                                                   + "“Load link preview” action.")
+                                    }
                                 }
 
                                 Rectangle {
                                     Layout.fillWidth: true
                                     implicitHeight: 1
-                                    color: AppTheme.border
+                                    color: AppTheme.stormBorder
                                 }
 
                                 // ─────────── GIFs ───────────
                                 Label {
                                     text: qsTr("GIFs")
-                                    color: AppTheme.textPrimary
+                                    color: AppTheme.stormText
                                     font.pixelSize: AppTheme.fontBody
                                     font.weight: Font.DemiBold
                                     Layout.topMargin: AppTheme.spacing4
                                 }
 
-                                Label { text: qsTr("Autoplay GIFs"); color: AppTheme.textSecondary }
+                                Label { text: qsTr("Autoplay GIFs"); color: AppTheme.stormTextSecondary }
                                 AppComboBox {
+                                    storm: true
                                     id: gifAutoplayCombo
                                     Layout.fillWidth: true
                                     textRole: "label"; valueRole: "value"
@@ -1436,8 +1524,9 @@ Item {
                                     onActivated: app.settings.gifAutoplay = currentValue
                                 }
 
-                                Label { text: qsTr("GIF safe search"); color: AppTheme.textSecondary }
+                                Label { text: qsTr("GIF safe search"); color: AppTheme.stormTextSecondary }
                                 AppComboBox {
+                                    storm: true
                                     id: gifRatingCombo
                                     Layout.fillWidth: true
                                     textRole: "label"; valueRole: "value"
@@ -1453,8 +1542,9 @@ Item {
                                     onActivated: app.settings.gifSafeSearch = currentValue
                                 }
 
-                                Label { text: qsTr("Preferred GIF provider"); color: AppTheme.textSecondary }
+                                Label { text: qsTr("Preferred GIF provider"); color: AppTheme.stormTextSecondary }
                                 AppComboBox {
+                                    storm: true
                                     id: gifProviderCombo
                                     Layout.fillWidth: true
                                     textRole: "label"; valueRole: "value"
@@ -1471,7 +1561,7 @@ Item {
                                     Layout.fillWidth: true
                                     Layout.leftMargin: AppTheme.spacing4
                                     wrapMode: Text.WordWrap
-                                    color: AppTheme.textMuted
+                                    color: AppTheme.stormTextMuted
                                     font.pixelSize: AppTheme.fontCaption
                                     text: qsTr("GIPHY: %1 · KLIPY: %2")
                                         .arg(app.gif.providerConfigured("giphy")
@@ -1481,6 +1571,7 @@ Item {
                                 }
 
                                 CheckBox {
+                                    palette.windowText: AppTheme.stormText
                                     text: qsTr("Store recently used GIFs")
                                     checked: app.settings.storeRecentGifs
                                     onToggled: app.settings.storeRecentGifs = checked
@@ -1490,7 +1581,7 @@ Item {
                                     Layout.fillWidth: true
                                     Layout.leftMargin: AppTheme.spacing4
                                     wrapMode: Text.WordWrap
-                                    color: AppTheme.textMuted
+                                    color: AppTheme.stormTextMuted
                                     font.pixelSize: AppTheme.fontCaption
                                     text: qsTr("GIF searches are sent directly to the "
                                                + "selected provider. Favorites and recent "
@@ -1503,12 +1594,14 @@ Item {
                                     Layout.fillWidth: true
                                     spacing: AppTheme.spacing8
                                     AppButton {
+                                        storm: true
                                         kind: "danger"
                                         text: qsTr("Clear recent GIFs")
                                         enabled: app.gif.recent.count > 0
                                         onClicked: gifClearConfirm.open("recent")
                                     }
                                     AppButton {
+                                        storm: true
                                         kind: "danger"
                                         text: qsTr("Clear GIF favorites")
                                         enabled: app.gif.favorites.count > 0
@@ -1527,7 +1620,7 @@ Item {
 
                         Label {
                             text: qsTr("Notifications")
-                            color: AppTheme.textPrimary
+                            color: AppTheme.stormText
                             font.pixelSize: AppTheme.fontSectionTitle
                             font.weight: Font.DemiBold
                         }
@@ -1536,6 +1629,7 @@ Item {
                                 width: parent.width
                                 spacing: AppTheme.spacing8
                                 CheckBox {
+                                    palette.windowText: AppTheme.stormText
                                     text: qsTr("Desktop notifications")
                                     checked: app.settings.notificationsEnabled
                                     onToggled: app.settings.notificationsEnabled = checked
@@ -1543,11 +1637,12 @@ Item {
                                 // v0.6.0 checkpoint 11: notification privacy.
                                 Label {
                                     text: qsTr("Notification preview")
-                                    color: AppTheme.textSecondary
+                                    color: AppTheme.stormTextSecondary
                                     font.pixelSize: AppTheme.fontSecondary
                                     font.weight: Font.DemiBold
                                 }
                                 AppComboBox {
+                                    storm: true
                                     objectName: "notificationPreviewCombo"
                                     Layout.fillWidth: true
                                     enabled: app.settings.notificationsEnabled
@@ -1563,7 +1658,7 @@ Item {
                                 Label {
                                     Layout.fillWidth: true
                                     wrapMode: Text.WordWrap
-                                    color: AppTheme.textMuted
+                                    color: AppTheme.stormTextMuted
                                     font.pixelSize: AppTheme.fontCaption
                                     text: qsTr("Sender only (the default) never shows "
                                                + "message text in notifications. "
@@ -1576,11 +1671,12 @@ Item {
                                 // v0.6.1: notification sound.
                                 Label {
                                     text: qsTr("Notification sound")
-                                    color: AppTheme.textSecondary
+                                    color: AppTheme.stormTextSecondary
                                     font.pixelSize: AppTheme.fontSecondary
                                     font.weight: Font.DemiBold
                                 }
                                 AppComboBox {
+                                    storm: true
                                     objectName: "notificationSoundCombo"
                                     Layout.fillWidth: true
                                     enabled: app.settings.notificationsEnabled
@@ -1596,7 +1692,7 @@ Item {
                                 Label {
                                     Layout.fillWidth: true
                                     wrapMode: Text.WordWrap
-                                    color: AppTheme.textMuted
+                                    color: AppTheme.stormTextMuted
                                     font.pixelSize: AppTheme.fontCaption
                                     text: qsTr("The sound plays only when a "
                                                + "notification is shown, so muted and "
@@ -1606,7 +1702,7 @@ Item {
                                 Label {
                                     Layout.fillWidth: true
                                     wrapMode: Text.WordWrap
-                                    color: AppTheme.textMuted
+                                    color: AppTheme.stormTextMuted
                                     font.pixelSize: AppTheme.fontCaption
                                     text: qsTr("Per-room notification modes (set from "
                                                + "Room information) apply to this "
@@ -1627,7 +1723,7 @@ Item {
 
                         Label {
                             text: qsTr("Account")
-                            color: AppTheme.textPrimary
+                            color: AppTheme.stormText
                             font.pixelSize: AppTheme.fontSectionTitle
                             font.weight: Font.DemiBold
                         }
@@ -1692,13 +1788,14 @@ Item {
                                                       : (app.accounts
                                                          ? (app.accounts.activeUserId || qsTr("(signed out)"))
                                                          : "")
-                                                color: AppTheme.textPrimary
+                                                color: AppTheme.stormText
                                                 font.pixelSize: AppTheme.fontSizeL
                                                 font.weight: Font.Bold
                                                 elide: Label.ElideRight
                                                 Layout.maximumWidth: 300
                                             }
                                             StatusChip {
+                                                storm: true
                                                 visible: app.backendName === "rust"
                                                 label: app.sessionTrustState
                                                 iconName: app.sessionTrustState === "Verified"
@@ -1716,7 +1813,7 @@ Item {
                                         Label {
                                             Layout.fillWidth: true
                                             text: app.accounts ? (app.accounts.activeUserId || "") : ""
-                                            color: AppTheme.monoIdentityColor
+                                            color: AppTheme.stormTextMuted
                                             font.family: AppTheme.monoFont
                                             font.pixelSize: AppTheme.fontMonoXS
                                             elide: Label.ElideMiddle
@@ -1724,20 +1821,21 @@ Item {
                                         Label {
                                             visible: app.backendName === "rust" && app.sessionDeviceId !== ""
                                             text: qsTr("Device %1").arg(app.sessionDeviceId)
-                                            color: AppTheme.textMuted
+                                            color: AppTheme.stormTextMuted
                                             font.family: AppTheme.monoFont
                                             font.pixelSize: AppTheme.fontMonoXS
                                         }
                                     }
                                 }
                                 AppButton {
+                                    storm: true
                                     text: qsTr("Open Privacy & security")
                                     onClicked: root.section = "privacy"
                                 }
                                 Label {
                                     Layout.fillWidth: true
                                     wrapMode: Text.WordWrap
-                                    color: AppTheme.textMuted
+                                    color: AppTheme.stormTextMuted
                                     font.pixelSize: AppTheme.fontCaption
                                     text: qsTr("To sign out, use the account menu at the "
                                                + "bottom of the sidebar.")
@@ -1750,11 +1848,12 @@ Item {
                                 spacing: AppTheme.spacing8
                                 Label {
                                     text: qsTr("Homeserver")
-                                    color: AppTheme.textSecondary
+                                    color: AppTheme.stormTextSecondary
                                     font.pixelSize: AppTheme.fontSecondary
                                     font.weight: Font.DemiBold
                                 }
                                 AppTextField {
+                                    storm: true
                                     Layout.fillWidth: true
                                     text: app.settings.homeserverUrl
                                     placeholderText: "https://matrix.org"
@@ -1763,7 +1862,7 @@ Item {
                                 Label {
                                     Layout.fillWidth: true
                                     wrapMode: Text.WordWrap
-                                    color: AppTheme.textMuted
+                                    color: AppTheme.stormTextMuted
                                     font.pixelSize: AppTheme.fontCaption
                                     text: qsTr("Changing the homeserver takes effect at the next sign-in.")
                                 }
@@ -1776,11 +1875,12 @@ Item {
                                 spacing: AppTheme.spacing8
                                 Label {
                                     text: qsTr("Startup")
-                                    color: AppTheme.textSecondary
+                                    color: AppTheme.stormTextSecondary
                                     font.pixelSize: AppTheme.fontSecondary
                                     font.weight: Font.DemiBold
                                 }
                                 CheckBox {
+                                    palette.windowText: AppTheme.stormText
                                     text: qsTr("Start minimized")
                                     checked: app.settings.startMinimized
                                     onToggled: app.settings.startMinimized = checked
@@ -1803,33 +1903,33 @@ Item {
                                 Label {
                                     Layout.fillWidth: true
                                     wrapMode: Text.WordWrap
-                                    color: AppTheme.textMuted
+                                    color: AppTheme.stormTextMuted
                                     text: qsTr("Secret backend: %1").arg(app.settings.secretBackendName)
                                 }
                                 Label {
                                     Layout.fillWidth: true
                                     wrapMode: Text.WordWrap
                                     visible: app.settings.secretsAreSecure
-                                    color: AppTheme.success
+                                    color: AppTheme.stormSuccess
                                     text: qsTr("Access tokens are stored via the system Secret Service. Logout clears them.")
                                 }
                                 Label {
                                     Layout.fillWidth: true
                                     wrapMode: Text.WordWrap
                                     visible: !app.settings.secretsAreSecure
-                                    color: AppTheme.danger
+                                    color: AppTheme.stormDanger
                                     text: qsTr("Insecure fallback active: access tokens are stored in QSettings (plaintext). Install a Secret Service provider (e.g. gnome-keyring, KWallet with libsecret support) and restart to enable secure storage.")
                                 }
                                 Label {
                                     Layout.fillWidth: true
                                     wrapMode: Text.WordWrap
-                                    color: AppTheme.textMuted
+                                    color: AppTheme.stormTextMuted
                                     text: qsTr("Crypto backend: %1").arg(app.crypto.backendDescription)
                                 }
                                 Label {
                                     Layout.fillWidth: true
                                     wrapMode: Text.WordWrap
-                                    color: app.crypto.supportsE2ee ? AppTheme.success : AppTheme.textMuted
+                                    color: app.crypto.supportsE2ee ? AppTheme.stormSuccess : AppTheme.stormTextMuted
                                     text: qsTr("E2EE status: %1").arg(app.crypto.statusString)
                                 }
                             }
@@ -1848,7 +1948,7 @@ Item {
                                     Layout.fillWidth: true
                                     Label {
                                         text: qsTr("Security status")
-                                        color: AppTheme.textSecondary
+                                        color: AppTheme.stormTextSecondary
                                         font.pixelSize: AppTheme.fontSecondary
                                         font.weight: Font.DemiBold
                                     }
@@ -1856,7 +1956,7 @@ Item {
                                     Label {
                                         objectName: "cryptoHealthRefresh"
                                         text: qsTr("Refresh")
-                                        color: AppTheme.accent
+                                        color: AppTheme.stormLink
                                         font.pixelSize: AppTheme.fontSecondary
                                         font.underline: true
                                         MouseArea {
@@ -1870,7 +1970,7 @@ Item {
                                     objectName: "cryptoHealthSummary"
                                     Layout.fillWidth: true
                                     wrapMode: Text.WordWrap
-                                    color: AppTheme.text
+                                    color: AppTheme.stormText
                                     text: app.cryptoHealth.statusSummary
                                 }
                                 // v0.7: live verified-session bootstrap
@@ -1901,10 +2001,10 @@ Item {
                                         wrapMode: Text.WordWrap
                                         color: app.cryptoBootstrap.phase
                                                    === CryptoBootstrapModel.Ready
-                                               ? AppTheme.success
+                                               ? AppTheme.stormSuccess
                                                : app.cryptoBootstrap.needsRecoveryKey
-                                                 ? AppTheme.accent
-                                                 : AppTheme.text
+                                                 ? AppTheme.bolt
+                                                 : AppTheme.stormText
                                         font.pixelSize: AppTheme.fontSecondary
                                         text: app.cryptoBootstrap.statusMessage
                                         Accessible.role: Accessible.StaticText
@@ -1921,6 +2021,7 @@ Item {
                                 // useful (session verified, identity
                                 // trusted, secrets still missing).
                                 AppButton {
+                                    storm: true
                                     objectName: "requestKeysAgain"
                                     visible: app.cryptoBootstrap.canRequestKeys
                                     enabled: app.loggedIn
@@ -1936,6 +2037,7 @@ Item {
                                 // No new crypto: this is the existing
                                 // startOwnVerification path.
                                 AppButton {
+                                    storm: true
                                     objectName: "verifyAgainForKeys"
                                     visible: app.cryptoBootstrap.phase
                                                  === CryptoBootstrapModel.IdentityIncomplete
@@ -1962,7 +2064,7 @@ Item {
                                 Label {
                                     Layout.fillWidth: true
                                     wrapMode: Text.WordWrap
-                                    color: AppTheme.textMuted
+                                    color: AppTheme.stormTextMuted
                                     text: {
                                         var device = app.cryptoHealth.currentDeviceVerified
                                         var deviceText = device === CryptoHealthModel.Yes
@@ -1975,7 +2077,7 @@ Item {
                                 Label {
                                     Layout.fillWidth: true
                                     wrapMode: Text.WordWrap
-                                    color: AppTheme.textMuted
+                                    color: AppTheme.stormTextMuted
                                     text: app.cryptoHealth.crossSigningReady
                                           ? qsTr("Cross-signing: ready")
                                           : app.cryptoHealth.crossSigningAvailable
@@ -1985,7 +2087,7 @@ Item {
                                 Label {
                                     Layout.fillWidth: true
                                     wrapMode: Text.WordWrap
-                                    color: AppTheme.textMuted
+                                    color: AppTheme.stormTextMuted
                                     text: app.cryptoHealth.keyBackupUsable
                                           ? qsTr("Key backup: active on this session")
                                           : app.cryptoHealth.keyBackupAvailable
@@ -1995,7 +2097,7 @@ Item {
                                 Label {
                                     Layout.fillWidth: true
                                     wrapMode: Text.WordWrap
-                                    color: AppTheme.textMuted
+                                    color: AppTheme.stormTextMuted
                                     text: app.cryptoHealth.recoveryAvailable
                                           ? qsTr("Recovery: set up")
                                           : app.cryptoHealth.recoveryRequired
@@ -2005,7 +2107,7 @@ Item {
                                 Label {
                                     Layout.fillWidth: true
                                     wrapMode: Text.WordWrap
-                                    color: AppTheme.textMuted
+                                    color: AppTheme.stormTextMuted
                                     text: app.cryptoHealth.cryptoSyncing
                                           ? qsTr("Encryption sync: active")
                                           : app.cryptoHealth.cryptoReady
@@ -2021,7 +2123,7 @@ Item {
                                     text: root.showRecoveryDiagnostics
                                           ? qsTr("Hide recovery diagnostics")
                                           : qsTr("Recovery diagnostics")
-                                    color: AppTheme.accent
+                                    color: AppTheme.stormLink
                                     font.pixelSize: AppTheme.fontSecondary
                                     font.underline: true
                                     Accessible.role: Accessible.Button
@@ -2041,7 +2143,7 @@ Item {
                                     spacing: AppTheme.spacing4
                                     Label {
                                         Layout.fillWidth: true
-                                        color: AppTheme.textMuted
+                                        color: AppTheme.stormTextMuted
                                         font.pixelSize: AppTheme.fontSecondary
                                         text: qsTr("Own identity: %1").arg(
                                             app.cryptoBootstrap.ownIdentity === "verified"
@@ -2052,7 +2154,7 @@ Item {
                                     }
                                     Label {
                                         Layout.fillWidth: true
-                                        color: AppTheme.textMuted
+                                        color: AppTheme.stormTextMuted
                                         font.pixelSize: AppTheme.fontSecondary
                                         text: qsTr("Cross-signing private keys: %1").arg(
                                             app.cryptoBootstrap.crossSigningSecrets === "complete"
@@ -2063,7 +2165,7 @@ Item {
                                     }
                                     Label {
                                         Layout.fillWidth: true
-                                        color: AppTheme.textMuted
+                                        color: AppTheme.stormTextMuted
                                         font.pixelSize: AppTheme.fontSecondary
                                         text: {
                                             var s = app.cryptoBootstrap.requestState
@@ -2088,7 +2190,7 @@ Item {
                                     }
                                     Label {
                                         Layout.fillWidth: true
-                                        color: AppTheme.textMuted
+                                        color: AppTheme.stormTextMuted
                                         font.pixelSize: AppTheme.fontSecondary
                                         visible: app.cryptoBootstrap.requestAttempts > 0
                                         text: qsTr("Verified sessions available: %1")
@@ -2096,7 +2198,7 @@ Item {
                                     }
                                     Label {
                                         Layout.fillWidth: true
-                                        color: AppTheme.textMuted
+                                        color: AppTheme.stormTextMuted
                                         font.pixelSize: AppTheme.fontSecondary
                                         text: qsTr("Backup key usable: %1").arg(
                                             app.cryptoHealth.keyBackupUsable
@@ -2104,7 +2206,7 @@ Item {
                                     }
                                     Label {
                                         Layout.fillWidth: true
-                                        color: AppTheme.textMuted
+                                        color: AppTheme.stormTextMuted
                                         font.pixelSize: AppTheme.fontSecondary
                                         visible: app.cryptoBootstrap.keysReceived > 0
                                         text: qsTr("Room keys imported: %1")
@@ -2131,7 +2233,7 @@ Item {
 
                         Label {
                             text: qsTr("Sessions")
-                            color: AppTheme.textPrimary
+                            color: AppTheme.stormText
                             font.pixelSize: AppTheme.fontSectionTitle
                             font.weight: Font.ExtraBold
                         }
@@ -2139,7 +2241,7 @@ Item {
                             Layout.fillWidth: true
                             text: qsTr("This account's Matrix sessions and device "
                                        + "verification.")
-                            color: AppTheme.textMuted
+                            color: AppTheme.stormTextMuted
                             font.pixelSize: AppTheme.fontSecondary
                             wrapMode: Text.WordWrap
                         }
@@ -2241,7 +2343,7 @@ Item {
                                         Icon {
                                             name: "devices"
                                             size: 13
-                                            color: AppTheme.sectionLabelColor
+                                            color: AppTheme.stormTextFaint
                                         }
                                         MenuSectionLabel { text: qsTr("Sessions") }
                                     }
@@ -2250,7 +2352,7 @@ Item {
                                         objectName: "sessionDevicesRefresh"
                                         text: app.sessionDevicesLoading
                                               ? qsTr("Loading…") : qsTr("Refresh")
-                                        color: AppTheme.accent
+                                        color: AppTheme.stormLink
                                         font.pixelSize: AppTheme.fontSecondary
                                         font.underline: !app.sessionDevicesLoading
                                         MouseArea {
@@ -2265,7 +2367,7 @@ Item {
                                     visible: app.sessionDevicesFailed
                                     Layout.fillWidth: true
                                     wrapMode: Text.WordWrap
-                                    color: AppTheme.danger
+                                    color: AppTheme.stormDanger
                                     font.pixelSize: AppTheme.fontSecondary
                                     text: qsTr("The session list could not be loaded.")
                                 }
@@ -2275,7 +2377,7 @@ Item {
                                              && app.sessionDevices.length === 0
                                     Layout.fillWidth: true
                                     wrapMode: Text.WordWrap
-                                    color: AppTheme.textMuted
+                                    color: AppTheme.stormTextMuted
                                     font.pixelSize: AppTheme.fontSecondary
                                     text: qsTr("Press Refresh to load this account's sessions.")
                                 }
@@ -2290,11 +2392,11 @@ Item {
                                     delegate: Rectangle {
                                         Layout.fillWidth: true
                                         radius: AppTheme.radiusTile
-                                        color: AppTheme.cardElevated
+                                        color: AppTheme.stormInset
                                         border.width: 1
                                         border.color: modelData.isCurrent === true
-                                                      ? AppTheme.accentBorder
-                                                      : AppTheme.border
+                                                      ? AppTheme.stormBorderStrong
+                                                      : AppTheme.stormBorder
                                         implicitHeight: sessionTileRow.implicitHeight
                                                         + AppTheme.spacing8 * 2
 
@@ -2311,16 +2413,16 @@ Item {
                                                 implicitWidth: 30
                                                 implicitHeight: 30
                                                 radius: AppTheme.radiusTile
-                                                color: AppTheme.surface
+                                                color: AppTheme.stormCanvas
                                                 border.width: 1
-                                                border.color: AppTheme.border
+                                                border.color: AppTheme.stormBorder
                                                 Icon {
                                                     anchors.centerIn: parent
                                                     name: "devices"
                                                     size: 16
                                                     color: modelData.isCurrent === true
-                                                           ? AppTheme.accent
-                                                           : AppTheme.textSecondary
+                                                           ? AppTheme.bolt
+                                                           : AppTheme.stormTextSecondary
                                                 }
                                             }
 
@@ -2335,18 +2437,20 @@ Item {
                                                                && modelData.displayName.length > 0)
                                                               ? modelData.displayName
                                                               : modelData.deviceId
-                                                        color: AppTheme.text
+                                                        color: AppTheme.stormText
                                                         font.pixelSize: AppTheme.fontSecondary
                                                         font.weight: Font.DemiBold
                                                         elide: Label.ElideRight
                                                         Layout.fillWidth: true
                                                     }
                                                     StatusChip {
+                                                        storm: true
                                                         visible: modelData.isCurrent === true
                                                         label: qsTr("This session")
                                                         tone: "accent"
                                                     }
                                                     StatusChip {
+                                                        storm: true
                                                         label: modelData.crossSigned === true
                                                               ? qsTr("Verified")
                                                               : modelData.hasCryptoIdentity === true
@@ -2360,7 +2464,7 @@ Item {
                                                 }
                                                 Label {
                                                     Layout.fillWidth: true
-                                                    color: AppTheme.textMuted
+                                                    color: AppTheme.stormTextMuted
                                                     font.family: AppTheme.monoFont
                                                     font.pixelSize: AppTheme.fontMonoXS
                                                     elide: Label.ElideRight
@@ -2384,7 +2488,7 @@ Item {
                                 Label {
                                     Layout.fillWidth: true
                                     wrapMode: Text.WordWrap
-                                    color: AppTheme.textMuted
+                                    color: AppTheme.stormTextMuted
                                     font.pixelSize: AppTheme.fontSecondary
                                     text: qsTr("Signing out other sessions from Lightning "
                                                + "is not supported yet — use another "
@@ -2408,11 +2512,12 @@ Item {
                                     Icon {
                                         name: "key"
                                         size: 13
-                                        color: AppTheme.sectionLabelColor
+                                        color: AppTheme.stormTextFaint
                                     }
                                     MenuSectionLabel { text: qsTr("Current session") }
                                     Item { Layout.fillWidth: true }
                                     StatusChip {
+                                        storm: true
                                         label: app.sessionTrustState
                                         iconName: app.sessionTrustState === "Verified"
                                                   ? "verified_user" : ""
@@ -2425,7 +2530,7 @@ Item {
                                 Label {
                                     Layout.fillWidth: true
                                     wrapMode: Text.WordWrap
-                                    color: AppTheme.textMuted
+                                    color: AppTheme.stormTextMuted
                                     font.family: AppTheme.monoFont
                                     font.pixelSize: AppTheme.fontMonoXS
                                     text: qsTr("Device ID: %1").arg(
@@ -2438,7 +2543,7 @@ Item {
                                 Label {
                                     Layout.fillWidth: true
                                     wrapMode: Text.WordWrap
-                                    color: AppTheme.textMuted
+                                    color: AppTheme.stormTextMuted
                                     font.pixelSize: AppTheme.fontCaption
                                     visible: app.sessionTrustState !== "Verified"
                                     text: qsTr(
@@ -2463,6 +2568,7 @@ Item {
                                             && !(app.cryptoHealth
                                                  && app.cryptoHealth.cryptoSupported)
                                     AppButton {
+                                        storm: true
                                         text: app.sessionTrustState === "Verified"
                                             ? qsTr("Verify again")
                                             : qsTr("Verify this session")
@@ -2472,7 +2578,7 @@ Item {
                                     Label {
                                         visible: app.sessionTrustState === "Verified"
                                         Layout.fillWidth: true
-                                        color: AppTheme.success
+                                        color: AppTheme.stormSuccess
                                         text: qsTr("This Lightning session is verified through Matrix cross-signing.")
                                         wrapMode: Text.WordWrap
                                     }
@@ -2498,8 +2604,8 @@ Item {
                                     visible: app.verificationActive
                                             || app.verificationState !== ""
                                     background: Rectangle {
-                                        color: AppTheme.surfaceAlt
-                                        border.color: AppTheme.accent
+                                        color: AppTheme.stormPanel
+                                        border.color: AppTheme.bolt
                                         radius: AppTheme.radiusSm
                                     }
                                     ColumnLayout {
@@ -2508,7 +2614,7 @@ Item {
 
                                         Label {
                                             text: qsTr("Session verification")
-                                            color: AppTheme.text
+                                            color: AppTheme.stormText
                                             font.weight: Font.DemiBold
                                         }
                                         RowLayout {
@@ -2532,8 +2638,8 @@ Item {
                                                 Layout.fillWidth: true
                                                 wrapMode: Text.WordWrap
                                                 color: app.verificationState === "done"
-                                                       ? AppTheme.success
-                                                       : AppTheme.textMuted
+                                                       ? AppTheme.stormSuccess
+                                                       : AppTheme.stormTextMuted
                                                 Accessible.role: Accessible.StaticText
                                                 Accessible.name: text
                                                 text: {
@@ -2604,8 +2710,8 @@ Item {
                                             Repeater {
                                                 model: app.verificationEmojis
                                                 delegate: Rectangle {
-                                                    color: AppTheme.surface
-                                                    border.color: AppTheme.border
+                                                    color: AppTheme.stormCanvas
+                                                    border.color: AppTheme.stormBorder
                                                     radius: AppTheme.radiusSm
                                                     implicitWidth: 84
                                                     implicitHeight: 78
@@ -2631,7 +2737,7 @@ Item {
                                                         Label {
                                                             text: modelData.description || ""
                                                             font.pixelSize: AppTheme.fontCaption
-                                                            color: AppTheme.textMuted
+                                                            color: AppTheme.stormTextMuted
                                                             horizontalAlignment: Text.AlignHCenter
                                                             // Wrap, never elide: the user is
                                                             // asked to COMPARE this word across
@@ -2649,12 +2755,14 @@ Item {
                                             Layout.fillWidth: true
                                             spacing: AppTheme.spacing8
                                             AppButton {
+                                                storm: true
                                                 text: qsTr("Accept")
                                                 visible: app.verificationState === "requested"
                                                 kind: "primary"
                                                 onClicked: app.acceptVerification()
                                             }
                                             AppButton {
+                                                storm: true
                                                 text: qsTr("They match")
                                                 // v0.7.1: stays visible (but
                                                 // disabled) through the
@@ -2671,6 +2779,7 @@ Item {
                                                 onClicked: app.confirmVerification()
                                             }
                                             AppButton {
+                                                storm: true
                                                 text: qsTr("They do not match")
                                                 visible: app.verificationState === "sas_ready"
                                                         || app.verificationState === "confirming"
@@ -2679,6 +2788,7 @@ Item {
                                                 onClicked: app.mismatchVerification()
                                             }
                                             AppButton {
+                                                storm: true
                                                 text: qsTr("Cancel verification")
                                                 // Cancel must exist in EVERY
                                                 // non-terminal state. Listing
@@ -2699,6 +2809,7 @@ Item {
                                                 onClicked: app.cancelVerification()
                                             }
                                             AppButton {
+                                                storm: true
                                                 text: qsTr("Dismiss")
                                                 visible: app.verificationState === "done"
                                                         || app.verificationState === "cancelled"
@@ -2739,7 +2850,7 @@ Item {
                                 Label {
                                     Layout.fillWidth: true
                                     wrapMode: Text.WordWrap
-                                    color: AppTheme.textMuted
+                                    color: AppTheme.stormTextMuted
                                     font.pixelSize: AppTheme.fontCaption
                                     text: qsTr(
                                         "Some old messages may show \"[unable to decrypt yet]\" until " +
@@ -2750,7 +2861,7 @@ Item {
                                 Label {
                                     text: qsTr("Recovery key or passphrase")
                                     font.weight: Font.DemiBold
-                                    color: AppTheme.text
+                                    color: AppTheme.stormText
                                 }
                                 GridLayout {
                                     id: recoveryRow
@@ -2759,6 +2870,7 @@ Item {
                                     rowSpacing: AppTheme.spacing8
                                     columns: width < 360 ? 1 : 2
                                     AppTextField {
+                                        storm: true
                                         id: recoveryField
                                         Layout.fillWidth: true
                                         Layout.minimumWidth: 160
@@ -2770,6 +2882,7 @@ Item {
                                         enabled: !recoveryPanel.running
                                     }
                                     AppButton {
+                                        storm: true
                                         text: recoveryPanel.running
                                             ? qsTr("Restoring…")
                                             : qsTr("Restore keys")
@@ -2778,7 +2891,7 @@ Item {
                                         onClicked: {
                                             recoveryPanel.running = true
                                             recoveryPanel.statusText = qsTr("Recovery started")
-                                            recoveryPanel.statusColor = AppTheme.textMuted
+                                            recoveryPanel.statusColor = AppTheme.stormTextMuted
                                             app.requestRecoverFromBackup(recoveryField.text)
                                             // Wipe local copy immediately — the recovery
                                             // key never sits in a QML property beyond
@@ -2798,7 +2911,7 @@ Item {
                                     id: recoveryPanel
                                     property bool running: false
                                     property string statusText: ""
-                                    property color statusColor: AppTheme.textMuted
+                                    property color statusColor: AppTheme.stormTextMuted
                                 }
                                 Connections {
                                     target: app
@@ -2806,7 +2919,7 @@ Item {
                                         if (state === "attempted") {
                                             recoveryPanel.running = true
                                             recoveryPanel.statusText = qsTr("Recovery started")
-                                            recoveryPanel.statusColor = AppTheme.textMuted
+                                            recoveryPanel.statusColor = AppTheme.stormTextMuted
                                         } else if (state === "ok") {
                                             recoveryPanel.running = false
                                             recoveryPanel.statusText = qsTr(
@@ -2819,12 +2932,12 @@ Item {
                                             // state — re-read it from the SDK.
                                             app.refreshCryptoHealth()
                                             app.refreshSessionTrustState()
-                                            recoveryPanel.statusColor = AppTheme.success
+                                            recoveryPanel.statusColor = AppTheme.stormSuccess
                                         } else if (state === "failed") {
                                             recoveryPanel.running = false
                                             recoveryPanel.statusText = qsTr(
                                                 "Recovery failed: %1").arg(message)
-                                            recoveryPanel.statusColor = AppTheme.danger
+                                            recoveryPanel.statusColor = AppTheme.stormDanger
                                         }
                                     }
                                 }
@@ -2832,12 +2945,12 @@ Item {
                                 Label {
                                     text: qsTr("Import room keys")
                                     font.weight: Font.DemiBold
-                                    color: AppTheme.text
+                                    color: AppTheme.stormText
                                 }
                                 Label {
                                     Layout.fillWidth: true
                                     wrapMode: Text.WordWrap
-                                    color: AppTheme.textMuted
+                                    color: AppTheme.stormTextMuted
                                     font.pixelSize: AppTheme.fontCaption
                                     text: qsTr(
                                         "Import an encrypted Matrix room-key export from another " +
@@ -2848,6 +2961,7 @@ Item {
                                     Layout.fillWidth: true
                                     spacing: AppTheme.spacing8
                                     AppButton {
+                                        storm: true
                                         text: qsTr("Choose key export")
                                         enabled: app.loggedIn && !importPanel.running
                                         onClicked: importFileDialog.open()
@@ -2856,7 +2970,7 @@ Item {
                                         Layout.fillWidth: true
                                         wrapMode: Text.WordWrap
                                         elide: Text.ElideMiddle
-                                        color: AppTheme.textMuted
+                                        color: AppTheme.stormTextMuted
                                         text: importPanel.selectedFileName === ""
                                             ? qsTr("(no file selected)")
                                             : importPanel.selectedFileName
@@ -2867,6 +2981,7 @@ Item {
                                     spacing: AppTheme.spacing8
                                     visible: importPanel.selectedFileUrl.toString() !== ""
                                     AppTextField {
+                                        storm: true
                                         id: importPassphraseField
                                         Layout.fillWidth: true
                                         echoMode: TextInput.Password
@@ -2878,6 +2993,7 @@ Item {
                                         }
                                     }
                                     AppButton {
+                                        storm: true
                                         id: importStartButton
                                         text: importPanel.running
                                             ? qsTr("Importing…")
@@ -2895,6 +3011,7 @@ Item {
                                         }
                                     }
                                     AppButton {
+                                        storm: true
                                         text: qsTr("Clear")
                                         enabled: !importPanel.running
                                         onClicked: {
@@ -2925,7 +3042,7 @@ Item {
                                     property string selectedFileName: ""
                                     property bool running: false
                                     property string statusText: ""
-                                    property color statusColor: AppTheme.textMuted
+                                    property color statusColor: AppTheme.stormTextMuted
                                 }
                                 FileDialog {
                                     id: importFileDialog
@@ -2948,7 +3065,7 @@ Item {
                                             importPanel.running = true
                                             importPanel.statusText =
                                                 qsTr("Importing room keys…")
-                                            importPanel.statusColor = AppTheme.textMuted
+                                            importPanel.statusColor = AppTheme.stormTextMuted
                                         } else if (state === "done") {
                                             importPanel.running = false
                                             var doneText = qsTr(
@@ -2961,7 +3078,7 @@ Item {
                                             if (app.roomKeyImportLastMessage !== "")
                                                 doneText += "\n" + app.roomKeyImportLastMessage
                                             importPanel.statusText = doneText
-                                            importPanel.statusColor = AppTheme.success
+                                            importPanel.statusColor = AppTheme.stormSuccess
                                             importPanel.selectedFileUrl = ""
                                             importPanel.selectedFileName = ""
                                             importPassphraseField.text = ""
@@ -2969,7 +3086,7 @@ Item {
                                             importPanel.running = false
                                             importPanel.statusText =
                                                 app.roomKeyImportLastMessage
-                                            importPanel.statusColor = AppTheme.danger
+                                            importPanel.statusColor = AppTheme.stormDanger
                                             importPassphraseField.text = ""
                                         }
                                     }
@@ -2978,7 +3095,7 @@ Item {
                                 Label {
                                     Layout.fillWidth: true
                                     wrapMode: Text.WordWrap
-                                    color: AppTheme.textMuted
+                                    color: AppTheme.stormTextMuted
                                     font.pixelSize: AppTheme.fontCaption
                                     text: qsTr(
                                         "Verification establishes trust in this session. " +
@@ -2992,9 +3109,9 @@ Item {
                         SettingsCard {
                             visible: app.backendName === "rust"
                             background: Rectangle {
-                                color: AppTheme.surface
-                                border.color: dangerZone.expanded ? AppTheme.danger
-                                                                  : AppTheme.border
+                                color: AppTheme.stormCanvas
+                                border.color: dangerZone.expanded ? AppTheme.stormDanger
+                                                                  : AppTheme.stormBorder
                                 radius: AppTheme.radiusMd
                             }
                             ColumnLayout {
@@ -3007,11 +3124,12 @@ Item {
                                     Layout.fillWidth: true
                                     Label {
                                         text: qsTr("Danger Zone")
-                                        color: AppTheme.danger
+                                        color: AppTheme.stormDanger
                                         font.weight: Font.DemiBold
                                     }
                                     Item { Layout.fillWidth: true }
                                     AppButton {
+                                        storm: true
                                         text: dangerZone.expanded ? qsTr("Hide") : qsTr("Show")
                                         Accessible.name: qsTr("Toggle danger zone")
                                         onClicked: dangerZone.expanded = !dangerZone.expanded
@@ -3024,7 +3142,7 @@ Item {
                                     Label {
                                         Layout.fillWidth: true
                                         wrapMode: Text.WordWrap
-                                        color: AppTheme.textMuted
+                                        color: AppTheme.stormTextMuted
                                         font.pixelSize: AppTheme.fontCaption
                                         text: qsTr(
                                             "Reset deletes only Lightning's local Rust SDK store " +
@@ -3034,6 +3152,7 @@ Item {
                                             "in again afterwards.")
                                     }
                                     AppButton {
+                                        storm: true
                                         id: resetDangerButton
                                         kind: "danger"
                                         text: qsTr("Reset local Lightning session")
@@ -3043,7 +3162,7 @@ Item {
                                         Layout.fillWidth: true
                                         wrapMode: Text.WordWrap
                                         visible: resetStatus.text !== ""
-                                        color: resetStatus.ok ? AppTheme.success : AppTheme.danger
+                                        color: resetStatus.ok ? AppTheme.stormSuccess : AppTheme.stormDanger
                                         text: resetStatus.text
                                     }
                                 }
@@ -3094,7 +3213,7 @@ Item {
 
                         Label {
                             text: qsTr("Labs")
-                            color: AppTheme.textPrimary
+                            color: AppTheme.stormText
                             font.pixelSize: AppTheme.fontSectionTitle
                             font.weight: Font.ExtraBold
                         }
@@ -3102,7 +3221,7 @@ Item {
                             Layout.fillWidth: true
                             text: qsTr("No experimental features are available in "
                                        + "this build. Diagnostics live here.")
-                            color: AppTheme.textMuted
+                            color: AppTheme.stormTextMuted
                             font.pixelSize: AppTheme.fontSecondary
                             wrapMode: Text.WordWrap
                         }
@@ -3113,23 +3232,24 @@ Item {
                                 Label {
                                     Layout.fillWidth: true
                                     wrapMode: Text.WordWrap
-                                    color: AppTheme.textMuted
+                                    color: AppTheme.stormTextMuted
                                     text: qsTr("Backend: %1").arg(app.backendName)
                                 }
                                 Label {
                                     Layout.fillWidth: true
                                     wrapMode: Text.WordWrap
                                     visible: app.syncModeLabel !== ""
-                                    color: AppTheme.textMuted
+                                    color: AppTheme.stormTextMuted
                                     text: qsTr("Sync mode: %1").arg(app.syncModeLabel)
                                 }
                                 Label {
                                     Layout.fillWidth: true
                                     wrapMode: Text.WordWrap
-                                    color: AppTheme.textMuted
+                                    color: AppTheme.stormTextMuted
                                     text: qsTr("Connection: %1").arg(app.connectionStatus)
                                 }
                                 AppButton {
+                                    storm: true
                                     text: qsTr("Refresh current room")
                                     enabled: app.currentRoomId !== ""
                                     onClicked: app.reloadCurrentRoomTimeline(50)
@@ -3137,7 +3257,7 @@ Item {
                                 Label {
                                     Layout.fillWidth: true
                                     wrapMode: Text.WordWrap
-                                    color: AppTheme.textMuted
+                                    color: AppTheme.stormTextMuted
                                     font.pixelSize: AppTheme.fontCaption
                                     text: qsTr("Rebuilds the open room's timeline from the "
                                                + "SDK. Safe at any time.")
@@ -3154,7 +3274,7 @@ Item {
 
                         Label {
                             text: qsTr("About")
-                            color: AppTheme.textPrimary
+                            color: AppTheme.stormText
                             font.pixelSize: AppTheme.fontSectionTitle
                             font.weight: Font.DemiBold
                         }
@@ -3164,14 +3284,14 @@ Item {
                                 spacing: AppTheme.spacing8
                                 Label {
                                     text: qsTr("Lightning %1").arg(app.appVersion)
-                                    color: AppTheme.textPrimary
+                                    color: AppTheme.stormText
                                     font.pixelSize: AppTheme.fontBody
                                     font.weight: Font.DemiBold
                                 }
                                 Label {
                                     Layout.fillWidth: true
                                     wrapMode: Text.WordWrap
-                                    color: AppTheme.textMuted
+                                    color: AppTheme.stormTextMuted
                                     text: qsTr("A native C++/Qt Matrix desktop client. "
                                                + "No Electron, no web view.")
                                 }
@@ -3179,7 +3299,7 @@ Item {
                                     visible: app.backendName === "rust"
                                     Layout.fillWidth: true
                                     wrapMode: Text.WordWrap
-                                    color: AppTheme.textMuted
+                                    color: AppTheme.stormTextMuted
                                     font.pixelSize: AppTheme.fontCaption
                                     // Pinned in rust/Cargo.toml; update together.
                                     text: qsTr("Matrix engine: matrix-sdk 0.18.0 / matrix-sdk-ui 0.18.0 (Rust)")
@@ -3187,7 +3307,7 @@ Item {
                                 Label {
                                     Layout.fillWidth: true
                                     wrapMode: Text.WordWrap
-                                    color: AppTheme.textMuted
+                                    color: AppTheme.stormTextMuted
                                     font.pixelSize: AppTheme.fontCaption
                                     text: qsTr("License: GPL-3.0-or-later")
                                 }

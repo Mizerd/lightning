@@ -12,9 +12,10 @@ import MatrixClient
 // v0.6.5 (SPEC §1j+1k): one 480px-wide surface, two modes. Navigate mode
 // (default, Ctrl+K) lists rooms/people/spaces/invites grouped into sections.
 // Command mode (typed ">" as the first character, or Ctrl+Shift+K) swaps the
-// header glyph for a ">_" chip, adds an Actions/Rooms/People scope row, and
-// lists a small declarative set of honestly-executable application actions —
-// never leave/mute/file actions, never a slash-command registry.
+// header glyph for a bolt tile (storm 2d), adds an Actions/Rooms/People
+// scope row, and lists a small declarative set of honestly-executable
+// application actions — never leave/mute/file actions, never a
+// slash-command registry.
 Popup {
     id: switcher
     parent: Overlay.overlay
@@ -294,8 +295,10 @@ Popup {
         Rectangle {
             id: card
             anchors.fill: parent
-            color: AppTheme.surface
-            border.color: AppTheme.borderStrong
+            // Storm chrome (SPEC-storm-language §3.1 / mock 2d): the
+            // theme-invariant navy panel.
+            color: AppTheme.stormPanel
+            border.color: AppTheme.stormBorder
             border.width: 1
             radius: AppTheme.radiusCard
         }
@@ -318,23 +321,22 @@ Popup {
                     visible: !switcher.commandMode
                     name: "search"
                     size: 19
-                    color: AppTheme.textMuted
+                    color: AppTheme.stormTextMuted
                 }
+                // Storm 2d: command mode swaps the search glyph for the
+                // yellow bolt square (bolt tile, panel-ink bolt glyph).
                 Rectangle {
                     anchors.centerIn: parent
                     visible: switcher.commandMode
                     radius: AppTheme.radiusChip + 2
-                    color: AppTheme.accent
-                    implicitWidth: cmdChipLabel.implicitWidth + AppTheme.spacing8
-                    implicitHeight: 20
-                    Label {
-                        id: cmdChipLabel
+                    color: AppTheme.bolt
+                    implicitWidth: 22
+                    implicitHeight: 22
+                    Icon {
                         anchors.centerIn: parent
-                        text: ">_"
-                        color: AppTheme.accentText
-                        font.family: AppTheme.monoFont
-                        font.pixelSize: AppTheme.fontChip
-                        font.weight: Font.Bold
+                        name: "bolt"
+                        size: 13
+                        color: AppTheme.stormPanel
                     }
                 }
             }
@@ -346,11 +348,13 @@ Popup {
                 placeholderText: switcher.commandMode
                     ? qsTr("Type a command…")
                     : qsTr("Jump to a room, person, or Space…")
+                font.family: AppTheme.menuFont
                 font.pixelSize: AppTheme.fontQuery
                 font.weight: Font.Medium
-                color: AppTheme.textPrimary
-                selectionColor: AppTheme.accentSoft
-                selectedTextColor: AppTheme.textPrimary
+                color: AppTheme.stormText
+                placeholderTextColor: AppTheme.stormTextMuted
+                selectionColor: AppTheme.stormSelection
+                selectedTextColor: AppTheme.stormText
                 background: Item {}
                 onTextChanged: {
                     // Typing ">" as the very first character of the query
@@ -415,7 +419,7 @@ Popup {
         Rectangle {
             Layout.fillWidth: true
             implicitHeight: 1
-            color: AppTheme.border
+            color: AppTheme.stormBorder
         }
 
         // ── Command-mode scope chips (Actions / Rooms / People) ───────────
@@ -451,24 +455,32 @@ Popup {
                         anchors.margins: -2
                         radius: AppTheme.radiusPill
                         color: "transparent"
-                        border.color: AppTheme.focusRing
+                        border.color: AppTheme.bolt
                         border.width: 2
                         visible: scopeChip.visualFocus
                     }
+                    // Storm §3.7 scope chips: selected = bolt pill with
+                    // panel ink; resting = stormBorderStrong outline, muted
+                    // mono UPPERCASE.
                     contentItem: Label {
                         id: chipLabel
                         text: scopeChip.modelData.label
-                        color: scopeChip.selected ? AppTheme.accentText
-                                                  : AppTheme.textSecondary
+                        color: scopeChip.selected ? AppTheme.stormPanel
+                                                  : AppTheme.stormTextMuted
+                        font.family: AppTheme.monoFont
                         font.pixelSize: AppTheme.fontChip
-                        font.weight: Font.Bold
+                        font.weight: Font.DemiBold
+                        font.capitalization: Font.AllUppercase
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
                     }
                     background: Rectangle {
                         radius: AppTheme.radiusPill
-                        color: scopeChip.selected ? AppTheme.accent
-                               : scopeChip.hovered ? AppTheme.hover : "transparent"
+                        color: scopeChip.selected ? AppTheme.bolt
+                               : scopeChip.hovered ? AppTheme.stormSelection
+                               : "transparent"
+                        border.width: scopeChip.selected ? 0 : 1
+                        border.color: AppTheme.stormBorderStrong
                     }
                 }
             }
@@ -477,7 +489,7 @@ Popup {
             visible: switcher.commandMode
             Layout.fillWidth: true
             implicitHeight: 1
-            color: AppTheme.border
+            color: AppTheme.stormBorder
         }
 
         // ── Navigate-mode empty states ─────────────────────────────────────
@@ -489,7 +501,7 @@ Popup {
             text: queryField.text.length > 0
                   ? qsTr("No matching rooms")
                   : qsTr("Type to search your rooms")
-            color: AppTheme.textMuted
+            color: AppTheme.stormTextMuted
             font.pixelSize: AppTheme.fontSecondary
         }
         Label {
@@ -498,7 +510,7 @@ Popup {
             Layout.margins: AppTheme.spacing16
             horizontalAlignment: Text.AlignHCenter
             text: qsTr("No matching actions")
-            color: AppTheme.textMuted
+            color: AppTheme.stormTextMuted
             font.pixelSize: AppTheme.fontSecondary
         }
 
@@ -540,7 +552,18 @@ Popup {
                 Accessible.selected: row.highlighted
 
                 background: Rectangle {
-                    color: row.highlighted ? AppTheme.accentSoft : "transparent"
+                    color: row.highlighted ? AppTheme.stormSelection : "transparent"
+                    // Storm §3.2 signature cursor: a small bolt overhanging
+                    // the selected row's left edge.
+                    Icon {
+                        visible: row.highlighted
+                        name: "bolt"
+                        size: 12
+                        color: AppTheme.bolt
+                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.left: parent.left
+                        anchors.leftMargin: 0
+                    }
                 }
 
                 RowLayout {
@@ -562,20 +585,28 @@ Popup {
                         Label {
                             Layout.fillWidth: true
                             textFormat: Text.StyledText
+                            // Matched fragment: bolt on the selected row
+                            // only; resting rows brighten it to stormText
+                            // (mock 2d — one yellow row per surface).
                             text: switcher.highlightedName(
                                 model.name, app.quickSwitcher.query,
-                                "" + AppTheme.selectedText)
-                            color: row.highlighted ? AppTheme.selectedText
-                                                   : AppTheme.textPrimary
+                                row.highlighted ? "" + AppTheme.bolt
+                                                : "" + AppTheme.stormText)
+                            color: row.highlighted ? AppTheme.stormText
+                                                   : AppTheme.stormTextSecondary
+                            font.family: AppTheme.menuFont
                             font.pixelSize: AppTheme.fontResult
-                            font.weight: Font.Medium
+                            font.weight: Font.DemiBold
                             elide: Label.ElideRight
                         }
                         Label {
                             Layout.fillWidth: true
                             visible: (model.subtitle || "").length > 0
                             text: model.subtitle || ""
-                            color: AppTheme.monoIdentityColor
+                            // AA on the selection fill: the highlighted
+                            // row's subtitle brightens one step.
+                            color: row.highlighted ? AppTheme.stormTextSecondary
+                                                 : AppTheme.stormTextMuted
                             // §0 reserves mono for identities; category
                             // words ("Invitation", "Space") stay in the UI
                             // face. Every real identity starts @/#/!.
@@ -622,7 +653,16 @@ Popup {
                 Accessible.selected: cmdRow.highlighted
 
                 background: Rectangle {
-                    color: cmdRow.highlighted ? AppTheme.accentSoft : "transparent"
+                    color: cmdRow.highlighted ? AppTheme.stormSelection : "transparent"
+                    Icon {
+                        visible: cmdRow.highlighted && cmdRow.enabled
+                        name: "bolt"
+                        size: 12
+                        color: AppTheme.bolt
+                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.left: parent.left
+                        anchors.leftMargin: 0
+                    }
                 }
 
                 RowLayout {
@@ -637,13 +677,13 @@ Popup {
                         implicitWidth: 30
                         implicitHeight: 30
                         radius: AppTheme.radiusMd
-                        color: AppTheme.cardElevated
+                        color: AppTheme.stormInset
                         Icon {
                             anchors.centerIn: parent
                             name: model.kind === "action" ? model.iconName : ""
                             size: AppTheme.menuIconSize
-                            color: cmdRow.highlighted ? AppTheme.selectedText
-                                                      : AppTheme.icon
+                            color: cmdRow.highlighted ? AppTheme.bolt
+                                                      : AppTheme.stormTextMuted
                         }
                     }
                     Avatar {
@@ -672,18 +712,23 @@ Popup {
                                   : switcher.highlightedName(
                                         model.name || "",
                                         switcher.commandQueryLower,
-                                        "" + AppTheme.accent)
-                            color: cmdRow.highlighted ? AppTheme.selectedText
-                                                      : AppTheme.textPrimary
+                                        cmdRow.highlighted ? "" + AppTheme.bolt
+                                                           : "" + AppTheme.stormText)
+                            color: cmdRow.highlighted ? AppTheme.stormText
+                                                      : AppTheme.stormTextSecondary
+                            font.family: AppTheme.menuFont
                             font.pixelSize: AppTheme.fontResult
-                            font.weight: Font.Bold
+                            font.weight: Font.DemiBold
                             elide: Label.ElideRight
                         }
                         Label {
                             Layout.fillWidth: true
                             visible: (model.subtitle || "").length > 0
                             text: model.subtitle || ""
-                            color: AppTheme.textMuted
+                            // Identities and category words both ride the
+                            // muted ink — faint is reserved for decorative
+                            // mono headers (AA note in AppTheme).
+                            color: AppTheme.stormTextMuted
                             // Same §0 rule as the navigate list: mono is
                             // reserved for identities (@/#/!), never the
                             // category words some entity rows carry.
@@ -706,7 +751,7 @@ Popup {
         Rectangle {
             Layout.fillWidth: true
             implicitHeight: 1
-            color: AppTheme.border
+            color: AppTheme.stormBorder
         }
 
         // ── Footer hint bar ────────────────────────────────────────────────
@@ -726,14 +771,15 @@ Popup {
                     spacing: AppTheme.spacing4
                     Text {
                         text: "↑↓"
-                        color: AppTheme.textMuted
+                        color: AppTheme.stormTextMuted
                         font.family: AppTheme.monoFont
                         font.pixelSize: AppTheme.fontMonoSm
                         font.weight: Font.Bold
                     }
                     Label {
                         text: qsTr("navigate")
-                        color: AppTheme.textMuted
+                        color: AppTheme.stormTextMuted
+                        font.family: AppTheme.monoFont
                         font.pixelSize: AppTheme.fontMonoSm
                     }
                 }
@@ -742,11 +788,12 @@ Popup {
                     Icon {
                         name: "keyboard_return"
                         size: AppTheme.fontMonoSm + 2
-                        color: AppTheme.textMuted
+                        color: AppTheme.stormTextMuted
                     }
                     Label {
                         text: qsTr("open")
-                        color: AppTheme.textMuted
+                        color: AppTheme.stormTextMuted
+                        font.family: AppTheme.monoFont
                         font.pixelSize: AppTheme.fontMonoSm
                     }
                 }
@@ -755,11 +802,12 @@ Popup {
                     Icon {
                         name: "keyboard_tab"
                         size: AppTheme.fontMonoSm + 2
-                        color: AppTheme.textMuted
+                        color: AppTheme.stormTextMuted
                     }
                     Label {
                         text: qsTr("sections")
-                        color: AppTheme.textMuted
+                        color: AppTheme.stormTextMuted
+                        font.family: AppTheme.monoFont
                         font.pixelSize: AppTheme.fontMonoSm
                     }
                 }
@@ -767,14 +815,15 @@ Popup {
                     spacing: AppTheme.spacing4
                     Text {
                         text: "ESC"
-                        color: AppTheme.textMuted
+                        color: AppTheme.stormTextMuted
                         font.family: AppTheme.monoFont
                         font.pixelSize: AppTheme.fontMonoSm
                         font.weight: Font.Bold
                     }
                     Label {
                         text: qsTr("dismiss")
-                        color: AppTheme.textMuted
+                        color: AppTheme.stormTextMuted
+                        font.family: AppTheme.monoFont
                         font.pixelSize: AppTheme.fontMonoSm
                     }
                 }
@@ -787,7 +836,7 @@ Popup {
                 width: parent.width
                 elide: Label.ElideRight
                 text: qsTr("Try “theme indigo night” · “switch to alice” · “open privacy”")
-                color: AppTheme.textMuted
+                color: AppTheme.stormTextMuted
                 font.family: AppTheme.monoFont
                 font.pixelSize: AppTheme.fontMonoSm
             }

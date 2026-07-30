@@ -60,6 +60,7 @@ ApplicationWindow {
     Rectangle { objectName: "tokAccent"; visible: false; color: AppTheme.accent }
     Rectangle { objectName: "tokAccentSoft"; visible: false; color: AppTheme.accentSoft }
     Rectangle { objectName: "tokSurface"; visible: false; color: AppTheme.surface }
+    Rectangle { objectName: "tokStormPanel"; visible: false; color: AppTheme.stormPanel }
     Rectangle { objectName: "tokInputBg"; visible: false; color: AppTheme.inputBackground }
     Rectangle { objectName: "tokCardElevated"; visible: false; color: AppTheme.cardElevated }
 
@@ -262,10 +263,12 @@ private slots:
             popupItem->width() - 10, popupItem->height() / 2));
         const QColor sampled = sampleAvg(
             open, QRect(int(inPopup.x()), int(inPopup.y()), 2, 2));
-        QVERIFY2(channelDelta(sampled, token("tokSurface")) <= kTolerance,
+        // Storm §5: dropdown popups are part of the menu system and render
+        // the theme-invariant stormPanel in every theme.
+        QVERIFY2(channelDelta(sampled, token("tokStormPanel")) <= kTolerance,
                  qPrintable(QStringLiteral("popup surface %1 vs %2")
                                 .arg(sampled.name(),
-                                     token("tokSurface").name())));
+                                     token("tokStormPanel").name())));
         QMetaObject::invokeMethod(popupObject, "close");
     }
 

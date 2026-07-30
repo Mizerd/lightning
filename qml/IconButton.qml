@@ -23,6 +23,10 @@ AbstractButton {
     property bool active: false
     // Style C: primary accent fill.
     property bool fill: false
+    // Storm surfaces (menus, pickers, dialogs, Settings): storm inks and
+    // fills; the themed hover tint would render a near-white block on the
+    // navy panels. Themed hosts (timeline, room list, media) keep default.
+    property bool storm: false
     // Scrim contexts (video control bars, media viewers) need explicit
     // constant ink — the themed icon colour can vanish over video. Empty
     // keeps the standard three-style theming.
@@ -38,23 +42,46 @@ AbstractButton {
     contentItem: Icon {
         name: root.iconName
         size: root.iconSize
-        color: !root.enabled ? AppTheme.textDisabled
-               : root.iconColorOverride !== "" ? root.iconColorOverride
-               : root.fill ? AppTheme.accentText
-               : root.active ? AppTheme.accent
-               : AppTheme.icon
+        color: {
+            if (root.iconColorOverride !== "" && root.enabled)
+                return root.iconColorOverride
+            if (root.storm) {
+                if (!root.enabled) return AppTheme.stormTextFaint
+                if (root.fill) return AppTheme.stormPanel
+                if (root.active) return AppTheme.bolt
+                return (root.hovered || root.down) ? AppTheme.stormText
+                                                   : AppTheme.stormTextMuted
+            }
+            return !root.enabled ? AppTheme.textDisabled
+                 : root.fill ? AppTheme.accentText
+                 : root.active ? AppTheme.accent
+                 : AppTheme.icon
+        }
     }
 
     background: Rectangle {
         radius: root.radius
-        color: root.fill
-               ? (!root.enabled ? AppTheme.cardElevated
-                  : root.down ? AppTheme.accentPressed
-                  : root.hovered ? AppTheme.accentHover
-                  : AppTheme.accent)
-               : root.active ? AppTheme.accentSoft
-               : (root.enabled && (root.down || root.hovered))
-                 ? AppTheme.hover : "transparent"
+        color: {
+            if (root.storm) {
+                if (root.fill) {
+                    if (!root.enabled) return AppTheme.stormInset
+                    if (root.down) return Qt.darker(AppTheme.bolt, 1.12)
+                    if (root.hovered) return Qt.darker(AppTheme.bolt, 1.05)
+                    return AppTheme.bolt
+                }
+                if (root.active) return AppTheme.stormSelection
+                return (root.enabled && (root.down || root.hovered))
+                       ? AppTheme.stormSelection : "transparent"
+            }
+            return root.fill
+                 ? (!root.enabled ? AppTheme.cardElevated
+                    : root.down ? AppTheme.accentPressed
+                    : root.hovered ? AppTheme.accentHover
+                    : AppTheme.accent)
+                 : root.active ? AppTheme.accentSoft
+                 : (root.enabled && (root.down || root.hovered))
+                   ? AppTheme.hover : "transparent"
+        }
     }
 
     Rectangle {
@@ -62,7 +89,7 @@ AbstractButton {
         anchors.margins: -4
         radius: root.radius + 4
         color: "transparent"
-        border.color: AppTheme.focusRing
+        border.color: root.storm ? AppTheme.bolt : AppTheme.focusRing
         border.width: 2
         visible: root.visualFocus
     }

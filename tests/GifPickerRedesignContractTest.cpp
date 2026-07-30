@@ -68,8 +68,10 @@ private Q_SLOTS:
             QVERIFY(!block.contains(QStringLiteral("SegmentedControl")));
             QVERIFY(block.contains(QStringLiteral("picker.section = modelData.value")));
             QVERIFY(block.contains(QStringLiteral("picker.gif.showTrending()")));
-            QVERIFY(block.contains(QStringLiteral("AppTheme.accentSoft")));
-            QVERIFY(block.contains(QStringLiteral("AppTheme.accentBorder")));
+            // Storm skin (§3.7): the selected section chip is the bolt fill
+            // with panel ink; resting chips carry the strong storm outline.
+            QVERIFY(block.contains(QStringLiteral("AppTheme.bolt")));
+            QVERIFY(block.contains(QStringLiteral("AppTheme.stormBorderStrong")));
             // Favorites gets the star glyph via Icon — never the ★ character
             // (IconChromeTest already bans it repo-wide in this file).
             QVERIFY(block.contains(QStringLiteral("icon: \"star\"")));

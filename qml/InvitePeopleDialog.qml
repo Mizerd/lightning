@@ -75,8 +75,8 @@ Dialog {
     }
 
     background: Rectangle {
-        color: AppTheme.surface
-        border.color: AppTheme.border
+        color: AppTheme.stormPanel
+        border.color: AppTheme.stormBorder
         radius: AppTheme.radiusLg
     }
 
@@ -115,27 +115,31 @@ Dialog {
         focusPolicy: Qt.TabFocus
         Accessible.role: Accessible.Button
         Accessible.name: primaryBtn.text
+        // Storm §3.9 primary: bolt fill, PANEL-dark ink.
         contentItem: RowLayout {
             id: primaryContent
             spacing: AppTheme.spacing6
             Icon {
                 name: "send"
                 size: 15
-                color: primaryBtn.enabled ? AppTheme.accentText : AppTheme.textDisabled
+                color: primaryBtn.enabled ? AppTheme.stormPanel
+                                          : AppTheme.stormTextFaint
             }
             Label {
                 text: primaryBtn.text
-                color: primaryBtn.enabled ? AppTheme.accentText : AppTheme.textDisabled
+                color: primaryBtn.enabled ? AppTheme.stormPanel
+                                          : AppTheme.stormTextFaint
+                font.family: AppTheme.menuFont
                 font.pixelSize: 13
                 font.weight: Font.Bold
             }
         }
         background: Rectangle {
             radius: AppTheme.radiusMd
-            color: !primaryBtn.enabled ? AppTheme.cardElevated
-                   : primaryBtn.down ? AppTheme.accentPressed
-                   : primaryBtn.hovered ? AppTheme.accentHover
-                   : AppTheme.accent
+            color: !primaryBtn.enabled ? AppTheme.stormInset
+                   : primaryBtn.down ? Qt.darker(AppTheme.bolt, 1.12)
+                   : primaryBtn.hovered ? Qt.darker(AppTheme.bolt, 1.05)
+                   : AppTheme.bolt
         }
         Rectangle {
             anchors.fill: parent
@@ -143,7 +147,7 @@ Dialog {
             radius: AppTheme.radiusMd + 4
             color: "transparent"
             border.width: 2
-            border.color: AppTheme.focusRing
+            border.color: AppTheme.bolt
             visible: primaryBtn.visualFocus
         }
     }
@@ -156,7 +160,7 @@ Dialog {
             visible: root.roomAddress.length > 0
             Layout.fillWidth: true
             text: root.roomAddress
-            color: AppTheme.monoIdentityColor
+            color: AppTheme.stormTextMuted
             font.family: AppTheme.monoFont
             font.pixelSize: AppTheme.fontMonoXS
             elide: Label.ElideRight
@@ -166,7 +170,7 @@ Dialog {
             visible: app.conversations.errorMessage.length > 0
             Layout.fillWidth: true
             text: app.conversations.errorMessage
-            color: AppTheme.danger
+            color: AppTheme.stormDanger
             wrapMode: Text.WordWrap
             font.pixelSize: AppTheme.fontSizeS
         }
@@ -204,7 +208,7 @@ Dialog {
             text: membership === "joined"
                   ? qsTr("%1 is already in this room.").arg(userId)
                   : qsTr("%1 has already been invited.").arg(userId)
-            color: AppTheme.textMuted
+            color: AppTheme.stormTextMuted
             wrapMode: Text.WordWrap
             font.pixelSize: AppTheme.fontSizeS
         }
@@ -247,9 +251,9 @@ Dialog {
                                 chip.modelData.name.length > 0
                                     ? chip.modelData.name : chip.modelData.id
                             radius: AppTheme.radiusPill
-                            color: AppTheme.accentSoft
+                            color: AppTheme.stormSelection
                             border.width: 1
-                            border.color: AppTheme.accentBorder
+                            border.color: AppTheme.stormBorderStrong
                             implicitWidth: chipRow.implicitWidth + AppTheme.spacing12
                             implicitHeight: chipRow.implicitHeight + AppTheme.spacing6
                             RowLayout {
@@ -265,7 +269,7 @@ Dialog {
                                 }
                                 Label {
                                     text: chip.label
-                                    color: AppTheme.textPrimary
+                                    color: AppTheme.stormText
                                     font.pixelSize: AppTheme.fontSizeS
                                     font.weight: Font.DemiBold
                                     // A Flow wraps BETWEEN chips, never
@@ -276,13 +280,14 @@ Dialog {
                                     elide: Label.ElideMiddle
                                 }
                                 IconButton {
+                                    storm: true
                                     objectName: "inviteChipRemove_" + chip.index
                                     implicitWidth: 18; implicitHeight: 18
                                     radius: AppTheme.radiusPill
                                     iconName: "close"
                                     iconSize: 12
-                                    // Default rest-state ink (AppTheme.icon =
-                                    // textMuted) already matches SPEC 1t.
+                                    // Storm rest-state ink (stormTextMuted)
+                                    // carries SPEC 1t's muted remove glyph.
                                     Accessible.name: qsTr("Remove %1").arg(chip.label)
                                     onClicked: {
                                         var next = root.selectedUsers.slice()
@@ -308,7 +313,7 @@ Dialog {
                             Label {
                                 Layout.fillWidth: true
                                 text: modelData.userId
-                                color: AppTheme.textPrimary
+                                color: AppTheme.stormText
                                 elide: Label.ElideMiddle
                                 font.pixelSize: AppTheme.fontSizeS
                             }
@@ -316,7 +321,7 @@ Dialog {
                                 visible: modelData.state === "ok"
                                 name: "check"
                                 size: 14
-                                color: AppTheme.success
+                                color: AppTheme.stormSuccess
                             }
                             Label {
                                 text: {
@@ -330,9 +335,9 @@ Dialog {
                                     }
                                     return qsTr("Pending…")
                                 }
-                                color: modelData.state === "ok" ? AppTheme.success
-                                     : modelData.state === "failed" ? AppTheme.danger
-                                     : AppTheme.textMuted
+                                color: modelData.state === "ok" ? AppTheme.stormSuccess
+                                     : modelData.state === "failed" ? AppTheme.stormDanger
+                                     : AppTheme.stormTextMuted
                                 font.pixelSize: AppTheme.fontSizeS
                             }
                         }
@@ -351,6 +356,7 @@ Dialog {
             }
             Item { Layout.fillWidth: true }
             AppButton {
+                storm: true
                 objectName: "invitePeopleCancelButton"
                 visible: !root.batchDone
                 text: qsTr("Cancel")
@@ -368,6 +374,7 @@ Dialog {
                     root.roomId, root.selectedUsers.map(function(u) { return u.id }))
             }
             AppButton {
+                storm: true
                 objectName: "invitePeopleDoneButton"
                 kind: "primary"
                 visible: root.batchDone

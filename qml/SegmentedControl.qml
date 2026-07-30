@@ -19,6 +19,9 @@ Row {
     // Compact variant for tight hosts (the 260px Settings-nav inline
     // results): smaller type and padding, same interaction and states.
     property bool dense: false
+    // Storm surfaces (Settings, pickers): storm selection fill and inks;
+    // themed hosts (Room Information tabs) keep the default treatment.
+    property bool storm: false
     signal activated(var value)
 
     spacing: 2
@@ -55,9 +58,16 @@ Row {
             contentItem: Label {
                 id: segText
                 text: segment.segLabel
-                color: !segment.enabled ? AppTheme.textDisabled
-                       : segment.selected ? AppTheme.accentText
-                       : AppTheme.textSecondary
+                color: {
+                    if (root.storm)
+                        return !segment.enabled ? AppTheme.stormTextFaint
+                             : segment.selected ? AppTheme.stormText
+                             : AppTheme.stormTextMuted
+                    return !segment.enabled ? AppTheme.textDisabled
+                         : segment.selected ? AppTheme.accentText
+                         : AppTheme.textSecondary
+                }
+                font.family: root.storm ? AppTheme.menuFont : AppTheme.uiFont
                 font.pixelSize: root.dense ? 12 : 13
                 font.weight: Font.Bold
                 horizontalAlignment: Text.AlignHCenter
@@ -65,16 +75,25 @@ Row {
             }
             background: Rectangle {
                 radius: AppTheme.radiusMd
-                color: segment.selected ? AppTheme.accentSoft
-                       : segment.enabled && (segment.down || segment.hovered)
-                         ? AppTheme.hover : "transparent"
+                color: {
+                    if (root.storm)
+                        return segment.selected ? AppTheme.stormSelection
+                             : segment.enabled && (segment.down || segment.hovered)
+                               ? Qt.alpha(AppTheme.stormSelection, 0.55)
+                               : "transparent"
+                    return segment.selected ? AppTheme.accentSoft
+                         : segment.enabled && (segment.down || segment.hovered)
+                           ? AppTheme.hover : "transparent"
+                }
+                border.width: root.storm && segment.selected ? 1 : 0
+                border.color: AppTheme.stormBorderStrong
             }
             Rectangle {
                 anchors.fill: parent
                 anchors.margins: -3
                 radius: AppTheme.radiusMd + 3
                 color: "transparent"
-                border.color: AppTheme.focusRing
+                border.color: root.storm ? AppTheme.bolt : AppTheme.focusRing
                 border.width: 2
                 visible: segment.visualFocus
             }

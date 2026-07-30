@@ -67,6 +67,22 @@ private Q_SLOTS:
             const auto match = it.next();
             m_colors.insert(match.captured(1), match.captured(2));
         }
+        // Storm aliases: the trust tokens are re-expressed as plain
+        // references into the storm namespace (`property color trustNavy:
+        // stormPanel`) — resolve ONE level of alias so the AA pairs below
+        // keep asserting their real values.
+        const QRegularExpression aliasRe(QStringLiteral(
+            "property\\s+color\\s+(\\w+)\\s*:\\s*(\\w+)\\s*(?://.*)?$"),
+            QRegularExpression::MultilineOption);
+        auto aliasIt = aliasRe.globalMatch(m_theme);
+        while (aliasIt.hasNext()) {
+            const auto match = aliasIt.next();
+            if (!m_colors.contains(match.captured(1))
+                && m_colors.contains(match.captured(2))) {
+                m_colors.insert(match.captured(1),
+                                m_colors.value(match.captured(2)));
+            }
+        }
         QVERIFY(m_colors.size() > 20);
     }
 
@@ -236,6 +252,23 @@ private Q_SLOTS:
             { "trustCaptionDim", "trustChainBg", 4.5 },
             { "trustNavy", "trustYellow", 4.5 },
             { "trustVerifyInk", "trustNavy", 4.5 },
+            // Storm menu language (SPEC-storm-language §1) — the
+            // theme-invariant menu inks on their real fills. stormTextFaint
+            // is deliberately dim decorative-scale mono (section headers,
+            // metadata) and is exempt, like trustPending before it.
+            { "stormText", "stormPanel", 4.5 },
+            { "stormTextSecondary", "stormPanel", 4.5 },
+            { "stormTextMuted", "stormPanel", 4.5 },
+            { "stormText", "stormSelection", 4.5 },
+            { "stormTextMuted", "stormInset", 4.5 },
+            { "bolt", "stormPanel", 4.5 },
+            { "stormPanel", "bolt", 4.5 },
+            { "stormDanger", "stormPanel", 4.5 },
+            { "stormSuccess", "stormPanel", 4.5 },
+            { "stormLink", "stormPanel", 4.5 },
+            { "stormText", "stormCanvas", 4.5 },
+            { "stormText", "stormDeep", 4.5 },
+            { "stormTextMuted", "stormCanvas", 4.5 },
         };
         for (const Pair &pair : pairs) {
             const QString fg = c(pair.fg);
@@ -252,6 +285,68 @@ private Q_SLOTS:
                                     .arg(ratio, 0, 'f', 2)
                                     .arg(pair.minimum)));
         }
+    }
+
+    void settingsScreenCarriesNoThemedInk()
+    {
+        // Storm regression guard (review H1): SettingsScreen is a storm
+        // surface end to end — a themed colour token painted onto its navy
+        // fills is invisible in every light theme, and the round's dark
+        // captures cannot see it. The theme-preview cards use their own
+        // FIXED hex palettes (not tokens), so they cannot trip this scan.
+        // NOTE the double escaping: "\\." and "\\b" — a single backslash in
+        // a C++ literal would put a literal dot-wildcard and a BACKSPACE
+        // byte in the pattern, and the guard would pass forever (caught in
+        // review: the first version of this test was exactly that no-op).
+        const QString settings = readAll(QStringLiteral(SETTINGS_QML_PATH));
+        QVERIFY2(!settings.isEmpty(), "SettingsScreen.qml not readable");
+        const QStringList banned = {
+            QStringLiteral("AppTheme\\.text\\b"),
+            QStringLiteral("AppTheme\\.textPrimary\\b"),
+            QStringLiteral("AppTheme\\.textSecondary\\b"),
+            QStringLiteral("AppTheme\\.textMuted\\b"),
+            QStringLiteral("AppTheme\\.textDisabled\\b"),
+            QStringLiteral("AppTheme\\.card\\b"),
+            QStringLiteral("AppTheme\\.cardElevated\\b"),
+            QStringLiteral("AppTheme\\.surface\\b"),
+            QStringLiteral("AppTheme\\.surfaceAlt\\b"),
+            QStringLiteral("AppTheme\\.background\\b"),
+            QStringLiteral("AppTheme\\.sidebar\\b"),
+            QStringLiteral("AppTheme\\.hover\\b"),
+            QStringLiteral("AppTheme\\.accent\\b"),
+            QStringLiteral("AppTheme\\.accentSoft\\b"),
+            QStringLiteral("AppTheme\\.accentText\\b"),
+            QStringLiteral("AppTheme\\.selectedText\\b"),
+            QStringLiteral("AppTheme\\.separator\\b"),
+            QStringLiteral("AppTheme\\.inputBackground\\b"),
+            QStringLiteral("AppTheme\\.warning\\b"),
+            QStringLiteral("AppTheme\\.danger\\b"),
+            QStringLiteral("AppTheme\\.success\\b"),
+            QStringLiteral("AppTheme\\.focusRing\\b"),
+            QStringLiteral("AppTheme\\.icon\\b"),
+        };
+        // Positive control: the SAME regex list must bite on a file that
+        // legitimately uses themed ink (the room list keeps the user theme
+        // per SPEC-storm-language §5). If this stops matching, the guard
+        // has gone inert — fail loudly instead of passing forever.
+        const QString themedControl =
+            readAll(QStringLiteral(QML_DIR "/RoomDelegate.qml"));
+        QVERIFY2(!themedControl.isEmpty(), "RoomDelegate.qml not readable");
+        bool controlHit = false;
+        for (const QString &pattern : banned) {
+            const QRegularExpression re(pattern);
+            QVERIFY2(re.isValid(), qPrintable(pattern));
+            if (themedControl.contains(re))
+                controlHit = true;
+            QVERIFY2(!settings.contains(re),
+                     qPrintable(QStringLiteral(
+                         "themed token on the storm Settings surface: %1")
+                                    .arg(pattern)));
+        }
+        QVERIFY2(controlHit,
+                 "positive control failed: the banned-token regexes no "
+                 "longer match RoomDelegate.qml's themed ink — the guard "
+                 "has gone inert");
     }
 
     void allPresetsDefineFullRoleSet()

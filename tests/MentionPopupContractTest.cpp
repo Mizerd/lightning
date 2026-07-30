@@ -180,15 +180,20 @@ private Q_SLOTS:
             "text: qsTr(\"Mention · Matching \\\"%1\\\"\").arg(root.query)")));
         QVERIFY(popup.contains(QStringLiteral("font.family: AppTheme.monoFont")));
         QVERIFY(popup.contains(QStringLiteral("font.capitalization: Font.AllUppercase")));
-        // Load-bearing header text rides the AA-passing section-label ink,
-        // never the AA-exempt disabled ink.
-        QVERIFY(popup.contains(QStringLiteral("color: AppTheme.sectionLabelColor")));
+        // Storm skin: the header rides the faint storm mono ink (deliberate
+        // decorative-scale dim, SPEC-storm-language §2) — never a themed ink.
+        QVERIFY(popup.contains(QStringLiteral("color: AppTheme.stormTextFaint")));
     }
 
     void mxidUsesTextMutedPerRuleR4()
     {
         const QString popup = read(QStringLiteral(QML_DIR "/MentionPopup.qml"));
-        QVERIFY(popup.contains(QStringLiteral("color: AppTheme.monoIdentityColor")));
+        // Storm skin: MXIDs ride the muted storm mono ink (§2), brightening
+        // one step on the selected row for AA on the selection fill.
+        QVERIFY(popup.contains(QStringLiteral(
+            "? AppTheme.stormTextSecondary")));
+        QVERIFY(popup.contains(QStringLiteral(
+            ": AppTheme.stormTextMuted")));
     }
 
     void roomRowAndPresenceDotAreOmitted()

@@ -108,16 +108,16 @@ Dialog {
         focus: true
         padding: AppTheme.spacing16
         background: Rectangle {
-            color: AppTheme.surface
+            color: AppTheme.stormPanel
             radius: AppTheme.radiusMd
-            border.color: AppTheme.borderStrong
+            border.color: AppTheme.stormBorderStrong
             border.width: 1
         }
         contentItem: ColumnLayout {
             spacing: AppTheme.spacing12
             Label {
                 text: qsTr("Discard this poll draft?")
-                color: AppTheme.text
+                color: AppTheme.stormText
                 font.pixelSize: 14
                 font.weight: Font.DemiBold
             }
@@ -125,11 +125,13 @@ Dialog {
                 spacing: AppTheme.spacing8
                 Item { Layout.fillWidth: true }
                 AppButton {
+                    storm: true
                     objectName: "pollDiscardKeepButton"
                     text: qsTr("Keep editing")
                     onClicked: discardConfirm.close()
                 }
                 AppButton {
+                    storm: true
                     objectName: "pollDiscardConfirmButton"
                     kind: "danger"
                     text: qsTr("Discard")
@@ -143,9 +145,9 @@ Dialog {
     }
 
     background: Rectangle {
-        color: AppTheme.surface
+        color: AppTheme.stormPanel
         radius: AppTheme.radiusLg
-        border.color: AppTheme.border
+        border.color: AppTheme.stormBorder
         border.width: 1
     }
 
@@ -168,13 +170,14 @@ Dialog {
             spacing: AppTheme.spacing8
             Label {
                 text: qsTr("Create a poll")
-                color: AppTheme.text
-                font.family: AppTheme.uiFont
+                color: AppTheme.stormText
+                font.family: AppTheme.menuFont
                 font.pixelSize: AppTheme.fontSizeL
                 font.weight: Font.DemiBold
                 Layout.fillWidth: true
             }
             IconButton {
+                storm: true
                 objectName: "createPollCloseButton"
                 iconName: "close"
                 iconSize: 18
@@ -211,6 +214,7 @@ Dialog {
 
                     MenuSectionLabel { text: qsTr("QUESTION") }
                     AppTextField {
+                        storm: true
                         id: questionField
                         objectName: "pollQuestionField"
                         Layout.fillWidth: true
@@ -231,7 +235,7 @@ Dialog {
                             radius: AppTheme.radiusTile
                             color: "transparent"
                             border.width: 1
-                            border.color: AppTheme.border
+                            border.color: AppTheme.stormBorder
                             implicitHeight: answerRow.implicitHeight + AppTheme.spacing8
 
                             RowLayout {
@@ -240,6 +244,7 @@ Dialog {
                                 anchors.margins: AppTheme.spacing4
                                 spacing: AppTheme.spacing8
                                 AppTextField {
+                                    storm: true
                                     objectName: "pollAnswerField"
                                     Layout.fillWidth: true
                                     placeholderText: qsTr("Answer %1").arg(index + 1)
@@ -259,6 +264,7 @@ Dialog {
                                     }
                                 }
                                 IconButton {
+                                    storm: true
                                     objectName: "pollAnswerRemoveButton"
                                     iconName: "close"
                                     iconSize: 14
@@ -284,9 +290,9 @@ Dialog {
                         Layout.fillWidth: true
                         radius: AppTheme.radiusTile
                         color: addAnswerHover.hovered && enabled
-                               ? AppTheme.hover : "transparent"
+                               ? AppTheme.stormSelection : "transparent"
                         border.width: 1
-                        border.color: AppTheme.border
+                        border.color: AppTheme.stormBorder
                         implicitHeight: addAnswerContent.implicitHeight
                                         + AppTheme.spacing8 * 2
                         enabled: root.answerModel.count < root.maxAnswers
@@ -299,14 +305,16 @@ Dialog {
                         }
                         Keys.onReturnPressed: activateAdd()
                         Keys.onSpacePressed: activateAdd()
+                        // stormLink, not bolt: Send poll is this surface's
+                        // one yellow primary (§1 yellow discipline).
                         RowLayout {
                             id: addAnswerContent
                             anchors.centerIn: parent
                             spacing: AppTheme.spacing6
-                            Icon { name: "add"; size: 16; color: AppTheme.accent }
+                            Icon { name: "add"; size: 16; color: AppTheme.stormLink }
                             Label {
                                 text: qsTr("Add answer")
-                                color: AppTheme.accent
+                                color: AppTheme.stormLink
                                 font.pixelSize: AppTheme.fontSizeS
                                 font.weight: Font.DemiBold
                             }
@@ -326,7 +334,7 @@ Dialog {
                             radius: parent.radius + 3
                             color: "transparent"
                             border.width: 2
-                            border.color: AppTheme.focusRing
+                            border.color: AppTheme.bolt
                             visible: addAnswerRow.activeFocus
                         }
                     }
@@ -347,14 +355,14 @@ Dialog {
                                 spacing: 1
                                 Label {
                                     text: qsTr("Hide results until the poll ends")
-                                    color: AppTheme.text
+                                    color: AppTheme.stormText
                                     font.pixelSize: 13
                                     Layout.fillWidth: true
                                     wrapMode: Text.Wrap
                                 }
                                 Label {
                                     text: qsTr("Voters see the tallies only after you end the poll.")
-                                    color: AppTheme.textMuted
+                                    color: AppTheme.stormTextMuted
                                     font.pixelSize: 11
                                     Layout.fillWidth: true
                                     wrapMode: Text.Wrap
@@ -373,7 +381,7 @@ Dialog {
                             spacing: AppTheme.spacing12
                             Label {
                                 text: qsTr("Allow choosing multiple answers")
-                                color: AppTheme.text
+                                color: AppTheme.stormText
                                 font.pixelSize: 13
                                 Layout.fillWidth: true
                                 wrapMode: Text.Wrap
@@ -397,15 +405,20 @@ Dialog {
 
                     MenuSectionLabel { text: qsTr("PREVIEW · AS SENT") }
 
+                    // Storm: the preview module is a stormInset panel like
+                    // every other nested module. "AS SENT" promises CONTENT
+                    // fidelity (question/options/votes), not the viewer's
+                    // timeline palette — a themed fill inside the storm
+                    // dialog read as a foreign white card on light themes.
                     Rectangle {
                         objectName: "pollPreviewPanel"
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         Layout.minimumHeight: 220
                         radius: AppTheme.radiusLg
-                        color: AppTheme.background
+                        color: AppTheme.stormInset
                         border.width: 1
-                        border.color: AppTheme.border
+                        border.color: AppTheme.stormBorder
 
                         ColumnLayout {
                             anchors.fill: parent
@@ -419,7 +432,7 @@ Dialog {
                                       ? questionField.text
                                       : qsTr("Ask a question…")
                                 color: questionField.text.trim().length > 0
-                                       ? AppTheme.textPrimary : AppTheme.textMuted
+                                       ? AppTheme.stormText : AppTheme.stormTextMuted
                                 font.pixelSize: AppTheme.fontResult
                                 font.weight: Font.Bold
                                 wrapMode: Text.WordWrap
@@ -437,10 +450,10 @@ Dialog {
                                         readonly property bool first: index === 0
                                         Layout.fillWidth: true
                                         radius: AppTheme.radiusTile
-                                        color: first ? AppTheme.accentSoft : AppTheme.surface
+                                        color: first ? AppTheme.stormSelection : AppTheme.stormPanel
                                         border.width: 1
-                                        border.color: first ? AppTheme.accentBorder
-                                                            : AppTheme.border
+                                        border.color: first ? AppTheme.stormBorderStrong
+                                                            : AppTheme.stormBorder
                                         // The label consumes spacing8 margins on
                                         // BOTH edges — a single-spacing budget
                                         // left the row 8px short, running the
@@ -453,7 +466,7 @@ Dialog {
                                             anchors.margins: AppTheme.spacing8
                                             text: previewOption.modelData
                                             color: previewOption.first
-                                                   ? AppTheme.selectedText : AppTheme.textPrimary
+                                                   ? AppTheme.stormText : AppTheme.stormTextSecondary
                                             font.pixelSize: AppTheme.fontSizeS
                                             elide: Label.ElideRight
                                         }
@@ -463,7 +476,7 @@ Dialog {
                                     objectName: "pollPreviewPlaceholder"
                                     visible: root.previewAnswers.length === 0
                                     text: qsTr("Options appear here as you type them.")
-                                    color: AppTheme.textMuted
+                                    color: AppTheme.stormTextMuted
                                     font.pixelSize: AppTheme.fontSizeXS
                                     wrapMode: Text.WordWrap
                                     Layout.fillWidth: true
@@ -477,7 +490,7 @@ Dialog {
                                 text: undisclosedSwitch.checked
                                       ? qsTr("0 votes · anonymous")
                                       : qsTr("0 votes")
-                                color: AppTheme.textMuted
+                                color: AppTheme.stormTextMuted
                                 font.pixelSize: AppTheme.fontSizeXS
                             }
                         }
@@ -492,11 +505,13 @@ Dialog {
             spacing: AppTheme.spacing8
             Item { Layout.fillWidth: true }
             AppButton {
+                storm: true
                 objectName: "createPollCancelButton"
                 text: qsTr("Cancel")
                 onClicked: root.maybeClose()
             }
             AppButton {
+                storm: true
                 objectName: "createPollSubmitButton"
                 kind: "primary"
                 text: qsTr("Send poll")

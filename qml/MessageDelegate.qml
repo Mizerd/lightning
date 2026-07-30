@@ -927,6 +927,12 @@ Item {
                             id: moreMenu
                             objectName: "messageContextMenu"
                             menuWidth: AppTheme.menuWidthMessage
+                            // Storm §3.1 mono context header — this row's own
+                            // sender and time (the menu instance lives in the
+                            // delegate, so the row data is authoritative).
+                            contextLabel: qsTr("Message · %1 · %2")
+                                .arg(model.senderDisplayName || model.sender || "")
+                                .arg(Qt.formatDateTime(model.timestamp, "hh:mm"))
                             onClosed: root.menuEventId = ""
                             // v0.6.5 (SPEC 1a): single-key accelerators while
                             // the menu is open. Keys cannot attach to a Menu

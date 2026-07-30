@@ -224,6 +224,13 @@ Item {
         id: roomMenu
         objectName: "roomContextMenu"
         menuWidth: AppTheme.menuWidthRoom
+        // Storm §4 2b: mono room-address header. Mono is for ADDRESSES —
+        // use the canonical alias when the room has one; otherwise the
+        // display name WITHOUT a fabricated # prefix.
+        contextLabel: model.isDirect === true
+                      ? (model.name || "")
+                      : ((model.canonicalAlias || "").length > 0
+                         ? model.canonicalAlias : (model.name || ""))
         AppMenuItem {
             iconName: "check"
             text: qsTr("Mark as read")
@@ -247,6 +254,9 @@ Item {
             title: qsTr("Notifications")
             submenuIconName: "notifications"
             menuWidth: AppTheme.menuWidthFlyout
+            // Storm §4 2b: flyout header is a bare mono caption, no bolt.
+            contextLabel: qsTr("Notify mode")
+            contextBolt: false
             property int currentMode: 0
             function refreshMode() {
                 currentMode = app.settings.roomNotificationMode(model.roomId)
@@ -285,7 +295,7 @@ Item {
                 bottomPadding: AppTheme.spacing6
                 text: qsTr("Local setting: it does not change this "
                            + "room's server push rules.")
-                color: AppTheme.textDisabled
+                color: AppTheme.stormTextFaint
                 font.pixelSize: AppTheme.fontMicro
                 wrapMode: Text.WordWrap
             }

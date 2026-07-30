@@ -95,14 +95,17 @@ Item {
                     else if (emojiValue.length > 0) root.picked(emojiValue)
                 }
 
+                // Storm §4 2a: the emphasized cell fills stormSelection with
+                // a stormBorderStrong border — the same selected-cell
+                // treatment as the mock's 🔥 cell.
                 Rectangle {
                     anchors.fill: parent
                     radius: AppTheme.menuItemRadius
                     readonly property bool emphasized:
                         hover.hovered || cell.activeFocus
-                    color: emphasized ? AppTheme.accentSoft : "transparent"
+                    color: emphasized ? AppTheme.stormSelection : "transparent"
                     border.width: emphasized ? 1 : 0
-                    border.color: AppTheme.accentBorder
+                    border.color: AppTheme.stormBorderStrong
                 }
 
                 Text {
@@ -116,7 +119,7 @@ Item {
                     visible: cell.isMore
                     name: "add"
                     size: AppTheme.menuIconSize
-                    color: AppTheme.textMuted
+                    color: AppTheme.stormTextMuted
                 }
 
                 onActiveFocusChanged: {
@@ -147,6 +150,6 @@ Item {
         anchors.right: parent.right
         anchors.top: cellRow.bottom
         height: 1
-        color: AppTheme.border
+        color: AppTheme.stormBorder
     }
 }

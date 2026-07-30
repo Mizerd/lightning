@@ -58,8 +58,10 @@ Popup {
         Rectangle {
             id: popoverBackground
             anchors.fill: parent
-            color: AppTheme.cardElevated
-            border.color: AppTheme.borderStrong
+            // Storm §4 2c: the switcher sits on the deep canvas so the
+            // identity cards (stormPanel / stormInset) read as raised.
+            color: AppTheme.stormCanvas
+            border.color: AppTheme.stormBorder
             border.width: 1
             radius: AppTheme.radiusLg
         }
@@ -75,18 +77,20 @@ Popup {
         }
     }
 
-    // Shared footer action button: icon + 12px/700 label, 34px tall,
-    // radiusTile. Add/Settings are neutral (hover bg); Sign out carries a
-    // permanent danger tint.
+    // Shared footer action button — Storm §4 2c: three OUTLINE buttons,
+    // 33px, radiusTile; Add/Settings ink stormTextSecondary on a
+    // stormBorderStrong outline, Sign out carries the danger ink and the
+    // 30%-alpha danger outline.
     component FooterAction: AbstractButton {
         id: footerBtn
         property string iconName: ""
-        property color inkColor: AppTheme.textSecondary
-        property color restColor: "transparent"
-        property color hoverColor: AppTheme.hover
+        property bool dangerAction: false
+
+        readonly property color _ink:
+            dangerAction ? AppTheme.stormDanger : AppTheme.stormTextSecondary
 
         Layout.fillWidth: true
-        implicitHeight: 34
+        implicitHeight: 33
         hoverEnabled: true
         focusPolicy: Qt.TabFocus
         Accessible.role: Accessible.Button
@@ -98,19 +102,25 @@ Popup {
         contentItem: RowLayout {
             spacing: AppTheme.spacing4
             Item { Layout.fillWidth: true }
-            Icon { name: footerBtn.iconName; size: 16; color: footerBtn.inkColor }
+            Icon { name: footerBtn.iconName; size: 15; color: footerBtn._ink }
             Label {
                 text: footerBtn.text
-                color: footerBtn.inkColor
+                color: footerBtn._ink
+                font.family: AppTheme.menuFont
                 font.pixelSize: 12
-                font.weight: Font.Bold
+                font.weight: Font.DemiBold
             }
             Item { Layout.fillWidth: true }
         }
         background: Rectangle {
             radius: AppTheme.radiusTile
             color: footerBtn.enabled && (footerBtn.down || footerBtn.hovered)
-                   ? footerBtn.hoverColor : footerBtn.restColor
+                   ? (footerBtn.dangerAction ? AppTheme.stormDangerSoft
+                                             : AppTheme.stormSelection)
+                   : "transparent"
+            border.width: 1
+            border.color: footerBtn.dangerAction ? AppTheme.stormDangerBorder
+                                                 : AppTheme.stormBorderStrong
         }
         Rectangle {
             anchors.fill: parent
@@ -118,7 +128,7 @@ Popup {
             radius: AppTheme.radiusTile + 3
             color: "transparent"
             border.width: 2
-            border.color: AppTheme.focusRing
+            border.color: AppTheme.bolt
             visible: footerBtn.visualFocus
         }
     }
@@ -126,14 +136,24 @@ Popup {
     contentItem: ColumnLayout {
         spacing: AppTheme.spacing10
 
+        // Storm §4 2c header: outline bolt + mono ACCOUNTS + bolt Manage
+        // link (the surface's one yellow action affordance).
         RowLayout {
             Layout.fillWidth: true
             spacing: AppTheme.spacing8
+            Icon {
+                name: "bolt"
+                size: 14
+                color: AppTheme.bolt
+            }
             Label {
                 text: qsTr("Accounts")
-                color: AppTheme.textPrimary
-                font.pixelSize: AppTheme.fontBody
-                font.weight: Font.ExtraBold
+                color: AppTheme.stormTextMuted
+                font.family: AppTheme.monoFont
+                font.pixelSize: AppTheme.fontChip
+                font.weight: Font.DemiBold
+                font.letterSpacing: AppTheme.trackingStorm
+                font.capitalization: Font.AllUppercase
             }
             Item { Layout.fillWidth: true }
             AbstractButton {
@@ -152,7 +172,12 @@ Popup {
                 contentItem: Label {
                     id: manageInk
                     text: manageLabel.text
-                    color: AppTheme.accent
+                    // stormLink per §1 (inline links) — the 2c mock draws
+                    // Manage in bolt, but §1's yellow reserve wins: this
+                    // popover already carries the ACTIVE chip, the avatar
+                    // ring and the presence dot in bolt.
+                    color: AppTheme.stormLink
+                    font.family: AppTheme.menuFont
                     font.pixelSize: AppTheme.fontMonoXS
                     font.weight: Font.DemiBold
                     font.underline: manageLabel.hovered
@@ -165,14 +190,14 @@ Popup {
                     anchors.margins: -2
                     radius: AppTheme.radiusSm
                     color: "transparent"
-                    border.color: AppTheme.focusRing
+                    border.color: AppTheme.bolt
                     border.width: 2
                     visible: manageLabel.visualFocus
                 }
             }
         }
 
-        Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: AppTheme.separator }
+        Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: AppTheme.stormBorder }
 
         // Off-screen probe: real IdentityCard geometry drives the "cap the
         // stack at ~3 rows" height, instead of a guessed magic number. It
@@ -248,6 +273,23 @@ Popup {
                           && app.cryptoHealth.cryptoReady === true
                 connected: root.connected
                 metaText: modelData.isActive === true ? root.activeMetaText() : ""
+                // Storm §3.4: the trust meter rides ONLY on real crypto
+                // state, which the SDK reports for the attached (active)
+                // account alone — inactive cards never fabricate one.
+                trustCompleted: {
+                    if (modelData.isActive !== true
+                            || app.backendName !== "rust"
+                            || !app.cryptoHealth
+                            || !app.cryptoHealth.cryptoSupported)
+                        return -1
+                    var n = 0
+                    if (app.cryptoHealth.ownIdentityVerified
+                            === CryptoHealthModel.Yes) n++
+                    if (app.cryptoHealth.currentDeviceVerified
+                            === CryptoHealthModel.Yes) n++
+                    if (app.cryptoHealth.crossSigningReady === true) n++
+                    return n
+                }
 
                 onActivated: {
                     // Compare against the LIVE active account, never the
@@ -275,7 +317,6 @@ Popup {
                 objectName: "accountFooterAdd"
                 text: qsTr("Add")
                 iconName: "person_add"
-                restColor: AppTheme.hover
                 enabled: !app.accountSwitching
                 onClicked: { root.close(); app.showLogin() }
             }
@@ -283,7 +324,6 @@ Popup {
                 objectName: "accountFooterSettings"
                 text: qsTr("Settings")
                 iconName: "settings"
-                restColor: AppTheme.hover
                 enabled: !app.accountSwitching
                 onClicked: { root.close(); app.showSettingsSection("general") }
             }
@@ -291,9 +331,7 @@ Popup {
                 objectName: "accountFooterSignOut"
                 text: qsTr("Sign out")
                 iconName: "logout"
-                inkColor: AppTheme.dangerInk
-                restColor: AppTheme.dangerSoft
-                hoverColor: Qt.alpha(AppTheme.mentionBadge, 0.16)
+                dangerAction: true
                 enabled: !app.accountSwitching
                 onClicked: { root.close(); signOutConfirm.open() }
             }
@@ -338,8 +376,8 @@ Popup {
         closePolicy: Popup.CloseOnEscape
 
         background: Rectangle {
-            color: AppTheme.surface
-            border.color: AppTheme.border
+            color: AppTheme.stormPanel
+            border.color: AppTheme.stormBorderStrong
             radius: AppTheme.radiusLg
         }
 
@@ -353,29 +391,22 @@ Popup {
                            + "server, and other accounts are not affected.")
                       .arg(removeConfirm.targetUserId)
                 wrapMode: Text.WordWrap
-                color: AppTheme.textPrimary
+                color: AppTheme.stormText
             }
             RowLayout {
                 Layout.fillWidth: true
                 Item { Layout.fillWidth: true }
-                Button {
+                AppButton {
+                    storm: true
                     text: qsTr("Cancel")
                     focus: true
                     onClicked: removeConfirm.close()
                 }
-                Button {
+                AppButton {
+                    storm: true
+                    kind: "danger"
                     text: qsTr("Remove")
                     Accessible.name: qsTr("Confirm account removal")
-                    contentItem: Label {
-                        text: parent.text
-                        color: AppTheme.dangerText
-                        horizontalAlignment: Text.AlignHCenter
-                    }
-                    background: Rectangle {
-                        color: parent.down ? Qt.darker(AppTheme.danger, 1.2)
-                                           : AppTheme.danger
-                        radius: AppTheme.radiusSm
-                    }
                     onClicked: {
                         var target = removeConfirm.targetUserId
                         removeConfirm.close()
@@ -401,8 +432,8 @@ Popup {
         closePolicy: Popup.CloseOnEscape
 
         background: Rectangle {
-            color: AppTheme.surface
-            border.color: AppTheme.border
+            color: AppTheme.stormPanel
+            border.color: AppTheme.stormBorderStrong
             radius: AppTheme.radiusLg
         }
 
@@ -416,29 +447,22 @@ Popup {
                            + "on the server, and encrypted history may need "
                            + "your recovery key after the next sign-in.")
                 wrapMode: Text.WordWrap
-                color: AppTheme.textPrimary
+                color: AppTheme.stormText
             }
             RowLayout {
                 Layout.fillWidth: true
                 Item { Layout.fillWidth: true }
-                Button {
+                AppButton {
+                    storm: true
                     text: qsTr("Cancel")
                     focus: true
                     onClicked: signOutConfirm.close()
                 }
-                Button {
+                AppButton {
+                    storm: true
+                    kind: "danger"
                     text: qsTr("Sign out")
                     Accessible.name: qsTr("Confirm sign out")
-                    contentItem: Label {
-                        text: parent.text
-                        color: AppTheme.dangerText
-                        horizontalAlignment: Text.AlignHCenter
-                    }
-                    background: Rectangle {
-                        color: parent.down ? Qt.darker(AppTheme.danger, 1.2)
-                                           : AppTheme.danger
-                        radius: AppTheme.radiusSm
-                    }
                     onClicked: {
                         signOutConfirm.close()
                         app.auth.logout()

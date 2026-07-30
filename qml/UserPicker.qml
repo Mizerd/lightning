@@ -37,13 +37,15 @@ ColumnLayout {
     }
 
     // HTML-escape untrusted display names before any StyledText highlight,
-    // then tint the matched query substring accent (SPEC 1t typeahead).
+    // then tint the matched query substring (SPEC 1t typeahead). Storm: the
+    // caller passes bolt for the highlighted row, stormText otherwise —
+    // yellow discipline keeps one bolt fragment per surface.
     function escapeHtml(s) {
         return String(s)
             .replace(/&/g, "&amp;").replace(/</g, "&lt;")
             .replace(/>/g, "&gt;").replace(/"/g, "&quot;")
     }
-    function highlightedName(text, query) {
+    function highlightedName(text, query, tintColor) {
         var safe = escapeHtml(text)
         var q = (query || "").trim()
         if (q.length === 0) return safe
@@ -51,7 +53,9 @@ ColumnLayout {
         var lowerQ = escapeHtml(q).toLowerCase()
         var idx = lowerSafe.indexOf(lowerQ)
         if (idx === -1) return safe
-        return safe.slice(0, idx) + "<font color=\"" + AppTheme.accent + "\">"
+        var tint = (tintColor && ("" + tintColor).length > 0)
+                   ? ("" + tintColor) : ("" + AppTheme.stormText)
+        return safe.slice(0, idx) + "<font color=\"" + tint + "\">"
              + safe.slice(idx, idx + lowerQ.length) + "</font>"
              + safe.slice(idx + lowerQ.length)
     }
@@ -69,18 +73,29 @@ ColumnLayout {
             ? qsTr("Type a name, an @user ID, or a #room address…")
             : qsTr("Search people, or enter a full Matrix ID…")
         Accessible.name: qsTr("Search for a user")
-        // The omnibox treatment (SPEC 1u): 1.5px accent border, radiusOmnibox,
-        // a leading bolt glyph instead of the plain search icon — overridden
-        // from here rather than editing AppTextField.qml (lead-owned).
+        // Storm §3.8: stormInset field on the navy dialogs; focus promotes
+        // to a bolt border with the soft bolt halo. The omnibox keeps its
+        // larger radius and leading bolt glyph (SPEC 1u) — overridden from
+        // here rather than editing AppTextField.qml (lead-owned).
+        storm: true
         background: Rectangle {
             radius: root.omniboxStyle ? AppTheme.radiusOmnibox : AppTheme.radiusMd
-            color: AppTheme.inputBackground
-            border.width: root.omniboxStyle ? 1.5
-                          : (searchField.activeFocus ? 2 : 1)
-            border.color: root.omniboxStyle ? AppTheme.accent
-                          : (searchField.activeFocus ? AppTheme.focusRing
-                             : searchField.hovered ? AppTheme.borderStrong
-                             : AppTheme.border)
+            color: AppTheme.stormInset
+            border.width: searchField.activeFocus ? 1.5 : 1
+            border.color: searchField.activeFocus ? AppTheme.bolt
+                          : (root.omniboxStyle || searchField.hovered)
+                            ? AppTheme.stormBorderStrong
+                          : AppTheme.stormBorder
+            // §3.8 focus halo: an outside ring, never field geometry.
+            Rectangle {
+                visible: searchField.activeFocus
+                anchors.fill: parent
+                anchors.margins: -3
+                radius: parent.radius + 3
+                color: "transparent"
+                border.width: 3
+                border.color: AppTheme.stormBoltGlow
+            }
         }
         Icon {
             visible: root.omniboxStyle
@@ -89,7 +104,9 @@ ColumnLayout {
             anchors.verticalCenter: parent.verticalCenter
             name: "bolt"
             size: 18
-            color: AppTheme.accent
+            // Mock 2i: the omnibox glyph inks bolt while focused.
+            color: searchField.activeFocus ? AppTheme.bolt
+                                           : AppTheme.stormTextMuted
         }
         onTextChanged: {
             app.conversations.userSearch.query = text
@@ -130,7 +147,7 @@ ColumnLayout {
             return ""
         }
         color: app.conversations.userSearch.state === "error"
-               ? AppTheme.danger : AppTheme.textMuted
+               ? AppTheme.stormDanger : AppTheme.stormTextMuted
         font.pixelSize: AppTheme.fontSizeS
     }
 
@@ -188,17 +205,23 @@ ColumnLayout {
                         text: root.highlightedName(
                             model.displayName && model.displayName.length > 0
                                 ? model.displayName : model.userId,
-                            root.model.query)
-                        color: AppTheme.textPrimary
+                            root.model.query,
+                            row.highlighted ? "" + AppTheme.bolt
+                                            : "" + AppTheme.stormText)
+                        color: row.highlighted ? AppTheme.stormText
+                                               : AppTheme.stormTextSecondary
+                        font.family: AppTheme.menuFont
                         font.pixelSize: AppTheme.fontSizeM
+                        font.weight: Font.DemiBold
                         elide: Label.ElideRight
                     }
                     Label {
                         Layout.fillWidth: true
                         visible: model.displayName && model.displayName.length > 0
                         text: model.userId
-                        color: AppTheme.textMuted
-                        font.pixelSize: AppTheme.fontSizeS
+                        color: AppTheme.stormTextMuted
+                        font.family: AppTheme.monoFont
+                        font.pixelSize: AppTheme.fontMonoXS
                         elide: Label.ElideMiddle
                     }
                 }
@@ -210,13 +233,13 @@ ColumnLayout {
                     text: src === "exact_local" ? qsTr("From your server")
                         : src === "exact_mxid"  ? qsTr("Exact Matrix ID")
                         : ""
-                    color: AppTheme.textMuted
+                    color: AppTheme.stormTextFaint
                     font.pixelSize: AppTheme.fontSizeXS
                 }
             }
             background: Rectangle {
-                color: row.highlighted ? AppTheme.selected
-                     : row.hovered ? AppTheme.hover : "transparent"
+                color: (row.highlighted || row.hovered)
+                       ? AppTheme.stormSelection : "transparent"
                 radius: AppTheme.radiusSm
             }
         }

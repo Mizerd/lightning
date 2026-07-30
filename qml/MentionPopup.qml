@@ -16,6 +16,10 @@ import MatrixClient
 // carries a recognized power-level role), a tinted "return" keycap on the
 // selected row, and row accessibility. The @room row and presence dots are
 // omitted — the model has no data to honestly back either.
+//
+// Storm skin (SPEC-storm-language §4/2h): stormPanel chrome, faint-mono
+// header, stormSelection selected row with a bolt matched prefix, bolt MOD
+// chip and active ↵ keycap. Colors/fonts only — behavior unchanged.
 Popup {
     id: root
     objectName: "mentionPopup"
@@ -113,21 +117,23 @@ Popup {
     // Highlights the query as a prefix of the display name only (the simple,
     // common case matchScore ranks highest); a word-start-only or
     // localpart/MXID-only match still shows the plain, unhighlighted name.
-    function highlightedName(name, q) {
+    // `ink` is the highlight colour: bolt on THE selected row only (yellow
+    // discipline), a brightened stormText prefix on resting rows.
+    function highlightedName(name, q, ink) {
         const escaped = escapeHtml(name)
         if (!q || q.length === 0
                 || name.toLowerCase().indexOf(q.toLowerCase()) !== 0)
             return escaped
         const prefix = escapeHtml(name.substring(0, q.length))
         const rest = escapeHtml(name.substring(q.length))
-        return "<font color=\"%1\">%2</font>%3".arg(AppTheme.accent)
+        return "<font color=\"%1\">%2</font>%3".arg(ink)
                                                 .arg(prefix).arg(rest)
     }
 
     background: Rectangle {
         objectName: "mentionPopupSurface"
-        color: AppTheme.surface
-        border.color: AppTheme.borderStrong
+        color: AppTheme.stormPanel
+        border.color: AppTheme.stormBorder
         border.width: 1
         radius: AppTheme.menuRadius
     }
@@ -145,12 +151,12 @@ Popup {
             text: qsTr("Mention · Matching \"%1\"").arg(root.query)
             font.family: AppTheme.monoFont
             font.pixelSize: AppTheme.fontChip
-            font.weight: Font.Medium
-            font.letterSpacing: AppTheme.trackingMono
+            font.weight: Font.DemiBold
+            font.letterSpacing: AppTheme.trackingStorm
             font.capitalization: Font.AllUppercase
-            // Load-bearing header text rides the AA-passing label ink, not
-            // the AA-exempt disabled ink (see AppTheme.sectionLabelColor).
-            color: AppTheme.sectionLabelColor
+            // Storm §2: faint mono section-header ink (the storm header
+            // vocabulary — deliberately dim decorative mono).
+            color: AppTheme.stormTextFaint
         }
 
         ListView {
@@ -173,9 +179,9 @@ Popup {
                 readonly property bool isSelected: index === root.currentIndex
                 readonly property string roleChip: root.roleChipLabel(model.role)
                 radius: AppTheme.menuItemRadius
-                color: isSelected ? AppTheme.accentSoft : "transparent"
+                color: isSelected ? AppTheme.stormSelection : "transparent"
                 border.width: isSelected ? 1 : 0
-                border.color: AppTheme.accentBorder
+                border.color: AppTheme.stormBorderStrong
 
                 Accessible.role: Accessible.Button
                 Accessible.name: model.displayName + ", " + model.userId
@@ -220,10 +226,16 @@ Popup {
                             textFormat: Text.RichText
                             text: root.highlightedName(
                                 (model.displayName && model.displayName.length > 0)
-                                ? model.displayName : model.userId, root.query)
-                            color: AppTheme.textPrimary
+                                ? model.displayName : model.userId, root.query,
+                                rowDelegate.isSelected ? AppTheme.bolt
+                                                       : AppTheme.stormText)
+                            color: rowDelegate.isSelected
+                                   ? AppTheme.stormText
+                                   : AppTheme.stormTextSecondary
+                            font.family: AppTheme.menuFont
                             font.pixelSize: 13
-                            font.weight: Font.Bold
+                            font.weight: rowDelegate.isSelected ? Font.Bold
+                                                                : Font.DemiBold
                             elide: Label.ElideRight
                         }
                         // Muted MXID under the name (always shown when there is a
@@ -236,7 +248,11 @@ Popup {
                             text: model.userId
                             font.family: AppTheme.monoFont
                             font.pixelSize: AppTheme.fontMonoXS
-                            color: AppTheme.monoIdentityColor
+                            // AA on the selection fill: the selected row's
+                            // MXID brightens one step.
+                            color: rowDelegate.isSelected
+                                   ? AppTheme.stormTextSecondary
+                                   : AppTheme.stormTextMuted
                             elide: Label.ElideRight
                         }
                     }
@@ -245,15 +261,15 @@ Popup {
                         Layout.alignment: Qt.AlignVCenter
                         visible: rowDelegate.roleChip.length > 0
                         label: rowDelegate.roleChip
-                        tone: "accent"
-                        solid: true
+                        storm: true
+                        tone: "bolt"
                     }
                     MenuKeycap {
                         objectName: "mentionSelectedKeycap"
                         Layout.alignment: Qt.AlignVCenter
                         visible: rowDelegate.isSelected
                         iconName: "keyboard_return"
-                        tinted: true
+                        active: true
                     }
                 }
             }

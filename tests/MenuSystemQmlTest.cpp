@@ -72,6 +72,14 @@ ApplicationWindow {
     Rectangle { objectName: "tokPresenceOnline"; visible: false; color: AppTheme.presenceOnline }
     Rectangle { objectName: "tokMentionBadge"; visible: false; color: AppTheme.mentionBadge }
     Rectangle { objectName: "tokAccentText"; visible: false; color: AppTheme.accentText }
+    Rectangle { objectName: "tokStormPanel"; visible: false; color: AppTheme.stormPanel }
+    Rectangle { objectName: "tokStormSelection"; visible: false; color: AppTheme.stormSelection }
+    Rectangle { objectName: "tokStormText"; visible: false; color: AppTheme.stormText }
+    Rectangle { objectName: "tokStormTextMuted"; visible: false; color: AppTheme.stormTextMuted }
+    Rectangle { objectName: "tokStormTextFaint"; visible: false; color: AppTheme.stormTextFaint }
+    Rectangle { objectName: "tokStormBorderStrong"; visible: false; color: AppTheme.stormBorderStrong }
+    Rectangle { objectName: "tokStormDanger"; visible: false; color: AppTheme.stormDanger }
+    Rectangle { objectName: "tokBolt"; visible: false; color: AppTheme.bolt }
 
     AppMenu {
         id: menu
@@ -153,13 +161,22 @@ private:
     }
 
     // The Icon and Label inside an AppMenuItem's content row, located
-    // structurally (first child with a "name" property = Icon; first with
-    // "elide" = Label) so the test does not depend on private names.
+    // structurally (first VISIBLE child with a "name" property = Icon;
+    // first visible one with "elide" but no "name" = Label) so the test
+    // does not depend on private names. Scoped to the row's contentItem:
+    // the Storm background carries a decorative edge-bolt Icon (and every
+    // row hosts an invisible StormNode) that must never be mistaken for
+    // the row's own icon or label.
     QQuickItem *leadingIcon(QQuickItem *menuItem) const
     {
-        const auto all = menuItem->findChildren<QQuickItem *>();
+        auto *content =
+            menuItem->property("contentItem").value<QQuickItem *>();
+        if (!content)
+            return nullptr;
+        const auto all = content->findChildren<QQuickItem *>();
         for (QQuickItem *child : all) {
-            if (child->metaObject()->indexOfProperty("name") >= 0
+            if (child->isVisible()
+                && child->metaObject()->indexOfProperty("name") >= 0
                 && child->metaObject()->indexOfProperty("size") >= 0)
                 return child;
         }
@@ -168,9 +185,15 @@ private:
 
     QQuickItem *label(QQuickItem *menuItem) const
     {
-        const auto all = menuItem->findChildren<QQuickItem *>();
+        auto *content =
+            menuItem->property("contentItem").value<QQuickItem *>();
+        if (!content)
+            return nullptr;
+        const auto all = content->findChildren<QQuickItem *>();
         for (QQuickItem *child : all) {
-            if (child->metaObject()->indexOfProperty("elide") >= 0)
+            if (child->isVisible()
+                && child->metaObject()->indexOfProperty("elide") >= 0
+                && child->metaObject()->indexOfProperty("name") < 0)
                 return child;
         }
         return nullptr;
@@ -216,8 +239,12 @@ private slots:
         auto *chip = item("keycapText");
         QVERIFY(chip);
         QCOMPARE(chip->property("radius").toInt(), 4);
-        QCOMPARE(chip->property("color").value<QColor>(),
-                 token("tokCardElevated"));
+        // Storm §3.2: resting keycaps are transparent chips with the strong
+        // storm outline.
+        QCOMPARE(chip->property("color").value<QColor>().alpha(), 0);
+        QCOMPARE(chip->property("border").value<QObject *>()
+                     ->property("color").value<QColor>(),
+                 token("tokStormBorderStrong"));
         auto *chipLabel = rowChild(chip, "keycapLabel");
         QVERIFY(chipLabel);
         QCOMPARE(chipLabel->property("text").toString(),
@@ -226,7 +253,7 @@ private slots:
         QCOMPARE(font.family(), QStringLiteral("JetBrains Mono"));
         QCOMPARE(font.pixelSize(), 10);
         QCOMPARE(chipLabel->property("color").value<QColor>(),
-                 token("tokTextMuted"));
+                 token("tokStormTextMuted"));
         // Icon mode: glyphs the mono face lacks (↵) render as an Icon.
         auto *iconChip = item("keycapIcon");
         QVERIFY(iconChip);
@@ -244,13 +271,13 @@ private slots:
         QVERIFY(sectionLabel);
         const QFont font = sectionLabel->property("font").value<QFont>();
         QCOMPARE(font.pixelSize(), 10);
-        QCOMPARE(int(font.weight()), int(QFont::ExtraBold));
+        // Storm §2: mono ~9.5px/600 headers in the faint storm ink —
+        // deliberately dim decorative-scale mono, never sentence text.
+        QCOMPARE(font.family(), QStringLiteral("JetBrains Mono"));
+        QCOMPARE(int(font.weight()), int(QFont::DemiBold));
         QCOMPARE(int(font.capitalization()), int(QFont::AllUppercase));
-        // Load-bearing labels ride the AA-asserted muted ink; textDisabled
-        // stays reserved for genuinely disabled controls (AA-exempt). See
-        // AppTheme.sectionLabelColor's rationale.
         QCOMPARE(sectionLabel->property("color").value<QColor>(),
-                 token("tokTextMuted"));
+                 token("tokStormTextFaint"));
     }
 
     void quickReactionStripIsKeyboardOperable()
@@ -304,9 +331,9 @@ private slots:
         QCOMPARE(reply->height(), 32.0);
         auto *icon = leadingIcon(reply);
         QVERIFY(icon);
-        QCOMPARE(icon->property("size").toInt(), 18);
+        QCOMPARE(icon->property("size").toInt(), 17);
         QCOMPARE(icon->property("color").value<QColor>(),
-                 token("tokTextMuted"));
+                 token("tokStormTextMuted"));
         // The accelerator keycap renders on the row.
         auto *accel = rowChild(reply, "keycapLabel");
         QVERIFY(accel);
@@ -327,11 +354,12 @@ private slots:
         const QPointF inside = reply->mapToScene(QPointF(3, reply->height() / 2));
         QVERIFY(channelDelta(sampleAvg(img, QRect(int(inside.x()),
                                                   int(inside.y()) - 1, 2, 3)),
-                             token("tokAccentSoft")) <= kTolerance);
+                             token("tokStormSelection")) <= kTolerance);
+        // Storm §3.2: label brightens to stormText, the icon inks bolt.
         QCOMPARE(label(reply)->property("color").value<QColor>(),
-                 token("tokSelectedText"));
+                 token("tokStormText"));
         QCOMPARE(leadingIcon(reply)->property("color").value<QColor>(),
-                 token("tokSelectedText"));
+                 token("tokBolt"));
         menu->setProperty("currentIndex", -1);
         closeMenu();
     }
@@ -342,9 +370,9 @@ private slots:
         auto *deleteItem = item("deleteItem");
         QVERIFY(deleteItem);
         QCOMPARE(label(deleteItem)->property("color").value<QColor>(),
-                 token("tokDangerInk"));
+                 token("tokStormDanger"));
         QCOMPARE(leadingIcon(deleteItem)->property("color").value<QColor>(),
-                 token("tokDangerInk"));
+                 token("tokStormDanger"));
         closeMenu();
     }
 
@@ -392,16 +420,24 @@ private slots:
                  qPrintable(QStringLiteral("flyout at %1, parent right %2")
                                 .arg(flyoutSceneX).arg(parentRightX)));
 
-        // Radio treatment: bound selection renders the checked glyph in
-        // accent; the unselected row keeps the unchecked glyph.
-        QCOMPARE(leadingIcon(flyoutItem)->property("name").toString(),
-                 QStringLiteral("radio_button_checked"));
-        QCOMPARE(leadingIcon(flyoutItem)->property("color").value<QColor>(),
-                 token("tokAccent"));
+        // Radio treatment — Storm §3.3 node states: the selected row
+        // carries the bolt-filled node, the unselected row the dashed ring.
+        auto *selectedFill = flyoutItem->findChild<QQuickItem *>(
+            QStringLiteral("stormNodeFill"));
+        QVERIFY(selectedFill);
+        QVERIFY(selectedFill->property("visible").toBool());
+        QCOMPARE(selectedFill->property("color").value<QColor>(),
+                 token("tokBolt"));
         auto *mentions = item("radioMentions");
         QVERIFY(mentions);
-        QCOMPARE(leadingIcon(mentions)->property("name").toString(),
-                 QStringLiteral("radio_button_unchecked"));
+        auto *mentionsFill = mentions->findChild<QQuickItem *>(
+            QStringLiteral("stormNodeFill"));
+        auto *mentionsRing = mentions->findChild<QQuickItem *>(
+            QStringLiteral("stormNodeDashRing"));
+        QVERIFY(mentionsFill);
+        QVERIFY(mentionsRing);
+        QVERIFY(!mentionsFill->property("visible").toBool());
+        QVERIFY(mentionsRing->property("visible").toBool());
 
         QTest::keyClick(m_window, Qt::Key_Escape);
         QTRY_VERIFY(!flyout->property("opened").toBool());
@@ -456,15 +492,27 @@ private slots:
         m_root->setProperty("allMessagesSelected", true);
     }
 
-    void themeSwitchRetintsMenuLanguage()
+    void themeSwitchLeavesStormMenuLanguageInvariant()
     {
+        // Storm §5: the menu language is deliberately theme-INVARIANT — a
+        // Deep Teal user still gets navy/yellow menus. Switch themes and
+        // assert the storm chip treatment does not move while a themed
+        // token demonstrably does.
         const QColor indigoSoft = token("tokAccentSoft");
+        const QColor chipBorderBefore =
+            item("keycapText")->property("border").value<QObject *>()
+                ->property("color").value<QColor>();
         m_root->setProperty("themeMode", 10); // Deep Teal
         QTRY_VERIFY(token("tokAccentSoft") != indigoSoft);
         auto *chip = item("keycapText");
         QVERIFY(chip);
-        QCOMPARE(chip->property("color").value<QColor>(),
-                 token("tokCardElevated"));
+        QCOMPARE(chip->property("color").value<QColor>().alpha(), 0);
+        QCOMPARE(chip->property("border").value<QObject *>()
+                     ->property("color").value<QColor>(),
+                 chipBorderBefore);
+        QCOMPARE(chip->property("border").value<QObject *>()
+                     ->property("color").value<QColor>(),
+                 token("tokStormBorderStrong"));
         m_root->setProperty("themeMode", 9);
     }
 };

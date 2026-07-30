@@ -377,6 +377,8 @@ set(APP_QML_FILES
     qml/QuickReactionStrip.qml
     qml/IdentityCard.qml
     qml/TrustCard.qml
+    qml/StormNode.qml
+    qml/TrustMeter.qml
     qml/AppTheme.qml
 )
 
@@ -1174,6 +1176,7 @@ if(BUILD_TESTING)
     )
     target_compile_definitions(theme-tokens-test PRIVATE
         APPTHEME_QML_PATH="${CMAKE_CURRENT_SOURCE_DIR}/qml/AppTheme.qml"
+        SETTINGS_QML_PATH="${CMAKE_CURRENT_SOURCE_DIR}/qml/SettingsScreen.qml"
         QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml"
     )
     target_link_libraries(theme-tokens-test PRIVATE Qt6::Core Qt6::Test)

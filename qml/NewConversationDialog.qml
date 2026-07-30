@@ -175,24 +175,29 @@ Dialog {
         focusPolicy: Qt.TabFocus
         Accessible.role: Accessible.Button
         Accessible.name: chip.text
+        // Storm §4 2i: footer chips are outline mono pills.
         contentItem: RowLayout {
             id: chipRow
             spacing: AppTheme.spacing4
             Icon {
                 name: chip.iconName
-                size: 14
-                color: AppTheme.textSecondary
+                size: 13
+                color: AppTheme.stormTextMuted
             }
             Label {
                 text: chip.text
-                color: AppTheme.textSecondary
-                font.pixelSize: AppTheme.fontChip + 1
+                color: AppTheme.stormTextMuted
+                font.family: AppTheme.monoFont
+                font.pixelSize: AppTheme.fontChip
                 font.weight: Font.DemiBold
+                font.capitalization: Font.AllUppercase
             }
         }
         background: Rectangle {
             radius: AppTheme.radiusPill
-            color: chip.hovered ? AppTheme.hover : AppTheme.cardElevated
+            color: chip.hovered ? AppTheme.stormSelection : "transparent"
+            border.width: 1
+            border.color: AppTheme.stormBorderStrong
         }
         Rectangle {
             anchors.fill: parent
@@ -200,7 +205,7 @@ Dialog {
             radius: AppTheme.radiusPill
             color: "transparent"
             border.width: 2
-            border.color: AppTheme.focusRing
+            border.color: AppTheme.bolt
             visible: chip.visualFocus
         }
     }
@@ -229,8 +234,9 @@ Dialog {
     }
 
     background: Rectangle {
-        color: AppTheme.surface
-        border.color: AppTheme.border
+        // Storm chrome (SPEC-storm-language §3.1 / mock 2i).
+        color: AppTheme.stormPanel
+        border.color: AppTheme.stormBorder
         border.width: 1
         radius: AppTheme.radiusLg
     }
@@ -238,10 +244,15 @@ Dialog {
     contentItem: ColumnLayout {
         spacing: AppTheme.spacing12
 
-        // ── Header: mode title + bare close ───────────────────────────────
+        // ── Header: bolt mark, mode title + bare close ────────────────────
         RowLayout {
             Layout.fillWidth: true
             spacing: AppTheme.spacing8
+            Icon {
+                name: "bolt"
+                size: 16
+                color: AppTheme.bolt
+            }
             Label {
                 objectName: "creationTitle"
                 Layout.fillWidth: true
@@ -253,13 +264,14 @@ Dialog {
                     : root.mode === "space" ? qsTr("Create a Space")
                     : root.selectedUserId === "" ? qsTr("Start something")
                     : qsTr("New conversation")
-                color: AppTheme.textPrimary
-                font.family: AppTheme.uiFont
-                font.pixelSize: AppTheme.fontSizeHeader
-                font.weight: Font.ExtraBold
+                color: AppTheme.stormText
+                font.family: AppTheme.menuFont
+                font.pixelSize: 16
+                font.weight: Font.Bold
                 elide: Label.ElideRight
             }
             IconButton {
+                storm: true
                 objectName: "creationCloseButton"
                 implicitWidth: 30; implicitHeight: 30
                 radius: AppTheme.radiusMd
@@ -279,7 +291,8 @@ Dialog {
             Layout.fillWidth: true
             text: qsTr("Type a name, an @user ID, or a #room address — "
                        + "Lightning figures out the rest.")
-            color: AppTheme.textMuted
+            color: AppTheme.stormTextMuted
+            font.family: AppTheme.menuFont
             font.pixelSize: AppTheme.fontSecondary
             wrapMode: Text.WordWrap
         }
@@ -290,16 +303,16 @@ Dialog {
             visible: app.conversations.errorMessage.length > 0
             Layout.fillWidth: true
             radius: AppTheme.radiusMd
-            color: Qt.alpha(AppTheme.danger, 0.12)
+            color: Qt.alpha(AppTheme.stormDanger, 0.12)
             border.width: 1
-            border.color: Qt.alpha(AppTheme.danger, 0.45)
+            border.color: Qt.alpha(AppTheme.stormDanger, 0.45)
             implicitHeight: errorLabel.implicitHeight + AppTheme.spacing8 * 2
             Label {
                 id: errorLabel
                 anchors.fill: parent
                 anchors.margins: AppTheme.spacing8
                 text: app.conversations.errorMessage
-                color: AppTheme.danger
+                color: AppTheme.stormDanger
                 wrapMode: Text.WordWrap
                 font.pixelSize: AppTheme.fontSizeS
                 verticalAlignment: Text.AlignVCenter
@@ -382,7 +395,7 @@ Dialog {
                 objectName: "creationBusyLabel"
                 visible: root.busy
                 text: qsTr("Working…")
-                color: AppTheme.textMuted
+                color: AppTheme.stormTextMuted
                 font.pixelSize: AppTheme.fontSizeS
                 onVisibleChanged: if (!visible) opacity = 1.0
                 SequentialAnimation on opacity {
@@ -395,6 +408,7 @@ Dialog {
             }
             Item { Layout.fillWidth: true }
             AppButton {
+                storm: true
                 objectName: "creationCancelButton"
                 text: qsTr("Cancel")
                 Accessible.name: qsTr("Cancel")
@@ -442,9 +456,9 @@ Dialog {
                          && !dmPicker.searchText.trim().startsWith("@")
                 Layout.fillWidth: true
                 radius: AppTheme.radiusTile
-                color: suggestionHover.hovered ? AppTheme.hover : AppTheme.cardElevated
+                color: suggestionHover.hovered ? AppTheme.stormSelection : AppTheme.stormInset
                 border.width: 1
-                border.color: AppTheme.border
+                border.color: AppTheme.stormBorder
                 implicitHeight: suggestionRow.implicitHeight + AppTheme.spacing8 * 2
                 readonly property string seededName:
                     dmPicker.searchText.trim().startsWith("#")
@@ -468,12 +482,12 @@ Dialog {
                     Rectangle {
                         implicitWidth: 32; implicitHeight: 32
                         radius: AppTheme.radiusTile
-                        color: AppTheme.accentSoft
+                        color: AppTheme.stormSelection
                         Icon {
                             anchors.centerIn: parent
                             name: "group_add"
                             size: 18
-                            color: AppTheme.accent
+                            color: AppTheme.bolt
                         }
                     }
                     ColumnLayout {
@@ -483,7 +497,7 @@ Dialog {
                             Layout.fillWidth: true
                             text: qsTr("Create room “%1”")
                                 .arg(createRoomSuggestion.seededName)
-                            color: AppTheme.textPrimary
+                            color: AppTheme.stormText
                             font.pixelSize: AppTheme.fontResult
                             font.weight: Font.Bold
                             elide: Label.ElideRight
@@ -500,8 +514,12 @@ Dialog {
                                 : (root.roomEncrypted
                                     ? qsTr("Private · encrypted · invite-only by default")
                                     : qsTr("Private · not encrypted · invite-only by default"))
-                            color: AppTheme.textMuted
-                            font.pixelSize: AppTheme.fontSizeXS
+                            // Storm §4 2i metadata row: mono UPPERCASE faint.
+                            color: AppTheme.stormTextFaint
+                            font.family: AppTheme.monoFont
+                            font.pixelSize: AppTheme.fontMicro
+                            font.capitalization: Font.AllUppercase
+                            font.letterSpacing: 0.5
                             elide: Label.ElideRight
                         }
                     }
@@ -514,7 +532,7 @@ Dialog {
                     radius: parent.radius + 3
                     color: "transparent"
                     border.width: 2
-                    border.color: AppTheme.focusRing
+                    border.color: AppTheme.bolt
                     visible: createRoomSuggestion.activeFocus
                 }
             }
@@ -525,9 +543,9 @@ Dialog {
                 visible: root.selectedUserId !== ""
                 Layout.fillWidth: true
                 radius: AppTheme.radiusMd
-                color: AppTheme.cardElevated
+                color: AppTheme.stormInset
                 border.width: 1
-                border.color: AppTheme.border
+                border.color: AppTheme.stormBorder
                 implicitHeight: selectedRow.implicitHeight + AppTheme.spacing12 * 2
                 RowLayout {
                     id: selectedRow
@@ -549,7 +567,7 @@ Dialog {
                             Layout.fillWidth: true
                             text: root.selectedDisplayName.length > 0
                                   ? root.selectedDisplayName : root.selectedUserId
-                            color: AppTheme.textPrimary
+                            color: AppTheme.stormText
                             font.pixelSize: AppTheme.fontSizeM
                             font.weight: Font.Bold
                             elide: Label.ElideRight
@@ -558,12 +576,13 @@ Dialog {
                             Layout.fillWidth: true
                             visible: root.selectedDisplayName.length > 0
                             text: root.selectedUserId
-                            color: AppTheme.textMuted
+                            color: AppTheme.stormTextMuted
                             font.pixelSize: AppTheme.fontSizeS
                             elide: Label.ElideMiddle
                         }
                     }
                     IconButton {
+                        storm: true
                         objectName: "dmChangeUserButton"
                         implicitWidth: 30; implicitHeight: 30
                         radius: AppTheme.radiusMd
@@ -589,7 +608,7 @@ Dialog {
                 visible: root.selectedUserId !== ""
                          && app.conversations.existingDms.length > 0
                 text: qsTr("You already share a direct message with this user")
-                color: AppTheme.textSecondary
+                color: AppTheme.stormTextSecondary
                 font.pixelSize: AppTheme.fontSizeS
             }
             Repeater {
@@ -602,9 +621,9 @@ Dialog {
                     objectName: "existingDmRow_" + index
                     Layout.fillWidth: true
                     radius: AppTheme.radiusMd
-                    color: AppTheme.cardElevated
+                    color: AppTheme.stormInset
                     border.width: 1
-                    border.color: AppTheme.border
+                    border.color: AppTheme.stormBorder
                     implicitHeight: existingRowContent.implicitHeight
                                     + AppTheme.spacing8 * 2
                     readonly property string dmName:
@@ -624,11 +643,12 @@ Dialog {
                         Label {
                             Layout.fillWidth: true
                             text: existingRow.dmName
-                            color: AppTheme.textPrimary
+                            color: AppTheme.stormText
                             font.pixelSize: AppTheme.fontSizeM
                             elide: Label.ElideRight
                         }
                         AppButton {
+                            storm: true
                             objectName: "existingDmOpen_" + existingRow.index
                             text: qsTr("Open")
                             enabled: !root.busy
@@ -644,6 +664,7 @@ Dialog {
 
             // Primary action when there is nothing to reuse…
             AppButton {
+                storm: true
                 objectName: "dmStartButton"
                 visible: root.selectedUserId !== ""
                          && app.conversations.existingDms.length === 0
@@ -656,6 +677,7 @@ Dialog {
             }
             // …clearly-secondary escape hatch when there is.
             AppButton {
+                storm: true
                 objectName: "dmStartAnywayButton"
                 visible: root.selectedUserId !== ""
                          && app.conversations.existingDms.length > 0
@@ -668,7 +690,7 @@ Dialog {
             Label {
                 Layout.fillWidth: true
                 text: qsTr("Direct messages are end-to-end encrypted.")
-                color: AppTheme.textMuted
+                color: AppTheme.stormTextMuted
                 font.pixelSize: AppTheme.fontSizeXS
                 wrapMode: Text.WordWrap
             }
@@ -688,11 +710,12 @@ Dialog {
 
             Label {
                 text: qsTr("Room name")
-                color: AppTheme.textMuted
-                font.family: AppTheme.uiFont
+                color: AppTheme.stormTextMuted
+                font.family: AppTheme.menuFont
                 font.pixelSize: 12
             }
             AppTextField {
+                storm: true
                 id: roomNameField
                 objectName: "roomNameField"
                 Layout.fillWidth: true
@@ -710,7 +733,7 @@ Dialog {
                          && root.roomNameText.trim().length === 0
                 Layout.fillWidth: true
                 text: qsTr("The room needs a name.")
-                color: AppTheme.danger
+                color: AppTheme.stormDanger
                 font.pixelSize: AppTheme.fontSizeXS
                 wrapMode: Text.WordWrap
             }
@@ -718,11 +741,12 @@ Dialog {
             Label {
                 Layout.topMargin: AppTheme.spacing4
                 text: qsTr("Topic (optional)")
-                color: AppTheme.textMuted
-                font.family: AppTheme.uiFont
+                color: AppTheme.stormTextMuted
+                font.family: AppTheme.menuFont
                 font.pixelSize: 12
             }
             AppTextField {
+                storm: true
                 id: roomTopicField
                 objectName: "roomTopicField"
                 Layout.fillWidth: true
@@ -736,8 +760,8 @@ Dialog {
             Label {
                 Layout.topMargin: AppTheme.spacing4
                 text: qsTr("Visibility")
-                color: AppTheme.textMuted
-                font.family: AppTheme.uiFont
+                color: AppTheme.stormTextMuted
+                font.family: AppTheme.menuFont
                 font.pixelSize: 12
             }
             SegmentedControl {
@@ -755,7 +779,7 @@ Dialog {
                 text: root.roomIsPublic
                       ? qsTr("Anyone can find and join this room.")
                       : qsTr("Only people you invite can join this room.")
-                color: AppTheme.textMuted
+                color: AppTheme.stormTextMuted
                 font.pixelSize: AppTheme.fontSizeXS
                 wrapMode: Text.WordWrap
             }
@@ -780,8 +804,8 @@ Dialog {
                     Label {
                         Layout.fillWidth: true
                         text: qsTr("End-to-end encryption")
-                        color: root.roomIsPublic ? AppTheme.textDisabled
-                                                 : AppTheme.textPrimary
+                        color: root.roomIsPublic ? AppTheme.stormTextFaint
+                                                 : AppTheme.stormText
                         font.pixelSize: AppTheme.fontSizeS
                         font.weight: Font.Bold
                     }
@@ -796,7 +820,7 @@ Dialog {
                                        + "encrypted. The server can read every "
                                        + "message.")
                         color: !root.roomIsPublic && !root.roomEncrypted
-                               ? AppTheme.warning : AppTheme.textMuted
+                               ? AppTheme.stormDanger : AppTheme.stormTextMuted
                         font.pixelSize: AppTheme.fontSizeXS
                         wrapMode: Text.WordWrap
                     }
@@ -811,11 +835,12 @@ Dialog {
                 visible: root.roomIsPublic
                 Layout.topMargin: AppTheme.spacing4
                 text: qsTr("Address (optional)")
-                color: AppTheme.textMuted
-                font.family: AppTheme.uiFont
+                color: AppTheme.stormTextMuted
+                font.family: AppTheme.menuFont
                 font.pixelSize: 12
             }
             AppTextField {
+                storm: true
                 id: roomAliasField
                 objectName: "roomAliasField"
                 visible: root.roomIsPublic
@@ -845,7 +870,7 @@ Dialog {
                 Label {
                     Layout.fillWidth: true
                     text: qsTr("Add to the current Space")
-                    color: AppTheme.textPrimary
+                    color: AppTheme.stormText
                     font.pixelSize: AppTheme.fontSizeS
                     TapHandler {
                         enabled: addToSpaceSwitch.enabled
@@ -857,8 +882,8 @@ Dialog {
             Label {
                 Layout.topMargin: AppTheme.spacing4
                 text: qsTr("Invite people (optional)")
-                color: AppTheme.textMuted
-                font.family: AppTheme.uiFont
+                color: AppTheme.stormTextMuted
+                font.family: AppTheme.menuFont
                 font.pixelSize: 12
             }
             Flow {
@@ -869,9 +894,9 @@ Dialog {
                     model: root.roomInvites
                     Rectangle {
                         radius: AppTheme.radiusPill
-                        color: AppTheme.cardElevated
+                        color: AppTheme.stormInset
                         border.width: 1
-                        border.color: AppTheme.border
+                        border.color: AppTheme.stormBorder
                         implicitWidth: chipRow.implicitWidth + AppTheme.spacing12
                         implicitHeight: chipRow.implicitHeight + AppTheme.spacing4
                         RowLayout {
@@ -880,7 +905,7 @@ Dialog {
                             spacing: AppTheme.spacing4
                             Label {
                                 text: modelData
-                                color: AppTheme.textPrimary
+                                color: AppTheme.stormText
                                 font.pixelSize: AppTheme.fontSizeS
                                 // A Flow wraps BETWEEN chips, never inside
                                 // one — cap a single long MXID so one chip
@@ -889,6 +914,7 @@ Dialog {
                                 elide: Label.ElideMiddle
                             }
                             IconButton {
+                                storm: true
                                 objectName: "inviteChipRemove_" + index
                                 implicitWidth: 18; implicitHeight: 18
                                 radius: AppTheme.radiusPill
@@ -924,8 +950,8 @@ Dialog {
             Label {
                 Layout.topMargin: AppTheme.spacing4
                 text: qsTr("Room picture (optional)")
-                color: AppTheme.textMuted
-                font.family: AppTheme.uiFont
+                color: AppTheme.stormTextMuted
+                font.family: AppTheme.menuFont
                 font.pixelSize: 12
             }
             RowLayout {
@@ -960,11 +986,12 @@ Dialog {
                         Rectangle {
                             anchors.fill: parent
                             radius: width / 2
-                            color: AppTheme.textPrimary
+                            color: AppTheme.stormText
                         }
                     }
                 }
                 AppButton {
+                    storm: true
                     objectName: "roomAvatarPickButton"
                     text: root.roomAvatarPath === "" ? qsTr("Choose picture")
                                                      : qsTr("Change picture")
@@ -973,6 +1000,7 @@ Dialog {
                     onClicked: avatarFileDialog.open()
                 }
                 IconButton {
+                    storm: true
                     objectName: "roomAvatarRemoveButton"
                     visible: root.roomAvatarPath !== ""
                     implicitWidth: 30; implicitHeight: 30
@@ -986,6 +1014,7 @@ Dialog {
             }
 
             AppButton {
+                storm: true
                 objectName: "roomCreateButton"
                 kind: "primary"
                 Layout.fillWidth: true
@@ -1016,18 +1045,19 @@ Dialog {
                 text: qsTr("A Space groups related rooms together in the "
                            + "left rail. It is a real Matrix Space, not a "
                            + "local folder.")
-                color: AppTheme.textMuted
+                color: AppTheme.stormTextMuted
                 wrapMode: Text.WordWrap
                 font.pixelSize: AppTheme.fontSizeXS
             }
 
             Label {
                 text: qsTr("Space name")
-                color: AppTheme.textMuted
-                font.family: AppTheme.uiFont
+                color: AppTheme.stormTextMuted
+                font.family: AppTheme.menuFont
                 font.pixelSize: 12
             }
             AppTextField {
+                storm: true
                 id: spaceNameField
                 objectName: "spaceNameField"
                 Layout.fillWidth: true
@@ -1045,7 +1075,7 @@ Dialog {
                          && root.spaceNameText.trim().length === 0
                 Layout.fillWidth: true
                 text: qsTr("The Space needs a name.")
-                color: AppTheme.danger
+                color: AppTheme.stormDanger
                 font.pixelSize: AppTheme.fontSizeXS
                 wrapMode: Text.WordWrap
             }
@@ -1053,11 +1083,12 @@ Dialog {
             Label {
                 Layout.topMargin: AppTheme.spacing4
                 text: qsTr("Description (optional)")
-                color: AppTheme.textMuted
-                font.family: AppTheme.uiFont
+                color: AppTheme.stormTextMuted
+                font.family: AppTheme.menuFont
                 font.pixelSize: 12
             }
             AppTextField {
+                storm: true
                 id: spaceTopicField
                 objectName: "spaceTopicField"
                 Layout.fillWidth: true
@@ -1071,8 +1102,8 @@ Dialog {
             Label {
                 Layout.topMargin: AppTheme.spacing4
                 text: qsTr("Visibility")
-                color: AppTheme.textMuted
-                font.family: AppTheme.uiFont
+                color: AppTheme.stormTextMuted
+                font.family: AppTheme.menuFont
                 font.pixelSize: 12
             }
             SegmentedControl {
@@ -1090,12 +1121,13 @@ Dialog {
                 text: root.spaceIsPublic
                       ? qsTr("Anyone can find and join this Space.")
                       : qsTr("Only people you invite can see this Space.")
-                color: AppTheme.textMuted
+                color: AppTheme.stormTextMuted
                 font.pixelSize: AppTheme.fontSizeXS
                 wrapMode: Text.WordWrap
             }
 
             AppButton {
+                storm: true
                 objectName: "spaceCreateButton"
                 kind: "primary"
                 Layout.fillWidth: true

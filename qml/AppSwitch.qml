@@ -53,19 +53,21 @@ Item {
         cursorShape: Qt.PointingHandCursor
     }
 
-    // Track.
+    // Track — Storm §3.3 on/off states (every AppSwitch host is a storm
+    // surface: Settings and the creation dialogs): ON fills bolt with a
+    // dark knob, OFF is the strong storm border with the white knob.
     Rectangle {
         objectName: "switchTrack"
         anchors.fill: parent
         radius: AppTheme.radiusPill
-        color: root.checked ? AppTheme.accent : AppTheme.textDisabled
+        color: root.checked ? AppTheme.bolt : AppTheme.stormBorderStrong
         opacity: root.enabled ? 1.0 : 0.45
 
         // Thumb: the spec's white 16px circle (same sanctioned literal as
-        // the Settings switch/slider thumbs).
+        // the Settings switch/slider thumbs); panel-dark on the bolt fill.
         Rectangle {
             width: 16; height: 16; radius: 8
-            color: "#FFFFFF"
+            color: root.checked ? AppTheme.stormPanel : "#FFFFFF"
             y: 2
             x: root.checked ? 18 : 2
             Behavior on x {
@@ -75,14 +77,14 @@ Item {
         }
     }
 
-    // Shared 2px accent focus ring (keyboard focus only).
+    // Shared 2px focus ring (keyboard focus only) — bolt on storm.
     Rectangle {
         anchors.fill: parent
         anchors.margins: -4
         radius: AppTheme.radiusPill
         color: "transparent"
         border.width: 2
-        border.color: AppTheme.focusRing
+        border.color: AppTheme.bolt
         visible: root.activeFocus
     }
 }

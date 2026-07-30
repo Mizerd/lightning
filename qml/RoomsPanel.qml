@@ -212,12 +212,14 @@ Rectangle {
                             // itself draws no chrome of its own.
                             background: null
                         }
-                        // Quick-switcher keycap hint, in the shared menu
-                        // design language. Not translated — shortcut
-                        // chips render literally (the Settings "Ctrl+,"
-                        // convention).
+                        // Quick-switcher keycap hint. Not translated —
+                        // shortcut chips render literally (the Settings
+                        // "Ctrl+," convention). storm: false — the room
+                        // list keeps the user's theme (SPEC-storm §5), so
+                        // this one keycap renders the themed variant.
                         MenuKeycap {
                             keys: "Ctrl+K"
+                            storm: false
                             visible: !roomSearch.activeFocus
                         }
                     }

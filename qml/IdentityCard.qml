@@ -34,6 +34,11 @@ Item {
     // No real per-account unread source exists today; callers leave this at
     // its default 0 rather than fabricate a count.
     property int unreadCount: 0
+    // Storm §3.4 trust meter — shown only when the caller supplies a REAL
+    // completed count (the SDK only reports crypto state for the attached
+    // account, so in practice the active card alone carries it). -1 hides.
+    property int trustCompleted: -1
+    property int trustTotal: 3
     property bool e2eeReady: false
     property bool needsSignIn: false
     property bool healthWarning: false
@@ -70,69 +75,39 @@ Item {
     Keys.onEnterPressed: root.activated()
     Keys.onSpacePressed: root.activated()
 
-    // ── Surface (inactive card) ──────────────────────────────────────────
+    // ── Surface (inactive card) — Storm §4 2c: inset panel. ─────────────
     Rectangle {
         id: surface
         anchors.fill: parent
         radius: AppTheme.radiusCard
         visible: !root.active
-        color: AppTheme.surface
+        color: AppTheme.stormInset
         border.width: 1
-        border.color: root.activeFocus ? AppTheme.accent : AppTheme.border
+        border.color: root.activeFocus ? AppTheme.bolt : AppTheme.stormBorder
     }
 
-    // ── Active card fill: themed diagonal gradient, Canvas-painted so it
-    // repaints on theme change (bound colour properties) and on resize. ──
-    Canvas {
-        id: activeFill
+    // ── Active card fill — Storm §4 2c: flat stormPanel with the strong
+    // border; the previous themed Canvas gradient retired with the storm
+    // language (the card no longer follows the user theme).
+    Rectangle {
         objectName: "identityCardActiveFill"
         anchors.fill: parent
         visible: root.active
-        property color c1: AppTheme.accentPressed
-        property color c2: AppTheme.accent
-        property int cornerRadius: AppTheme.radiusCard
-        onC1Changed: requestPaint()
-        onC2Changed: requestPaint()
-        onCornerRadiusChanged: requestPaint()
-        onWidthChanged: requestPaint()
-        onHeightChanged: requestPaint()
-        onPaint: {
-            var ctx = getContext("2d")
-            ctx.reset()
-            var w = width, h = height
-            var rr = Math.max(0, Math.min(cornerRadius, w / 2, h / 2))
-            ctx.beginPath()
-            ctx.moveTo(rr, 0)
-            ctx.lineTo(w - rr, 0)
-            ctx.quadraticCurveTo(w, 0, w, rr)
-            ctx.lineTo(w, h - rr)
-            ctx.quadraticCurveTo(w, h, w - rr, h)
-            ctx.lineTo(rr, h)
-            ctx.quadraticCurveTo(0, h, 0, h - rr)
-            ctx.lineTo(0, rr)
-            ctx.quadraticCurveTo(0, 0, rr, 0)
-            ctx.closePath()
-            // 135°: corner-to-corner (top-left -> bottom-right) diagonal —
-            // a plain vertical Gradient cannot express this angle, so the
-            // fill is Canvas-painted (approved deviation from a literal
-            // "Rectangle + gradient" reading of the spec text).
-            var gradient = ctx.createLinearGradient(0, 0, w, h)
-            gradient.addColorStop(0, c1)
-            gradient.addColorStop(1, c2)
-            ctx.fillStyle = gradient
-            ctx.fill()
-        }
+        radius: AppTheme.radiusCard
+        color: AppTheme.stormPanel
+        border.width: 1
+        border.color: AppTheme.stormBorderStrong
     }
 
-    // Focus ring for the active (gradient) card — its own edge is the fill,
-    // not a plain stroke, so focus needs a dedicated overlay.
+    // Focus ring for the active card — its border is the resting stroke,
+    // so focus needs a dedicated overlay.
     Rectangle {
         visible: root.active && root.activeFocus
         anchors.fill: parent
         radius: AppTheme.radiusCard
         color: "transparent"
         border.width: 2
-        border.color: AppTheme.accentText
+        border.color: AppTheme.bolt
     }
 
     // Bolt watermark — active card only, overflowing the bottom-right
@@ -142,9 +117,8 @@ Item {
     // shape — the same trade-off TrustCard's watermark makes).
     Icon {
         name: "bolt"
-        size: 70
-        opacity: 0.18
-        color: AppTheme.accentText
+        size: 76
+        color: AppTheme.stormWatermark
         visible: root.active
         anchors.bottom: parent.bottom
         anchors.right: parent.right
@@ -156,7 +130,7 @@ Item {
         id: hoverTint
         anchors.fill: parent
         radius: AppTheme.radiusCard
-        color: AppTheme.hover
+        color: AppTheme.stormSelection
         visible: !root.active && cardMouse.containsMouse
     }
 
@@ -185,19 +159,28 @@ Item {
             Layout.fillWidth: true
             spacing: AppTheme.spacing8
 
-            Rectangle {
+            Item {
                 implicitWidth: 34
                 implicitHeight: 34
-                radius: 17
-                color: root.active ? Qt.alpha(AppTheme.accentText, 0.25)
-                                    : "transparent"
                 Avatar {
-                    anchors.fill: parent
+                    anchors.centerIn: parent
                     size: 34
                     circle: true
                     name: root.visibleName
                     mxc: root.avatarMxc
                     colorKey: root.userId
+                }
+                // Storm §3.5 yellow-ring identity marker: 2px panel gap +
+                // 2px bolt stroke — the ONE yellow-ring avatar this surface
+                // shows (active card only).
+                Rectangle {
+                    visible: root.active
+                    anchors.fill: parent
+                    anchors.margins: -4
+                    radius: width / 2
+                    color: "transparent"
+                    border.width: 2
+                    border.color: AppTheme.bolt
                 }
             }
 
@@ -207,19 +190,21 @@ Item {
                 visible: root.needsSignIn || root.healthWarning
                 name: root.needsSignIn ? "error" : "warning"
                 size: 14
-                color: AppTheme.warning
+                color: AppTheme.stormDanger
                 Accessible.ignored: true
             }
             StatusChip {
                 visible: root.active
-                tone: "onAccent"
+                storm: true
+                tone: "bolt"
                 label: qsTr("ACTIVE")
             }
+            // Storm §3.7: unread badges are bolt-on-dark, replacing red.
             StatusChip {
                 visible: !root.active && !cardMouse.containsMouse
                          && root.unreadCount > 0
-                tone: "danger"
-                solid: true
+                storm: true
+                tone: "bolt"
                 label: root.unreadCount > 99 ? "99+" : String(root.unreadCount)
             }
             ToolButton {
@@ -241,11 +226,12 @@ Item {
                 contentItem: Icon {
                     name: "close"
                     size: 13
-                    color: AppTheme.danger
+                    color: AppTheme.stormDanger
                 }
                 background: Rectangle {
                     radius: AppTheme.radiusSm
-                    color: removeButton.hovered ? AppTheme.hover : "transparent"
+                    color: removeButton.hovered ? AppTheme.stormSelection
+                                                : "transparent"
                 }
                 onClicked: root.removeRequested()
             }
@@ -254,16 +240,17 @@ Item {
         Label {
             Layout.fillWidth: true
             text: root.visibleName
-            color: root.active ? AppTheme.accentText : AppTheme.textPrimary
+            color: root.active ? AppTheme.stormText : AppTheme.stormTextSecondary
+            font.family: AppTheme.menuFont
             font.pixelSize: AppTheme.fontQuery
-            font.weight: Font.ExtraBold
+            font.weight: Font.Bold
             elide: Label.ElideRight
         }
         Label {
             Layout.fillWidth: true
             text: root.userId
-            color: root.active ? Qt.alpha(AppTheme.accentText, 0.85)
-                                : AppTheme.monoIdentityColor
+            color: root.active ? AppTheme.stormTextMuted
+                                : AppTheme.stormTextFaint
             font.family: AppTheme.monoFont
             font.pixelSize: AppTheme.fontChip
             elide: Label.ElideMiddle
@@ -274,20 +261,22 @@ Item {
             spacing: AppTheme.spacing6
             visible: root.metaText.length > 0
 
+            // Storm: the connected dot is bolt (§4 2h presence idiom);
+            // disconnected falls to the muted ink.
             Rectangle {
                 visible: root.active
                 width: 6
                 height: 6
                 radius: 3
-                color: root.connected ? AppTheme.presenceOnline
-                                       : AppTheme.presenceAway
+                color: root.connected ? AppTheme.bolt
+                                       : AppTheme.stormTextMuted
             }
             Label {
                 Layout.fillWidth: true
                 text: root.metaText
-                color: root.active ? Qt.alpha(AppTheme.accentText, 0.85)
-                                    : AppTheme.textMuted
-                font.pixelSize: AppTheme.fontMonoXS
+                color: AppTheme.stormTextMuted
+                font.family: AppTheme.monoFont
+                font.pixelSize: AppTheme.fontChip
                 font.weight: Font.DemiBold
                 elide: Label.ElideRight
             }
@@ -297,17 +286,25 @@ Item {
                 Icon {
                     name: "check"
                     size: AppTheme.fontMonoXS + 1
-                    color: root.active ? Qt.alpha(AppTheme.accentText, 0.85)
-                                        : AppTheme.textMuted
+                    color: AppTheme.stormSuccess
                 }
                 Label {
                     text: qsTr("E2EE")
-                    color: root.active ? Qt.alpha(AppTheme.accentText, 0.85)
-                                        : AppTheme.textMuted
-                    font.pixelSize: AppTheme.fontMonoXS
+                    color: AppTheme.stormSuccess
+                    font.family: AppTheme.monoFont
+                    font.pixelSize: AppTheme.fontChip
                     font.weight: Font.DemiBold
                 }
             }
+        }
+
+        TrustMeter {
+            objectName: "identityCardTrustMeter"
+            visible: root.trustCompleted >= 0
+            Layout.fillWidth: true
+            Layout.topMargin: AppTheme.spacing4
+            completed: Math.max(0, root.trustCompleted)
+            total: root.trustTotal
         }
     }
 }

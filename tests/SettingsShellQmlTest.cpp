@@ -281,11 +281,20 @@ private slots:
         const QImage selected = m_window->grabWindow();
         QVERIFY(!selected.isNull());
         // Mid-height, ~1.5px outside the right edge: inside the glow band.
+        // Storm: the glow is bolt at 18% alpha compositing over the
+        // stormDeep content backdrop — compute that blend as the expected
+        // sample instead of the old themed accentSoft.
+        const QColor glowInk = themeColor("bolt");
+        const QColor glowBase = themeColor("stormDeep");
+        const QColor glowBlend(
+            int(0.18 * glowInk.red() + 0.82 * glowBase.red()),
+            int(0.18 * glowInk.green() + 0.82 * glowBase.green()),
+            int(0.18 * glowInk.blue() + 0.82 * glowBase.blue()));
         const QPointF ringPoint =
             card->mapToScene(QPointF(card->width() + 1.5, card->height() / 2));
         QVERIFY2(channelDelta(sampleAvg(selected,
                       QRect(int(ringPoint.x()), int(ringPoint.y()) - 1, 2, 2)),
-                      themeColor("accentSoft")) <= kTolerance,
+                      glowBlend) <= kTolerance,
                  "selection glow missing outside the card edge");
 
         // Keyboard focus ring: 2px band at -6..-4 from the card edge.
@@ -296,9 +305,10 @@ private slots:
         // squarely inside it.
         const QPointF focusPoint =
             card->mapToScene(QPointF(card->width() + 4.5, card->height() / 2));
+        // Storm: focus rings in Settings ink bolt.
         QVERIFY2(channelDelta(sampleAvg(focused,
                       QRect(int(focusPoint.x()), int(focusPoint.y()) - 1, 1, 2)),
-                      themeColor("focusRing")) <= kTolerance,
+                      themeColor("bolt")) <= kTolerance,
                  "focus ring invisible outside the card edge");
     }
 

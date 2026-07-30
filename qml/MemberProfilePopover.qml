@@ -72,8 +72,9 @@ Popup {
         Rectangle {
             id: popoverBackground
             anchors.fill: parent
-            color: AppTheme.surface
-            border.color: AppTheme.border
+            // Storm chrome (SPEC-storm-language §3.1 / mock 2g).
+            color: AppTheme.stormPanel
+            border.color: AppTheme.stormBorder
             border.width: 1
             radius: AppTheme.radiusLg
         }
@@ -111,8 +112,9 @@ Popup {
                 objectName: "profileBanner"
                 width: parent.width
                 height: 64
-                property color c1: AppTheme.accentSoft
-                property color c2: AppTheme.surface
+                // Storm 2g banner: stormSelection → stormPanel at 120°.
+                property color c1: AppTheme.stormSelection
+                property color c2: AppTheme.stormPanel
                 property int cornerRadius: AppTheme.radiusLg
                 onC1Changed: requestPaint()
                 onC2Changed: requestPaint()
@@ -150,8 +152,27 @@ Popup {
                 }
             }
 
+            // Storm §3.6 corner watermark: ONE oversized outline bolt
+            // overflowing the banner's top-right, cropped by its own
+            // banner-sized clip container (nothing else in this popover
+            // clips; the mock's overflow:hidden lives here). Painted after
+            // the Canvas, before the avatar.
+            Item {
+                anchors.fill: banner
+                clip: true
+                Icon {
+                    name: "bolt"
+                    size: 80
+                    color: AppTheme.stormWatermark
+                    anchors.top: parent.top
+                    anchors.right: parent.right
+                    anchors.topMargin: -16
+                    anchors.rightMargin: -18
+                }
+            }
+
             // 56px avatar overlapping the banner's bottom-left, with a 3px
-            // surface ring (a solid backing disc slightly larger than the
+            // panel ring (a solid backing disc slightly larger than the
             // avatar, painted after the banner so the ring reads as a halo).
             Item {
                 id: avatarWrap
@@ -162,7 +183,7 @@ Popup {
                 Rectangle {
                     anchors.fill: parent
                     radius: width / 2
-                    color: AppTheme.surface
+                    color: AppTheme.stormPanel
                 }
                 Avatar {
                     anchors.centerIn: parent
@@ -185,15 +206,16 @@ Popup {
             Label {
                 Layout.fillWidth: true
                 text: root.visibleName
-                color: AppTheme.textPrimary
+                color: AppTheme.stormText
+                font.family: AppTheme.menuFont
                 font.pixelSize: 16
-                font.weight: Font.ExtraBold
+                font.weight: Font.Bold
                 elide: Label.ElideRight
             }
             Label {
                 Layout.fillWidth: true
                 text: root.userId
-                color: AppTheme.monoIdentityColor
+                color: AppTheme.stormTextMuted
                 font.family: AppTheme.monoFont
                 font.pixelSize: AppTheme.fontMonoXS
                 elide: Label.ElideMiddle
@@ -207,26 +229,30 @@ Popup {
                     text: root.membership === "invited" ? qsTr("Invited")
                         : root.membership === "joined" ? qsTr("Member")
                         : root.membership
-                    color: root.membership === "invited" ? AppTheme.warning
-                                                         : AppTheme.textSecondary
+                    // Reading text on the panel rides the muted ink —
+                    // faint stays reserved for decorative mono (AA note in
+                    // AppTheme).
+                    color: AppTheme.stormTextMuted
                     font.pixelSize: AppTheme.fontSecondary
                 }
+                // Outline chips (§1 yellow discipline): the bolt fill on
+                // this surface belongs to the Message primary alone.
                 StatusChip {
                     visible: root.role === "administrator" || root.role === "creator"
-                    tone: "accent"
-                    solid: true
+                    storm: true
+                    tone: "neutral"
                     label: qsTr("Administrator")
                 }
                 StatusChip {
                     visible: root.role === "moderator"
+                    storm: true
                     tone: "neutral"
-                    solid: true
                     label: qsTr("Moderator")
                 }
                 Label {
                     visible: root.isOwn
                     text: qsTr("(you)")
-                    color: AppTheme.textMuted
+                    color: AppTheme.stormTextMuted
                     font.pixelSize: AppTheme.fontSecondary
                 }
                 Item { Layout.fillWidth: true }
@@ -255,13 +281,15 @@ Popup {
                     // stretches its contentItem to the full button width, so
                     // anchors.centerIn on the layout is a no-op and the
                     // icon+label would sit hard against the left edge.
+                    // Storm §3.9 primary: THE one bolt fill on this surface.
                     contentItem: RowLayout {
                         spacing: AppTheme.spacing6
                         Item { Layout.fillWidth: true }
-                        Icon { name: "chat_bubble"; size: 16; color: AppTheme.accentText }
+                        Icon { name: "chat_bubble"; size: 16; color: AppTheme.stormPanel }
                         Label {
                             text: qsTr("Message")
-                            color: AppTheme.accentText
+                            color: AppTheme.stormPanel
+                            font.family: AppTheme.menuFont
                             font.pixelSize: 13
                             font.weight: Font.Bold
                         }
@@ -269,10 +297,10 @@ Popup {
                     }
                     background: Rectangle {
                         radius: AppTheme.radiusTile
-                        color: !messageButton.enabled ? AppTheme.cardElevated
-                               : messageButton.down ? AppTheme.accentPressed
-                               : messageButton.hovered ? AppTheme.accentHover
-                               : AppTheme.accent
+                        color: !messageButton.enabled ? AppTheme.stormInset
+                               : messageButton.down ? Qt.darker(AppTheme.bolt, 1.12)
+                               : messageButton.hovered ? Qt.darker(AppTheme.bolt, 1.05)
+                               : AppTheme.bolt
                     }
                     Rectangle {
                         anchors.fill: parent
@@ -280,7 +308,7 @@ Popup {
                         radius: AppTheme.radiusTile + 4
                         color: "transparent"
                         border.width: 2
-                        border.color: AppTheme.focusRing
+                        border.color: AppTheme.bolt
                         visible: messageButton.visualFocus
                     }
                     onClicked: root.startOrOpenDm()
@@ -302,6 +330,8 @@ Popup {
                     focusPolicy: Qt.TabFocus
                     Accessible.role: Accessible.Button
                     Accessible.name: qsTr("Copy Matrix ID %1").arg(root.userId)
+                    // Storm §3.9 secondary: stormBorderStrong outline,
+                    // stormTextSecondary ink (mock 2g outline squares).
                     contentItem: RowLayout {
                         id: copyIdContent
                         spacing: AppTheme.spacing6
@@ -309,12 +339,13 @@ Popup {
                         Icon {
                             name: "content_copy"
                             size: 16
-                            color: AppTheme.textSecondary
+                            color: AppTheme.stormTextSecondary
                         }
                         Label {
                             visible: copyIdButton.expanded
                             text: copyIdButton.text
-                            color: AppTheme.textPrimary
+                            color: AppTheme.stormTextSecondary
+                            font.family: AppTheme.menuFont
                             font.pixelSize: 13
                             font.weight: Font.Bold
                         }
@@ -323,7 +354,9 @@ Popup {
                     background: Rectangle {
                         radius: AppTheme.radiusTile
                         color: (copyIdButton.hovered || copyIdButton.down)
-                               ? AppTheme.hover : AppTheme.cardElevated
+                               ? AppTheme.stormSelection : "transparent"
+                        border.width: 1
+                        border.color: AppTheme.stormBorderStrong
                     }
                     Rectangle {
                         anchors.fill: parent
@@ -331,7 +364,7 @@ Popup {
                         radius: AppTheme.radiusTile + 4
                         color: "transparent"
                         border.width: 2
-                        border.color: AppTheme.focusRing
+                        border.color: AppTheme.bolt
                         visible: copyIdButton.visualFocus
                     }
                     onClicked: {
@@ -348,7 +381,7 @@ Popup {
                 id: copiedNotice
                 visible: false
                 text: qsTr("Matrix ID copied")
-                color: AppTheme.textMuted
+                color: AppTheme.stormTextMuted
                 font.pixelSize: 11
                 Accessible.name: text
                 Timer {

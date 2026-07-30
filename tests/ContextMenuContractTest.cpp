@@ -209,7 +209,8 @@ private Q_SLOTS:
         QVERIFY(roomInfo.contains(disclaimerFragment2));
         QVERIFY(block.contains(disclaimerFragment1));
         QVERIFY(block.contains(disclaimerFragment2));
-        QVERIFY(block.contains(QStringLiteral("color: AppTheme.textDisabled")));
+        // Storm skin: the disclaimer rides the faint storm mono ink.
+        QVERIFY(block.contains(QStringLiteral("color: AppTheme.stormTextFaint")));
         QVERIFY(block.contains(QStringLiteral("font.pixelSize: AppTheme.fontMicro")));
         QVERIFY(block.contains(QStringLiteral("wrapMode: Text.WordWrap")));
     }

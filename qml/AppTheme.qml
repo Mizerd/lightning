@@ -602,6 +602,38 @@ QtObject {
     readonly property color presenceAway:        "#C9B23A"
 
     // ---- Trust-card brand constants (SPEC 1r). ----
+    // ---- Storm menu language (SPEC-storm-language.md §1). ----
+    // The theme-invariant surface language for EVERY menu, popover, picker
+    // and dialog: deep-navy panels with bolt-yellow reserved for the
+    // active/selected/complete state and the single primary action. Its own
+    // namespace by design — a Moss Light user still gets navy/yellow menus;
+    // the menu system IS the brand moment. Timeline and room list keep the
+    // user's chosen theme. The trust tokens below alias into this palette
+    // (Storm extends the 1r trust card into the whole system).
+    readonly property color stormCanvas:        "#0A0F24" // backdrop behind panels
+    readonly property color stormPanel:         "#0D1B45" // menu/popover/card bg
+    readonly property color stormInset:         "#0A1231" // inputs, icon tiles, modules
+    readonly property color stormDeep:          "#080C1C" // deepest backdrop (settings content)
+    readonly property color stormBorder:        "#1B2C60" // default 1px borders, dividers
+    readonly property color stormBorderStrong:  "#2B3C78" // selected borders, outlines, pending rings
+    readonly property color stormSelection:     "#132558" // hover/selected row fill
+    readonly property color bolt:               "#FFD447" // THE accent — active/selected/complete/primary ONLY
+    readonly property color stormText:          "#F2F4FF" // primary ink
+    readonly property color stormTextSecondary: "#C9D2F2" // default item labels
+    readonly property color stormTextMuted:     "#7D8BBF" // icons at rest, subtitles, MXIDs
+    // Deliberately-dim non-body inks (mock-exact): section headers, footers
+    // and metadata only — never sentence text. AA is asserted for the three
+    // inks above; these two are decorative-scale mono.
+    readonly property color stormTextFaint:     "#5C6BA3"
+    readonly property color stormDanger:        "#FF8FA0" // destructive verbs
+    readonly property color stormSuccess:       "#63D6A3" // Verified, 3/3 complete
+    readonly property color stormLink:          "#9295F5" // inline links (Refresh, …)
+    // Derived soft treatments (§1: danger borders at 30% alpha, fills 10%).
+    readonly property color stormDangerSoft:    Qt.alpha(stormDanger, 0.10)
+    readonly property color stormDangerBorder:  Qt.alpha(stormDanger, 0.30)
+    readonly property color stormBoltGlow:      Qt.alpha(bolt, 0.12)     // input focus halo
+    readonly property color stormWatermark:     Qt.alpha(bolt, 0.12)     // hero-card bolt
+
     // The ONE deliberate theme-invariant exception: the verification/trust
     // surface always renders in Lightning's brand navy + yellow, in every
     // theme — the trust moment is the brand moment. ThemeTokensTest asserts
@@ -609,13 +641,15 @@ QtObject {
     // trustCaption, trustCaptionDim, trustVerifyInk); trustPending /
     // trustChainBorder are deliberately-dim non-text pending treatments
     // whose state is also carried by the caption ink and icon size.
-    readonly property color trustNavy:        "#0D1B45"
-    readonly property color trustYellow:      "#FFD447"
-    readonly property color trustInk:         "#F2F4FF"
-    readonly property color trustMuted:       "#7D8BBF"
-    readonly property color trustChainBg:     "#0A1231"
-    readonly property color trustChainBorder: "#1B2C60"
-    readonly property color trustPending:     "#2B3C78"
+    // Aliases of the Storm namespace above (identical values before Storm
+    // landed; kept as the trust card's own vocabulary).
+    readonly property color trustNavy:        stormPanel
+    readonly property color trustYellow:      bolt
+    readonly property color trustInk:         stormText
+    readonly property color trustMuted:       stormTextMuted
+    readonly property color trustChainBg:     stormInset
+    readonly property color trustChainBorder: stormBorder
+    readonly property color trustPending:     stormBorderStrong
     readonly property color trustCaption:     "#AAB5E0"
     // Dim-but-AA pending caption (4.66:1 on trustChainBg; the mock's
     // #5C6BA3 computed 3.57:1 and failed normal-text AA).
@@ -677,8 +711,9 @@ QtObject {
     readonly property int menuItemHeight:     32
     readonly property int menuItemRadius:     radiusMd
     readonly property int menuItemPadding:    spacing8   // row side padding
-    readonly property int menuIconSize:       18
+    readonly property int menuIconSize:       17         // storm §3.2 (was 18)
     readonly property int menuIconGap:        spacing10  // icon-to-label gap
+    readonly property int menuContextHeaderHeight: 24    // storm §3.1 mono header
     readonly property int menuWidthDefault:   220
     readonly property int menuWidthMessage:   252        // SPEC 1a
     readonly property int menuWidthRoom:      196        // SPEC 1d
@@ -704,6 +739,8 @@ QtObject {
     // Letter-spacing is pixels in QML, not em; converted at the design size.
     readonly property real  trackingSection:   0.8   // .08em at 10px
     readonly property real  trackingMono:      1.2   // .12em at 10px
+    // Storm mono headers (§2: .16–.18em, resolved at the ~9.5px header size).
+    readonly property real  trackingStorm:     1.6
     // Emoji grid cells shared by the picker body and the quick-react strip.
     readonly property int   emojiCellSize:  32
     readonly property int   emojiGlyphSize: 19
@@ -769,12 +806,16 @@ QtObject {
         "Consolas",
         "monospace"
     ]
-    // v0.6.5: brand face for the trust surface only (SPEC 1r). Never a body
-    // face — deliberately absent from the Settings font choices.
+    // v0.6.5: brand face — originally the trust surface only (SPEC 1r); the
+    // Storm language (SPEC-storm-language §2) extends it to every menu item
+    // label, title and button. Still never a timeline/body face, and still
+    // deliberately absent from the Settings font choices.
     readonly property string brandFont:         "Space Grotesk"
     readonly property var    brandFontFamilies: [
         "Space Grotesk",
         "Manrope",
         "sans-serif"
     ]
+    // Storm role alias: the menu-surface label face (§2).
+    readonly property string menuFont:          brandFont
 }
