@@ -35,6 +35,9 @@ class SpaceManager : public QAbstractListModel
     Q_PROPERTY(QString activeSpaceId READ activeSpaceId WRITE setActiveSpaceId NOTIFY activeSpaceIdChanged)
     Q_PROPERTY(int count READ rowCount NOTIFY spacesChanged)
     Q_PROPERTY(bool hasSpaces READ hasSpaces NOTIFY spacesChanged)
+    // v0.6.5: the number of REAL joined Spaces (excludes the "All rooms" and
+    // orphans pseudo-rows) — the account switcher's honest "N spaces" meta.
+    Q_PROPERTY(int spaceCount READ spaceCount NOTIFY spacesChanged)
 
 public:
     enum Roles {
@@ -60,6 +63,7 @@ public:
     QString activeSpaceId() const { return m_activeSpaceId; }
     void    setActiveSpaceId(const QString &spaceId);
     bool    hasSpaces() const { return !m_spaces.isEmpty(); }
+    int     spaceCount() const { return m_spaces.size(); }
 
     int rowCount(const QModelIndex &parent = {}) const override;
     QVariant data(const QModelIndex &index, int role) const override;

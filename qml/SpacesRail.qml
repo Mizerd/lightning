@@ -305,7 +305,20 @@ Rectangle {
             AccountMenu {
                 id: railAccountMenu
                 x: parent.width + AppTheme.spacing8
-                y: -implicitHeight + parent.height
+                // v0.6.5: the vertical identity-card stack can grow far
+                // taller than the old single-header popover. By default it
+                // still grows upward from the rail avatar's bottom (unchanged
+                // behavior), but it must never push its top above the
+                // window's top edge. `root.height` is read only to force
+                // this binding to re-evaluate on a window resize —
+                // Item.mapFromItem() results are not tracked reactively by
+                // QML's binding engine on their own.
+                readonly property real _windowTopLocalY: {
+                    var _dep = root.height
+                    return parent ? parent.mapFromItem(null, 0, 0).y : 0
+                }
+                y: Math.max(_windowTopLocalY + AppTheme.spacing12,
+                            parent.height - implicitHeight)
             }
             // Development-only: the screenshot-demo "account-switching" scenario
             // opens the real account switcher popover. Null target in a

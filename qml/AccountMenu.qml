@@ -1,227 +1,251 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Effects
 import QtQuick.Layouts
 import MatrixClient
 
-// v0.7 (design 1c): the account switcher popover, opened from the rail
-// avatar. Shows the active account, every saved account (avatar, name,
-// Matrix id in mono, checkmark on the active one — click to switch), an
-// Add account row, then Settings / Security & Recovery / About and — at
-// the bottom, danger-styled, behind a confirmation whose safe default is
-// Cancel — the only Sign out in the application. No access token, device
-// secret, or local path is ever displayed.
+// v0.6.5 (SPEC 1h, modified — vertical identity cards): the account
+// switcher popover, opened from the rail avatar. A vertical stack of
+// IdentityCard rows (active account first, real presence/space/E2EE data
+// only) replaces the old single-header + list layout; everything else —
+// live-active-account guard, account-switching lockout, both destructive
+// confirmations, and the deep links under "Manage" — is preserved exactly.
+// No access token, device secret, or local path is ever displayed.
 Popup {
     id: root
     objectName: "accountSwitcherPopover"
     modal: true
-    padding: AppTheme.spacing8
+    width: 320
+    padding: AppTheme.spacing12
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
 
-    readonly property string accountUserId:
-        app.accounts ? (app.accounts.activeUserId || "") : ""
-    readonly property string accountLocalpart: {
-        var uid = accountUserId
-        if (uid.startsWith("@")) uid = uid.slice(1)
-        var colon = uid.indexOf(":")
-        return colon > 0 ? uid.slice(0, colon) : uid
-    }
-    readonly property string accountServer: {
-        var colon = accountUserId.indexOf(":")
-        return colon > 0 ? accountUserId.slice(colon + 1) : ""
-    }
-    readonly property bool connected:
-        app.connectionStatus === qsTr("Connected")
+    readonly property bool connected: app.connectionStatus === qsTr("Connected")
 
-    background: Rectangle {
-        color: AppTheme.surface
-        border.color: AppTheme.border
-        border.width: 1
-        radius: AppTheme.radiusMd
+    // Real presence + real space count for the ACTIVE card only — never
+    // fabricated, and the space-count portion is omitted entirely when
+    // there are no real Spaces (SpaceManager::spaceCount counts only real
+    // joined Spaces, never the pseudo Home/orphans rows).
+    function activeMetaText() {
+        var parts = [app.connectionStatus]
+        if (app.spaces && app.spaces.spaceCount > 0) {
+            parts.push(app.spaces.spaceCount === 1
+                       ? qsTr("1 space")
+                       : qsTr("%1 spaces").arg(app.spaces.spaceCount))
+        }
+        return parts.join(" · ")
+    }
+
+    // Active account first, regardless of the underlying storage order —
+    // matches the old layout's dedicated active-account header, just
+    // expressed as a stack ordering instead of a separate block.
+    readonly property var sortedAccounts: {
+        var list = app.accounts ? app.accounts.accounts : []
+        var activeIndex = -1
+        for (var i = 0; i < list.length; i++) {
+            if (list[i].isActive === true) { activeIndex = i; break }
+        }
+        if (activeIndex > 0)
+            return [list[activeIndex]].concat(list.slice(0, activeIndex),
+                                              list.slice(activeIndex + 1))
+        return list
+    }
+
+    // Sanctioned shadow — overlay-anchored popovers stay on the design's
+    // shadow budget (R3). The effect and its source Rectangle must be
+    // SIBLINGS (MultiEffect cannot anchor across the Popup background
+    // boundary), so both live inside one background Item.
+    background: Item {
+        Rectangle {
+            id: popoverBackground
+            anchors.fill: parent
+            color: AppTheme.cardElevated
+            border.color: AppTheme.borderStrong
+            border.width: 1
+            radius: AppTheme.radiusLg
+        }
+        MultiEffect {
+            source: popoverBackground
+            anchors.fill: popoverBackground
+            z: -1
+            shadowEnabled: true
+            shadowColor: AppTheme.shadow
+            shadowBlur: 0.6
+            shadowVerticalOffset: 2
+            shadowHorizontalOffset: 0
+        }
+    }
+
+    // Shared footer action button: icon + 12px/700 label, 34px tall,
+    // radiusTile. Add/Settings are neutral (hover bg); Sign out carries a
+    // permanent danger tint.
+    component FooterAction: AbstractButton {
+        id: footerBtn
+        property string iconName: ""
+        property color inkColor: AppTheme.textSecondary
+        property color restColor: "transparent"
+        property color hoverColor: AppTheme.hover
+
+        Layout.fillWidth: true
+        implicitHeight: 34
+        hoverEnabled: true
+        focusPolicy: Qt.TabFocus
+        Accessible.role: Accessible.Button
+        Accessible.name: footerBtn.text
+
+        contentItem: RowLayout {
+            anchors.centerIn: parent
+            spacing: AppTheme.spacing4
+            Icon { name: footerBtn.iconName; size: 16; color: footerBtn.inkColor }
+            Label {
+                text: footerBtn.text
+                color: footerBtn.inkColor
+                font.pixelSize: 12
+                font.weight: Font.Bold
+            }
+        }
+        background: Rectangle {
+            radius: AppTheme.radiusTile
+            color: footerBtn.enabled && (footerBtn.down || footerBtn.hovered)
+                   ? footerBtn.hoverColor : footerBtn.restColor
+        }
+        Rectangle {
+            anchors.fill: parent
+            anchors.margins: -3
+            radius: AppTheme.radiusTile + 3
+            color: "transparent"
+            border.width: 2
+            border.color: AppTheme.focusRing
+            visible: footerBtn.visualFocus
+        }
     }
 
     contentItem: ColumnLayout {
-        spacing: 2
-        implicitWidth: 300
+        spacing: AppTheme.spacing10
 
-        // Identity header (active account).
         RowLayout {
             Layout.fillWidth: true
-            Layout.margins: AppTheme.spacing8
             spacing: AppTheme.spacing8
-            Avatar {
-                size: 40
-                circle: true
-                name: root.accountLocalpart
-                mxc: {
-                    var record = app.accounts
-                        ? app.accounts.account(root.accountUserId) : ({})
-                    return record.avatarUrl || ""
-                }
+            Label {
+                text: qsTr("Accounts")
+                color: AppTheme.textPrimary
+                font.pixelSize: AppTheme.fontBody
+                font.weight: Font.ExtraBold
             }
-            ColumnLayout {
-                Layout.fillWidth: true
-                spacing: 0
-                Label {
-                    Layout.fillWidth: true
-                    text: {
-                        var record = app.accounts
-                            ? app.accounts.account(root.accountUserId) : ({})
-                        return record.displayName || root.accountLocalpart
-                    }
-                    color: AppTheme.textPrimary
-                    font.pixelSize: AppTheme.fontBody
+            Item { Layout.fillWidth: true }
+            AbstractButton {
+                id: manageLabel
+                objectName: "accountManageLink"
+                text: qsTr("Manage")
+                implicitWidth: manageInk.implicitWidth + AppTheme.spacing4
+                implicitHeight: manageInk.implicitHeight + AppTheme.spacing4
+                hoverEnabled: true
+                focusPolicy: Qt.TabFocus
+                Accessible.role: Accessible.Button
+                Accessible.name: qsTr("Manage account settings")
+                onClicked: manageMenu.popup(manageLabel, 0,
+                                            manageLabel.height
+                                            + AppTheme.spacing4)
+                contentItem: Label {
+                    id: manageInk
+                    text: manageLabel.text
+                    color: AppTheme.accent
+                    font.pixelSize: AppTheme.fontMonoXS
                     font.weight: Font.DemiBold
-                    elide: Label.ElideRight
+                    font.underline: manageLabel.hovered
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
                 }
-                Label {
-                    Layout.fillWidth: true
-                    text: root.accountUserId
-                    color: AppTheme.textMuted
-                    font.family: AppTheme.monoFont
-                    font.pixelSize: AppTheme.fontCaption
-                    elide: Label.ElideMiddle
-                }
-                RowLayout {
-                    spacing: AppTheme.spacing4
-                    Rectangle {
-                        width: 8; height: 8; radius: 4
-                        color: root.connected ? AppTheme.success : AppTheme.warning
-                    }
-                    Label {
-                        text: app.connectionStatus
-                        color: AppTheme.textMuted
-                        font.pixelSize: AppTheme.fontCaption
-                    }
+                background: Item { }
+                Rectangle {
+                    anchors.fill: parent
+                    anchors.margins: -2
+                    radius: AppTheme.radiusSm
+                    color: "transparent"
+                    border.color: AppTheme.focusRing
+                    border.width: 2
+                    visible: manageLabel.visualFocus
                 }
             }
         }
 
         Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: AppTheme.separator }
 
-        // ── Saved accounts (design 1c): click a row to switch. ───────────
-        Label {
-            Layout.fillWidth: true
-            Layout.leftMargin: AppTheme.spacing8
-            Layout.topMargin: AppTheme.spacing4
-            text: qsTr("ACCOUNTS")
-            color: AppTheme.textMuted
-            font.pixelSize: AppTheme.fontCaption
-            font.weight: Font.ExtraBold
-            font.letterSpacing: 1.2
-            visible: accountRepeater.count > 0
+        // Off-screen probe: real IdentityCard geometry drives the "cap the
+        // stack at ~3 rows" height, instead of a guessed magic number. It
+        // needs a real width (invisible items get none from the layout) so
+        // its implicit height is measured at the width the cards render at.
+        IdentityCard {
+            id: heightProbe
+            objectName: "identityCardHeightProbe"
+            visible: false
+            width: root.availableWidth
+            displayName: "Probe"
+            userId: "@probe:example.org"
         }
-        Repeater {
-            id: accountRepeater
-            model: app.accounts ? app.accounts.accounts : []
+        // The ACTIVE card is taller by exactly its meta row — measure that
+        // variant too, or the 3-account case clips the last card by that
+        // difference (active-first ordering guarantees rows = 1 tall +
+        // rest short).
+        IdentityCard {
+            id: tallHeightProbe
+            objectName: "identityCardTallHeightProbe"
+            visible: false
+            width: root.availableWidth
+            displayName: "Probe"
+            userId: "@probe:example.org"
+            metaText: "probe"
+            connected: true
+        }
 
-            ItemDelegate {
-                id: accountRow
-                objectName: "accountRow_" + (modelData.userId || "")
+        ListView {
+            id: cardList
+            objectName: "identityCardList"
+            Layout.fillWidth: true
+            clip: true
+            spacing: AppTheme.spacing10
+            model: root.sortedAccounts
+            // Height from the MODEL COUNT and the measured probe — never
+            // from contentHeight, which stays 0 until delegates exist while
+            // delegates only instantiate inside a nonzero viewport (a
+            // permanently-empty-list deadlock).
+            Layout.preferredHeight: {
+                var rows = Math.min(cardList.count, 3)
+                if (rows <= 0)
+                    return 0
+                return tallHeightProbe.implicitHeight
+                       + (rows - 1) * heightProbe.implicitHeight
+                       + (rows - 1) * AppTheme.spacing10
+            }
+            ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+
+            delegate: IdentityCard {
+                id: card
                 required property var modelData
-                Layout.fillWidth: true
+                objectName: "identityCard_" + (modelData.userId || "")
+                width: cardList.width
                 enabled: !app.accountSwitching
-                // needsSignIn (any row): no saved session or no access
-                // token for this account — derived on demand, never
-                // persisted. Live crypto/verification health is only ever
-                // available for the ACTIVE row: the SDK only reports it for
-                // whichever account the running client is attached to.
-                readonly property bool activeHealthConcern:
-                    modelData.isActive === true
-                    && app.backendName === "rust"
-                    && app.cryptoHealth
-                    && app.cryptoHealth.cryptoError === true
-                readonly property bool needsSignIn: modelData.needsSignIn === true
-                Accessible.name: modelData.isActive
-                                 ? qsTr("Active account %1").arg(modelData.userId)
-                                 : qsTr("Switch to %1").arg(modelData.userId)
 
-                readonly property string rowLocalpart: {
-                    var uid = modelData.userId || ""
-                    if (uid.startsWith("@")) uid = uid.slice(1)
-                    var colon = uid.indexOf(":")
-                    return colon > 0 ? uid.slice(0, colon) : uid
-                }
+                active: modelData.isActive === true
+                displayName: modelData.displayName || ""
+                userId: modelData.userId || ""
+                avatarMxc: modelData.avatarUrl || ""
+                needsSignIn: modelData.needsSignIn === true
+                // healthWarning / e2eeReady: live crypto state is only ever
+                // available for the ACTIVE row — the SDK only reports it
+                // for whichever account the running client is attached to
+                // (unchanged from the previous per-row rule).
+                healthWarning: modelData.isActive === true
+                              && app.backendName === "rust"
+                              && app.cryptoHealth
+                              && app.cryptoHealth.cryptoError === true
+                e2eeReady: modelData.isActive === true
+                          && app.backendName === "rust"
+                          && app.cryptoHealth
+                          && app.cryptoHealth.cryptoReady === true
+                connected: root.connected
+                metaText: modelData.isActive === true ? root.activeMetaText() : ""
 
-                contentItem: RowLayout {
-                    spacing: AppTheme.spacing8
-                    Avatar {
-                        size: 28
-                        circle: true
-                        name: accountRow.modelData.displayName
-                              || accountRow.rowLocalpart
-                        mxc: accountRow.modelData.avatarUrl || ""
-                    }
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: 0
-                        Label {
-                            Layout.fillWidth: true
-                            text: accountRow.modelData.displayName
-                                  || accountRow.rowLocalpart
-                            color: AppTheme.textPrimary
-                            font.pixelSize: AppTheme.fontSecondary
-                            font.weight: Font.DemiBold
-                            elide: Label.ElideRight
-                        }
-                        Label {
-                            Layout.fillWidth: true
-                            text: accountRow.modelData.userId || ""
-                            color: AppTheme.textMuted
-                            font.family: AppTheme.monoFont
-                            font.pixelSize: AppTheme.fontCaption
-                            elide: Label.ElideMiddle
-                        }
-                    }
-                    Icon {
-                        id: healthIndicator
-                        objectName: "accountHealthIndicator_" + (accountRow.modelData.userId || "")
-                        visible: accountRow.needsSignIn || accountRow.activeHealthConcern
-                        name: accountRow.needsSignIn ? "error" : "warning"
-                        size: 14
-                        color: AppTheme.warning
-                        Accessible.name: accountRow.needsSignIn
-                                         ? qsTr("Needs sign-in")
-                                         : qsTr("Encryption needs attention")
-                        ToolTip.text: healthIndicator.Accessible.name
-                        ToolTip.visible: healthHover.hovered
-                        ToolTip.delay: 500
-                        HoverHandler { id: healthHover }
-                    }
-                    Icon {
-                        visible: accountRow.modelData.isActive === true
-                        name: "check"
-                        size: 16
-                        color: AppTheme.accent
-                    }
-                    // Scoped removal of a non-active account (confirmed).
-                    ToolButton {
-                        id: removeAccountButton
-                        visible: accountRow.modelData.isActive !== true
-                                 && accountRow.hovered
-                        implicitWidth: 24; implicitHeight: 24
-                        Accessible.name: qsTr("Remove account %1")
-                                         .arg(accountRow.modelData.userId)
-                        ToolTip.text: qsTr("Remove from this device")
-                        ToolTip.visible: hovered
-                        ToolTip.delay: 500
-                        contentItem: Icon {
-                            name: "close"
-                            size: 14
-                            color: AppTheme.danger
-                        }
-                        background: Rectangle {
-                            radius: AppTheme.radiusSm
-                            color: removeAccountButton.hovered
-                                   ? AppTheme.hover : "transparent"
-                        }
-                        onClicked: {
-                            removeConfirm.targetUserId = accountRow.modelData.userId
-                            root.close()
-                            removeConfirm.open()
-                        }
-                    }
-                }
-                onClicked: {
+                onActivated: {
                     // Compare against the LIVE active account, never the
                     // row snapshot: a stale delegate must not be able to
                     // swallow a legitimate switch request.
@@ -231,77 +255,66 @@ Popup {
                     root.close()
                     app.switchToAccount(modelData.userId)
                 }
-            }
-        }
-
-        ItemDelegate {
-            objectName: "addAccountRow"
-            Layout.fillWidth: true
-            enabled: !app.accountSwitching
-            Accessible.name: qsTr("Add account")
-            contentItem: RowLayout {
-                spacing: AppTheme.spacing8
-                Rectangle {
-                    width: 28; height: 28
-                    radius: AppTheme.radiusPill
-                    color: "transparent"
-                    border.color: AppTheme.borderStrong
-                    Icon {
-                        anchors.centerIn: parent
-                        name: "person_add"
-                        size: 15
-                    }
-                }
-                Label {
-                    Layout.fillWidth: true
-                    text: qsTr("Add account")
-                    color: AppTheme.textPrimary
-                    font.pixelSize: AppTheme.fontSecondary
+                onRemoveRequested: {
+                    removeConfirm.targetUserId = modelData.userId
+                    root.close()
+                    removeConfirm.open()
                 }
             }
-            onClicked: {
-                root.close()
-                app.showLogin()
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: AppTheme.spacing8
+
+            FooterAction {
+                objectName: "accountFooterAdd"
+                text: qsTr("Add")
+                iconName: "person_add"
+                restColor: AppTheme.hover
+                enabled: !app.accountSwitching
+                onClicked: { root.close(); app.showLogin() }
             }
-        }
-
-        Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: AppTheme.separator }
-
-        ItemDelegate {
-            Layout.fillWidth: true
-            text: qsTr("Settings")
-            Accessible.name: text
-            onClicked: { root.close(); app.showSettingsSection("general") }
-        }
-        ItemDelegate {
-            Layout.fillWidth: true
-            text: qsTr("Security & Recovery")
-            Accessible.name: text
-            onClicked: { root.close(); app.showSettingsSection("security") }
-        }
-        ItemDelegate {
-            Layout.fillWidth: true
-            text: qsTr("About Lightning")
-            Accessible.name: text
-            onClicked: { root.close(); app.showSettingsSection("about") }
-        }
-
-        Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: AppTheme.separator }
-
-        ItemDelegate {
-            id: signOutItem
-            objectName: "signOutRow"
-            Layout.fillWidth: true
-            Accessible.name: qsTr("Sign out")
-            contentItem: Label {
+            FooterAction {
+                objectName: "accountFooterSettings"
+                text: qsTr("Settings")
+                iconName: "settings"
+                restColor: AppTheme.hover
+                enabled: !app.accountSwitching
+                onClicked: { root.close(); app.showSettingsSection("general") }
+            }
+            FooterAction {
+                objectName: "accountFooterSignOut"
                 text: qsTr("Sign out")
-                color: AppTheme.danger
-                font.pixelSize: AppTheme.fontBody
+                iconName: "logout"
+                inkColor: AppTheme.dangerInk
+                restColor: AppTheme.dangerSoft
+                hoverColor: Qt.alpha(AppTheme.mentionBadge, 0.16)
+                enabled: !app.accountSwitching
+                onClicked: { root.close(); signOutConfirm.open() }
             }
-            onClicked: {
-                root.close()
-                signOutConfirm.open()
-            }
+        }
+    }
+
+    // "Manage" deep links — exact existing aliases (SettingsScreen.qml
+    // mapLegacySection remaps "general" -> appearance, "security" -> privacy).
+    AppMenu {
+        id: manageMenu
+        objectName: "accountManageMenu"
+        AppMenuItem {
+            text: qsTr("Settings")
+            iconName: "settings"
+            onTriggered: { root.close(); app.showSettingsSection("general") }
+        }
+        AppMenuItem {
+            text: qsTr("Security & Recovery")
+            iconName: "verified_user"
+            onTriggered: { root.close(); app.showSettingsSection("security") }
+        }
+        AppMenuItem {
+            text: qsTr("About Lightning")
+            iconName: "info"
+            onTriggered: { root.close(); app.showSettingsSection("about") }
         }
     }
 
