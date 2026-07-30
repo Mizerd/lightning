@@ -85,34 +85,56 @@ Rectangle {
         anchors.fill: parent
         spacing: 0
 
-        // ── Workspace header ─────────────────────────────────────────────
+        // ── Workspace header: brand mark + workspace name ────────────────
         Rectangle {
             Layout.fillWidth: true
             color: AppTheme.sidebar
-            implicitHeight: workspaceLabel.implicitHeight + AppTheme.spacing12 * 2
+            implicitHeight: headerRow.implicitHeight + AppTheme.spacing12 * 2
 
-            Label {
-                id: workspaceLabel
+            RowLayout {
+                id: headerRow
                 anchors {
                     left: parent.left; right: parent.right
                     verticalCenter: parent.verticalCenter
                     leftMargin: AppTheme.spacing12
                     rightMargin: AppTheme.spacing12
                 }
-                text: {
-                    if (!app.spaces)
-                        return qsTr("Lightning")
-                    var id = app.spaces.activeSpaceId
-                    if (id === "" || id === undefined)
-                        return qsTr("Lightning")
-                    if (id === "@orphans")
-                        return qsTr("Other rooms")
-                    return app.spaces.spaceName(id) || qsTr("Lightning")
+                spacing: AppTheme.spacing8
+
+                // The Lightning bolt mark — the app brand above all chats,
+                // echoing the trust surface's bolt and the application icon.
+                Rectangle {
+                    objectName: "workspaceBrandMark"
+                    implicitWidth: 26
+                    implicitHeight: 26
+                    radius: AppTheme.radiusTile
+                    color: AppTheme.accentSoft
+                    Icon {
+                        anchors.centerIn: parent
+                        name: "bolt"
+                        size: 17
+                        color: AppTheme.accent
+                    }
                 }
-                color: AppTheme.textPrimary
-                font.pixelSize: AppTheme.fontRoomTitle
-                font.weight: Font.ExtraBold
-                elide: Label.ElideRight
+
+                Label {
+                    id: workspaceLabel
+                    Layout.fillWidth: true
+                    text: {
+                        if (!app.spaces)
+                            return qsTr("Lightning")
+                        var id = app.spaces.activeSpaceId
+                        if (id === "" || id === undefined)
+                            return qsTr("Lightning")
+                        if (id === "@orphans")
+                            return qsTr("Other rooms")
+                        return app.spaces.spaceName(id) || qsTr("Lightning")
+                    }
+                    color: AppTheme.textPrimary
+                    font.pixelSize: AppTheme.fontRoomTitle
+                    font.weight: Font.ExtraBold
+                    elide: Label.ElideRight
+                }
             }
         }
 
@@ -127,55 +149,76 @@ Rectangle {
                 anchors {
                     left: parent.left; right: parent.right
                     verticalCenter: parent.verticalCenter
-                    leftMargin: AppTheme.spacing8; rightMargin: AppTheme.spacing8
+                    leftMargin: AppTheme.spacing12
+                    rightMargin: AppTheme.spacing12
                 }
                 spacing: AppTheme.spacing8
 
-                TextField {
-                    id: roomSearch
+                // The search card — same component family as the composer
+                // card: surface fill, 1px border, rounded, with the field
+                // itself borderless and transparent inside. Focus promotes
+                // the card border to the shared focus ring.
+                Rectangle {
+                    id: searchCard
+                    objectName: "roomSearchCard"
                     Layout.fillWidth: true
-                    placeholderText: qsTr("Search")
-                    onTextChanged: app.roomList.searchQuery = text
-                    font.pixelSize: AppTheme.fontSizeS
-                    leftPadding: searchIcon.width + AppTheme.spacing12
-                    rightPadding: kbdHint.width + AppTheme.spacing12
-                    background: Rectangle {
-                        color: AppTheme.hover
-                        border.color: roomSearch.activeFocus ? AppTheme.focusRing : "transparent"
-                        border.width: roomSearch.activeFocus ? 2 : 1
-                        radius: AppTheme.radiusMd
+                    implicitHeight: 34
+                    radius: AppTheme.radiusMd
+                    color: AppTheme.surface
+                    border.width: roomSearch.activeFocus ? 2 : 1
+                    border.color: roomSearch.activeFocus ? AppTheme.focusRing
+                                  : searchCardHover.hovered ? AppTheme.borderStrong
+                                  : AppTheme.border
+                    HoverHandler { id: searchCardHover }
+                    // The whole pill is the input: a press on the glyph,
+                    // the keycap or the padding must focus the field, not
+                    // dead-drop. (The field's own presses grab before this
+                    // handler; forceActiveFocus is idempotent either way.)
+                    TapHandler {
+                        onTapped: roomSearch.forceActiveFocus()
                     }
 
-                    // Leading search glyph (handoff §2 search field).
-                    Icon {
-                        id: searchIcon
-                        anchors.left: parent.left
-                        anchors.leftMargin: AppTheme.spacing8
-                        anchors.verticalCenter: parent.verticalCenter
-                        name: "search"
-                        size: 18
-                        color: AppTheme.textMuted
-                    }
-
-                    // ⌘K-style keycap hint for the quick switcher.
-                    Rectangle {
-                        id: kbdHint
-                        anchors.right: parent.right
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.leftMargin: AppTheme.spacing8 + 2
                         anchors.rightMargin: AppTheme.spacing6
-                        anchors.verticalCenter: parent.verticalCenter
-                        width: kbdLabel.implicitWidth + AppTheme.spacing8
-                        height: kbdLabel.implicitHeight + AppTheme.spacing4
-                        radius: AppTheme.radiusSm
-                        color: AppTheme.sidebar
-                        border.color: AppTheme.border
-                        visible: !roomSearch.activeFocus
-                        Label {
-                            id: kbdLabel
-                            anchors.centerIn: parent
-                            text: qsTr("Ctrl K")
-                            font.family: AppTheme.monoFont
-                            font.pixelSize: AppTheme.fontCaption
+                        spacing: AppTheme.spacing6
+
+                        // Leading search glyph (handoff §2 search field).
+                        Icon {
+                            name: "search"
+                            size: 16
                             color: AppTheme.textMuted
+                        }
+                        TextField {
+                            id: roomSearch
+                            Layout.fillWidth: true
+                            // Fill the card's height so the field's own hit
+                            // area matches the painted pill.
+                            Layout.fillHeight: true
+                            placeholderText: qsTr("Search")
+                            Accessible.name: qsTr("Search rooms")
+                            onTextChanged: app.roomList.searchQuery = text
+                            font.pixelSize: AppTheme.fontSizeS
+                            color: AppTheme.textPrimary
+                            placeholderTextColor: AppTheme.textMuted
+                            selectionColor: AppTheme.accentSoft
+                            selectedTextColor: AppTheme.textPrimary
+                            verticalAlignment: TextInput.AlignVCenter
+                            padding: 0
+                            leftPadding: 0
+                            rightPadding: 0
+                            // The card is the visual container: the field
+                            // itself draws no chrome of its own.
+                            background: null
+                        }
+                        // Quick-switcher keycap hint, in the shared menu
+                        // design language. Not translated — shortcut
+                        // chips render literally (the Settings "Ctrl+,"
+                        // convention).
+                        MenuKeycap {
+                            keys: "Ctrl+K"
+                            visible: !roomSearch.activeFocus
                         }
                     }
                 }
@@ -308,10 +351,17 @@ Rectangle {
         }
 
         // ── Room list with DM / ROOMS section headers ─────────────────────
-        ListView {
-            id: roomList
+        // The empty-state label lives in this wrapper Item, NOT inside the
+        // ListView: children declared inside a view are reparented into its
+        // contentItem, whose height collapses to 0 with an empty model —
+        // centring there put the label half above the clipped viewport.
+        Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
+
+        ListView {
+            id: roomList
+            anchors.fill: parent
             clip: true
             model: app.roomList
             currentIndex: -1
@@ -374,27 +424,28 @@ Rectangle {
                 onLeaveRoomRequested:
                     leaveRoomConfirm.openFor(model.roomId, model.name)
             }
-
-            // Empty / loading state
-            Label {
-                anchors.centerIn: parent
-                width: parent.width - AppTheme.spacing24 * 2
-                horizontalAlignment: Text.AlignHCenter
-                wrapMode: Text.WordWrap
-                visible: roomList.count === 0
-                text: {
-                    if (!app.loggedIn) return qsTr("Sign in to see rooms")
-                    if (!app.initialSyncDone) return qsTr("Loading rooms…")
-                    if (app.spaces && app.spaces.activeSpaceId &&
-                            app.spaces.activeSpaceId !== "" &&
-                            app.spaces.activeSpaceId !== "@orphans")
-                        return qsTr("No rooms in this Space")
-                    return qsTr("No joined rooms")
-                }
-                color: AppTheme.textMuted
-                font.pixelSize: AppTheme.fontSizeS
-            }
         }
+
+        // Empty / loading state — centred over the (empty) list area.
+        Label {
+            visible: roomList.count === 0
+            anchors.centerIn: parent
+            width: parent.width - AppTheme.spacing24 * 2
+            horizontalAlignment: Text.AlignHCenter
+            wrapMode: Text.WordWrap
+            text: {
+                if (!app.loggedIn) return qsTr("Sign in to see rooms")
+                if (!app.initialSyncDone) return qsTr("Loading rooms…")
+                if (app.spaces && app.spaces.activeSpaceId &&
+                        app.spaces.activeSpaceId !== "" &&
+                        app.spaces.activeSpaceId !== "@orphans")
+                    return qsTr("No rooms in this Space")
+                return qsTr("No joined rooms")
+            }
+            color: AppTheme.textMuted
+            font.pixelSize: AppTheme.fontSizeS
+        }
+        } // room-list wrapper Item
 
         // The account entry point lives on the SpacesRail (design shell);
         // this column intentionally has no footer.

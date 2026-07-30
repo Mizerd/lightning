@@ -203,6 +203,21 @@ ApplicationWindow {
             Column {
                 anchors.centerIn: parent
                 spacing: AppTheme.spacingM
+                // Brand mark above the wordmark — same bolt-in-tile idiom as
+                // the room-list workspace header.
+                Rectangle {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    width: 44
+                    height: 44
+                    radius: AppTheme.radiusLg
+                    color: AppTheme.accentSoft
+                    Icon {
+                        anchors.centerIn: parent
+                        name: "bolt"
+                        size: 28
+                        color: AppTheme.accent
+                    }
+                }
                 Label {
                     anchors.horizontalCenter: parent.horizontalCenter
                     text: qsTr("Lightning")
