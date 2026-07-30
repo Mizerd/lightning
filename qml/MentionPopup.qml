@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls.Basic
+import QtQuick.Layouts
 import MatrixClient
 
 // v0.7 outgoing @-mentions: the composer autocomplete popup. A flat Lightning
@@ -9,6 +10,12 @@ import MatrixClient
 // caret never leaves the editor. It presents ONLY current-room members from
 // the shared MentionSuggestionModel; it never queries the server directory and
 // owns no Matrix protocol logic. No message text is ever logged.
+//
+// v0.6.5 (SPEC §1q): a mono "MENTION · MATCHING "…"" header, a matched-prefix
+// tint on the row name, a role chip (ADMIN/MOD, when the member snapshot
+// carries a recognized power-level role), a tinted "return" keycap on the
+// selected row, and row accessibility. The @room row and presence dots are
+// omitted — the model has no data to honestly back either.
 Popup {
     id: root
     objectName: "mentionPopup"
@@ -16,6 +23,11 @@ Popup {
     // The MentionSuggestionModel (set by the composer). Its `query`/`roomId`
     // are driven by the composer; this popup only presents + selects.
     property var suggestions: null
+    // The composer's live mention-token query text, set by the host alongside
+    // suggestions.query. Kept as its own property (rather than read back off
+    // the shared model) because both the room and thread hosts bind the same
+    // MentionSuggestionModel instance and each owns its own popup's header.
+    property string query: ""
     // Top-left of the composer input in overlay coordinates; the popup is
     // placed above it.
     property point anchorInputTop: Qt.point(0, 0)
@@ -29,14 +41,15 @@ Popup {
     // The composer drives open/close; auto-close (focus/press-outside) would
     // fight the editor keeping focus.
     closePolicy: Popup.NoAutoClose
-    padding: AppTheme.spacing4
+    padding: AppTheme.menuPadding
 
     readonly property int count: suggestions ? suggestions.count : 0
     readonly property int rowH: 42
+    readonly property int headerH: 24
     readonly property int visibleRows: Math.max(1, Math.min(count, 6))
 
     width: Math.max(240, Math.min(anchorWidth, 380))
-    height: visibleRows * rowH + padding * 2
+    height: headerH + visibleRows * rowH + padding * 2
     x: anchorInputTop.x
     y: anchorInputTop.y - height - AppTheme.spacing4
 
@@ -69,91 +82,174 @@ Popup {
         root.chosen(m.userId, name)
     }
 
+    // administrator/creator -> ADMIN, moderator -> MOD, everything else
+    // (user/default/empty) -> no chip. `role` is the power-level-derived
+    // snapshot field (MentionSuggestionModel::RoleRole) — real SDK data on
+    // the Rust backend, always "default" (no chip) on the mock.
+    function roleChipLabel(role) {
+        if (role === "administrator" || role === "creator")
+            return qsTr("ADMIN")
+        if (role === "moderator")
+            return qsTr("MOD")
+        return ""
+    }
+
+    // Minimal HTML-escape for the matched-prefix rich-text highlight below —
+    // display names are untrusted user content and must never be interpreted
+    // as markup.
+    function escapeHtml(s) {
+        return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;")
+                        .replace(/>/g, "&gt;")
+    }
+
+    // Highlights the query as a prefix of the display name only (the simple,
+    // common case matchScore ranks highest); a word-start-only or
+    // localpart/MXID-only match still shows the plain, unhighlighted name.
+    function highlightedName(name, q) {
+        const escaped = escapeHtml(name)
+        if (!q || q.length === 0
+                || name.toLowerCase().indexOf(q.toLowerCase()) !== 0)
+            return escaped
+        const prefix = escapeHtml(name.substring(0, q.length))
+        const rest = escapeHtml(name.substring(q.length))
+        return "<font color=\"%1\">%2</font>%3".arg(AppTheme.accent)
+                                                .arg(prefix).arg(rest)
+    }
+
     background: Rectangle {
         objectName: "mentionPopupSurface"
         color: AppTheme.surface
         border.color: AppTheme.borderStrong
         border.width: 1
-        radius: AppTheme.radiusMd
+        radius: AppTheme.menuRadius
     }
 
-    contentItem: ListView {
-        id: listView
-        objectName: "mentionListView"
-        clip: true
-        implicitHeight: contentHeight
-        model: root.suggestions
-        currentIndex: root.currentIndex
-        boundsBehavior: Flickable.StopAtBounds
-        interactive: contentHeight > height
+    contentItem: Column {
+        spacing: 0
 
-        delegate: Rectangle {
-            objectName: "mentionRow_" + index
-            width: ListView.view ? ListView.view.width : 0
-            height: root.rowH
-            radius: AppTheme.radiusSm
-            color: index === root.currentIndex ? AppTheme.hover : "transparent"
-
-            MouseArea {
-                objectName: "mentionRowMouse_" + index
-                anchors.fill: parent
-                hoverEnabled: true
-                cursorShape: Qt.PointingHandCursor
-                onEntered: root.currentIndex = index
-                onClicked: {
-                    root.currentIndex = index
-                    root.accept()
-                }
-            }
-
-            Row {
-                anchors.verticalCenter: parent.verticalCenter
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.leftMargin: AppTheme.spacing8
-                anchors.rightMargin: AppTheme.spacing8
-                spacing: AppTheme.spacing8
-
-                Avatar {
-                    anchors.verticalCenter: parent.verticalCenter
-                    size: 28
-                    circle: true
-                    name: (model.displayName && model.displayName.length > 0)
-                          ? model.displayName : model.userId
-                    mxc: model.avatarMxc
-                    colorKey: model.userId
-                }
-                Column {
-                    anchors.verticalCenter: parent.verticalCenter
-                    spacing: 0
-                    Label {
-                        text: (model.displayName && model.displayName.length > 0)
-                              ? model.displayName : model.userId
-                        color: AppTheme.textPrimary
-                        font.pixelSize: 13
-                        font.weight: Font.DemiBold
-                        elide: Label.ElideRight
-                        width: Math.max(0, root.width - 28
-                                        - AppTheme.spacing8 * 3
-                                        - root.padding * 2)
-                    }
-                    // Muted MXID under the name (always shown when there is a
-                    // display name, and required when the name is ambiguous).
-                    Label {
-                        visible: (model.ambiguous === true)
-                                 || (model.displayName
-                                     && model.displayName.length > 0)
-                        text: model.userId
-                        color: AppTheme.textMuted
-                        font.pixelSize: 11
-                        elide: Label.ElideRight
-                        width: Math.max(0, root.width - 28
-                                        - AppTheme.spacing8 * 3
-                                        - root.padding * 2)
-                    }
-                }
-            }
+        Label {
+            objectName: "mentionPopupHeader"
+            width: parent.width
+            height: root.headerH
+            verticalAlignment: Text.AlignVCenter
+            textFormat: Text.PlainText
+            elide: Label.ElideRight
+            text: qsTr("Mention · Matching \"%1\"").arg(root.query)
+            font.family: AppTheme.monoFont
+            font.pixelSize: AppTheme.fontChip
+            font.weight: Font.Medium
+            font.letterSpacing: AppTheme.trackingMono
+            font.capitalization: Font.AllUppercase
+            // Load-bearing header text rides the AA-passing label ink, not
+            // the AA-exempt disabled ink (see AppTheme.sectionLabelColor).
+            color: AppTheme.sectionLabelColor
         }
-        ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+
+        ListView {
+            id: listView
+            objectName: "mentionListView"
+            width: parent.width
+            height: root.visibleRows * root.rowH
+            clip: true
+            model: root.suggestions
+            currentIndex: root.currentIndex
+            boundsBehavior: Flickable.StopAtBounds
+            interactive: contentHeight > height
+            Accessible.role: Accessible.List
+
+            delegate: Rectangle {
+                id: rowDelegate
+                objectName: "mentionRow_" + index
+                width: ListView.view ? ListView.view.width : 0
+                height: root.rowH
+                readonly property bool isSelected: index === root.currentIndex
+                readonly property string roleChip: root.roleChipLabel(model.role)
+                radius: AppTheme.menuItemRadius
+                color: isSelected ? AppTheme.accentSoft : "transparent"
+                border.width: isSelected ? 1 : 0
+                border.color: AppTheme.accentBorder
+
+                Accessible.role: Accessible.Button
+                Accessible.name: model.displayName + ", " + model.userId
+                                 + (roleChip.length > 0 ? ", " + roleChip : "")
+                Accessible.selected: isSelected
+
+                MouseArea {
+                    objectName: "mentionRowMouse_" + index
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onEntered: root.currentIndex = index
+                    onClicked: {
+                        root.currentIndex = index
+                        root.accept()
+                    }
+                }
+
+                RowLayout {
+                    anchors.verticalCenter: parent.verticalCenter
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.leftMargin: AppTheme.spacing8
+                    anchors.rightMargin: AppTheme.spacing8
+                    spacing: AppTheme.spacing8
+
+                    Avatar {
+                        Layout.alignment: Qt.AlignVCenter
+                        size: 28
+                        circle: true
+                        name: (model.displayName && model.displayName.length > 0)
+                              ? model.displayName : model.userId
+                        mxc: model.avatarMxc
+                        colorKey: model.userId
+                    }
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        Layout.alignment: Qt.AlignVCenter
+                        spacing: 0
+                        Label {
+                            Layout.fillWidth: true
+                            textFormat: Text.RichText
+                            text: root.highlightedName(
+                                (model.displayName && model.displayName.length > 0)
+                                ? model.displayName : model.userId, root.query)
+                            color: AppTheme.textPrimary
+                            font.pixelSize: 13
+                            font.weight: Font.Bold
+                            elide: Label.ElideRight
+                        }
+                        // Muted MXID under the name (always shown when there is a
+                        // display name, and required when the name is ambiguous).
+                        Label {
+                            Layout.fillWidth: true
+                            visible: (model.ambiguous === true)
+                                     || (model.displayName
+                                         && model.displayName.length > 0)
+                            text: model.userId
+                            font.family: AppTheme.monoFont
+                            font.pixelSize: AppTheme.fontMonoXS
+                            color: AppTheme.monoIdentityColor
+                            elide: Label.ElideRight
+                        }
+                    }
+                    StatusChip {
+                        objectName: "mentionRoleChip"
+                        Layout.alignment: Qt.AlignVCenter
+                        visible: rowDelegate.roleChip.length > 0
+                        label: rowDelegate.roleChip
+                        tone: "accent"
+                        solid: true
+                    }
+                    MenuKeycap {
+                        objectName: "mentionSelectedKeycap"
+                        Layout.alignment: Qt.AlignVCenter
+                        visible: rowDelegate.isSelected
+                        iconName: "keyboard_return"
+                        tinted: true
+                    }
+                }
+            }
+            ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+        }
     }
 }

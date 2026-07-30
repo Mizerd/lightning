@@ -201,6 +201,7 @@ void EmojiCatalog::recordUse(const QString &emoji)
     m_settings->recordRecentEmoji(emoji);
     if (m_category == QLatin1String("Recently Used") && m_searchText.trimmed().isEmpty())
         rebuild();
+    Q_EMIT recentEmojiChanged();
 }
 
 void EmojiCatalog::clearRecent()
@@ -210,6 +211,22 @@ void EmojiCatalog::clearRecent()
     m_settings->clearRecentEmoji();
     if (m_category == QLatin1String("Recently Used"))
         rebuild();
+    Q_EMIT recentEmojiChanged();
+}
+
+QStringList EmojiCatalog::recentEmoji() const
+{
+    // v0.6.5: the raw MRU list for consumers that want it directly (the
+    // quick-react strip), filtered through the same validity check rebuild()
+    // uses so a corrupted or legacy settings entry can never reach one.
+    QStringList out;
+    if (!m_settings)
+        return out;
+    for (const QString &emoji : m_settings->recentEmoji()) {
+        if (contains(emoji))
+            out.append(emoji);
+    }
+    return out;
 }
 
 QString EmojiCatalog::preferredTone() const

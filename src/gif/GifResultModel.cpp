@@ -35,6 +35,7 @@ QVariant GifResultModel::data(const QModelIndex &index, int role) const
     case RatingRole:        return r.rating;
     case FavoriteRole:
         return m_isFavorite ? m_isFavorite(r.provider, r.id) : false;
+    case BytesRole:         return r.gifBytes;
     default:                return {};
     }
 }
@@ -56,6 +57,7 @@ QHash<int, QByteArray> GifResultModel::roleNames() const
         { AspectRole,        "aspect" },
         { RatingRole,        "rating" },
         { FavoriteRole,      "favorite" },
+        { BytesRole,         "gifBytes" },
     };
 }
 

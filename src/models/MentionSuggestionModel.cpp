@@ -114,6 +114,7 @@ void MentionSuggestionModel::onRoomMembersReceived(quint64 opId,
             ? matrix::user_lookup::localpartOrUserId(uid)
             : mem.rawDisplayName;
         mem.avatarMxc = row.value(QStringLiteral("avatarUrl")).toString();
+        mem.role = row.value(QStringLiteral("role")).toString();
         mem.ambiguous = row.value(QStringLiteral("ambiguous")).toBool();
         members.append(mem);
     }
@@ -243,6 +244,8 @@ QVariant MentionSuggestionModel::data(const QModelIndex &index, int role) const
         return m.avatarMxc;
     case AmbiguousRole:
         return m.ambiguous;
+    case RoleRole:
+        return m.role;
     default:
         return {};
     }
@@ -255,6 +258,7 @@ QHash<int, QByteArray> MentionSuggestionModel::roleNames() const
         { DisplayNameRole, "displayName" },
         { AvatarMxcRole, "avatarMxc" },
         { AmbiguousRole, "ambiguous" },
+        { RoleRole, "role" },
     };
 }
 
@@ -268,5 +272,6 @@ QVariantMap MentionSuggestionModel::get(int row) const
     out.insert(QStringLiteral("displayName"), m.displayName);
     out.insert(QStringLiteral("avatarMxc"), m.avatarMxc);
     out.insert(QStringLiteral("ambiguous"), m.ambiguous);
+    out.insert(QStringLiteral("role"), m.role);
     return out;
 }

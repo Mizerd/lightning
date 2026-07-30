@@ -1062,7 +1062,7 @@ Rectangle {
 
                             MentionHighlighter {
                                 document: threadComposerInput.textDocument
-                                ranges: app.thread.mentionRanges
+                                ranges: panel.threadMentionHighlightRanges
                                 accentColor: AppTheme.accent
                                 softColor: AppTheme.accentSoft
                             }
@@ -1205,10 +1205,26 @@ Rectangle {
         suggestions: app.mentionSuggestions
         onChosen: (userId, displayName) =>
             panel.insertThreadMention(userId, displayName)
+        // Closing (Escape included) must drop the synthetic in-progress
+        // range without re-running updateThreadMentionState — see
+        // refreshThreadMentionHighlight's loop rationale.
+        onVisibleChanged: panel.refreshThreadMentionHighlight()
     }
+    // Same rescan guard as the room composer: format-only rehighlights
+    // re-emit textChanged with an unchanged value and cursor; only genuine
+    // edits or cursor moves rescan (loop + Escape-reopen protection).
+    property string lastThreadMentionScanText: ""
+    property int lastThreadMentionScanCursor: -1
     function updateThreadMentionState() {
+        if (threadComposerInput.text === panel.lastThreadMentionScanText
+            && threadComposerInput.cursorPosition
+               === panel.lastThreadMentionScanCursor)
+            return
+        panel.lastThreadMentionScanText = threadComposerInput.text
+        panel.lastThreadMentionScanCursor = threadComposerInput.cursorPosition
         if (!app.thread.active) {
             threadMentionPopup.close()
+            panel.refreshThreadMentionHighlight()
             return
         }
         var tok = app.thread.mentionTokenAt(threadComposerInput.text,
@@ -1217,6 +1233,7 @@ Rectangle {
             panel.threadMentionTokenStart = tok.start
             app.mentionSuggestions.roomId = app.thread.roomId
             app.mentionSuggestions.query = tok.query
+            threadMentionPopup.query = tok.query
             var p = threadComposerInput.mapToItem(Overlay.overlay, 0, 0)
             threadMentionPopup.anchorInputTop = Qt.point(p.x, p.y)
             threadMentionPopup.anchorWidth = threadComposerInput.width
@@ -1226,7 +1243,51 @@ Rectangle {
             panel.threadMentionTokenStart = -1
             threadMentionPopup.close()
         }
+        panel.refreshThreadMentionHighlight()
     }
+    // v0.6.5 composer echo (mirrors MessageComposerBar.qml): the in-progress
+    // "@token" chip. Concatenates app.thread.mentionRanges with ONE
+    // synthetic presentation-only range covering the currently-typed token,
+    // ONLY while threadMentionPopup is open — never written back to
+    // app.thread.mentionRanges, so the thread composer's send-time payload
+    // logic stays untouched. Explicit assignment, never a declarative
+    // binding — rehighlighting nudges the input's layout/cursor signals and
+    // a cursorPosition-reading binding would loop (and reopen the popup
+    // Escape just closed); same rationale as the room composer.
+    property var threadMentionHighlightRanges: []
+    function refreshThreadMentionHighlight() {
+        var ranges = app.thread.mentionRanges
+        if (threadMentionPopup.visible && panel.threadMentionTokenStart >= 0) {
+            var len = threadComposerInput.cursorPosition
+                      - panel.threadMentionTokenStart
+            if (len > 0)
+                ranges = ranges.concat([{ start: panel.threadMentionTokenStart,
+                                          length: len }])
+        }
+        // Assign only on a semantic change — an identical list would still
+        // notify (fresh JS array) and rehighlight for nothing.
+        var current = panel.threadMentionHighlightRanges
+        if (current.length === ranges.length) {
+            var same = true
+            for (var i = 0; i < ranges.length; ++i) {
+                if (current[i].start !== ranges[i].start
+                    || current[i].length !== ranges[i].length) {
+                    same = false
+                    break
+                }
+            }
+            if (same)
+                return
+        }
+        panel.threadMentionHighlightRanges = ranges
+    }
+    Connections {
+        target: app.thread
+        function onMentionRangesChanged() {
+            panel.refreshThreadMentionHighlight()
+        }
+    }
+
     function insertThreadMention(userId, displayName) {
         var newCursor = app.thread.insertMention(
             userId, displayName, panel.threadMentionTokenStart,

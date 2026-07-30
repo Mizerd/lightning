@@ -19,6 +19,12 @@ class EmojiCatalog : public QAbstractListModel
     Q_PROPERTY(QString dataVersion READ dataVersion CONSTANT)
     Q_PROPERTY(QStringList categories READ categories CONSTANT)
     Q_PROPERTY(QString preferredTone READ preferredTone WRITE setPreferredTone NOTIFY preferredToneChanged)
+    // v0.6.5: the persisted MRU recent-emoji list (settings key emoji/recent),
+    // exposed read-only for consumers that want the raw ordered list directly
+    // (the quick-react strip) rather than the filtered/paged GridView model.
+    // Filtered through the same validity check rebuild() uses, so a corrupted
+    // or legacy settings entry can never reach a consumer.
+    Q_PROPERTY(QStringList recentEmoji READ recentEmoji NOTIFY recentEmojiChanged)
 
 public:
     enum Role {
@@ -46,6 +52,7 @@ public:
     QStringList categories() const;
     QString preferredTone() const;
     void setPreferredTone(const QString &tone);
+    QStringList recentEmoji() const;
 
     Q_INVOKABLE QVariantList variantsFor(const QString &baseEmoji) const;
     Q_INVOKABLE void recordUse(const QString &emoji);
@@ -58,6 +65,7 @@ Q_SIGNALS:
     void categoryChanged();
     void countChanged();
     void preferredToneChanged();
+    void recentEmojiChanged();
 
 private:
     struct Entry {

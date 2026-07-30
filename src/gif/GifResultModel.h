@@ -34,6 +34,11 @@ public:
         AspectRole,       // width/height, for stable grid sizing
         RatingRole,
         FavoriteRole,     // set by the controller from favorites state
+        // v0.6.5: the sendable-variant byte size the provider parser already
+        // extracts (gif::GifResult::gifBytes) but which never reached QML
+        // before now. 0 = unknown; the picker only shows a size overlay when
+        // this is > 0.
+        BytesRole,
     };
 
     explicit GifResultModel(QObject *parent = nullptr);

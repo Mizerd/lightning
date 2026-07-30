@@ -12,6 +12,15 @@ import MatrixClient
 // Preview tiles load the provider's SMALL preview variant (a public CDN URL,
 // no Matrix secret) directly; the actual GIF is downloaded and validated only
 // when chosen, on its way into the Matrix attachment pipeline.
+//
+// v0.6.5 (SPEC §1n): width 330 (down from 460) with a dynamic 3-column grid,
+// a picker-owned "GIF" header badge (distinct from the composer's pinned
+// composerGifKeycap), pill-styled Trending/Favorites/Recent section chips
+// (provider GIPHY/KLIPY selection stays its own SegmentedControl row —
+// unrelated to the section chips despite SPEC's "provider chips" wording),
+// a "GIF" tile badge + optional byte-size overlay, and a "return to send"
+// footer hint. The nine choose()/snapshot()/latch/reset invariants below are
+// UNCHANGED — only their surrounding visual chrome moved.
 Popup {
     id: picker
 
@@ -22,7 +31,6 @@ Popup {
     signal gifChosen(var result)
 
     readonly property var gif: app.gif
-    readonly property int cell: 132
 
     // "browse" (trending/search/categories) | "favorites" | "recent".
     property string section: "browse"
@@ -31,8 +39,17 @@ Popup {
         : section === "recent" ? gif.recent
         : gif.results
 
+    // Human-readable byte size for the stretch size overlay ("" when unknown
+    // — the overlay is hidden in that case).
+    function formatBytes(n) {
+        if (!n || n <= 0) return ""
+        if (n < 1024) return n + " B"
+        if (n < 1024 * 1024) return Math.round(n / 1024) + " KB"
+        return (n / (1024 * 1024)).toFixed(1) + " MB"
+    }
+
     parent: Overlay.overlay
-    width: Math.min(460, parent ? parent.width - AppTheme.spacingM * 2 : 460)
+    width: Math.min(330, parent ? parent.width - AppTheme.spacingM * 2 : 330)
     height: Math.min(520, parent ? parent.height - AppTheme.spacingM * 2 : 520)
     padding: AppTheme.spacingS
     modal: false
@@ -153,33 +170,10 @@ Popup {
         anchors.bottomMargin: 14   // reserve space for the attribution footer
         spacing: AppTheme.spacingS
 
-        // ── Header: provider tabs + search + close ──────────────────
+        // ── Row 1: search + the picker's own "GIF" badge + close ────
         RowLayout {
             Layout.fillWidth: true
             spacing: AppTheme.spacingXS
-
-            SegmentedControl {
-                id: providerTabs
-                objectName: "gifProviderTabs"
-                // cfgRevision re-evaluates enabled/tip after a key refresh;
-                // unavailable providers are disabled with an explanation —
-                // never a bare "(off)" suffix.
-                model: {
-                    var rev = picker.cfgRevision
-                    return picker.gif.providerIds.map(function(id) {
-                        var ok = picker.gif.providerConfigured(id)
-                        return {
-                            label: picker.gif.providerDisplayName(id),
-                            value: id,
-                            enabled: ok,
-                            tip: ok ? "" : qsTr("Not configured — set an API "
-                                                + "key to enable this provider"),
-                        }
-                    })
-                }
-                current: picker.gif.providerId
-                onActivated: (value) => picker.gif.setActiveProvider(value)
-            }
 
             AppTextField {
                 id: searchField
@@ -216,6 +210,30 @@ Popup {
                 }
             }
 
+            // The picker's own inline "GIF" badge — mono, bordered, NOT the
+            // same geometry/objectName as the composer's pinned
+            // composerGifKeycap (ComposerQmlTest pins that one at 1.5px
+            // border / radius 5 with its own objectName; this is a distinct,
+            // independent chip).
+            Rectangle {
+                objectName: "gifPickerHeaderBadge"
+                implicitWidth: gifHeaderBadgeLabel.implicitWidth + AppTheme.spacing8
+                implicitHeight: 22
+                radius: AppTheme.radiusMd
+                color: "transparent"
+                border.width: 1.5
+                border.color: AppTheme.borderStrong
+                Label {
+                    id: gifHeaderBadgeLabel
+                    anchors.centerIn: parent
+                    text: qsTr("GIF")
+                    font.family: AppTheme.monoFont
+                    font.pixelSize: AppTheme.fontChip + 1
+                    font.weight: Font.Bold
+                    color: AppTheme.textSecondary
+                }
+            }
+
             IconButton {
                 implicitWidth: 28; implicitHeight: 28
                 radius: 6
@@ -226,19 +244,98 @@ Popup {
             }
         }
 
-        // ── Section nav: Trending / Favorites / Recent ──────────────
+        // ── Provider tabs (GIPHY/KLIPY) — own row, unchanged behavior ──
         SegmentedControl {
+            id: providerTabs
+            objectName: "gifProviderTabs"
+            Layout.fillWidth: true
+            // cfgRevision re-evaluates enabled/tip after a key refresh;
+            // unavailable providers are disabled with an explanation —
+            // never a bare "(off)" suffix.
+            model: {
+                var rev = picker.cfgRevision
+                return picker.gif.providerIds.map(function(id) {
+                    var ok = picker.gif.providerConfigured(id)
+                    return {
+                        label: picker.gif.providerDisplayName(id),
+                        value: id,
+                        enabled: ok,
+                        tip: ok ? "" : qsTr("Not configured — set an API "
+                                            + "key to enable this provider"),
+                    }
+                })
+            }
+            current: picker.gif.providerId
+            onActivated: (value) => picker.gif.setActiveProvider(value)
+        }
+
+        // ── Row 2: section chips — Trending / Favorites / Recent ─────
+        Row {
             objectName: "gifSectionTabs"
-            model: [
-                { label: qsTr("Trending"), value: "browse" },
-                { label: qsTr("Favorites"), value: "favorites" },
-                { label: qsTr("Recent"), value: "recent" },
-            ]
-            current: picker.section
-            onActivated: (value) => {
-                picker.section = value
-                if (value === "browse" && picker.gif.results.count === 0)
-                    picker.gif.showTrending()
+            Layout.fillWidth: true
+            spacing: AppTheme.spacing8
+            Repeater {
+                model: [
+                    { label: qsTr("Trending"), value: "browse", icon: "" },
+                    { label: qsTr("Favorites"), value: "favorites", icon: "star" },
+                    { label: qsTr("Recent"), value: "recent", icon: "" },
+                ]
+                delegate: AbstractButton {
+                    id: sectionChip
+                    required property var modelData
+                    readonly property bool selected:
+                        picker.section === modelData.value
+                    implicitWidth: chipRow.implicitWidth + AppTheme.spacing16
+                    implicitHeight: 28
+                    hoverEnabled: true
+                    focusPolicy: Qt.TabFocus
+                    Accessible.role: Accessible.RadioButton
+                    Accessible.name: modelData.label
+                    Accessible.checked: sectionChip.selected
+                    onClicked: {
+                        picker.section = modelData.value
+                        if (modelData.value === "browse"
+                                && picker.gif.results.count === 0)
+                            picker.gif.showTrending()
+                    }
+                    contentItem: Row {
+                        id: chipRow
+                        spacing: AppTheme.spacing4
+                        Icon {
+                            visible: sectionChip.modelData.icon.length > 0
+                            anchors.verticalCenter: parent.verticalCenter
+                            name: sectionChip.modelData.icon
+                            size: 13
+                            color: sectionChip.selected ? AppTheme.selectedText
+                                                        : AppTheme.textSecondary
+                        }
+                        Label {
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: sectionChip.modelData.label
+                            font.pixelSize: 12
+                            font.weight: Font.DemiBold
+                            color: sectionChip.selected ? AppTheme.selectedText
+                                                        : AppTheme.textSecondary
+                        }
+                    }
+                    background: Rectangle {
+                        radius: AppTheme.radiusPill
+                        color: sectionChip.selected ? AppTheme.accentSoft
+                                                    : "transparent"
+                        border.width: 1
+                        border.color: sectionChip.selected ? AppTheme.accentBorder
+                                                           : AppTheme.border
+                    }
+                    Rectangle {
+                        anchors.fill: parent
+                        anchors.margins: -3
+                        radius: AppTheme.radiusPill
+                        color: "transparent"
+                        border.color: AppTheme.focusRing
+                        border.width: 2
+                        visible: sectionChip.visualFocus
+                    }
+                }
             }
         }
 
@@ -288,16 +385,17 @@ Popup {
             }
         }
 
-        // ── Result grid ─────────────────────────────────────────────
+        // ── Result grid — 3 columns, sized dynamically off the picker's
+        // own width (was a fixed 132px cell at the previous 460px width) ──
         GridView {
             id: grid
             objectName: "gifResultGrid"
             Layout.fillWidth: true
             Layout.fillHeight: true
             clip: true
-            cellWidth: picker.cell
-            cellHeight: picker.cell
-            cacheBuffer: picker.cell * 2   // bounded off-screen retention
+            cellWidth: Math.floor(width / 3)
+            cellHeight: cellWidth
+            cacheBuffer: cellWidth * 2   // bounded off-screen retention
             model: picker.activeModel
             currentIndex: -1
             keyNavigationEnabled: true
@@ -335,7 +433,7 @@ Popup {
             onContentYChanged: {
                 if (picker.section !== "browse" || contentHeight <= 0)
                     return
-                if (contentY + height > contentHeight - picker.cell * 2)
+                if (contentY + height > contentHeight - cellWidth * 2)
                     picker.gif.loadMore()
             }
 
@@ -356,6 +454,10 @@ Popup {
                 required property int previewWidth
                 required property int previewHeight
                 required property bool favorite
+                // v0.6.5 stretch: the sendable-variant byte size (0 = unknown),
+                // now surfaced by GifResultModel::BytesRole /
+                // GifStoredModel::BytesRole — always present, never undefined.
+                required property real gifBytes
                 readonly property bool current: GridView.isCurrentItem
 
                 // The exact record this delegate is rendering right now,
@@ -377,13 +479,14 @@ Popup {
                         previewWidth: tile.previewWidth,
                         previewHeight: tile.previewHeight,
                         favorite: tile.favorite,
+                        gifBytes: tile.gifBytes,
                     }
                 }
 
                 Rectangle {
                     anchors.fill: parent
                     anchors.margins: 3
-                    radius: AppTheme.radiusSm
+                    radius: AppTheme.radiusThumb
                     color: AppTheme.cardElevated
                     border.width: tile.current ? 2 : 0
                     border.color: AppTheme.accent
@@ -433,6 +536,47 @@ Popup {
                         }
                     }
 
+                    // "GIF" tile badge, top-left.
+                    Rectangle {
+                        anchors.top: parent.top
+                        anchors.left: parent.left
+                        anchors.margins: 4
+                        radius: AppTheme.radiusSm
+                        color: AppTheme.overlayScrim
+                        implicitWidth: gifTileBadgeLabel.implicitWidth + AppTheme.spacing6
+                        implicitHeight: gifTileBadgeLabel.implicitHeight + AppTheme.spacing2
+                        Label {
+                            id: gifTileBadgeLabel
+                            anchors.centerIn: parent
+                            text: qsTr("GIF")
+                            font.family: AppTheme.monoFont
+                            font.pixelSize: AppTheme.fontMicro
+                            font.weight: Font.Bold
+                            color: AppTheme.scrimInk
+                        }
+                    }
+
+                    // Size overlay, bottom-left — stretch: only when known.
+                    Rectangle {
+                        visible: picker.formatBytes(tile.gifBytes).length > 0
+                        anchors.bottom: parent.bottom
+                        anchors.left: parent.left
+                        anchors.margins: 4
+                        radius: AppTheme.radiusSm
+                        color: AppTheme.overlayScrim
+                        implicitWidth: gifSizeBadgeLabel.implicitWidth + AppTheme.spacing6
+                        implicitHeight: gifSizeBadgeLabel.implicitHeight + AppTheme.spacing2
+                        Label {
+                            id: gifSizeBadgeLabel
+                            anchors.centerIn: parent
+                            text: picker.formatBytes(tile.gifBytes)
+                            font.family: AppTheme.monoFont
+                            font.pixelSize: AppTheme.fontMicro
+                            font.weight: Font.Bold
+                            color: AppTheme.scrimInk
+                        }
+                    }
+
                     ToolButton {
                         anchors.top: parent.top
                         anchors.right: parent.right
@@ -440,8 +584,8 @@ Popup {
                         contentItem: Icon {
                             name: "star"
                             size: 15
-                            color: tile.favorite ? AppTheme.warning
-                                                 : AppTheme.accentText
+                            color: tile.favorite ? AppTheme.presenceAway
+                                                 : AppTheme.scrimInk
                         }
                         opacity: tile.favorite || tileHover.hovered ? 1 : 0
                         Accessible.name: tile.favorite
@@ -450,7 +594,7 @@ Popup {
                         onClicked: picker.toggleFavorite(tile.index)
                         background: Rectangle {
                             radius: 12
-                            color: Qt.rgba(0, 0, 0, 0.35)
+                            color: AppTheme.overlayScrim
                         }
                     }
                     HoverHandler { id: tileHover }
@@ -459,6 +603,7 @@ Popup {
 
             Keys.onReturnPressed: if (currentIndex >= 0) picker.choose(currentIndex)
             Keys.onEnterPressed: if (currentIndex >= 0) picker.choose(currentIndex)
+            Keys.onSpacePressed: if (currentIndex >= 0) picker.choose(currentIndex)
         }
     }
 
@@ -510,19 +655,37 @@ Popup {
         }
     }
 
-    // ── Footer: provider attribution + privacy ──────────────────────
-    Label {
+    // ── Footer: real provider attribution + a "return to send" hint ─
+    RowLayout {
         anchors.bottom: parent.bottom
         anchors.left: parent.left
         anchors.right: parent.right
-        horizontalAlignment: Text.AlignHCenter
-        color: AppTheme.textDisabled
-        font.pixelSize: 9
-        elide: Text.ElideRight
-        text: (picker.gif.attribution.length > 0
-               ? picker.gif.attribution + "  ·  " : "")
-              + qsTr("Searches are sent to the selected GIF provider")
-        Accessible.name: picker.gif.attribution
+        anchors.margins: AppTheme.spacing4
+        spacing: AppTheme.spacing6
+
+        Label {
+            id: attributionLabel
+            Layout.fillWidth: true
+            color: AppTheme.textMuted
+            font.pixelSize: 9
+            elide: Text.ElideRight
+            // The narrower 330px design width has no room for the previous
+            // long privacy sentence alongside attribution + the send hint;
+            // it moves to a hover tooltip instead of being dropped outright.
+            text: picker.gif.attribution
+            Accessible.name: picker.gif.attribution
+            ToolTip.text: qsTr("Searches are sent to the selected GIF provider")
+            ToolTip.visible: attributionHover.hovered
+            HoverHandler { id: attributionHover }
+        }
+        MenuKeycap {
+            iconName: "keyboard_return"
+        }
+        Label {
+            text: qsTr("send")
+            color: AppTheme.textMuted
+            font.pixelSize: AppTheme.fontMicro
+        }
     }
 
     } // contentItem Item

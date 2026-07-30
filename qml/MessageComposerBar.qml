@@ -86,10 +86,27 @@ Item {
         id: mentionPopup
         suggestions: app.mentionSuggestions
         onChosen: (userId, displayName) => root.insertMention(userId, displayName)
+        // Closing (Escape included) must drop the synthetic in-progress
+        // range without re-running updateMentionState — see
+        // refreshMentionHighlight's loop rationale.
+        onVisibleChanged: root.refreshMentionHighlight()
     }
+    // Format-only rehighlights re-emit textChanged with an unchanged value
+    // and cursor (QSyntaxHighlighter marks the document changed even for
+    // pure format passes); rescanning then would loop the highlighter and
+    // reopen a popup the user just dismissed with Escape. Only genuine
+    // edits or cursor moves rescan.
+    property string lastMentionScanText: ""
+    property int lastMentionScanCursor: -1
     function updateMentionState() {
+        if (input.text === root.lastMentionScanText
+            && input.cursorPosition === root.lastMentionScanCursor)
+            return
+        root.lastMentionScanText = input.text
+        root.lastMentionScanCursor = input.cursorPosition
         if (app.currentRoomId === "") {
             mentionPopup.close()
+            root.refreshMentionHighlight()
             return
         }
         var tok = app.composer.mentionTokenAt(input.text, input.cursorPosition)
@@ -97,6 +114,7 @@ Item {
             root.mentionTokenStart = tok.start
             app.mentionSuggestions.roomId = app.currentRoomId
             app.mentionSuggestions.query = tok.query
+            mentionPopup.query = tok.query
             var p = input.mapToItem(Overlay.overlay, 0, 0)
             mentionPopup.anchorInputTop = Qt.point(p.x, p.y)
             mentionPopup.anchorWidth = input.width
@@ -106,7 +124,54 @@ Item {
             root.mentionTokenStart = -1
             mentionPopup.close()
         }
+        root.refreshMentionHighlight()
     }
+    // v0.6.5 (SPEC §1q composer echo): the in-progress "@token" chip. This
+    // concatenates the composer's authoritative send-time mentionRanges with
+    // ONE synthetic presentation-only range covering the currently-typed
+    // token, but ONLY while the mention popup is open — it is never written
+    // back to app.composer.mentionRanges, so the C++ tokenizer/payload logic
+    // that decides what actually gets sent is completely untouched.
+    // MentionHighlighter applies one uniform accent/soft format to every
+    // range regardless of source and clamps out-of-range values, so an
+    // extra locally-computed range is safe to feed it.
+    //
+    // Deliberately NOT a declarative binding: rehighlighting can nudge the
+    // input's layout/cursor signals, and a binding that reads
+    // cursorPosition would then re-evaluate in a loop (and reopen the
+    // popup Escape just closed). Explicit assignment from the two real
+    // change sources breaks the cycle.
+    property var mentionHighlightRanges: []
+    function refreshMentionHighlight() {
+        var ranges = app.composer.mentionRanges
+        if (mentionPopup.visible && root.mentionTokenStart >= 0) {
+            var len = input.cursorPosition - root.mentionTokenStart
+            if (len > 0)
+                ranges = ranges.concat([{ start: root.mentionTokenStart,
+                                          length: len }])
+        }
+        // Assign only on a semantic change — an identical list would still
+        // notify (fresh JS array) and rehighlight for nothing.
+        var current = root.mentionHighlightRanges
+        if (current.length === ranges.length) {
+            var same = true
+            for (var i = 0; i < ranges.length; ++i) {
+                if (current[i].start !== ranges[i].start
+                    || current[i].length !== ranges[i].length) {
+                    same = false
+                    break
+                }
+            }
+            if (same)
+                return
+        }
+        root.mentionHighlightRanges = ranges
+    }
+    Connections {
+        target: app.composer
+        function onMentionRangesChanged() { root.refreshMentionHighlight() }
+    }
+
     function insertMention(userId, displayName) {
         var newCursor = app.composer.insertMention(userId, displayName,
                                                    root.mentionTokenStart,
@@ -220,6 +285,25 @@ Item {
     }
     CreatePollDialog {
         id: createPollDialog
+    }
+
+    // Development-only: screenshot-demo popup hooks (see
+    // ScreenshotDemoController and SpacesRail.qml:accountSwitcherRequested
+    // for the pattern this mirrors). Null target / disabled in a non-demo
+    // build makes this an inert no-op. All four popovers/dialogs targeted
+    // here already have `id`s in THIS file's own scope, so no cross-file
+    // descendant search is needed (contrast RoomsPanel.qml/MainScreen.qml).
+    Connections {
+        target: app.demo
+        enabled: app.screenshotDemoActive
+        function onDemoOpenEmojiPicker() { root.openEmojiPicker() }
+        function onDemoOpenGifPicker() { root.openGifPicker() }
+        function onDemoOpenMentionPopup(prefix) {
+            input.text = "@" + prefix
+            input.cursorPosition = input.text.length
+            root.updateMentionState()
+        }
+        function onDemoOpenCreatePoll() { createPollDialog.openDialog() }
     }
 
     // Files dragged anywhere over the composer are queued (Rust backend).
@@ -699,7 +783,7 @@ Item {
                         // composer re-anchors on every edit.
                         MentionHighlighter {
                             document: input.textDocument
-                            ranges: app.composer.mentionRanges
+                            ranges: root.mentionHighlightRanges
                             accentColor: AppTheme.accent
                             softColor: AppTheme.accentSoft
                         }

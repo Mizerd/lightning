@@ -28,6 +28,9 @@ QJsonObject toJson(const gif::GifResult &r)
     o.insert(QStringLiteral("h"), r.gifHeight);
     o.insert(QStringLiteral("pw"), r.previewWidth);
     o.insert(QStringLiteral("ph"), r.previewHeight);
+    // qint64 -> QJsonValue(double) is exact here: gifBytes is bounded by
+    // gif::kMaxGifBytes (25 MiB), far inside double's 2^53 exact-integer range.
+    o.insert(QStringLiteral("bytes"), static_cast<double>(r.gifBytes));
     return o;
 }
 
@@ -45,6 +48,7 @@ gif::GifResult fromJson(const QJsonObject &o)
     r.gifHeight = o.value(QStringLiteral("h")).toInt();
     r.previewWidth = o.value(QStringLiteral("pw")).toInt();
     r.previewHeight = o.value(QStringLiteral("ph")).toInt();
+    r.gifBytes = static_cast<qint64>(o.value(QStringLiteral("bytes")).toDouble());
     return r;
 }
 
@@ -95,6 +99,7 @@ QVariant GifStoredModel::data(const QModelIndex &index, int role) const
     }
     case GifResultModel::RatingRole:        return r.rating;
     case GifResultModel::FavoriteRole:      return true; // stored == favorited
+    case GifResultModel::BytesRole:         return r.gifBytes;
     default:                                return {};
     }
 }
@@ -150,6 +155,7 @@ gif::GifResult GifStoredModel::fromVariantMap(const QVariantMap &map)
     r.gifHeight = map.value(QStringLiteral("gifHeight")).toInt();
     r.previewWidth = map.value(QStringLiteral("previewWidth")).toInt();
     r.previewHeight = map.value(QStringLiteral("previewHeight")).toInt();
+    r.gifBytes = map.value(QStringLiteral("gifBytes")).toLongLong();
     return r;
 }
 

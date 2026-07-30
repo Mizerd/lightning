@@ -29,6 +29,12 @@ public:
         DisplayNameRole,
         AvatarMxcRole,
         AmbiguousRole,
+        // v0.6.5: the power-level-derived role string already present in the
+        // requestRoomMembers snapshot ("creator"/"administrator"/"moderator"/
+        // "user" on the Rust backend; always "default" on the mock). Exposed
+        // as-is; QML maps it to a display chip (administrator/creator ->
+        // ADMIN, moderator -> MOD, everything else -> no chip).
+        RoleRole,
     };
 
     explicit MentionSuggestionModel(QObject *parent = nullptr);
@@ -72,6 +78,7 @@ private:
         QString displayName; // resolved (localpart fallback), never a bare MXID
         QString rawDisplayName;
         QString avatarMxc;
+        QString role; // power-level-derived role string, or empty/"default"
         bool ambiguous = false;
     };
 
