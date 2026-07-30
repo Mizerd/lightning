@@ -158,6 +158,49 @@ Dialog {
     onClosed: resetAll()
     onOpened: Qt.callLater(focusCurrentTab)
 
+    // v0.6.5 (SPEC 1u): footer shortcut chip — pill, cardElevated. Replaces
+    // the old SegmentedControl tab strip visually; pre-seeds a fresh flow
+    // through the EXACT same switchMode() the tabs used, so the Loader
+    // instantiation contract (CreationDialogQmlTest) is unchanged.
+    component ConversationChip: AbstractButton {
+        id: chip
+        property string iconName: ""
+        implicitWidth: chipRow.implicitWidth + AppTheme.spacing12 * 2
+        implicitHeight: 28
+        hoverEnabled: true
+        focusPolicy: Qt.TabFocus
+        Accessible.role: Accessible.Button
+        Accessible.name: chip.text
+        contentItem: RowLayout {
+            id: chipRow
+            spacing: AppTheme.spacing4
+            Icon {
+                name: chip.iconName
+                size: 14
+                color: AppTheme.textSecondary
+            }
+            Label {
+                text: chip.text
+                color: AppTheme.textSecondary
+                font.pixelSize: AppTheme.fontChip + 1
+                font.weight: Font.DemiBold
+            }
+        }
+        background: Rectangle {
+            radius: AppTheme.radiusPill
+            color: chip.hovered ? AppTheme.hover : AppTheme.cardElevated
+        }
+        Rectangle {
+            anchors.fill: parent
+            anchors.margins: -3
+            radius: AppTheme.radiusPill
+            color: "transparent"
+            border.width: 2
+            border.color: AppTheme.focusRing
+            visible: chip.visualFocus
+        }
+    }
+
     Connections {
         target: app.conversations
         function onConversationReady(roomId) {
@@ -198,8 +241,13 @@ Dialog {
             Label {
                 objectName: "creationTitle"
                 Layout.fillWidth: true
+                // v0.6.5 (SPEC 1u): the omnibox screen reads "Start
+                // something"; Room/Space keep their existing titles, and a
+                // DM already in progress (a user picked) keeps the prior
+                // "New conversation" wording.
                 text: root.mode === "room" ? qsTr("Create a room")
                     : root.mode === "space" ? qsTr("Create a Space")
+                    : root.selectedUserId === "" ? qsTr("Start something")
                     : qsTr("New conversation")
                 color: AppTheme.textPrimary
                 font.family: AppTheme.uiFont
@@ -218,15 +266,18 @@ Dialog {
             }
         }
 
-        SegmentedControl {
-            objectName: "creationModeTabs"
-            model: [
-                { label: qsTr("Direct message"), value: "dm" },
-                { label: qsTr("Room"), value: "room" },
-                { label: qsTr("Space"), value: "space" }
-            ]
-            current: root.mode
-            onActivated: (value) => root.switchMode(value)
+        // v0.6.5 (SPEC 1u): the omnibox screen's helper line — shown only
+        // while picking (mode dm, nothing selected yet). Room/Space keep
+        // their own explanatory copy inside their tabs.
+        Label {
+            objectName: "creationHelperLine"
+            visible: root.mode === "dm" && root.selectedUserId === ""
+            Layout.fillWidth: true
+            text: qsTr("Type a name, an @user ID, or a #room address — "
+                       + "Lightning figures out the rest.")
+            color: AppTheme.textMuted
+            font.pixelSize: AppTheme.fontSecondary
+            wrapMode: Text.WordWrap
         }
 
         // ── Single error banner ───────────────────────────────────────────
@@ -301,10 +352,28 @@ Dialog {
             }
         }
 
-        // ── Footer: busy state + Cancel (always enabled) ──────────────────
+        // ── Footer: shortcut chips + busy state + Cancel (always enabled) ──
         RowLayout {
             Layout.fillWidth: true
             spacing: AppTheme.spacing8
+            ConversationChip {
+                objectName: "newConversationDmChip"
+                text: qsTr("New DM")
+                iconName: "chat_bubble"
+                onClicked: root.switchMode("dm")
+            }
+            ConversationChip {
+                objectName: "newConversationRoomChip"
+                text: qsTr("New room")
+                iconName: "tag"
+                onClicked: root.switchMode("room")
+            }
+            ConversationChip {
+                objectName: "newConversationSpaceChip"
+                text: qsTr("New space")
+                iconName: "workspaces"
+                onClicked: root.switchMode("space")
+            }
             Label {
                 objectName: "creationBusyLabel"
                 visible: root.busy
@@ -347,11 +416,102 @@ Dialog {
                 objectName: "dmUserPicker"
                 Layout.fillWidth: true
                 visible: root.selectedUserId === ""
+                omniboxStyle: true
                 onUserSelected: (userId, displayName, avatarUrl) => {
                     root.selectedUserId = userId
                     root.selectedDisplayName = displayName
                     root.selectedAvatarUrl = avatarUrl || ""
                     app.conversations.checkExistingDm(userId)
+                }
+            }
+
+            // v0.6.5 (SPEC 1u): "#name" or plain text also offers creating a
+            // new room with that name (the "#" prefix is stripped from the
+            // seeded name); "@" stays a plain people search with no
+            // create-room row. No directory/join backend exists, so this is
+            // the only routing this omnibox honestly offers.
+            Rectangle {
+                id: createRoomSuggestion
+                objectName: "dmCreateRoomSuggestion"
+                visible: root.selectedUserId === ""
+                         && dmPicker.searchText.trim().length > 0
+                         && !dmPicker.searchText.trim().startsWith("@")
+                Layout.fillWidth: true
+                radius: AppTheme.radiusTile
+                color: suggestionHover.hovered ? AppTheme.hover : AppTheme.cardElevated
+                border.width: 1
+                border.color: AppTheme.border
+                implicitHeight: suggestionRow.implicitHeight + AppTheme.spacing8 * 2
+                readonly property string seededName:
+                    dmPicker.searchText.trim().startsWith("#")
+                        ? dmPicker.searchText.trim().slice(1)
+                        : dmPicker.searchText.trim()
+                activeFocusOnTab: true
+                Accessible.role: Accessible.Button
+                Accessible.name: qsTr("Create room %1").arg(seededName)
+                function activateSuggestion() {
+                    root.roomNameText = createRoomSuggestion.seededName
+                    root.switchMode("room")
+                }
+                Keys.onReturnPressed: activateSuggestion()
+                Keys.onSpacePressed: activateSuggestion()
+
+                RowLayout {
+                    id: suggestionRow
+                    anchors.fill: parent
+                    anchors.margins: AppTheme.spacing8
+                    spacing: AppTheme.spacing10
+                    Rectangle {
+                        implicitWidth: 32; implicitHeight: 32
+                        radius: AppTheme.radiusTile
+                        color: AppTheme.accentSoft
+                        Icon {
+                            anchors.centerIn: parent
+                            name: "group_add"
+                            size: 18
+                            color: AppTheme.accent
+                        }
+                    }
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 0
+                        Label {
+                            Layout.fillWidth: true
+                            text: qsTr("Create room “%1”")
+                                .arg(createRoomSuggestion.seededName)
+                            color: AppTheme.textPrimary
+                            font.pixelSize: AppTheme.fontResult
+                            font.weight: Font.Bold
+                            elide: Label.ElideRight
+                        }
+                        Label {
+                            Layout.fillWidth: true
+                            // Mirrors the Room tab's own real defaults — this
+                            // reads root.roomIsPublic/roomEncrypted rather
+                            // than asserting a fixed claim, so it stays
+                            // honest if those carry over from an earlier
+                            // visit to the Room tab in this same dialog.
+                            text: root.roomIsPublic
+                                ? qsTr("Public · not encrypted")
+                                : (root.roomEncrypted
+                                    ? qsTr("Private · encrypted · invite-only by default")
+                                    : qsTr("Private · not encrypted · invite-only by default"))
+                            color: AppTheme.textMuted
+                            font.pixelSize: AppTheme.fontSizeXS
+                            elide: Label.ElideRight
+                        }
+                    }
+                }
+                HoverHandler { id: suggestionHover }
+                TapHandler { onTapped: createRoomSuggestion.activateSuggestion() }
+                Rectangle {
+                    anchors.fill: parent
+                    anchors.margins: -3
+                    radius: parent.radius + 3
+                    color: "transparent"
+                    border.width: 2
+                    border.color: AppTheme.focusRing
+                    visible: createRoomSuggestion.activeFocus
                 }
             }
 

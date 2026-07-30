@@ -21,6 +21,11 @@ ColumnLayout {
 
     property alias searchText: searchField.text
     readonly property var model: app.conversations.userSearch
+    // v0.6.5 (SPEC 1u): the New Conversation omnibox reuses this exact
+    // instance/objectNames with a different border/icon/type treatment
+    // instead of a separate field, so every CreationDialogQmlTest assertion
+    // keyed on "<objectName>SearchField" keeps working untouched.
+    property bool omniboxStyle: false
 
     function clear() {
         app.conversations.userSearch.clear()
@@ -31,15 +36,61 @@ ColumnLayout {
         searchField.forceActiveFocus()
     }
 
+    // HTML-escape untrusted display names before any StyledText highlight,
+    // then tint the matched query substring accent (SPEC 1t typeahead).
+    function escapeHtml(s) {
+        return String(s)
+            .replace(/&/g, "&amp;").replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;").replace(/"/g, "&quot;")
+    }
+    function highlightedName(text, query) {
+        var safe = escapeHtml(text)
+        var q = (query || "").trim()
+        if (q.length === 0) return safe
+        var lowerSafe = safe.toLowerCase()
+        var lowerQ = escapeHtml(q).toLowerCase()
+        var idx = lowerSafe.indexOf(lowerQ)
+        if (idx === -1) return safe
+        return safe.slice(0, idx) + "<font color=\"" + AppTheme.accent + "\">"
+             + safe.slice(idx, idx + lowerQ.length) + "</font>"
+             + safe.slice(idx + lowerQ.length)
+    }
+
     AppTextField {
         id: searchField
         objectName: root.objectName.length > 0
                     ? root.objectName + "SearchField" : "userPickerSearchField"
         Layout.fillWidth: true
-        searchIcon: true
+        searchIcon: !root.omniboxStyle
         clearButton: true
-        placeholderText: qsTr("Search people, or enter a full Matrix ID…")
+        leftPadding: root.omniboxStyle ? 38 : (searchIcon ? 32 : 12)
+        font.pixelSize: root.omniboxStyle ? 14 : 13
+        placeholderText: root.omniboxStyle
+            ? qsTr("Type a name, an @user ID, or a #room address…")
+            : qsTr("Search people, or enter a full Matrix ID…")
         Accessible.name: qsTr("Search for a user")
+        // The omnibox treatment (SPEC 1u): 1.5px accent border, radiusOmnibox,
+        // a leading bolt glyph instead of the plain search icon — overridden
+        // from here rather than editing AppTextField.qml (lead-owned).
+        background: Rectangle {
+            radius: root.omniboxStyle ? AppTheme.radiusOmnibox : AppTheme.radiusMd
+            color: AppTheme.inputBackground
+            border.width: root.omniboxStyle ? 1.5
+                          : (searchField.activeFocus ? 2 : 1)
+            border.color: root.omniboxStyle ? AppTheme.accent
+                          : (searchField.activeFocus ? AppTheme.focusRing
+                             : searchField.hovered ? AppTheme.borderStrong
+                             : AppTheme.border)
+        }
+        Icon {
+            visible: root.omniboxStyle
+            anchors.left: parent.left
+            anchors.leftMargin: 10
+            anchors.verticalCenter: parent.verticalCenter
+            name: "bolt"
+            size: 18
+            color: AppTheme.accent
+        }
         onTextChanged: {
             app.conversations.userSearch.query = text
             resultsList.currentIndex = -1
@@ -133,9 +184,11 @@ ColumnLayout {
                     spacing: 0
                     Label {
                         Layout.fillWidth: true
-                        text: model.displayName && model.displayName.length > 0
-                              ? model.displayName
-                              : model.userId
+                        textFormat: Text.StyledText
+                        text: root.highlightedName(
+                            model.displayName && model.displayName.length > 0
+                                ? model.displayName : model.userId,
+                            root.model.query)
                         color: AppTheme.textPrimary
                         font.pixelSize: AppTheme.fontSizeM
                         elide: Label.ElideRight

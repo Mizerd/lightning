@@ -14,7 +14,69 @@ Item {
         sequences: ["Ctrl+K"]
         onActivated: quickSwitcher.open()
     }
+    // v0.6.5 (SPEC 1k): Ctrl+Shift+K opens the switcher straight into command
+    // mode (the declarative action list) instead of requiring the user to
+    // type ">" first.
+    Shortcut {
+        sequences: ["Ctrl+Shift+K"]
+        onActivated: quickSwitcher.openCommandMode()
+    }
     QuickSwitcher { id: quickSwitcher }
+
+    // Development-only: locate a descendant by objectName. Popup content
+    // (QuickSwitcher's queryField) lives under `contentItem`, not directly
+    // in `children`/`data`, so this checks that first; a Menu/Popup child of
+    // a plain Item (not relevant here, but kept for a uniform helper) would
+    // only ever appear in `data`, never `children`.
+    function findDemoDescendant(obj, name) {
+        if (!obj) return null
+        if (obj.objectName === name) return obj
+        if (obj.contentItem) {
+            var viaContent = findDemoDescendant(obj.contentItem, name)
+            if (viaContent) return viaContent
+        }
+        var kids = obj.children || []
+        for (var i = 0; i < kids.length; ++i) {
+            var found = findDemoDescendant(kids[i], name)
+            if (found) return found
+        }
+        var data = obj.data || []
+        for (var j = 0; j < data.length; ++j) {
+            var found2 = findDemoDescendant(data[j], name)
+            if (found2) return found2
+        }
+        return null
+    }
+
+    // Development-only: screenshot-demo popup hooks (see
+    // ScreenshotDemoController and SpacesRail.qml:accountSwitcherRequested
+    // for the pattern this mirrors). Null target / disabled in a non-demo
+    // build makes this an inert no-op.
+    Connections {
+        target: app.demo
+        enabled: app.screenshotDemoActive
+        function onDemoOpenQuickSwitcher(query) {
+            if (query && query.length > 0 && query[0] === ">") {
+                // openCommandMode() sets commandMode = true from the very
+                // first frame (see QuickSwitcher.qml), unlike typing ">"
+                // into an already-open plain switcher.
+                quickSwitcher.openCommandMode()
+                var rest = query.slice(1)
+                Qt.callLater(function() {
+                    var field = findDemoDescendant(quickSwitcher, "quickSwitcherField")
+                    if (field) field.text = rest
+                })
+            } else {
+                quickSwitcher.open()
+                if (query && query.length > 0) {
+                    Qt.callLater(function() {
+                        var field = findDemoDescendant(quickSwitcher, "quickSwitcherField")
+                        if (field) field.text = query
+                    })
+                }
+            }
+        }
+    }
 
     // Mention chips render inside sanitized rich text, so the models need
     // the current theme ink (AppTheme is QML-only). Re-pushed on every

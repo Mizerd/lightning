@@ -25,6 +25,143 @@ Item {
     // v0.7.2: whether the sanitized E2EE recovery diagnostics are expanded.
     property bool showRecoveryDiagnostics: false
 
+    // ── SPEC 1v: client-side settings search (no new C++ index) ───────────
+    // Declarative {title, keywords, section, breadcrumb, control?} entries.
+    // Indexed by SECTION KEY, not layout position — Privacy & security is
+    // three non-contiguous ColumnLayout blocks in this file (search must
+    // still resolve to the one "privacy" section). `control` names one of
+    // the 5 settings picked for an inline live control in the results
+    // panel below — each binds directly to the SAME SettingsManager
+    // property its real control in the section pane uses, two-way, exactly
+    // like that control.
+    property string settingsSearchQuery: ""
+    readonly property var searchIndex: [
+        { title: qsTr("Account"), keywords: qsTr("account profile"),
+          section: "account", breadcrumb: qsTr("Account") },
+        { title: qsTr("Homeserver"), keywords: qsTr("homeserver server url"),
+          section: "account", breadcrumb: qsTr("Account") },
+        { title: qsTr("Start minimized"), keywords: qsTr("startup minimized"),
+          section: "account", breadcrumb: qsTr("Account · Startup") },
+
+        { title: qsTr("Theme"),
+          keywords: qsTr("theme moss indigo teal light dark graphite midnight nordic purple warm"),
+          section: "appearance", breadcrumb: qsTr("Appearance") },
+        { title: qsTr("Match system light/dark"),
+          keywords: qsTr("match system auto theme"), section: "appearance",
+          breadcrumb: qsTr("Appearance · Theme"), control: "matchSystem" },
+        { title: qsTr("Message layout"),
+          keywords: qsTr("message layout modern bubbles compact"),
+          section: "appearance", breadcrumb: qsTr("Appearance"),
+          control: "messageLayout" },
+        { title: qsTr("Text size"), keywords: qsTr("text size font scale"),
+          section: "appearance", breadcrumb: qsTr("Appearance") },
+        { title: qsTr("Font"), keywords: qsTr("font family typeface"),
+          section: "appearance", breadcrumb: qsTr("Appearance") },
+        { title: qsTr("Language"), keywords: qsTr("language locale"),
+          section: "appearance", breadcrumb: qsTr("Appearance") },
+        { title: qsTr("Show room activity"),
+          keywords: qsTr("room activity membership joins leaves profile"),
+          section: "appearance", breadcrumb: qsTr("Appearance · Timeline"),
+          control: "showRoomActivity" },
+        { title: qsTr("Mouse-wheel speed"),
+          keywords: qsTr("wheel speed scroll timeline"), section: "appearance",
+          breadcrumb: qsTr("Appearance · Timeline") },
+
+        { title: qsTr("Desktop notifications"),
+          keywords: qsTr("notifications desktop enable"),
+          section: "notifications", breadcrumb: qsTr("Notifications"),
+          control: "notificationsEnabled" },
+        { title: qsTr("Notification preview"),
+          keywords: qsTr("notification preview privacy sender message"),
+          section: "notifications", breadcrumb: qsTr("Notifications") },
+        { title: qsTr("Notification sound"),
+          keywords: qsTr("notification sound mute"), section: "notifications",
+          breadcrumb: qsTr("Notifications") },
+
+        { title: qsTr("Automatically load previews in unencrypted rooms"),
+          keywords: qsTr("link preview privacy"), section: "privacy",
+          breadcrumb: qsTr("Privacy & security · Link previews"),
+          control: "autoLoadLinkPreviews" },
+        { title: qsTr("Load previews in encrypted rooms"),
+          keywords: qsTr("link preview encrypted"), section: "privacy",
+          breadcrumb: qsTr("Privacy & security · Link previews") },
+        { title: qsTr("Autoplay GIFs"), keywords: qsTr("gif autoplay"),
+          section: "privacy", breadcrumb: qsTr("Privacy & security · GIFs") },
+        { title: qsTr("GIF safe search"),
+          keywords: qsTr("gif safe search rating"), section: "privacy",
+          breadcrumb: qsTr("Privacy & security · GIFs") },
+        { title: qsTr("Preferred GIF provider"),
+          keywords: qsTr("gif provider giphy klipy"), section: "privacy",
+          breadcrumb: qsTr("Privacy & security · GIFs") },
+        { title: qsTr("Store recently used GIFs"),
+          keywords: qsTr("gif recents store"), section: "privacy",
+          breadcrumb: qsTr("Privacy & security · GIFs") },
+        { title: qsTr("Security status"),
+          keywords: qsTr("e2ee encryption status cross-signing backup"),
+          section: "privacy", breadcrumb: qsTr("Privacy & security") },
+        { title: qsTr("Recovery key or passphrase"),
+          keywords: qsTr("recovery key passphrase backup restore"),
+          section: "privacy", breadcrumb: qsTr("Privacy & security · Recovery") },
+        { title: qsTr("Import room keys"),
+          keywords: qsTr("import room keys export"), section: "privacy",
+          breadcrumb: qsTr("Privacy & security · Recovery") },
+        { title: qsTr("Danger Zone"),
+          keywords: qsTr("reset danger local session"), section: "privacy",
+          breadcrumb: qsTr("Privacy & security · Recovery") },
+
+        { title: qsTr("Sessions"), keywords: qsTr("sessions devices"),
+          section: "sessions", breadcrumb: qsTr("Sessions") },
+        { title: qsTr("Current session"),
+          keywords: qsTr("device id session status"), section: "sessions",
+          breadcrumb: qsTr("Sessions") },
+        { title: qsTr("Verify this session"),
+          keywords: qsTr("verify verification sas cross-signing"),
+          section: "sessions", breadcrumb: qsTr("Sessions") },
+
+        { title: qsTr("Backend"), keywords: qsTr("backend rust http mock"),
+          section: "labs", breadcrumb: qsTr("Labs") },
+        { title: qsTr("Sync mode"), keywords: qsTr("sync sliding"),
+          section: "labs", breadcrumb: qsTr("Labs") },
+        { title: qsTr("Connection"), keywords: qsTr("connection status"),
+          section: "labs", breadcrumb: qsTr("Labs") },
+        { title: qsTr("Refresh current room"),
+          keywords: qsTr("refresh reload timeline"), section: "labs",
+          breadcrumb: qsTr("Labs") },
+
+        { title: qsTr("About"), keywords: qsTr("about version license"),
+          section: "about", breadcrumb: qsTr("About") },
+    ]
+    readonly property var matchedSearchResults: {
+        var q = root.settingsSearchQuery.trim().toLowerCase()
+        if (q.length === 0) return []
+        return root.searchIndex.filter(function(e) {
+            return (e.title + " " + e.keywords).toLowerCase().indexOf(q) !== -1
+        })
+    }
+    readonly property var matchedSearchSections: {
+        var s = {}
+        for (var i = 0; i < root.matchedSearchResults.length; ++i)
+            s[root.matchedSearchResults[i].section] = true
+        return s
+    }
+    function escapeHtml(s) {
+        return String(s)
+            .replace(/&/g, "&amp;").replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;").replace(/"/g, "&quot;")
+    }
+    function highlightedTitle(title, query) {
+        var safe = escapeHtml(title)
+        var q = (query || "").trim()
+        if (q.length === 0) return safe
+        var lowerSafe = safe.toLowerCase()
+        var lowerQ = escapeHtml(q).toLowerCase()
+        var idx = lowerSafe.indexOf(lowerQ)
+        if (idx === -1) return safe
+        return safe.slice(0, idx) + "<font color=\"" + AppTheme.accent + "\">"
+             + safe.slice(idx, idx + lowerQ.length) + "</font>"
+             + safe.slice(idx + lowerQ.length)
+    }
+
     // Reusable settings card (grouped-controls surface).
     component SettingsCard: Pane {
         Layout.fillWidth: true
@@ -35,30 +172,38 @@ Item {
         }
     }
 
-    // Design-1d navigation row: icon + label, 9px radius, active row gets
+    // SPEC 1v nav row: icon + label, 32px, radiusTile, active row gets
     // the soft-accent background with accent text.
     component SettingsNavRow: ItemDelegate {
         id: navRow
         property string sectionKey: ""
         property string iconName: ""
         property string navLabel: ""
+        objectName: "settingsNavRow_" + sectionKey
         Layout.fillWidth: true
-        implicitHeight: 38
+        implicitHeight: 32
+        // SPEC 1v: typing in the search field narrows the nav to sections
+        // with at least one matching result.
+        visible: root.settingsSearchQuery.trim().length === 0
+                 || root.matchedSearchSections[sectionKey] === true
         highlighted: root.section === sectionKey
         Accessible.name: navLabel
+        Accessible.selected: navRow.highlighted
         onClicked: root.section = sectionKey
         contentItem: RowLayout {
             spacing: AppTheme.spacing8
             Icon {
                 name: navRow.iconName
                 size: 18
-                color: navRow.highlighted ? AppTheme.accentText
+                // R2/SPEC 1v: the active row inks in selectedText (the
+                // selection ink), not the on-accent-fill ink.
+                color: navRow.highlighted ? AppTheme.selectedText
                                           : AppTheme.textSecondary
             }
             Label {
                 text: navRow.navLabel
                 Layout.fillWidth: true
-                color: navRow.highlighted ? AppTheme.accentText
+                color: navRow.highlighted ? AppTheme.selectedText
                                           : AppTheme.textPrimary
                 font.pixelSize: AppTheme.fontBody
                 font.weight: navRow.highlighted ? Font.Bold : Font.Medium
@@ -66,7 +211,7 @@ Item {
             }
         }
         background: Rectangle {
-            radius: 9
+            radius: AppTheme.radiusTile
             color: navRow.highlighted ? AppTheme.accentSoft
                  : navRow.hovered ? AppTheme.hover
                  : "transparent"
@@ -121,6 +266,30 @@ Item {
         sequence: "Escape"
         onActivated: root.goBack()
     }
+    // SPEC 1v: Ctrl+, focuses the settings search field. Scoped to this Item
+    // (a Loader-hosted view — see settingsViewLoader), so it only exists
+    // while Settings is actually open.
+    Shortcut {
+        sequence: "Ctrl+,"
+        onActivated: settingsSearchField.forceActiveFocus()
+    }
+
+    // Development-only: screenshot-demo popup hooks (see
+    // ScreenshotDemoController and SpacesRail.qml:accountSwitcherRequested
+    // for the pattern this mirrors). Null target / disabled in a non-demo
+    // build makes this an inert no-op. demoOpenTrustCard needs no handler
+    // here — sessionsTrustCard (SPEC 1r) already renders whenever section
+    // is "sessions", which activateScenario's page navigation sets up on
+    // its own; see docs/screenshot-demo.md for the mock-backend crypto-
+    // gating caveat.
+    Connections {
+        target: app.demo
+        enabled: app.screenshotDemoActive
+        function onDemoFocusSettingsSearch(query) {
+            settingsSearchField.text = query
+            settingsSearchField.forceActiveFocus()
+        }
+    }
 
     // Confirmation before clearing local GIF collections (Favorites are the
     // destructive one; Recents too for parity).
@@ -152,11 +321,12 @@ Item {
         anchors.fill: parent
         spacing: 0
 
-        // ── Settings header (correction spec §3): 60px, section icon in
-        // accent, "Settings — <section>", bare close X ────────────────────
+        // ── Settings header (SPEC 1v: 44px title-bar treatment) — section
+        // icon in accent, "Settings — <section>", bare close X ────────────
         Rectangle {
+            objectName: "settingsHeaderBar"
             Layout.fillWidth: true
-            implicitHeight: 60
+            implicitHeight: 44
             color: AppTheme.background
             RowLayout {
                 anchors.fill: parent
@@ -216,7 +386,199 @@ Item {
                         font.weight: Font.ExtraBold
                         Layout.leftMargin: AppTheme.spacing8
                         Layout.topMargin: AppTheme.spacing8
-                        Layout.bottomMargin: AppTheme.spacing12
+                        Layout.bottomMargin: AppTheme.spacing8
+                    }
+
+                    // SPEC 1v: search field directly under the title, with a
+                    // trailing Ctrl+, keycap.
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Layout.bottomMargin: AppTheme.spacing8
+                        spacing: AppTheme.spacing6
+                        AppTextField {
+                            id: settingsSearchField
+                            objectName: "settingsSearchField"
+                            Layout.fillWidth: true
+                            searchIcon: true
+                            clearButton: true
+                            placeholderText: qsTr("Search settings…")
+                            Accessible.name: qsTr("Search settings")
+                            onTextChanged: root.settingsSearchQuery = text
+                            onAccepted: {
+                                if (root.matchedSearchResults.length > 0)
+                                    root.section = root.matchedSearchResults[0].section
+                            }
+                        }
+                        MenuKeycap { keys: "Ctrl+," }
+                    }
+
+                    // ── Search results panel (replaces the nav list while
+                    // searching; SPEC 1v — no "Browse all" affordance). ────
+                    ColumnLayout {
+                        objectName: "settingsSearchResults"
+                        visible: root.settingsSearchQuery.trim().length > 0
+                        Layout.fillWidth: true
+                        spacing: AppTheme.spacing4
+
+                        Label {
+                            objectName: "settingsSearchNoResults"
+                            visible: root.matchedSearchResults.length === 0
+                            Layout.fillWidth: true
+                            text: qsTr("No matching settings")
+                            color: AppTheme.textMuted
+                            font.pixelSize: AppTheme.fontSizeXS
+                        }
+
+                        Repeater {
+                            model: root.matchedSearchResults
+                            delegate: Rectangle {
+                                id: resultRow
+                                required property var modelData
+                                required property int index
+                                objectName: "settingsSearchResult_" + index
+                                Layout.fillWidth: true
+                                radius: AppTheme.radiusLg
+                                color: resultHover.hovered ? AppTheme.hover : "transparent"
+                                implicitHeight: resultContent.implicitHeight
+                                                + AppTheme.spacing8
+
+                                RowLayout {
+                                    id: resultContent
+                                    anchors.left: parent.left
+                                    anchors.right: parent.right
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    anchors.margins: AppTheme.spacing8
+                                    spacing: AppTheme.spacing8
+
+                                    ColumnLayout {
+                                        Layout.fillWidth: true
+                                        spacing: 0
+                                        Label {
+                                            Layout.fillWidth: true
+                                            textFormat: Text.StyledText
+                                            text: root.highlightedTitle(
+                                                resultRow.modelData.title,
+                                                root.settingsSearchQuery)
+                                            color: AppTheme.textPrimary
+                                            font.pixelSize: AppTheme.fontSecondary
+                                            font.weight: Font.DemiBold
+                                            elide: Label.ElideRight
+                                        }
+                                        Label {
+                                            Layout.fillWidth: true
+                                            text: resultRow.modelData.breadcrumb
+                                            color: AppTheme.textMuted
+                                            font.pixelSize: AppTheme.fontMonoSm
+                                            elide: Label.ElideRight
+                                        }
+                                        // A click anywhere in this text
+                                        // column navigates — scoped away
+                                        // from the inline controls below so
+                                        // the two never fight for the tap.
+                                        TapHandler {
+                                            onTapped: root.section = resultRow.modelData.section
+                                        }
+                                    }
+
+                                    // ── Inline live controls (SPEC 1v):
+                                    // exactly 5 entries, each bound two-way
+                                    // to the SAME SettingsManager property
+                                    // its real section control uses. ──────
+                                    AppSwitch {
+                                        objectName: "settingsSearchInlineMatchSystem_" + resultRow.index
+                                        visible: resultRow.modelData.control === "matchSystem"
+                                        checked: app.settings.theme === 0
+                                        Accessible.name: qsTr("Match system light/dark")
+                                        onToggled: app.settings.theme =
+                                            app.settings.theme === 0
+                                                ? AppTheme.effectiveTheme : 0
+                                    }
+                                    SegmentedControl {
+                                        objectName: "settingsSearchInlineMessageLayout_" + resultRow.index
+                                        visible: resultRow.modelData.control === "messageLayout"
+                                        model: [
+                                            { label: qsTr("Modern"), value: 0 },
+                                            { label: qsTr("Bubbles"), value: 1 },
+                                            { label: qsTr("Compact"), value: 2 },
+                                        ]
+                                        current: app.settings.messageLayout
+                                        onActivated: (value) =>
+                                            app.settings.messageLayout = value
+                                    }
+                                    AppSwitch {
+                                        objectName: "settingsSearchInlineShowRoomActivity_" + resultRow.index
+                                        visible: resultRow.modelData.control === "showRoomActivity"
+                                        checked: app.settings.showRoomActivity
+                                        Accessible.name: qsTr("Show room activity")
+                                        onToggled: app.settings.showRoomActivity =
+                                            !app.settings.showRoomActivity
+                                    }
+                                    AppSwitch {
+                                        objectName: "settingsSearchInlineAutoLoadPreviews_" + resultRow.index
+                                        visible: resultRow.modelData.control === "autoLoadLinkPreviews"
+                                        checked: app.settings.autoLoadLinkPreviews
+                                        Accessible.name: qsTr(
+                                            "Automatically load previews in unencrypted rooms")
+                                        onToggled: app.settings.autoLoadLinkPreviews =
+                                            !app.settings.autoLoadLinkPreviews
+                                    }
+                                    AppSwitch {
+                                        objectName: "settingsSearchInlineNotificationsEnabled_" + resultRow.index
+                                        visible: resultRow.modelData.control === "notificationsEnabled"
+                                        checked: app.settings.notificationsEnabled
+                                        Accessible.name: qsTr("Desktop notifications")
+                                        onToggled: app.settings.notificationsEnabled =
+                                            !app.settings.notificationsEnabled
+                                    }
+                                }
+                                HoverHandler { id: resultHover }
+                                Accessible.role: Accessible.Button
+                                Accessible.name: resultRow.modelData.title + " "
+                                    + resultRow.modelData.breadcrumb
+                            }
+                        }
+
+                        // Quick-filter chips seeding example queries.
+                        Flow {
+                            Layout.fillWidth: true
+                            Layout.topMargin: AppTheme.spacing4
+                            spacing: AppTheme.spacing4
+                            Repeater {
+                                model: [
+                                    qsTr("theme"), qsTr("notifications"),
+                                    qsTr("privacy"), qsTr("sessions"),
+                                ]
+                                delegate: Rectangle {
+                                    id: quickChip
+                                    required property string modelData
+                                    radius: AppTheme.radiusPill
+                                    color: quickChipHover.hovered
+                                           ? AppTheme.hover : AppTheme.cardElevated
+                                    implicitWidth: quickChipLabel.implicitWidth
+                                                   + AppTheme.spacing12
+                                    implicitHeight: quickChipLabel.implicitHeight
+                                                    + AppTheme.spacing6
+                                    Label {
+                                        id: quickChipLabel
+                                        anchors.centerIn: parent
+                                        text: quickChip.modelData
+                                        font.family: AppTheme.monoFont
+                                        font.pixelSize: AppTheme.fontChip
+                                        color: AppTheme.textSecondary
+                                    }
+                                    HoverHandler { id: quickChipHover }
+                                    TapHandler {
+                                        onTapped: {
+                                            settingsSearchField.text = quickChip.modelData
+                                            settingsSearchField.forceActiveFocus()
+                                        }
+                                    }
+                                    Accessible.role: Accessible.Button
+                                    Accessible.name: qsTr("Search for %1")
+                                        .arg(quickChip.modelData)
+                                }
+                            }
+                        }
                     }
 
                     SettingsNavRow {
@@ -304,10 +666,10 @@ Item {
                         Label {
                             Layout.topMargin: AppTheme.spacing8
                             text: qsTr("THEME")
-                            color: AppTheme.textMuted
-                            font.pixelSize: AppTheme.fontCaption
+                            color: AppTheme.sectionLabelColor
+                            font.pixelSize: AppTheme.fontChip
                             font.weight: Font.ExtraBold
-                            font.letterSpacing: 1
+                            font.letterSpacing: AppTheme.trackingSection
                         }
                         // Three featured design themes with FIXED preview
                         // palettes (the one place the design allows
@@ -337,7 +699,8 @@ Item {
                                     objectName: "featuredThemeCard_" + modelData.id
                                     readonly property bool selectedTheme:
                                         app.settings.theme === modelData.id
-                                    implicitWidth: 200
+                                    // SPEC 1v: three 150px preview cards.
+                                    implicitWidth: 150
                                     // Integral height keeps the card edge on
                                     // device pixels (fractional text metrics
                                     // otherwise bleed one-device-pixel ring
@@ -353,9 +716,12 @@ Item {
                                     // did was shave the rings to corner
                                     // crescents and a protruding edge sliver.
                                     color: AppTheme.surface
-                                    border.width: 1.5
-                                    border.color: selectedTheme ? AppTheme.accent
-                                                                : AppTheme.border
+                                    // The outline is drawn as an overlay
+                                    // sibling BELOW (z above the children):
+                                    // previewTop/cardFoot fill to the edges
+                                    // and would occlude a border painted on
+                                    // this base rectangle.
+                                    border.width: 0
                                     Accessible.role: Accessible.RadioButton
                                     Accessible.name: modelData.name
                                     Accessible.focusable: true
@@ -363,8 +729,9 @@ Item {
                                     Keys.onReturnPressed: app.settings.theme = modelData.id
                                     Keys.onSpacePressed: app.settings.theme = modelData.id
 
-                                    // Selected affordance: 3px accent-soft
-                                    // glow ring outside the accent border.
+                                    // Selected affordance (R9): 3px glow of
+                                    // the accent at 18% alpha — theme-derived,
+                                    // not the accentSoft surface token.
                                     Rectangle {
                                         anchors.fill: parent
                                         anchors.margins: -3
@@ -373,7 +740,8 @@ Item {
                                         visible: themeCard.selectedTheme
                                         color: "transparent"
                                         border.width: 3
-                                        border.color: AppTheme.accentSoft
+                                        border.color: Qt.alpha(AppTheme.accent,
+                                                               0.18)
                                     }
                                     // Keyboard focus ring (shared treatment).
                                     Rectangle {
@@ -451,6 +819,10 @@ Item {
                                         anchors.right: parent.right
                                         height: footRow.implicitHeight + 20
                                         color: AppTheme.surface
+                                        // Follow the card's rounded bottom,
+                                        // mirroring previewTop's top arcs.
+                                        bottomLeftRadius: 11
+                                        bottomRightRadius: 11
                                         RowLayout {
                                             id: footRow
                                             anchors.fill: parent
@@ -485,6 +857,20 @@ Item {
                                         }
                                     }
 
+                                    // The card outline, above the edge-
+                                    // filling children so it always renders
+                                    // (SPEC 1v: 1.5px accent when selected).
+                                    Rectangle {
+                                        anchors.fill: parent
+                                        z: 5
+                                        radius: 12
+                                        color: "transparent"
+                                        border.width: 1.5
+                                        border.color: themeCard.selectedTheme
+                                                      ? AppTheme.accent
+                                                      : AppTheme.border
+                                    }
+
                                     TapHandler {
                                         onTapped: app.settings.theme =
                                             themeCard.modelData.id
@@ -500,10 +886,10 @@ Item {
                         Label {
                             Layout.topMargin: AppTheme.spacing8
                             text: qsTr("MORE THEMES")
-                            color: AppTheme.textMuted
-                            font.pixelSize: AppTheme.fontCaption
+                            color: AppTheme.sectionLabelColor
+                            font.pixelSize: AppTheme.fontChip
                             font.weight: Font.ExtraBold
-                            font.letterSpacing: 1
+                            font.letterSpacing: AppTheme.trackingSection
                         }
                         Flow {
                             Layout.fillWidth: true
@@ -644,17 +1030,17 @@ Item {
                         Label {
                             Layout.topMargin: AppTheme.spacing8
                             text: qsTr("MESSAGE LAYOUT")
-                            color: AppTheme.textMuted
-                            font.pixelSize: AppTheme.fontCaption
+                            color: AppTheme.sectionLabelColor
+                            font.pixelSize: AppTheme.fontChip
                             font.weight: Font.ExtraBold
-                            font.letterSpacing: 1
+                            font.letterSpacing: AppTheme.trackingSection
                         }
                         SegmentedControl {
                             objectName: "messageLayoutControl"
                             model: [
                                 { label: qsTr("Modern"), value: 0 },
                                 { label: qsTr("Bubbles"), value: 1 },
-                                { label: qsTr("Compact / IRC"), value: 2 },
+                                { label: qsTr("Compact"), value: 2 },
                             ]
                             current: app.settings.messageLayout
                             onActivated: (value) =>
@@ -673,10 +1059,10 @@ Item {
                         Label {
                             Layout.topMargin: AppTheme.spacing8
                             text: qsTr("TEXT SIZE")
-                            color: AppTheme.textMuted
-                            font.pixelSize: AppTheme.fontCaption
+                            color: AppTheme.sectionLabelColor
+                            font.pixelSize: AppTheme.fontChip
                             font.weight: Font.ExtraBold
-                            font.letterSpacing: 1
+                            font.letterSpacing: AppTheme.trackingSection
                         }
                         RowLayout {
                             Layout.fillWidth: true
@@ -757,10 +1143,10 @@ Item {
                         Label {
                             Layout.topMargin: AppTheme.spacing8
                             text: qsTr("FONT")
-                            color: AppTheme.textMuted
-                            font.pixelSize: AppTheme.fontCaption
+                            color: AppTheme.sectionLabelColor
+                            font.pixelSize: AppTheme.fontChip
                             font.weight: Font.ExtraBold
-                            font.letterSpacing: 1
+                            font.letterSpacing: AppTheme.trackingSection
                         }
                         ColumnLayout {
                             objectName: "uiFontSelector"
@@ -1666,6 +2052,13 @@ Item {
                         visible: root.section === "sessions"
                         Layout.fillWidth: true
                         spacing: AppTheme.spacing12
+                        // The trust chain's DEVICES step reads the session
+                        // list — populate it when the section opens (same
+                        // data the manual Refresh below fetches).
+                        onVisibleChanged: {
+                            if (visible && app.backendName === "rust")
+                                app.refreshSessionDevices()
+                        }
 
                         Label {
                             text: qsTr("Sessions")
@@ -1680,6 +2073,66 @@ Item {
                             color: AppTheme.textMuted
                             font.pixelSize: AppTheme.fontSecondary
                             wrapMode: Text.WordWrap
+                        }
+
+                        // v0.6.5 (SPEC 1r): the own-account trust chain,
+                        // driven by REAL crypto state only — never another
+                        // user's, never optimistic. Brand-fixed by design
+                        // (the card deliberately ignores the theme). Verify
+                        // routes to the existing SAS flow; its visibility
+                        // mirrors the start-row complement further below so
+                        // the two controls never coexist.
+                        TrustCard {
+                            id: sessionsTrustCard
+                            objectName: "sessionsTrustCard"
+                            Layout.fillWidth: true
+                            visible: app.cryptoHealth
+                                     && app.cryptoHealth.cryptoSupported
+                            readonly property var accountRecord:
+                                app.accounts && app.accounts.activeUserId
+                                ? app.accounts.account(app.accounts.activeUserId)
+                                : ({})
+                            readonly property bool devicesVerified:
+                                app.sessionDevices.length > 0
+                                ? app.sessionDevices.every(
+                                      d => d.verified === true
+                                           || d.crossSigned === true)
+                                : app.cryptoHealth.currentDeviceVerified
+                                  === CryptoHealthModel.Yes
+                            readonly property var chainSteps: [
+                                { label: qsTr("IDENTITY"), iconName: "person",
+                                  complete: app.cryptoHealth.ownIdentityVerified
+                                            === CryptoHealthModel.Yes },
+                                { label: qsTr("%1 DEVICES")
+                                        .arg(app.sessionDevices.length),
+                                  iconName: "devices",
+                                  complete: devicesVerified },
+                                { label: qsTr("CROSS-SIGN"), iconName: "key",
+                                  complete: app.cryptoHealth.crossSigningReady
+                                            === true }
+                            ]
+                            displayName: accountRecord
+                                         && accountRecord.displayName
+                                         ? accountRecord.displayName
+                                         : (app.accounts
+                                            ? app.accounts.activeUserId : "")
+                            userId: app.accounts ? app.accounts.activeUserId
+                                                 : ""
+                            avatarMxc: accountRecord && accountRecord.avatarUrl
+                                       ? accountRecord.avatarUrl : ""
+                            steps: chainSteps
+                            statusText: {
+                                var complete = 0
+                                for (var i = 0; i < chainSteps.length; ++i) {
+                                    if (chainSteps[i].complete)
+                                        ++complete
+                                }
+                                return qsTr("%1 of 3 checks complete")
+                                       .arg(complete)
+                            }
+                            showVerify: !app.verificationActive
+                                        && app.verificationState === ""
+                            onVerifyRequested: app.startOwnVerification()
                         }
 
                         // v0.6.0 checkpoint 9: the account's Matrix
@@ -1856,9 +2309,17 @@ Item {
                                     spacing: AppTheme.spacing8
                                     // Mirror of the active-flow card's
                                     // condition, so the start row and the flow
-                                    // card are never both shown.
+                                    // card are never both shown. When the
+                                    // trust card renders (crypto-supported
+                                    // backends), ITS Verify button is the one
+                                    // start affordance — this legacy row only
+                                    // covers backends without the card, so
+                                    // Sessions never shows two identical
+                                    // Verify triggers at once (v0.6.5).
                                     visible: !app.verificationActive
                                             && app.verificationState === ""
+                                            && !(app.cryptoHealth
+                                                 && app.cryptoHealth.cryptoSupported)
                                     AppButton {
                                         text: app.sessionTrustState === "Verified"
                                             ? qsTr("Verify again")

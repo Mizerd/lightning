@@ -285,9 +285,9 @@ private slots:
         // No switch of any kind inside the Space tab's subtree.
         QVERIFY(!subtreeHasClassName(item("spaceTab"), "AppSwitch"));
 
-        auto *roomSegment = item("creationModeTabs_room");
-        QVERIFY(roomSegment);
-        QMetaObject::invokeMethod(roomSegment, "click");
+        auto *roomChip = item("newConversationRoomChip");
+        QVERIFY(roomChip);
+        QMetaObject::invokeMethod(roomChip, "click");
         QTRY_VERIFY(item("roomTab"));
         // Loader teardown releases the old tab through deferred deletion —
         // let the event loop run it before asserting non-existence.
@@ -313,9 +313,9 @@ private slots:
         QCOMPARE(conversations()->userSearch()->state(),
                  QStringLiteral("loading"));
 
-        auto *roomSegment = item("creationModeTabs_room");
-        QVERIFY(roomSegment);
-        QMetaObject::invokeMethod(roomSegment, "click");
+        auto *roomChip = item("newConversationRoomChip");
+        QVERIFY(roomChip);
+        QMetaObject::invokeMethod(roomChip, "click");
         QTRY_VERIFY(item("roomNameField"));
         // Shared model cleared…
         QCOMPARE(conversations()->userSearch()->query(), QString());
@@ -452,6 +452,36 @@ private slots:
                     < anyway->mapToScene(QPointF(0, 0)).y());
 
         m_fake->dmRooms.clear();
+        closeDialog();
+    }
+
+    // (g) SPEC 1u: the omnibox offers a "Create room" suggestion for plain
+    // text and "#name" (seeding the Room tab), but never for "@" text.
+    void omniboxSuggestsCreatingARoomForNonAtText()
+    {
+        openDialog("dm");
+        auto *field = item("dmUserPickerSearchField");
+        QVERIFY(field);
+        QTRY_VERIFY(field->hasActiveFocus());
+
+        auto *suggestion = item("dmCreateRoomSuggestion");
+        QVERIFY(suggestion);
+        QVERIFY(!suggestion->isVisible());
+
+        field->setProperty("text", QStringLiteral("@alice"));
+        QCoreApplication::processEvents();
+        QVERIFY(!suggestion->isVisible());
+
+        field->setProperty("text", QStringLiteral("#design-team"));
+        QCoreApplication::processEvents();
+        QTRY_VERIFY(suggestion->isVisible());
+
+        QMetaObject::invokeMethod(suggestion, "activateSuggestion");
+        QTRY_VERIFY(item("roomTab"));
+        auto *nameField = item("roomNameField");
+        QVERIFY(nameField);
+        QTRY_COMPARE(nameField->property("text").toString(),
+                     QStringLiteral("design-team"));
         closeDialog();
     }
 };

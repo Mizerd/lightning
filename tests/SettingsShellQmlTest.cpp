@@ -421,6 +421,88 @@ private slots:
                  QStringLiteral("none"));
     }
 
+    // ── SPEC 1v: 44px header, "Compact" label, search + inline controls ────
+
+    void headerUses44pxTitleBarTreatment()
+    {
+        m_controller->showSettings();
+        QCoreApplication::processEvents();
+        auto *bar = item("settingsHeaderBar");
+        QVERIFY(bar);
+        QCOMPARE(bar->height(), 44.0);
+        QVERIFY(item("settingsHeaderTitle"));
+    }
+
+    void messageLayoutOffersCompactNotIrc()
+    {
+        auto *compact = item("messageLayoutControl_2");
+        QVERIFY(compact);
+        QCOMPARE(compact->property("segLabel").toString(),
+                 QStringLiteral("Compact"));
+    }
+
+    void navRowsExistPerSectionWithIcons()
+    {
+        static const char *sections[] = {
+            "account", "appearance", "notifications",
+            "privacy", "sessions", "labs", "about",
+        };
+        for (const char *key : sections) {
+            auto *row = item(qPrintable(QStringLiteral("settingsNavRow_%1")
+                                             .arg(QLatin1String(key))));
+            QVERIFY2(row, key);
+        }
+    }
+
+    void ctrlCommaFocusesSearchThenFiltersNavAndBindsInlineControl()
+    {
+        auto *search = item("settingsSearchField");
+        QVERIFY(search);
+        auto *resultsPanel = item("settingsSearchResults");
+        QVERIFY(resultsPanel);
+        QVERIFY(!resultsPanel->isVisible());
+
+        search->setProperty("text", QString());
+        QCoreApplication::processEvents();
+
+        QTest::keyClick(m_window, Qt::Key_Comma, Qt::ControlModifier);
+        QTRY_VERIFY(search->hasActiveFocus());
+
+        // "room activity" matches exactly one entry (Appearance's "Show
+        // room activity") — the nav narrows to that one section.
+        const bool activityBefore = m_controller->settings()->showRoomActivity();
+        search->setProperty("text", QStringLiteral("room activity"));
+        QCoreApplication::processEvents();
+        QTRY_VERIFY(resultsPanel->isVisible());
+
+        auto *appearanceNav = item("settingsNavRow_appearance");
+        auto *accountNav = item("settingsNavRow_account");
+        QVERIFY(appearanceNav && accountNav);
+        QTRY_VERIFY(appearanceNav->isVisible());
+        QVERIFY(!accountNav->isVisible());
+
+        auto *resultRow = item("settingsSearchResult_0");
+        QVERIFY(resultRow);
+
+        // The inline control is the SAME SettingsManager property the real
+        // Appearance-pane control binds — flipping it here must flip the
+        // backend directly.
+        auto *inlineToggle = item("settingsSearchInlineShowRoomActivity_0");
+        QVERIFY(inlineToggle);
+        QVERIFY(inlineToggle->isVisible());
+        QMetaObject::invokeMethod(inlineToggle, "toggled");
+        QCOMPARE(m_controller->settings()->showRoomActivity(), !activityBefore);
+        // Restore so later tests are not affected by ordering.
+        QMetaObject::invokeMethod(inlineToggle, "toggled");
+        QCOMPARE(m_controller->settings()->showRoomActivity(), activityBefore);
+
+        // Clearing the search restores the full nav.
+        search->setProperty("text", QString());
+        QCoreApplication::processEvents();
+        QTRY_VERIFY(!resultsPanel->isVisible());
+        QTRY_VERIFY(accountNav->isVisible());
+    }
+
     void noQmlWarnings()
     {
         QCOMPARE(m_warnings, QStringList{});

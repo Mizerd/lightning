@@ -111,6 +111,16 @@ QVariantMap QuickSwitcherModel::resultAt(int row) const
     map.insert(QStringLiteral("category"), r.category);
     map.insert(QStringLiteral("isSpace"), r.isSpace);
     map.insert(QStringLiteral("isInvite"), r.isInvite);
+    // v0.6.5: additive fields so QML can build a presentation-safe filtered
+    // copy of the result set (SPEC 1k Rooms/People scope chips) without a
+    // second C++ model. Existing callers that only read the four fields
+    // above are unaffected.
+    map.insert(QStringLiteral("name"), r.name);
+    map.insert(QStringLiteral("subtitle"), r.subtitle);
+    map.insert(QStringLiteral("avatarUrl"), r.avatarUrl);
+    map.insert(QStringLiteral("unread"), r.unread);
+    map.insert(QStringLiteral("highlight"), r.highlight);
+    map.insert(QStringLiteral("hasUnread"), r.hasUnread);
     return map;
 }
 
@@ -204,12 +214,26 @@ void QuickSwitcherModel::rebuild()
         }
     }
 
+    // v0.6.5: category is the PRIMARY sort key so the quick switcher can
+    // render contiguous ROOMS / PEOPLE / SPACES / INVITES sections (SPEC
+    // 1j). Order matches the design's visual hierarchy — rooms, then
+    // people, spaces, and invites last (invites are visually distinct
+    // already and Enter on one only opens its accept/decline view, so
+    // trailing them is safe). Every existing tie-break inside a category
+    // is preserved exactly.
+    static const auto categoryRank = [](const Result &r) {
+        if (r.category == QStringLiteral("room"))  return 0;
+        if (r.category == QStringLiteral("dm"))     return 1;
+        if (r.category == QStringLiteral("space"))  return 2;
+        return 3; // "invite"
+    };
     std::sort(next.begin(), next.end(), [](const Result &a, const Result &b) {
+        const int rankA = categoryRank(a);
+        const int rankB = categoryRank(b);
+        if (rankA != rankB)
+            return rankA < rankB;
         if (a.score != b.score)
             return a.score > b.score;
-        // Invites surface above ordinary rooms at equal relevance.
-        if (a.isInvite != b.isInvite)
-            return a.isInvite;
         if (a.highlight != b.highlight)
             return a.highlight > b.highlight;
         if (a.hasUnread != b.hasUnread)
