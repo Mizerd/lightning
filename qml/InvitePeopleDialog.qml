@@ -24,6 +24,11 @@ Dialog {
     standardButtons: Dialog.NoButton
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
     width: Math.min(480, parent ? parent.width - AppTheme.spacing24 * 2 : 480)
+    // Clamp to the window and let the chip/result body scroll — an unbounded
+    // invite list otherwise grows the dialog past the overlay, pushing the
+    // title and the footer buttons off screen.
+    height: Math.min(implicitHeight,
+                     parent ? parent.height - AppTheme.spacing24 * 2 : implicitHeight)
     anchors.centerIn: parent
     padding: AppTheme.spacing16
 
@@ -99,7 +104,12 @@ Dialog {
     // edit to the shared (lead-owned) AppButton.qml.
     component InvitePrimaryButton: AbstractButton {
         id: primaryBtn
-        implicitWidth: primaryContent.implicitWidth + 28
+        // Real padding, not a widened implicitWidth: an AbstractButton
+        // stretches its contentItem to the full control width, so extra
+        // width without padding pins the icon+label to the button's left
+        // edge instead of centring them on the accent fill.
+        leftPadding: 14
+        rightPadding: 14
         implicitHeight: 32
         hoverEnabled: true
         focusPolicy: Qt.TabFocus
@@ -199,105 +209,133 @@ Dialog {
             font.pixelSize: AppTheme.fontSizeS
         }
 
-        // Selected users before dispatch — token chips (SPEC 1t): pill,
-        // accentSoft bg, 1px accentBorder, 20px Avatar, textMuted remove.
-        Flow {
+        // ── Token chips + per-user results (scrolls when height-
+        // constrained; mirrors NewConversationDialog's tabFlick so a long
+        // invite list can never grow the dialog past the window) ─────────
+        Flickable {
+            id: inviteBodyFlick
             Layout.fillWidth: true
-            spacing: AppTheme.spacing6
-            visible: root.selectedUsers.length > 0 && !app.conversations.busy
-                     && !root.batchDone
-            Repeater {
-                model: root.selectedUsers
-                Rectangle {
-                    id: chip
-                    required property var modelData
-                    required property int index
-                    objectName: "inviteChip_" + index
-                    readonly property string label:
-                        chip.modelData.name.length > 0
-                            ? chip.modelData.name : chip.modelData.id
-                    radius: AppTheme.radiusPill
-                    color: AppTheme.accentSoft
-                    border.width: 1
-                    border.color: AppTheme.accentBorder
-                    implicitWidth: chipRow.implicitWidth + AppTheme.spacing12
-                    implicitHeight: chipRow.implicitHeight + AppTheme.spacing6
-                    RowLayout {
-                        id: chipRow
-                        anchors.centerIn: parent
-                        spacing: AppTheme.spacing6
-                        Avatar {
-                            size: 20
-                            circle: true
-                            mxc: chip.modelData.avatar
-                            name: chip.label
-                            colorKey: chip.modelData.id
-                        }
-                        Label {
-                            text: chip.label
-                            color: AppTheme.textPrimary
-                            font.pixelSize: AppTheme.fontSizeS
-                            font.weight: Font.DemiBold
-                        }
-                        IconButton {
-                            objectName: "inviteChipRemove_" + chip.index
-                            implicitWidth: 18; implicitHeight: 18
+            Layout.fillHeight: true
+            implicitHeight: inviteBodyColumn.implicitHeight
+            contentWidth: width
+            contentHeight: inviteBodyColumn.implicitHeight
+            clip: true
+            boundsBehavior: Flickable.StopAtBounds
+            ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+
+            ColumnLayout {
+                id: inviteBodyColumn
+                width: inviteBodyFlick.width
+                spacing: AppTheme.spacing12
+
+                // Selected users before dispatch — token chips (SPEC 1t):
+                // pill, accentSoft bg, 1px accentBorder, 20px Avatar,
+                // textMuted remove.
+                Flow {
+                    Layout.fillWidth: true
+                    spacing: AppTheme.spacing6
+                    visible: root.selectedUsers.length > 0 && !app.conversations.busy
+                             && !root.batchDone
+                    Repeater {
+                        model: root.selectedUsers
+                        Rectangle {
+                            id: chip
+                            required property var modelData
+                            required property int index
+                            objectName: "inviteChip_" + index
+                            readonly property string label:
+                                chip.modelData.name.length > 0
+                                    ? chip.modelData.name : chip.modelData.id
                             radius: AppTheme.radiusPill
-                            iconName: "close"
-                            iconSize: 12
-                            // Default rest-state ink (AppTheme.icon =
-                            // textMuted) already matches SPEC 1t.
-                            Accessible.name: qsTr("Remove %1").arg(chip.label)
-                            onClicked: {
-                                var next = root.selectedUsers.slice()
-                                next.splice(chip.index, 1)
-                                root.selectedUsers = next
+                            color: AppTheme.accentSoft
+                            border.width: 1
+                            border.color: AppTheme.accentBorder
+                            implicitWidth: chipRow.implicitWidth + AppTheme.spacing12
+                            implicitHeight: chipRow.implicitHeight + AppTheme.spacing6
+                            RowLayout {
+                                id: chipRow
+                                anchors.centerIn: parent
+                                spacing: AppTheme.spacing6
+                                Avatar {
+                                    size: 20
+                                    circle: true
+                                    mxc: chip.modelData.avatar
+                                    name: chip.label
+                                    colorKey: chip.modelData.id
+                                }
+                                Label {
+                                    text: chip.label
+                                    color: AppTheme.textPrimary
+                                    font.pixelSize: AppTheme.fontSizeS
+                                    font.weight: Font.DemiBold
+                                    // A Flow wraps BETWEEN chips, never
+                                    // inside one — cap a single long name/
+                                    // MXID so one chip can never outgrow
+                                    // the dialog card.
+                                    Layout.maximumWidth: 280
+                                    elide: Label.ElideMiddle
+                                }
+                                IconButton {
+                                    objectName: "inviteChipRemove_" + chip.index
+                                    implicitWidth: 18; implicitHeight: 18
+                                    radius: AppTheme.radiusPill
+                                    iconName: "close"
+                                    iconSize: 12
+                                    // Default rest-state ink (AppTheme.icon =
+                                    // textMuted) already matches SPEC 1t.
+                                    Accessible.name: qsTr("Remove %1").arg(chip.label)
+                                    onClicked: {
+                                        var next = root.selectedUsers.slice()
+                                        next.splice(chip.index, 1)
+                                        root.selectedUsers = next
+                                    }
+                                }
                             }
                         }
                     }
                 }
-            }
-        }
 
-        // Per-user progress/result once dispatched.
-        ColumnLayout {
-            Layout.fillWidth: true
-            spacing: AppTheme.spacing4
-            visible: app.conversations.inviteResults.length > 0
-            Repeater {
-                model: app.conversations.inviteResults
-                RowLayout {
+                // Per-user progress/result once dispatched.
+                ColumnLayout {
                     Layout.fillWidth: true
-                    spacing: AppTheme.spacing8
-                    Label {
-                        Layout.fillWidth: true
-                        text: modelData.userId
-                        color: AppTheme.textPrimary
-                        elide: Label.ElideMiddle
-                        font.pixelSize: AppTheme.fontSizeS
-                    }
-                    Icon {
-                        visible: modelData.state === "ok"
-                        name: "check"
-                        size: 14
-                        color: AppTheme.success
-                    }
-                    Label {
-                        text: {
-                            if (modelData.state === "ok") return qsTr("Invited")
-                            if (modelData.state === "failed") {
-                                if (modelData.category === "forbidden")
-                                    return qsTr("Not permitted")
-                                if (modelData.category === "rate_limited")
-                                    return qsTr("Rate limited")
-                                return qsTr("Failed")
+                    spacing: AppTheme.spacing4
+                    visible: app.conversations.inviteResults.length > 0
+                    Repeater {
+                        model: app.conversations.inviteResults
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: AppTheme.spacing8
+                            Label {
+                                Layout.fillWidth: true
+                                text: modelData.userId
+                                color: AppTheme.textPrimary
+                                elide: Label.ElideMiddle
+                                font.pixelSize: AppTheme.fontSizeS
                             }
-                            return qsTr("Pending…")
+                            Icon {
+                                visible: modelData.state === "ok"
+                                name: "check"
+                                size: 14
+                                color: AppTheme.success
+                            }
+                            Label {
+                                text: {
+                                    if (modelData.state === "ok") return qsTr("Invited")
+                                    if (modelData.state === "failed") {
+                                        if (modelData.category === "forbidden")
+                                            return qsTr("Not permitted")
+                                        if (modelData.category === "rate_limited")
+                                            return qsTr("Rate limited")
+                                        return qsTr("Failed")
+                                    }
+                                    return qsTr("Pending…")
+                                }
+                                color: modelData.state === "ok" ? AppTheme.success
+                                     : modelData.state === "failed" ? AppTheme.danger
+                                     : AppTheme.textMuted
+                                font.pixelSize: AppTheme.fontSizeS
+                            }
                         }
-                        color: modelData.state === "ok" ? AppTheme.success
-                             : modelData.state === "failed" ? AppTheme.danger
-                             : AppTheme.textMuted
-                        font.pixelSize: AppTheme.fontSizeS
                     }
                 }
             }

@@ -50,8 +50,16 @@ Popup {
 
     width: Math.max(240, Math.min(anchorWidth, 380))
     height: headerH + visibleRows * rowH + padding * 2
-    x: anchorInputTop.x
-    y: anchorInputTop.y - height - AppTheme.spacing4
+    // Clamped inside the overlay (the sibling pickers' placeInsideWindow()
+    // convention): the 240px width floor can exceed a narrow thread
+    // composer, and a short window would otherwise push the popup's top
+    // above the window edge.
+    x: parent ? Math.max(AppTheme.spacing4,
+                         Math.min(anchorInputTop.x,
+                                  parent.width - width - AppTheme.spacing4))
+              : anchorInputTop.x
+    y: Math.max(AppTheme.spacing4,
+                anchorInputTop.y - height - AppTheme.spacing4)
 
     onCountChanged: {
         if (currentIndex >= count)

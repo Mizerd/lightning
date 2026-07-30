@@ -166,8 +166,12 @@ Popup {
     contentItem: Item {
 
     ColumnLayout {
+        id: pickerColumn
         anchors.fill: parent
-        anchors.bottomMargin: 14   // reserve space for the attribution footer
+        // Reserve the attribution footer's REAL height (it holds a ↵ keycap
+        // taller than one caption line) — a fixed reserve let the footer
+        // paint over the bottom row of GIF tiles.
+        anchors.bottomMargin: footerRow.implicitHeight + AppTheme.spacing4 * 2
         spacing: AppTheme.spacingS
 
         // ── Row 1: search + the picker's own "GIF" badge + close ────
@@ -285,7 +289,12 @@ Popup {
                     required property var modelData
                     readonly property bool selected:
                         picker.section === modelData.value
-                    implicitWidth: chipRow.implicitWidth + AppTheme.spacing16
+                    // Real padding, not a widened implicitWidth: an
+                    // AbstractButton stretches its contentItem to the full
+                    // control width, so extra width without padding pins the
+                    // label to the pill's left edge instead of centring it.
+                    leftPadding: AppTheme.spacing8 + 2
+                    rightPadding: AppTheme.spacing8 + 2
                     implicitHeight: 28
                     hoverEnabled: true
                     focusPolicy: Qt.TabFocus
@@ -607,10 +616,15 @@ Popup {
         }
     }
 
-    // ── State overlay (covers the grid area) ────────────────────────
+    // ── State overlay (covers exactly the grid area — pickerColumn fills
+    // this same contentItem at 0,0, so the grid's layout geometry is valid
+    // in these coordinates; a fixed top offset drifted over the chip rows
+    // whenever the header stack's height changed) ─────────────────────
     Item {
-        anchors.fill: parent
-        anchors.topMargin: 90
+        x: grid.x
+        y: grid.y
+        width: grid.width
+        height: grid.height
         visible: overlayText.text.length > 0 || busy.running
 
         BusyIndicator {
@@ -657,6 +671,7 @@ Popup {
 
     // ── Footer: real provider attribution + a "return to send" hint ─
     RowLayout {
+        id: footerRow
         anchors.bottom: parent.bottom
         anchors.left: parent.left
         anchors.right: parent.right

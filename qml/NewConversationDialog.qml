@@ -165,7 +165,11 @@ Dialog {
     component ConversationChip: AbstractButton {
         id: chip
         property string iconName: ""
-        implicitWidth: chipRow.implicitWidth + AppTheme.spacing12 * 2
+        // Real padding, not a widened implicitWidth: an AbstractButton
+        // stretches its contentItem to the full control width, so extra
+        // width without padding pins the icon+label to the pill's left edge.
+        leftPadding: AppTheme.spacing12
+        rightPadding: AppTheme.spacing12
         implicitHeight: 28
         hoverEnabled: true
         focusPolicy: Qt.TabFocus
@@ -878,6 +882,11 @@ Dialog {
                                 text: modelData
                                 color: AppTheme.textPrimary
                                 font.pixelSize: AppTheme.fontSizeS
+                                // A Flow wraps BETWEEN chips, never inside
+                                // one — cap a single long MXID so one chip
+                                // can never outgrow the dialog card.
+                                Layout.maximumWidth: 320
+                                elide: Label.ElideMiddle
                             }
                             IconButton {
                                 objectName: "inviteChipRemove_" + index

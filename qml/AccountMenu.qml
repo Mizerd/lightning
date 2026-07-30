@@ -92,9 +92,12 @@ Popup {
         Accessible.role: Accessible.Button
         Accessible.name: footerBtn.text
 
+        // Spacer-centred: a control stretches its contentItem to the full
+        // button width, so anchors.centerIn on the layout is a no-op and the
+        // icon+label would sit hard against the pill's left edge.
         contentItem: RowLayout {
-            anchors.centerIn: parent
             spacing: AppTheme.spacing4
+            Item { Layout.fillWidth: true }
             Icon { name: footerBtn.iconName; size: 16; color: footerBtn.inkColor }
             Label {
                 text: footerBtn.text
@@ -102,6 +105,7 @@ Popup {
                 font.pixelSize: 12
                 font.weight: Font.Bold
             }
+            Item { Layout.fillWidth: true }
         }
         background: Rectangle {
             radius: AppTheme.radiusTile

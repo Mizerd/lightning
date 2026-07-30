@@ -94,6 +94,10 @@ Dialog {
     closePolicy: dirty ? Popup.CloseOnEscape
                        : (Popup.CloseOnEscape | Popup.CloseOnPressOutside)
     width: Math.min(680, (parent ? parent.width : 680) - AppTheme.spacing24 * 2)
+    // Clamp to the window so the body Flickable actually engages — without
+    // this the dialog grows with its implicit height and never scrolls.
+    height: Math.min(implicitHeight,
+                     parent ? parent.height - AppTheme.spacing24 * 2 : implicitHeight)
     padding: AppTheme.spacing20
 
     Popup {
@@ -180,282 +184,302 @@ Dialog {
             }
         }
 
-        RowLayout {
+        // ── Form + preview body (scrolls when height-constrained; the
+        // answer list grows to 20 rows, which must never push the title or
+        // the Send/Cancel row outside the window) ────────────────────────
+        Flickable {
+            id: pollBodyFlick
             Layout.fillWidth: true
-            spacing: AppTheme.spacing16
+            Layout.fillHeight: true
+            implicitHeight: pollBody.implicitHeight
+            contentWidth: width
+            contentHeight: pollBody.implicitHeight
+            clip: true
+            boundsBehavior: Flickable.StopAtBounds
+            ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
 
-            // ── Left: form ──────────────────────────────────────────────
-            ColumnLayout {
-                Layout.preferredWidth: 320
-                Layout.alignment: Qt.AlignTop
-                spacing: AppTheme.spacing8
+            RowLayout {
+                id: pollBody
+                width: pollBodyFlick.width
+                spacing: AppTheme.spacing16
 
-                MenuSectionLabel { text: qsTr("QUESTION") }
-                AppTextField {
-                    id: questionField
-                    objectName: "pollQuestionField"
-                    Layout.fillWidth: true
-                    placeholderText: qsTr("Ask a question…")
-                    Accessible.name: qsTr("Poll question")
-                    onAccepted: if (root.formValid) root.submit()
-                }
-
-                MenuSectionLabel {
-                    text: qsTr("OPTIONS")
-                    Layout.topMargin: AppTheme.spacing8
-                }
-                Repeater {
-                    id: answerRepeater
-                    model: root.answerModel
-                    delegate: Rectangle {
-                        Layout.fillWidth: true
-                        radius: AppTheme.radiusTile
-                        color: "transparent"
-                        border.width: 1
-                        border.color: AppTheme.border
-                        implicitHeight: answerRow.implicitHeight + AppTheme.spacing8
-
-                        RowLayout {
-                            id: answerRow
-                            anchors.fill: parent
-                            anchors.margins: AppTheme.spacing4
-                            spacing: AppTheme.spacing8
-                            AppTextField {
-                                objectName: "pollAnswerField"
-                                Layout.fillWidth: true
-                                placeholderText: qsTr("Answer %1").arg(index + 1)
-                                text: model.answerText
-                                Accessible.name: qsTr("Poll answer %1").arg(index + 1)
-                                onTextEdited: {
-                                    root.answerModel.setProperty(
-                                        index, "answerText", text)
-                                    root.bumpAnswerRevision()
-                                }
-                                onAccepted: {
-                                    if (index === root.answerModel.count - 1
-                                        && root.answerModel.count < root.maxAnswers)
-                                        root.answerModel.append({ answerText: "" })
-                                    else if (root.formValid)
-                                        root.submit()
-                                }
-                            }
-                            IconButton {
-                                objectName: "pollAnswerRemoveButton"
-                                iconName: "close"
-                                iconSize: 14
-                                implicitWidth: 24; implicitHeight: 24
-                                // A poll needs two answers; the last two
-                                // rows only clear.
-                                enabled: root.answerModel.count > 2
-                                Accessible.name: qsTr("Remove answer %1").arg(index + 1)
-                                onClicked: {
-                                    root.answerModel.remove(index)
-                                    root.bumpAnswerRevision()
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // Add-option row. Deviation (reported): solid subtle border
-                // rather than a dashed one — see the file header comment.
-                Rectangle {
-                    id: addAnswerRow
-                    objectName: "pollAddAnswerButton"
-                    Layout.fillWidth: true
-                    radius: AppTheme.radiusTile
-                    color: addAnswerHover.hovered && enabled
-                           ? AppTheme.hover : "transparent"
-                    border.width: 1
-                    border.color: AppTheme.border
-                    implicitHeight: addAnswerContent.implicitHeight
-                                    + AppTheme.spacing8 * 2
-                    enabled: root.answerModel.count < root.maxAnswers
-                    opacity: enabled ? 1.0 : 0.5
-                    activeFocusOnTab: enabled
-                    Accessible.role: Accessible.Button
-                    Accessible.name: qsTr("Add another poll answer")
-                    function activateAdd() {
-                        if (enabled) root.answerModel.append({ answerText: "" })
-                    }
-                    Keys.onReturnPressed: activateAdd()
-                    Keys.onSpacePressed: activateAdd()
-                    RowLayout {
-                        id: addAnswerContent
-                        anchors.centerIn: parent
-                        spacing: AppTheme.spacing6
-                        Icon { name: "add"; size: 16; color: AppTheme.accent }
-                        Label {
-                            text: qsTr("Add answer")
-                            color: AppTheme.accent
-                            font.pixelSize: AppTheme.fontSizeS
-                            font.weight: Font.DemiBold
-                        }
-                    }
-                    TapHandler {
-                        enabled: addAnswerRow.enabled
-                        onTapped: addAnswerRow.activateAdd()
-                    }
-                    HoverHandler {
-                        id: addAnswerHover
-                        cursorShape: addAnswerRow.enabled
-                            ? Qt.PointingHandCursor : Qt.ArrowCursor
-                    }
-                    Rectangle {
-                        anchors.fill: parent
-                        anchors.margins: -3
-                        radius: parent.radius + 3
-                        color: "transparent"
-                        border.width: 2
-                        border.color: AppTheme.focusRing
-                        visible: addAnswerRow.activeFocus
-                    }
-                }
-
-                // Options — the switch rows follow the Settings pattern: the
-                // whole row is clickable, AppSwitch itself stays a bare
-                // bound control.
+                // ── Left: form ──────────────────────────────────────────────
                 ColumnLayout {
-                    Layout.fillWidth: true
-                    Layout.topMargin: AppTheme.spacing8
+                    Layout.preferredWidth: 320
+                    Layout.alignment: Qt.AlignTop
                     spacing: AppTheme.spacing8
 
-                    RowLayout {
+                    MenuSectionLabel { text: qsTr("QUESTION") }
+                    AppTextField {
+                        id: questionField
+                        objectName: "pollQuestionField"
                         Layout.fillWidth: true
-                        spacing: AppTheme.spacing12
-                        ColumnLayout {
+                        placeholderText: qsTr("Ask a question…")
+                        Accessible.name: qsTr("Poll question")
+                        onAccepted: if (root.formValid) root.submit()
+                    }
+
+                    MenuSectionLabel {
+                        text: qsTr("OPTIONS")
+                        Layout.topMargin: AppTheme.spacing8
+                    }
+                    Repeater {
+                        id: answerRepeater
+                        model: root.answerModel
+                        delegate: Rectangle {
                             Layout.fillWidth: true
-                            spacing: 1
+                            radius: AppTheme.radiusTile
+                            color: "transparent"
+                            border.width: 1
+                            border.color: AppTheme.border
+                            implicitHeight: answerRow.implicitHeight + AppTheme.spacing8
+
+                            RowLayout {
+                                id: answerRow
+                                anchors.fill: parent
+                                anchors.margins: AppTheme.spacing4
+                                spacing: AppTheme.spacing8
+                                AppTextField {
+                                    objectName: "pollAnswerField"
+                                    Layout.fillWidth: true
+                                    placeholderText: qsTr("Answer %1").arg(index + 1)
+                                    text: model.answerText
+                                    Accessible.name: qsTr("Poll answer %1").arg(index + 1)
+                                    onTextEdited: {
+                                        root.answerModel.setProperty(
+                                            index, "answerText", text)
+                                        root.bumpAnswerRevision()
+                                    }
+                                    onAccepted: {
+                                        if (index === root.answerModel.count - 1
+                                            && root.answerModel.count < root.maxAnswers)
+                                            root.answerModel.append({ answerText: "" })
+                                        else if (root.formValid)
+                                            root.submit()
+                                    }
+                                }
+                                IconButton {
+                                    objectName: "pollAnswerRemoveButton"
+                                    iconName: "close"
+                                    iconSize: 14
+                                    implicitWidth: 24; implicitHeight: 24
+                                    // A poll needs two answers; the last two
+                                    // rows only clear.
+                                    enabled: root.answerModel.count > 2
+                                    Accessible.name: qsTr("Remove answer %1").arg(index + 1)
+                                    onClicked: {
+                                        root.answerModel.remove(index)
+                                        root.bumpAnswerRevision()
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Add-option row. Deviation (reported): solid subtle border
+                    // rather than a dashed one — see the file header comment.
+                    Rectangle {
+                        id: addAnswerRow
+                        objectName: "pollAddAnswerButton"
+                        Layout.fillWidth: true
+                        radius: AppTheme.radiusTile
+                        color: addAnswerHover.hovered && enabled
+                               ? AppTheme.hover : "transparent"
+                        border.width: 1
+                        border.color: AppTheme.border
+                        implicitHeight: addAnswerContent.implicitHeight
+                                        + AppTheme.spacing8 * 2
+                        enabled: root.answerModel.count < root.maxAnswers
+                        opacity: enabled ? 1.0 : 0.5
+                        activeFocusOnTab: enabled
+                        Accessible.role: Accessible.Button
+                        Accessible.name: qsTr("Add another poll answer")
+                        function activateAdd() {
+                            if (enabled) root.answerModel.append({ answerText: "" })
+                        }
+                        Keys.onReturnPressed: activateAdd()
+                        Keys.onSpacePressed: activateAdd()
+                        RowLayout {
+                            id: addAnswerContent
+                            anchors.centerIn: parent
+                            spacing: AppTheme.spacing6
+                            Icon { name: "add"; size: 16; color: AppTheme.accent }
                             Label {
-                                text: qsTr("Hide results until the poll ends")
+                                text: qsTr("Add answer")
+                                color: AppTheme.accent
+                                font.pixelSize: AppTheme.fontSizeS
+                                font.weight: Font.DemiBold
+                            }
+                        }
+                        TapHandler {
+                            enabled: addAnswerRow.enabled
+                            onTapped: addAnswerRow.activateAdd()
+                        }
+                        HoverHandler {
+                            id: addAnswerHover
+                            cursorShape: addAnswerRow.enabled
+                                ? Qt.PointingHandCursor : Qt.ArrowCursor
+                        }
+                        Rectangle {
+                            anchors.fill: parent
+                            anchors.margins: -3
+                            radius: parent.radius + 3
+                            color: "transparent"
+                            border.width: 2
+                            border.color: AppTheme.focusRing
+                            visible: addAnswerRow.activeFocus
+                        }
+                    }
+
+                    // Options — the switch rows follow the Settings pattern: the
+                    // whole row is clickable, AppSwitch itself stays a bare
+                    // bound control.
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        Layout.topMargin: AppTheme.spacing8
+                        spacing: AppTheme.spacing8
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: AppTheme.spacing12
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 1
+                                Label {
+                                    text: qsTr("Hide results until the poll ends")
+                                    color: AppTheme.text
+                                    font.pixelSize: 13
+                                    Layout.fillWidth: true
+                                    wrapMode: Text.Wrap
+                                }
+                                Label {
+                                    text: qsTr("Voters see the tallies only after you end the poll.")
+                                    color: AppTheme.textMuted
+                                    font.pixelSize: 11
+                                    Layout.fillWidth: true
+                                    wrapMode: Text.Wrap
+                                }
+                            }
+                            AppSwitch {
+                                id: undisclosedSwitch
+                                objectName: "pollUndisclosedSwitch"
+                                Accessible.name: qsTr("Hide results until the poll ends")
+                                onToggled: checked = !checked
+                            }
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: AppTheme.spacing12
+                            Label {
+                                text: qsTr("Allow choosing multiple answers")
                                 color: AppTheme.text
                                 font.pixelSize: 13
                                 Layout.fillWidth: true
                                 wrapMode: Text.Wrap
                             }
-                            Label {
-                                text: qsTr("Voters see the tallies only after you end the poll.")
-                                color: AppTheme.textMuted
-                                font.pixelSize: 11
-                                Layout.fillWidth: true
-                                wrapMode: Text.Wrap
+                            AppSwitch {
+                                id: multipleSwitch
+                                objectName: "pollMultipleSwitch"
+                                Accessible.name: qsTr("Allow choosing multiple answers")
+                                onToggled: checked = !checked
                             }
-                        }
-                        AppSwitch {
-                            id: undisclosedSwitch
-                            objectName: "pollUndisclosedSwitch"
-                            Accessible.name: qsTr("Hide results until the poll ends")
-                            onToggled: checked = !checked
-                        }
-                    }
-
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: AppTheme.spacing12
-                        Label {
-                            text: qsTr("Allow choosing multiple answers")
-                            color: AppTheme.text
-                            font.pixelSize: 13
-                            Layout.fillWidth: true
-                            wrapMode: Text.Wrap
-                        }
-                        AppSwitch {
-                            id: multipleSwitch
-                            objectName: "pollMultipleSwitch"
-                            Accessible.name: qsTr("Allow choosing multiple answers")
-                            onToggled: checked = !checked
                         }
                     }
                 }
-            }
 
-            // ── Right: live "as sent" preview ────────────────────────────
-            ColumnLayout {
-                Layout.preferredWidth: 260
-                Layout.fillHeight: true
-                Layout.alignment: Qt.AlignTop
-                spacing: AppTheme.spacing8
-
-                MenuSectionLabel { text: qsTr("PREVIEW · AS SENT") }
-
-                Rectangle {
-                    objectName: "pollPreviewPanel"
-                    Layout.fillWidth: true
+                // ── Right: live "as sent" preview ────────────────────────────
+                ColumnLayout {
+                    Layout.preferredWidth: 260
                     Layout.fillHeight: true
-                    Layout.minimumHeight: 220
-                    radius: AppTheme.radiusLg
-                    color: AppTheme.background
-                    border.width: 1
-                    border.color: AppTheme.border
+                    Layout.alignment: Qt.AlignTop
+                    spacing: AppTheme.spacing8
 
-                    ColumnLayout {
-                        anchors.fill: parent
-                        anchors.margins: AppTheme.spacing12
-                        spacing: AppTheme.spacing8
+                    MenuSectionLabel { text: qsTr("PREVIEW · AS SENT") }
 
-                        Label {
-                            objectName: "pollPreviewQuestion"
-                            Layout.fillWidth: true
-                            text: questionField.text.trim().length > 0
-                                  ? questionField.text
-                                  : qsTr("Ask a question…")
-                            color: questionField.text.trim().length > 0
-                                   ? AppTheme.textPrimary : AppTheme.textMuted
-                            font.pixelSize: AppTheme.fontResult
-                            font.weight: Font.Bold
-                            wrapMode: Text.WordWrap
-                        }
+                    Rectangle {
+                        objectName: "pollPreviewPanel"
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        Layout.minimumHeight: 220
+                        radius: AppTheme.radiusLg
+                        color: AppTheme.background
+                        border.width: 1
+                        border.color: AppTheme.border
 
                         ColumnLayout {
-                            Layout.fillWidth: true
-                            spacing: AppTheme.spacing6
-                            Repeater {
-                                model: root.previewAnswers
-                                delegate: Rectangle {
-                                    id: previewOption
-                                    required property string modelData
-                                    required property int index
-                                    readonly property bool first: index === 0
-                                    Layout.fillWidth: true
-                                    radius: AppTheme.radiusTile
-                                    color: first ? AppTheme.accentSoft : AppTheme.surface
-                                    border.width: 1
-                                    border.color: first ? AppTheme.accentBorder
-                                                        : AppTheme.border
-                                    implicitHeight: previewOptionLabel.implicitHeight
-                                                    + AppTheme.spacing8
-                                    Label {
-                                        id: previewOptionLabel
-                                        anchors.fill: parent
-                                        anchors.margins: AppTheme.spacing8
-                                        text: previewOption.modelData
-                                        color: previewOption.first
-                                               ? AppTheme.selectedText : AppTheme.textPrimary
-                                        font.pixelSize: AppTheme.fontSizeS
-                                        elide: Label.ElideRight
+                            anchors.fill: parent
+                            anchors.margins: AppTheme.spacing12
+                            spacing: AppTheme.spacing8
+
+                            Label {
+                                objectName: "pollPreviewQuestion"
+                                Layout.fillWidth: true
+                                text: questionField.text.trim().length > 0
+                                      ? questionField.text
+                                      : qsTr("Ask a question…")
+                                color: questionField.text.trim().length > 0
+                                       ? AppTheme.textPrimary : AppTheme.textMuted
+                                font.pixelSize: AppTheme.fontResult
+                                font.weight: Font.Bold
+                                wrapMode: Text.WordWrap
+                            }
+
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: AppTheme.spacing6
+                                Repeater {
+                                    model: root.previewAnswers
+                                    delegate: Rectangle {
+                                        id: previewOption
+                                        required property string modelData
+                                        required property int index
+                                        readonly property bool first: index === 0
+                                        Layout.fillWidth: true
+                                        radius: AppTheme.radiusTile
+                                        color: first ? AppTheme.accentSoft : AppTheme.surface
+                                        border.width: 1
+                                        border.color: first ? AppTheme.accentBorder
+                                                            : AppTheme.border
+                                        // The label consumes spacing8 margins on
+                                        // BOTH edges — a single-spacing budget
+                                        // left the row 8px short, running the
+                                        // glyph descenders into the pill border.
+                                        implicitHeight: previewOptionLabel.implicitHeight
+                                                        + AppTheme.spacing8 * 2
+                                        Label {
+                                            id: previewOptionLabel
+                                            anchors.fill: parent
+                                            anchors.margins: AppTheme.spacing8
+                                            text: previewOption.modelData
+                                            color: previewOption.first
+                                                   ? AppTheme.selectedText : AppTheme.textPrimary
+                                            font.pixelSize: AppTheme.fontSizeS
+                                            elide: Label.ElideRight
+                                        }
                                     }
                                 }
+                                Label {
+                                    objectName: "pollPreviewPlaceholder"
+                                    visible: root.previewAnswers.length === 0
+                                    text: qsTr("Options appear here as you type them.")
+                                    color: AppTheme.textMuted
+                                    font.pixelSize: AppTheme.fontSizeXS
+                                    wrapMode: Text.WordWrap
+                                    Layout.fillWidth: true
+                                }
                             }
+
+                            Item { Layout.fillHeight: true }
+
                             Label {
-                                objectName: "pollPreviewPlaceholder"
-                                visible: root.previewAnswers.length === 0
-                                text: qsTr("Options appear here as you type them.")
+                                objectName: "pollPreviewVoteLine"
+                                text: undisclosedSwitch.checked
+                                      ? qsTr("0 votes · anonymous")
+                                      : qsTr("0 votes")
                                 color: AppTheme.textMuted
                                 font.pixelSize: AppTheme.fontSizeXS
-                                wrapMode: Text.WordWrap
-                                Layout.fillWidth: true
                             }
-                        }
-
-                        Item { Layout.fillHeight: true }
-
-                        Label {
-                            objectName: "pollPreviewVoteLine"
-                            text: undisclosedSwitch.checked
-                                  ? qsTr("0 votes · anonymous")
-                                  : qsTr("0 votes")
-                            color: AppTheme.textMuted
-                            font.pixelSize: AppTheme.fontSizeXS
                         }
                     }
                 }

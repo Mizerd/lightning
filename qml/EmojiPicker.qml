@@ -88,8 +88,6 @@ Popup {
 
     function placeInsideWindow() {
         if (!parent) return
-        x = Math.max(AppTheme.spacingS,
-                     Math.min(anchorPoint.x, parent.width - width - AppTheme.spacingS))
         var below = anchorPoint.y + AppTheme.spacingXS
         x = Math.max(AppTheme.spacingS,
                      Math.min(anchorPoint.x - width / 2, parent.width - width - AppTheme.spacingS))
@@ -147,6 +145,10 @@ Popup {
             Layout.bottomMargin: AppTheme.spacing8
             Layout.preferredHeight: 28
             contentWidth: categoryRow.implicitWidth
+            // A ScrollView does NOT clip by default: on a window narrow
+            // enough to shrink the popup, the rail icons would paint over
+            // the rounded border and out of the card.
+            clip: true
             ScrollBar.vertical.policy: ScrollBar.AlwaysOff
             ScrollBar.horizontal.policy: ScrollBar.AsNeeded
             Row {

@@ -97,7 +97,11 @@ Popup {
         Item {
             id: header
             Layout.fillWidth: true
-            implicitHeight: banner.height + 28
+            // Cover the avatar's real bottom edge — the halo disc hangs 34px
+            // below the banner, so banner.height + 28 alone left it painting
+            // 6px outside this Item's box.
+            implicitHeight: Math.max(banner.height + 28,
+                                     avatarWrap.y + avatarWrap.height)
 
             // Banner gradient, Canvas-painted (theme-reactive colour
             // properties) so the 120° angle and the ~70% stop can be
@@ -247,9 +251,13 @@ Popup {
                     Accessible.name: qsTr("Start or open a direct message with %1")
                                      .arg(root.displayName.length > 0
                                           ? root.displayName : root.userId)
+                    // Spacer-centred (the copyIdButton idiom): a control
+                    // stretches its contentItem to the full button width, so
+                    // anchors.centerIn on the layout is a no-op and the
+                    // icon+label would sit hard against the left edge.
                     contentItem: RowLayout {
-                        anchors.centerIn: parent
                         spacing: AppTheme.spacing6
+                        Item { Layout.fillWidth: true }
                         Icon { name: "chat_bubble"; size: 16; color: AppTheme.accentText }
                         Label {
                             text: qsTr("Message")
@@ -257,6 +265,7 @@ Popup {
                             font.pixelSize: 13
                             font.weight: Font.Bold
                         }
+                        Item { Layout.fillWidth: true }
                     }
                     background: Rectangle {
                         radius: AppTheme.radiusTile
