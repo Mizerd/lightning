@@ -371,6 +371,12 @@ set(APP_QML_FILES
     qml/AppMenu.qml
     qml/AppMenuItem.qml
     qml/AppMenuSeparator.qml
+    qml/MenuKeycap.qml
+    qml/MenuSectionLabel.qml
+    qml/StatusChip.qml
+    qml/QuickReactionStrip.qml
+    qml/IdentityCard.qml
+    qml/TrustCard.qml
     qml/AppTheme.qml
 )
 
@@ -446,6 +452,9 @@ function(lightning_configure_qml_app target)
             "data/fonts/IBMPlexSans[wght].ttf"
             "data/fonts/SourceSans3[wght].ttf"
             "data/fonts/PlusJakartaSans[wght].ttf"
+            # v0.6.5 brand face for the trust surface (SPEC 1r); never a
+            # selectable body face.
+            "data/fonts/SpaceGrotesk[wght].ttf"
             # Icon glyphs for interface chrome (Apache-2.0 subset; see
             # scripts/generate-icon-font.sh and qml/Icon.qml).
             data/fonts/MaterialSymbolsRounded-subset.ttf
@@ -704,6 +713,26 @@ if(BUILD_TESTING)
     target_link_libraries(emoji-catalog-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME emoji-catalog COMMAND emoji-catalog-test)
 
+    # v0.6.5: the recentEmoji QStringList property feeding the quick-react
+    # strip — MRU order, validity filtering, change signals.
+    qt_add_executable(emoji-catalog-recent-emoji-test
+        tests/EmojiCatalogRecentEmojiTest.cpp
+        src/models/EmojiCatalog.h
+        src/models/EmojiCatalog.cpp
+        src/app/SettingsManager.h
+        src/app/SettingsManager.cpp
+        src/storage/SecretStore.h
+        src/storage/AppDataPaths.cpp
+    )
+    qt_add_resources(emoji-catalog-recent-emoji-test "emoji-recent-test-data"
+        PREFIX "/qt/qml/MatrixClient"
+        FILES data/emoji-catalog.tsv)
+    target_include_directories(emoji-catalog-recent-emoji-test PRIVATE src)
+    target_link_libraries(emoji-catalog-recent-emoji-test PRIVATE
+        Qt6::Core Qt6::Test)
+    add_test(NAME emoji-catalog-recent-emoji
+        COMMAND emoji-catalog-recent-emoji-test)
+
     qt_add_executable(gif-response-parser-test
         tests/GifResponseParserTest.cpp
         src/gif/GifResponseParser.h
@@ -923,6 +952,61 @@ if(BUILD_TESTING)
         QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
     target_link_libraries(emoji-ui-contract-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME emoji-ui-contract COMMAND emoji-ui-contract-test)
+
+    # v0.6.5: the MemberProfilePopover single-instance convention (one shared
+    # popover per view, delegates route through the view) had no guard since
+    # 8a77ce8 — a per-delegate popover is a real, silent perf regression.
+    qt_add_executable(profile-popover-contract-test
+        tests/ProfilePopoverContractTest.cpp)
+    target_compile_definitions(profile-popover-contract-test PRIVATE
+        QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
+    target_link_libraries(profile-popover-contract-test PRIVATE
+        Qt6::Core Qt6::Test)
+    add_test(NAME profile-popover-contract
+        COMMAND profile-popover-contract-test)
+
+    # v0.6.5: the Settings verification card's visibility complement (the
+    # c259b60 invisible-failure fix) was unguarded — pin the predicates.
+    qt_add_executable(verification-card-contract-test
+        tests/VerificationCardContractTest.cpp)
+    target_compile_definitions(verification-card-contract-test PRIVATE
+        QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
+    target_link_libraries(verification-card-contract-test PRIVATE
+        Qt6::Core Qt6::Test)
+    add_test(NAME verification-card-contract
+        COMMAND verification-card-contract-test)
+
+    # v0.6.5: 1a/1d context-menu contracts — grouping, accelerators,
+    # quick-react liveness guard, radio flyout purity, signal-only mutation
+    # routing, and the permalink/leave wiring.
+    qt_add_executable(context-menu-contract-test
+        tests/ContextMenuContractTest.cpp)
+    target_compile_definitions(context-menu-contract-test PRIVATE
+        QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
+    target_link_libraries(context-menu-contract-test PRIVATE
+        Qt6::Core Qt6::Test)
+    add_test(NAME context-menu-contract COMMAND context-menu-contract-test)
+
+    # v0.6.5: 1m emoji-picker redesign contract — category rail, grid
+    # metrics, footer preview, preserved choose()/recents ordering.
+    qt_add_executable(emoji-picker-contract-test
+        tests/EmojiPickerContractTest.cpp)
+    target_compile_definitions(emoji-picker-contract-test PRIVATE
+        QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
+    target_link_libraries(emoji-picker-contract-test PRIVATE
+        Qt6::Core Qt6::Test)
+    add_test(NAME emoji-picker-contract COMMAND emoji-picker-contract-test)
+
+    # v0.6.5: 1n GIF-picker redesign contract — chrome restyle plus a
+    # belt-and-suspenders re-assertion of the exact-selection invariants.
+    qt_add_executable(gif-picker-redesign-contract-test
+        tests/GifPickerRedesignContractTest.cpp)
+    target_compile_definitions(gif-picker-redesign-contract-test PRIVATE
+        QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
+    target_link_libraries(gif-picker-redesign-contract-test PRIVATE
+        Qt6::Core Qt6::Test)
+    add_test(NAME gif-picker-redesign-contract
+        COMMAND gif-picker-redesign-contract-test)
 
     # v0.5.12: guard the non-circular sizing/visibility contracts for the
     # two confirmation dialogs and timeline pagination header.
@@ -1363,6 +1447,21 @@ if(BUILD_TESTING)
     target_link_libraries(room-state-model-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME room-state-model COMMAND room-state-model-test)
 
+    # v0.6.5: matrix.to room permalink formatting (1d Copy room link) —
+    # alias preferred, id fallback, messagePermalink's encoding convention.
+    qt_add_executable(room-permalink-test
+        tests/RoomPermalinkTest.cpp
+        src/models/RoomListModel.h
+        src/models/RoomListModel.cpp
+        src/spaces/SpaceManager.h
+        src/spaces/SpaceManager.cpp
+        src/matrix/MatrixClient.h
+        src/matrix/MatrixClient.cpp
+    )
+    target_include_directories(room-permalink-test PRIVATE src)
+    target_link_libraries(room-permalink-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME room-permalink COMMAND room-permalink-test)
+
     # v0.6.1: quick switcher result model — matching, categories, bounded
     # results, routing payload, logout clearing.
     qt_add_executable(quick-switcher-test
@@ -1755,6 +1854,108 @@ if(BUILD_TESTING)
     target_link_libraries(button-system-test PRIVATE Qt6::Test)
     add_test(NAME button-system COMMAND button-system-test)
     set_tests_properties(button-system PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    # v0.6.5 shared menu language (SPEC §0): AppMenu/AppMenuItem metrics and
+    # ink, keycap chips, section labels, status chips, danger rows, and the
+    # cascading flyout with its Escape-innermost-first contract.
+    qt_add_executable(menu-system-qml-test
+        tests/MenuSystemQmlTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_app(menu-system-qml-test)
+    target_link_libraries(menu-system-qml-test PRIVATE Qt6::Test)
+    add_test(NAME menu-system-qml COMMAND menu-system-qml-test)
+    set_tests_properties(menu-system-qml PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    # v0.6.5: 1q mention-popup behavior — role chips, query header, selected
+    # row keycap, accessibility, plus source-scan sub-tests (needs QML_DIR).
+    qt_add_executable(mention-popup-contract-test
+        tests/MentionPopupContractTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_app(mention-popup-contract-test)
+    target_compile_definitions(mention-popup-contract-test PRIVATE
+        QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
+    target_link_libraries(mention-popup-contract-test PRIVATE Qt6::Test)
+    add_test(NAME mention-popup-contract COMMAND mention-popup-contract-test)
+    set_tests_properties(mention-popup-contract PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    # v0.6.5: 1h account switcher — vertical identity cards, real-data-only
+    # meta, live-id switch guard, preserved confirmations.
+    qt_add_executable(identity-card-account-menu-test
+        tests/IdentityCardAccountMenuTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_app(identity-card-account-menu-test)
+    target_compile_definitions(identity-card-account-menu-test PRIVATE
+        QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
+    target_link_libraries(identity-card-account-menu-test PRIVATE Qt6::Test)
+    add_test(NAME identity-card-account-menu
+        COMMAND identity-card-account-menu-test)
+    set_tests_properties(identity-card-account-menu PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    # v0.6.5: 1p member profile — omitted affordances stay omitted, DM-reuse
+    # preserved, role chips, clipboard round-trip.
+    qt_add_executable(member-profile-popover-contract-test
+        tests/MemberProfilePopoverContractTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_app(member-profile-popover-contract-test)
+    target_compile_definitions(member-profile-popover-contract-test PRIVATE
+        QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
+    target_link_libraries(member-profile-popover-contract-test PRIVATE
+        Qt6::Test)
+    add_test(NAME member-profile-popover-contract
+        COMMAND member-profile-popover-contract-test)
+    set_tests_properties(member-profile-popover-contract PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    # v0.6.5: 1r trust card — brand-fixed rendering, complete/pending steps,
+    # no QR affordance, no app.* coupling.
+    qt_add_executable(trust-card-test
+        tests/TrustCardTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_app(trust-card-test)
+    target_compile_definitions(trust-card-test PRIVATE
+        QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
+    target_link_libraries(trust-card-test PRIVATE Qt6::Test)
+    add_test(NAME trust-card COMMAND trust-card-test)
+    set_tests_properties(trust-card PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    # v0.6.5: 1t invite dialog — chips, already-member pre-check, room
+    # header, per-user result states (this dialog had zero coverage before).
+    qt_add_executable(invite-people-dialog-qml-test
+        tests/InvitePeopleDialogQmlTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_app(invite-people-dialog-qml-test)
+    target_compile_definitions(invite-people-dialog-qml-test PRIVATE
+        QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
+    target_link_libraries(invite-people-dialog-qml-test PRIVATE Qt6::Test)
+    add_test(NAME invite-people-dialog-qml
+        COMMAND invite-people-dialog-qml-test)
+    set_tests_properties(invite-people-dialog-qml PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    # v0.6.5: 1j/1k quick switcher — mode transitions, honest command
+    # actions, live theme execution, Escape (the audit's G2 coverage gap).
+    qt_add_executable(quick-switcher-modes-qml-test
+        tests/QuickSwitcherModesQmlTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_app(quick-switcher-modes-qml-test)
+    target_compile_definitions(quick-switcher-modes-qml-test PRIVATE
+        QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
+    target_link_libraries(quick-switcher-modes-qml-test PRIVATE Qt6::Test)
+    add_test(NAME quick-switcher-modes-qml
+        COMMAND quick-switcher-modes-qml-test)
+    set_tests_properties(quick-switcher-modes-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endif()
 
