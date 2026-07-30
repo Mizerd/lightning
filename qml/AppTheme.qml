@@ -743,6 +743,7 @@ QtObject {
     readonly property int fontResult:    14  // result-row titles (13.5 in spec)
     readonly property int fontQuery:     15  // search/omnibox query, card names
     readonly property int fontTrustName: 17  // trust-card display name
+    readonly property int fontNavTitle:  17  // Settings-nav pane title (SPEC 1v, 17px/800)
 
     // ---- Font families. ----
     // The selectable bundled UI families ship with Lightning (data/fonts,

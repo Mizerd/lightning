@@ -373,20 +373,28 @@ Item {
                 Layout.preferredWidth: 260
                 Layout.minimumWidth: 200
                 color: AppTheme.sidebar
+                // Structural containment: nothing hosted in this column
+                // (search results, inline controls) may ever paint across
+                // the divider into the content pane, whatever its width.
+                clip: true
 
                 ColumnLayout {
                     anchors.fill: parent
                     anchors.margins: AppTheme.spacing12
                     spacing: 2
 
+                    // SPEC 1v: 17px/800 pane title with a tight 12px gap to
+                    // the search field — the previous 24px page-title size
+                    // and stacked margins pushed the section rows visibly
+                    // lower than the mock's rhythm.
                     Label {
                         text: qsTr("Settings")
                         color: AppTheme.textPrimary
-                        font.pixelSize: AppTheme.fontPageTitle
+                        font.pixelSize: AppTheme.fontNavTitle
                         font.weight: Font.ExtraBold
                         Layout.leftMargin: AppTheme.spacing8
-                        Layout.topMargin: AppTheme.spacing8
-                        Layout.bottomMargin: AppTheme.spacing8
+                        Layout.topMargin: AppTheme.spacing4
+                        Layout.bottomMargin: AppTheme.spacing4
                     }
 
                     // SPEC 1v: search field directly under the title, with a
@@ -478,6 +486,27 @@ Item {
                                         TapHandler {
                                             onTapped: root.section = resultRow.modelData.section
                                         }
+
+                                        // The three-segment layout control is
+                                        // wider than the 220px the nav column
+                                        // leaves beside the text — inline it
+                                        // BELOW the title as a dense row
+                                        // instead of letting it paint across
+                                        // the nav divider into the pane.
+                                        SegmentedControl {
+                                            objectName: "settingsSearchInlineMessageLayout_" + resultRow.index
+                                            visible: resultRow.modelData.control === "messageLayout"
+                                            dense: true
+                                            Layout.topMargin: AppTheme.spacing4
+                                            model: [
+                                                { label: qsTr("Modern"), value: 0 },
+                                                { label: qsTr("Bubbles"), value: 1 },
+                                                { label: qsTr("Compact"), value: 2 },
+                                            ]
+                                            current: app.settings.messageLayout
+                                            onActivated: (value) =>
+                                                app.settings.messageLayout = value
+                                        }
                                     }
 
                                     // ── Inline live controls (SPEC 1v):
@@ -492,18 +521,6 @@ Item {
                                         onToggled: app.settings.theme =
                                             app.settings.theme === 0
                                                 ? AppTheme.effectiveTheme : 0
-                                    }
-                                    SegmentedControl {
-                                        objectName: "settingsSearchInlineMessageLayout_" + resultRow.index
-                                        visible: resultRow.modelData.control === "messageLayout"
-                                        model: [
-                                            { label: qsTr("Modern"), value: 0 },
-                                            { label: qsTr("Bubbles"), value: 1 },
-                                            { label: qsTr("Compact"), value: 2 },
-                                        ]
-                                        current: app.settings.messageLayout
-                                        onActivated: (value) =>
-                                            app.settings.messageLayout = value
                                     }
                                     AppSwitch {
                                         objectName: "settingsSearchInlineShowRoomActivity_" + resultRow.index
@@ -1614,50 +1631,102 @@ Item {
                             font.pixelSize: AppTheme.fontSectionTitle
                             font.weight: Font.DemiBold
                         }
+                        // v0.6.5 polish: the account header carries the
+                        // identity-card idiom (real Avatar, bold display
+                        // name, mono MXID, status chip) in the ACTIVE theme
+                        // — the brand navy/yellow stays exclusive to the
+                        // trust card.
                         SettingsCard {
+                            id: accountIdentityCard
+                            // Invokable results do not re-evaluate on
+                            // signals; refresh the record whenever the
+                            // registry or selection changes (the SpacesRail
+                            // idiom) — a profile landing after this screen
+                            // opened must not leave a stale MXID-as-name.
+                            property var accountRecord: ({})
+                            function refreshAccountRecord() {
+                                accountRecord =
+                                    (app.accounts && app.accounts.activeUserId)
+                                    ? app.accounts.account(app.accounts.activeUserId)
+                                    : ({})
+                            }
+                            Component.onCompleted: refreshAccountRecord()
+                            Connections {
+                                target: app.accounts
+                                function onAccountsChanged() {
+                                    accountIdentityCard.refreshAccountRecord()
+                                }
+                                function onActiveUserIdChanged() {
+                                    accountIdentityCard.refreshAccountRecord()
+                                }
+                            }
+                            readonly property string accountDisplayName:
+                                accountRecord && accountRecord.displayName
+                                ? accountRecord.displayName : ""
                             ColumnLayout {
                                 width: parent.width
                                 spacing: AppTheme.spacing8
                                 RowLayout {
                                     spacing: AppTheme.spacing12
-                                    Rectangle {
-                                        width: 48; height: 48
-                                        radius: AppTheme.radiusPill
-                                        color: AppTheme.accent
-                                        Label {
-                                            anchors.centerIn: parent
-                                            text: {
-                                                var uid = app.accounts ? (app.accounts.activeUserId || "") : ""
-                                                if (uid.startsWith("@")) uid = uid.slice(1)
-                                                return uid.length > 0 ? uid[0].toUpperCase() : "?"
-                                            }
-                                            color: AppTheme.accentText
-                                            font.pixelSize: AppTheme.fontRoomTitle
-                                            font.weight: Font.DemiBold
-                                        }
+                                    Avatar {
+                                        size: 48
+                                        circle: false
+                                        squareRadius: 14
+                                        mxc: accountIdentityCard.accountRecord
+                                             && accountIdentityCard.accountRecord.avatarUrl
+                                             ? accountIdentityCard.accountRecord.avatarUrl : ""
+                                        name: accountIdentityCard.accountDisplayName.length > 0
+                                              ? accountIdentityCard.accountDisplayName
+                                              : (app.accounts ? (app.accounts.activeUserId || "") : "")
+                                        colorKey: app.accounts ? (app.accounts.activeUserId || "") : ""
                                     }
                                     ColumnLayout {
                                         Layout.fillWidth: true
-                                        spacing: 0
+                                        spacing: 2
+                                        RowLayout {
+                                            Layout.fillWidth: true
+                                            spacing: AppTheme.spacing8
+                                            Label {
+                                                text: accountIdentityCard.accountDisplayName.length > 0
+                                                      ? accountIdentityCard.accountDisplayName
+                                                      : (app.accounts
+                                                         ? (app.accounts.activeUserId || qsTr("(signed out)"))
+                                                         : "")
+                                                color: AppTheme.textPrimary
+                                                font.pixelSize: AppTheme.fontSizeL
+                                                font.weight: Font.Bold
+                                                elide: Label.ElideRight
+                                                Layout.maximumWidth: 300
+                                            }
+                                            StatusChip {
+                                                visible: app.backendName === "rust"
+                                                label: app.sessionTrustState
+                                                iconName: app.sessionTrustState === "Verified"
+                                                          ? "verified_user" : ""
+                                                // Same mapping as the Sessions
+                                                // "Current session" chip — one
+                                                // trust state, one ink.
+                                                tone: app.sessionTrustState === "Verified"
+                                                      ? "success"
+                                                      : app.sessionTrustState === "Not verified"
+                                                        ? "danger" : "neutral"
+                                            }
+                                            Item { Layout.fillWidth: true }
+                                        }
                                         Label {
                                             Layout.fillWidth: true
-                                            text: app.accounts ? (app.accounts.activeUserId || qsTr("(signed out)")) : ""
-                                            color: AppTheme.textPrimary
-                                            font.pixelSize: AppTheme.fontBody
+                                            text: app.accounts ? (app.accounts.activeUserId || "") : ""
+                                            color: AppTheme.monoIdentityColor
+                                            font.family: AppTheme.monoFont
+                                            font.pixelSize: AppTheme.fontMonoXS
                                             elide: Label.ElideMiddle
                                         }
                                         Label {
                                             visible: app.backendName === "rust" && app.sessionDeviceId !== ""
-                                            text: qsTr("Device: %1").arg(app.sessionDeviceId)
+                                            text: qsTr("Device %1").arg(app.sessionDeviceId)
                                             color: AppTheme.textMuted
-                                            font.pixelSize: AppTheme.fontCaption
-                                        }
-                                        Label {
-                                            visible: app.backendName === "rust"
-                                            text: qsTr("Session: %1").arg(app.sessionTrustState)
-                                            color: app.sessionTrustState === "Verified"
-                                                   ? AppTheme.success : AppTheme.textMuted
-                                            font.pixelSize: AppTheme.fontCaption
+                                            font.family: AppTheme.monoFont
+                                            font.pixelSize: AppTheme.fontMonoXS
                                         }
                                     }
                                 }
@@ -2088,10 +2157,26 @@ Item {
                             Layout.fillWidth: true
                             visible: app.cryptoHealth
                                      && app.cryptoHealth.cryptoSupported
-                            readonly property var accountRecord:
-                                app.accounts && app.accounts.activeUserId
-                                ? app.accounts.account(app.accounts.activeUserId)
-                                : ({})
+                            // Same invokable-staleness guard as the Account
+                            // header above: refresh on registry/selection
+                            // changes instead of binding a Q_INVOKABLE.
+                            property var accountRecord: ({})
+                            function refreshAccountRecord() {
+                                accountRecord =
+                                    (app.accounts && app.accounts.activeUserId)
+                                    ? app.accounts.account(app.accounts.activeUserId)
+                                    : ({})
+                            }
+                            Component.onCompleted: refreshAccountRecord()
+                            Connections {
+                                target: app.accounts
+                                function onAccountsChanged() {
+                                    sessionsTrustCard.refreshAccountRecord()
+                                }
+                                function onActiveUserIdChanged() {
+                                    sessionsTrustCard.refreshAccountRecord()
+                                }
+                            }
                             readonly property bool devicesVerified:
                                 app.sessionDevices.length > 0
                                 ? app.sessionDevices.every(
@@ -2148,11 +2233,17 @@ Item {
                                 spacing: AppTheme.spacing8
                                 RowLayout {
                                     Layout.fillWidth: true
-                                    Label {
-                                        text: qsTr("Sessions")
-                                        color: AppTheme.textSecondary
-                                        font.pixelSize: AppTheme.fontSecondary
-                                        font.weight: Font.DemiBold
+                                    // Mono-caption module header — the trust
+                                    // card's "TRUST CHAIN" idiom, in theme
+                                    // ink.
+                                    RowLayout {
+                                        spacing: AppTheme.spacing6
+                                        Icon {
+                                            name: "devices"
+                                            size: 13
+                                            color: AppTheme.sectionLabelColor
+                                        }
+                                        MenuSectionLabel { text: qsTr("Sessions") }
                                     }
                                     Item { Layout.fillWidth: true }
                                     Label {
@@ -2188,59 +2279,104 @@ Item {
                                     font.pixelSize: AppTheme.fontSecondary
                                     text: qsTr("Press Refresh to load this account's sessions.")
                                 }
+                                // v0.6.5 polish: each session is a small
+                                // elevated tile (device icon, name, status
+                                // chips, mono metadata) — the premium card
+                                // language of the trust surface, in theme
+                                // ink. Trust values still come straight from
+                                // SDK state; nothing here invents trust.
                                 Repeater {
                                     model: app.sessionDevices
-                                    delegate: ColumnLayout {
+                                    delegate: Rectangle {
                                         Layout.fillWidth: true
-                                        spacing: 2
+                                        radius: AppTheme.radiusTile
+                                        color: AppTheme.cardElevated
+                                        border.width: 1
+                                        border.color: modelData.isCurrent === true
+                                                      ? AppTheme.accentBorder
+                                                      : AppTheme.border
+                                        implicitHeight: sessionTileRow.implicitHeight
+                                                        + AppTheme.spacing8 * 2
+
                                         RowLayout {
-                                            Layout.fillWidth: true
-                                            spacing: AppTheme.spacing8
-                                            Label {
-                                                text: (modelData.displayName
-                                                       && modelData.displayName.length > 0)
-                                                      ? modelData.displayName
-                                                      : modelData.deviceId
-                                                color: AppTheme.text
-                                                font.pixelSize: AppTheme.fontSecondary
-                                                font.weight: Font.DemiBold
-                                                elide: Label.ElideRight
+                                            id: sessionTileRow
+                                            anchors.left: parent.left
+                                            anchors.right: parent.right
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            anchors.leftMargin: AppTheme.spacing8 + 2
+                                            anchors.rightMargin: AppTheme.spacing8 + 2
+                                            spacing: AppTheme.spacing8 + 2
+
+                                            Rectangle {
+                                                implicitWidth: 30
+                                                implicitHeight: 30
+                                                radius: AppTheme.radiusTile
+                                                color: AppTheme.surface
+                                                border.width: 1
+                                                border.color: AppTheme.border
+                                                Icon {
+                                                    anchors.centerIn: parent
+                                                    name: "devices"
+                                                    size: 16
+                                                    color: modelData.isCurrent === true
+                                                           ? AppTheme.accent
+                                                           : AppTheme.textSecondary
+                                                }
+                                            }
+
+                                            ColumnLayout {
                                                 Layout.fillWidth: true
-                                            }
-                                            Label {
-                                                visible: modelData.isCurrent === true
-                                                text: qsTr("This session")
-                                                color: AppTheme.accent
-                                                font.pixelSize: AppTheme.fontSecondary
-                                            }
-                                            Label {
-                                                text: modelData.crossSigned === true
-                                                      ? qsTr("Verified")
-                                                      : modelData.hasCryptoIdentity === true
-                                                        ? qsTr("Not verified")
-                                                        : qsTr("No encryption")
-                                                color: modelData.crossSigned === true
-                                                       ? AppTheme.success
-                                                       : AppTheme.textMuted
-                                                font.pixelSize: AppTheme.fontSecondary
-                                            }
-                                        }
-                                        Label {
-                                            Layout.fillWidth: true
-                                            color: AppTheme.textMuted
-                                            font.pixelSize: AppTheme.fontSecondary
-                                            elide: Label.ElideRight
-                                            text: {
-                                                var parts = [ modelData.deviceId ]
-                                                if (modelData.lastSeen
-                                                    && !isNaN(modelData.lastSeen.getTime()))
-                                                    parts.push(qsTr("last seen %1").arg(
-                                                        Qt.formatDateTime(modelData.lastSeen,
-                                                                          "d MMM yyyy hh:mm")))
-                                                if (modelData.lastSeenIp
-                                                    && modelData.lastSeenIp.length > 0)
-                                                    parts.push(modelData.lastSeenIp)
-                                                return parts.join(" · ")
+                                                spacing: 2
+                                                RowLayout {
+                                                    Layout.fillWidth: true
+                                                    spacing: AppTheme.spacing6
+                                                    Label {
+                                                        text: (modelData.displayName
+                                                               && modelData.displayName.length > 0)
+                                                              ? modelData.displayName
+                                                              : modelData.deviceId
+                                                        color: AppTheme.text
+                                                        font.pixelSize: AppTheme.fontSecondary
+                                                        font.weight: Font.DemiBold
+                                                        elide: Label.ElideRight
+                                                        Layout.fillWidth: true
+                                                    }
+                                                    StatusChip {
+                                                        visible: modelData.isCurrent === true
+                                                        label: qsTr("This session")
+                                                        tone: "accent"
+                                                    }
+                                                    StatusChip {
+                                                        label: modelData.crossSigned === true
+                                                              ? qsTr("Verified")
+                                                              : modelData.hasCryptoIdentity === true
+                                                                ? qsTr("Not verified")
+                                                                : qsTr("No encryption")
+                                                        iconName: modelData.crossSigned === true
+                                                                  ? "verified_user" : ""
+                                                        tone: modelData.crossSigned === true
+                                                              ? "success" : "neutral"
+                                                    }
+                                                }
+                                                Label {
+                                                    Layout.fillWidth: true
+                                                    color: AppTheme.textMuted
+                                                    font.family: AppTheme.monoFont
+                                                    font.pixelSize: AppTheme.fontMonoXS
+                                                    elide: Label.ElideRight
+                                                    text: {
+                                                        var parts = [ modelData.deviceId ]
+                                                        if (modelData.lastSeen
+                                                            && !isNaN(modelData.lastSeen.getTime()))
+                                                            parts.push(qsTr("last seen %1").arg(
+                                                                Qt.formatDateTime(modelData.lastSeen,
+                                                                                  "d MMM yyyy hh:mm")))
+                                                        if (modelData.lastSeenIp
+                                                            && modelData.lastSeenIp.length > 0)
+                                                            parts.push(modelData.lastSeenIp)
+                                                        return parts.join(" · ")
+                                                    }
+                                                }
                                             }
                                         }
                                     }
@@ -2266,32 +2402,38 @@ Item {
                                 width: parent.width
                                 spacing: AppTheme.spacing8
 
-                                Label {
-                                    text: qsTr("Current session")
-                                    color: AppTheme.textSecondary
-                                    font.pixelSize: AppTheme.fontSecondary
-                                    font.weight: Font.DemiBold
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: AppTheme.spacing6
+                                    Icon {
+                                        name: "key"
+                                        size: 13
+                                        color: AppTheme.sectionLabelColor
+                                    }
+                                    MenuSectionLabel { text: qsTr("Current session") }
+                                    Item { Layout.fillWidth: true }
+                                    StatusChip {
+                                        label: app.sessionTrustState
+                                        iconName: app.sessionTrustState === "Verified"
+                                                  ? "verified_user" : ""
+                                        tone: app.sessionTrustState === "Verified"
+                                              ? "success"
+                                              : app.sessionTrustState === "Not verified"
+                                                ? "danger" : "neutral"
+                                    }
                                 }
                                 Label {
                                     Layout.fillWidth: true
                                     wrapMode: Text.WordWrap
                                     color: AppTheme.textMuted
+                                    font.family: AppTheme.monoFont
+                                    font.pixelSize: AppTheme.fontMonoXS
                                     text: qsTr("Device ID: %1").arg(
                                         app.sessionDeviceId !== ""
                                             ? app.sessionDeviceId
                                             : (app.rustDeviceIdRedacted !== ""
                                                 ? app.rustDeviceIdRedacted
                                                 : qsTr("(not yet available)")))
-                                }
-                                Label {
-                                    Layout.fillWidth: true
-                                    wrapMode: Text.WordWrap
-                                    color: app.sessionTrustState === "Verified"
-                                        ? AppTheme.success
-                                        : (app.sessionTrustState === "Not verified"
-                                            ? AppTheme.warning
-                                            : AppTheme.textMuted)
-                                    text: qsTr("Status: %1").arg(app.sessionTrustState)
                                 }
                                 Label {
                                     Layout.fillWidth: true
@@ -2468,7 +2610,17 @@ Item {
                                                     implicitWidth: 84
                                                     implicitHeight: 78
                                                     ColumnLayout {
-                                                        anchors.centerIn: parent
+                                                        // Width-bound, not
+                                                        // centerIn: a long SAS
+                                                        // word ("Headphones")
+                                                        // otherwise widens the
+                                                        // layout past the 84px
+                                                        // tile and bleeds over
+                                                        // its neighbours.
+                                                        anchors.verticalCenter: parent.verticalCenter
+                                                        anchors.left: parent.left
+                                                        anchors.right: parent.right
+                                                        anchors.margins: AppTheme.spacing4
                                                         spacing: 2
                                                         Label {
                                                             text: modelData.symbol || ""
@@ -2481,7 +2633,13 @@ Item {
                                                             font.pixelSize: AppTheme.fontCaption
                                                             color: AppTheme.textMuted
                                                             horizontalAlignment: Text.AlignHCenter
-                                                            Layout.alignment: Qt.AlignHCenter
+                                                            // Wrap, never elide: the user is
+                                                            // asked to COMPARE this word across
+                                                            // devices — a truncated word is
+                                                            // worse than a two-line caption.
+                                                            wrapMode: Text.Wrap
+                                                            maximumLineCount: 2
+                                                            Layout.fillWidth: true
                                                         }
                                                     }
                                                 }

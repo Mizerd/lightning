@@ -16,6 +16,9 @@ Row {
 
     property var model: []
     property var current
+    // Compact variant for tight hosts (the 260px Settings-nav inline
+    // results): smaller type and padding, same interaction and states.
+    property bool dense: false
     signal activated(var value)
 
     spacing: 2
@@ -37,8 +40,8 @@ Row {
             enabled: typeof modelData === "string"
                      || modelData.enabled === undefined
                      || modelData.enabled === true
-            implicitWidth: segText.implicitWidth + 24
-            implicitHeight: 30
+            implicitWidth: segText.implicitWidth + (root.dense ? 12 : 24)
+            implicitHeight: root.dense ? 26 : 30
             hoverEnabled: true
             focusPolicy: Qt.TabFocus
             Accessible.role: Accessible.RadioButton
@@ -55,7 +58,7 @@ Row {
                 color: !segment.enabled ? AppTheme.textDisabled
                        : segment.selected ? AppTheme.accentText
                        : AppTheme.textSecondary
-                font.pixelSize: 13
+                font.pixelSize: root.dense ? 12 : 13
                 font.weight: Font.Bold
                 horizontalAlignment: Text.AlignHCenter
                 verticalAlignment: Text.AlignVCenter
