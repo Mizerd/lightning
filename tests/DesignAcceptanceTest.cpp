@@ -160,6 +160,11 @@ private slots:
               QStringLiteral("Source Sans 3") },
             { QStringLiteral("PlusJakartaSans[wght].ttf"),
               QStringLiteral("Plus Jakarta Sans") },
+            // v0.6.5: brand face for the trust surface (SPEC 1r) — not a
+            // selectable body face, but a stripped build must still fail
+            // loudly rather than silently substituting.
+            { QStringLiteral("SpaceGrotesk[wght].ttf"),
+              QStringLiteral("Space Grotesk") },
         };
         for (const auto &font : bundled) {
             const int id = QFontDatabase::addApplicationFont(

@@ -1,0 +1,479 @@
+// v0.6.5 shared menu language (SPEC §0): offscreen proof that the upgraded
+// AppMenu/AppMenuItem/AppMenuSeparator and the new MenuKeycap /
+// MenuSectionLabel / StatusChip primitives implement the design contract —
+// 32px radius-8 rows with an 18px muted icon, accentSoft highlight with
+// selectedText ink, filled mono keycap chips, the danger treatment, radio
+// flyout rows whose selection binding an internal toggle can never destroy,
+// and a cascading flyout that closes before its parent on Escape. Expected
+// colors are read back from token probes in the same scene, never hard-coded.
+
+#include <QtTest/QtTest>
+
+#include <QGuiApplication>
+#include <QImage>
+#include <QQmlComponent>
+#include <QQmlEngine>
+#include <QQuickItem>
+#include <QQuickWindow>
+
+namespace {
+
+QColor sampleAvg(const QImage &img, const QRect &r)
+{
+    qint64 red = 0, green = 0, blue = 0, n = 0;
+    for (int y = r.top(); y <= r.bottom(); ++y) {
+        for (int x = r.left(); x <= r.right(); ++x) {
+            const QColor c = img.pixelColor(x, y);
+            red += c.red();
+            green += c.green();
+            blue += c.blue();
+            ++n;
+        }
+    }
+    return n ? QColor(int(red / n), int(green / n), int(blue / n)) : QColor();
+}
+
+int channelDelta(const QColor &a, const QColor &b)
+{
+    return qMax(qMax(qAbs(a.red() - b.red()), qAbs(a.green() - b.green())),
+                qAbs(a.blue() - b.blue()));
+}
+
+constexpr int kTolerance = 8;
+
+const char *kScene = R"QML(
+import QtQuick
+import QtQuick.Controls
+import MatrixClient
+
+ApplicationWindow {
+    id: win
+    width: 640
+    height: 480
+    visible: true
+    color: AppTheme.background
+
+    property int themeMode: 9
+    Binding { target: AppTheme; property: "mode"; value: win.themeMode }
+
+    // Owner-side radio state: the flyout rows bind to this, and the binding
+    // must survive clicks (AppMenuItem never self-toggles radioSelected).
+    property bool allMessagesSelected: true
+
+    Rectangle { objectName: "tokAccentSoft"; visible: false; color: AppTheme.accentSoft }
+    Rectangle { objectName: "tokSelectedText"; visible: false; color: AppTheme.selectedText }
+    Rectangle { objectName: "tokCardElevated"; visible: false; color: AppTheme.cardElevated }
+    Rectangle { objectName: "tokBorderStrong"; visible: false; color: AppTheme.borderStrong }
+    Rectangle { objectName: "tokTextMuted"; visible: false; color: AppTheme.textMuted }
+    Rectangle { objectName: "tokTextDisabled"; visible: false; color: AppTheme.textDisabled }
+    Rectangle { objectName: "tokDangerInk"; visible: false; color: AppTheme.dangerInk }
+    Rectangle { objectName: "tokAccent"; visible: false; color: AppTheme.accent }
+    Rectangle { objectName: "tokSurface"; visible: false; color: AppTheme.surface }
+    Rectangle { objectName: "tokPresenceOnline"; visible: false; color: AppTheme.presenceOnline }
+    Rectangle { objectName: "tokMentionBadge"; visible: false; color: AppTheme.mentionBadge }
+    Rectangle { objectName: "tokAccentText"; visible: false; color: AppTheme.accentText }
+
+    AppMenu {
+        id: menu
+        objectName: "menu"
+        menuWidth: AppTheme.menuWidthMessage
+
+        AppMenuItem { objectName: "replyItem"; text: "Reply"; iconName: "reply"; accel: "R" }
+        AppMenuItem { objectName: "threadItem"; text: "Reply in thread"; iconName: "forum"; accel: "T" }
+        AppMenuSeparator { objectName: "groupSeparator" }
+        AppMenuItem { objectName: "copyItem"; text: "Copy text"; iconName: "content_copy"; accel: "Ctrl+C" }
+        AppMenu {
+            id: flyout
+            objectName: "flyout"
+            title: "Notifications"
+            submenuIconName: "notifications"
+            menuWidth: AppTheme.menuWidthFlyout
+            AppMenuItem {
+                objectName: "radioAll"
+                text: "All messages"
+                radio: true
+                radioSelected: win.allMessagesSelected
+            }
+            AppMenuItem {
+                objectName: "radioMentions"
+                text: "Mentions only"
+                radio: true
+                radioSelected: !win.allMessagesSelected
+            }
+        }
+        AppMenuSeparator {}
+        AppMenuItem { objectName: "deleteItem"; text: "Delete message"; iconName: "delete"; danger: true }
+    }
+
+    function openMenu() { menu.popup(win.contentItem, 60, 40) }
+
+    MenuKeycap { objectName: "keycapText"; keys: "ESC"; header: true; x: 24; y: 420 }
+    MenuKeycap { objectName: "keycapIcon"; iconName: "keyboard_return"; x: 96; y: 420 }
+    MenuSectionLabel { objectName: "sectionLabel"; text: "Rooms"; x: 160; y: 420 }
+    QuickReactionStrip {
+        objectName: "keyboardStrip"
+        x: 24
+        y: 448
+        width: 192
+    }
+    StatusChip { objectName: "chipVerified"; label: "Verified"; iconName: "verified_user"; tone: "success"; x: 240; y: 416 }
+    StatusChip { objectName: "chipActive"; label: "ACTIVE"; tone: "onAccent"; x: 340; y: 416 }
+    StatusChip { objectName: "chipLoud"; label: "LOUD"; tone: "danger"; x: 430; y: 416 }
+    StatusChip { objectName: "chipUnread"; label: "3"; tone: "danger"; solid: true; x: 500; y: 416 }
+}
+)QML";
+
+} // namespace
+
+class MenuSystemQmlTest : public QObject
+{
+    Q_OBJECT
+
+private:
+    QQmlEngine m_engine;
+    QObject *m_root = nullptr;
+    QQuickWindow *m_window = nullptr;
+
+    QQuickItem *item(const char *name) const
+    {
+        return m_root->findChild<QQuickItem *>(QLatin1String(name));
+    }
+
+    QColor token(const char *name) const
+    {
+        auto *it = m_root->findChild<QQuickItem *>(QLatin1String(name));
+        return it ? it->property("color").value<QColor>() : QColor();
+    }
+
+    QQuickItem *rowChild(QQuickItem *menuItem, const char *objectName) const
+    {
+        return menuItem ? menuItem->findChild<QQuickItem *>(
+                              QLatin1String(objectName))
+                        : nullptr;
+    }
+
+    // The Icon and Label inside an AppMenuItem's content row, located
+    // structurally (first child with a "name" property = Icon; first with
+    // "elide" = Label) so the test does not depend on private names.
+    QQuickItem *leadingIcon(QQuickItem *menuItem) const
+    {
+        const auto all = menuItem->findChildren<QQuickItem *>();
+        for (QQuickItem *child : all) {
+            if (child->metaObject()->indexOfProperty("name") >= 0
+                && child->metaObject()->indexOfProperty("size") >= 0)
+                return child;
+        }
+        return nullptr;
+    }
+
+    QQuickItem *label(QQuickItem *menuItem) const
+    {
+        const auto all = menuItem->findChildren<QQuickItem *>();
+        for (QQuickItem *child : all) {
+            if (child->metaObject()->indexOfProperty("elide") >= 0)
+                return child;
+        }
+        return nullptr;
+    }
+
+    void openMenu()
+    {
+        QMetaObject::invokeMethod(m_root, "openMenu");
+        auto *menu = m_root->findChild<QObject *>(QStringLiteral("menu"));
+        QVERIFY(menu);
+        QTRY_VERIFY(menu->property("opened").toBool());
+    }
+
+    void closeMenu()
+    {
+        auto *menu = m_root->findChild<QObject *>(QStringLiteral("menu"));
+        QMetaObject::invokeMethod(menu, "close");
+        QTRY_VERIFY(!menu->property("visible").toBool());
+    }
+
+private slots:
+    void initTestCase()
+    {
+        QQmlComponent component(&m_engine);
+        component.setData(QByteArray(kScene),
+                          QUrl(QStringLiteral("menuscene.qml")));
+        m_root = component.create();
+        QVERIFY2(m_root, qPrintable(component.errorString()));
+        component.setParent(m_root);
+        m_window = qobject_cast<QQuickWindow *>(m_root);
+        QVERIFY(m_window);
+        QVERIFY(QTest::qWaitForWindowExposed(m_window));
+    }
+
+    void cleanupTestCase()
+    {
+        delete m_root;
+        m_root = nullptr;
+    }
+
+    void keycapChipImplementsSpecTreatment()
+    {
+        auto *chip = item("keycapText");
+        QVERIFY(chip);
+        QCOMPARE(chip->property("radius").toInt(), 4);
+        QCOMPARE(chip->property("color").value<QColor>(),
+                 token("tokCardElevated"));
+        auto *chipLabel = rowChild(chip, "keycapLabel");
+        QVERIFY(chipLabel);
+        QCOMPARE(chipLabel->property("text").toString(),
+                 QStringLiteral("ESC"));
+        const QFont font = chipLabel->property("font").value<QFont>();
+        QCOMPARE(font.family(), QStringLiteral("JetBrains Mono"));
+        QCOMPARE(font.pixelSize(), 10);
+        QCOMPARE(chipLabel->property("color").value<QColor>(),
+                 token("tokTextMuted"));
+        // Icon mode: glyphs the mono face lacks (↵) render as an Icon.
+        auto *iconChip = item("keycapIcon");
+        QVERIFY(iconChip);
+        auto *glyph = rowChild(iconChip, "keycapGlyph");
+        QVERIFY(glyph);
+        QVERIFY(glyph->property("visible").toBool());
+        QCOMPARE(glyph->property("name").toString(),
+                 QStringLiteral("keyboard_return"));
+        QVERIFY(!rowChild(iconChip, "keycapLabel")->property("visible").toBool());
+    }
+
+    void sectionLabelUsesAccessibleMutedInkUppercase()
+    {
+        auto *sectionLabel = item("sectionLabel");
+        QVERIFY(sectionLabel);
+        const QFont font = sectionLabel->property("font").value<QFont>();
+        QCOMPARE(font.pixelSize(), 10);
+        QCOMPARE(int(font.weight()), int(QFont::ExtraBold));
+        QCOMPARE(int(font.capitalization()), int(QFont::AllUppercase));
+        // Load-bearing labels ride the AA-asserted muted ink; textDisabled
+        // stays reserved for genuinely disabled controls (AA-exempt). See
+        // AppTheme.sectionLabelColor's rationale.
+        QCOMPARE(sectionLabel->property("color").value<QColor>(),
+                 token("tokTextMuted"));
+    }
+
+    void quickReactionStripIsKeyboardOperable()
+    {
+        auto *strip = item("keyboardStrip");
+        QVERIFY(strip);
+        // Focusing the strip root lands on a concrete cell; Right moves the
+        // cell focus; Return picks the focused emoji — the arrow-reachable
+        // replacement contract for the removed "React" menu row.
+        QMetaObject::invokeMethod(strip, "forceActiveFocus");
+        QTRY_VERIFY(m_window->activeFocusItem() != nullptr);
+        QTest::keyClick(m_window, Qt::Key_Right);
+        QSignalSpy picked(strip, SIGNAL(picked(QString)));
+        QTest::keyClick(m_window, Qt::Key_Return);
+        QTRY_COMPARE(picked.count(), 1);
+        // Second cell of the default set after one Right from cell 0.
+        QCOMPARE(picked.first().first().toString(), QStringLiteral("🔥"));
+    }
+
+    void statusChipTonesResolveToTokens()
+    {
+        auto *verified = item("chipVerified");
+        QVERIFY(verified);
+        QCOMPARE(rowChild(verified, "chipLabel")
+                     ->property("color").value<QColor>(),
+                 token("tokPresenceOnline"));
+        QVERIFY(rowChild(verified, "chipIcon")->property("visible").toBool());
+        auto *loud = item("chipLoud");
+        QVERIFY(loud);
+        QCOMPARE(rowChild(loud, "chipLabel")
+                     ->property("color").value<QColor>(),
+                 token("tokMentionBadge"));
+        auto *unread = item("chipUnread");
+        QVERIFY(unread);
+        QCOMPARE(unread->property("color").value<QColor>(),
+                 token("tokMentionBadge"));
+        auto *active = item("chipActive");
+        QVERIFY(active);
+        QCOMPARE(rowChild(active, "chipLabel")
+                     ->property("color").value<QColor>(),
+                 token("tokAccentText"));
+    }
+
+    void menuUsesSpecContainerAndRowMetrics()
+    {
+        openMenu();
+        auto *menu = m_root->findChild<QObject *>(QStringLiteral("menu"));
+        QCOMPARE(menu->property("width").toInt(), 252);
+        auto *reply = item("replyItem");
+        QVERIFY(reply);
+        QCOMPARE(reply->height(), 32.0);
+        auto *icon = leadingIcon(reply);
+        QVERIFY(icon);
+        QCOMPARE(icon->property("size").toInt(), 18);
+        QCOMPARE(icon->property("color").value<QColor>(),
+                 token("tokTextMuted"));
+        // The accelerator keycap renders on the row.
+        auto *accel = rowChild(reply, "keycapLabel");
+        QVERIFY(accel);
+        QCOMPARE(accel->property("text").toString(), QStringLiteral("R"));
+        closeMenu();
+    }
+
+    void highlightedRowUsesAccentSoftWithSelectedInk()
+    {
+        openMenu();
+        auto *menu = m_root->findChild<QObject *>(QStringLiteral("menu"));
+        menu->setProperty("currentIndex", 0);
+        auto *reply = item("replyItem");
+        QVERIFY(reply);
+        QTRY_VERIFY(reply->property("highlighted").toBool());
+        const QImage img = m_window->grabWindow();
+        QVERIFY(!img.isNull());
+        const QPointF inside = reply->mapToScene(QPointF(3, reply->height() / 2));
+        QVERIFY(channelDelta(sampleAvg(img, QRect(int(inside.x()),
+                                                  int(inside.y()) - 1, 2, 3)),
+                             token("tokAccentSoft")) <= kTolerance);
+        QCOMPARE(label(reply)->property("color").value<QColor>(),
+                 token("tokSelectedText"));
+        QCOMPARE(leadingIcon(reply)->property("color").value<QColor>(),
+                 token("tokSelectedText"));
+        menu->setProperty("currentIndex", -1);
+        closeMenu();
+    }
+
+    void dangerRowReadsInDangerInk()
+    {
+        openMenu();
+        auto *deleteItem = item("deleteItem");
+        QVERIFY(deleteItem);
+        QCOMPARE(label(deleteItem)->property("color").value<QColor>(),
+                 token("tokDangerInk"));
+        QCOMPARE(leadingIcon(deleteItem)->property("color").value<QColor>(),
+                 token("tokDangerInk"));
+        closeMenu();
+    }
+
+    void flyoutOpensBesideParentAndEscClosesInnermostFirst()
+    {
+        openMenu();
+        auto *menu = m_root->findChild<QObject *>(QStringLiteral("menu"));
+        auto *flyout = m_root->findChild<QObject *>(QStringLiteral("flyout"));
+        QVERIFY(flyout);
+        QCOMPARE(flyout->property("width").toInt(), 150);
+
+        // The generated parent row carries the flyout's icon and a chevron.
+        QQuickItem *parentRow = nullptr;
+        const int count = menu->property("count").toInt();
+        for (int i = 0; i < count; ++i) {
+            QQuickItem *row = nullptr;
+            QMetaObject::invokeMethod(menu, "itemAt",
+                                      Q_RETURN_ARG(QQuickItem *, row),
+                                      Q_ARG(int, i));
+            if (row && row->property("subMenu").value<QObject *>() == flyout) {
+                parentRow = row;
+                break;
+            }
+        }
+        QVERIFY2(parentRow, "no menu row exposes the nested flyout");
+        QCOMPARE(parentRow->property("iconName").toString(),
+                 QStringLiteral("notifications"));
+
+        // Open the flyout via its parent row and verify it lands beside the
+        // parent menu, then Escape unwinds innermost-first.
+        const QPointF center = parentRow->mapToScene(
+            QPointF(parentRow->width() / 2, parentRow->height() / 2));
+        QTest::mouseClick(m_window, Qt::LeftButton, Qt::NoModifier,
+                          center.toPoint());
+        QTRY_VERIFY(flyout->property("opened").toBool());
+        QVERIFY(menu->property("opened").toBool());
+
+        auto *flyoutItem = item("radioAll");
+        QVERIFY(flyoutItem);
+        const qreal flyoutSceneX =
+            flyoutItem->mapToScene(QPointF(0, 0)).x();
+        const qreal parentRightX =
+            parentRow->mapToScene(QPointF(parentRow->width(), 0)).x();
+        QVERIFY2(flyoutSceneX >= parentRightX - 12,
+                 qPrintable(QStringLiteral("flyout at %1, parent right %2")
+                                .arg(flyoutSceneX).arg(parentRightX)));
+
+        // Radio treatment: bound selection renders the checked glyph in
+        // accent; the unselected row keeps the unchecked glyph.
+        QCOMPARE(leadingIcon(flyoutItem)->property("name").toString(),
+                 QStringLiteral("radio_button_checked"));
+        QCOMPARE(leadingIcon(flyoutItem)->property("color").value<QColor>(),
+                 token("tokAccent"));
+        auto *mentions = item("radioMentions");
+        QVERIFY(mentions);
+        QCOMPARE(leadingIcon(mentions)->property("name").toString(),
+                 QStringLiteral("radio_button_unchecked"));
+
+        QTest::keyClick(m_window, Qt::Key_Escape);
+        QTRY_VERIFY(!flyout->property("opened").toBool());
+        QVERIFY(menu->property("opened").toBool());
+        QTest::keyClick(m_window, Qt::Key_Escape);
+        QTRY_VERIFY(!menu->property("opened").toBool());
+    }
+
+    void radioSelectionBindingSurvivesActivation()
+    {
+        openMenu();
+        auto *menu = m_root->findChild<QObject *>(QStringLiteral("menu"));
+        auto *flyout = m_root->findChild<QObject *>(QStringLiteral("flyout"));
+        QQuickItem *parentRow = nullptr;
+        const int count = menu->property("count").toInt();
+        for (int i = 0; i < count; ++i) {
+            QQuickItem *row = nullptr;
+            QMetaObject::invokeMethod(menu, "itemAt",
+                                      Q_RETURN_ARG(QQuickItem *, row),
+                                      Q_ARG(int, i));
+            if (row && row->property("subMenu").value<QObject *>() == flyout) {
+                parentRow = row;
+                break;
+            }
+        }
+        QVERIFY(parentRow);
+        QPointF center = parentRow->mapToScene(
+            QPointF(parentRow->width() / 2, parentRow->height() / 2));
+        QTest::mouseClick(m_window, Qt::LeftButton, Qt::NoModifier,
+                          center.toPoint());
+        QTRY_VERIFY(flyout->property("opened").toBool());
+
+        // Clicking the row must not flip radioSelected by itself — the
+        // owner's binding stays authoritative (an internal toggle would
+        // destroy it, the classic destroyed-binding bug class).
+        auto *mentions = item("radioMentions");
+        QVERIFY(mentions);
+        QVERIFY(!mentions->property("radioSelected").toBool());
+        center = mentions->mapToScene(
+            QPointF(mentions->width() / 2, mentions->height() / 2));
+        QTest::mouseClick(m_window, Qt::LeftButton, Qt::NoModifier,
+                          center.toPoint());
+        QTRY_VERIFY(!menu->property("opened").toBool());
+        QVERIFY(!mentions->property("radioSelected").toBool());
+
+        // The owner flipping its state re-renders both rows: binding alive.
+        m_root->setProperty("allMessagesSelected", false);
+        QTRY_VERIFY(mentions->property("radioSelected").toBool());
+        auto *all = item("radioAll");
+        QVERIFY(all);
+        QVERIFY(!all->property("radioSelected").toBool());
+        m_root->setProperty("allMessagesSelected", true);
+    }
+
+    void themeSwitchRetintsMenuLanguage()
+    {
+        const QColor indigoSoft = token("tokAccentSoft");
+        m_root->setProperty("themeMode", 10); // Deep Teal
+        QTRY_VERIFY(token("tokAccentSoft") != indigoSoft);
+        auto *chip = item("keycapText");
+        QVERIFY(chip);
+        QCOMPARE(chip->property("color").value<QColor>(),
+                 token("tokCardElevated"));
+        m_root->setProperty("themeMode", 9);
+    }
+};
+
+int main(int argc, char *argv[])
+{
+    QGuiApplication app(argc, argv);
+    MenuSystemQmlTest test;
+    return QTest::qExec(&test, argc, argv);
+}
+
+#include "MenuSystemQmlTest.moc"

@@ -529,6 +529,12 @@ QtObject {
     readonly property color warning:             _accentWarning
     readonly property color danger:              _accentDanger
     readonly property color dangerText:          "#FFFFFF"
+    // v0.6.5 danger roles (SPEC §0 names "mentionBadge/danger red"; the two
+    // diverge, so they are split by role): dangerInk for icon/label ink,
+    // the soft tint pair for destructive-row fills and warning-chip borders.
+    readonly property color dangerInk:           danger
+    readonly property color dangerSoft:          Qt.alpha(mentionBadge, 0.10)
+    readonly property color dangerBorder:        Qt.alpha(mentionBadge, 0.25)
     readonly property color info:                _accentInfo
     readonly property color textPrimary:         _p.textPrimary
     readonly property color textSecondary:       _p.textSecondary
@@ -544,12 +550,22 @@ QtObject {
     // Design --icon token: bare interface icons at rest (handoff themes map
     // it to their muted tone; older palettes follow the same rule).
     readonly property color icon:                textMuted
-    // The design's shadow budget allows exactly four shadows (composer card,
-    // quick-switcher modal, account popover, slider thumb); this is their
-    // per-theme tint.
+    // The design's shadow budget: the composer card, the slider thumb, and
+    // the v0.6.5 overlay-centred popovers (quick switcher, account switcher,
+    // member profile). Context menus stay border-only — their popup geometry
+    // feeds delegate anchor maths and must not inflate. Shared per-theme tint.
     readonly property color shadow:              dark ? "#59000000"
                                                       : "#0A000000"
     readonly property color overlayScrim:        "#80000000"
+    // Ink on overlayScrim media badges (GIF/size pills, media chrome).
+    // ALWAYS white: the scrim is theme-invariant near-black, so accentText —
+    // which Deep Teal deliberately resolves to a dark ink for its bright
+    // accent fills — must never be used here.
+    readonly property color scrimInk:            "#FFFFFF"
+    // v0.6.5: modal backdrop for the quick switcher and centred dialogs
+    // (SPEC §1j rgba(8,8,12,.45)). Deliberately distinct from overlayScrim,
+    // which media badges and the account-switch blocker already consume.
+    readonly property color modalScrim:          "#7308080C"
     readonly property color codeBlock:           _p.codeBlock
     // Link colour — accent by default, readable on every surface.
     readonly property color link:                _p.accent
@@ -585,6 +601,27 @@ QtObject {
                                                  ? _p.online : success
     readonly property color presenceAway:        "#C9B23A"
 
+    // ---- Trust-card brand constants (SPEC 1r). ----
+    // The ONE deliberate theme-invariant exception: the verification/trust
+    // surface always renders in Lightning's brand navy + yellow, in every
+    // theme — the trust moment is the brand moment. ThemeTokensTest asserts
+    // AA pairs for every INK role here (trustInk, trustYellow, trustMuted,
+    // trustCaption, trustCaptionDim, trustVerifyInk); trustPending /
+    // trustChainBorder are deliberately-dim non-text pending treatments
+    // whose state is also carried by the caption ink and icon size.
+    readonly property color trustNavy:        "#0D1B45"
+    readonly property color trustYellow:      "#FFD447"
+    readonly property color trustInk:         "#F2F4FF"
+    readonly property color trustMuted:       "#7D8BBF"
+    readonly property color trustChainBg:     "#0A1231"
+    readonly property color trustChainBorder: "#1B2C60"
+    readonly property color trustPending:     "#2B3C78"
+    readonly property color trustCaption:     "#AAB5E0"
+    // Dim-but-AA pending caption (4.66:1 on trustChainBg; the mock's
+    // #5C6BA3 computed 3.57:1 and failed normal-text AA).
+    readonly property color trustCaptionDim:  "#6F7EB6"
+    readonly property color trustVerifyInk:   "#C9D2F2"
+
     // Deterministic initials-avatar palette from the design handoff; shared
     // by every theme so a user or room keeps one colour everywhere.
     readonly property var avatarPalette: [
@@ -604,7 +641,9 @@ QtObject {
     readonly property int spacing4:  4
     readonly property int spacing6:  6
     readonly property int spacing8:  8
+    readonly property int spacing10: 10
     readonly property int spacing12: 12
+    readonly property int spacing14: 14
     readonly property int spacing16: 16
     readonly property int spacing20: 20
     readonly property int spacing24: 24
@@ -624,6 +663,50 @@ QtObject {
     // Media (images/video/GIF) corner radius — matches the card radius so media
     // reads as part of the message rather than pasted into the window.
     readonly property int radiusMedia: 12
+    // v0.6.5 menu-language radii (SPEC §0 and chosen surfaces).
+    readonly property int radiusChip:    radiusSm   // keycap chips (named role)
+    readonly property int radiusControl: 7   // 28px action-bar buttons, emoji cells
+    readonly property int radiusTile:    9   // icon tiles, footer action buttons
+    readonly property int radiusThumb:  10   // GIF grid thumbnails
+    readonly property int radiusOmnibox: 11  // new-conversation omnibox field
+    readonly property int radiusCard:   14   // identity cards, quick-switcher modal
+
+    // ---- Menu / popover language (v0.6.5, SPEC §0). ----
+    readonly property int menuPadding:        spacing6   // popover internal padding
+    readonly property int menuRadius:         radiusLg   // popover container corner
+    readonly property int menuItemHeight:     32
+    readonly property int menuItemRadius:     radiusMd
+    readonly property int menuItemPadding:    spacing8   // row side padding
+    readonly property int menuIconSize:       18
+    readonly property int menuIconGap:        spacing10  // icon-to-label gap
+    readonly property int menuWidthDefault:   220
+    readonly property int menuWidthMessage:   252        // SPEC 1a
+    readonly property int menuWidthRoom:      196        // SPEC 1d
+    readonly property int menuWidthFlyout:    150        // SPEC 1d notifications flyout
+    readonly property int menuDividerVMargin: spacing6
+    readonly property int menuDividerHMargin: spacing4
+    // Accelerator keycap chips (MenuKeycap.qml).
+    readonly property color keycapBackground:     cardElevated
+    readonly property color keycapBorder:         borderStrong
+    readonly property color keycapText:           textMuted
+    readonly property int   keycapPaddingH:       5   // row-level chips (SPEC §0 1×5)
+    readonly property int   keycapPaddingV:       1
+    readonly property int   keycapHeaderPaddingH: 6   // header-level chips (ESC, 2×6)
+    readonly property int   keycapHeaderPaddingV: 2
+    // Section labels and mono identity strings inside popovers (SPEC §0).
+    // §0 asks for textDisabled on section labels, but every preset's
+    // disabled ink sits below WCAG AA for normal text and these labels are
+    // load-bearing (ROOMS/PEOPLE, picker headings) — they ride the
+    // AA-asserted muted ink instead. textDisabled stays reserved for
+    // genuinely disabled controls, which AA exempts.
+    readonly property color sectionLabelColor: textMuted
+    readonly property color monoIdentityColor: textMuted
+    // Letter-spacing is pixels in QML, not em; converted at the design size.
+    readonly property real  trackingSection:   0.8   // .08em at 10px
+    readonly property real  trackingMono:      1.2   // .12em at 10px
+    // Emoji grid cells shared by the picker body and the quick-react strip.
+    readonly property int   emojiCellSize:  32
+    readonly property int   emojiGlyphSize: 19
 
     // ---- Layout constraints. ----
     // Maximum width of a timeline message row's content (text, media, mention
@@ -650,6 +733,16 @@ QtObject {
     readonly property int fontMessageSender: 12
     readonly property int fontCaption:       fontSizeXS        // 11
     readonly property int fontMono:          fontSizeS
+    // v0.6.5 menu-language sizes. font.pixelSize is an int in Qt, so the
+    // spec's half-pixel sizes are resolved to whole numbers (rounded up so
+    // small ink stays legible). Chrome sizes — never wrapped in scaled().
+    readonly property int fontMicro:     9   // trust captions, GIF badge, role chips
+    readonly property int fontChip:      10  // keycaps, section labels, ACTIVE chip
+    readonly property int fontMonoXS:    11  // mono identity strings (10.5–11 in spec)
+    readonly property int fontMonoSm:    12  // footer hints, status lines (11.5–12)
+    readonly property int fontResult:    14  // result-row titles (13.5 in spec)
+    readonly property int fontQuery:     15  // search/omnibox query, card names
+    readonly property int fontTrustName: 17  // trust-card display name
 
     // ---- Font families. ----
     // The selectable bundled UI families ship with Lightning (data/fonts,
@@ -674,5 +767,13 @@ QtObject {
         "SF Mono",
         "Consolas",
         "monospace"
+    ]
+    // v0.6.5: brand face for the trust surface only (SPEC 1r). Never a body
+    // face — deliberately absent from the Settings font choices.
+    readonly property string brandFont:         "Space Grotesk"
+    readonly property var    brandFontFamilies: [
+        "Space Grotesk",
+        "Manrope",
+        "sans-serif"
     ]
 }

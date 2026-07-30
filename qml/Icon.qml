@@ -42,7 +42,9 @@ Text {
         "done_all": "\ue877",
         "lock": "\ue899",
         "lock_open": "\ue898",
-        "account_circle": "\ue853",
+        // v0.6.5: was the legacy Material Icons codepoint (\ue853), which the
+        // Symbols variable font never carried \u2014 the glyph rendered blank.
+        "account_circle": "\uf20b",
         "verified_user": "\uf013",
         "palette": "\ue40a",
         "devices": "\ue326",
@@ -99,6 +101,22 @@ Text {
         "fit_screen": "\uea10",
         "chevron_left": "\ue5cb",
         "chevron_right": "\ue5cc",
+        // v0.6.5 menu-language glyphs (SPEC 1a-1v): flyout radio rows, the
+        // Lightning bolt (outline at the subset's FILL=0), keycap icons,
+        // new-conversation rows, and the emoji-picker category rail.
+        "radio_button_checked": "\ue837",
+        "radio_button_unchecked": "\ue836",
+        "bolt": "\uea0b",
+        "keyboard_tab": "\ue31c",
+        "group_add": "\ue7f0",
+        "person_search": "\uf106",
+        "pets": "\ue91d",
+        "restaurant": "\ue56c",
+        "sports_esports": "\uea28",
+        "flight": "\ue539",
+        "lightbulb": "\ue90f",
+        "emoji_symbols": "\uea1e",
+        "flag": "\uf0c6",
     })
 
     text: _codepoints[name] !== undefined ? _codepoints[name] : ""

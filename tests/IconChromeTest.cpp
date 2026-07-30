@@ -130,6 +130,39 @@ private Q_SLOTS:
         QVERIFY(QFile::exists(QStringLiteral(
             SOURCE_DIR "/scripts/generate-icon-font.sh")));
     }
+
+    void everyMappedIconIsInTheSubsetScript()
+    {
+        // v0.6.5: a name mapped in Icon.qml but absent from the subset
+        // script's ICONS list renders blank — the subset font never carried
+        // its glyph (this is exactly how account_circle shipped broken).
+        // The script asserts its names against the upstream codepoints, so
+        // map ⊆ script-list keeps map and font in step.
+        const QString iconQml = readAll(QStringLiteral(QML_DIR "/Icon.qml"));
+        QVERIFY(!iconQml.isEmpty());
+        const QString script = readAll(QStringLiteral(
+            SOURCE_DIR "/scripts/generate-icon-font.sh"));
+        QVERIFY(!script.isEmpty());
+        const QRegularExpression icons(
+            QStringLiteral("ICONS=\"([^\"]+)\""));
+        const auto match = icons.match(script);
+        QVERIFY(match.hasMatch());
+        const QStringList names = match.captured(1)
+                .replace(QLatin1Char('\\'), QLatin1Char(' '))
+                .split(QRegularExpression(QStringLiteral("\\s+")),
+                       Qt::SkipEmptyParts);
+        const QSet<QString> listed(names.begin(), names.end());
+        QRegularExpression mapEntry(QStringLiteral("\"([a-z0-9_]+)\": \"\\\\u"));
+        auto it = mapEntry.globalMatch(iconQml);
+        while (it.hasNext()) {
+            const QString name = it.next().captured(1);
+            QVERIFY2(listed.contains(name),
+                     qPrintable(QStringLiteral(
+                         "Icon.qml maps '%1' but scripts/generate-icon-font.sh"
+                         " does not subset it — the glyph would render blank")
+                                    .arg(name)));
+        }
+    }
 };
 
 QTEST_GUILESS_MAIN(IconChromeTest)

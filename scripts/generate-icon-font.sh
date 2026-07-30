@@ -18,7 +18,10 @@ visibility_off content_copy reply gif_box keyboard_return workspaces tag \
 shield key warning error schedule format_bold format_italic strikethrough_s \
 code link format_list_bulleted format_quote \
 pause stop volume_up volume_off open_in_full close_fullscreen graphic_eq \
-speed zoom_in zoom_out fit_screen chevron_left chevron_right"
+speed zoom_in zoom_out fit_screen chevron_left chevron_right \
+account_circle radio_button_checked radio_button_unchecked bolt keyboard_tab \
+group_add person_search pets restaurant sports_esports flight lightbulb \
+emoji_symbols flag"
 
 work=$(mktemp -d); trap 'rm -rf "$work"' EXIT
 base="https://github.com/google/material-design-icons/raw/master/variablefont"

@@ -667,6 +667,7 @@ int main(int argc, char *argv[])
                               "Inter[wght].ttf", "IBMPlexSans[wght].ttf",
                               "SourceSans3[wght].ttf",
                               "PlusJakartaSans[wght].ttf",
+                              "SpaceGrotesk[wght].ttf",
                               "MaterialSymbolsRounded-subset.ttf" }) {
         QFontDatabase::addApplicationFont(
             QStringLiteral(":/qt/qml/MatrixClient/data/fonts/")

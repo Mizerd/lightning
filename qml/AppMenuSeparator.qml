@@ -3,9 +3,12 @@ import QtQuick.Controls.Basic
 import MatrixClient
 
 // v0.7: the hairline between logical groups of AppMenu rows.
+// v0.6.5 (SPEC §0): 6px vertical / 4px horizontal margins.
 MenuSeparator {
-    topPadding: AppTheme.spacing4
-    bottomPadding: AppTheme.spacing4
+    topPadding: AppTheme.menuDividerVMargin
+    bottomPadding: AppTheme.menuDividerVMargin
+    leftPadding: AppTheme.menuDividerHMargin
+    rightPadding: AppTheme.menuDividerHMargin
     contentItem: Rectangle {
         implicitWidth: 200
         implicitHeight: 1

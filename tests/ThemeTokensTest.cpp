@@ -226,6 +226,16 @@ private Q_SLOTS:
             { "ownBubbleText", "_teaOwnBubble", 4.5 },
             { "onAccentMuted", "_teaOwnBubble", 4.5 },
             { "_teaAccentText", "_teaAccent", 4.5 },
+            // v0.6.5 trust-card brand constants (SPEC 1r) — theme-invariant,
+            // so their readability is asserted once, here.
+            { "trustInk", "trustNavy", 4.5 },
+            { "trustYellow", "trustNavy", 4.5 },
+            { "trustMuted", "trustNavy", 4.5 },
+            { "trustMuted", "trustChainBg", 4.5 },
+            { "trustCaption", "trustChainBg", 4.5 },
+            { "trustCaptionDim", "trustChainBg", 4.5 },
+            { "trustNavy", "trustYellow", 4.5 },
+            { "trustVerifyInk", "trustNavy", 4.5 },
         };
         for (const Pair &pair : pairs) {
             const QString fg = c(pair.fg);
