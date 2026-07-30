@@ -833,12 +833,14 @@ Item {
                 visible: rowHover.hovered || root.actionsPinned
                          || moreMenu.opened
                 z: 3
-                radius: AppTheme.radiusMd
+                // v0.6.5 (SPEC 1a): container surface bg, 1px borderStrong,
+                // radius radiusTile, 2px padding.
+                radius: AppTheme.radiusTile
                 color: AppTheme.surface
-                border.color: AppTheme.cardElevated
+                border.color: AppTheme.borderStrong
                 border.width: 1
-                implicitWidth: actionRow.implicitWidth + 8
-                implicitHeight: actionRow.implicitHeight + 6
+                implicitWidth: actionRow.implicitWidth + AppTheme.spacing2 * 2
+                implicitHeight: actionRow.implicitHeight + AppTheme.spacing2 * 2
 
                 Row {
                     id: actionRow
@@ -847,7 +849,7 @@ Item {
                     IconButton {
                         id: reactButton
                         implicitWidth: 28; implicitHeight: 28
-                        radius: 6
+                        radius: AppTheme.radiusControl
                         iconName: "add_reaction"
                         iconSize: 18
                         enabled: !model.redacted
@@ -866,7 +868,7 @@ Item {
                     }
                     IconButton {
                         implicitWidth: 28; implicitHeight: 28
-                        radius: 6
+                        radius: AppTheme.radiusControl
                         iconName: "reply"
                         iconSize: 18
                         enabled: !model.redacted
@@ -882,7 +884,7 @@ Item {
                     }
                     IconButton {
                         implicitWidth: 28; implicitHeight: 28
-                        radius: 6
+                        radius: AppTheme.radiusControl
                         iconName: "forum"
                         iconSize: 18
                         visible: !root.inThreadPanel
@@ -903,9 +905,12 @@ Item {
                     }
                     IconButton {
                         implicitWidth: 28; implicitHeight: 28
-                        radius: 6
+                        radius: AppTheme.radiusControl
                         iconName: "more_vert"
                         iconSize: 18
+                        // v0.6.5 (SPEC 1a): active button gets the accentSoft
+                        // chip while its menu is open.
+                        active: moreMenu.opened
                         Accessible.name: qsTr("More message actions")
                         ToolTip.text: qsTr("More")
                         ToolTip.visible: hovered
@@ -921,10 +926,115 @@ Item {
                         AppMenu {
                             id: moreMenu
                             objectName: "messageContextMenu"
+                            menuWidth: AppTheme.menuWidthMessage
                             onClosed: root.menuEventId = ""
+                            // v0.6.5 (SPEC 1a): single-key accelerators while
+                            // the menu is open. Keys cannot attach to a Menu
+                            // (a Popup, not an Item), so these are Shortcuts
+                            // scoped by moreMenu.opened — inert whenever the
+                            // menu is closed. Each one calls exactly the same
+                            // action expression as the matching row's
+                            // onTriggered below, gated by the same enabled
+                            // condition, then closes the menu. The mock hints
+                            // ↑ on Edit (a composer-history convention this
+                            // app does not have, and a Key_Up shortcut would
+                            // steal menu arrow navigation) — the real binding
+                            // is E and the row's keycap says so.
+                            Shortcut {
+                                sequence: "R"
+                                enabled: moreMenu.opened
+                                context: Qt.ApplicationShortcut
+                                onActivated: {
+                                    if (root.timelineModel.messagePermalink(
+                                            root.menuEventId).length > 0
+                                        && !root.timelineModel.messageDetails(
+                                            root.menuEventId).redacted) {
+                                        root.beginReply(root.menuEventId)
+                                        moreMenu.close()
+                                    }
+                                }
+                            }
+                            Shortcut {
+                                sequence: "T"
+                                enabled: moreMenu.opened
+                                context: Qt.ApplicationShortcut
+                                onActivated: {
+                                    if (root.timelineModel.messagePermalink(
+                                            root.menuEventId).length > 0
+                                        && !root.timelineModel.messageDetails(
+                                            root.menuEventId).redacted) {
+                                        var details = root.timelineModel.messageDetails(
+                                                          root.menuEventId)
+                                        var rootId = (details.threadRootId || "").length > 0
+                                                     ? details.threadRootId
+                                                     : root.menuEventId
+                                        app.thread.openThread(app.currentRoomId, rootId)
+                                        moreMenu.close()
+                                    }
+                                }
+                            }
+                            Shortcut {
+                                sequence: "E"
+                                enabled: moreMenu.opened
+                                context: Qt.ApplicationShortcut
+                                onActivated: {
+                                    if (root.timelineModel.canEditEvent(root.menuEventId)) {
+                                        app.composer.beginEdit(
+                                            root.menuEventId,
+                                            root.timelineModel.visibleTextForEvent(
+                                                root.menuEventId),
+                                            root.timelineModel.sanitizedHtmlForEvent(
+                                                root.menuEventId))
+                                        moreMenu.close()
+                                    }
+                                }
+                            }
+                            Shortcut {
+                                sequence: "Ctrl+C"
+                                enabled: moreMenu.opened
+                                context: Qt.ApplicationShortcut
+                                onActivated: {
+                                    if (root.timelineModel.visibleTextForEvent(
+                                            root.menuEventId).length > 0) {
+                                        root.copyToClipboard(
+                                            root.timelineModel.visibleTextForEvent(
+                                                root.menuEventId))
+                                        moreMenu.close()
+                                    }
+                                }
+                            }
+                            // v0.6.5 (SPEC 1a): quick-react row — the 5 most
+                            // recently used emoji plus a trailing "more" cell
+                            // that opens the full shared picker. Replaces the
+                            // standalone "React" row (removed below); the
+                            // hover action bar's own React button is a
+                            // separate affordance and is unaffected.
+                            QuickReactionStrip {
+                                objectName: "quickReactionStrip"
+                                emojis: app.emojiCatalog.recentEmoji || []
+                                enabled: root.timelineModel.messagePermalink(
+                                             root.menuEventId).length > 0
+                                         && !root.timelineModel.messageDetails(
+                                             root.menuEventId).redacted
+                                opacity: enabled ? 1.0 : 0.5
+                                onPicked: (emoji) => {
+                                    if (root.timelineModel.messagePermalink(
+                                            root.menuEventId).length === 0
+                                        || root.timelineModel.messageDetails(
+                                            root.menuEventId).redacted)
+                                        return
+                                    app.composer.reactTo(root.menuEventId, emoji)
+                                    moreMenu.close()
+                                }
+                                onMorePressed: {
+                                    root.openReactionPickerFor(root.menuEventId, bubbleRow)
+                                    moreMenu.close()
+                                }
+                            }
                             AppMenuItem {
                                 iconName: "reply"
                                 text: qsTr("Reply")
+                                accel: "R"
                                 enabled: root.timelineModel.messagePermalink(
                                              root.menuEventId).length > 0
                                          && !root.timelineModel.messageDetails(
@@ -932,18 +1042,9 @@ Item {
                                 onTriggered: root.beginReply(root.menuEventId)
                             }
                             AppMenuItem {
-                                iconName: "add_reaction"
-                                text: qsTr("React")
-                                enabled: root.timelineModel.messagePermalink(
-                                             root.menuEventId).length > 0
-                                         && !root.timelineModel.messageDetails(
-                                             root.menuEventId).redacted
-                                onTriggered: root.openReactionPickerFor(
-                                                 root.menuEventId, bubbleRow)
-                            }
-                            AppMenuItem {
                                 iconName: "forum"
                                 text: qsTr("Reply in thread")
+                                accel: "T"
                                 enabled: root.timelineModel.messagePermalink(
                                              root.menuEventId).length > 0
                                          && !root.timelineModel.messageDetails(
@@ -977,6 +1078,7 @@ Item {
                             AppMenuItem {
                                 iconName: "content_copy"
                                 text: qsTr("Copy text")
+                                accel: "Ctrl+C"
                                 enabled: root.timelineModel.visibleTextForEvent(
                                              root.menuEventId).length > 0
                                 onTriggered: root.copyToClipboard(
@@ -1013,6 +1115,9 @@ Item {
                                             model.mediaFilename || "download")
                                 }
                             }
+                            // SPEC 1a: the copy group and the people/editing
+                            // group are separate — third divider.
+                            AppMenuSeparator { }
                             AppMenuItem {
                                 iconName: "person"
                                 text: qsTr("View profile")
@@ -1045,6 +1150,7 @@ Item {
                             AppMenuItem {
                                 iconName: "edit_square"
                                 text: qsTr("Edit")
+                                accel: "E"
                                 enabled: root.timelineModel.canEditEvent(root.menuEventId)
                                 visible: enabled
                                 onTriggered: app.composer.beginEdit(
@@ -1292,7 +1398,7 @@ Item {
                     id: directGifLabel
                     anchors.centerIn: parent
                     text: "GIF"
-                    color: AppTheme.accentText
+                    color: AppTheme.scrimInk
                     font.pixelSize: 9
                     font.weight: Font.Bold
                 }
@@ -1531,7 +1637,7 @@ Item {
                                 id: gifLabel
                                 anchors.centerIn: parent
                                 text: "GIF"
-                                color: AppTheme.accentText
+                                color: AppTheme.scrimInk
                                 font.pixelSize: 9
                                 font.weight: Font.Bold
                             }
@@ -1730,7 +1836,7 @@ Item {
                     id: placeholderGifLabel
                     anchors.centerIn: parent
                     text: "GIF"
-                    color: AppTheme.accentText
+                    color: AppTheme.scrimInk
                     font.pixelSize: 9
                     font.weight: Font.Bold
                 }
@@ -2011,7 +2117,7 @@ Item {
                     anchors.centerIn: parent
                     name: "play_arrow"
                     size: 26
-                    color: AppTheme.accentText
+                    color: AppTheme.scrimInk
                 }
             }
             Rectangle {
@@ -2030,13 +2136,13 @@ Item {
                         anchors.verticalCenter: parent.verticalCenter
                         name: "videocam"
                         size: 11
-                        color: AppTheme.accentText
+                        color: AppTheme.scrimInk
                     }
                     Label {
                         anchors.verticalCenter: parent.verticalCenter
                         text: videoBox.formatDuration(model.mediaDurationMs)
                               || qsTr("Video")
-                        color: AppTheme.accentText
+                        color: AppTheme.scrimInk
                         font.pixelSize: 9
                         font.weight: Font.Bold
                     }

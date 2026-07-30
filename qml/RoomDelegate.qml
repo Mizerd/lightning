@@ -12,6 +12,16 @@ Item {
                      : (model.highlightCount > 0
                         ? qsTr("%1, %2 mentions").arg(model.name).arg(model.highlightCount)
                         : model.name)
+    // v0.6.5 (SPEC 1d): keyboard-operable context menu, mirroring
+    // MessageDelegate's Menu-key/Shift+F10 open path (MessageDelegate.qml
+    // :146-154). The menu itself stays joined-room-only (see Keys.onPressed
+    // near roomMenu below), matching the existing right-click gate.
+    // TRADE-OFF, deliberate: every row is a tab stop, so a long room list
+    // costs many Tab presses — but the room list has no list-level arrow
+    // navigation today, and without per-row stops the keyboard menu path
+    // would only reach the selected room. Revisit if list-level focus
+    // navigation lands.
+    activeFocusOnTab: true
 
     property bool selected: false
     signal clicked()
@@ -19,6 +29,12 @@ Item {
     signal rejectInvite()
     signal markRead()
     signal markUnread()
+    // v0.6.5 (SPEC 1d): the delegate stays signal-only for every mutation —
+    // the host (RoomsPanel) performs the actual app.settings/app.roomInfo
+    // calls, exactly like markRead/markUnread today.
+    signal setNotificationMode(int mode)
+    signal copyRoomLink()
+    signal leaveRoomRequested()
 
     // Read rows are dimmed and lighter-weight; unread/selected rows carry
     // full ink (design handoff §2 room-row states).
@@ -187,8 +203,21 @@ Item {
         enabled: model.membership === "joined"
         onTapped: roomMenu.popup()
     }
+    // v0.6.5 (SPEC 1d): keyboard-operable open path, joined-only like the
+    // right-click gate above.
+    Keys.onPressed: (event) => {
+        if (model.membership === "joined"
+            && (event.key === Qt.Key_Menu
+                || (event.key === Qt.Key_F10
+                    && (event.modifiers & Qt.ShiftModifier)))) {
+            roomMenu.popup()
+            event.accepted = true
+        }
+    }
     AppMenu {
         id: roomMenu
+        objectName: "roomContextMenu"
+        menuWidth: AppTheme.menuWidthRoom
         AppMenuItem {
             iconName: "check"
             text: qsTr("Mark as read")
@@ -198,6 +227,74 @@ Item {
             iconName: "visibility_off"
             text: qsTr("Mark as unread")
             onTriggered: root.markUnread()
+        }
+        AppMenuSeparator {}
+        // v0.6.5 (SPEC 1d): device-local notification mode, three radio
+        // rows bound to the REAL setting (SettingsManager::roomNotification-
+        // Mode is Q_INVOKABLE, not a property, so it is re-queried explicitly
+        // rather than bound directly — see refreshMode() below). radioSelected
+        // stays a pure binding on the local currentMode property; it is never
+        // imperatively assigned (AppMenuItem itself never self-toggles it).
+        AppMenu {
+            id: notificationsFlyout
+            objectName: "roomNotificationsFlyout"
+            title: qsTr("Notifications")
+            submenuIconName: "notifications"
+            menuWidth: AppTheme.menuWidthFlyout
+            property int currentMode: 0
+            function refreshMode() {
+                currentMode = app.settings.roomNotificationMode(model.roomId)
+            }
+            onAboutToShow: refreshMode()
+            Connections {
+                target: app.settings
+                function onRoomNotificationModeChanged(roomId) {
+                    if (roomId === model.roomId)
+                        notificationsFlyout.refreshMode()
+                }
+            }
+            AppMenuItem {
+                text: qsTr("All messages")
+                radio: true
+                radioSelected: notificationsFlyout.currentMode === 0
+                onTriggered: root.setNotificationMode(0)
+            }
+            AppMenuItem {
+                text: qsTr("Mentions only")
+                radio: true
+                radioSelected: notificationsFlyout.currentMode === 1
+                onTriggered: root.setNotificationMode(1)
+            }
+            AppMenuItem {
+                text: qsTr("Muted")
+                radio: true
+                radioSelected: notificationsFlyout.currentMode === 2
+                onTriggered: root.setNotificationMode(2)
+            }
+            Label {
+                objectName: "roomNotificationDisclaimer"
+                leftPadding: AppTheme.menuItemPadding
+                rightPadding: AppTheme.menuItemPadding
+                topPadding: AppTheme.spacing4
+                bottomPadding: AppTheme.spacing6
+                text: qsTr("Local setting: it does not change this "
+                           + "room's server push rules.")
+                color: AppTheme.textDisabled
+                font.pixelSize: AppTheme.fontMicro
+                wrapMode: Text.WordWrap
+            }
+        }
+        AppMenuSeparator {}
+        AppMenuItem {
+            iconName: "link"
+            text: qsTr("Copy room link")
+            onTriggered: root.copyRoomLink()
+        }
+        AppMenuItem {
+            iconName: "logout"
+            text: qsTr("Leave room")
+            danger: true
+            onTriggered: root.leaveRoomRequested()
         }
     }
 

@@ -39,6 +39,7 @@ public:
         InviterRole,
         InvitePendingRole,
         InviteErrorRole,
+        CanonicalAliasRole,
     };
 
     explicit RoomListModel(QObject *parent = nullptr);
@@ -70,6 +71,13 @@ public:
     Q_INVOKABLE void rejectInvite(const QString &roomId);
     Q_INVOKABLE void markRoomRead(const QString &roomId);
     Q_INVOKABLE void markRoomUnread(const QString &roomId);
+    // v0.6.5 (SPEC 1d): pure formatting helper for "Copy room link" — prefers
+    // the canonical alias over the bare room id, matching
+    // TimelineModel::messagePermalink's existing percent-encoding convention
+    // (! $ : @ excluded) so room and message links read consistently. No
+    // server behavior; static so it is trivially unit-testable.
+    Q_INVOKABLE static QString roomPermalink(const QString &roomId,
+                                             const QString &canonicalAlias = QString());
     QString searchQuery() const { return m_searchQuery; }
     void setSearchQuery(const QString &query);
     quint64 filterGeneration() const { return m_filterGeneration; }

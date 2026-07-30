@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <QSet>
+#include <QUrl>
 
 RoomListModel::RoomListModel(QObject *parent)
     : QAbstractListModel(parent)
@@ -119,6 +120,7 @@ QVariant RoomListModel::data(const QModelIndex &index, int role) const
                                      ? r.inviterUserId : r.inviterDisplayName;
     case InvitePendingRole:      return r.invitePending;
     case InviteErrorRole:        return r.inviteError;
+    case CanonicalAliasRole:     return r.canonicalAlias;
     default:                     return {};
     }
 }
@@ -146,6 +148,7 @@ QHash<int, QByteArray> RoomListModel::roleNames() const
         { InviterRole,            "inviter" },
         { InvitePendingRole,      "invitePending" },
         { InviteErrorRole,        "inviteError" },
+        { CanonicalAliasRole,     "canonicalAlias" },
     };
 }
 
@@ -165,6 +168,9 @@ QVariantMap RoomListModel::findRoom(const QString &roomId) const
                 { QStringLiteral("encrypted"), r.encrypted },
                 { QStringLiteral("unreadCount"), r.unreadCount },
                 { QStringLiteral("isSpace"),   r.isSpace },
+                // v0.6.5: the invite dialog's room header prefers the
+                // canonical alias over the raw id.
+                { QStringLiteral("canonicalAlias"), r.canonicalAlias },
                 // The room header binds currentRoom.isDirect for the
                 // people-are-circles shape rule (and the composer for the
                 // DM bubble layout); omitting it made every DM header
@@ -489,4 +495,19 @@ void RoomListModel::markRoomRead(const QString &roomId)
 void RoomListModel::markRoomUnread(const QString &roomId)
 {
     if (m_client) m_client->setRoomMarkedUnread(roomId, true);
+}
+
+QString RoomListModel::roomPermalink(const QString &roomId,
+                                     const QString &canonicalAlias)
+{
+    // Pure formatting: prefer the canonical alias over the bare room id, and
+    // reuse TimelineModel::messagePermalink's exact percent-encoding
+    // convention (! $ : @ excluded) so message and room links look
+    // consistent throughout the app. No server behavior.
+    const QString target = !canonicalAlias.isEmpty() ? canonicalAlias : roomId;
+    if (target.isEmpty())
+        return {};
+    return QStringLiteral("https://matrix.to/#/%1")
+        .arg(QString::fromLatin1(QUrl::toPercentEncoding(
+            target, QByteArrayLiteral("!$:@"))));
 }

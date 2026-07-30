@@ -175,9 +175,34 @@ void RoomInfoController::leaveRoom()
     Q_EMIT leaveStateChanged();
 }
 
+void RoomInfoController::leaveRoom(const QString &roomId)
+{
+    if (!m_client || roomId.isEmpty())
+        return;
+    const quint64 opId = m_client->leaveRoom(roomId);
+    if (opId != 0)
+        m_adhocLeaveOps.insert(opId);
+}
+
 void RoomInfoController::onRoomLeaveFinished(quint64 opId, const QString &roomId,
                                              bool ok, const QString &category)
 {
+    if (m_adhocLeaveOps.remove(opId)) {
+        // Room-list adapter path: independent of the panel's own
+        // leavePending/leaveError state. Reuses the exact same sanitized
+        // category-to-text mapping the panel's own leave path uses, so the
+        // two surfaces stay honest and consistent — no new sanitization
+        // rules.
+        if (ok) {
+            Q_EMIT roomLeft(roomId);
+        } else {
+            const QString message = category == QLatin1String("forbidden")
+                ? tr("The server refused to leave this room.")
+                : tr("Leaving the room failed. Check your connection and retry.");
+            Q_EMIT roomLeaveFailed(roomId, message);
+        }
+        return;
+    }
     if (opId != m_leaveOp)
         return;
     m_leaveOp = 0;
@@ -212,6 +237,7 @@ void RoomInfoController::onLoggedOut()
     m_membersOp = 0;
     m_editOp = 0;
     m_leaveOp = 0;
+    m_adhocLeaveOps.clear();
     m_roomId.clear();
     m_editError.clear();
     m_leaveError.clear();

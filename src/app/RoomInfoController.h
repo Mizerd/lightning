@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QObject>
+#include <QSet>
 #include <QString>
 #include <QVariantList>
 #include <QVariantMap>
@@ -64,6 +65,13 @@ public:
     Q_INVOKABLE void setRoomAvatar(const QUrl &fileUrl);
     Q_INVOKABLE void removeRoomAvatar();
     Q_INVOKABLE void leaveRoom();
+    // v0.6.5 (SPEC 1d): room-list context-menu adapter. Acts on an EXPLICIT
+    // room id instead of the controller's own roomId property — the Room
+    // Information panel may be showing a different room (or none), and this
+    // must never mutate that binding. Tracked independently of the panel's
+    // own leavePending/leaveError state (see m_adhocLeaveOps) so the two
+    // paths can never corrupt each other.
+    Q_INVOKABLE void leaveRoom(const QString &roomId);
     // Case-insensitive member filter over the loaded snapshot; returns the
     // same map shape as `members`.
     Q_INVOKABLE QVariantList filterMembers(const QString &needle) const;
@@ -73,8 +81,13 @@ Q_SIGNALS:
     void membersChanged();
     void editStateChanged();
     void leaveStateChanged();
-    // The active room was left; AppController closes the timeline.
+    // The active room was left; AppController closes the timeline. Fired for
+    // both the panel's own Leave button and the room-list adapter above.
     void roomLeft(const QString &roomId);
+    // v0.6.5: the room-list adapter's own honest failure surface — the
+    // panel's leaveError/leaveStateChanged stay reserved for the panel's own
+    // pending room and are not touched by this path.
+    void roomLeaveFailed(const QString &roomId, const QString &message);
 
 private Q_SLOTS:
     void onRoomMembersReceived(quint64 opId, const QString &roomId,
@@ -95,6 +108,9 @@ private:
     quint64 m_membersOp = 0;
     quint64 m_editOp = 0;
     quint64 m_leaveOp = 0;
+    // v0.6.5: in-flight room-list adapter leave() calls, keyed by opId —
+    // deliberately separate from m_leaveOp (the panel's own pending leave).
+    QSet<quint64> m_adhocLeaveOps;
     QVariantList m_members;
     int m_joinedCount = 0;
     int m_invitedCount = 0;
