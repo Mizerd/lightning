@@ -226,6 +226,58 @@ Rectangle {
                 imageViewer.close()
         }
     }
+    // Development-only: screenshot-demo popup hooks (see
+    // ScreenshotDemoController and SpacesRail.qml:accountSwitcherRequested
+    // for the pattern this mirrors). Null target / disabled in a non-demo
+    // build makes this an inert no-op.
+    Connections {
+        target: app.demo
+        enabled: app.screenshotDemoActive
+        function onDemoOpenMessageContextMenu() {
+            var tries = Math.min(timeline.count, 40)
+            // Prefer a plain-text row sent by the demo account itself —
+            // canEditEvent() is the SAME gate the real "Edit" menu item
+            // uses (own + TextMessage + Sent), so a hit here is guaranteed
+            // to render Edit (E keycap) and Delete (danger), not just
+            // whatever happens to be the newest row.
+            for (var i = timeline.count - 1; i >= timeline.count - tries; --i) {
+                var eventId = app.timeline.eventIdAt(i)
+                if (eventId !== "" && app.timeline.canEditEvent(eventId)) {
+                    var ownItem = timeline.itemAtIndex(i)
+                    if (ownItem && ownItem.openContextMenu) {
+                        ownItem.openContextMenu(ownItem.width / 2, ownItem.height / 2)
+                        return
+                    }
+                }
+            }
+            // Fall back to any real, currently-instantiated row — walk back
+            // from the newest loaded row. openContextMenu() itself no-ops
+            // for a virtual/state-activity row or one with no real event id
+            // (it never sets menuEventId), so this backward scan skips
+            // those without any special-casing here.
+            for (var j = timeline.count - 1; j >= timeline.count - tries; --j) {
+                var item = timeline.itemAtIndex(j)
+                if (item && item.openContextMenu) {
+                    item.openContextMenu(item.width / 2, item.height / 2)
+                    if (item.menuEventId !== undefined && item.menuEventId !== "")
+                        return
+                }
+            }
+        }
+        function onDemoOpenMemberProfile() {
+            // A real Design Lounge fictional member (docs/screenshot-demo.md)
+            // — MemberProfilePopover only ever renders caller-supplied
+            // fields, so no room-membership lookup is needed here.
+            timeline.openSenderProfile({
+                userId: "@maya:lightning.example",
+                displayName: "Maya Chen",
+                membership: "joined",
+                role: "",
+                avatarUrl: "mxc://lightning.example/avatar-maya",
+                isOwn: false
+            })
+        }
+    }
     FileDialog {
         id: saveMediaDialog
         property string pendingMediaKey: ""

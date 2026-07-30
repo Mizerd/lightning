@@ -121,6 +121,62 @@ selector or with `--scenario <id>`.
 | `work-overview` | Taylor | Project Aurora | Moss Light · 1440×900 |
 | `community-overview` | Nova | General | Indigo Night · 1440×900 |
 | `responsive-chat` | Alex | Maya Chen at narrow width | Indigo Night · narrow (760×900) |
+| `menu-message` | Alex | Design Lounge + message context menu | Indigo Night · 1440×900 |
+| `menu-room` | Alex | Design Lounge + room context menu | Indigo Night · 1440×900 |
+| `quick-switcher` | Alex | Design Lounge + quick switcher (plain mode) | Indigo Night · 1280×800 |
+| `quick-switcher-command` | Alex | Design Lounge + quick switcher (command mode, `>theme`) | Deep Teal · 1280×800 |
+| `emoji-picker` | Alex | Design Lounge + emoji picker (seeded recents) | Indigo Night · 1280×800 |
+| `gif-picker` | Alex | Weekend Plans + GIF picker (seeded favorite) | Moss Light · 1280×800 |
+| `member-profile` | Alex | Design Lounge + member profile popover | Indigo Night · 1280×800 |
+| `mention-popup` | Alex | Design Lounge + mention popup (`ma` → Maya Chen) | Deep Teal · 1280×800 |
+| `trust-card` | Alex | Settings → Sessions (own-account trust card) | Indigo Night · 1280×800 |
+| `new-conversation` | Alex | Design Lounge + New conversation dialog | Graphite · 1280×800 |
+| `settings-search` | Alex | Settings + search focused (`security`) | Indigo Night · 1280×800 |
+| `invite-people` | Alex | Design Lounge + Invite people dialog | Indigo Night · 1280×800 |
+| `create-poll` | Alex | Design Lounge + Create poll dialog | Moss Light · 1280×800 |
+
+The `trust-card` row's theme is Indigo Night for the surrounding Settings
+chrome only — the TrustCard itself is a brand-fixed design (its palette does
+not follow the active theme), so the card looks the same regardless of which
+theme the row pins.
+
+### Demo-only popup signals
+
+Twelve of the rows above don't have a stable QML-global handle the controller
+can call directly (a context menu, a picker, a popover, or a dialog — each
+instantiated once per view, not once per app). For those, `ScreenshotDemoController`
+exposes development-only signals that fire once the scenario's account/room/
+section navigation has settled (the same pattern `accountSwitcherRequested`
+already uses for the account switcher). Each surface owns wiring a `Connections`
+block (`target: app.demo`, `enabled: app.screenshotDemoActive`) to its own
+popup/dialog instance — the controller only says "open now"; it never reaches
+into QML to pick which delegate/row/instance to target.
+
+| Signal | Scenario | Opens |
+|---|---|---|
+| `demoOpenMessageContextMenu()` | `menu-message` | A message's context menu |
+| `demoOpenRoomContextMenu()` | `menu-room` | A room-list row's context menu |
+| `demoOpenQuickSwitcher(query)` | `quick-switcher`, `quick-switcher-command` | The quick switcher, pre-filled with `query` (`""` = plain mode, a leading `>` = command mode) |
+| `demoOpenEmojiPicker()` | `emoji-picker` | The emoji picker (recents pre-seeded — see below) |
+| `demoOpenGifPicker()` | `gif-picker` | The GIF picker (one favorite pre-seeded — see below) |
+| `demoOpenMemberProfile()` | `member-profile` | The member profile popover |
+| `demoOpenMentionPopup(prefix)` | `mention-popup` | The mention popup, pre-filled with `prefix` |
+| `demoOpenTrustCard()` | `trust-card` | (Settings → Sessions; a hook for scrolling/highlighting the card once embedded) |
+| `demoOpenNewConversation()` | `new-conversation` | The New conversation dialog |
+| `demoFocusSettingsSearch(query)` | `settings-search` | The Settings search field, focused and pre-filled with `query` |
+| `demoOpenInvitePeople()` | `invite-people` | The Invite people dialog |
+| `demoOpenCreatePoll()` | `create-poll` | The Create poll dialog |
+
+Two rows seed local, demo-only, idempotent state before opening (SettingsManager
+recents / the local GIF favorites store — both are ordinary application-local
+persistence, never real Matrix or provider data):
+
+- `emoji-picker` records a fixed, deterministic set of five recent emoji.
+- `gif-picker` favorites one fictional GIF (`giphy` / `demo-favorite-loop`, a
+  `media.giphy.example` URL that never resolves). The demo is fully offline,
+  so this favorite's thumbnail will not actually load bytes — that broken/
+  empty-image state is accepted as-is; the picker's own empty/error states are
+  themselves part of the design and are legitimate to capture.
 
 ## Control panel
 

@@ -60,6 +60,50 @@ Rectangle {
         anchors.centerIn: parent
     }
 
+    // Development-only: locate a descendant by objectName across both the
+    // visual children (Item-derived) and the default-property data list.
+    function findDemoDescendant(obj, name) {
+        if (!obj) return null
+        if (obj.objectName === name) return obj
+        // Dialogs/Popups are not Items: their subtree hangs off contentItem,
+        // never children/data — without this branch a Dialog descendant is
+        // silently unreachable.
+        if (obj.contentItem) {
+            var viaContent = findDemoDescendant(obj.contentItem, name)
+            if (viaContent) return viaContent
+        }
+        var kids = obj.children || []
+        for (var i = 0; i < kids.length; ++i) {
+            var found = findDemoDescendant(kids[i], name)
+            if (found) return found
+        }
+        var data = obj.data || []
+        for (var j = 0; j < data.length; ++j) {
+            var found2 = findDemoDescendant(data[j], name)
+            if (found2) return found2
+        }
+        return null
+    }
+
+    // Development-only: screenshot-demo popup hooks (see
+    // ScreenshotDemoController and SpacesRail.qml:accountSwitcherRequested
+    // for the pattern this mirrors). Null target / disabled in a non-demo
+    // build makes this an inert no-op.
+    Connections {
+        target: app.demo
+        enabled: app.screenshotDemoActive
+        function onDemoOpenInvitePeople() {
+            inviteDialog.openFor(app.currentRoomId)
+            // Seed the token field so real search results (matching Maya
+            // Chen) render instead of an empty starting state.
+            Qt.callLater(function() {
+                var picker = root.findDemoDescendant(inviteDialog, "invitePeoplePicker")
+                if (picker)
+                    picker.searchText = "ma"
+            })
+        }
+    }
+
     FileDialog {
         id: avatarDialog
         title: qsTr("Choose room avatar")

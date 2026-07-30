@@ -41,7 +41,10 @@ MARKER=".lightning-screenshot-demo"
 # The valid screenshot scenarios (kept in sync with ScreenshotDemoController).
 VALID_SCENARIOS="home-overview main-chat direct-message development \
 media-gallery thread-view poll settings-themes account-switching security \
-invite work-overview community-overview responsive-chat"
+invite work-overview community-overview responsive-chat \
+menu-message menu-room quick-switcher quick-switcher-command emoji-picker \
+gif-picker member-profile mention-popup trust-card new-conversation \
+settings-search invite-people create-poll"
 
 usage() {
     sed -n '3,40p' "$0" | sed 's/^# \{0,1\}//'

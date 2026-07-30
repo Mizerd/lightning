@@ -152,6 +152,24 @@ private Q_SLOTS:
         QCOMPARE(ta.first().timestamp.date(), QDate(2026, 7, 23));
     }
 
+    // v0.6.5 (Wave 2): the new `mention-popup` scenario seeds the composer
+    // with the prefix "ma" and expects it to resolve to a real Design Lounge
+    // member (Maya Chen) rather than an assumption baked into the scenario
+    // controller — pin that the fixture actually backs it.
+    void designLoungeHasAMemberMatchingTheMentionPopupPrefix()
+    {
+        MockMatrixClient c;
+        c.setScreenshotDemoMode(true);
+        const RoomInfo design =
+            roomById(c.rooms(), QStringLiteral("!design-lounge:lightning.example"));
+        bool sawMatch = false;
+        for (auto it = design.members.constBegin(); it != design.members.constEnd(); ++it) {
+            if (it->displayName.startsWith(QStringLiteral("Ma"), Qt::CaseInsensitive))
+                sawMatch = true;
+        }
+        QVERIFY2(sawMatch, "expected a Design Lounge member matching prefix \"ma\" (e.g. Maya Chen)");
+    }
+
     void onlyFictionalDomainsAppear()
     {
         MockMatrixClient c;

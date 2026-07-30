@@ -127,11 +127,45 @@ Q_SIGNALS:
     // Open the real account-switcher popover (a QML-local element on the rail).
     void accountSwitcherRequested();
 
+    // Development-only demo-scenario popup hooks. Each Scenario may name one
+    // of these in its `popup` field; activateScenario() fires the matching
+    // signal once navigation to the scenario's room/section has settled
+    // (same spirit as accountSwitcherRequested above). A production build
+    // never emits these (the whole class is compiled out); QML Connections
+    // with `enabled: app.screenshotDemoActive` and a null target in a
+    // non-demo build make wiring them an inert no-op there too. The surface
+    // that owns each popup/dialog decides which item to target (e.g. which
+    // message/room row, which room member) — the controller only says
+    // "open now", never which instance.
+    void demoOpenMessageContextMenu();
+    void demoOpenRoomContextMenu();
+    void demoOpenQuickSwitcher(const QString &query);
+    void demoOpenEmojiPicker();
+    void demoOpenGifPicker();
+    void demoOpenMemberProfile();
+    void demoOpenMentionPopup(const QString &prefix);
+    void demoOpenTrustCard();
+    void demoOpenNewConversation();
+    void demoFocusSettingsSearch(const QString &query);
+    void demoOpenInvitePeople();
+    void demoOpenCreatePoll();
+
 private:
     struct Scenario;
     static const QList<Scenario> &catalogue();
     const Scenario *findScenario(const QString &id) const;
     void applyScenarioNavigation(const Scenario &s);
+    // Fire the Scenario's `popup` signal (if any) one event-loop tick after
+    // navigation, guarded against a newer scenario having taken over in the
+    // meantime. `scenarioId` is the owning scenario id (staleness check),
+    // `popup` the field value, `query` its optional seed text.
+    void dispatchScenarioPopup(const QString &scenarioId, const QString &popup,
+                               const QString &query);
+    // Seed local, demo-only state so a popup scenario has something to show
+    // (emoji recents / a favorited GIF) instead of an empty section. Both
+    // are idempotent — safe to call on every activation/reset.
+    void seedDemoEmojiRecents();
+    void seedDemoGifFavorite();
     void applyLaunchNow();
     void rememberSelectedRoom();
     void restoreSelectedRoom();

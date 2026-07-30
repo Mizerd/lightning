@@ -3,6 +3,8 @@
 #include "app/AppController.h"
 #include "app/SettingsManager.h"
 #include "auth/AccountManager.h"
+#include "gif/GifFavoritesModel.h"
+#include "gif/GifSearchController.h"
 #include "matrix/MockMatrixClient.h"
 #include "spaces/SpaceManager.h"
 #include "threads/ThreadController.h"
@@ -17,13 +19,24 @@ struct ScreenshotDemoController::Scenario {
     QString account;      // full user id
     QString room;         // room id ("" = none)
     QString space;        // active space id ("" = all rooms)
-    QString page;         // "" | "settings-appearance" | "settings-security" | "account-switcher"
+    QString page;         // "" | "settings-appearance" | "settings-security"
+                          // | "settings-sessions" | "account-switcher"
     bool openThread = false;
     int theme = -1;       // SettingsManager::Theme id (-1 = leave as is)
     bool typing = false;
     QString size;         // window preset
     bool controls = true; // demo controls visible on activation
     QString title;        // human-readable label for the panel
+
+    // v0.6.5 (Wave 2): which demo-only popup/overlay to open once the above
+    // navigation has settled, and an optional seed string for it (a quick-
+    // switcher query/command, a mention prefix, a settings-search term).
+    // Trailing fields with no explicit initializer default-construct to ""
+    // via aggregate initialization, so every existing row above is unchanged.
+    // See ScreenshotDemoController::dispatchScenarioPopup for the mapping
+    // from `popup` to the matching demoOpen*/demoFocus* signal.
+    QString popup;
+    QString query;
 };
 
 namespace {
@@ -122,6 +135,92 @@ ScreenshotDemoController::catalogue()
           QStringLiteral("!space-friends:lightning.example"),
           QString(), false, 9, false, QStringLiteral("narrow"), true,
           QStringLiteral("Responsive chat (narrow)") },
+
+        // ── v0.6.5 (Wave 2): menu/popup/dialog surface scenarios ─────────
+        // All reuse existing fictional rooms/members (no new mock data).
+        // Theme per row matches the design-handoff mock for that surface, so
+        // these captures line up in a side-by-side comparison pass.
+        { QStringLiteral("menu-message"), kAlex,
+          QStringLiteral("!design-lounge:lightning.example"),
+          QStringLiteral("!space-studio:lightning.example"),
+          QString(), false, 9, false, QStringLiteral("1440x900"), true,
+          QStringLiteral("Message context menu"),
+          QStringLiteral("message-menu"), QString() },
+        { QStringLiteral("menu-room"), kAlex,
+          QStringLiteral("!design-lounge:lightning.example"),
+          QStringLiteral("!space-studio:lightning.example"),
+          QString(), false, 9, false, QStringLiteral("1440x900"), true,
+          QStringLiteral("Room context menu"),
+          QStringLiteral("room-menu"), QString() },
+        { QStringLiteral("quick-switcher"), kAlex,
+          QStringLiteral("!design-lounge:lightning.example"),
+          QStringLiteral("!space-studio:lightning.example"),
+          QString(), false, 9, false, QStringLiteral("1280x800"), true,
+          QStringLiteral("Quick switcher"),
+          // "de" matches Design Lounge/Development/… (Rooms) and Design
+          // Lounge members whose name contains "de" if any (People) — a
+          // sectioned-results capture rather than the unfiltered full list.
+          QStringLiteral("quick-switcher"), QStringLiteral("de") },
+        { QStringLiteral("quick-switcher-command"), kAlex,
+          QStringLiteral("!design-lounge:lightning.example"),
+          QStringLiteral("!space-studio:lightning.example"),
+          QString(), false, 10, false, QStringLiteral("1280x800"), true,
+          QStringLiteral("Quick switcher — command mode"),
+          QStringLiteral("quick-switcher"), QStringLiteral(">theme") },
+        { QStringLiteral("emoji-picker"), kAlex,
+          QStringLiteral("!design-lounge:lightning.example"),
+          QStringLiteral("!space-studio:lightning.example"),
+          QString(), false, 9, false, QStringLiteral("1280x800"), true,
+          QStringLiteral("Emoji picker"),
+          QStringLiteral("emoji-picker"), QString() },
+        { QStringLiteral("gif-picker"), kAlex,
+          QStringLiteral("!weekend:lightning.example"),
+          QStringLiteral("!space-friends:lightning.example"),
+          QString(), false, 8, false, QStringLiteral("1280x800"), true,
+          QStringLiteral("GIF picker"),
+          QStringLiteral("gif-picker"), QString() },
+        { QStringLiteral("member-profile"), kAlex,
+          QStringLiteral("!design-lounge:lightning.example"),
+          QStringLiteral("!space-studio:lightning.example"),
+          QString(), false, 9, false, QStringLiteral("1280x800"), true,
+          QStringLiteral("Member profile popover"),
+          QStringLiteral("member-profile"), QString() },
+        { QStringLiteral("mention-popup"), kAlex,
+          QStringLiteral("!design-lounge:lightning.example"),
+          QStringLiteral("!space-studio:lightning.example"),
+          QString(), false, 10, false, QStringLiteral("1280x800"), true,
+          QStringLiteral("Mention popup"),
+          QStringLiteral("mention-popup"), QStringLiteral("ma") },
+        { QStringLiteral("trust-card"), kAlex,
+          QStringLiteral("!design-lounge:lightning.example"), QString(),
+          QStringLiteral("settings-sessions"), false, 9, false,
+          QStringLiteral("1280x800"), true,
+          QStringLiteral("Trust card (Settings — Sessions; brand-fixed card)"),
+          QStringLiteral("trust-card"), QString() },
+        { QStringLiteral("new-conversation"), kAlex,
+          QStringLiteral("!design-lounge:lightning.example"),
+          QStringLiteral("!space-studio:lightning.example"),
+          QString(), false, 3, false, QStringLiteral("1280x800"), true,
+          QStringLiteral("New conversation"),
+          QStringLiteral("new-conversation"), QString() },
+        { QStringLiteral("settings-search"), kAlex,
+          QStringLiteral("!design-lounge:lightning.example"), QString(),
+          QStringLiteral("settings-appearance"), false, 9, false,
+          QStringLiteral("1280x800"), true,
+          QStringLiteral("Settings search"),
+          QStringLiteral("settings-search"), QStringLiteral("security") },
+        { QStringLiteral("invite-people"), kAlex,
+          QStringLiteral("!design-lounge:lightning.example"),
+          QStringLiteral("!space-studio:lightning.example"),
+          QString(), false, 9, false, QStringLiteral("1280x800"), true,
+          QStringLiteral("Invite people"),
+          QStringLiteral("invite-people"), QString() },
+        { QStringLiteral("create-poll"), kAlex,
+          QStringLiteral("!design-lounge:lightning.example"),
+          QStringLiteral("!space-studio:lightning.example"),
+          QString(), false, 8, false, QStringLiteral("1280x800"), true,
+          QStringLiteral("Create poll"),
+          QStringLiteral("create-poll"), QString() },
     };
     return c;
 }
@@ -441,6 +540,9 @@ void ScreenshotDemoController::applyScenarioNavigation(const Scenario &s)
     } else if (s.page == QLatin1String("settings-security")) {
         m_app->showSettingsSection(QStringLiteral("security"));
         m_app->showSettings();
+    } else if (s.page == QLatin1String("settings-sessions")) {
+        m_app->showSettingsSection(QStringLiteral("sessions"));
+        m_app->showSettings();
     } else if (s.page == QLatin1String("account-switcher")) {
         m_app->showMain();
         Q_EMIT accountSwitcherRequested();
@@ -455,7 +557,122 @@ void ScreenshotDemoController::applyScenarioNavigation(const Scenario &s)
     m_suppressRoomRestore = false;
     if (!s.room.isEmpty())
         m_selectedRoomPerAccount[s.account] = s.room;
+
+    // Seed local, demo-only state synchronously (no layout dependency) before
+    // the popup itself opens, so a picker that needs recents/favorites to
+    // look real has them the instant it's visible.
+    if (s.popup == QLatin1String("emoji-picker"))
+        seedDemoEmojiRecents();
+    else if (s.popup == QLatin1String("gif-picker"))
+        seedDemoGifFavorite();
+    dispatchScenarioPopup(s.id, s.popup, s.query);
+
     Q_EMIT stateChanged();
+}
+
+// ── Demo-only popup dispatch ────────────────────────────────────────────
+
+void ScreenshotDemoController::dispatchScenarioPopup(const QString &scenarioId,
+                                                     const QString &popup,
+                                                     const QString &query)
+{
+    if (popup.isEmpty())
+        return;
+    // Deferred one event-loop tick so a popup anchored to a delegate item
+    // (a message row, a room-list row) opens only after that item has
+    // actually been instantiated by its ListView, and guarded against a
+    // newer scenario having taken over before the tick fires (the demo panel
+    // lets a user pick a different scenario faster than one tick).
+    QTimer::singleShot(0, this, [this, scenarioId, popup, query] {
+        if (m_currentScenario != scenarioId)
+            return;
+        if (popup == QLatin1String("message-menu"))
+            Q_EMIT demoOpenMessageContextMenu();
+        else if (popup == QLatin1String("room-menu"))
+            Q_EMIT demoOpenRoomContextMenu();
+        else if (popup == QLatin1String("quick-switcher"))
+            Q_EMIT demoOpenQuickSwitcher(query);
+        else if (popup == QLatin1String("emoji-picker"))
+            Q_EMIT demoOpenEmojiPicker();
+        else if (popup == QLatin1String("gif-picker"))
+            Q_EMIT demoOpenGifPicker();
+        else if (popup == QLatin1String("member-profile"))
+            Q_EMIT demoOpenMemberProfile();
+        else if (popup == QLatin1String("mention-popup"))
+            Q_EMIT demoOpenMentionPopup(query);
+        else if (popup == QLatin1String("trust-card"))
+            Q_EMIT demoOpenTrustCard();
+        else if (popup == QLatin1String("new-conversation"))
+            Q_EMIT demoOpenNewConversation();
+        else if (popup == QLatin1String("settings-search"))
+            Q_EMIT demoFocusSettingsSearch(query);
+        else if (popup == QLatin1String("invite-people"))
+            Q_EMIT demoOpenInvitePeople();
+        else if (popup == QLatin1String("create-poll"))
+            Q_EMIT demoOpenCreatePoll();
+    });
+}
+
+void ScreenshotDemoController::seedDemoEmojiRecents()
+{
+    if (!m_app || !m_app->emojiCatalog())
+        return;
+    // Fixed, deterministic call order — recordRecentEmoji dedups+prepends,
+    // so the final list is identical on every activation regardless of
+    // whatever was recorded before (idempotent for repeat/reset scenarios).
+    //
+    // Routed through EmojiCatalog::recordUse(), NOT SettingsManager::
+    // recordRecentEmoji() directly: recordUse() is the only path that also
+    // rebuild()s the live "Recently Used" bucket and emits
+    // recentEmojiChanged(), which is what the picker's GridView and the
+    // message-menu quick-react strip are actually bound to. Calling
+    // SettingsManager's setter directly persists the same data but leaves
+    // every already-constructed QML view showing a stale (empty) list —
+    // this was caught precisely that way in an early screenshot-demo
+    // capture (the picker's Recently Used section stayed empty despite the
+    // underlying settings value being seeded correctly).
+    static const QStringList kRecents = {
+        QStringLiteral("\U0001F389"),   // 🎉 party popper
+        QStringLiteral("\U0001F525"),   // 🔥 fire
+        QStringLiteral("\U0001F602"),   // 😂 joy
+        QStringLiteral("\U0001F44D"),   // 👍 thumbs up
+        QStringLiteral("❤️"), // ❤️ red heart
+    };
+    for (const QString &emoji : kRecents)
+        m_app->emojiCatalog()->recordUse(emoji);
+}
+
+void ScreenshotDemoController::seedDemoGifFavorite()
+{
+    if (!m_app || !m_app->gif() || !m_app->gif()->favorites())
+        return;
+    GifFavoritesModel *favorites = m_app->gif()->favorites();
+    const QString provider = QStringLiteral("giphy");
+    const QString gifId = QStringLiteral("demo-favorite-loop");
+    // toggle() flips state, so guard with isFavorite() — otherwise a second
+    // activation (panel re-click, resetScenario) would delete the seed it
+    // just added instead of leaving it in place.
+    if (favorites->isFavorite(provider, gifId))
+        return;
+    QVariantMap result;
+    result.insert(QStringLiteral("provider"), provider);
+    result.insert(QStringLiteral("gifId"), gifId);
+    result.insert(QStringLiteral("title"), QStringLiteral("Retro dance loop"));
+    result.insert(QStringLiteral("rating"), QStringLiteral("g"));
+    // Fictional, non-resolving *.example CDN domain — no network in demo
+    // mode ever fetches these; the offline broken-thumbnail state is an
+    // accepted, deliberate limitation (see docs/screenshot-demo.md).
+    result.insert(QStringLiteral("previewUrl"),
+                  QStringLiteral("https://media.giphy.example/demo-favorite-loop/preview.gif"));
+    result.insert(QStringLiteral("stillUrl"),
+                  QStringLiteral("https://media.giphy.example/demo-favorite-loop/still.jpg"));
+    result.insert(QStringLiteral("gifUrl"),
+                  QStringLiteral("https://media.giphy.example/demo-favorite-loop/original.gif"));
+    result.insert(QStringLiteral("gifWidth"), 480);
+    result.insert(QStringLiteral("gifHeight"), 480);
+    result.insert(QStringLiteral("previewWidth"), 240);
+    result.insert(QStringLiteral("previewHeight"), 240);
+    favorites->toggle(result);
 }
 
 // ── Panel actions ───────────────────────────────────────────────────────
