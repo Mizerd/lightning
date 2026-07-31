@@ -88,7 +88,10 @@ Item {
 
     // ── Active card fill — Storm §4 2c: flat stormPanel with the strong
     // border; the previous themed Canvas gradient retired with the storm
-    // language (the card no longer follows the user theme).
+    // language. Since the 0.6.5 routing correction, stormPanel/
+    // stormBorderStrong follow the user's selected theme again (Storm
+    // itself is now a real selectable theme, id 11) — this card renders
+    // navy only under Storm, and the active user's own theme otherwise.
     Rectangle {
         objectName: "identityCardActiveFill"
         anchors.fill: parent

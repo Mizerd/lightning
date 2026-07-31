@@ -80,6 +80,7 @@ ApplicationWindow {
     Rectangle { objectName: "tokStormBorderStrong"; visible: false; color: AppTheme.stormBorderStrong }
     Rectangle { objectName: "tokStormDanger"; visible: false; color: AppTheme.stormDanger }
     Rectangle { objectName: "tokBolt"; visible: false; color: AppTheme.bolt }
+    Rectangle { objectName: "tokBoltInk"; visible: false; color: AppTheme.boltInk }
 
     AppMenu {
         id: menu
@@ -492,27 +493,46 @@ private slots:
         m_root->setProperty("allMessagesSelected", true);
     }
 
-    void themeSwitchLeavesStormMenuLanguageInvariant()
+    void themeSwitchRoutesStormMenuLanguagePerLegacyTheme()
     {
-        // Storm §5: the menu language is deliberately theme-INVARIANT — a
-        // Deep Teal user still gets navy/yellow menus. Switch themes and
-        // assert the storm chip treatment does not move while a themed
-        // token demonstrably does.
+        // 0.6.5 correction: Storm became a REAL selectable theme (id 11)
+        // and the storm* namespace is theme-ROUTED, not invariant — under
+        // every legacy theme (1-10) it now resolves to that theme's own
+        // semantic tones, so a Deep Teal user gets Deep Teal menus again.
+        // Only Storm itself (11) still renders the fixed navy/bolt literal.
+        // This inverts the old invariance contract: a legacy->legacy switch
+        // must RETINT the storm-skinned keycap and land on the new theme's
+        // own routed stormBorderStrong, and switching TO Storm must always
+        // land on the fixed Storm literal regardless of which legacy theme
+        // was active immediately before.
         const QColor indigoSoft = token("tokAccentSoft");
-        const QColor chipBorderBefore =
-            item("keycapText")->property("border").value<QObject *>()
-                ->property("color").value<QColor>();
-        m_root->setProperty("themeMode", 10); // Deep Teal
-        QTRY_VERIFY(token("tokAccentSoft") != indigoSoft);
+        const QColor indigoBorderStrong = token("tokStormBorderStrong");
         auto *chip = item("keycapText");
         QVERIFY(chip);
+        QCOMPARE(chip->property("border").value<QObject *>()
+                     ->property("color").value<QColor>(),
+                 indigoBorderStrong);
+
+        m_root->setProperty("themeMode", 10); // Deep Teal — still legacy.
+        QTRY_VERIFY(token("tokAccentSoft") != indigoSoft);
+        const QColor tealBorderStrong = token("tokStormBorderStrong");
+        QVERIFY2(tealBorderStrong != indigoBorderStrong,
+                 "legacy->legacy theme switch must retint the routed "
+                 "storm border, not stay invariant");
         QCOMPARE(chip->property("color").value<QColor>().alpha(), 0);
         QCOMPARE(chip->property("border").value<QObject *>()
                      ->property("color").value<QColor>(),
-                 chipBorderBefore);
-        QCOMPARE(chip->property("border").value<QObject *>()
-                     ->property("color").value<QColor>(),
-                 token("tokStormBorderStrong"));
+                 tealBorderStrong);
+
+        // Storm (11) always resolves to the fixed §1 literal, regardless of
+        // which legacy theme was active immediately beforehand.
+        m_root->setProperty("themeMode", 11);
+        QTRY_COMPARE(chip->property("border").value<QObject *>()
+                         ->property("color").value<QColor>(),
+                     QColor(QStringLiteral("#2B3C78")));
+        QCOMPARE(token("tokStormBorderStrong"),
+                 QColor(QStringLiteral("#2B3C78")));
+
         m_root->setProperty("themeMode", 9);
     }
 };

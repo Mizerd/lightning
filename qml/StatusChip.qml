@@ -43,8 +43,15 @@ Rectangle {
     }
     readonly property color _ink: {
         if (storm)
-            return _boltChip ? AppTheme.stormPanel
-                 : solid ? AppTheme.stormPanel
+            // Ink ON the bolt/solid fill, not the panel ink — boltInk
+            // (Storm: deep canvas navy; legacy: accentText) stays readable
+            // once bolt/the solid tone routes to each legacy theme's own
+            // accent. The `solid` branch is unreachable today (no caller
+            // passes solid:true on a storm chip) but shares the same fill-ink
+            // shape, so it rides the same token rather than the stale panel
+            // ink if it's ever used.
+            return _boltChip ? AppTheme.boltInk
+                 : solid ? AppTheme.boltInk
                  : _base
         return solid
             ? (tone === "danger" ? AppTheme.dangerText

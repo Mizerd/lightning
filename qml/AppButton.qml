@@ -39,7 +39,10 @@ AbstractButton {
         color: {
             if (root.storm) {
                 if (!root.enabled) return AppTheme.stormTextFaint
-                if (root.primary) return AppTheme.stormPanel
+                // Ink on the bolt fill, not the panel ink — boltInk stays
+                // readable once bolt routes to each legacy theme's own
+                // accent.
+                if (root.primary) return AppTheme.boltInk
                 if (root.danger) return AppTheme.stormDanger
                 return AppTheme.stormTextSecondary
             }
@@ -62,6 +65,16 @@ AbstractButton {
             if (root.storm) {
                 if (root.primary) {
                     if (!root.enabled) return AppTheme.stormInset
+                    // Deliberately procedural, not accentHover/accentPressed:
+                    // Storm's bolt accent has no curated hover/pressed sibling
+                    // token, so down/hover steps are a mechanical darken of
+                    // bolt rather than the theme's own hand-tuned literals.
+                    // Under legacy themes this means the storm:true primary
+                    // fill's hover/pressed tone can read slightly differently
+                    // from the non-storm primary path (which uses
+                    // accentHover/accentPressed) even though both rest states
+                    // now match exactly via bolt->accent routing. Accepted:
+                    // documented divergence, not a defect.
                     if (root.down) return Qt.darker(AppTheme.bolt, 1.12)
                     if (root.hovered) return Qt.darker(AppTheme.bolt, 1.05)
                     return AppTheme.bolt

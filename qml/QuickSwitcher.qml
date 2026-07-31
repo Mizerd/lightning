@@ -324,7 +324,9 @@ Popup {
                     color: AppTheme.stormTextMuted
                 }
                 // Storm 2d: command mode swaps the search glyph for the
-                // yellow bolt square (bolt tile, panel-ink bolt glyph).
+                // bolt-accent square (bolt tile, boltInk glyph — ink on the
+                // bolt fill, readable once bolt routes to each legacy
+                // theme's own accent).
                 Rectangle {
                     anchors.centerIn: parent
                     visible: switcher.commandMode
@@ -336,7 +338,7 @@ Popup {
                         anchors.centerIn: parent
                         name: "bolt"
                         size: 13
-                        color: AppTheme.stormPanel
+                        color: AppTheme.boltInk
                     }
                 }
             }
@@ -460,12 +462,18 @@ Popup {
                         visible: scopeChip.visualFocus
                     }
                     // Storm §3.7 scope chips: selected = bolt pill with
-                    // panel ink; resting = stormBorderStrong outline, muted
-                    // mono UPPERCASE.
+                    // boltInk (ink on the bolt fill); resting =
+                    // stormBorderStrong outline, muted mono UPPERCASE. A
+                    // hovered-but-unselected chip's background brightens to
+                    // stormSelection (see background below) — the menu
+                    // language's own hover-brightens-ink idiom applies here
+                    // too, or textMuted-on-hover falls under AA on several
+                    // legacy themes (review finding).
                     contentItem: Label {
                         id: chipLabel
                         text: scopeChip.modelData.label
-                        color: scopeChip.selected ? AppTheme.stormPanel
+                        color: scopeChip.selected ? AppTheme.boltInk
+                                                  : scopeChip.hovered ? AppTheme.stormText
                                                   : AppTheme.stormTextMuted
                         font.family: AppTheme.monoFont
                         font.pixelSize: AppTheme.fontChip

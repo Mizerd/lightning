@@ -115,19 +115,21 @@ Dialog {
         focusPolicy: Qt.TabFocus
         Accessible.role: Accessible.Button
         Accessible.name: primaryBtn.text
-        // Storm §3.9 primary: bolt fill, PANEL-dark ink.
+        // Storm §3.9 primary: bolt fill, boltInk ink (ink on the bolt
+        // fill — stays readable once bolt routes to each legacy theme's
+        // own accent).
         contentItem: RowLayout {
             id: primaryContent
             spacing: AppTheme.spacing6
             Icon {
                 name: "send"
                 size: 15
-                color: primaryBtn.enabled ? AppTheme.stormPanel
+                color: primaryBtn.enabled ? AppTheme.boltInk
                                           : AppTheme.stormTextFaint
             }
             Label {
                 text: primaryBtn.text
-                color: primaryBtn.enabled ? AppTheme.stormPanel
+                color: primaryBtn.enabled ? AppTheme.boltInk
                                           : AppTheme.stormTextFaint
                 font.family: AppTheme.menuFont
                 font.pixelSize: 13

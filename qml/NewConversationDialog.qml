@@ -766,6 +766,7 @@ Dialog {
             }
             SegmentedControl {
                 objectName: "roomVisibility"
+                storm: true
                 model: [
                     { label: qsTr("Private"), value: "private" },
                     { label: qsTr("Public"), value: "public" }
@@ -1108,6 +1109,7 @@ Dialog {
             }
             SegmentedControl {
                 objectName: "spaceVisibility"
+                storm: true
                 model: [
                     { label: qsTr("Private"), value: "private" },
                     { label: qsTr("Public"), value: "public" }

@@ -47,7 +47,10 @@ AbstractButton {
                 return root.iconColorOverride
             if (root.storm) {
                 if (!root.enabled) return AppTheme.stormTextFaint
-                if (root.fill) return AppTheme.stormPanel
+                // Ink on the bolt fill, not the panel ink — boltInk stays
+                // readable once bolt routes to each legacy theme's own
+                // accent.
+                if (root.fill) return AppTheme.boltInk
                 if (root.active) return AppTheme.bolt
                 return (root.hovered || root.down) ? AppTheme.stormText
                                                    : AppTheme.stormTextMuted
@@ -65,6 +68,9 @@ AbstractButton {
             if (root.storm) {
                 if (root.fill) {
                     if (!root.enabled) return AppTheme.stormInset
+                    // Deliberately procedural, not accentHover/accentPressed
+                    // — see the matching note in AppButton.qml's primary
+                    // fill. Accepted documented divergence, not a defect.
                     if (root.down) return Qt.darker(AppTheme.bolt, 1.12)
                     if (root.hovered) return Qt.darker(AppTheme.bolt, 1.05)
                     return AppTheme.bolt

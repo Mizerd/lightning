@@ -60,6 +60,9 @@ Item {
         anchors.centerIn: parent
         name: root.iconName
         size: Math.round(root.size * 0.62)
-        color: root.complete ? AppTheme.stormPanel : AppTheme.stormTextMuted
+        // Ink on the bolt fill, not the panel ink — boltInk (Storm: deep
+        // canvas navy; legacy: accentText) stays readable once bolt routes
+        // to each legacy theme's own accent.
+        color: root.complete ? AppTheme.boltInk : AppTheme.stormTextMuted
     }
 }

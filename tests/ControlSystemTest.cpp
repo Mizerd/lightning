@@ -263,8 +263,13 @@ private slots:
             popupItem->width() - 10, popupItem->height() / 2));
         const QColor sampled = sampleAvg(
             open, QRect(int(inPopup.x()), int(inPopup.y()), 2, 2));
-        // Storm §5: dropdown popups are part of the menu system and render
-        // the theme-invariant stormPanel in every theme.
+        // Storm §5: dropdown popups are part of the menu system and always
+        // render stormPanel. Since the 0.6.5 routing correction stormPanel
+        // itself is theme-ROUTED (Storm literal under theme 11, the user's
+        // own surface tone under every legacy theme) rather than invariant
+        // — this assertion stays self-consistent because it compares the
+        // live-sampled popup pixel against the SAME routed token, not a
+        // hardcoded literal, so it holds under any active theme.
         QVERIFY2(channelDelta(sampled, token("tokStormPanel")) <= kTolerance,
                  qPrintable(QStringLiteral("popup surface %1 vs %2")
                                 .arg(sampled.name(),

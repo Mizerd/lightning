@@ -43,7 +43,9 @@ Rectangle {
     readonly property color _ink: {
         if (!storm)
             return tinted ? AppTheme.selectedText : AppTheme.keycapText
-        if (_hot) return AppTheme.stormPanel
+        // Ink on the bolt fill, not the panel ink — boltInk stays readable
+        // once bolt routes to each legacy theme's own accent.
+        if (_hot) return AppTheme.boltInk
         if (danger) return AppTheme.stormDanger
         return AppTheme.stormTextMuted
     }

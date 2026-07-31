@@ -323,19 +323,22 @@ Popup {
                             anchors.verticalCenter: parent.verticalCenter
                             name: sectionChip.modelData.icon
                             size: 13
-                            color: sectionChip.selected ? AppTheme.stormPanel
+                            // Ink on the bolt fill, not the panel ink —
+                            // boltInk stays readable once bolt routes to
+                            // each legacy theme's own accent.
+                            color: sectionChip.selected ? AppTheme.boltInk
                                                         : AppTheme.stormTextMuted
                         }
                         Label {
                             anchors.verticalCenter: parent.verticalCenter
                             text: sectionChip.modelData.label
                             // §3.7 scope/filter chip vocabulary: mono
-                            // UPPERCASE; selected = bolt pill with dark ink.
+                            // UPPERCASE; selected = bolt pill with boltInk.
                             font.family: AppTheme.monoFont
                             font.pixelSize: AppTheme.fontChip
                             font.weight: Font.Bold
                             font.capitalization: Font.AllUppercase
-                            color: sectionChip.selected ? AppTheme.stormPanel
+                            color: sectionChip.selected ? AppTheme.boltInk
                                                         : AppTheme.stormTextMuted
                         }
                     }

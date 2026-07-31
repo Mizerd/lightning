@@ -148,6 +148,7 @@ Rectangle {
         // ── Section tabs: one coherent segmented row ─────────────────────
         SegmentedControl {
             objectName: "roomInfoTabs"
+            storm: true
             Layout.margins: AppTheme.spacing8
             model: [
                 { label: qsTr("Overview"), value: "overview" },

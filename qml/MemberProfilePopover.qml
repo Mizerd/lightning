@@ -282,13 +282,16 @@ Popup {
                     // anchors.centerIn on the layout is a no-op and the
                     // icon+label would sit hard against the left edge.
                     // Storm §3.9 primary: THE one bolt fill on this surface.
+                    // boltInk is the ink on that fill (Storm: deep canvas
+                    // navy; legacy: accentText) — stays readable once bolt
+                    // routes to each legacy theme's own accent.
                     contentItem: RowLayout {
                         spacing: AppTheme.spacing6
                         Item { Layout.fillWidth: true }
-                        Icon { name: "chat_bubble"; size: 16; color: AppTheme.stormPanel }
+                        Icon { name: "chat_bubble"; size: 16; color: AppTheme.boltInk }
                         Label {
                             text: qsTr("Message")
-                            color: AppTheme.stormPanel
+                            color: AppTheme.boltInk
                             font.family: AppTheme.menuFont
                             font.pixelSize: 13
                             font.weight: Font.Bold

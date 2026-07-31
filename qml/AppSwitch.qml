@@ -64,10 +64,13 @@ Item {
         opacity: root.enabled ? 1.0 : 0.45
 
         // Thumb: the spec's white 16px circle (same sanctioned literal as
-        // the Settings switch/slider thumbs); panel-dark on the bolt fill.
+        // the Settings switch/slider thumbs — "#FFFFFF" here is that same
+        // accepted exception, not a token gap); boltInk-dark on the bolt
+        // fill so the checked knob stays readable once bolt routes to each
+        // legacy theme's own accent.
         Rectangle {
             width: 16; height: 16; radius: 8
-            color: root.checked ? AppTheme.stormPanel : "#FFFFFF"
+            color: root.checked ? AppTheme.boltInk : "#FFFFFF"
             y: 2
             x: root.checked ? 18 : 2
             Behavior on x {
