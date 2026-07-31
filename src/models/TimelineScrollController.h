@@ -52,6 +52,11 @@ class QAbstractAnimation;
 //   * programmatic navigation -> NOT routed here; QML cancels any active
 //     wheel motion via cancel() first.
 //
+// One exception deliberately does NOT cancel: a backward-pagination anchor
+// restore that lands while a wheel glide is still in flight translates the
+// glide (translateActiveMotion()) instead of cancelling it, so the reader's
+// momentum survives a prepend instead of being frozen mid-flight.
+//
 // Never logs; carries no message content, room ids, or URLs.
 class TimelineScrollController : public QObject
 {
@@ -139,6 +144,19 @@ public:
     // or shrank mid-motion) and it hit a bound: adopt the clamped position and
     // settle instead of pushing further into the bound.
     Q_INVOKABLE void notifyBoundReached(double clampedY);
+
+    // A backward-pagination prepend inserted content above the anchor row
+    // while a discrete-wheel glide is still in flight: shift BOTH the
+    // integrated position and the coalesced target by deltaY, so the glide
+    // continues seamlessly toward a destination that moved with the anchor
+    // instead of being cancelled (and so having its remaining distance
+    // silently discarded) by the correction. A programmatic correction must
+    // never fight or freeze active user motion. No-op while no motion is in
+    // flight — the caller falls back to cancel() in that case, since there is
+    // nothing to translate. The next emitted frame is re-clamped against live
+    // geometry exactly like any other frame; this call carries no clamp of
+    // its own.
+    Q_INVOKABLE void translateActiveMotion(double deltaY);
 
     // Legacy explicit end-of-motion (tests); the engine normally settles
     // itself and emits wheelMotionSettled().

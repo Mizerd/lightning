@@ -389,6 +389,79 @@ private Q_SLOTS:
         QCOMPARE(c.positionYForTest(), kMinY);
     }
 
+    // Backward-pagination anchor restore (TimelinePane.qml's
+    // restoreCapturedAnchor) translates an in-flight discrete-wheel glide
+    // instead of cancelling it. The shift must move the integrated position
+    // AND the coalesced target by the same amount, so remaining distance to
+    // travel is unchanged and the glide continues to a destination that
+    // moved with the prepended content — never frozen partway through.
+    // Before translateActiveMotion() existed, the QML restore path called
+    // cancel() unconditionally here, which froze the glide mid-flight: the
+    // confirmed root cause of "scroll up snaps me half the distance back"
+    // while older history is loading.
+    void translateActiveMotionPreservesRemainingDistance()
+    {
+        TimelineScrollController c;
+        c.setWheelSpeed(TimelineScrollController::VeryFast);
+        // Several quick same-direction notches: a real coalesced glide with
+        // substantial remaining distance still queued, exactly like a
+        // reader spinning the wheel while a near-top request is in flight.
+        for (int i = 0; i < 4; ++i)
+            c.wheelNotch(+kNotch, 5000.0, kMinY, kMaxY, kViewport);
+        QVERIFY(c.motionActive());
+        // Advance partway through the glide — mirrors the pagination batch
+        // landing while the reader is still mid-flight.
+        for (int i = 0; i < 3; ++i)
+            c.advanceMotion(16.0);
+        QVERIFY(c.motionActive());
+        const double remainingBefore = c.targetYForTest() - c.positionYForTest();
+
+        constexpr double shift = 240.0;   // height of the prepended content
+        const double targetBefore = c.targetYForTest();
+        c.translateActiveMotion(shift);
+
+        // Motion is untouched structurally: still active, same remaining
+        // distance, just relocated by the prepend's height.
+        QVERIFY(c.motionActive());
+        QVERIFY(qFuzzyCompare(c.targetYForTest() - c.positionYForTest(),
+                              remainingBefore));
+        QVERIFY(qFuzzyCompare(c.targetYForTest(), targetBefore + shift));
+
+        // Let it finish: it must land exactly on the shifted target, never
+        // on a frozen/truncated position.
+        while (c.motionActive())
+            c.advanceMotion(16.0);
+        QVERIFY(qFuzzyCompare(c.positionYForTest(), c.targetYForTest()));
+        QVERIFY(qFuzzyCompare(c.positionYForTest(), targetBefore + shift));
+    }
+
+    // No motion in flight -> nothing to translate. The QML caller falls back
+    // to a plain cancel() + relative contentY write in that case, so this
+    // must be a true no-op rather than fabricating motion.
+    void translateActiveMotionIsNoOpWhenNotActive()
+    {
+        TimelineScrollController c;
+        QVERIFY(!c.motionActive());
+        c.translateActiveMotion(500.0);
+        QVERIFY(!c.motionActive());
+        QCOMPARE(c.positionYForTest(), 0.0);
+        QCOMPARE(c.targetYForTest(), 0.0);
+    }
+
+    // A zero shift (a pagination batch that inserted no visible rows) must
+    // leave an in-flight glide completely untouched.
+    void translateActiveMotionWithZeroDeltaChangesNothing()
+    {
+        TimelineScrollController c;
+        c.wheelNotch(-kNotch, 5000.0, kMinY, kMaxY, kViewport);
+        c.advanceMotion(16.0);
+        const double position = c.positionYForTest();
+        const double target = c.targetYForTest();
+        c.translateActiveMotion(0.0);
+        QCOMPARE(c.positionYForTest(), position);
+        QCOMPARE(c.targetYForTest(), target);
+    }
+
     // animateTo (keyboard paging) uses the same engine: motion engages
     // synchronously, progresses through intermediate frames, and settles.
     void animateToDrivesSameEngine()

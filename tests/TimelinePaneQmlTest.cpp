@@ -2669,6 +2669,250 @@ private Q_SLOTS:
                      .arg(expected + simulatedScrollDelta)));
         QCOMPARE(warnings, QStringList{});
     }
+
+    // Companion to the test above for the DISCRETE-WHEEL path: a touchpad
+    // gesture holds no engine state, but a wheel glide carries a coalesced
+    // not-yet-reached target inside TimelineScrollController. The old
+    // restoreCapturedAnchor() cancelled that glide unconditionally —
+    // freezing it partway and discarding the reader's remaining distance
+    // ("I scroll up and it snaps me half the distance back"). The fix
+    // translates the active glide by the anchor shift instead; this proves
+    // the glide SURVIVES the restore and keeps travelling afterwards.
+    // Deterministic wiring proof for the scroll fix (review: the first
+    // version raced wall-clock — a 100-250ms pagination delay against a
+    // real glide deceleration — and failed ~1 in 5 under full-suite load.
+    // The C++ unit tests already prove translateActiveMotion's contract;
+    // this test's unique value is the WIRING: restoreCapturedAnchor()
+    // must translate an in-flight discrete-wheel glide instead of
+    // cancelling it. So it invokes the restore DIRECTLY while a real
+    // glide is provably active — no pagination, no timing window at all.
+    void paginationAnchorRestorePreservesWheelGlide()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        auto *mock = controller.findChild<MockMatrixClient *>();
+        QVERIFY(mock != nullptr);
+        const QString roomId = QStringLiteral("!general:mock.local");
+        controller.setCurrentRoomId(roomId);
+
+        QList<TimelineEvent> events;
+        for (int i = 0; i < 30; ++i) {
+            TimelineEvent e;
+            e.sender = QStringLiteral("@alice:mock.local");
+            e.senderDisplayName = QStringLiteral("Alice");
+            e.body = QStringLiteral("history message %1").arg(i);
+            e.timestamp =
+                QDateTime::currentDateTimeUtc().addSecs(-(60 - i) * 60);
+            e.type = TimelineEvent::TextMessage;
+            e.status = TimelineEvent::Sent;
+            events.append(e);
+        }
+        mock->resetTimelineForTest(roomId, events, /*paginationPages=*/1);
+
+        QQmlApplicationEngine engine;
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this,
+                [&warnings](const QList<QQmlError> &errors) {
+                    for (const auto &e : errors)
+                        warnings << e.toString();
+                });
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("TimelinePane"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(root != nullptr);
+        QQuickWindow window;
+        window.resize(760, 620);
+        root->setParentItem(window.contentItem());
+        root->setSize(QSizeF(window.width(), window.height()));
+        window.show();
+
+        auto *timeline = root->findChild<QQuickItem *>(
+            QStringLiteral("timelineListView"));
+        QVERIFY(timeline != nullptr);
+        QTRY_VERIFY_WITH_TIMEOUT(
+            timeline->property("presentationReady").toBool(), kSignalTimeoutMs);
+        QTRY_VERIFY_WITH_TIMEOUT(timeline->property("count").toInt() >= 30,
+                                 kSignalTimeoutMs);
+        QTRY_VERIFY_WITH_TIMEOUT(!controller.pagination()->busy(),
+                                 kSignalTimeoutMs);
+
+        QVERIFY(timeline->setProperty("stickToBottom", false));
+        QVERIFY(QMetaObject::invokeMethod(timeline, "positionViewAtIndex",
+                                          Q_ARG(int, 15),
+                                          Q_ARG(int, 0 /*ListView.Beginning*/)));
+        QCoreApplication::processEvents();
+
+        // Capture a real anchor from the live viewport — the same call the
+        // pagination busy-start makes.
+        QVERIFY(QMetaObject::invokeMethod(timeline, "captureAnchor"));
+        QVERIFY(!timeline->property("anchorStableId").toString().isEmpty());
+        // Simulate the prepend having moved the anchor row DOWN by 240px:
+        // restoreCapturedAnchor() computes shift = it.y - anchorItemY, so
+        // biasing the captured anchorItemY by -240 makes the function see a
+        // +240 shift against unchanged real geometry. This exercises the
+        // exact translate path with a known, deterministic shift.
+        constexpr double simulatedShift = 240.0;
+        const double biasedAnchorY =
+            timeline->property("anchorItemY").toDouble() - simulatedShift;
+        QVERIFY(timeline->setProperty("anchorItemY", biasedAnchorY));
+
+        // Start a real upward glide THROUGH the live engine — exactly what
+        // the WheelHandler's angle-delta branch does.
+        auto *scroll = controller.timelineScroll();
+        QVERIFY(scroll != nullptr);
+        const double glideStartY = timeline->property("contentY").toDouble();
+        const double originY = timeline->property("originY").toDouble();
+        const double maxY = originY
+            + timeline->property("contentHeight").toDouble()
+            - timeline->height();
+        for (int notch = 0; notch < 6; ++notch)
+            scroll->wheelNotch(120.0,
+                               timeline->property("contentY").toDouble(),
+                               originY, maxY, timeline->height());
+        QTRY_VERIFY_WITH_TIMEOUT(scroll->motionActive(), 2000);
+        QTRY_VERIFY_WITH_TIMEOUT(
+            timeline->property("contentY").toDouble() < glideStartY - 10.0,
+            2000);
+
+        // Invoke the restore DIRECTLY while the glide is provably active —
+        // the exact call onPaginationCompleted's deferred path makes.
+        QVERIFY(scroll->motionActive());
+        const double beforeRestoreY =
+            timeline->property("contentY").toDouble();
+        QVariant restored;
+        QVERIFY(QMetaObject::invokeMethod(
+            timeline, "restoreCapturedAnchor",
+            Q_RETURN_ARG(QVariant, restored)));
+        QVERIFY(restored.toBool());
+
+        // Pre-fix, cancelWheelMotion() ran unconditionally in there:
+        // motionActive read false immediately and the glide was dead.
+        QVERIFY2(scroll->motionActive(),
+                 "restoreCapturedAnchor cancelled the in-flight wheel glide "
+                 "(the 'snaps me back partway' defect)");
+        // The immediate correction applied the shift relative to the
+        // glide's own live position (positionViewAtIndex inside the
+        // restore moves the view transiently, but the final write is
+        // beforeY + shift).
+        const double afterRestoreY =
+            timeline->property("contentY").toDouble();
+        QVERIFY2(qAbs(afterRestoreY - (beforeRestoreY + simulatedShift)) < 1.0,
+                 qPrintable(QStringLiteral(
+                     "restore did not apply the relative shift: after=%1 "
+                     "expected=%2")
+                     .arg(afterRestoreY)
+                     .arg(beforeRestoreY + simulatedShift)));
+
+        // And the translated glide keeps travelling upward past the
+        // restore point before settling — a frozen glide never moves again.
+        QTRY_VERIFY_WITH_TIMEOUT(!scroll->motionActive(), kSignalTimeoutMs);
+        const double settledY = timeline->property("contentY").toDouble();
+        QVERIFY2(settledY < afterRestoreY - 20.0,
+                 qPrintable(QStringLiteral(
+                     "glide did not continue after the restore: settled=%1 "
+                     "restorePoint=%2")
+                     .arg(settledY).arg(afterRestoreY)));
+        QCOMPARE(warnings, QStringList{});
+    }
+
+    // Deterministic guard for the anchorCaptureToken ownership contract
+    // (the multi-batch near-top race): a STALE completion's restore must
+    // neither move the view nor clear the NEWER capture's anchor. Directly
+    // callable — no mock extension or empty-page simulation needed.
+    void staleTokenRestoreLeavesNewerCaptureUntouched()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        auto *mock = controller.findChild<MockMatrixClient *>();
+        QVERIFY(mock != nullptr);
+        const QString roomId = QStringLiteral("!general:mock.local");
+        controller.setCurrentRoomId(roomId);
+
+        QList<TimelineEvent> events;
+        for (int i = 0; i < 30; ++i) {
+            TimelineEvent e;
+            e.sender = QStringLiteral("@alice:mock.local");
+            e.senderDisplayName = QStringLiteral("Alice");
+            e.body = QStringLiteral("history message %1").arg(i);
+            e.timestamp =
+                QDateTime::currentDateTimeUtc().addSecs(-(60 - i) * 60);
+            e.type = TimelineEvent::TextMessage;
+            e.status = TimelineEvent::Sent;
+            events.append(e);
+        }
+        mock->resetTimelineForTest(roomId, events, /*paginationPages=*/1);
+
+        QQmlApplicationEngine engine;
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this,
+                [&warnings](const QList<QQmlError> &errors) {
+                    for (const auto &e : errors)
+                        warnings << e.toString();
+                });
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("TimelinePane"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(root != nullptr);
+        QQuickWindow window;
+        window.resize(760, 620);
+        root->setParentItem(window.contentItem());
+        root->setSize(QSizeF(window.width(), window.height()));
+        window.show();
+
+        auto *timeline = root->findChild<QQuickItem *>(
+            QStringLiteral("timelineListView"));
+        QVERIFY(timeline != nullptr);
+        QTRY_VERIFY_WITH_TIMEOUT(
+            timeline->property("presentationReady").toBool(), kSignalTimeoutMs);
+        QTRY_VERIFY_WITH_TIMEOUT(timeline->property("count").toInt() >= 30,
+                                 kSignalTimeoutMs);
+        QTRY_VERIFY_WITH_TIMEOUT(!controller.pagination()->busy(),
+                                 kSignalTimeoutMs);
+
+        QVERIFY(timeline->setProperty("stickToBottom", false));
+        QVERIFY(QMetaObject::invokeMethod(timeline, "positionViewAtIndex",
+                                          Q_ARG(int, 15),
+                                          Q_ARG(int, 0 /*ListView.Beginning*/)));
+        QCoreApplication::processEvents();
+
+        // Batch A captures...
+        QVERIFY(QMetaObject::invokeMethod(timeline, "captureAnchor"));
+        const int staleToken =
+            timeline->property("anchorCaptureToken").toInt();
+        // ...then batch B captures on top (bumping the token; B's anchor is
+        // now the live one).
+        QVERIFY(QMetaObject::invokeMethod(timeline, "captureAnchor"));
+        QVERIFY(timeline->property("anchorCaptureToken").toInt()
+                != staleToken);
+        const QString liveAnchor =
+            timeline->property("anchorStableId").toString();
+        QVERIFY(!liveAnchor.isEmpty());
+        const double beforeY = timeline->property("contentY").toDouble();
+
+        // Batch A's deferred completion finally runs with its stale token:
+        // it must do NOTHING — no view movement, and critically it must NOT
+        // clear batch B's anchor out from under B's own pending completion
+        // (pre-fix it did exactly that via the inserted<=0 path, leaving
+        // B's prepend uncompensated — the "teleports toward the top" leg).
+        QVERIFY(QMetaObject::invokeMethod(timeline, "restoreAnchor",
+                                          Q_ARG(QVariant, QVariant(5)),
+                                          Q_ARG(QVariant,
+                                                QVariant(staleToken))));
+        QCoreApplication::processEvents();
+        QCOMPARE(timeline->property("contentY").toDouble(), beforeY);
+        QCOMPARE(timeline->property("anchorStableId").toString(), liveAnchor);
+        QCOMPARE(warnings, QStringList{});
+    }
 };
 
 int main(int argc, char *argv[])

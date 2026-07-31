@@ -230,6 +230,23 @@ void TimelineScrollController::notifyBoundReached(double clampedY)
     settle();
 }
 
+void TimelineScrollController::translateActiveMotion(double deltaY)
+{
+    // Nothing in flight to translate — the caller cancels instead. A zero
+    // shift (e.g. a pagination batch that inserted no visible rows) is also
+    // a no-op, deliberately, rather than a redundant identical write.
+    if (!m_motionActive || deltaY == 0.0)
+        return;
+    m_positionY += deltaY;
+    m_targetY += deltaY;
+    // Remaining distance (m_targetY - m_positionY) is unchanged by
+    // construction, so the ticker's next advanceMotion() continues the same
+    // deceleration curve toward the relocated target — no visible restart,
+    // no lost momentum. QML's onWheelPositionChanged reclamps every emitted
+    // frame against live geometry, so an out-of-range target here is caught
+    // there rather than needing its own clamp.
+}
+
 bool TimelineScrollController::advanceMotion(double dtMs)
 {
     if (!m_motionActive)

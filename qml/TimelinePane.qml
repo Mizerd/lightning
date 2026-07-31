@@ -1343,8 +1343,21 @@ Rectangle {
                 // restoreCapturedAnchor for why that goes wrong under a
                 // concurrent gesture).
                 property real anchorItemY: 0
+                // Bumped on every captureAnchor() call. A filtered/thread-only
+                // near-top continuation can complete several batches
+                // back-to-back: each busy-start re-captures a fresh anchor
+                // while an EARLIER batch's own zero-insert completion is
+                // still a pending Qt.callLater. That stale completion's
+                // restoreAnchor() would otherwise clear anchorStableId out
+                // from under the newer capture it never belonged to,
+                // discarding the newer batch's compensation — reads as a
+                // jump toward the top once the run finishes.
+                // onPaginationCompleted snapshots this token synchronously so
+                // its deferred restore can detect and ignore that staleness.
+                property int anchorCaptureToken: 0
 
                 function captureAnchor() {
+                    anchorCaptureToken += 1
                     var row = indexAt(width / 2, contentY + topMargin + 1)
                     if (row < 0) { anchorStableId = ""; return }
                     var it = itemAtIndex(row)
@@ -1387,9 +1400,19 @@ Rectangle {
                     // gesture actually owned the view at the moment this
                     // restore fired, not after we cancel it.
                     var wasScrollActive = userScrollActive
-                    // A programmatic re-anchor must never be finished off by a
-                    // lingering wheel animation.
-                    cancelWheelMotion()
+                    // A still-decelerating discrete-wheel glide carries a
+                    // coalesced target the reader is mid-flight toward
+                    // (TimelineScrollController's m_targetY). Cancelling it
+                    // unconditionally here threw that remaining distance
+                    // away and froze the glide, which reads as the view
+                    // snapping back partway through an upward scroll the
+                    // instant history finishes loading. A touchpad gesture
+                    // carries no such hidden state (every physical delta
+                    // already wrote contentY directly), so only an in-flight
+                    // wheel glide needs translating instead of cancelling.
+                    var wheelWasActive = app.timelineScroll.motionActive
+                    if (!wheelWasActive)
+                        cancelWheelMotion()
                     var newRow = app.timeline.rowForStableId(anchorStableId)
                     if (newRow < 0) {
                         anchorStableId = ""
@@ -1413,7 +1436,22 @@ Rectangle {
                         // beforeY + (it.y - anchorItemY) === it.y +
                         // anchorOffset — byte-identical to the prior formula.
                         var shift = it.y - anchorItemY
+                        // Translate the still-running glide by the same
+                        // shift instead of letting a competing correction
+                        // fight (or freeze) it: the engine keeps integrating
+                        // toward a target that moved down with the anchor,
+                        // so the reader's momentum survives the prepend.
+                        if (wheelWasActive)
+                            app.timelineScroll.translateActiveMotion(shift)
                         contentY = beforeY + shift
+                    } else if (wheelWasActive) {
+                        // Invariant: every path that moves contentY either
+                        // translates the glide or cancels it. positionView-
+                        // AtIndex above already moved the view; with no item
+                        // to compute the shift from, the glide's next frame
+                        // would write its stale pre-prepend position straight
+                        // back — cancel is the only safe reconciliation left.
+                        cancelWheelMotion()
                     }
                     anchorStableId = ""
                     // The prepend moved every row; the persistent viewport
@@ -1421,7 +1459,13 @@ Rectangle {
                     captureViewAnchor()
                     return true
                 }
-                function restoreAnchor(inserted) {
+                function restoreAnchor(inserted, expectedToken) {
+                    // A newer captureAnchor() already ran since this
+                    // completion's batch started: anchorStableId now belongs
+                    // to that newer capture, not this one. That newer
+                    // capture's own completion owns restoring it.
+                    if (expectedToken !== anchorCaptureToken)
+                        return
                     if (inserted <= 0 || anchorStableId === "" || stickToBottom) {
                         anchorStableId = ""
                         return
@@ -1429,7 +1473,15 @@ Rectangle {
                     var newRow = app.timeline.rowForStableId(anchorStableId)
                     if (newRow < 0) {
                         var delta = contentHeight - anchorContentHeight
-                        if (delta > 0) contentY += delta
+                        if (delta > 0) {
+                            // Same rule as restoreCapturedAnchor(): a raw
+                            // contentY correction under an active wheel
+                            // glide would be overwritten by the engine's
+                            // next frame — translate the glide with it.
+                            if (app.timelineScroll.motionActive)
+                                app.timelineScroll.translateActiveMotion(delta)
+                            contentY += delta
+                        }
                         anchorStableId = ""
                         captureViewAnchor()
                         return
@@ -1454,7 +1506,14 @@ Rectangle {
                         wasBusy = app.pagination.busy
                     }
                     function onPaginationCompleted(inserted, reachedStart) {
-                        Qt.callLater(function() { timeline.restoreAnchor(inserted) })
+                        // Snapshot synchronously in this same signal dispatch:
+                        // must reflect whichever capture was current for THIS
+                        // batch, not whatever it is once the deferred restore
+                        // actually runs.
+                        var expectedToken = timeline.anchorCaptureToken
+                        Qt.callLater(function() {
+                            timeline.restoreAnchor(inserted, expectedToken)
+                        })
                     }
                     function onTargetLocated(row, pixelOffset, highlight) {
                         // Reply navigation takes control immediately.
