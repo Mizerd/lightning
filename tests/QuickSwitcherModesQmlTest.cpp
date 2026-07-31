@@ -209,9 +209,9 @@ private slots:
                                      Qt::CaseInsensitive),
                      qPrintable(title));
         }
-        // The 10 real themes plus "Match system" — sourced from
-        // AppTheme.themeList, so a new theme joins automatically.
-        QCOMPARE(themeActions, 11);
+        // The 11 real themes (incl. Storm) plus "Match system" — sourced
+        // from AppTheme.themeList, so a new theme joins automatically.
+        QCOMPARE(themeActions, 12);
         closeSwitcher();
     }
 

@@ -44,6 +44,23 @@ double contrast(const QString &fg, const QString &bg)
     return (hi + 0.05) / (lo + 0.05);
 }
 
+// Source-over composite of `top` at `alpha` onto opaque `bottom`, both
+// #RRGGBB — what a translucent wash actually renders as. Used to assert
+// legibility over tinted rows (the mention wash) instead of guessing.
+QString composite(const QString &top, double alpha, const QString &bottom)
+{
+    auto ch = [](const QString &hex, int i) {
+        return hex.mid(1 + i * 2, 2).toInt(nullptr, 16);
+    };
+    QString out = QStringLiteral("#");
+    for (int i = 0; i < 3; ++i) {
+        const int v = int(std::lround(alpha * ch(top, i)
+                                      + (1.0 - alpha) * ch(bottom, i)));
+        out += QStringLiteral("%1").arg(v, 2, 16, QLatin1Char('0')).toUpper();
+    }
+    return out;
+}
+
 } // namespace
 
 class ThemeTokensTest : public QObject
@@ -112,6 +129,9 @@ private Q_SLOTS:
             QStringLiteral("unreadBadge"), QStringLiteral("mentionBadge"),
             // Focus / overlay
             QStringLiteral("focusRing"), QStringLiteral("overlayScrim"),
+            // Storm namespace (theme-routed; bolt ink pairs with bolt fills)
+            QStringLiteral("bolt"), QStringLiteral("boltInk"),
+            QStringLiteral("stormPanel"), QStringLiteral("stormText"),
         };
         for (const QString &token : required) {
             const QRegularExpression decl(
@@ -170,6 +190,16 @@ private Q_SLOTS:
             { "dangerText", "_accentDanger", 4.5 },
             // Controls/badges (large or bold UI text): ≥ 3:1.
             { "_onAccent", "_accentBlue", 3.0 },
+            // Ink-on-accent for the themes that had no pair at any
+            // threshold (review M2): once the storm* namespace routes,
+            // boltInk-on-bolt becomes each theme's accentText-on-accent,
+            // so every theme's pair must be asserted. Recorded trade: the
+            // previously invariant navy-on-bolt 11.72:1 becomes
+            // 3.09–6.89:1 under legacy themes (bold UI-chip text, 3:1 bar)
+            // as the price of theme-following menus.
+            { "_onAccent", "_graAccent", 3.0 },
+            { "_onAccent", "_norAccent", 3.0 },
+            { "_onAccent", "_purAccent", 3.0 },
             // Lightning Dark.
             { "_dkTextPrimary", "_dkBg", 4.5 },
             { "_dkTextSecondary", "_dkBg", 4.5 },
@@ -242,6 +272,30 @@ private Q_SLOTS:
             { "ownBubbleText", "_teaOwnBubble", 4.5 },
             { "onAccentMuted", "_teaOwnBubble", 4.5 },
             { "_teaAccentText", "_teaAccent", 4.5 },
+            // Primary ink on hover fills — the menu language brightens a
+            // hovered row's ink to stormText, which routes to textPrimary
+            // under legacy themes; the pairs the file did not already
+            // carry are asserted here (review LOW2).
+            { "_textPrimaryDark", "_hoverDark", 4.5 },
+            { "_dkTextPrimary", "_dkHover", 4.5 },
+            { "_graTextPrimary", "_graHover", 4.5 },
+            { "_norTextPrimary", "_norHover", 4.5 },
+            { "_purTextPrimary", "_purHover", 4.5 },
+            { "_indTextPrimary", "_indHover", 4.5 },
+            { "_teaTextPrimary", "_teaHover", 4.5 },
+            // Muted ink on input fills — the storm* routing exposes this
+            // pairing (search fields, category chips, omnibox) to every
+            // legacy theme for the first time, so it is asserted per theme.
+            { "_textMutedLight", "_inputBgLight", 4.5 },
+            { "_textMutedDark", "_inputBgDark", 4.5 },
+            { "_dkTextMuted", "_dkInputBg", 4.5 },
+            { "_graTextMuted", "_graInputBg", 4.5 },
+            { "_norTextMuted", "_norInputBg", 4.5 },
+            { "_purTextMuted", "_purInputBg", 4.5 },
+            { "_warTextMuted", "_warInputBg", 4.5 },
+            { "_mosTextMuted", "_mosInputBg", 4.5 },
+            { "_indTextMuted", "_indInputBg", 4.5 },
+            { "_teaTextMuted", "_teaInputBg", 4.5 },
             // v0.6.5 trust-card brand constants (SPEC 1r) — theme-invariant,
             // so their readability is asserted once, here.
             { "trustInk", "trustNavy", 4.5 },
@@ -252,23 +306,33 @@ private Q_SLOTS:
             { "trustCaptionDim", "trustChainBg", 4.5 },
             { "trustNavy", "trustYellow", 4.5 },
             { "trustVerifyInk", "trustNavy", 4.5 },
-            // Storm menu language (SPEC-storm-language §1) — the
-            // theme-invariant menu inks on their real fills. stormTextFaint
-            // is deliberately dim decorative-scale mono (section headers,
-            // metadata) and is exempt, like trustPending before it.
-            { "stormText", "stormPanel", 4.5 },
-            { "stormTextSecondary", "stormPanel", 4.5 },
-            { "stormTextMuted", "stormPanel", 4.5 },
-            { "stormText", "stormSelection", 4.5 },
-            { "stormTextMuted", "stormInset", 4.5 },
-            { "bolt", "stormPanel", 4.5 },
-            { "stormPanel", "bolt", 4.5 },
-            { "stormDanger", "stormPanel", 4.5 },
-            { "stormSuccess", "stormPanel", 4.5 },
-            { "stormLink", "stormPanel", 4.5 },
-            { "stormText", "stormCanvas", 4.5 },
-            { "stormText", "stormDeep", 4.5 },
-            { "stormTextMuted", "stormCanvas", 4.5 },
+            // Storm (selectable theme 11 + the trust card's fixed palette).
+            // The storm* tokens themselves are theme-ROUTED expressions now,
+            // so the assertions read the raw _sto* literals they resolve to
+            // under Storm. _stoTextFaint is deliberately dim decorative-scale
+            // mono (section headers, metadata) and is exempt, like
+            // trustPending before it.
+            //   Menu/panel inks on their real fills:
+            { "_stoText", "_stoPanel", 4.5 },
+            { "_stoTextSecondary", "_stoPanel", 4.5 },
+            { "_stoTextMuted", "_stoPanel", 4.5 },
+            { "_stoText", "_stoSelection", 4.5 },
+            { "_stoTextMuted", "_stoInset", 4.5 },
+            { "_stoBolt", "_stoPanel", 4.5 },
+            { "_stoCanvas", "_stoBolt", 4.5 },   // boltInk on a bolt fill
+            { "_stoDanger", "_stoPanel", 4.5 },
+            { "_stoSuccess", "_stoPanel", 4.5 },
+            { "_stoLink", "_stoPanel", 4.5 },
+            //   Full-app shell readability (theme 11):
+            { "_stoText", "_stoDeep", 4.5 },
+            { "_stoTextSecondary", "_stoDeep", 4.5 },
+            { "_stoTextMuted", "_stoDeep", 4.5 },
+            { "_stoText", "_stoCanvas", 4.5 },
+            { "_stoTextMuted", "_stoCanvas", 4.5 },
+            { "_stoText", "_stoSelectedHover", 4.5 }, // selection ink on hover
+            { "_stoCanvas", "_stoLink", 4.5 },     // badge ink on unread pill
+            { "ownBubbleText", "_stoOwnBubble", 4.5 },
+            { "onAccentMuted", "_stoOwnBubble", 4.5 },
         };
         for (const Pair &pair : pairs) {
             const QString fg = c(pair.fg);
@@ -287,13 +351,75 @@ private Q_SLOTS:
         }
     }
 
+    void mentionWashKeepsBodyTextReadable()
+    {
+        // Review M1's lesson encoded: the mention-row wash is
+        // Qt.alpha(mentionHighlight, 0.14) over the timeline background,
+        // and one theme's base hue behaving differently from the other
+        // ten went uncaught. mentionHighlight resolves to accent for the
+        // legacy palettes and to the Storm mention rose for theme 11 —
+        // assert body text stays AA over the ACTUAL composited wash for
+        // every theme, computed, not guessed.
+        const QRegularExpression routed(QStringLiteral(
+            "mentionHighlight:\\s*_p\\.mentionHighlight\\s*!==\\s*undefined"));
+        QVERIFY2(m_theme.contains(routed),
+                 "mentionHighlight must use the _p override idiom");
+        // Lock the HUE decision, not only readability: M1's defect was
+        // never a contrast failure (white over the brown wash measured
+        // 13.4:1) — it was bolt landing on a passive row. Storm's base
+        // must stay the mention rose, never the bolt.
+        const QRegularExpression stormBase(QStringLiteral(
+            "mentionHighlight:\\s*_stoMention\\b"));
+        QVERIFY2(m_theme.contains(stormBase),
+                 "_storm must pin mentionHighlight to _stoMention "
+                 "(yellow-discipline: no bolt on a passive row)");
+        struct Wash { const char *ink; const char *base; const char *bg; };
+        const Wash washes[] = {
+            { "_textPrimaryLight", "_accentBlue", "_bgLight" },
+            { "_textPrimaryDark", "_accentBlue", "_bgDark" },
+            { "_dkTextPrimary", "_accentBlue", "_dkBg" },
+            { "_graTextPrimary", "_graAccent", "_graBg" },
+            { "_norTextPrimary", "_norAccent", "_norBg" },
+            { "_purTextPrimary", "_purAccent", "_purBg" },
+            { "_warTextPrimary", "_warAccent", "_warBg" },
+            { "_mosTextPrimary", "_mosAccent", "_mosBg" },
+            { "_indTextPrimary", "_indAccent", "_indBg" },
+            { "_teaTextPrimary", "_teaAccent", "_teaBg" },
+            // Storm routes the base to the mention rose, not the bolt.
+            { "_stoText", "_stoMention", "_stoDeep" },
+        };
+        for (const Wash &w : washes) {
+            const QString ink = m_colors.value(QLatin1String(w.ink));
+            const QString base = m_colors.value(QLatin1String(w.base));
+            const QString bg = m_colors.value(QLatin1String(w.bg));
+            QVERIFY2(!ink.isEmpty() && !base.isEmpty() && !bg.isEmpty(),
+                     qPrintable(QStringLiteral("missing wash value: %1/%2/%3")
+                                    .arg(QLatin1String(w.ink),
+                                         QLatin1String(w.base),
+                                         QLatin1String(w.bg))));
+            const QString washed = composite(base, 0.14, bg);
+            const double ratio = contrast(ink, washed);
+            QVERIFY2(ratio >= 4.5,
+                     qPrintable(QStringLiteral("%1 over 14%% %2 wash on %3 "
+                                               "= %4 (< 4.5)")
+                                    .arg(QLatin1String(w.ink),
+                                         QLatin1String(w.base),
+                                         QLatin1String(w.bg))
+                                    .arg(ratio, 0, 'f', 2)));
+        }
+    }
+
     void settingsScreenCarriesNoThemedInk()
     {
-        // Storm regression guard (review H1): SettingsScreen is a storm
-        // surface end to end — a themed colour token painted onto its navy
-        // fills is invisible in every light theme, and the round's dark
-        // captures cannot see it. The theme-preview cards use their own
-        // FIXED hex palettes (not tokens), so they cannot trip this scan.
+        // Storm namespace guard (review H1, retargeted for the selectable
+        // Storm theme): SettingsScreen speaks ONLY the storm* vocabulary.
+        // The storm* tokens are theme-routed inside AppTheme, so Settings
+        // follows the selected theme — but a general themed token mixed
+        // onto a storm-token fill would pair inks and surfaces from two
+        // different routing tables, which is exactly the class of invisible-
+        // ink bug this guard caught in review. The theme-preview cards use
+        // their own FIXED hex palettes (not tokens), so they cannot trip
+        // this scan.
         // NOTE the double escaping: "\\." and "\\b" — a single backslash in
         // a C++ literal would put a literal dot-wildcard and a BACKSPACE
         // byte in the pattern, and the guard would pass forever (caught in
@@ -353,13 +479,14 @@ private Q_SLOTS:
     {
         // Every registered theme preset must supply the complete palette
         // object, and the effective-theme switch must route every valid
-        // SettingsManager::Theme id (1..7) to one of them.
+        // SettingsManager::Theme id (1..11) to one of them.
         const QStringList presets = {
             QStringLiteral("_light"), QStringLiteral("_dark"),
             QStringLiteral("_midnight"), QStringLiteral("_graphite"),
             QStringLiteral("_nord"), QStringLiteral("_purple"),
             QStringLiteral("_warm"), QStringLiteral("_moss"),
             QStringLiteral("_indigo"), QStringLiteral("_teal"),
+            QStringLiteral("_storm"),
         };
         const QStringList roles = {
             QStringLiteral("background"), QStringLiteral("sidebar"),
@@ -391,11 +518,20 @@ private Q_SLOTS:
                                         .arg(preset, role)));
             }
         }
-        for (int id = 1; id <= 10; ++id) {
+        for (int id = 1; id <= 11; ++id) {
             const QRegularExpression routed(
                 QStringLiteral("case\\s+%1\\s*:\\s*return\\s+_").arg(id));
             QVERIFY2(m_theme.contains(routed),
                      qPrintable(QStringLiteral("theme id %1 not routed").arg(id)));
+            // paletteForTheme() has its own switch (`case N: p = _x; break`)
+            // feeding the Settings preview cards. Its default branch returns
+            // the ACTIVE palette, so a missing case paints a wrong-but-
+            // plausible preview no runtime suite would catch.
+            const QRegularExpression preview(
+                QStringLiteral("case\\s+%1\\s*:\\s*p\\s*=\\s*_").arg(id));
+            QVERIFY2(m_theme.contains(preview),
+                     qPrintable(QStringLiteral(
+                         "theme id %1 missing from paletteForTheme").arg(id)));
         }
     }
 

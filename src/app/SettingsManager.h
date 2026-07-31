@@ -99,12 +99,13 @@ public:
         MossLightTheme = 8,     // design-handoff light
         IndigoNightTheme = 9,   // design-handoff dark
         DeepTealTheme = 10,     // design-handoff dark
+        StormTheme = 11,        // brand navy + bolt yellow (0.6.5 Storm)
     };
     Q_ENUM(Theme)
 
     // Highest valid Theme id; an out-of-range stored value falls back to
     // SystemTheme (see theme()).
-    static constexpr int kMaxThemeId = DeepTealTheme;
+    static constexpr int kMaxThemeId = StormTheme;
 
     explicit SettingsManager(QObject *parent = nullptr);
 

@@ -47,6 +47,7 @@ struct ThemeCase {
     bool light;
 };
 const ThemeCase kThemes[] = {
+    { 11, "storm", false },
     { 8, "moss-light", true },
     { 9, "indigo-night", false },
     { 10, "deep-teal", false },

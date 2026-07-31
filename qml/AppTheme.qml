@@ -11,7 +11,7 @@ import QtQuick
 //
 // v0.7 themes (SettingsManager::Theme):
 //   0 System          — follows the platform colour scheme
-//                       (Moss Light or Indigo Night)
+//                       (Moss Light or Storm)
 //   1 Lightning Light
 //   2 Lightning Dark  (cool near-black; was a legacy alias of Midnight)
 //   3 Graphite        (neutral dark grey)
@@ -22,6 +22,7 @@ import QtQuick
 //   8 Moss Light      (design-handoff light: warm neutrals, moss accent)
 //   9 Indigo Night    (design-handoff dark: near-black, indigo accent)
 //  10 Deep Teal       (design-handoff dark: deep teal surfaces + accent)
+//  11 Storm           (0.6.5 brand theme: deep navy surfaces, bolt yellow)
 //
 // Every preset provides the full set of semantic values; components never
 // branch on the theme themselves. The raw `_xxxLight` / `_xxxDark` colour
@@ -46,15 +47,22 @@ QtObject {
     // setting or platform hint can drive it without touching consumers.
     property bool reducedMotion: false
 
-    // Resolve System (0) to the flagship design pair — Moss Light or
-    // Indigo Night — based on the platform colour scheme.
+    // Resolve System (0) to the flagship design pair — Moss Light or, since
+    // the 0.6.5 Storm round, Storm for dark systems. Only the UNSET/System
+    // state resolves here; an explicitly persisted theme id 1–11 is never
+    // rerouted, so introducing Storm silently changes nobody's stored choice.
     readonly property int effectiveTheme: mode === 0
-                                          ? (systemDark ? 9 : 8)
+                                          ? (systemDark ? 11 : 8)
                                           : mode
     // Any preset that is not one of the light surfaces is dark (used by
     // overlay chrome).
     readonly property bool dark: effectiveTheme !== 1 && effectiveTheme !== 7
                                  && effectiveTheme !== 8
+    // True while the Storm brand theme (11) is the effective palette. Views
+    // never branch on this — it exists so the storm* token namespace below
+    // can route between the Storm literals and each legacy theme's own
+    // semantic tones inside this singleton.
+    readonly property bool storm: effectiveTheme === 11
 
     // ---- Raw palette literals (retained; the token test reads these). ----
     readonly property color _bgLight:            "#EBF0F7"
@@ -292,6 +300,37 @@ QtObject {
     readonly property color _teaOtherBubble:   "#182428"
     readonly property color _teaMention:       "#E5677A"
 
+    // Storm — the 0.6.5 brand theme (selectable id 11). Deep navy surfaces,
+    // bolt-yellow accent, SPEC-storm-language §1 palette. These literals are
+    // ALSO the fixed values behind the theme-invariant trust card and the
+    // storm* namespace when Storm is the effective theme; the token test
+    // parses them by name.
+    readonly property color _stoCanvas:        "#0A0F24"
+    readonly property color _stoPanel:         "#0D1B45"
+    readonly property color _stoInset:         "#0A1231"
+    readonly property color _stoDeep:          "#080C1C"
+    readonly property color _stoBorder:        "#1B2C60"
+    readonly property color _stoBorderStrong:  "#2B3C78"
+    readonly property color _stoSelection:     "#132558"
+    readonly property color _stoBolt:          "#FFD447"
+    readonly property color _stoText:          "#F2F4FF"
+    readonly property color _stoTextSecondary: "#C9D2F2"
+    readonly property color _stoTextMuted:     "#7D8BBF"
+    readonly property color _stoTextFaint:     "#5C6BA3"
+    readonly property color _stoDanger:        "#FF8FA0"
+    readonly property color _stoSuccess:       "#63D6A3"
+    readonly property color _stoLink:          "#9295F5"
+    // Storm derivatives that the spec table does not carry: hover/pressed
+    // steps of the bolt accent, the own-bubble navy (distinct from panel and
+    // selection so outgoing messages read as their own surface), and the
+    // mention red — the handoff mention hue, NOT stormDanger: the mention
+    // pill carries white ink, and #FF8FA0 is too light under it.
+    readonly property color _stoAccentHover:   "#FFDF6E"
+    readonly property color _stoAccentPressed: "#E9BC2F"
+    readonly property color _stoOwnBubble:     "#3345A6"
+    readonly property color _stoSelectedHover: "#1A3070"
+    readonly property color _stoMention:       "#E5677A"
+
     // Ink used on top of accent fills for every palette without its own
     // accentText (the contrast test reads this literal by name).
     readonly property color _onAccent:         "#FFFFFF"
@@ -424,10 +463,41 @@ QtObject {
         ownBubble: _teaOwnBubble, otherBubble: _teaOtherBubble,
         mention: _teaMention, online: _teaAccent
     })
+    // Storm's shell mapping. accent stays bolt for the sanctioned roles
+    // (focus, checked state, ONE primary action, the Home tile) — the roles
+    // that would over-yellow the shell if they inherited it get their own
+    // values instead: hover is the SettingsNav 55%-alpha selection idiom,
+    // selection ink brightens like a menu row (never yellow text), unread
+    // badges ride the periwinkle link tone so a busy room list is not a
+    // wall of bolt pills, and bubbles keep the app-wide blue=own language.
+    // accentSoft/accentBorder are EXPLICIT translucent-bolt treatments: the
+    // shared aliases would otherwise fall back to selected/borderStrong
+    // navy, and the own-reaction pill is a sanctioned "current selection"
+    // yellow moment (review NIT1 corrected the earlier fallback claim).
+    readonly property var _storm: ({
+        background: _stoDeep, rail: _stoDeep, sidebar: _stoCanvas,
+        surface: _stoPanel, cardElevated: _stoSelection,
+        hover: Qt.alpha(_stoSelection, 0.55),
+        selected: _stoSelection, selectedHover: _stoSelectedHover,
+        selectedText: _stoText, inputBg: _stoInset,
+        codeBlock: _stoDeep, textPrimary: _stoText,
+        textSecondary: _stoTextSecondary, textMuted: _stoTextMuted,
+        textDisabled: _stoTextFaint, border: _stoBorder,
+        borderStrong: _stoBorderStrong, accent: _stoBolt,
+        accentHover: _stoAccentHover, accentPressed: _stoAccentPressed,
+        accentSoft: Qt.alpha(_stoBolt, 0.14),
+        accentBorder: Qt.alpha(_stoBolt, 0.35),
+        accentText: _stoCanvas,
+        ownBubble: _stoOwnBubble, otherBubble: _stoPanel,
+        unreadBadge: _stoLink, mentionHighlight: _stoMention,
+        mention: _stoMention, online: _stoSuccess, link: _stoLink
+    })
     // Selectable theme presets for the Settings theme picker, design order
-    // (handoff themes first). System (0) is a resolution mode, not a palette,
-    // so it is represented by the match-system toggle instead of a card.
+    // (Storm — the 0.6.5 brand theme — first, then the handoff themes).
+    // System (0) is a resolution mode, not a palette, so it is represented
+    // by the match-system toggle instead of a card.
     readonly property var themeList: [
+        { id: 11, name: qsTr("Storm") },
         { id: 8,  name: qsTr("Moss Light") },
         { id: 9,  name: qsTr("Indigo Night") },
         { id: 10, name: qsTr("Deep Teal") },
@@ -457,6 +527,7 @@ QtObject {
         case 8:  p = _moss; break
         case 9:  p = _indigo; break
         case 10: p = _teal; break
+        case 11: p = _storm; break
         default: p = _p; break
         }
         return {
@@ -488,6 +559,7 @@ QtObject {
         case 8:  return _moss
         case 9:  return _indigo
         case 10: return _teal
+        case 11: return _storm
         default: return _light
         }
     }
@@ -567,8 +639,11 @@ QtObject {
     // which media badges and the account-switch blocker already consume.
     readonly property color modalScrim:          "#7308080C"
     readonly property color codeBlock:           _p.codeBlock
-    // Link colour — accent by default, readable on every surface.
-    readonly property color link:                _p.accent
+    // Link colour — accent by default, readable on every surface. Storm
+    // carries its own periwinkle link ink: the bolt accent is reserved for
+    // selection/focus/primary (§1 yellow discipline), never inline links.
+    readonly property color link:                _p.link !== undefined
+                                                 ? _p.link : _p.accent
 
     // Message-bubble semantics.
     readonly property color ownMessageBubble:    _p.ownBubble
@@ -586,7 +661,16 @@ QtObject {
     readonly property color reactionBackground:  cardElevated
     readonly property color reactionSelectedBackground: selected
     readonly property color reactionHighlight:   selected
-    readonly property color unreadBadge:         accent
+    // Unread pill fill — accent by default; Storm overrides it (periwinkle)
+    // so a busy room list is not a wall of bolt-yellow pills (§1 discipline).
+    readonly property color unreadBadge:         _p.unreadBadge !== undefined
+                                                 ? _p.unreadBadge : accent
+    // Base hue of the mention-row wash (the timeline alphas it itself).
+    // Accent by default — Storm redirects it to the mention rose, because a
+    // 14% bolt wash over the deep timeline composites to a hueless brown
+    // AND puts the reserved yellow on a passive row (review M1, §1).
+    readonly property color mentionHighlight:    _p.mentionHighlight !== undefined
+                                                 ? _p.mentionHighlight : accent
     // Mention red — the design themes carry their exact handoff hue; older
     // palettes fall back to the shared danger red.
     readonly property color mentionBadge:        _p.mention !== undefined
@@ -602,35 +686,43 @@ QtObject {
     readonly property color presenceAway:        "#C9B23A"
 
     // ---- Trust-card brand constants (SPEC 1r). ----
-    // ---- Storm menu language (SPEC-storm-language.md §1). ----
-    // The theme-invariant surface language for EVERY menu, popover, picker
-    // and dialog: deep-navy panels with bolt-yellow reserved for the
-    // active/selected/complete state and the single primary action. Its own
-    // namespace by design — a Moss Light user still gets navy/yellow menus;
-    // the menu system IS the brand moment. Timeline and room list keep the
-    // user's chosen theme. The trust tokens below alias into this palette
-    // (Storm extends the 1r trust card into the whole system).
-    readonly property color stormCanvas:        "#0A0F24" // backdrop behind panels
-    readonly property color stormPanel:         "#0D1B45" // menu/popover/card bg
-    readonly property color stormInset:         "#0A1231" // inputs, icon tiles, modules
-    readonly property color stormDeep:          "#080C1C" // deepest backdrop (settings content)
-    readonly property color stormBorder:        "#1B2C60" // default 1px borders, dividers
-    readonly property color stormBorderStrong:  "#2B3C78" // selected borders, outlines, pending rings
-    readonly property color stormSelection:     "#132558" // hover/selected row fill
-    readonly property color bolt:               "#FFD447" // THE accent — active/selected/complete/primary ONLY
-    readonly property color stormText:          "#F2F4FF" // primary ink
-    readonly property color stormTextSecondary: "#C9D2F2" // default item labels
-    readonly property color stormTextMuted:     "#7D8BBF" // icons at rest, subtitles, MXIDs
-    // Deliberately-dim non-body inks (mock-exact): section headers, footers
-    // and metadata only — never sentence text. AA is asserted for the three
-    // inks above; these two are decorative-scale mono.
-    readonly property color stormTextFaint:     "#5C6BA3"
-    readonly property color stormDanger:        "#FF8FA0" // destructive verbs
-    readonly property color stormSuccess:       "#63D6A3" // Verified, 3/3 complete
-    readonly property color stormLink:          "#9295F5" // inline links (Refresh, …)
+    // ---- Storm surface language (0.6.5). ----
+    // The shared vocabulary of every menu, popover, picker, dialog and the
+    // Settings surface. Since the Storm round made Storm a SELECTABLE
+    // full-application theme (id 11), this namespace is theme-ROUTED, not
+    // invariant: under Storm each token carries the §1 navy/bolt literal;
+    // under every legacy theme it resolves to that theme's own semantic
+    // equivalent, so menus and Settings follow the user's chosen theme
+    // again. Consumers keep reaching for storm* by role and never branch on
+    // the theme themselves. The trust card is the ONE deliberate invariant
+    // exception and pins the raw _sto* literals below.
+    readonly property color stormCanvas:        storm ? _stoCanvas : background
+    readonly property color stormPanel:         storm ? _stoPanel : surface
+    readonly property color stormInset:         storm ? _stoInset : inputBackground
+    readonly property color stormDeep:          storm ? _stoDeep : background
+    readonly property color stormBorder:        storm ? _stoBorder : border
+    readonly property color stormBorderStrong:  storm ? _stoBorderStrong : borderStrong
+    readonly property color stormSelection:     storm ? _stoSelection : hover
+    // THE accent — active/selected/complete/primary ONLY (legacy: accent).
+    readonly property color bolt:               storm ? _stoBolt : accent
+    // Ink painted ON a bolt/accent fill (primary buttons, count pills).
+    readonly property color boltInk:            storm ? _stoCanvas : accentText
+    readonly property color stormText:          storm ? _stoText : textPrimary
+    readonly property color stormTextSecondary: storm ? _stoTextSecondary : textSecondary
+    readonly property color stormTextMuted:     storm ? _stoTextMuted : textMuted
+    // Deliberately-dim non-body ink: section headers, footers and metadata
+    // only — never sentence text (legacy: the disabled ink, same rule).
+    readonly property color stormTextFaint:     storm ? _stoTextFaint : textDisabled
+    readonly property color stormDanger:        storm ? _stoDanger : dangerInk
+    readonly property color stormSuccess:       storm ? _stoSuccess : success
+    readonly property color stormLink:          storm ? _stoLink : link
     // Derived soft treatments (§1: danger borders at 30% alpha, fills 10%).
-    readonly property color stormDangerSoft:    Qt.alpha(stormDanger, 0.10)
-    readonly property color stormDangerBorder:  Qt.alpha(stormDanger, 0.30)
+    // Under legacy themes these resolve to the SHARED danger treatments so a
+    // storm-namespace control and a themed control show one danger language.
+    readonly property color stormDangerSoft:    storm ? Qt.alpha(_stoDanger, 0.10)
+                                                      : dangerSoft
+    readonly property color stormDangerBorder:  storm ? Qt.alpha(_stoDanger, 0.30)
+                                                      : dangerBorder
     readonly property color stormBoltGlow:      Qt.alpha(bolt, 0.12)     // input focus halo
     readonly property color stormWatermark:     Qt.alpha(bolt, 0.12)     // hero-card bolt
 
@@ -641,15 +733,16 @@ QtObject {
     // trustCaption, trustCaptionDim, trustVerifyInk); trustPending /
     // trustChainBorder are deliberately-dim non-text pending treatments
     // whose state is also carried by the caption ink and icon size.
-    // Aliases of the Storm namespace above (identical values before Storm
-    // landed; kept as the trust card's own vocabulary).
-    readonly property color trustNavy:        stormPanel
-    readonly property color trustYellow:      bolt
-    readonly property color trustInk:         stormText
-    readonly property color trustMuted:       stormTextMuted
-    readonly property color trustChainBg:     stormInset
-    readonly property color trustChainBorder: stormBorder
-    readonly property color trustPending:     stormBorderStrong
+    // Pinned to the raw _sto* literals — NOT the routed storm* tokens —
+    // precisely so the trust card stays brand-navy under every theme now
+    // that the storm* namespace follows the selected theme.
+    readonly property color trustNavy:        _stoPanel
+    readonly property color trustYellow:      _stoBolt
+    readonly property color trustInk:         _stoText
+    readonly property color trustMuted:       _stoTextMuted
+    readonly property color trustChainBg:     _stoInset
+    readonly property color trustChainBorder: _stoBorder
+    readonly property color trustPending:     _stoBorderStrong
     readonly property color trustCaption:     "#AAB5E0"
     // Dim-but-AA pending caption (4.66:1 on trustChainBg; the mock's
     // #5C6BA3 computed 3.57:1 and failed normal-text AA).
