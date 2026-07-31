@@ -342,11 +342,16 @@ were never backed up or shared.
 
 ### Settings, usability, and accessibility
 
-- Ten complete semantic themes (ids 1–10): Lightning Light, Lightning Dark,
-  Graphite, Midnight, Nordic, Purple Dusk, Warm, and the design-handoff
-  Moss Light / Indigo Night / Deep Teal; System (0) resolves to
-  Moss Light / Indigo Night. AppTheme.qml is the sole token source; the
-  theme test enforces palette completeness, routing, and WCAG AA pairs
+- Eleven complete semantic themes (ids 1–11): Lightning Light, Lightning
+  Dark, Graphite, Midnight, Nordic, Purple Dusk, Warm, the design-handoff
+  Moss Light / Indigo Night / Deep Teal, and Storm (11) — the 0.6.5 brand
+  theme (deep navy, bolt-yellow accent), first in the picker; System (0)
+  resolves to Moss Light / Storm. AppTheme.qml is the sole token source;
+  the theme test enforces palette completeness, routing, and WCAG AA pairs.
+  The storm* token namespace (menus, popovers, Settings) is theme-ROUTED:
+  Storm literals under theme 11, each legacy theme's own semantic tones
+  otherwise. The trust card is the one deliberate invariant (raw _sto*
+  literals). Ink on a bolt/accent fill uses boltInk, never stormPanel
 - The four-pane design shell: 68 px spaces rail (home, Spaces, settings,
   account avatar + switcher popover), 300 px room list with workspace
   header and Ctrl-K hint, timeline with members/threads side panel, card
