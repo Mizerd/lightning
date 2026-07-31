@@ -353,13 +353,15 @@ private Q_SLOTS:
 
     void mentionWashKeepsBodyTextReadable()
     {
-        // Review M1's lesson encoded: the mention-row wash is
-        // Qt.alpha(mentionHighlight, 0.14) over the timeline background,
-        // and one theme's base hue behaving differently from the other
-        // ten went uncaught. mentionHighlight resolves to accent for the
-        // legacy palettes and to the Storm mention rose for theme 11 —
-        // assert body text stays AA over the ACTUAL composited wash for
-        // every theme, computed, not guessed.
+        // Review M1's lesson encoded: the mention-row wash derives from
+        // mentionHighlight over the timeline background, and one theme's
+        // base hue behaving differently from the other ten went uncaught.
+        // mentionHighlight resolves to accent for the legacy palettes and
+        // to the Storm mention rose for theme 11 — assert body text stays
+        // AA over the composited wash for every theme, computed, not
+        // guessed. Computed at 0.14 alpha: an UPPER bound above the live
+        // washes (0.05 mentionsMe / 0.03 room since the 2026-07-31 live-
+        // feedback round), so any retune up to 0.14 stays covered.
         const QRegularExpression routed(QStringLiteral(
             "mentionHighlight:\\s*_p\\.mentionHighlight\\s*!==\\s*undefined"));
         QVERIFY2(m_theme.contains(routed),

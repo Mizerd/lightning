@@ -186,6 +186,16 @@ Item {
         // Constant content inset clearing the caret gutter (§3.2 — never
         // active-only, so rows don't shift as the selection moves).
         leftPadding: padding + 4
+        // v0.6.5 live-feedback: the Basic-style ItemDelegate default
+        // (padding: 12) survives even though implicitHeight is forced to
+        // 32, leaving contentItem only 8px of availableHeight — nowhere
+        // near enough for the icon/label content, so cross-axis centering
+        // (even with Layout.alignment set, above) clamps against that
+        // undersized box instead of the row's real bounds. Same fix as
+        // AppMenuItem.qml's topPadding/bottomPadding: 0 for the identical
+        // forced-implicitHeight shape — give contentItem the full row.
+        topPadding: 0
+        bottomPadding: 0
         // SPEC 1v: typing in the search field narrows the nav to sections
         // with at least one matching result.
         visible: root.settingsSearchQuery.trim().length === 0
@@ -196,15 +206,37 @@ Item {
         onClicked: root.section = sectionKey
         contentItem: RowLayout {
             spacing: AppTheme.spacing8
+            // v0.6.5 live-feedback: on a real desktop the icon and label
+            // read as vertically offset from each other (DPR-dependent —
+            // worse at fractional scale factors). Root cause: Icon is a
+            // bare Text glyph with no explicit height, so its
+            // implicitHeight comes from the ICON FONT's own ascent/
+            // descent metrics; navLabel's implicitHeight comes from the UI
+            // text font's own, very differently-proportioned metrics.
+            // RowLayout centers each child's bounding box independently,
+            // so two boxes of different height and different internal
+            // ink-to-box-center offset land their VISIBLE glyphs at
+            // slightly different y — a sub-pixel gap that rounds/hints
+            // differently (and becomes visible) at different DPRs. Pinning
+            // the icon's Layout.preferredHeight to the label's own
+            // implicitHeight makes both boxes IDENTICAL, so there is
+            // nothing left for cross-axis centering to disagree about.
             Icon {
                 name: navRow.iconName
                 size: 16
+                Layout.alignment: Qt.AlignVCenter
+                // (id navRowText, NOT navLabel — that name is the row's
+                // string property, and an id here would shadow it, feeding
+                // the Label OBJECT into Accessible.name above.)
+                Layout.preferredHeight: navRowText.implicitHeight
                 color: navRow.highlighted ? AppTheme.bolt
                                           : AppTheme.stormTextMuted
             }
             Label {
+                id: navRowText
                 text: navRow.navLabel
                 Layout.fillWidth: true
+                Layout.alignment: Qt.AlignVCenter
                 color: navRow.highlighted ? AppTheme.stormText
                                           : AppTheme.stormTextSecondary
                 font.family: AppTheme.menuFont
@@ -1265,6 +1297,13 @@ Item {
                                     Layout.fillWidth: true
                                     Layout.maximumWidth: 420
                                     implicitHeight: 56
+                                    // Same forced-implicitHeight squeeze as
+                                    // SettingsNavRow above (Basic-style
+                                    // ItemDelegate padding: 12 survives a
+                                    // taller forced row too) — AppMenuItem's
+                                    // topPadding/bottomPadding: 0 pattern.
+                                    topPadding: 0
+                                    bottomPadding: 0
                                     Accessible.name:
                                         qsTr("Use the %1 font").arg(modelData)
                                     onClicked:

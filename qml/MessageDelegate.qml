@@ -394,13 +394,23 @@ Item {
                 // every legacy theme (pixel-identical) and resolves to the
                 // Storm mention-rose under Storm, consistent with
                 // mentionBadge's own tone.
+                // v0.6.5 live-feedback: the wash at full 0.14/0.07 alpha
+                // read as "too heavy/red" and made the reaction chips that
+                // sit on this same background lose all contrast ("black
+                // boxes over washed rows" — a chip's own translucent fill
+                // compositing on top of an already-tinted row muddies
+                // both). Cut the wash to a much quieter background tint and
+                // moved the real signal to a left edge bar instead (below)
+                // — a direct mention gets deliberate bolt yellow (the
+                // personal "you were called out" case the design's yellow
+                // discipline exists for); a room-wide @room stays neutral.
                 color: root.bubbleMode
                        ? (model.isOwn === true ? AppTheme.ownBubble
                                                : AppTheme.otherBubble)
                        : model.mentionsMe === true
-                       ? Qt.alpha(AppTheme.mentionHighlight, 0.14)
+                       ? Qt.alpha(AppTheme.mentionHighlight, 0.05)
                        : model.mentionsRoom === true
-                         ? Qt.alpha(AppTheme.mentionHighlight, 0.07)
+                         ? Qt.alpha(AppTheme.mentionHighlight, 0.03)
                          : "transparent"
                 radius: root.bubbleMode ? 16
                         : model.mentionsMe === true || model.mentionsRoom === true
@@ -410,6 +420,23 @@ Item {
                 topRightRadius: root.bubbleMode
                                 ? (model.isOwn === true ? 4 : 16) : radius
                 opacity: model.redacted ? 0.65 : 1.0
+
+                // v0.6.5 live-feedback: the mention edge bar. Sits flush at
+                // the bubble's own left edge, inside its rounded corner —
+                // bubbleContent below gets a matching extra left inset so
+                // the bar never overlaps the sender/body text.
+                readonly property bool mentionBarVisible:
+                    !root.bubbleMode
+                    && (model.mentionsMe === true || model.mentionsRoom === true)
+                Rectangle {
+                    visible: bubble.mentionBarVisible
+                    anchors.left: parent.left
+                    anchors.top: parent.top
+                    anchors.bottom: parent.bottom
+                    width: 3
+                    color: model.mentionsMe === true
+                           ? AppTheme.bolt : AppTheme.borderStrong
+                }
 
                 // Click the message content to pin the action toolbar (click again
                 // or press Escape to close). Does not consume media/link taps,
@@ -423,6 +450,8 @@ Item {
                     id: bubbleContent
                     anchors.fill: parent
                     anchors.margins: root.bubblePad
+                    anchors.leftMargin: root.bubblePad
+                                        + (bubble.mentionBarVisible ? 8 : 0)
                     spacing: 2
 
                     RowLayout {
@@ -477,37 +506,58 @@ Item {
                         }
                     }
 
-                    // Reply preview
+                    // Reply preview — v0.6.5 live-feedback restyle: the old
+                    // full-width flat-fill band read as an "ugly full-width
+                    // band". Element-classic quote treatment instead:
+                    // content-width (sized to what it actually holds, never
+                    // stretched edge-to-edge), an inset fill that reads as
+                    // a nested card, and a left accent bar rather than the
+                    // dead `border.width: 0` this used to carry.
                     Rectangle {
                         id: replyBox
                         objectName: "replyNavigationTarget"
                         visible: model.replyToEventId && model.replyToEventId.length > 0
                                  && !model.redacted
-                        Layout.fillWidth: true
-                        implicitHeight: replyLayout.implicitHeight + 6
-                        color: AppTheme.bubbleOverlaySubtle
-                        radius: 4
-                        border.color: AppTheme.accent
-                        border.width: 0
+                        readonly property int barWidth: 3
+                        Layout.alignment: Qt.AlignLeft
+                        Layout.maximumWidth: 320
+                        implicitWidth: replyLayout.implicitWidth + barWidth + 16
+                        implicitHeight: replyLayout.implicitHeight + 8
+                        color: AppTheme.hover
+                        radius: 6
                         Accessible.role: Accessible.Button
                         Accessible.name: qsTr("Jump to replied message")
                         TapHandler {
                             cursorShape: Qt.PointingHandCursor
                             onTapped: app.pagination.jumpToEvent(model.replyToEventId || "")
                         }
+                        Rectangle {
+                            width: replyBox.barWidth
+                            anchors.left: parent.left
+                            anchors.top: parent.top
+                            anchors.bottom: parent.bottom
+                            color: AppTheme.borderStrong
+                        }
                         ColumnLayout {
                             id: replyLayout
                             anchors.left: parent.left
                             anchors.right: parent.right
-                            anchors.margins: 4
+                            anchors.top: parent.top
+                            anchors.bottom: parent.bottom
+                            anchors.leftMargin: replyBox.barWidth + 8
+                            anchors.rightMargin: 8
+                            anchors.topMargin: 4
+                            anchors.bottomMargin: 4
                             spacing: 0
                             Label {
                                 text: model.replyToSender
                                       ? qsTr("↰ %1").arg(model.replyToSender)
                                       : qsTr("↰ Reply")
-                                color: AppTheme.textMuted
+                                color: AppTheme.textSecondary
                                 font.pixelSize: 11
-                                font.italic: true
+                                elide: Label.ElideRight
+                                Layout.fillWidth: true
+                                maximumLineCount: 1
                             }
                             Label {
                                 text: model.replyToPreview || qsTr("(original message not loaded)")
@@ -1246,12 +1296,22 @@ Item {
                     // 9px side / 3px vertical padding, min height 22. Fill
                     // darkens slightly on hover — paint only, geometry never
                     // moves on hover/press/selected.
+                    // v0.6.5 live-feedback: "add deliberate yellow" for byMe
+                    // chips — the softer accentBorder fallback read as too
+                    // faint to register as "you reacted here" at a glance
+                    // (worse once it was sitting on the mention wash this
+                    // round also toned down). Full-strength accent for the
+                    // border only, a touch heavier — the fill stays the
+                    // soft tint deliberately (a solid bolt fill on every
+                    // own-reaction pill across a busy thread would be the
+                    // over-yellow case the design's own discipline warns
+                    // against; the crisp ring is enough to read as "mine").
                     readonly property color baseFill: modelData.byMe
                         ? AppTheme.accentSoft : AppTheme.reactionBackground
                     color: reactionHover.hovered ? Qt.darker(baseFill, 1.08) : baseFill
                     radius: AppTheme.radiusPill
-                    border.color: modelData.byMe ? AppTheme.accentBorder : AppTheme.border
-                    border.width: 1
+                    border.color: modelData.byMe ? AppTheme.accent : AppTheme.border
+                    border.width: modelData.byMe ? 1.5 : 1
                     implicitWidth: reactionRow.implicitWidth + 18
                     // reactionRow.implicitHeight is deterministic now: both
                     // labels below are pinned to a fixed 16px content height,

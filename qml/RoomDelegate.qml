@@ -56,6 +56,20 @@ Item {
         TapHandler { onTapped: root.clicked() }
     }
 
+    // v0.6.5 live-feedback: "deliberate yellow ... selected-room edge" —
+    // a left edge bar marking the active room. Sits in the 4px gutter the
+    // rounded highlight chip above already leaves before its own
+    // anchors.leftMargin inset, so it needs no change to the row's own
+    // content margins.
+    Rectangle {
+        visible: selected
+        anchors.left: parent.left
+        anchors.top: parent.top
+        anchors.bottom: parent.bottom
+        width: 3
+        color: AppTheme.bolt
+    }
+
     RowLayout {
         id: content
         anchors.fill: parent

@@ -550,7 +550,7 @@ private Q_SLOTS:
         // change). The wash base is the routed mentionHighlight token —
         // accent under legacy themes, the mention rose under Storm.
         QVERIFY(delegate.contains(QStringLiteral(
-            "? Qt.alpha(AppTheme.mentionHighlight, 0.14)")));
+            "? Qt.alpha(AppTheme.mentionHighlight, 0.05)")));
         QVERIFY(delegate.contains(QStringLiteral(": \"transparent\"")));
         QVERIFY(delegate.contains(QStringLiteral("? AppTheme.radiusSm : 0")));
     }
