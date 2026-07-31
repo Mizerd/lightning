@@ -124,6 +124,7 @@ private Q_SLOTS:
     void mediaAndPaginationPreserveSenderGrouping();
     void groupingRefreshCoalescesAcrossPrependBurst();
     void memberProfileUpdateEmitsIdentityRoles();
+    void replyToSenderResolvesDisplayNameWithLocalpartFallback();
     void clientSwitchDoesNotLeakSenderProfile();
     void messageActionsUseStableIdentityAndSafeMetadata();
     void staleAndInapplicableMessageActionsAreRejected();
@@ -729,10 +730,61 @@ void TimelineModelDiffTest::memberProfileUpdateEmitsIdentityRoles()
     QVERIFY(roles.contains(TimelineModel::SenderDisplayNameRole));
     QVERIFY(roles.contains(TimelineModel::SenderInitialsRole));
     QVERIFY(roles.contains(TimelineModel::SenderAvatarMxcRole));
+    // Mention chips (FormattedBodyRole) and reply headers
+    // (ReplyToSenderRole) resolve display names through the same member
+    // lookup — a hydration burst must refresh them too, or a row rendered
+    // pre-hydration keeps its localpart fallback forever.
+    QVERIFY(roles.contains(TimelineModel::FormattedBodyRole));
+    QVERIFY(roles.contains(TimelineModel::ReplyToSenderRole));
+    QVERIFY(roles.contains(TimelineModel::ThreadLatestSenderDisplayNameRole));
     QCOMPARE(m_model->data(m_model->index(0), TimelineModel::SenderInitialsRole).toString(),
              QStringLiteral("AU"));
     QCOMPARE(m_model->data(m_model->index(0), TimelineModel::SenderAvatarMxcRole).toString(),
              QStringLiteral("mxc://example.org/new-avatar"));
+}
+
+void TimelineModelDiffTest::replyToSenderResolvesDisplayNameWithLocalpartFallback()
+{
+    auto reply = makeEvent(QStringLiteral("$reply"), QStringLiteral("hi"));
+    reply.replyToEventId = QStringLiteral("$orig");
+    reply.replyToSender = QStringLiteral("@maya:example.org");
+    m_client->mirror = { reply };
+    Q_EMIT m_client->timelineReset(kRoom);
+
+    // Unknown member: the visible label is the LOCALPART (a readable
+    // fallback), never the full MXID.
+    QCOMPARE(m_model->data(m_model->index(0),
+                           TimelineModel::ReplyToSenderRole).toString(),
+             QStringLiteral("maya"));
+
+    // Member hydrates: the reply header resolves to the display name, and
+    // membersChanged is what refreshes the already-rendered row.
+    m_client->displayNames.insert(QStringLiteral("@maya:example.org"),
+                                  QStringLiteral("Maya Chen"));
+    Q_EMIT m_client->membersChanged(kRoom);
+    QCOMPARE(m_model->data(m_model->index(0),
+                           TimelineModel::ReplyToSenderRole).toString(),
+             QStringLiteral("Maya Chen"));
+
+    // Thread summary cards resolve through the same three tiers: with no
+    // embedded SDK name, the member lookup wins over the localpart.
+    auto root = makeEvent(QStringLiteral("$root"), QStringLiteral("topic"));
+    root.isThreadRoot = true;
+    root.threadLatestSender = QStringLiteral("@maya:example.org");
+    m_client->mirror = { root };
+    Q_EMIT m_client->timelineReset(kRoom);
+    QCOMPARE(m_model->data(m_model->index(0),
+                           TimelineModel::ThreadLatestSenderDisplayNameRole)
+                 .toString(),
+             QStringLiteral("Maya Chen"));
+    // And the embedded SDK name still has first claim when present.
+    m_client->mirror[0].threadLatestSenderDisplayName =
+        QStringLiteral("Maya (SDK)");
+    Q_EMIT m_client->timelineReset(kRoom);
+    QCOMPARE(m_model->data(m_model->index(0),
+                           TimelineModel::ThreadLatestSenderDisplayNameRole)
+                 .toString(),
+             QStringLiteral("Maya (SDK)"));
 }
 
 void TimelineModelDiffTest::clientSwitchDoesNotLeakSenderProfile()

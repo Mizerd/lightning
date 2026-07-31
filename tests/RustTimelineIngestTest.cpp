@@ -122,6 +122,10 @@ private Q_SLOTS:
     // ── Phase 5/7: thread-root summary live updates via set diffs ───
     void threadSummaryUpdatesInPlaceViaSet();
     void encryptedThreadSummaryDecryptsInPlace();
+
+    // v0.6.5: room_members payload → per-room member cache translation
+    // (the cache behind displayNameFor / avatarMxcFor).
+    void membersFromPayloadBuildsCacheEntries();
 };
 
 namespace {
@@ -1055,6 +1059,36 @@ void RustTimelineIngestTest::encryptedThreadSummaryDecryptsInPlace()
     QVERIFY(tracker.adoptReset(kRoom, 5));
     QVERIFY(!tracker.accepts(kRoom, 4)); // stale decryption completion
     QVERIFY(tracker.accepts(kRoom, 5));
+}
+
+void RustTimelineIngestTest::membersFromPayloadBuildsCacheEntries()
+{
+    QJsonArray rows;
+    QJsonObject maya;
+    maya.insert(QStringLiteral("user_id"), QStringLiteral("@maya:example.org"));
+    maya.insert(QStringLiteral("display_name"), QStringLiteral("Maya Chen"));
+    maya.insert(QStringLiteral("avatar_url"),
+                QStringLiteral("mxc://example.org/maya"));
+    rows.append(maya);
+    QJsonObject unnamed;
+    unnamed.insert(QStringLiteral("user_id"),
+                   QStringLiteral("@ghost:example.org"));
+    rows.append(unnamed);
+    QJsonObject invalid; // no user id — dropped, never a hash key
+    invalid.insert(QStringLiteral("display_name"), QStringLiteral("Nobody"));
+    rows.append(invalid);
+
+    const auto members = matrix::rust_timeline::membersFromPayload(rows);
+    QCOMPARE(members.size(), 2);
+    QCOMPARE(members.value(QStringLiteral("@maya:example.org")).displayName,
+             QStringLiteral("Maya Chen"));
+    QCOMPARE(members.value(QStringLiteral("@maya:example.org")).avatarMxcUrl,
+             QStringLiteral("mxc://example.org/maya"));
+    // Known-but-unnamed stays an entry with an empty name: "known,
+    // unnamed" and "unknown" are different lookup answers.
+    QVERIFY(members.contains(QStringLiteral("@ghost:example.org")));
+    QVERIFY(members.value(QStringLiteral("@ghost:example.org"))
+                .displayName.isEmpty());
 }
 
 QTEST_GUILESS_MAIN(RustTimelineIngestTest)

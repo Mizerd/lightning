@@ -1,7 +1,9 @@
 #pragma once
 
+#include "matrix/RoomInfo.h"
 #include "matrix/TimelineEvent.h"
 
+#include <QHash>
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QList>
@@ -53,6 +55,13 @@ QList<TimelineEvent> eventsFromItemArray(const QJsonArray &items,
 DiffOutcome applyTimelineDiff(QList<TimelineEvent> &mirror,
                               const QJsonObject &diff,
                               const QString &roomId);
+
+// v0.6.5: translate a room_members payload's member rows into per-room
+// member-cache entries — the cache behind displayNameFor()/avatarMxcFor(),
+// which mention chips, reply headers, and thread summaries resolve
+// through. Rows without a user id are dropped; display name and avatar may
+// legitimately be empty. Pure — unit-testable without the FFI.
+QHash<QString, MemberInfo> membersFromPayload(const QJsonArray &rows);
 
 // Tracks which (room, room_generation) pair the C++ side currently accepts.
 // The generation is minted by Rust; C++ adopts it from the timeline_reset

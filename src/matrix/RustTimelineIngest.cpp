@@ -329,4 +329,24 @@ DiffOutcome applyTimelineDiff(QList<TimelineEvent> &mirror,
     return out; // unknown op → Invalid, mirror untouched
 }
 
+QHash<QString, MemberInfo> membersFromPayload(const QJsonArray &rows)
+{
+    QHash<QString, MemberInfo> members;
+    members.reserve(rows.size());
+    for (const QJsonValue &value : rows) {
+        const QJsonObject row = value.toObject();
+        const QString userId = row.value(QStringLiteral("user_id")).toString();
+        if (userId.isEmpty())
+            continue;
+        MemberInfo info;
+        info.userId = userId;
+        info.displayName =
+            row.value(QStringLiteral("display_name")).toString();
+        info.avatarMxcUrl =
+            row.value(QStringLiteral("avatar_url")).toString();
+        members.insert(userId, info);
+    }
+    return members;
+}
+
 } // namespace matrix::rust_timeline

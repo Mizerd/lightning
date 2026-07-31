@@ -5,6 +5,7 @@
 #include "matrix/EventPreview.h"
 #include "matrix/MediaHelpers.h"
 #include "matrix/RustSessionPolicy.h"
+#include "matrix/RustTimelineIngest.h"
 #include "matrix_rust.h"
 #include "models/UserLookup.h"
 #include "storage/AppDataPaths.h"
@@ -4189,8 +4190,35 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             members.append(entry);
         }
         snapshot.insert(QStringLiteral("members"), members);
-        Q_EMIT roomMembersReceived(
-            opId(), event.value(QStringLiteral("room_id")).toString(), snapshot);
+        // v0.6.5: the fetched roster is ALSO the member cache behind
+        // displayNameFor()/avatarMxcFor() — mention chips, reply headers
+        // and thread summaries resolve through it, and TimelineModel /
+        // RoomListModel refresh on membersChanged. Before this write the
+        // cache only ever held currently-typing users, so on the Rust
+        // backend those surfaces fell back to bare localparts forever
+        // (review: both model-layer fixes were inert without this).
+        const QString membersRoomId =
+            event.value(QStringLiteral("room_id")).toString();
+        if (event.value(QStringLiteral("ok")).toBool()) {
+            const auto roomIt = m_rooms.find(membersRoomId);
+            if (roomIt != m_rooms.end()) {
+                const auto fetched = matrix::rust_timeline::membersFromPayload(rows);
+                for (auto it = fetched.constBegin(); it != fetched.constEnd();
+                     ++it) {
+                    // Merge, never clobber known data with empty fields: a
+                    // typing-sourced name survives a rosterless avatar row
+                    // and vice versa.
+                    MemberInfo &slot = roomIt->members[it.key()];
+                    slot.userId = it.key();
+                    if (!it->displayName.isEmpty())
+                        slot.displayName = it->displayName;
+                    if (!it->avatarMxcUrl.isEmpty())
+                        slot.avatarMxcUrl = it->avatarMxcUrl;
+                }
+                Q_EMIT membersChanged(membersRoomId);
+            }
+        }
+        Q_EMIT roomMembersReceived(opId(), membersRoomId, snapshot);
         return true;
     }
 

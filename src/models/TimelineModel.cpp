@@ -462,10 +462,24 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
     case EditedRole:             return e.edited;
     case RedactedRole:           return e.redacted;
     case ReplyToEventIdRole:     return e.replyToEventId;
-    // The SDK embeds the replied-to sender as a raw MXID; show its
-    // localpart rather than the full id in the reply header.
-    case ReplyToSenderRole:
+    // The SDK embeds the replied-to sender as a raw MXID; resolve it to the
+    // room display name like every other visible identity (the reply header
+    // used to show the bare localpart — a username — even when the member's
+    // name was known). Fallback order mirrors senderDisplayName(): member
+    // lookup, then the LOCALPART — the complete MXID is never the label.
+    case ReplyToSenderRole: {
+        if (e.replyToSender.isEmpty())
+            return QString();
+        if (m_client) {
+            const QString display =
+                m_client->displayNameFor(e.roomId, e.replyToSender);
+            // Backends return the raw user id when nothing is known — that
+            // is "unresolved", not a display name.
+            if (!display.isEmpty() && display != e.replyToSender)
+                return display;
+        }
         return matrix::user_lookup::localpartOrUserId(e.replyToSender);
+    }
     case ReplyToPreviewRole:     return e.replyToPreview;
     case MediaMxcUrlRole:        return e.mediaMxcUrl;
     case MediaHttpUrlRole:       return mediaHttp(e.mediaMxcUrl);
@@ -530,10 +544,23 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
     case ThreadLatestPreviewRole:   return e.threadLatestPreview;
     case ThreadLatestKindRole:      return e.threadLatestKind;
     case ThreadLatestSenderRole:    return e.threadLatestSender;
-    case ThreadLatestSenderDisplayNameRole:
-        return e.threadLatestSenderDisplayName.isEmpty()
-            ? matrix::user_lookup::localpartOrUserId(e.threadLatestSender)
-            : e.threadLatestSenderDisplayName;
+    // Same three-tier resolution as senderDisplayName()/ReplyToSenderRole:
+    // embedded SDK name, member lookup, then the LOCALPART (review M:
+    // the summary card previously skipped the lookup tier and kept a bare
+    // username for members whose profile only the roster knows).
+    case ThreadLatestSenderDisplayNameRole: {
+        if (!e.threadLatestSenderDisplayName.isEmpty())
+            return e.threadLatestSenderDisplayName;
+        if (e.threadLatestSender.isEmpty())
+            return QString();
+        if (m_client) {
+            const QString display =
+                m_client->displayNameFor(e.roomId, e.threadLatestSender);
+            if (!display.isEmpty() && display != e.threadLatestSender)
+                return display;
+        }
+        return matrix::user_lookup::localpartOrUserId(e.threadLatestSender);
+    }
     case ThreadLatestSenderAvatarMxcRole:
         return e.threadLatestSenderAvatarUrl;
     case ThreadLatestTimestampRole: return e.threadLatestTimestamp;
@@ -974,10 +1001,16 @@ void TimelineModel::onMembersChanged(const QString &roomId)
 {
     if (roomId != m_roomId) return;
     // Refresh SDK/member-derived identity for every row (cheap: one signal).
+    // FormattedBodyRole and ReplyToSenderRole are member-derived too: mention
+    // chips and reply headers resolve display names through the SAME member
+    // lookup, and a row rendered before hydration would otherwise keep its
+    // localpart fallback (a bare username) forever.
     if (m_events.isEmpty()) return;
     Q_EMIT dataChanged(index(0), index(m_events.size() - 1),
                        { SenderDisplayNameRole, SenderInitialsRole,
-                         SenderAvatarMxcRole });
+                         SenderAvatarMxcRole, FormattedBodyRole,
+                         ReplyToSenderRole,
+                         ThreadLatestSenderDisplayNameRole });
     refreshTypingText();
 }
 
