@@ -91,35 +91,39 @@ Rectangle {
             color: AppTheme.sidebar
             implicitHeight: headerRow.implicitHeight + AppTheme.spacing12 * 2
 
+            // v0.6.5 (C5): the wordmark reads "Lightning ⚡" — the bolt trails
+            // the workspace name on a shared baseline, one glyph, no banner
+            // tile. workspaceLabel is intentionally NOT Layout.fillWidth: a
+            // fillWidth label pins a trailing sibling to the row's far edge,
+            // which reads as a right-aligned button rather than a wordmark
+            // suffix. headerRow is anchored left-only (no `right`): anchoring
+            // both edges forces the RowLayout wider than its content, and
+            // with neither child set to fillWidth, QtQuickLayouts still
+            // distributes that surplus between them — which is exactly what
+            // pinned the bolt to the column's far-right edge instead of
+            // hugging the label. Left-anchoring only makes the RowLayout take
+            // its own implicit width (label + spacing + bolt, nothing more),
+            // so there is no surplus to distribute regardless of layout
+            // policy. Layout.maximumWidth on the label still accounts for
+            // the right margin (root.width - spacing12*2 - spacing - bolt
+            // width) so a long Space name elides instead of overflowing the
+            // column.
             RowLayout {
                 id: headerRow
                 anchors {
-                    left: parent.left; right: parent.right
+                    left: parent.left
                     verticalCenter: parent.verticalCenter
                     leftMargin: AppTheme.spacing12
-                    rightMargin: AppTheme.spacing12
                 }
-                spacing: AppTheme.spacing8
-
-                // The Lightning bolt mark — the app brand above all chats,
-                // echoing the trust surface's bolt and the application icon.
-                Rectangle {
-                    objectName: "workspaceBrandMark"
-                    implicitWidth: 26
-                    implicitHeight: 26
-                    radius: AppTheme.radiusTile
-                    color: AppTheme.accentSoft
-                    Icon {
-                        anchors.centerIn: parent
-                        name: "bolt"
-                        size: 17
-                        color: AppTheme.accent
-                    }
-                }
+                spacing: AppTheme.spacing6
 
                 Label {
                     id: workspaceLabel
-                    Layout.fillWidth: true
+                    objectName: "workspaceLabel"
+                    Layout.alignment: Qt.AlignVCenter
+                    Layout.maximumWidth: Math.max(0, root.width
+                        - AppTheme.spacing12 * 2 - headerRow.spacing
+                        - wordmarkBolt.implicitWidth)
                     text: {
                         if (!app.spaces)
                             return qsTr("Lightning")
@@ -134,6 +138,26 @@ Rectangle {
                     font.pixelSize: AppTheme.fontRoomTitle
                     font.weight: Font.ExtraBold
                     elide: Label.ElideRight
+                }
+
+                // The Lightning bolt mark — the app brand above all chats,
+                // echoing the trust surface's bolt and the application icon.
+                // A bare trailing glyph (no tile background), optically
+                // sized close to the label's cap-height and vertically
+                // centered on the same row; never focusable, never resized
+                // by hover/focus (header height is driven by headerRow's
+                // implicit height alone, and neither child here reacts to
+                // hover/focus at all).
+                Icon {
+                    id: wordmarkBolt
+                    objectName: "workspaceBoltMark"
+                    Layout.alignment: Qt.AlignVCenter
+                    name: "bolt"
+                    size: 15
+                    color: AppTheme.accent
+                    // Decorative: the region should announce the workspace
+                    // name text alone, not an unnamed glyph after it.
+                    Accessible.ignored: true
                 }
             }
         }

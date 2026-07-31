@@ -236,6 +236,11 @@ private slots:
             { 8, "design-main-moss-light" },
             { 9, "design-main-indigo-night" },
             { 10, "design-main-deep-teal" },
+            // v0.6.5: Storm (11), the brand navy + bolt theme. token() reads
+            // AppTheme.<name> live through the shared engine, so no other
+            // change is needed here for the surface/rail samples to resolve
+            // against Storm's own palette instead of a stale expectation.
+            { 11, "design-main-storm" },
         };
         for (const auto &c : cases) {
             m_controller->settings()->setTheme(
@@ -259,6 +264,42 @@ private slots:
         }
         m_controller->settings()->setTheme(SettingsManager::IndigoNightTheme);
         QCoreApplication::processEvents();
+    }
+
+    // v0.6.5 (C5, reviewer M4): a runtime guard against BOTH known-bad
+    // wordmark states — the original defect (a bolt tile to the LEFT of
+    // "Lightning") and the anchor regression caught in the visual audit
+    // (headerRow anchored both left AND right, so QtQuickLayouts still
+    // distributed the surplus between the two non-fill children and pinned
+    // the bolt to the room-list column's far-right edge instead of hugging
+    // the label — see RoomsPanel.qml:94-110). Loads the real production
+    // Main.qml shell (via initTestCase below), not a synthetic fixture.
+    void wordmarkBoltHugsTheLabelNotTheColumnEdge()
+    {
+        auto *label = item("workspaceLabel");
+        auto *bolt = item("workspaceBoltMark");
+        auto *rooms = item("roomsPanel");
+        QVERIFY(label && bolt && rooms);
+
+        const qreal labelRight =
+            label->mapToItem(rooms, QPointF(label->width(), 0)).x();
+        const qreal boltLeft = bolt->mapToItem(rooms, QPointF(0, 0)).x();
+        const qreal boltRight =
+            bolt->mapToItem(rooms, QPointF(bolt->width(), 0)).x();
+
+        // Hugs the text: the bolt's left edge sits within a few px of the
+        // label's right edge plus headerRow's own spacing (6px) — not
+        // somewhere out past a large uncontrolled gap.
+        QVERIFY2(boltLeft >= labelRight && boltLeft <= labelRight + 20,
+                 qPrintable(QStringLiteral(
+                     "bolt.x=%1 not within a few px of label's right edge=%2")
+                                .arg(boltLeft).arg(labelRight)));
+        // Not flush with the column's far-right edge (the actual observed
+        // regression).
+        QVERIFY2(boltRight < rooms->width() - 4,
+                 qPrintable(QStringLiteral(
+                     "bolt right edge=%1 flush with column edge=%2")
+                                .arg(boltRight).arg(rooms->width())));
     }
 
     void threadPanelRenders340BesideVisibleTimeline()

@@ -152,6 +152,15 @@ ScreenshotDemoController::catalogue()
           QString(), false, 9, false, QStringLiteral("1440x900"), true,
           QStringLiteral("Room context menu"),
           QStringLiteral("room-menu"), QString() },
+        { QStringLiteral("find-in-room"), kAlex,
+          QStringLiteral("!design-lounge:lightning.example"),
+          QStringLiteral("!space-studio:lightning.example"),
+          QString(), false, 9, false, QStringLiteral("1440x900"), true,
+          // 0.6.5 (C7): the floating composer-family find card, pre-filled
+          // so the match counter and prev/next controls are live in the
+          // capture ("layout" matches the seeded Design Lounge messages).
+          QStringLiteral("Find in loaded messages (in-room search card)"),
+          QStringLiteral("find-in-room"), QStringLiteral("layout") },
         { QStringLiteral("quick-switcher"), kAlex,
           QStringLiteral("!design-lounge:lightning.example"),
           QStringLiteral("!space-studio:lightning.example"),
@@ -420,6 +429,7 @@ int ScreenshotDemoController::themeIdForName(const QString &name)
     if (n == QLatin1String("indigo") || n == QLatin1String("indigo night")) return 9;
     if (n == QLatin1String("deep teal") || n == QLatin1String("teal")
         || n == QLatin1String("deepteal")) return 10;
+    if (n == QLatin1String("storm")) return 11;
     return -1;
 }
 
@@ -602,6 +612,8 @@ void ScreenshotDemoController::dispatchScenarioPopup(const QString &scenarioId,
             Q_EMIT demoOpenMentionPopup(query);
         else if (popup == QLatin1String("trust-card"))
             Q_EMIT demoOpenTrustCard();
+        else if (popup == QLatin1String("find-in-room"))
+            Q_EMIT demoOpenFindBar(query);
         else if (popup == QLatin1String("new-conversation"))
             Q_EMIT demoOpenNewConversation();
         else if (popup == QLatin1String("settings-search"))

@@ -90,6 +90,33 @@ private:
         return {};
     }
 
+    // A Repeater reparents its delegate items into ITS OWN parent item
+    // (here, the reactions Flow) for correct positioner layout — that
+    // reparenting is QQuickItem::setParentItem() only, not QObject::
+    // setParent(), so Repeater-created delegates never become proper
+    // QObject-tree descendants of `root` and QObject::findChildren() can
+    // never see them (confirmed by direct inspection: the two chip
+    // Rectangles exist, both correctly objectName'd and correctly sized,
+    // as childItems() siblings of the Repeater under the Flow — just
+    // unreachable via the QObject tree). Every OTHER findChild/findChildren
+    // use elsewhere in this file targets items declared directly in QML,
+    // which stay QObject-tree reachable; this helper is only needed for
+    // Repeater-instantiated content.
+    static QList<QQuickItem *> findVisualChildren(QQuickItem *parent,
+                                                  const QString &name)
+    {
+        QList<QQuickItem *> result;
+        if (!parent)
+            return result;
+        const auto kids = parent->childItems();
+        for (auto *child : kids) {
+            if (child->objectName() == name)
+                result.append(child);
+            result.append(findVisualChildren(child, name));
+        }
+        return result;
+    }
+
 private Q_SLOTS:
     // The actual room-activity component must materialize typed child rows,
     // not merely toggle an expansion bit in the containing ListView.
@@ -551,6 +578,105 @@ private Q_SLOTS:
         QVERIFY(body->height() > 0.0);
         QVERIFY(body->height() < 20000.0);
         QVERIFY(root->implicitHeight() < 20000.0);
+        QCOMPARE(warnings, QStringList{});
+    }
+
+    // v0.6.5 (C6, reviewer M4): a runtime guard for the reaction-chip
+    // height defect — before the fix, each chip's Rectangle derived its
+    // implicitHeight from reactionRow.implicitHeight, and a plain Row does
+    // not vertically centre children of different natural heights, so a
+    // taller-metric emoji glyph grew the WHOLE chip while a shorter one
+    // stayed at the 22px floor. Two reactions with genuinely different
+    // Unicode composition (a single-codepoint emoji vs. one combined with a
+    // variation selector — a well-known source of divergent font-reported
+    // metrics even at the identical pixel size) exercise that gap. On the
+    // fixed code both labels are pinned to a deterministic 16px content
+    // height (MessageDelegate.qml's reactionRow), so every chip lands on
+    // the same height regardless of which glyph it holds — this is a
+    // static-vs-static comparison of two SIBLING chips actually rendered
+    // side by side, not a comparison against a hardcoded pixel constant,
+    // so it stays valid across any future spacing/padding retune.
+    void reactionChipsShareOneHeightAcrossDifferentEmoji()
+    {
+        AppController controller(AppController::MockBackend);
+        QVariantMap fixture;
+        const auto roles = controller.timeline()->roleNames();
+        for (auto it = roles.cbegin(); it != roles.cend(); ++it)
+            fixture.insert(QString::fromUtf8(it.value()), QVariant{});
+        fixture.insert(QStringLiteral("isVirtual"), false);
+        fixture.insert(QStringLiteral("isStateActivity"), false);
+        fixture.insert(QStringLiteral("stateGroupEntries"), QVariantList{});
+        fixture.insert(QStringLiteral("showSenderIdentity"), true);
+        fixture.insert(QStringLiteral("itemId"), QStringLiteral("fixture-item"));
+        fixture.insert(QStringLiteral("eventId"), QStringLiteral("$fixture"));
+        fixture.insert(QStringLiteral("sender"),
+                       QStringLiteral("@fixture:mock.local"));
+        fixture.insert(QStringLiteral("senderDisplayName"), QStringLiteral("Fixture"));
+        fixture.insert(QStringLiteral("senderInitials"), QStringLiteral("F"));
+        fixture.insert(QStringLiteral("body"), QStringLiteral("Reaction fixture"));
+        fixture.insert(QStringLiteral("eventType"), 0);
+        fixture.insert(QStringLiteral("status"), 0);
+        fixture.insert(QStringLiteral("isOwn"), false);
+        fixture.insert(QStringLiteral("replyToEventId"), QString{});
+        fixture.insert(QStringLiteral("timestamp"),
+                       QDateTime::currentDateTimeUtc());
+        fixture.insert(QStringLiteral("isEncrypted"), false);
+        fixture.insert(QStringLiteral("isDecrypted"), false);
+        fixture.insert(QStringLiteral("undecryptable"), false);
+        fixture.insert(QStringLiteral("redacted"), false);
+        fixture.insert(QStringLiteral("isImage"), false);
+        fixture.insert(QStringLiteral("isFile"), false);
+        // Thumbs-up: a single codepoint. Heart: base + U+FE0F variation
+        // selector-16 (emoji presentation) — the two-codepoint combination
+        // historically diverges from single-codepoint glyphs in reported
+        // font metrics on some font stacks, which is exactly the class of
+        // difference the old Row-based layout let leak into chip height.
+        fixture.insert(QStringLiteral("reactions"), QVariantList{
+            QVariantMap{ { QStringLiteral("key"), QStringLiteral("👍") },
+                        { QStringLiteral("count"), 1 },
+                        { QStringLiteral("byMe"), false } },
+            QVariantMap{ { QStringLiteral("key"),
+                          QStringLiteral("❤️") },
+                        { QStringLiteral("count"), 12 },
+                        { QStringLiteral("byMe"), true } },
+        });
+
+        QQmlApplicationEngine engine;
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this,
+                [&warnings](const QList<QQmlError> &errors) {
+                    for (const auto &e : errors)
+                        warnings << e.toString();
+                });
+        engine.rootContext()->setContextProperty("app", &controller);
+        engine.rootContext()->setContextProperty("model", fixture);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("MessageDelegate"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(root != nullptr);
+
+        QQuickWindow window;
+        window.resize(640, 240);
+        root->setParentItem(window.contentItem());
+        root->setWidth(window.width());
+        window.show();
+        QCoreApplication::processEvents();
+
+        // Root cause of the earlier "0 chips" failure: QObject::
+        // findChildren() cannot see Repeater-instantiated delegates (see
+        // findVisualChildren's comment) — root.reactionsList() and the
+        // Repeater's own `count` property were always correct (confirmed
+        // by direct inspection during triage). Walk the actual QQuickItem
+        // scene-graph tree instead.
+        const auto chips = findVisualChildren(root, QStringLiteral("reactionChip"));
+        QCOMPARE(chips.size(), 2);
+        QVERIFY2(chips.at(0)->height() >= 22.0,
+                 "chip height below the 22px design floor");
+        QCOMPARE(chips.at(0)->height(), chips.at(1)->height());
         QCOMPARE(warnings, QStringList{});
     }
 
@@ -1636,6 +1762,100 @@ private Q_SLOTS:
         QCoreApplication::processEvents();
         QCOMPARE(timeline->property("stickToBottom").toBool(), false);
         QCOMPARE(timeline->property("wheelAnimating").toBool(), false);
+        QCOMPARE(warnings, QStringList{});
+    }
+
+    // v0.6.5 (C7): the find bar is now a floating composer-family card,
+    // detached from the pane's edges by outer Layout margins, instead of a
+    // flush full-width strip. It stays an ordinary Layout child rather than
+    // an absolute overlay specifically so the timeline ListView's existing
+    // find-bar-driven height compensation keeps working — which means the
+    // composer, pinned below the timeline's fillHeight Item in the same
+    // roomColumn ColumnLayout, must never move when find opens or closes;
+    // only the flexible timeline Item between them may resize.
+    //
+    // Deliberately placed directly after composerFocusPreventsTimelineKey-
+    // Handling(): both create and show a real QQuickWindow, and this suite
+    // has a documented offscreen-QPA flake when a window-showing test sits
+    // immediately before keyboardNavigationKeysStartTimelineMotion() (see
+    // the comment on paginationAnchorRestorePreservesConcurrentScroll at
+    // the bottom of this file). Staying adjacent to the OTHER already-safe
+    // window-showing test, rather than introducing a new adjacency to that
+    // one, avoids reproducing it.
+    void findBarIsDetachedAndNeverMovesTheComposer()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        controller.setCurrentRoomId(QStringLiteral("!general:mock.local"));
+
+        QQmlApplicationEngine engine;
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this,
+                [&warnings](const QList<QQmlError> &errors) {
+                    for (const auto &e : errors) warnings << e.toString();
+                });
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("TimelinePane"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(root != nullptr);
+
+        QQuickWindow window;
+        window.resize(900, 700);
+        root->setParentItem(window.contentItem());
+        root->setWidth(window.width());
+        root->setHeight(window.height());
+        window.show();
+        QCoreApplication::processEvents();
+
+        auto *composer = root->findChild<QQuickItem *>(
+            QStringLiteral("composerCard"));
+        QVERIFY(composer != nullptr);
+        const qreal composerYBeforeOpen =
+            composer->mapToScene(QPointF(0, 0)).y();
+
+        QVERIFY(QMetaObject::invokeMethod(root, "openFind"));
+        QCoreApplication::processEvents();
+
+        auto *findBar = root->findChild<QQuickItem *>(
+            QStringLiteral("timelineFindBar"));
+        QVERIFY(findBar != nullptr);
+        QTRY_VERIFY_WITH_TIMEOUT(findBar->isVisible(), kSignalTimeoutMs);
+
+        // Detached: the card is inset from both the pane's left and right
+        // edges — not a flush, full-width strip touching either side.
+        const QPointF findBarTopLeft = findBar->mapToScene(QPointF(0, 0));
+        const QPointF findBarTopRight =
+            findBar->mapToScene(QPointF(findBar->width(), 0));
+        QVERIFY2(findBarTopLeft.x() > 0.0,
+                 "find bar must not touch the pane's left edge");
+        QVERIFY2(findBarTopRight.x() < root->width(),
+                 "find bar must not touch the pane's right edge");
+
+        // Opening find only shrinks the flexible timeline Item between the
+        // find bar and the composer — the composer itself must not move.
+        QCOMPARE(composer->mapToScene(QPointF(0, 0)).y(), composerYBeforeOpen);
+
+        auto *findField = root->findChild<QQuickItem *>(
+            QStringLiteral("timelineFindField"));
+        QVERIFY(findField != nullptr);
+        QVERIFY(findField->hasActiveFocus());
+
+        QVERIFY(QMetaObject::invokeMethod(root, "closeFind"));
+        QCoreApplication::processEvents();
+        QTRY_VERIFY_WITH_TIMEOUT(!findBar->isVisible(), kSignalTimeoutMs);
+        QCOMPARE(composer->mapToScene(QPointF(0, 0)).y(), composerYBeforeOpen);
+        // closeFind() hands focus back to the timeline explicitly rather
+        // than leaving the focus scope with no active item.
+        auto *timeline = root->findChild<QQuickItem *>(
+            QStringLiteral("timelineListView"));
+        QVERIFY(timeline != nullptr);
+        QTRY_VERIFY_WITH_TIMEOUT(timeline->hasActiveFocus(), kSignalTimeoutMs);
+
         QCOMPARE(warnings, QStringList{});
     }
 

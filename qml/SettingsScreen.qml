@@ -751,15 +751,31 @@ Item {
                             font.weight: Font.DemiBold
                             font.letterSpacing: AppTheme.trackingStorm
                         }
-                        // Three featured design themes with FIXED preview
+                        // Four featured design themes with FIXED preview
                         // palettes (the one place the design allows
                         // hard-coded colors — each card always paints its
-                        // own theme regardless of the active one).
+                        // own theme regardless of the active one). Storm is
+                        // the 0.6.5 brand theme and sorts first/primary; its
+                        // preview swatches are NOT new fixed hex literals —
+                        // they read from AppTheme.paletteForTheme(11) (via
+                        // stormPreview below) exactly like the mini theme
+                        // cards already do, so the card can never drift from
+                        // the real Storm palette values AppTheme.qml owns.
                         Flow {
+                            id: featuredThemeFlow
+                            objectName: "featuredThemeFlow"
                             Layout.fillWidth: true
                             spacing: 14
+                            readonly property var stormPreview:
+                                AppTheme.paletteForTheme(11)
                             Repeater {
                                 model: [
+                                    { id: 11, name: qsTr("Storm"),
+                                      frame: featuredThemeFlow.stormPreview.background,
+                                      rail: featuredThemeFlow.stormPreview.sidebar,
+                                      bar1: featuredThemeFlow.stormPreview.border,
+                                      bar2: featuredThemeFlow.stormPreview.surface,
+                                      accent: featuredThemeFlow.stormPreview.accent },
                                     { id: 8,  name: qsTr("Moss Light"),
                                       frame: "#f7f7f5", rail: "#eceded",
                                       bar1: "#dcdedc", bar2: "#e6e8e6",
@@ -977,10 +993,12 @@ Item {
                             spacing: AppTheme.spacing8
                             Repeater {
                                 model: AppTheme.themeList.filter(
-                                    (t) => t.id !== 8 && t.id !== 9 && t.id !== 10)
+                                    (t) => t.id !== 8 && t.id !== 9 && t.id !== 10
+                                           && t.id !== 11)
                                 delegate: Rectangle {
                                     id: miniThemeCard
                                     required property var modelData
+                                    objectName: "miniThemeCard_" + modelData.id
                                     readonly property var pal:
                                         AppTheme.paletteForTheme(modelData.id)
                                     readonly property bool selectedTheme:
@@ -1105,7 +1123,7 @@ Item {
                             color: AppTheme.stormTextMuted
                             font.pixelSize: AppTheme.fontCaption
                             text: qsTr("When on, Lightning follows the system scheme: "
-                                       + "Moss Light in light mode, Indigo Night in dark mode.")
+                                       + "Moss Light in light mode, Storm in dark mode.")
                         }
 
                         Label {
@@ -2117,22 +2135,81 @@ Item {
                                 // v0.7.2 sanitized recovery diagnostics —
                                 // fixed tokens and counts only, expandable
                                 // so the primary status stays concise.
-                                Label {
+                                // v0.6.5 (C8): a real disclosure row instead
+                                // of a bare underlined Label — the plain-text
+                                // link read as inert body copy, so clicking
+                                // it could be mistaken for an unrelated
+                                // geometry defect rather than the intentional
+                                // expander it is. Row chrome plus a rotating
+                                // chevron (the same treatment AppComboBox's
+                                // indicator already uses) make the
+                                // expand/collapse affordance visible; the
+                                // toggled property, its target block, and the
+                                // click behavior are unchanged. implicitHeight
+                                // is a hard constant — hover/press only paint
+                                // the background, they never resize the row.
+                                AbstractButton {
+                                    id: recoveryDiagnosticsToggle
                                     objectName: "recoveryDiagnosticsToggle"
                                     visible: app.cryptoBootstrap.active
-                                    text: root.showRecoveryDiagnostics
-                                          ? qsTr("Hide recovery diagnostics")
-                                          : qsTr("Recovery diagnostics")
-                                    color: AppTheme.stormLink
-                                    font.pixelSize: AppTheme.fontSecondary
-                                    font.underline: true
+                                    Layout.fillWidth: true
+                                    implicitHeight: 28
+                                    hoverEnabled: true
+                                    focusPolicy: Qt.TabFocus
                                     Accessible.role: Accessible.Button
-                                    Accessible.name: text
-                                    MouseArea {
+                                    Accessible.name: root.showRecoveryDiagnostics
+                                        ? qsTr("Hide recovery diagnostics")
+                                        : qsTr("Recovery diagnostics")
+                                    onClicked: root.showRecoveryDiagnostics
+                                        = !root.showRecoveryDiagnostics
+                                    contentItem: RowLayout {
+                                        spacing: AppTheme.spacing4
+                                        Label {
+                                            text: root.showRecoveryDiagnostics
+                                                  ? qsTr("Hide recovery diagnostics")
+                                                  : qsTr("Recovery diagnostics")
+                                            color: AppTheme.stormLink
+                                            font.pixelSize: AppTheme.fontSecondary
+                                        }
+                                        Icon {
+                                            name: "expand_more"
+                                            size: 16
+                                            color: AppTheme.stormLink
+                                            rotation: root.showRecoveryDiagnostics ? 180 : 0
+                                            Behavior on rotation {
+                                                enabled: !AppTheme.reducedMotion
+                                                NumberAnimation { duration: 120 }
+                                            }
+                                        }
+                                        Item { Layout.fillWidth: true }
+                                    }
+                                    background: Rectangle {
+                                        radius: AppTheme.radiusMd
+                                        color: (recoveryDiagnosticsToggle.hovered
+                                                || recoveryDiagnosticsToggle.down)
+                                               ? Qt.alpha(AppTheme.stormSelection, 0.55)
+                                               : "transparent"
+                                    }
+                                    // Keyboard focus ring — the same
+                                    // absolute-overlay idiom every other
+                                    // AbstractButton-based control in this
+                                    // file uses (matchSystemSwitch above;
+                                    // IconButton/AppButton/AppTextField
+                                    // shell-wide): anchors.fill + negative
+                                    // margins, so it paints outside the
+                                    // row's own bounds and never feeds back
+                                    // into implicitHeight. visualFocus (not
+                                    // activeFocus) because this IS an
+                                    // AbstractButton — it only lights on
+                                    // keyboard focus, not a plain click.
+                                    Rectangle {
                                         anchors.fill: parent
-                                        cursorShape: Qt.PointingHandCursor
-                                        onClicked: root.showRecoveryDiagnostics
-                                            = !root.showRecoveryDiagnostics
+                                        anchors.margins: -4
+                                        radius: AppTheme.radiusMd + 4
+                                        color: "transparent"
+                                        border.width: 2
+                                        border.color: AppTheme.bolt
+                                        visible: recoveryDiagnosticsToggle.visualFocus
                                     }
                                 }
                                 ColumnLayout {

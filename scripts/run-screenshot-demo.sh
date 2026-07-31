@@ -42,7 +42,7 @@ MARKER=".lightning-screenshot-demo"
 VALID_SCENARIOS="home-overview main-chat direct-message development \
 media-gallery thread-view poll settings-themes account-switching security \
 invite work-overview community-overview responsive-chat \
-menu-message menu-room quick-switcher quick-switcher-command emoji-picker \
+menu-message menu-room find-in-room quick-switcher quick-switcher-command emoji-picker \
 gif-picker member-profile mention-popup trust-card new-conversation \
 settings-search invite-people create-poll"
 

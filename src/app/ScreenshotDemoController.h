@@ -139,6 +139,7 @@ Q_SIGNALS:
     // "open now", never which instance.
     void demoOpenMessageContextMenu();
     void demoOpenRoomContextMenu();
+    void demoOpenFindBar(const QString &query);
     void demoOpenQuickSwitcher(const QString &query);
     void demoOpenEmojiPicker();
     void demoOpenGifPicker();

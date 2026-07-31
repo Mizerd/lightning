@@ -123,6 +123,7 @@ selector or with `--scenario <id>`.
 | `responsive-chat` | Alex | Maya Chen at narrow width | Indigo Night · narrow (760×900) |
 | `menu-message` | Alex | Design Lounge + message context menu | Indigo Night · 1440×900 |
 | `menu-room` | Alex | Design Lounge + room context menu | Indigo Night · 1440×900 |
+| `find-in-room` | Alex | Design Lounge + the floating find-in-room card, pre-filled (`layout`) | Indigo Night · 1440×900 |
 | `quick-switcher` | Alex | Design Lounge + quick switcher (plain mode) | Indigo Night · 1280×800 |
 | `quick-switcher-command` | Alex | Design Lounge + quick switcher (command mode, `>theme`) | Deep Teal · 1280×800 |
 | `emoji-picker` | Alex | Design Lounge + emoji picker (seeded recents) | Indigo Night · 1280×800 |
@@ -142,7 +143,7 @@ theme the row pins.
 
 ### Demo-only popup signals
 
-Twelve of the rows above don't have a stable QML-global handle the controller
+Thirteen of the rows above don't have a stable QML-global handle the controller
 can call directly (a context menu, a picker, a popover, or a dialog — each
 instantiated once per view, not once per app). For those, `ScreenshotDemoController`
 exposes development-only signals that fire once the scenario's account/room/
@@ -156,6 +157,7 @@ into QML to pick which delegate/row/instance to target.
 |---|---|---|
 | `demoOpenMessageContextMenu()` | `menu-message` | A message's context menu |
 | `demoOpenRoomContextMenu()` | `menu-room` | A room-list row's context menu |
+| `demoOpenFindBar(query)` | `find-in-room` | The in-room find card, pre-filled with `query` |
 | `demoOpenQuickSwitcher(query)` | `quick-switcher`, `quick-switcher-command` | The quick switcher, pre-filled with `query` (`""` = plain mode, a leading `>` = command mode) |
 | `demoOpenEmojiPicker()` | `emoji-picker` | The emoji picker (recents pre-seeded — see below) |
 | `demoOpenGifPicker()` | `gif-picker` | The GIF picker (one favorite pre-seeded — see below) |

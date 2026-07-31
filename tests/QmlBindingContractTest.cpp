@@ -547,8 +547,10 @@ private Q_SLOTS:
         // The Modern/Compact bubble stays transparent by default; the only
         // tint outside Bubbles is the sender-NEUTRAL mention highlight
         // (applies to any sender, never an own-message color or alignment
-        // change).
-        QVERIFY(delegate.contains(QStringLiteral("? Qt.alpha(AppTheme.accent, 0.14)")));
+        // change). The wash base is the routed mentionHighlight token —
+        // accent under legacy themes, the mention rose under Storm.
+        QVERIFY(delegate.contains(QStringLiteral(
+            "? Qt.alpha(AppTheme.mentionHighlight, 0.14)")));
         QVERIFY(delegate.contains(QStringLiteral(": \"transparent\"")));
         QVERIFY(delegate.contains(QStringLiteral("? AppTheme.radiusSm : 0")));
     }

@@ -227,15 +227,22 @@ Item {
             anchors.verticalCenter: parent.verticalCenter
             spacing: AppTheme.spacingS
             visible: root.isVirtualRow && model.eventType === 8
+            // v0.6.5: reads unreadBadge, not accent — this divider is the
+            // same "unread" semantic as every numeric unread badge in the
+            // app, and it renders once per unread boundary in the visible
+            // timeline (a passive, recurring status marker, not a
+            // selection/focus/primary-action moment). unreadBadge is
+            // periwinkle under Storm for exactly this reason; falls back to
+            // accent for every legacy theme (pixel-identical).
             Rectangle {
                 Layout.fillWidth: true
                 implicitHeight: 1
-                color: AppTheme.accent
+                color: AppTheme.unreadBadge
             }
             Label {
                 objectName: "unreadDividerLabel"
                 text: qsTr("New messages")
-                color: AppTheme.accent
+                color: AppTheme.unreadBadge
                 font.pixelSize: 11
                 font.weight: Font.DemiBold
                 Accessible.name: text
@@ -243,7 +250,7 @@ Item {
             Rectangle {
                 Layout.fillWidth: true
                 implicitHeight: 1
-                color: AppTheme.accent
+                color: AppTheme.unreadBadge
             }
         }
     }
@@ -376,15 +383,24 @@ Item {
                                   Math.max(1, parent.width - root.avatarGutterWidth))
                 height: implicitHeight
                 implicitHeight: bubbleContent.implicitHeight + root.bubblePad * 2
-                // v0.6.0 checkpoint 11: mentions get a subtle accent tint —
-                // direct mentions stronger than room-wide @room.
+                // v0.6.0 checkpoint 11: mentions get a subtle tint — direct
+                // mentions stronger than room-wide @room. v0.6.5: reads
+                // mentionHighlight, not accent — under Storm, accent is
+                // bolt, reserved for selection/focus/one primary action;
+                // washing every mentioned row in it would both over-yellow
+                // the timeline and (composited at low alpha over a dark
+                // surface) read as a hueless brown rather than an
+                // attention tint. mentionHighlight falls back to accent for
+                // every legacy theme (pixel-identical) and resolves to the
+                // Storm mention-rose under Storm, consistent with
+                // mentionBadge's own tone.
                 color: root.bubbleMode
                        ? (model.isOwn === true ? AppTheme.ownBubble
                                                : AppTheme.otherBubble)
                        : model.mentionsMe === true
-                       ? Qt.alpha(AppTheme.accent, 0.14)
+                       ? Qt.alpha(AppTheme.mentionHighlight, 0.14)
                        : model.mentionsRoom === true
-                         ? Qt.alpha(AppTheme.accent, 0.07)
+                         ? Qt.alpha(AppTheme.mentionHighlight, 0.07)
                          : "transparent"
                 radius: root.bubbleMode ? 16
                         : model.mentionsMe === true || model.mentionsRoom === true
@@ -713,9 +729,18 @@ Item {
                             font.pixelSize: 10
                             font.italic: true
                         }
+                        // v0.6.5: these are inline text links (underlined,
+                        // click-to-act), the exact role AppTheme.link exists
+                        // for — not accent, which under Storm is bolt,
+                        // reserved for selection/focus/the one primary
+                        // action. link is periwinkle under Storm and falls
+                        // back to accent for every legacy theme (pixel-
+                        // identical), matching the real hyperlinks elsewhere
+                        // in this same delegate (message-body links, mention
+                        // links) that already read AppTheme.link.
                         Label {
                             text: qsTr("Retry decryption")
-                            color: AppTheme.accent
+                            color: AppTheme.link
                             font.pixelSize: 10
                             font.underline: true
                             MouseArea {
@@ -726,7 +751,7 @@ Item {
                         }
                         Label {
                             text: qsTr("Security settings")
-                            color: AppTheme.accent
+                            color: AppTheme.link
                             font.pixelSize: 10
                             font.underline: true
                             MouseArea {
@@ -782,11 +807,14 @@ Item {
                         }
                         // v0.5.7: retry action for failed local echoes. The
                         // SDK send queue re-attempts the same queued item,
-                        // so retrying never duplicates the message.
+                        // so retrying never duplicates the message. v0.6.5:
+                        // an inline text link — see the "Retry
+                        // decryption"/"Security settings" comment above for
+                        // why this reads AppTheme.link, not accent.
                         Label {
                             visible: model.isOwn && model.status === 2
                             text: qsTr("Retry")
-                            color: AppTheme.accent
+                            color: AppTheme.link
                             font.pixelSize: 10
                             font.underline: true
                             MouseArea {
@@ -1211,28 +1239,51 @@ Item {
             Repeater {
                 model: root.reactionsList()
                 Rectangle {
+                    id: reactionChip
+                    objectName: "reactionChip"
                     // Design §3: own reaction = accent-soft fill + accent
                     // border + accent-text; others = neutral chip. Pill radius,
-                    // 9px side / 3px vertical padding, min height 22.
-                    color: modelData.byMe ? AppTheme.accentSoft : AppTheme.reactionBackground
+                    // 9px side / 3px vertical padding, min height 22. Fill
+                    // darkens slightly on hover — paint only, geometry never
+                    // moves on hover/press/selected.
+                    readonly property color baseFill: modelData.byMe
+                        ? AppTheme.accentSoft : AppTheme.reactionBackground
+                    color: reactionHover.hovered ? Qt.darker(baseFill, 1.08) : baseFill
                     radius: AppTheme.radiusPill
                     border.color: modelData.byMe ? AppTheme.accentBorder : AppTheme.border
                     border.width: 1
                     implicitWidth: reactionRow.implicitWidth + 18
+                    // reactionRow.implicitHeight is deterministic now: both
+                    // labels below are pinned to a fixed 16px content height,
+                    // so every chip in a row lands on the SAME height no
+                    // matter which emoji it holds. Before this, a taller
+                    // color-emoji glyph (many report bigger font metrics than
+                    // the 12px count label at the identical pixel size) grew
+                    // reactionRow's own implicitHeight, so per-chip height —
+                    // and the count label's vertical position within it —
+                    // varied chip to chip. Chip chrome stays unscaled by
+                    // design (it's interface chrome, not message-body text).
                     implicitHeight: Math.max(22, reactionRow.implicitHeight + 6)
-                    Row {
+                    HoverHandler { id: reactionHover }
+                    RowLayout {
                         id: reactionRow
                         anchors.centerIn: parent
                         spacing: 5
                         Label {
+                            Layout.alignment: Qt.AlignVCenter
+                            Layout.preferredHeight: 16
                             text: modelData.key
                             font.pixelSize: 12
+                            verticalAlignment: Text.AlignVCenter
                         }
                         Label {
+                            Layout.alignment: Qt.AlignVCenter
+                            Layout.preferredHeight: 16
                             text: modelData.count
                             color: modelData.byMe ? AppTheme.selectedText : AppTheme.textSecondary
                             font.pixelSize: 12
                             font.weight: Font.Bold
+                            verticalAlignment: Text.AlignVCenter
                         }
                     }
                     MouseArea {
@@ -1240,6 +1291,16 @@ Item {
                         cursorShape: Qt.PointingHandCursor
                         onClicked: app.composer.reactTo(root.eventIdForActions(), modelData.key)
                     }
+                    Accessible.role: Accessible.Button
+                    Accessible.name: modelData.byMe
+                        ? qsTr("Reaction %1, %2, selected").arg(modelData.key).arg(modelData.count)
+                        : qsTr("Reaction %1, %2").arg(modelData.key).arg(modelData.count)
+                    // Accessible.role/name alone describe the control to
+                    // assistive tech but do not make it ACTIVATABLE — an AT
+                    // user invoking it (not clicking with a mouse) needs
+                    // this mirror of the MouseArea's onClicked.
+                    Accessible.onPressAction:
+                        app.composer.reactTo(root.eventIdForActions(), modelData.key)
                 }
             }
         }

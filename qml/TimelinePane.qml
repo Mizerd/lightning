@@ -135,6 +135,12 @@ Rectangle {
     function closeFind() {
         root.findOpen = false
         app.timeline.endSearch()
+        // v0.6.5 (C7): the field is about to become invisible/unfocusable
+        // (findBar's visible binding follows findOpen) — hand focus back to
+        // the timeline explicitly rather than leaving the focus scope with
+        // no active item, mirroring the same reclaim call the timeline
+        // tap handler already uses elsewhere in this file.
+        timeline.forceActiveFocus()
     }
     function scrollToSearchMatch() {
         var eventId = app.timeline.searchCurrentEventId
@@ -276,6 +282,17 @@ Rectangle {
                 avatarUrl: "mxc://lightning.example/avatar-maya",
                 isOwn: false
             })
+        }
+        // v0.6.5 (C7): drives the find-in-room card into the exact state a
+        // capture needs — open, with a live match counter — through the
+        // real openFind() path rather than a demo-only shortcut. Setting
+        // findField.text AFTER openFind() (which starts the search session
+        // with whatever the field already held) fires the field's own
+        // onTextChanged -> app.timeline.updateSearch(text), the same signal
+        // path a typing user drives.
+        function onDemoOpenFindBar(query) {
+            root.openFind()
+            findField.text = query
         }
     }
     FileDialog {
@@ -433,28 +450,48 @@ Rectangle {
         Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: AppTheme.border }
 
         // v0.6.1: find-in-loaded-messages bar.
+        // v0.6.5 (C7): re-hosted as a composer-family floating card — outer
+        // Layout margins detach it from the timeline's edges, AppTextField
+        // supplies the themed border/focus-halo/search-icon/clear-button
+        // chrome instead of a hand-rolled field, and the card keeps a fixed
+        // compact height (AppTextField's implicitHeight is a hard 32px
+        // constant; its own focus border-width change never feeds back into
+        // it) so opening, closing, or focusing the field never reflows
+        // anything else. It stays an ordinary Layout child rather than an
+        // absolute overlay on purpose: `timeline`'s onHeightChanged handler
+        // below already treats a find-bar-driven height change as a
+        // first-class, already-solved case ("Viewport resizes (window,
+        // right panel, find bar) keep the same reading position") — a true
+        // floating overlay would either occlude the newest/anchored message
+        // or require re-deriving that same content-inset compensation from
+        // scratch for no behavioral gain.
         Rectangle {
             id: findBar
             objectName: "timelineFindBar"
             Layout.fillWidth: true
+            Layout.leftMargin: AppTheme.spacing16
+            Layout.rightMargin: AppTheme.spacing16
+            Layout.topMargin: AppTheme.spacing8
+            Layout.bottomMargin: AppTheme.spacing8
             visible: root.findOpen
             implicitHeight: findRow.implicitHeight + AppTheme.spacingS * 2
+            radius: AppTheme.radiusLg
             color: AppTheme.surface
+            border.color: AppTheme.border
+            border.width: 1
             RowLayout {
                 id: findRow
                 anchors.fill: parent
                 anchors.margins: AppTheme.spacingS
                 spacing: AppTheme.spacingS
-                Label {
-                    text: qsTr("Find in loaded messages:")
-                    color: AppTheme.textMuted
-                    font.pixelSize: 12
-                }
-                TextField {
+                AppTextField {
                     id: findField
                     objectName: "timelineFindField"
                     Layout.fillWidth: true
+                    searchIcon: true
+                    clearButton: true
                     placeholderText: qsTr("Search visible messages…")
+                    Accessible.name: qsTr("Find in loaded messages")
                     onTextChanged: if (root.findOpen)
                                        app.timeline.updateSearch(text)
                     Keys.onReturnPressed: (event) => {
@@ -1624,12 +1661,17 @@ Rectangle {
                                    ? AppTheme.error : AppTheme.textMuted
                             font.pixelSize: 11
                         }
+                        // v0.6.5: an inline text link — reads AppTheme.link
+                        // (periwinkle under Storm), not accent (bolt,
+                        // reserved for selection/focus/the one primary
+                        // action), consistent with every other inline
+                        // "Retry"/action link in the timeline.
                         Label {
                             anchors.verticalCenter: parent.verticalCenter
                             visible: app.pagination.presentationState
                                      === PaginationController.Failed
                             text: qsTr("Retry")
-                            color: AppTheme.accent
+                            color: AppTheme.link
                             font.pixelSize: 11
                             font.underline: true
                             MouseArea {
@@ -2238,10 +2280,18 @@ Rectangle {
                                         font.weight: Font.ExtraBold
                                     }
                                 }
+                                // v0.6.5: Space child-room unread badge —
+                                // the same token every other unread badge in
+                                // the app already reads (RoomDelegate,
+                                // SpacesRail); this one was missed when
+                                // unreadBadge was split off from accent, so
+                                // it still rendered bolt-yellow under Storm
+                                // while every other unread badge is
+                                // periwinkle.
                                 Rectangle {
                                     visible: modelData.hasUnread === true
                                     radius: height / 2
-                                    color: AppTheme.accent
+                                    color: AppTheme.unreadBadge
                                     implicitHeight: 18
                                     implicitWidth: Math.max(
                                         18, childCount.implicitWidth + 10)

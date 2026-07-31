@@ -191,12 +191,15 @@ Item {
     }
 
     // Marked-unread dot. Shown only when there is no numeric badge, so it
-    // can never overlap the unread/highlight badge.
+    // can never overlap the unread/highlight badge. v0.6.5: reads
+    // unreadBadge (the same token the numeric badge it substitutes for
+    // already uses), not accent — this is an unread indicator, not a
+    // selection/focus/primary-action moment.
     Rectangle {
         visible: model.markedUnread && model.unreadCount === 0
                  && model.highlightCount === 0
         width: 8; height: 8; radius: 4
-        color: AppTheme.accent
+        color: AppTheme.unreadBadge
         anchors.right: parent.right
         anchors.rightMargin: AppTheme.spacingS
         anchors.verticalCenter: parent.verticalCenter

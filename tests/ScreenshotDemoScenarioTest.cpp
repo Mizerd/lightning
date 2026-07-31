@@ -58,6 +58,8 @@ private Q_SLOTS:
             QStringLiteral("community-overview"), QStringLiteral("responsive-chat"),
             // v0.6.5 (Wave 2): menu/popup/dialog surface scenarios.
             QStringLiteral("menu-message"), QStringLiteral("menu-room"),
+            // v0.6.5 (Storm round, C7): the floating find-in-room card.
+            QStringLiteral("find-in-room"),
             QStringLiteral("quick-switcher"), QStringLiteral("quick-switcher-command"),
             QStringLiteral("emoji-picker"), QStringLiteral("gif-picker"),
             QStringLiteral("member-profile"), QStringLiteral("mention-popup"),

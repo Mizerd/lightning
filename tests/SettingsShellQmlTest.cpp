@@ -207,7 +207,7 @@ private slots:
         // All three featured theme cards are fully inside the content
         // area, and the appearance column never overflows horizontally.
         const qreal windowWidth = m_window->contentItem()->width();
-        for (int id : { 8, 9, 10 }) {
+        for (int id : { 11, 8, 9, 10 }) {
             auto *card = item(qPrintable(
                 QStringLiteral("featuredThemeCard_%1").arg(id)));
             QVERIFY2(card, qPrintable(QString::number(id)));
@@ -243,6 +243,20 @@ private slots:
               QColor("#101016"), QColor("#7c7ff2") },
             { "themeCardPreview_10", "themeCardAccentBar_10",
               QColor("#0e1416"), QColor("#27c2ad") },
+            // Storm's preview is NOT a fixed literal like the three above —
+            // it reads AppTheme.paletteForTheme(11) live (see
+            // SettingsScreen.qml's featuredThemeFlow.stormPreview), which
+            // returns the RAW _storm palette values unconditionally,
+            // regardless of the active theme. AppTheme.stormDeep/bolt are a
+            // different thing: routed aliases (`storm ? _stoDeep :
+            // background` / `storm ? _stoBolt : accent`) that only equal
+            // the Storm literal when Storm itself is the active theme —
+            // sampling those here would silently compare against whatever
+            // theme this test happens to be running under instead of
+            // Storm's real values. Read the same raw underscore literals
+            // paletteForTheme(11) actually returns instead.
+            { "themeCardPreview_11", "themeCardAccentBar_11",
+              themeColor("_stoDeep"), themeColor("_stoBolt") },
         };
         const QImage img = m_window->grabWindow();
         QVERIFY(!img.isNull());
@@ -321,10 +335,98 @@ private slots:
         QCOMPARE(int(m_controller->settings()->theme()), 10);
         QTRY_VERIFY(themeColor("accent") != before);
 
+        // Storm (11) — the brand card, first/primary in the featured row —
+        // switches instantly like every other featured card.
+        auto *stormCard = item("featuredThemeCard_11");
+        QVERIFY(stormCard);
+        clickItem(stormCard);
+        QCOMPARE(int(m_controller->settings()->theme()), 11);
+        QTRY_COMPARE(themeColor("accent"), themeColor("bolt"));
+
         auto *mossCard = item("featuredThemeCard_8");
         QVERIFY(mossCard);
         clickItem(mossCard);
         QCOMPARE(int(m_controller->settings()->theme()), 8);
+        m_controller->settings()->setTheme(SettingsManager::IndigoNightTheme);
+        QCoreApplication::processEvents();
+    }
+
+    void stormCardIsFirstAndMiniRowNeverDuplicatesIt()
+    {
+        // Storm sorts first/primary among the featured cards, and the
+        // secondary "MORE THEMES" row must never render it a second time.
+        auto *flow = item("featuredThemeFlow");
+        QVERIFY(flow);
+        auto *stormCard = item("featuredThemeCard_11");
+        auto *mossCard = item("featuredThemeCard_8");
+        QVERIFY(stormCard && mossCard);
+        QVERIFY2(stormCard->x() <= mossCard->x()
+                     && stormCard->y() <= mossCard->y(),
+                 "Storm must sort before Moss Light in the featured row");
+        // "MORE THEMES" only lists the 7 non-featured presets — Storm is
+        // never duplicated there. Moss (8) is the WRONG sanity check here:
+        // it is itself one of the four featured cards (8/9/10/11), so the
+        // filter correctly excludes it too — asserting its presence would
+        // fail by design, not prove anything about Storm. Lightning Light
+        // (1) is a genuinely non-featured preset and must still be listed.
+        QVERIFY2(!item("miniThemeCard_11"),
+                 "Storm must not also render in the MORE THEMES row");
+        QVERIFY2(item("miniThemeCard_1"),
+                 "the MORE THEMES row must still list the non-featured presets");
+    }
+
+    void interactingWithOrdinaryRowsNeverReflowsContentBelow()
+    {
+        // v0.6.5 (C8): pressing, focusing, or toggling an ORDINARY settings
+        // row/control must never drag content below it down. An exhaustive
+        // static read of the whole SettingsScreen.qml file (the file that
+        // motivated this test) found no reproducible hover/press/focus-
+        // driven reflow anywhere in the current code — every focus ring and
+        // selection glow is drawn as an absolute overlay
+        // (anchors.fill + negative anchors.margins), never a Layout
+        // sibling, and every control's implicitHeight is a hard constant.
+        // This guard exists to keep it that way. It deliberately does NOT
+        // cover the three INTENTIONAL disclosure expanders (recovery
+        // diagnostics, Danger Zone Show/Hide, session verification reveal)
+        // — their whole job is to grow the content below them.
+        m_controller->settings()->setTheme(SettingsManager::IndigoNightTheme);
+        QCoreApplication::processEvents();
+
+        // Anchor: the message-layout control sits below the featured/mini
+        // theme cards AND the match-system row. Neither toggling the
+        // match-system switch nor keyboard-focusing a theme card may move
+        // it even one pixel.
+        auto *anchor = item("messageLayoutControl");
+        QVERIFY(anchor);
+        const qreal anchorY = anchor->mapToScene(QPointF(0, 0)).y();
+
+        auto *matchSwitch = item("matchSystemSwitch");
+        QVERIFY(matchSwitch);
+        clickItem(matchSwitch);
+        QCOMPARE(anchor->mapToScene(QPointF(0, 0)).y(), anchorY);
+        clickItem(matchSwitch); // toggle back off "match system"
+        QCoreApplication::processEvents();
+        QCOMPARE(anchor->mapToScene(QPointF(0, 0)).y(), anchorY);
+
+        auto *mossCard = item("featuredThemeCard_8");
+        QVERIFY(mossCard);
+        mossCard->forceActiveFocus();
+        QTRY_VERIFY(mossCard->hasActiveFocus());
+        QCOMPARE(anchor->mapToScene(QPointF(0, 0)).y(), anchorY);
+
+        // The Timeline card: "Show room activity" sits directly above the
+        // wheel-speed combo. Toggling the checkbox must not move the combo.
+        auto *wheelCombo = item("timelineWheelSpeedCombo");
+        QVERIFY(wheelCombo);
+        const qreal comboY = wheelCombo->mapToScene(QPointF(0, 0)).y();
+        auto *activityCheck = item("showRoomActivityCheck");
+        QVERIFY(activityCheck);
+        clickItem(activityCheck);
+        QCOMPARE(wheelCombo->mapToScene(QPointF(0, 0)).y(), comboY);
+        clickItem(activityCheck); // restore
+        QCoreApplication::processEvents();
+        QCOMPARE(wheelCombo->mapToScene(QPointF(0, 0)).y(), comboY);
+
         m_controller->settings()->setTheme(SettingsManager::IndigoNightTheme);
         QCoreApplication::processEvents();
     }
