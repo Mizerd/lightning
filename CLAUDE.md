@@ -122,8 +122,12 @@ The user and maintainer is Rokas Smetonis.
 
 ## 4. Git and repository safety
 
-Work on `main` only unless Rokas explicitly requests another branch. Use normal
-fast-forward pushes. Never force-push, rewrite history, amend a pushed commit,
+Work on `main`. As of 2026-08-01 Rokas has directed that development happens
+on `main` and that **no new branches be created** — the 0.6.5 design/scroll
+work was fast-forward merged into `main` (`1692e02..188a1bb`, 25 commits, no
+squash, no merge commit) and `0.6.5` is retained only as history. Do not open
+a topic branch for a round; commit the round's checkpoints straight onto
+`main`. Use normal fast-forward pushes. Never force-push, rewrite history, amend a pushed commit,
 move or recreate a published tag, destructively reset, or run `git clean`.
 Never reset to an older commit merely because a prompt expected it. Inspect
 both `HEAD` and `origin/main`; if origin advanced, inspect the real latest
