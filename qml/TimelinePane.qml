@@ -747,21 +747,20 @@ Rectangle {
                 function maintainViewAnchor() {
                     if (viewAnchorId === "" || stickToBottom)
                         return
-                    // The backward-pagination prepend measures the anchor
-                    // row's TOTAL y drift since ITS capture
-                    // (restoreCapturedAnchor's `shift = it.y - anchorItemY`),
-                    // which would include any growth compensated here — so
-                    // running both naively double-counts. Rather than stand
-                    // down for the whole run (which deferred every growth
-                    // correction to one jump-then-unjump at the end of a
-                    // multi-page near-top run — the residual "jittery while
-                    // loading older messages"), the growth path below ALSO
-                    // advances anchorItemY by the same delta, so the
-                    // pagination shift stays measured against a baseline that
-                    // already accounts for it. While a fetch is actively in
-                    // flight the prepend can land between measuring and
-                    // writing, so that window still stands down.
-                    if (app.pagination.busy)
+                    // The backward-pagination prepend owns re-anchoring for
+                    // the whole run: restoreCapturedAnchor() measures the
+                    // anchor row's TOTAL y drift since ITS capture, which
+                    // already includes any growth this function would also
+                    // compensate. Sharing the run was tried (advancing that
+                    // capture's baseline in step, to smooth growth
+                    // continuously instead of in one end-of-run correction)
+                    // and REVERTED on live report: writing contentY and
+                    // re-measuring on every content-height change while
+                    // history is loading — precisely when the timeline churns
+                    // hardest — made loading visibly laggy. Deferring to the
+                    // run's own single restore is the cheaper trade, and the
+                    // residual it costs is the far milder complaint.
+                    if (app.pagination.busy || anchorStableId !== "")
                         return
                     var row = app.timeline.rowForStableId(viewAnchorId)
                     var it = row >= 0 ? itemAtIndex(row) : null
@@ -842,11 +841,6 @@ Rectangle {
                             // pagination-restore path already guards against.
                             if (app.timelineScroll.motionActive)
                                 app.timelineScroll.translateActiveMotion(delta)
-                            // Keep an outstanding pagination capture's
-                            // baseline in step: its later shift must not
-                            // re-apply growth already compensated here.
-                            if (anchorStableId !== "")
-                                anchorItemY += delta
                         }
                         // Re-based even when the delta was below the
                         // threshold: sub-pixel churn is deliberately absorbed
@@ -855,17 +849,8 @@ Rectangle {
                         viewAnchorLastY = it.y
                         return
                     }
-                    // Idle: an ABSOLUTE restore is a different anchor's
-                    // opinion of where the view belongs, so it must never run
-                    // while a pagination capture is outstanding — that
-                    // capture's own restore owns the position for the rest of
-                    // the run. (Only the relative growth path above is safe
-                    // to share the run, because it keeps that capture's
-                    // baseline in step.)
-                    if (anchorStableId !== "")
-                        return
-                    // No gesture to fight, so restoring to the exact captured
-                    // offset is safe.
+                    // Idle: no gesture to fight, so an absolute restore to
+                    // the exact captured offset is safe.
                     var desired = it.y + viewAnchorOffset
                     var lo = wheelMinY()
                     var hi = wheelMaxY()
