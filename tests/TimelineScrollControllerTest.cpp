@@ -654,6 +654,95 @@ private Q_SLOTS:
         QVERIFY(qIsFinite(c.positionYForTest()));
         QVERIFY(qIsFinite(c.targetYForTest()));
     }
+
+    // Timeline anchor fix (v0.6.5 round 3 — "an image pops up while
+    // scrolling up and the view jumps by a lot"): TimelinePane.qml's
+    // maintainViewAnchor() now compensates asynchronous row growth ABOVE the
+    // tracked anchor DURING an active gesture, not only at settle, by
+    // calling translateActiveMotion() with the exact pixel delta the anchor
+    // row's own y moved (a delegate's estimated height being replaced by its
+    // real one on creation, matching the ListView cacheBuffer comment in
+    // TimelinePane.qml predicting this exact fix). Two rows growing in the
+    // SAME gesture (the maintainer's "if there is an image above the
+    // previous image it jumps even more up" report) call
+    // translateActiveMotion() TWICE in succession, once per growth batch.
+    // This proves the two corrections compose additively — remaining
+    // distance to the target is preserved across BOTH corrections and the
+    // final settle lands on the fully-composed target — rather than the
+    // second overwriting or losing the first.
+    void translateActiveMotionComposesAcrossRepeatedGrowthCorrections()
+    {
+        TimelineScrollController c;
+        c.setWheelSpeed(TimelineScrollController::VeryFast);
+        // A real coalesced glide with substantial remaining distance still
+        // queued, exactly like a reader spinning the wheel upward while
+        // media above resolves.
+        for (int i = 0; i < 4; ++i)
+            c.wheelNotch(+kNotch, 5000.0, kMinY, kMaxY, kViewport);
+        QVERIFY(c.motionActive());
+        for (int i = 0; i < 2; ++i)
+            c.advanceMotion(16.0);
+        const double remainingBefore =
+            c.targetYForTest() - c.positionYForTest();
+        const double targetBefore = c.targetYForTest();
+
+        // First image row resolves: its estimated height (a text-row
+        // average, ~50px) is replaced by its real reserved height (~320px)
+        // — a ~270px growth above the anchor.
+        constexpr double firstGrowth = 270.0;
+        c.translateActiveMotion(firstGrowth);
+        QVERIFY(c.motionActive());
+        QVERIFY(qFuzzyCompare(c.targetYForTest() - c.positionYForTest(),
+                              remainingBefore));
+        QVERIFY(qFuzzyCompare(c.targetYForTest(),
+                              targetBefore + firstGrowth));
+
+        // A second, stacked image row above it resolves in the SAME
+        // gesture — the exact "jumps even more up" scenario.
+        c.advanceMotion(16.0);
+        const double remainingMid = c.targetYForTest() - c.positionYForTest();
+        constexpr double secondGrowth = 300.0;
+        c.translateActiveMotion(secondGrowth);
+        QVERIFY(c.motionActive());
+        QVERIFY(qFuzzyCompare(c.targetYForTest() - c.positionYForTest(),
+                              remainingMid));
+        QVERIFY(qFuzzyCompare(c.targetYForTest(),
+                              targetBefore + firstGrowth + secondGrowth));
+
+        // Settling lands on the fully-composed target: both corrections
+        // survive to the end, neither lost nor double-applied.
+        while (c.motionActive())
+            c.advanceMotion(16.0);
+        QVERIFY(qFuzzyCompare(c.positionYForTest(), c.targetYForTest()));
+        QVERIFY(qFuzzyCompare(c.positionYForTest(),
+                              targetBefore + firstGrowth + secondGrowth));
+    }
+
+    // Direction-agnostic companion: growth compensation must compose
+    // correctly for a DOWNWARD glide too — content growing above an anchor
+    // shifts contentY and the coalesced target the same way regardless of
+    // which direction the reader is currently scrolling.
+    void translateActiveMotionComposesDuringDownwardGlide()
+    {
+        TimelineScrollController c;
+        c.setWheelSpeed(TimelineScrollController::Fast);
+        for (int i = 0; i < 3; ++i)
+            c.wheelNotch(-kNotch, 500.0, kMinY, kMaxY, kViewport);
+        QVERIFY(c.motionActive());
+        c.advanceMotion(16.0);
+        const double remainingBefore =
+            c.targetYForTest() - c.positionYForTest();
+        const double targetBefore = c.targetYForTest();
+
+        constexpr double growth = 180.0;
+        c.translateActiveMotion(growth);
+        QVERIFY(qFuzzyCompare(c.targetYForTest() - c.positionYForTest(),
+                              remainingBefore));
+        QVERIFY(qFuzzyCompare(c.targetYForTest(), targetBefore + growth));
+        while (c.motionActive())
+            c.advanceMotion(16.0);
+        QVERIFY(qFuzzyCompare(c.positionYForTest(), targetBefore + growth));
+    }
 };
 
 QTEST_MAIN(TimelineScrollControllerTest)

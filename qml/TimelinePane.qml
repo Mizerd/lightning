@@ -115,6 +115,7 @@ Rectangle {
             timeline.anchorItemY = 0
             timeline.viewAnchorId = ""
             timeline.viewAnchorOffset = 0
+            timeline.viewAnchorLastY = 0
             // A room switch collapses the right side: no panel from the
             // previous room may remain (reopen it deliberately in the new
             // room if wanted).
@@ -699,14 +700,23 @@ Rectangle {
                 // instantiated range).
                 property string viewAnchorId: ""
                 property real viewAnchorOffset: 0
+                // The anchor row's own content-space y at the moment it was
+                // last measured — either at capture or after the most recent
+                // mid-gesture correction. maintainViewAnchor() re-bases this
+                // on every application so the NEXT delta only ever covers
+                // growth that happened since then, never growth already
+                // compensated (no double-counting across repeated calls).
+                property real viewAnchorLastY: 0
                 function captureViewAnchor() {
                     if (stickToBottom || count === 0) {
                         viewAnchorId = ""
+                        viewAnchorLastY = 0
                         return
                     }
                     var row = indexAt(width / 2, contentY + topMargin + 1)
                     if (row < 0) {
                         viewAnchorId = ""
+                        viewAnchorLastY = 0
                         return
                     }
                     var it = itemAtIndex(row)
@@ -722,6 +732,7 @@ Rectangle {
                     }
                     viewAnchorId = app.timeline.stableIdAt(row)
                     viewAnchorOffset = it ? (contentY - it.y) : 0
+                    viewAnchorLastY = it ? it.y : 0
                 }
                 property bool viewAnchorScheduled: false
                 function maintainViewAnchorCoalesced() {
@@ -736,46 +747,113 @@ Rectangle {
                 function maintainViewAnchor() {
                     if (viewAnchorId === "" || stickToBottom)
                         return
-                    // NEVER write contentY while a scroll session is active.
-                    // The user's gesture owns the position; a correction now is
-                    // the "application competing with the touchpad" defect.
-                    // Async row growth (media hydration, late decryption, link
-                    // previews, profile resolution) that lands mid-gesture is
-                    // deliberately NOT compensated in real time — it is absorbed
-                    // and the anchor is re-derived from the settled position
-                    // once input stops (scrollSettleTimer / onWheelMotionSettled).
-                    // This mirrors Element's ScrollPanel, which defers every
-                    // height correction until the scroll has been idle: reading
-                    // and re-writing the offset mid-scroll fights the input and
-                    // accumulates jitter. `userScrollActive` covers the touchpad
-                    // path too, where moving/wheelAnimating are both false
-                    // (contentY is written programmatically, so Flickable.moving
-                    // never turns true, and the pixel path cancels the wheel
-                    // engine). The pagination prepend path owns re-anchoring
-                    // while its own capture is pending.
-                    if (userScrollActive)
-                        return
+                    // The backward-pagination prepend owns re-anchoring while
+                    // its own capture is outstanding: restoreCapturedAnchor()/
+                    // restoreAnchor() measure the anchor row's TOTAL y drift
+                    // since capture, which already includes any growth this
+                    // function would otherwise also compensate — running both
+                    // would double-count the same growth.
                     if (app.pagination.busy || anchorStableId !== "")
                         return
                     var row = app.timeline.rowForStableId(viewAnchorId)
-                    if (row < 0)
+                    var it = row >= 0 ? itemAtIndex(row) : null
+                    if (!it) {
+                        // The tracked row is no longer resolvable — recycled
+                        // out of the instantiated delegate range, or its
+                        // stable id no longer exists. Re-measuring a fresh
+                        // anchor writes no position (pure measurement), so it
+                        // is safe even mid-gesture; the next call's delta is
+                        // then measured from this new baseline rather than a
+                        // stale, unresolvable one.
+                        captureViewAnchor()
                         return
-                    var it = itemAtIndex(row)
-                    if (!it)
+                    }
+                    if (userScrollActive) {
+                        if (!selfDrivenScrollActive) {
+                            // Native drag/flick: Flickable owns contentY and
+                            // rebuilds it from the press position each move,
+                            // so a correction written here would be silently
+                            // discarded — and re-basing viewAnchorLastY would
+                            // then hide the growth from settle-time handling
+                            // too. Leave BOTH untouched: at settle the growth
+                            // is absorbed and re-anchored (onMovementEnded ->
+                            // captureViewAnchor), exactly as it was before
+                            // this round.
+                            return
+                        }
+                        // Mid-gesture correction, on the self-driven paths
+                        // only. The key invariant: user input (wheel notch,
+                        // touchpad pixel delta) only ever
+                        // changes contentY — it never moves a row's own
+                        // content-space y. So `it.y` changes if and only if
+                        // content ABOVE this row resized. The dominant
+                        // source is a POST-CREATION height change — a pooled
+                        // (reuseItems) delegate re-measuring once it is bound
+                        // to a taller row, media/decryption/link-preview
+                        // resolution — which re-triggers layoutVisibleItems():
+                        // that re-anchors on the first visible item and pushes
+                        // every following row, including this one, down. (Row
+                        // CREATION above the viewport is NOT the mechanism:
+                        // ListView positions a new row upward from the
+                        // existing first item, moving originY/contentHeight
+                        // rather than this row's y.) `delta = it.y - viewAnchorLastY` is
+                        // therefore PURELY that resize — never the user's own
+                        // scrolling — so applying it as `contentY += delta` is
+                        // a pure frame-of-reference correction: it preserves
+                        // the gesture's in-flight distance and velocity
+                        // exactly, unlike writing an ABSOLUTE position (the
+                        // idle-path formula below), which can disagree with
+                        // wherever the gesture has since moved the view and
+                        // fight it. This mirrors how restoreCapturedAnchor()
+                        // and translateActiveMotion() already apply RELATIVE
+                        // shifts instead of absolute writes for the same
+                        // reason. Deliberately NOT clamped to
+                        // wheelMinY()/wheelMaxY(). The UPPER bound tracks
+                        // growth exactly (originY + contentHeight is the last
+                        // row's end), so a positive delta cannot push past
+                        // it. The LOWER bound does NOT move with the delta —
+                        // originY follows the averaged-size estimate, not
+                        // this row's resize — so the shrink case rests on a
+                        // different argument: a resize located above the
+                        // viewport top means contentY is already at least
+                        // that far past the first visible item's y, so
+                        // subtracting it cannot cross wheelMinY(). Do not
+                        // restate this as "both bounds move together": they
+                        // do not.
+                        var delta = it.y - viewAnchorLastY
+                        if (Math.abs(delta) > 0.5) {
+                            if (diagActive)
+                                diagGrowthCorrections += 1
+                            contentY += delta
+                            // A discrete-wheel glide carries its own
+                            // coalesced target inside TimelineScrollController.
+                            // Shifting contentY here without also translating
+                            // it would let the glide's very next frame
+                            // overwrite this correction with its stale
+                            // pre-growth position — the same failure mode the
+                            // pagination-restore path already guards against.
+                            if (app.timelineScroll.motionActive)
+                                app.timelineScroll.translateActiveMotion(delta)
+                        }
+                        // Re-based even when the delta was below the
+                        // threshold: sub-pixel churn is deliberately absorbed
+                        // rather than accumulated, since applying it would be
+                        // its own source of jitter.
+                        viewAnchorLastY = it.y
                         return
+                    }
+                    // Idle: no gesture to fight, so an absolute restore to the
+                    // exact captured offset is safe.
                     var desired = it.y + viewAnchorOffset
                     var lo = wheelMinY()
                     var hi = wheelMaxY()
                     desired = desired < lo ? lo : (desired > hi ? hi : desired)
                     if (Math.abs(contentY - desired) > 0.5) {
-                        // Diagnostics: a correction reaching this write while a
-                        // gesture is in flight is the fight we eliminated. The
-                        // userScrollActive guard above should keep this at 0
-                        // during a gesture; count it so a trace can prove it.
                         if (diagActive)
                             diagAnchorCorrections += 1
                         contentY = desired
                     }
+                    viewAnchorLastY = it.y
                 }
 
                 // v0.6.0: MessageDelegate view contract — the room timeline
@@ -933,30 +1011,55 @@ Rectangle {
                 readonly property bool userScrollActive:
                     moving || wheelAnimating || scrollSettleTimer.running
 
+                // True only while a gesture Lightning ITSELF drives contentY
+                // for: the wheel glide and the touchpad pixel path both write
+                // contentY programmatically, which is exactly why they leave
+                // Flickable.moving false. During a NATIVE drag or kinetic
+                // flick (`moving`), QQuickFlickable owns contentY and
+                // recomputes it from the recorded press position on every
+                // move — an external write landing between two moves is
+                // discarded by construction — so a growth correction there
+                // must be DEFERRED to settle, never applied-and-lost.
+                readonly property bool selfDrivenScrollActive:
+                    !moving && (wheelAnimating || scrollSettleTimer.running)
+
                 // ── Bounded per-gesture scroll diagnostics ───────────────
                 // Off unless LIGHTNING_SCROLL_TRACE is set (read once in
                 // TimelineScrollController). When on, ONE summary line is
                 // emitted per wheel/touchpad gesture at settle — never one per
                 // event — so a physical tester can capture a real trace and
-                // send it back. The load-bearing field is anchorCorrections:
-                // the number of times a deferred anchor correction wrote the
-                // position WHILE the gesture owned it. That must be 0 — any
-                // non-zero value is the "application competing with the
-                // touchpad" fight. paginationRestores is the same idea for
+                // send it back. See the counter block below for what
+                // anchorCorrections and growthCorrections each mean now that
+                // maintainViewAnchor() has two modes.
+                // paginationRestores is the same idea for
                 // the backward-pagination anchor restore (restoreCapturedAnchor):
                 // it counts restores that landed while userScrollActive was
                 // true, i.e. a prepend arrived mid-gesture. That is expected
                 // to be non-zero on a real near-top scroll — it is not itself
                 // a bug — but before the concurrent-scroll fix it correlated
                 // with a visible jump/reverse and was invisible to
-                // anchorCorrections, which only covers maintainViewAnchor.
+                // anchorCorrections, which only covers maintainViewAnchor's
+                // idle path.
                 // No message content, ids, or URLs are logged.
                 readonly property bool scrollTrace: app.timelineScroll.scrollTraceEnabled
                 property bool diagActive: false
                 property int diagEvents: 0
                 property int diagPixelEvents: 0
                 property int diagAngleEvents: 0
+                // diagAnchorCorrections counts ONLY the idle absolute-restore
+                // path in maintainViewAnchor() — it must stay 0 while a
+                // gesture owns the view; a non-zero value there would be an
+                // absolute write fighting the input. diagGrowthCorrections
+                // counts the SEPARATE relative-delta path that DOES run
+                // mid-gesture: how many times content growth above the anchor
+                // (a pooled delegate re-measuring after rebinding, media
+                // hydration, late decryption, a link preview) was compensated
+                // by shifting contentY by exactly that growth. Non-zero during
+                // a media-heavy gesture is EXPECTED — it is the fix for the
+                // "an image pops in while scrolling and the view jumps"
+                // defect, not a regression of it.
                 property int diagAnchorCorrections: 0
+                property int diagGrowthCorrections: 0
                 property int diagPaginationRestores: 0
                 property real diagStartY: 0
                 property real diagStartHeight: 0
@@ -969,6 +1072,7 @@ Rectangle {
                         diagPixelEvents = 0
                         diagAngleEvents = 0
                         diagAnchorCorrections = 0
+                        diagGrowthCorrections = 0
                         diagPaginationRestores = 0
                         diagStartY = contentY
                         diagStartHeight = contentHeight
@@ -990,6 +1094,7 @@ Rectangle {
                         + " netY=" + Math.round(contentY - diagStartY)
                         + " dContentH=" + Math.round(contentHeight - diagStartHeight)
                         + " anchorCorrections=" + diagAnchorCorrections
+                        + " growthCorrections=" + diagGrowthCorrections
                         + " paginationRestores=" + diagPaginationRestores
                         + " stick=" + (stickToBottom ? 1 : 0)
                         + " nearTop=" + (contentY <= nearTopEnterY ? 1 : 0))
@@ -1118,6 +1223,11 @@ Rectangle {
                 function goToLatest() {
                     cancelWheelMotion()
                     stickToBottom = true
+                    // positionViewAtEnd() below can re-seed the position
+                    // frame from an estimate; a surviving anchor baseline
+                    // would then measure a delta across two different frames.
+                    viewAnchorId = ""
+                    viewAnchorLastY = 0
                     app.pagination.saveFollowingLatest(app.currentRoomId)
                     positionViewAtEnd()
                     Qt.callLater(function() {
@@ -1223,18 +1333,24 @@ Rectangle {
                             // content-height change teleported the view down.
                             if (event.pixelDelta.y > 0)
                                 timeline.stickToBottom = false
-                            // No per-delta anchor capture. Earlier code re-ran a
-                            // full indexAt/itemAtIndex/stableIdAt scan on EVERY
-                            // touchpad delta to keep the anchor "live" so a
-                            // mid-gesture content-height correction landed on the
-                            // right row. That correction no longer happens:
-                            // maintainViewAnchor is gated off while
-                            // userScrollActive (the settle timer is running for
-                            // the whole gesture), so there is nothing to keep a
-                            // fresh anchor for, and the per-frame geometry scan —
-                            // pure cost on the touchpad hot path, worst near the
-                            // top and over tall media rows — is gone. The anchor
-                            // is captured ONCE when the gesture settles.
+                            // No per-delta anchor RE-CAPTURE: this does not
+                            // re-run a fresh indexAt/itemAtIndex/stableIdAt
+                            // scan on every touchpad delta to find "the row
+                            // currently under the reader" (that full
+                            // re-derivation still happens only once the
+                            // gesture settles, via captureViewAnchor()).
+                            // maintainViewAnchor() DOES still run mid-gesture
+                            // whenever content height changes, but it measures
+                            // against the ALREADY-tracked viewAnchorId via a
+                            // rowForStableId + itemAtIndex lookup
+                            // (rowForStableId is an O(n) scan of the event
+                            // mirror, bounded here by the callLater
+                            // coalescing to once per event-loop turn) and
+                            // applies a RELATIVE delta (see
+                            // maintainViewAnchor()) — never the per-event full
+                            // scan the earlier code ran, which was pure cost
+                            // on the touchpad hot path, worst near the top and
+                            // over tall media rows.
                             timeline.diagNoteEvent(true)
                             scrollSettleTimer.restart()
                         } else if (event.angleDelta.y !== 0) {
@@ -1595,6 +1711,9 @@ Rectangle {
                     function onRestoreLatestRequested() {
                         timeline.cancelWheelMotion()
                         timeline.stickToBottom = true
+                        // Same frame-rebase reason as goToLatest().
+                        timeline.viewAnchorId = ""
+                        timeline.viewAnchorLastY = 0
                         Qt.callLater(timeline.scrollToEndDeferred)
                     }
                 }
@@ -1666,6 +1785,7 @@ Rectangle {
                         timeline.anchorItemY = 0
                         timeline.viewAnchorId = ""
                         timeline.viewAnchorOffset = 0
+                        timeline.viewAnchorLastY = 0
                         // Fresh room opens at the bottom: re-arm the near-top
                         // edge so the first genuine approach to the top of the
                         // new room triggers backfill.

@@ -454,15 +454,19 @@ private Q_SLOTS:
     //   * The pixelDelta branch must NOT call captureViewAnchor() — the old
     //     per-delta indexAt/itemAtIndex/stableIdAt scan is gone; it must keep
     //     the scroll session alive with scrollSettleTimer.restart().
-    //   * maintainViewAnchor() must be gated on userScrollActive, so async
-    //     row-height changes (media, decryption, previews) mid-gesture cannot
-    //     write contentY and fight the finger.
+    //   * maintainViewAnchor() must BRANCH on userScrollActive: mid-gesture
+    //     it applies a RELATIVE growth delta (round 3 — content resizing
+    //     above the reader must not throw the view, the "an image pops in
+    //     and I jump" defect), while the ABSOLUTE restore to the captured
+    //     offset stays idle-only, since only an absolute write can disagree
+    //     with where the gesture has since moved the view and fight it.
     //   * The anchor is (re)captured once the gesture settles — on the mouse
     //     path via onWheelMotionSettled and universally via scrollSettleTimer.
     // The offscreen QPA does not incubate ListView delegates, so the pixel
     // outcome is only provable on a physical touchpad; this scan guards the
-    // wiring so a future edit cannot silently reintroduce the mid-gesture fight.
-    void touchpadScrollDefersAnchorToGestureSettle()
+    // wiring so a future edit cannot silently reintroduce the mid-gesture
+    // absolute-write fight, nor drop the relative growth compensation.
+    void touchpadScrollUsesTwoModeAnchorMaintenance()
     {
         const QString pane = read(QStringLiteral("TimelinePane.qml"));
 
@@ -472,7 +476,24 @@ private Q_SLOTS:
         const int angleBranch = pane.indexOf(
             QStringLiteral("else if (event.angleDelta.y !== 0)"), pixelBranch);
         QVERIFY(angleBranch > pixelBranch);
-        const QString touchpad = pane.mid(pixelBranch, angleBranch - pixelBranch);
+        QString touchpad = pane.mid(pixelBranch, angleBranch - pixelBranch);
+        // Strip comment lines before scanning: the branch's comment
+        // legitimately names captureViewAnchor() when explaining where the
+        // full re-derivation does happen (at settle), but a BARE
+        // `captureViewAnchor()` call would resolve through the ListView's
+        // scope chain and silently reintroduce the per-delta scan — so the
+        // scan must stay broad enough to catch that, and precise enough not
+        // to trip on prose.
+        {
+            QStringList codeOnly;
+            const QList<QStringView> touchpadLines =
+                QStringView(touchpad).split(QLatin1Char('\n'));
+            for (const QStringView &line : touchpadLines) {
+                if (!line.trimmed().startsWith(QLatin1String("//")))
+                    codeOnly << line.toString();
+            }
+            touchpad = codeOnly.join(QLatin1Char('\n'));
+        }
         // No per-delta anchor scan on the touchpad hot path.
         QVERIFY(!touchpad.contains(QStringLiteral("captureViewAnchor()")));
         // The session stays alive for the whole gesture.
@@ -487,7 +508,16 @@ private Q_SLOTS:
                          maintain);
         QVERIFY(maintainEnd > maintain);
         const QString maintainGuard = pane.mid(maintain, maintainEnd - maintain);
+        // The branch exists, and everything BEFORE the absolute-restore
+        // formula is the mid-gesture path: it applies a relative delta and
+        // carries an in-flight glide with it, never an absolute write.
         QVERIFY(maintainGuard.contains(QStringLiteral("if (userScrollActive)")));
+        QVERIFY(maintainGuard.contains(
+            QStringLiteral("contentY += delta")));
+        QVERIFY(maintainGuard.contains(
+            QStringLiteral("translateActiveMotion(delta)")));
+        // The absolute restore must stay OUT of the mid-gesture branch.
+        QVERIFY(!maintainGuard.contains(QStringLiteral("contentY = desired")));
 
         // userScrollActive covers the touchpad path via the settle timer, since
         // moving/wheelAnimating are both false there.

@@ -1430,17 +1430,17 @@ private Q_SLOTS:
     // device type (phase begin/end is macOS-only even in C++), so the session
     // is inferred from the settle timer restarted on each delta — this proves
     // that heuristic works: active during input, cleared ~250ms after the last
-    // event. While the session is active, maintainViewAnchor() must be a no-op
-    // (the guard returns before any geometry work), so an async row-height
-    // change mid-gesture cannot write contentY and fight the finger — the
-    // "application competing with the touchpad" defect.
+    // event. What the session gates is the ABSOLUTE restore in
+    // maintainViewAnchor(); the RELATIVE growth-delta path deliberately runs
+    // during a self-driven gesture (see the growth tests below), and is
+    // itself deferred while Flickable owns a native drag.
     void touchpadGestureOpensScrollSessionThatGatesCorrections()
     {
         // Enable the per-gesture diagnostics (read once at controller
         // construction) so this test can assert the load-bearing number
-        // directly: diagAnchorCorrections — the count of deferred corrections
-        // that wrote contentY while the gesture owned it — must stay 0 even
-        // when contentHeight churns (delegate hydration) during the gesture.
+        // directly: diagAnchorCorrections — the count of ABSOLUTE restores
+        // (the idle path) — must stay 0 while the gesture owns the view,
+        // even when contentHeight churns (delegate hydration).
         qputenv("LIGHTNING_SCROLL_TRACE", "1");
         struct Guard { ~Guard() { qunsetenv("LIGHTNING_SCROLL_TRACE"); } } guard;
 
@@ -1502,11 +1502,13 @@ private Q_SLOTS:
         }
         QVERIFY2(opened, "a touchpad delta must open the scroll session");
 
-        // While the session is active, a deferred anchor correction must be a
-        // no-op: it returns at the userScrollActive guard before touching
-        // contentY, so an async row-height change mid-gesture cannot fight the
-        // finger. (The offscreen QPA does not polish delegates, so the guard is
-        // what this locks; the pixel outcome is validated on hardware.)
+        // No viewAnchorId has been captured yet (no settle has happened),
+        // so maintainViewAnchor() returns at the `viewAnchorId === ""` guard
+        // regardless of userScrollActive — contentY must stay untouched. A
+        // real mid-gesture RELATIVE growth correction (the fix for "an image
+        // pops up while scrolling and the view jumps") is covered by
+        // maintainViewAnchorAppliesGrowthDeltaMidGestureWithoutGlide, which
+        // establishes a real anchor first.
         const double before = timeline->property("contentY").toDouble();
         QMetaObject::invokeMethod(timeline, "maintainViewAnchor");
         QCOMPARE(timeline->property("contentY").toDouble(), before);
@@ -1526,10 +1528,12 @@ private Q_SLOTS:
         QTRY_VERIFY_WITH_TIMEOUT(
             !timeline->property("userScrollActive").toBool(), 3000);
 
-        // The load-bearing assertion: through the whole gesture — including any
-        // contentHeight growth from delegate hydration — NOT ONE deferred
-        // anchor correction wrote contentY. A non-zero value would be the
-        // mid-gesture fight this pass eliminated. (The strict engine-warning
+        // diagAnchorCorrections counts ONLY the idle absolute-restore path
+        // (see maintainViewAnchor()) — it must stay 0 for as long as a
+        // gesture owns the view; a non-zero value would be an absolute write
+        // fighting the gesture, the defect that pass eliminated. The separate
+        // relative-delta path that DOES run mid-gesture is counted by
+        // diagGrowthCorrections. (The strict engine-warning
         // check is intentionally omitted here: this test deliberately scrolls
         // through incubating delegates, which can emit transient offscreen
         // binding warnings; warning-freedom of static content is covered by the
@@ -2953,6 +2957,372 @@ private Q_SLOTS:
                  liveToken + 1);
         QVERIFY(!timeline->property("anchorStableId").toString().isEmpty());
         QCOMPARE(warnings, QStringList{});
+    }
+
+    // Round-3 growth fix: the deterministic proof for "an image pops up
+    // while scrolling up and the view jumps by a lot". No real delegate
+    // resize is forced (the offscreen QPA does not reliably drive one);
+    // instead this uses the technique paginationAnchorRestorePreservesWheel-
+    // Glide already established: bias the tracked baseline (viewAnchorLastY)
+    // below the anchor row's real, UNCHANGED y, so maintainViewAnchor() sees
+    // exactly the delta a real growth event above it would have produced.
+    // No wheel glide is engaged here (pixelDelta cancels it), proving the
+    // plain touchpad case: growth is compensated by a relative contentY
+    // shift DURING the gesture, and the baseline re-bases so the same growth
+    // is never applied twice. Fails on 9e505d2, where maintainViewAnchor()
+    // returns unconditionally at the userScrollActive guard.
+    void maintainViewAnchorAppliesGrowthDeltaMidGestureWithoutGlide()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        const QString roomId = QStringLiteral("!general:mock.local");
+        controller.setCurrentRoomId(roomId);
+        auto *mock = controller.findChild<MockMatrixClient *>();
+        QVERIFY(mock != nullptr);
+
+        QList<TimelineEvent> events;
+        for (int i = 0; i < 30; ++i) {
+            TimelineEvent e;
+            e.sender = QStringLiteral("@alice:mock.local");
+            e.senderDisplayName = QStringLiteral("Alice");
+            e.body = QStringLiteral("history message %1").arg(i);
+            e.timestamp =
+                QDateTime::currentDateTimeUtc().addSecs(-(60 - i) * 60);
+            e.type = TimelineEvent::TextMessage;
+            e.status = TimelineEvent::Sent;
+            events.append(e);
+        }
+        mock->resetTimelineForTest(roomId, events, /*paginationPages=*/1);
+
+        QQmlApplicationEngine engine;
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this,
+                [&warnings](const QList<QQmlError> &errors) {
+                    for (const auto &e : errors) warnings << e.toString();
+                });
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("TimelinePane"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(root != nullptr);
+
+        QQuickWindow window;
+        window.resize(760, 620);
+        root->setParentItem(window.contentItem());
+        root->setSize(QSizeF(window.width(), window.height()));
+        window.show();
+        QCoreApplication::processEvents();
+
+        auto *timeline = root->findChild<QQuickItem *>(
+            QStringLiteral("timelineListView"));
+        QVERIFY(timeline != nullptr);
+        QTRY_VERIFY_WITH_TIMEOUT(timeline->property("count").toInt() >= 30,
+                                 kSignalTimeoutMs);
+        QTRY_VERIFY_WITH_TIMEOUT(!controller.pagination()->busy(),
+                                 kSignalTimeoutMs);
+
+        QVERIFY(timeline->setProperty("stickToBottom", false));
+        QVERIFY(QMetaObject::invokeMethod(timeline, "positionViewAtIndex",
+                                          Q_ARG(int, 15),
+                                          Q_ARG(int, 0 /*ListView.Beginning*/)));
+        QCoreApplication::processEvents();
+
+        QVERIFY(QMetaObject::invokeMethod(timeline, "captureViewAnchor"));
+        const QString anchorId = timeline->property("viewAnchorId").toString();
+        QVERIFY(!anchorId.isEmpty());
+        const int anchorRow = controller.timeline()->rowForStableId(anchorId);
+        QVERIFY(anchorRow >= 0);
+        QQuickItem *anchorItem = nullptr;
+        QVERIFY(QMetaObject::invokeMethod(
+            timeline, "itemAtIndex", Q_RETURN_ARG(QQuickItem *, anchorItem),
+            Q_ARG(int, anchorRow)));
+        QVERIFY(anchorItem != nullptr);
+        const double realItemY = anchorItem->y();
+
+        // Open a touchpad scroll session (pixelDelta — never engages the
+        // wheel engine) without letting it settle.
+        const QPointF pos(320, 300);
+        bool opened = false;
+        for (int attempt = 0; attempt < 50 && !opened; ++attempt) {
+            QWheelEvent wheel(pos, window.mapToGlobal(pos.toPoint()),
+                              QPoint(0, 24), QPoint(0, 0), Qt::NoButton,
+                              Qt::NoModifier, Qt::ScrollUpdate,
+                              /*inverted=*/false);
+            QCoreApplication::sendEvent(&window, &wheel);
+            QCoreApplication::processEvents();
+            opened = timeline->property("userScrollActive").toBool();
+            if (!opened)
+                QTest::qWait(10);
+        }
+        QVERIFY2(opened, "a touchpad delta must open the scroll session");
+        QVERIFY2(!controller.timelineScroll()->motionActive(),
+                 "the pixel path must never engage the wheel engine");
+
+        // Bias the baseline below the anchor's real, unchanged y — exactly
+        // what 270px of growth above it (an image row resolving) produces.
+        constexpr double simulatedGrowth = 270.0;
+        QVERIFY(timeline->setProperty("viewAnchorLastY",
+                                      realItemY - simulatedGrowth));
+        const double beforeY = timeline->property("contentY").toDouble();
+
+        QVERIFY(QMetaObject::invokeMethod(timeline, "maintainViewAnchor"));
+
+        const double afterY = timeline->property("contentY").toDouble();
+        QVERIFY2(qAbs(afterY - (beforeY + simulatedGrowth)) < 1.0,
+                 qPrintable(QStringLiteral(
+                     "growth above the anchor was not compensated: "
+                     "before=%1 after=%2 expectedGrowth=%3")
+                     .arg(beforeY).arg(afterY).arg(simulatedGrowth)));
+        QVERIFY2(qAbs(timeline->property("viewAnchorLastY").toDouble()
+                     - realItemY) < 0.5,
+                 "viewAnchorLastY did not re-base after applying the delta");
+        QVERIFY2(!controller.timelineScroll()->motionActive(),
+                 "no glide was active — nothing should have been engaged");
+        QCOMPARE(warnings, QStringList{});
+    }
+
+    // Companion for the DISCRETE-WHEEL path: growth compensation must not
+    // just shift contentY, it must also translate an in-flight glide's
+    // coalesced target — otherwise the glide's next integrated frame would
+    // overwrite the correction with its stale pre-growth position.
+    void maintainViewAnchorTranslatesActiveGlideWhenGrowthLandsMidFlight()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        const QString roomId = QStringLiteral("!general:mock.local");
+        controller.setCurrentRoomId(roomId);
+        auto *mock = controller.findChild<MockMatrixClient *>();
+        QVERIFY(mock != nullptr);
+
+        QList<TimelineEvent> events;
+        for (int i = 0; i < 30; ++i) {
+            TimelineEvent e;
+            e.sender = QStringLiteral("@alice:mock.local");
+            e.senderDisplayName = QStringLiteral("Alice");
+            e.body = QStringLiteral("history message %1").arg(i);
+            e.timestamp =
+                QDateTime::currentDateTimeUtc().addSecs(-(60 - i) * 60);
+            e.type = TimelineEvent::TextMessage;
+            e.status = TimelineEvent::Sent;
+            events.append(e);
+        }
+        mock->resetTimelineForTest(roomId, events, /*paginationPages=*/1);
+
+        QQmlApplicationEngine engine;
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this,
+                [&warnings](const QList<QQmlError> &errors) {
+                    for (const auto &e : errors) warnings << e.toString();
+                });
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("TimelinePane"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(root != nullptr);
+
+        QQuickWindow window;
+        window.resize(760, 620);
+        root->setParentItem(window.contentItem());
+        root->setSize(QSizeF(window.width(), window.height()));
+        window.show();
+        QCoreApplication::processEvents();
+
+        auto *timeline = root->findChild<QQuickItem *>(
+            QStringLiteral("timelineListView"));
+        QVERIFY(timeline != nullptr);
+        QTRY_VERIFY_WITH_TIMEOUT(timeline->property("count").toInt() >= 30,
+                                 kSignalTimeoutMs);
+        QTRY_VERIFY_WITH_TIMEOUT(!controller.pagination()->busy(),
+                                 kSignalTimeoutMs);
+
+        QVERIFY(timeline->setProperty("stickToBottom", false));
+        QVERIFY(QMetaObject::invokeMethod(timeline, "positionViewAtIndex",
+                                          Q_ARG(int, 15),
+                                          Q_ARG(int, 0 /*ListView.Beginning*/)));
+        QCoreApplication::processEvents();
+
+        QVERIFY(QMetaObject::invokeMethod(timeline, "captureViewAnchor"));
+        const QString anchorId = timeline->property("viewAnchorId").toString();
+        QVERIFY(!anchorId.isEmpty());
+        const int anchorRow = controller.timeline()->rowForStableId(anchorId);
+        QVERIFY(anchorRow >= 0);
+        QQuickItem *anchorItem = nullptr;
+        QVERIFY(QMetaObject::invokeMethod(
+            timeline, "itemAtIndex", Q_RETURN_ARG(QQuickItem *, anchorItem),
+            Q_ARG(int, anchorRow)));
+        QVERIFY(anchorItem != nullptr);
+        const double realItemY = anchorItem->y();
+
+        auto *scroll = controller.timelineScroll();
+        QVERIFY(scroll != nullptr);
+        const double glideStartY = timeline->property("contentY").toDouble();
+        const double originY = timeline->property("originY").toDouble();
+        const double maxY = originY
+            + timeline->property("contentHeight").toDouble()
+            - timeline->height();
+        for (int notch = 0; notch < 6; ++notch)
+            scroll->wheelNotch(120.0,
+                               timeline->property("contentY").toDouble(),
+                               originY, maxY, timeline->height());
+        QTRY_VERIFY_WITH_TIMEOUT(scroll->motionActive(), 2000);
+        QTRY_VERIFY_WITH_TIMEOUT(
+            timeline->property("contentY").toDouble() < glideStartY - 10.0,
+            2000);
+        QVERIFY(scroll->motionActive());
+
+        const double targetBefore = scroll->targetYForTest();
+        const double positionBefore = scroll->positionYForTest();
+        const double remainingBefore = targetBefore - positionBefore;
+
+        constexpr double simulatedGrowth = 300.0;
+        QVERIFY(timeline->setProperty("viewAnchorLastY",
+                                      realItemY - simulatedGrowth));
+        const double beforeY = timeline->property("contentY").toDouble();
+
+        QVERIFY(QMetaObject::invokeMethod(timeline, "maintainViewAnchor"));
+
+        QVERIFY2(scroll->motionActive(),
+                 "an in-flight glide must survive a growth correction");
+        const double afterY = timeline->property("contentY").toDouble();
+        QVERIFY2(qAbs(afterY - (beforeY + simulatedGrowth)) < 1.0,
+                 qPrintable(QStringLiteral(
+                     "contentY was not shifted by the growth: before=%1 "
+                     "after=%2 growth=%3")
+                     .arg(beforeY).arg(afterY).arg(simulatedGrowth)));
+        QVERIFY2(qAbs(scroll->targetYForTest()
+                     - (targetBefore + simulatedGrowth)) < 1.0,
+                 "translateActiveMotion did not shift the coalesced target");
+        QVERIFY2(qAbs((scroll->targetYForTest() - scroll->positionYForTest())
+                     - remainingBefore) < 1.0,
+                 "growth correction changed the glide's remaining distance");
+        QCOMPARE(warnings, QStringList{});
+    }
+
+    // Blocking review finding: userScrollActive also covers a NATIVE drag /
+    // kinetic flick, where QQuickFlickable owns contentY and recomputes it
+    // from the recorded press position on every move — a growth correction
+    // written there is discarded by construction, and re-basing the baseline
+    // would additionally hide that growth from settle-time re-anchoring. The
+    // relative path must therefore apply ONLY on the self-driven paths
+    // (wheel glide / touchpad pixel deltas, which write contentY
+    // programmatically and leave `moving` false), leaving BOTH contentY and
+    // viewAnchorLastY untouched while `moving` is true.
+    void growthDeltaIsDeferredWhileFlickableOwnsTheDrag()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        const QString roomId = QStringLiteral("!general:mock.local");
+        controller.setCurrentRoomId(roomId);
+        auto *mock = controller.findChild<MockMatrixClient *>();
+        QVERIFY(mock != nullptr);
+
+        QList<TimelineEvent> events;
+        for (int i = 0; i < 30; ++i) {
+            TimelineEvent e;
+            e.sender = QStringLiteral("@alice:mock.local");
+            e.senderDisplayName = QStringLiteral("Alice");
+            e.body = QStringLiteral("history message %1").arg(i);
+            e.timestamp =
+                QDateTime::currentDateTimeUtc().addSecs(-(60 - i) * 60);
+            e.type = TimelineEvent::TextMessage;
+            e.status = TimelineEvent::Sent;
+            events.append(e);
+        }
+        mock->resetTimelineForTest(roomId, events, /*paginationPages=*/1);
+
+        QQmlApplicationEngine engine;
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("TimelinePane"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(root != nullptr);
+
+        QQuickWindow window;
+        window.resize(760, 620);
+        root->setParentItem(window.contentItem());
+        root->setSize(QSizeF(window.width(), window.height()));
+        window.show();
+        QCoreApplication::processEvents();
+
+        auto *timeline = root->findChild<QQuickItem *>(
+            QStringLiteral("timelineListView"));
+        QVERIFY(timeline != nullptr);
+        QTRY_VERIFY_WITH_TIMEOUT(timeline->property("count").toInt() >= 30,
+                                 kSignalTimeoutMs);
+        QTRY_VERIFY_WITH_TIMEOUT(!controller.pagination()->busy(),
+                                 kSignalTimeoutMs);
+
+        QVERIFY(timeline->setProperty("stickToBottom", false));
+        QVERIFY(QMetaObject::invokeMethod(timeline, "positionViewAtIndex",
+                                          Q_ARG(int, 15),
+                                          Q_ARG(int, 0 /*ListView.Beginning*/)));
+        QCoreApplication::processEvents();
+
+        // Preconditions, so a future geometry change fails loudly here
+        // instead of as a confusing "growth not compensated".
+        QVERIFY(!controller.pagination()->busy());
+        QVERIFY(timeline->property("anchorStableId").toString().isEmpty());
+
+        QVERIFY(QMetaObject::invokeMethod(timeline, "captureViewAnchor"));
+        const QString anchorId = timeline->property("viewAnchorId").toString();
+        QVERIFY(!anchorId.isEmpty());
+        const int anchorRow = controller.timeline()->rowForStableId(anchorId);
+        QVERIFY(anchorRow >= 0);
+        QQuickItem *anchorItem = nullptr;
+        QVERIFY(QMetaObject::invokeMethod(
+            timeline, "itemAtIndex", Q_RETURN_ARG(QQuickItem *, anchorItem),
+            Q_ARG(int, anchorRow)));
+        QVERIFY(anchorItem != nullptr);
+        const double realItemY = anchorItem->y();
+
+        // A real native drag: press and move, so Flickable's own `moving`
+        // turns true and IT owns contentY.
+        QTest::mousePress(&window, Qt::LeftButton, Qt::NoModifier,
+                          QPoint(360, 400));
+        for (int step = 1; step <= 8; ++step) {
+            QTest::mouseMove(&window, QPoint(360, 400 + step * 14));
+            QCoreApplication::processEvents();
+        }
+        QVERIFY2(timeline->property("moving").toBool(),
+                 "a native drag must set Flickable.moving");
+        QVERIFY2(timeline->property("userScrollActive").toBool(),
+                 "a drag is still a user scroll session");
+        QVERIFY2(!timeline->property("selfDrivenScrollActive").toBool(),
+                 "a drag is NOT a self-driven (Lightning-owned) scroll");
+
+        constexpr double simulatedGrowth = 250.0;
+        QVERIFY(timeline->setProperty("viewAnchorLastY",
+                                      realItemY - simulatedGrowth));
+        const double beforeY = timeline->property("contentY").toDouble();
+
+        QVERIFY(QMetaObject::invokeMethod(timeline, "maintainViewAnchor"));
+
+        const double afterY = timeline->property("contentY").toDouble();
+        const double baselineAfter =
+            timeline->property("viewAnchorLastY").toDouble();
+        // Release before asserting: a failing QVERIFY must not leave the
+        // left button pressed for later tests in this binary.
+        QTest::mouseRelease(&window, Qt::LeftButton, Qt::NoModifier,
+                            QPoint(360, 512));
+
+        // Neither the position nor the baseline may move: the growth is
+        // absorbed and re-anchored at settle instead.
+        QCOMPARE(afterY, beforeY);
+        QVERIFY2(qAbs(baselineAfter - (realItemY - simulatedGrowth)) < 0.5,
+                 "the baseline was consumed on the drag path, which would "
+                 "hide the growth from settle-time re-anchoring");
     }
 };
 
