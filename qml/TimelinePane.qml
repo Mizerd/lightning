@@ -747,13 +747,21 @@ Rectangle {
                 function maintainViewAnchor() {
                     if (viewAnchorId === "" || stickToBottom)
                         return
-                    // The backward-pagination prepend owns re-anchoring while
-                    // its own capture is outstanding: restoreCapturedAnchor()/
-                    // restoreAnchor() measure the anchor row's TOTAL y drift
-                    // since capture, which already includes any growth this
-                    // function would otherwise also compensate — running both
-                    // would double-count the same growth.
-                    if (app.pagination.busy || anchorStableId !== "")
+                    // The backward-pagination prepend measures the anchor
+                    // row's TOTAL y drift since ITS capture
+                    // (restoreCapturedAnchor's `shift = it.y - anchorItemY`),
+                    // which would include any growth compensated here — so
+                    // running both naively double-counts. Rather than stand
+                    // down for the whole run (which deferred every growth
+                    // correction to one jump-then-unjump at the end of a
+                    // multi-page near-top run — the residual "jittery while
+                    // loading older messages"), the growth path below ALSO
+                    // advances anchorItemY by the same delta, so the
+                    // pagination shift stays measured against a baseline that
+                    // already accounts for it. While a fetch is actively in
+                    // flight the prepend can land between measuring and
+                    // writing, so that window still stands down.
+                    if (app.pagination.busy)
                         return
                     var row = app.timeline.rowForStableId(viewAnchorId)
                     var it = row >= 0 ? itemAtIndex(row) : null
@@ -834,6 +842,11 @@ Rectangle {
                             // pagination-restore path already guards against.
                             if (app.timelineScroll.motionActive)
                                 app.timelineScroll.translateActiveMotion(delta)
+                            // Keep an outstanding pagination capture's
+                            // baseline in step: its later shift must not
+                            // re-apply growth already compensated here.
+                            if (anchorStableId !== "")
+                                anchorItemY += delta
                         }
                         // Re-based even when the delta was below the
                         // threshold: sub-pixel churn is deliberately absorbed
@@ -842,8 +855,17 @@ Rectangle {
                         viewAnchorLastY = it.y
                         return
                     }
-                    // Idle: no gesture to fight, so an absolute restore to the
-                    // exact captured offset is safe.
+                    // Idle: an ABSOLUTE restore is a different anchor's
+                    // opinion of where the view belongs, so it must never run
+                    // while a pagination capture is outstanding — that
+                    // capture's own restore owns the position for the rest of
+                    // the run. (Only the relative growth path above is safe
+                    // to share the run, because it keeps that capture's
+                    // baseline in step.)
+                    if (anchorStableId !== "")
+                        return
+                    // No gesture to fight, so restoring to the exact captured
+                    // offset is safe.
                     var desired = it.y + viewAnchorOffset
                     var lo = wheelMinY()
                     var hi = wheelMaxY()
@@ -1300,6 +1322,22 @@ Rectangle {
                         timeline.updateStickAndPaginate()
                         timeline.saveRoomPosition()
                         timeline.captureViewAnchor()
+                        // A COMPLETED gesture that left the reader near the
+                        // top re-arms the edge. Without this, backfill stops
+                        // dead in a filtered/thread-heavy room: the reader's
+                        // first approach consumes the latch, the controller
+                        // spends its 4-page strike budget on empty pages and
+                        // latches too, and every further upward scroll is
+                        // ignored — the edge is only re-armed by scrolling
+                        // back DOWN past the exit band. Re-arming per
+                        // completed gesture keeps the bound the hysteresis
+                        // exists for (one request per deliberate gesture,
+                        // never a per-frame spin) while letting "keep
+                        // scrolling up" keep meaning "keep loading".
+                        if (!timeline.stickToBottom
+                            && !app.pagination.reachedStart
+                            && timeline.contentY <= timeline.nearTopEnterY)
+                            timeline.nearTopArmed = true
                         // The single gesture-settle point for both the touchpad
                         // and mouse-engine paths (the engine's settle restarts
                         // this timer): emit one bounded diagnostic summary.
