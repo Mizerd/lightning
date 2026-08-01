@@ -567,6 +567,14 @@ Rectangle {
                 // ListView.onReused -> resetForReuse(). cacheBuffer keeps a
                 // screen of pooled delegates warm above/below the viewport.
                 reuseItems: true
+                // A bigger buffer was tried (1600) as an up-scroll jitter
+                // mitigation — wrapped-text rows resolve height only on
+                // delegate creation — and REJECTED on measurement: it more
+                // than doubled the timeline suite's runtime and woke the
+                // documented offscreen adjacency flake (~29%), for a benefit
+                // no one had physically verified. The jitter's real fix, if
+                // the feel report persists, is height handling, not buffer
+                // size.
                 cacheBuffer: 800
                 // Delegates own sender-group spacing: group leaders receive
                 // a compact break while continuations stay visually glued
@@ -1343,17 +1351,15 @@ Rectangle {
                 // restoreCapturedAnchor for why that goes wrong under a
                 // concurrent gesture).
                 property real anchorItemY: 0
-                // Bumped on every captureAnchor() call. A filtered/thread-only
-                // near-top continuation can complete several batches
-                // back-to-back: each busy-start re-captures a fresh anchor
-                // while an EARLIER batch's own zero-insert completion is
-                // still a pending Qt.callLater. That stale completion's
-                // restoreAnchor() would otherwise clear anchorStableId out
-                // from under the newer capture it never belonged to,
-                // discarding the newer batch's compensation — reads as a
-                // jump toward the top once the run finishes.
-                // onPaginationCompleted snapshots this token synchronously so
-                // its deferred restore can detect and ignore that staleness.
+                // Bumped on every captureAnchor() call. The busy-start
+                // capture is gated on "no anchor already outstanding"
+                // (captureAnchorIfNone below), so under normal pagination
+                // flow this token never actually mismatches — a new capture
+                // structurally cannot happen while an older one is still
+                // unconsumed. It remains a defensive backstop for any OTHER
+                // caller that captures/restores without going through that
+                // gate: a completion whose token no longer matches the live
+                // capture is stale and must not touch it.
                 property int anchorCaptureToken: 0
 
                 function captureAnchor() {
@@ -1459,14 +1465,38 @@ Rectangle {
                     captureViewAnchor()
                     return true
                 }
-                function restoreAnchor(inserted, expectedToken) {
+                function restoreAnchor(inserted, expectedToken, reachedStart,
+                                       willContinue) {
                     // A newer captureAnchor() already ran since this
                     // completion's batch started: anchorStableId now belongs
                     // to that newer capture, not this one. That newer
                     // capture's own completion owns restoring it.
                     if (expectedToken !== anchorCaptureToken)
                         return
-                    if (inserted <= 0 || anchorStableId === "" || stickToBottom) {
+                    if (anchorStableId === "")
+                        return
+                    if (stickToBottom) {
+                        anchorStableId = ""
+                        return
+                    }
+                    if (inserted <= 0) {
+                        // A zero-insert batch has nothing to compensate —
+                        // and the near-top continuation only ever arms on
+                        // exactly this case (zero rows, start not reached),
+                        // so clearing here would hand the batch that
+                        // FINALLY inserts an empty anchor and leave its
+                        // prepend uncompensated (the cascade's second leg).
+                        // KEEP the capture only while the controller has
+                        // ACTUALLY scheduled the next batch of the run
+                        // (willContinue); every other empty completion —
+                        // start reached, continuation latched after the
+                        // strike budget, an empty retry/navigation batch —
+                        // is a run END and must RELEASE it, or the
+                        // maintainViewAnchor async-growth stabilizer
+                        // (suppressed while a capture is outstanding)
+                        // stays disabled for the rest of the room visit.
+                        if (willContinue === true && reachedStart !== true)
+                            return
                         anchorStableId = ""
                         return
                     }
@@ -1489,13 +1519,41 @@ Rectangle {
                     restoreCapturedAnchor()
                 }
 
+                // A near-top continuation (scheduleNearTopContinuation) can
+                // complete several filtered/zero-insert batches back-to-back,
+                // each toggling busy false->true->false. Re-capturing on
+                // every busy-start would overwrite anchorStableId before an
+                // earlier, still-pending completion could restore against
+                // it — anchorCaptureToken then correctly refuses to let that
+                // stale completion touch the newer capture, but that only
+                // prevents corruption: the older batch's own compensation is
+                // simply lost and its real prepend goes uncompensated — the
+                // "teleports to the top, then keeps pulling me up" cascade.
+                // Capturing only when NO anchor is outstanding — combined
+                // with restoreAnchor() KEEPING the capture through
+                // zero-insert completions whose run is genuinely
+                // continuing (willContinue) and RELEASING it on every
+                // run-ending completion (inserted, start reached, latched,
+                // failed) — makes the SAME anchor persist across an entire
+                // multi-batch run: the batch that actually inserts visible
+                // rows always still owns an unconsumed capture, and a run
+                // that ends empty never strands one.
+                // (Overlapping capture windows cannot be fixed by per-batch
+                // snapshots either — two captures independently measuring
+                // absolute shifts double-count any prepend both windows
+                // span.)
+                function captureAnchorIfNone() {
+                    if (anchorStableId === "")
+                        captureAnchor()
+                }
+
                 Connections {
                     target: app.pagination
                     property bool wasBusy: false
                     function onStateChanged() {
                         if (app.pagination.busy && !wasBusy
                             && !timeline.stickToBottom)
-                            timeline.captureAnchor()
+                            timeline.captureAnchorIfNone()
                         if (wasBusy && !app.pagination.busy
                             && app.pagination.failed) {
                             timeline.anchorStableId = ""
@@ -1505,14 +1563,16 @@ Rectangle {
                         }
                         wasBusy = app.pagination.busy
                     }
-                    function onPaginationCompleted(inserted, reachedStart) {
+                    function onPaginationCompleted(inserted, reachedStart,
+                                                   willContinue) {
                         // Snapshot synchronously in this same signal dispatch:
                         // must reflect whichever capture was current for THIS
                         // batch, not whatever it is once the deferred restore
                         // actually runs.
                         var expectedToken = timeline.anchorCaptureToken
                         Qt.callLater(function() {
-                            timeline.restoreAnchor(inserted, expectedToken)
+                            timeline.restoreAnchor(inserted, expectedToken,
+                                                   reachedStart, willContinue)
                         })
                     }
                     function onTargetLocated(row, pixelOffset, highlight) {

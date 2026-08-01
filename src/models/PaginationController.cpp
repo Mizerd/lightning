@@ -493,6 +493,7 @@ void PaginationController::finishBatch(bool hitStart)
     //     visible events, then latch and stop until the reader deliberately
     //     re-approaches the top. This replaces the old QML-geometry-driven loop
     //     that could spin for as long as the reader sat at the top.
+    bool willContinue = false;
     if (reason == Reason::NearTop) {
         if (hitStart || inserted > 0) {
             m_nearTopEmptyStrikes = 0;
@@ -500,6 +501,7 @@ void PaginationController::finishBatch(bool hitStart)
             ++m_nearTopEmptyStrikes;
             if (m_nearTopEmptyStrikes < kMaxNearTopEmptyStrikes) {
                 scheduleNearTopContinuation();
+                willContinue = true;
             } else {
                 qCInfo(lcPagination)
                     << "timeline pagination near-top continuation latched after"
@@ -516,7 +518,7 @@ void PaginationController::finishBatch(bool hitStart)
     // whatever state was current the instant the batch finished (typically
     // "Loading", forever) even though direct C++ reads already see Hidden.
     Q_EMIT stateChanged();
-    Q_EMIT paginationCompleted(inserted, hitStart);
+    Q_EMIT paginationCompleted(inserted, hitStart, willContinue);
     if (m_navigationPurpose != NavigationPurpose::None)
         continueNavigation(hitStart);
 }

@@ -493,6 +493,8 @@ private Q_SLOTS:
         // kMaxNearTopEmptyStrikes, then latches. Complete each dispatched page
         // empty and count them; the loop terminates when no further page is
         // auto-dispatched.
+        QSignalSpy completions(&controller,
+                               &PaginationController::paginationCompleted);
         controller.requestNearTop(/*userInitiated=*/true);
         int dispatched = 0;
         for (int guard = 0; guard < 20
@@ -504,6 +506,13 @@ private Q_SLOTS:
             QCoreApplication::processEvents();      // fire the continuation
         }
         QCOMPARE(dispatched, 4); // kMaxNearTopEmptyStrikes: one approach, 4 pages
+        // willContinue tells the anchor logic whether THIS empty completion
+        // already scheduled the run's next batch: true for the first three
+        // strikes, false for the latching fourth — the release signal that
+        // keeps a latched run from stranding a scroll-anchor capture.
+        QCOMPARE(completions.count(), 4);
+        for (int i = 0; i < 4; ++i)
+            QCOMPARE(completions.at(i).at(2).toBool(), i < 3);
 
         // The continuation has latched: no further automatic dispatch spins.
         const int capped = client.loadOlderCalls;

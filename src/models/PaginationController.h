@@ -130,7 +130,14 @@ Q_SIGNALS:
     void stateChanged();
     // One completed backward batch for the CURRENT room and generation.
     // insertedCount is the number of events prepended by this batch.
-    void paginationCompleted(int insertedCount, bool reachedStart);
+    // willContinue: THIS completion already scheduled a near-top
+    // continuation batch (zero visible rows, start not reached, strike
+    // budget left). The anchor logic keeps its capture only while that is
+    // true — a terminal, latched, or budget-exhausted empty completion
+    // must release it or async-growth anchoring stays disabled for the
+    // rest of the room visit.
+    void paginationCompleted(int insertedCount, bool reachedStart,
+                             bool willContinue);
     void targetLocated(int row, qreal pixelOffset, bool highlight);
     void restoreLatestRequested();
     void navigationChanged();

@@ -2907,10 +2907,51 @@ private Q_SLOTS:
         QVERIFY(QMetaObject::invokeMethod(timeline, "restoreAnchor",
                                           Q_ARG(QVariant, QVariant(5)),
                                           Q_ARG(QVariant,
-                                                QVariant(staleToken))));
+                                                QVariant(staleToken)),
+                                          Q_ARG(QVariant, QVariant(false)),
+                                          Q_ARG(QVariant, QVariant(false))));
         QCoreApplication::processEvents();
         QCOMPARE(timeline->property("contentY").toDouble(), beforeY);
         QCOMPARE(timeline->property("anchorStableId").toString(), liveAnchor);
+
+        // The production busy-start path goes through captureAnchorIfNone,
+        // which must NOT steal an outstanding capture — and zero-insert
+        // NON-TERMINAL completions must KEEP the capture (the near-top
+        // continuation only ever arms on exactly that case), so across a
+        // multi-batch run the batch that finally inserts rows still owns
+        // its capture (the teleport-cascade fix; overlapping capture
+        // windows double-count, so the gate forbids them outright).
+        const int liveToken = timeline->property("anchorCaptureToken").toInt();
+        const double liveItemY = timeline->property("anchorItemY").toDouble();
+        QVERIFY(QMetaObject::invokeMethod(timeline, "captureAnchorIfNone"));
+        QCOMPARE(timeline->property("anchorCaptureToken").toInt(), liveToken);
+        QCOMPARE(timeline->property("anchorStableId").toString(), liveAnchor);
+        QCOMPARE(timeline->property("anchorItemY").toDouble(), liveItemY);
+        // A zero-insert completion whose run genuinely continues
+        // (willContinue) keeps the capture alive for the batch that will
+        // insert...
+        QVERIFY(QMetaObject::invokeMethod(timeline, "restoreAnchor",
+                                          Q_ARG(QVariant, QVariant(0)),
+                                          Q_ARG(QVariant, QVariant(liveToken)),
+                                          Q_ARG(QVariant, QVariant(false)),
+                                          Q_ARG(QVariant, QVariant(true))));
+        QCoreApplication::processEvents();
+        QCOMPARE(timeline->property("anchorStableId").toString(), liveAnchor);
+        // ...but a LATCHED empty completion (no continuation scheduled —
+        // strike budget exhausted) is a run END and must release it, or
+        // the maintainViewAnchor stabilizer stays disabled for the rest of
+        // the room visit. The gate then reopens for the next run.
+        QVERIFY(QMetaObject::invokeMethod(timeline, "restoreAnchor",
+                                          Q_ARG(QVariant, QVariant(0)),
+                                          Q_ARG(QVariant, QVariant(liveToken)),
+                                          Q_ARG(QVariant, QVariant(false)),
+                                          Q_ARG(QVariant, QVariant(false))));
+        QCoreApplication::processEvents();
+        QCOMPARE(timeline->property("anchorStableId").toString(), QString());
+        QVERIFY(QMetaObject::invokeMethod(timeline, "captureAnchorIfNone"));
+        QCOMPARE(timeline->property("anchorCaptureToken").toInt(),
+                 liveToken + 1);
+        QVERIFY(!timeline->property("anchorStableId").toString().isEmpty());
         QCOMPARE(warnings, QStringList{});
     }
 };
