@@ -218,6 +218,15 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     });
     connect(m_client.get(), &MatrixClient::loggedOut, this,
             [this] { m_notifications->clearPending(); m_knownInvites.clear(); });
+    // Room-open roster hydration marks a room BEFORE its fetch resolves;
+    // a failed fetch must un-mark it or the room's mention chips and reply
+    // headers stay localparts for the whole session (review: a silent
+    // one-shot must not fail closed). The next open retries.
+    connect(m_client.get(), &MatrixClient::roomMembersReceived, this,
+            [this](quint64, const QString &roomId, const QVariantMap &snapshot) {
+                if (!snapshot.value(QStringLiteral("ok")).toBool())
+                    m_memberHydratedRooms.remove(roomId);
+            });
     // Invites: notify once per newly seen invited room. Invites present
     // before the initial sync completes are seeded silently (see
     // shouldNotifyInvite) so a restart never re-announces existing invites.
@@ -1113,6 +1122,26 @@ void AppController::setCurrentRoomId(const QString &roomId)
     m_timeline->setRoomId(roomId);
     m_composer->setRoomId(roomId);
     m_pagination->setRoomId(roomId);
+    // v0.6.5: hydrate the member roster on first open — mention chips,
+    // reply headers and thread summaries resolve display names through the
+    // roster-fed cache behind displayNameFor(), and before this the fetch
+    // only ever fired from the member panel or an @-composition, so plain
+    // reading kept bare localparts (live-feedback screenshot: the sender
+    // showed "Grok AI" while the mention chip showed "@brotato"). Once per
+    // room per session; the response merges into the cache and emits
+    // membersChanged, which refreshes every consumer. A FAILED fetch
+    // un-marks the room (see the roomMembersReceived connection) so the
+    // next open retries instead of failing closed for the whole session.
+    if (!roomId.isEmpty() && m_client
+        && !m_memberHydratedRooms.contains(roomId)) {
+        // Record the room only when the dispatch actually went out
+        // (MentionSuggestionModel precedent): a synchronous rejection —
+        // no SDK handle yet, room not (yet) joined — returns 0 WITHOUT
+        // ever emitting roomMembersReceived, and marking it here would
+        // fail closed for the whole session.
+        if (m_client->requestRoomMembers(roomId) != 0)
+            m_memberHydratedRooms.insert(roomId);
+    }
     Q_EMIT currentRoomIdChanged();
 }
 
@@ -1747,6 +1776,9 @@ void AppController::onLoginSucceeded()
 void AppController::onLoggedOut()
 {
     m_currentRoomId.clear();
+    // The roster cache died with the session (detach or logout); the next
+    // account — or a re-login — must hydrate rooms afresh.
+    m_memberHydratedRooms.clear();
     m_playback->stopAll(); // no playback (or decrypted-media handle) survives
     Q_EMIT currentRoomIdChanged();
     if (m_accountSwitching) {

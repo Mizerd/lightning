@@ -522,6 +522,9 @@ private:
     bool m_screenshotDemo = false;
     Screen m_currentScreen = LoginScreen;
     QString m_currentRoomId;
+    // Rooms whose member roster was hydrated this session (one bounded
+    // requestRoomMembers per room per account; cleared on logout/switch).
+    QSet<QString> m_memberHydratedRooms;
     QString m_requestedSettingsSection;
     QString m_connectionStatus;
     bool m_localRustResetRequired = false;

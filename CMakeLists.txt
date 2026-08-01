@@ -1118,6 +1118,9 @@ if(BUILD_TESTING)
     qt_add_executable(rust-timeline-ingest-test
         tests/RustTimelineIngestTest.cpp
         src/matrix/RustTimelineIngest.cpp
+        # v0.6.5: the ingest normalizes reply previews through the shared
+        # preview choke point.
+        src/matrix/EventPreview.cpp
     )
     target_include_directories(rust-timeline-ingest-test PRIVATE src)
     target_link_libraries(rust-timeline-ingest-test PRIVATE Qt6::Core Qt6::Test)

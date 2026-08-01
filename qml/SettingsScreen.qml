@@ -1123,7 +1123,23 @@ Item {
                                            ? AppTheme.bolt : AppTheme.stormTextFaint
                                     Rectangle {
                                         width: 16; height: 16; radius: 8
-                                        color: "#FFFFFF"
+                                        // v0.6.5 live-feedback: the checked
+                                        // track fills AppTheme.bolt — under
+                                        // Storm that's the literal bolt
+                                        // yellow, and a white thumb on it is
+                                        // illegible. boltInk is the ink
+                                        // that's DESIGNED to sit on a bolt
+                                        // fill (navy under Storm, accentText
+                                        // under legacy — which is white for
+                                        // every legacy theme except Deep
+                                        // Teal, so this is a no-op change
+                                        // for legacy themes other than that
+                                        // one, where it's a latent-bug fix
+                                        // too). The unchecked track never
+                                        // carries bolt, so its thumb keeps
+                                        // the plain white literal.
+                                        color: app.settings.theme === 0
+                                               ? AppTheme.boltInk : "#FFFFFF"
                                         y: 2
                                         x: app.settings.theme === 0 ? 18 : 2
                                         Behavior on x {
@@ -1242,7 +1258,28 @@ Item {
                                        + textScaleSlider.availableHeight / 2
                                        - height / 2
                                     width: 16; height: 16; radius: 8
-                                    color: "#FFFFFF"
+                                    // v0.6.5 live-feedback: unlike the
+                                    // switch thumb, this one sits ON the
+                                    // groove, not on a single checked/
+                                    // unchecked fill — so which ink it
+                                    // needs depends on where the fill's
+                                    // right edge (visualPosition *
+                                    // availableWidth, background above)
+                                    // actually lands relative to the
+                                    // thumb's own centre (leftPadding +
+                                    // visualPosition * (availableWidth -
+                                    // width) + width/2). Solving fill-edge
+                                    // > thumb-centre for these two
+                                    // expressions reduces to
+                                    // visualPosition > 0.5 exactly — below
+                                    // half the range the thumb sits mostly
+                                    // on the unfilled stormInset groove
+                                    // (white reads fine there); above half
+                                    // it sits mostly on the bolt fill and
+                                    // needs boltInk for the same reason as
+                                    // the switch thumb above.
+                                    color: textScaleSlider.visualPosition > 0.5
+                                           ? AppTheme.boltInk : "#FFFFFF"
                                     // The slider thumb's shadow is one of the
                                     // four the design budget allows.
                                     Rectangle {

@@ -7,6 +7,7 @@
 
 #include "app/AppController.h"
 #include "app/SettingsManager.h"
+#include "matrix/MatrixClient.h"
 #include "auth/AccountManager.h"
 #include "auth/AuthManager.h"
 #include "storage/AppDataPaths.h"
@@ -95,6 +96,60 @@ private Q_SLOTS:
         QSettings settings;
         settings.clear();
         settings.sync();
+    }
+
+    // v0.6.5: opening a room hydrates its member roster exactly once per
+    // account session — the roster feeds the displayNameFor cache that
+    // mention chips, reply headers, and thread summaries resolve through
+    // (before this, only the member panel or an @-composition ever fetched
+    // it, so plain reading kept bare localparts). A switch/logout clears
+    // the once-per-room memory so the next account hydrates afresh.
+    void roomOpenHydratesMemberRosterOncePerSession()
+    {
+        AppController app(AppController::MockBackend);
+        FakeSecretStore secrets;
+        app.settings()->setSecretStore(&secrets);
+        app.settings()->saveSession(kHsOne, kAlice,
+                                    QStringLiteral("ALICEDEV"),
+                                    QStringLiteral("alice-token-fixture"));
+        app.settings()->saveSession(kHsTwo, kBob,
+                                    QStringLiteral("BOBDEV"),
+                                    QStringLiteral("bob-token-fixture"));
+        app.switchToAccount(kAlice);
+        QTRY_VERIFY(!app.accountSwitching());
+
+        auto *client = app.findChild<MatrixClient *>();
+        QVERIFY(client != nullptr);
+        QSignalSpy rosters(client, &MatrixClient::roomMembersReceived);
+
+        const QString roomA = QStringLiteral("!mock-room:mock.local");
+        app.setCurrentRoomId(roomA);
+        QTRY_COMPARE(rosters.count(), 1);
+
+        // Re-opening the same room in the same session is a no-op fetch.
+        app.setCurrentRoomId(QString());
+        app.setCurrentRoomId(roomA);
+        QTest::qWait(10);
+        QCOMPARE(rosters.count(), 1);
+
+        // A FAILED fetch un-marks the room: the next open retries instead
+        // of failing closed for the whole session (the mock always answers
+        // ok=true, so the failure is injected through the same signal the
+        // backend would emit).
+        QVariantMap failed;
+        failed.insert(QStringLiteral("ok"), false);
+        Q_EMIT client->roomMembersReceived(0, roomA, failed);
+        // (the injected emission itself is rosters #2)
+        app.setCurrentRoomId(QString());
+        app.setCurrentRoomId(roomA);
+        QTRY_COMPARE(rosters.count(), 3); // the retry actually fired
+
+        // A different account starts fresh: the once-per-room memory died
+        // with the detached session.
+        app.switchToAccount(kBob);
+        QTRY_VERIFY(!app.accountSwitching());
+        app.setCurrentRoomId(roomA);
+        QTRY_COMPARE(rosters.count(), 4);
     }
 
     void switchActivatesTargetWithoutLoginScreen()

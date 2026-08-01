@@ -447,6 +447,15 @@ void RustTimelineIngestTest::parsesReactionsAndReply()
     QCOMPARE(e.replyToEventId, QStringLiteral("$orig"));
     QCOMPARE(e.replyToSender, QStringLiteral("@bob:example.org"));
     QCOMPARE(e.replyToPreview, QStringLiteral("original"));
+
+    // The SDK's embedded preview is the PLAIN body: a Lightning-sent
+    // mention arrives as raw matrix.to markdown, and the quote must show
+    // the label, not the link (live-feedback screenshot).
+    item.insert(QStringLiteral("reply_to_preview"),
+                QStringLiteral("[Grok AI](https://matrix.to/#/"
+                               "@brotato:example.org) tai jo"));
+    const TimelineEvent m = eventFromItemJson(item, kRoom);
+    QCOMPARE(m.replyToPreview, QStringLiteral("Grok AI tai jo"));
 }
 
 // v0.6.0: SDK thread-summary fields on a thread root item.
@@ -481,6 +490,15 @@ void RustTimelineIngestTest::parsesThreadSummary()
     QCOMPARE(e.threadLatestTimestamp.toMSecsSinceEpoch(),
              Q_INT64_C(1700000123000));
     QVERIFY(e.threadUnread);
+
+    // Same plain-body provenance as reply_to_preview: a mention-bearing
+    // latest reply must show its label in the summary card, never the raw
+    // matrix.to markdown.
+    item.insert(QStringLiteral("thread_latest_preview"),
+                QStringLiteral("[Grok AI](https://matrix.to/#/"
+                               "@brotato:example.org) ok"));
+    const TimelineEvent m = eventFromItemJson(item, kRoom);
+    QCOMPARE(m.threadLatestPreview, QStringLiteral("Grok AI ok"));
 }
 
 // Events without a summary keep the -1 "unknown" contract so non-SDK

@@ -1,5 +1,7 @@
 #include "matrix/RustTimelineIngest.h"
 
+#include "matrix/EventPreview.h"
+
 #include <QCoreApplication>
 #include <QDateTime>
 #include <QTimeZone>
@@ -107,7 +109,17 @@ TimelineEvent eventFromItemJson(const QJsonObject &item, const QString &roomId)
 
     e.replyToEventId = item.value(QStringLiteral("reply_to_event_id")).toString();
     e.replyToSender = item.value(QStringLiteral("reply_to_sender")).toString();
-    e.replyToPreview = item.value(QStringLiteral("reply_to_preview")).toString();
+    // The SDK's embedded reply preview is the PLAIN body, which for a
+    // Lightning-sent mention contains the matrix.to markdown link verbatim
+    // ("[Grok AI](https://matrix.to/#/@…)" rendered raw in the quote —
+    // live-feedback screenshot). Route it through the same normalizing
+    // choke point the room-list previews already use. Empty previews (the
+    // overwhelming majority of items) skip the regex pass entirely.
+    const QString rawReplyPreview =
+        item.value(QStringLiteral("reply_to_preview")).toString();
+    e.replyToPreview = rawReplyPreview.isEmpty()
+        ? rawReplyPreview
+        : matrix::preview::normalizePreviewText(rawReplyPreview);
     e.threadRootId = item.value(QStringLiteral("thread_root_id")).toString();
 
     // v0.6.0: SDK thread summary on thread root events (absent fields keep
@@ -117,8 +129,14 @@ TimelineEvent eventFromItemJson(const QJsonObject &item, const QString &roomId)
     e.threadReplyCount = item.contains(QStringLiteral("thread_reply_count"))
         ? item.value(QStringLiteral("thread_reply_count")).toInt(-1)
         : -1;
-    e.threadLatestPreview =
+    // Same plain-body provenance as reply_to_preview (both come from the
+    // Rust side's content_preview()) — a mention-bearing latest reply would
+    // otherwise render its matrix.to markdown raw in the summary card.
+    const QString rawThreadPreview =
         item.value(QStringLiteral("thread_latest_preview")).toString();
+    e.threadLatestPreview = rawThreadPreview.isEmpty()
+        ? rawThreadPreview
+        : matrix::preview::normalizePreviewText(rawThreadPreview);
     e.threadLatestKind =
         item.value(QStringLiteral("thread_latest_kind")).toString();
     e.threadLatestSender =
