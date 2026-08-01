@@ -1563,11 +1563,30 @@ Rectangle {
                         anchorStableId = ""
                         return false
                     }
-                    // Forces the anchor delegate to be created so its
-                    // geometry below is real, not an averaged
-                    // ListView.contentHeight estimate for uncreated rows.
-                    positionViewAtIndex(newRow, ListView.Beginning)
+                    // The anchor row's geometry has to be REAL, not an
+                    // averaged estimate for an uncreated row — but forcing it
+                    // is only necessary when the delegate does not already
+                    // exist. The anchor is the row at the top of the viewport,
+                    // so on a normal backfill it IS instantiated, and
+                    // positionViewAtIndex would then jump the whole view to it
+                    // (creating and destroying delegates, laying out, kicking
+                    // off media requests for whatever it swept past) purely to
+                    // be jumped straight back by the contentY write below.
+                    // Doing that on every inserting batch is what made a
+                    // sustained backfill run visibly laggy on a real account.
+                    // Force it only in the genuine miss case.
+                    // forceLayout() applies the prepend's pending layout so
+                    // it.y below is the row's REAL post-prepend position
+                    // (without it the read is stale by exactly the batch's
+                    // growth — the concurrent-scroll guard catches that).
+                    // Unlike positionViewAtIndex it does NOT move the view,
+                    // so the reposition only happens in the genuine miss case.
+                    forceLayout()
                     var it = itemAtIndex(newRow)
+                    if (!it) {
+                        positionViewAtIndex(newRow, ListView.Beginning)
+                        it = itemAtIndex(newRow)
+                    }
                     if (it) {
                         if (diagActive && wasScrollActive)
                             diagPaginationRestores += 1
