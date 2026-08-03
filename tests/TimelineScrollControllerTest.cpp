@@ -390,7 +390,10 @@ private Q_SLOTS:
     }
 
     // Backward-pagination anchor restore (TimelinePane.qml's
-    // restoreCapturedAnchor) translates an in-flight discrete-wheel glide
+    // maintainViewAnchor() — since the v0.7.2 anchor unification this one
+    // function covers both async growth compensation and a backward-
+    // pagination prepend; there is no longer a separate
+    // restoreCapturedAnchor()) translates an in-flight discrete-wheel glide
     // instead of cancelling it. The shift must move the integrated position
     // AND the coalesced target by the same amount, so remaining distance to
     // travel is unchanged and the glide continues to a destination that

@@ -499,19 +499,27 @@ private Q_SLOTS:
         // The session stays alive for the whole gesture.
         QVERIFY(touchpad.contains(QStringLiteral("scrollSettleTimer.restart()")));
 
-        // The deferred correction is gated on the scroll session.
+        // The deferred correction is gated on the scroll session. The
+        // scanned region starts at the userScrollActive branch, NOT at the
+        // function declaration: the displaced-anchor resolve above it
+        // legitimately calls positionViewAtIndex (an absolute view move used
+        // purely to materialise a destroyed delegate, with the position
+        // restored immediately after), and including it would make the
+        // "no absolute write" assertion below false for the wrong reason.
         const int maintain =
             pane.indexOf(QStringLiteral("function maintainViewAnchor()"));
         QVERIFY(maintain >= 0);
+        const int guardStart =
+            pane.indexOf(QStringLiteral("if (userScrollActive) {"), maintain);
+        QVERIFY(guardStart > maintain);
         const int maintainEnd =
-            pane.indexOf(QStringLiteral("desired = it.y + viewAnchorOffset"),
-                         maintain);
-        QVERIFY(maintainEnd > maintain);
-        const QString maintainGuard = pane.mid(maintain, maintainEnd - maintain);
-        // The branch exists, and everything BEFORE the absolute-restore
-        // formula is the mid-gesture path: it applies a relative delta and
-        // carries an in-flight glide with it, never an absolute write.
-        QVERIFY(maintainGuard.contains(QStringLiteral("if (userScrollActive)")));
+            pane.indexOf(QStringLiteral("desired = anchorY + viewAnchorOffset"),
+                         guardStart);
+        QVERIFY(maintainEnd > guardStart);
+        const QString maintainGuard =
+            pane.mid(guardStart, maintainEnd - guardStart);
+        // The mid-gesture path applies a relative delta and carries an
+        // in-flight glide with it, never an absolute write.
         QVERIFY(maintainGuard.contains(
             QStringLiteral("contentY += delta")));
         QVERIFY(maintainGuard.contains(

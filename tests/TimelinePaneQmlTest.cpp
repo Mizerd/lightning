@@ -35,6 +35,30 @@ namespace {
 constexpr int kSignalTimeoutMs = 2000;
 }
 
+namespace {
+// Keeps a scroll session open across an asynchronous wait the way a reader
+// who keeps swiping does: the 250ms settle timer is restarted periodically
+// until the caller destroys this. Restarting ONCE and then waiting races the
+// timer against the round trip and fails intermittently.
+class GestureHold
+{
+public:
+    explicit GestureHold(QObject *settleTimer)
+    {
+        QMetaObject::invokeMethod(settleTimer, "restart");
+        QObject::connect(&m_ticker, &QTimer::timeout, settleTimer,
+                         [settleTimer] {
+                             QMetaObject::invokeMethod(settleTimer, "restart");
+                         });
+        m_ticker.start(50);
+    }
+    ~GestureHold() { m_ticker.stop(); }
+
+private:
+    QTimer m_ticker;
+};
+} // namespace
+
 class TimelinePaneQmlTest : public QObject
 {
     Q_OBJECT
@@ -2486,43 +2510,18 @@ private Q_SLOTS:
         QCOMPARE(warnings, QStringList{});
     }
 
-    // Touchpad-scroll checkpoint: a backward-pagination page can land while
-    // the reader is STILL scrolling — most commonly a continuous touchpad
-    // gesture, which sets neither `moving` nor `wheelAnimating` (see
-    // TimelinePane.qml's userScrollActive). Before the fix,
-    // restoreCapturedAnchor() recomputed an ABSOLUTE target from the stale
-    // contentY captured when the request started (`it.y + anchorOffset`),
-    // silently discarding any scrolling performed while the request was in
-    // flight — the "jump / reverse while history is loading" defect. The fix
-    // makes the restore a RELATIVE shift (`beforeY + (it.y - anchorItemY)`)
-    // applied to whatever contentY is at the moment the restore actually
-    // runs, not the position captured at request start.
+    // v0.7.2: the pagination-specific anchor (anchorStableId, captureAnchor/
+    // restoreCapturedAnchor/restoreAnchor, anchorCaptureToken) is gone — a
+    // backward-pagination prepend is now just another cause of the persistent
+    // view anchor's onContentHeightChanged reaction. These three tests keep
+    // the guarantees the deleted mechanism's tests protected, driven through
+    // REAL near-top round trips rather than the old per-batch bookkeeping.
     //
-    // This drives the real pane/model/PaginationController stack through a
-    // genuine near-top request: it captures the anchor the same way the
-    // pane's own Connections{target:app.pagination} does, then writes
-    // contentY directly — exactly what timelineWheelHandler's pixelDelta
-    // branch does — to simulate the reader continuing to scroll while the
-    // mock's asynchronous batch is still pending. It then independently
-    // re-derives the anchor row's real post-prepend geometry (rowForStableId
-    // + itemAtIndex, not a value trusted from the pane) and asserts the
-    // final contentY matches the relative formula. Against the pre-fix
-    // absolute formula this assertion misses by exactly simulatedScrollDelta
-    // (40px) — the qPrintable message below reports what that stale formula
-    // would have produced, which is how this was confirmed to fail without
-    // the fix.
-    //
-    // Deliberately declared LAST in this class: this test and
-    // populatedEncryptedTimelineRemainsResponsive above are the only two
-    // tests in this suite that create and show a real QQuickWindow, and
-    // placing either of them immediately before keyboardNavigationKeys-
-    // StartTimelineMotion() reproduces a pre-existing offscreen-QPA ordering
-    // flake in that unrelated, unmodified test (confirmed: swapping in
-    // populatedEncryptedTimelineRemainsResponsive as the immediate
-    // predecessor reproduces the identical failure, so this is not caused by
-    // this test's own behavior). Running last avoids the adjacency rather
-    // than papering over that pre-existing timing issue.
-    void paginationAnchorRestorePreservesConcurrentScroll()
+    // Concurrent scroll: a prepend landing while the reader keeps scrolling
+    // must shift by the prepend, NOT recompute an absolute position from the
+    // last settle (which would silently discard the in-flight scroll — the
+    // "jump / reverse while history is loading" defect).
+    void paginationPrependPreservesConcurrentScroll()
     {
         AppController controller(AppController::MockBackend);
         QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
@@ -2532,13 +2531,6 @@ private Q_SLOTS:
         controller.setCurrentRoomId(roomId);
         mock->setPaginationDelayForTest(60);
 
-        // Plain-text fixture, sized (mirroring the established fixture size
-        // in TimelineHydrationQmlTest's scrolledUpAnchorHoldsThroughGrowthAndAppends)
-        // to comfortably exceed the 620px test viewport on its own — the
-        // single reserved pagination page below must be consumed ONLY by
-        // this test's explicit requestNearTop() call, never by an automatic
-        // maybeFillViewport() dispatch racing ahead of it. No media/decrypt
-        // async height churn either, to keep the geometry assertions clean.
         QList<TimelineEvent> events;
         for (int i = 0; i < 30; ++i) {
             TimelineEvent e;
@@ -2551,21 +2543,15 @@ private Q_SLOTS:
             e.status = TimelineEvent::Sent;
             events.append(e);
         }
-        // Two pages reserved: at Component.onCompleted time the ListView has
-        // not measured any delegate yet, so maybeFillViewport() sees
-        // contentHeight==0 and dispatches ONE automatic viewport-fill
-        // request regardless of how much real content the fixture holds —
-        // that consumes the first page before this test ever runs. The
-        // second page is what this test's own explicit requestNearTop()
-        // call below consumes.
+        // Two pages: the unavoidable startup viewport-fill consumes one
+        // before this test's own request ever runs.
         mock->resetTimelineForTest(roomId, events, /*paginationPages=*/2);
 
         QQmlApplicationEngine engine;
         QStringList warnings;
         connect(&engine, &QQmlEngine::warnings, this,
                 [&warnings](const QList<QQmlError> &errors) {
-                    for (const auto &e : errors)
-                        warnings << e.toString();
+                    for (const auto &e : errors) warnings << e.toString();
                 });
         engine.rootContext()->setContextProperty("app", &controller);
         QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
@@ -2589,108 +2575,80 @@ private Q_SLOTS:
             timeline->property("presentationReady").toBool(), kSignalTimeoutMs);
         QTRY_VERIFY_WITH_TIMEOUT(timeline->property("count").toInt() >= 30,
                                  kSignalTimeoutMs);
-        // Let the unavoidable startup viewport-fill (see the comment on
-        // resetTimelineForTest above) fully settle — including the
-        // controller's own generation/completion bookkeeping, not just the
-        // ListView's geometry — before this test's own request is issued.
-        // Without this, requestNearTop() below would see
-        // `m_initialHistoryRequested && !m_initialHistoryHasSucceeded` still
-        // true and silently redirect to another viewport-fill instead of a
-        // genuine near-top dispatch.
         QTRY_VERIFY_WITH_TIMEOUT(!controller.pagination()->busy(),
                                  kSignalTimeoutMs);
 
-        // Scroll to the middle of history like a reader who paged up, then
-        // let the pane latch that reading position — mirrors how the real
-        // WheelHandler leaves stickToBottom false long before near-top
-        // pagination ever fires.
         const int anchorRow = 15;
         QVERIFY(timeline->setProperty("stickToBottom", false));
         QVERIFY(QMetaObject::invokeMethod(timeline, "positionViewAtIndex",
                                           Q_ARG(int, anchorRow),
                                           Q_ARG(int, 0 /*ListView.Beginning*/)));
         QCoreApplication::processEvents();
+        QVERIFY(QMetaObject::invokeMethod(timeline, "captureViewAnchor"));
+        const QString anchorId = timeline->property("viewAnchorId").toString();
+        QVERIFY(!anchorId.isEmpty());
 
-        // Spied only now, so it reports exclusively on the near-top request
-        // issued below (the earlier automatic viewport-fill already settled
-        // above) — its completion is what the assertions after it wait on.
         QSignalSpy completedSpy(controller.pagination(),
                                &PaginationController::paginationCompleted);
-        // Real near-top request — exactly what checkNearTopEdge() dispatches.
-        // The mock flips busy() synchronously inside loadOlderMessages(), so
-        // the pane's own Connections{target:app.pagination}.onStateChanged
-        // calls captureAnchor() before this call returns to the event loop.
         controller.pagination()->requestNearTop();
         QCoreApplication::processEvents();
-        QTRY_VERIFY_WITH_TIMEOUT(
-            !timeline->property("anchorStableId").toString().isEmpty(), 2000);
 
-        const QString capturedAnchorId =
-            timeline->property("anchorStableId").toString();
-        const double anchorItemY = timeline->property("anchorItemY").toDouble();
-        const double capturedContentY =
-            timeline->property("contentY").toDouble();
-
-        // Simulate the reader continuing a touchpad gesture while the
-        // near-top request is still in flight: a direct contentY write,
-        // exactly what timelineWheelHandler's pixelDelta branch performs
-        // (moving/wheelAnimating stay false either way, so this is a
-        // faithful stand-in for real pixel-delta input).
+        // The reader keeps scrolling while the request is in flight: a direct
+        // contentY write PLUS restarting the settle timer — the two things
+        // the WheelHandler's pixelDelta branch does. The timer restart is
+        // what makes userScrollActive true, routing the correction to the
+        // RELATIVE branch instead of the absolute idle restore.
+        const double capturedContentY = timeline->property("contentY").toDouble();
+        const double anchorLastY =
+            timeline->property("viewAnchorLastY").toDouble();
         constexpr double simulatedScrollDelta = 40.0;
         const double scrolledContentY = capturedContentY - simulatedScrollDelta;
         QVERIFY(timeline->setProperty("contentY", scrolledContentY));
+        auto *settleTimer = timeline->findChild<QObject *>(
+            QStringLiteral("scrollSettleTimer"));
+        QVERIFY(settleTimer != nullptr);
+        GestureHold gesture(settleTimer);
+        QVERIFY2(timeline->property("userScrollActive").toBool(),
+                 "the simulated gesture must read as an active scroll "
+                 "session, or the correction takes the wrong branch");
 
         QTRY_VERIFY_WITH_TIMEOUT(!completedSpy.isEmpty(), kSignalTimeoutMs);
         QVERIFY2(completedSpy.constFirst().at(0).toInt() > 0,
                  "fixture assumption: the near-top page must insert rows");
-        QTRY_VERIFY_WITH_TIMEOUT(
-            timeline->property("anchorStableId").toString().isEmpty(),
-            kSignalTimeoutMs);
 
-        // Independently re-derive the anchor row's real post-prepend
-        // geometry rather than trusting anything the pane itself reports.
-        const int newRow =
-            controller.timeline()->rowForStableId(capturedAnchorId);
+        const int newRow = controller.timeline()->rowForStableId(anchorId);
         QVERIFY(newRow >= 0);
         QQuickItem *anchorItem = nullptr;
-        QVERIFY(QMetaObject::invokeMethod(timeline, "itemAtIndex",
-                                          Q_RETURN_ARG(QQuickItem *, anchorItem),
-                                          Q_ARG(int, newRow)));
-        QVERIFY(anchorItem != nullptr);
+        QTRY_VERIFY_WITH_TIMEOUT(
+            (QMetaObject::invokeMethod(timeline, "itemAtIndex",
+                                       Q_RETURN_ARG(QQuickItem *, anchorItem),
+                                       Q_ARG(int, newRow)),
+             anchorItem != nullptr),
+            kSignalTimeoutMs);
 
-        // The correct relative restore: whatever contentY was at the moment
-        // of restore (the reader's continued scroll), shifted by exactly how
-        // far the prepend moved the anchor row's own y.
         const double expected =
-            scrolledContentY + (anchorItem->y() - anchorItemY);
-        const double actual = timeline->property("contentY").toDouble();
+            scrolledContentY + (anchorItem->y() - anchorLastY);
+        double actual = 0;
+        QTRY_VERIFY_WITH_TIMEOUT(
+            (actual = timeline->property("contentY").toDouble(),
+             qAbs(actual - expected) < 1.0),
+            kSignalTimeoutMs);
         QVERIFY2(qAbs(actual - expected) < 1.0,
                  qPrintable(QStringLiteral(
-                     "pagination restore discarded concurrent scroll: "
-                     "actual=%1 expected=%2 (pre-fix absolute formula would "
+                     "pagination prepend discarded concurrent scroll: "
+                     "actual=%1 expected=%2 (a stale absolute restore would "
                      "give %3)")
                      .arg(actual).arg(expected)
                      .arg(expected + simulatedScrollDelta)));
         QCOMPARE(warnings, QStringList{});
     }
 
-    // Companion to the test above for the DISCRETE-WHEEL path: a touchpad
-    // gesture holds no engine state, but a wheel glide carries a coalesced
-    // not-yet-reached target inside TimelineScrollController. The old
-    // restoreCapturedAnchor() cancelled that glide unconditionally —
-    // freezing it partway and discarding the reader's remaining distance
-    // ("I scroll up and it snaps me half the distance back"). The fix
-    // translates the active glide by the anchor shift instead; this proves
-    // the glide SURVIVES the restore and keeps travelling afterwards.
-    // Deterministic wiring proof for the scroll fix (review: the first
-    // version raced wall-clock — a 100-250ms pagination delay against a
-    // real glide deceleration — and failed ~1 in 5 under full-suite load.
-    // The C++ unit tests already prove translateActiveMotion's contract;
-    // this test's unique value is the WIRING: restoreCapturedAnchor()
-    // must translate an in-flight discrete-wheel glide instead of
-    // cancelling it. So it invokes the restore DIRECTLY while a real
-    // glide is provably active — no pagination, no timing window at all.
-    void paginationAnchorRestorePreservesWheelGlide()
+    // Discrete-wheel path end to end: the old restore cancelled an in-flight
+    // glide unconditionally, freezing it partway and discarding the reader's
+    // remaining distance ("it snaps me half the distance back"). The unified
+    // path translates the glide instead — proven here through a REAL
+    // pagination completion, not a direct function call.
+    void paginationPrependPreservesWheelGlide()
     {
         AppController controller(AppController::MockBackend);
         QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
@@ -2698,6 +2656,7 @@ private Q_SLOTS:
         QVERIFY(mock != nullptr);
         const QString roomId = QStringLiteral("!general:mock.local");
         controller.setCurrentRoomId(roomId);
+        mock->setPaginationDelayForTest(80);
 
         QList<TimelineEvent> events;
         for (int i = 0; i < 30; ++i) {
@@ -2711,14 +2670,13 @@ private Q_SLOTS:
             e.status = TimelineEvent::Sent;
             events.append(e);
         }
-        mock->resetTimelineForTest(roomId, events, /*paginationPages=*/1);
+        mock->resetTimelineForTest(roomId, events, /*paginationPages=*/2);
 
         QQmlApplicationEngine engine;
         QStringList warnings;
         connect(&engine, &QQmlEngine::warnings, this,
                 [&warnings](const QList<QQmlError> &errors) {
-                    for (const auto &e : errors)
-                        warnings << e.toString();
+                    for (const auto &e : errors) warnings << e.toString();
                 });
         engine.rootContext()->setContextProperty("app", &controller);
         QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
@@ -2750,23 +2708,14 @@ private Q_SLOTS:
                                           Q_ARG(int, 15),
                                           Q_ARG(int, 0 /*ListView.Beginning*/)));
         QCoreApplication::processEvents();
+        QVERIFY(QMetaObject::invokeMethod(timeline, "captureViewAnchor"));
+        QVERIFY(!timeline->property("viewAnchorId").toString().isEmpty());
 
-        // Capture a real anchor from the live viewport — the same call the
-        // pagination busy-start makes.
-        QVERIFY(QMetaObject::invokeMethod(timeline, "captureAnchor"));
-        QVERIFY(!timeline->property("anchorStableId").toString().isEmpty());
-        // Simulate the prepend having moved the anchor row DOWN by 240px:
-        // restoreCapturedAnchor() computes shift = it.y - anchorItemY, so
-        // biasing the captured anchorItemY by -240 makes the function see a
-        // +240 shift against unchanged real geometry. This exercises the
-        // exact translate path with a known, deterministic shift.
-        constexpr double simulatedShift = 240.0;
-        const double biasedAnchorY =
-            timeline->property("anchorItemY").toDouble() - simulatedShift;
-        QVERIFY(timeline->setProperty("anchorItemY", biasedAnchorY));
+        QSignalSpy completedSpy(controller.pagination(),
+                               &PaginationController::paginationCompleted);
+        controller.pagination()->requestNearTop();
+        QCoreApplication::processEvents();
 
-        // Start a real upward glide THROUGH the live engine — exactly what
-        // the WheelHandler's angle-delta branch does.
         auto *scroll = controller.timelineScroll();
         QVERIFY(scroll != nullptr);
         const double glideStartY = timeline->property("contentY").toDouble();
@@ -2782,53 +2731,38 @@ private Q_SLOTS:
         QTRY_VERIFY_WITH_TIMEOUT(
             timeline->property("contentY").toDouble() < glideStartY - 10.0,
             2000);
-
-        // Invoke the restore DIRECTLY while the glide is provably active —
-        // the exact call onPaginationCompleted's deferred path makes.
         QVERIFY(scroll->motionActive());
-        const double beforeRestoreY =
+        const double beforeCompletionY =
             timeline->property("contentY").toDouble();
-        QVariant restored;
-        QVERIFY(QMetaObject::invokeMethod(
-            timeline, "restoreCapturedAnchor",
-            Q_RETURN_ARG(QVariant, restored)));
-        QVERIFY(restored.toBool());
 
-        // Pre-fix, cancelWheelMotion() ran unconditionally in there:
-        // motionActive read false immediately and the glide was dead.
+        QTRY_VERIFY_WITH_TIMEOUT(!completedSpy.isEmpty(), kSignalTimeoutMs);
+        QVERIFY2(completedSpy.constFirst().at(0).toInt() > 0,
+                 "fixture assumption: the near-top page must insert rows");
+
         QVERIFY2(scroll->motionActive(),
-                 "restoreCapturedAnchor cancelled the in-flight wheel glide "
-                 "(the 'snaps me back partway' defect)");
-        // The immediate correction applied the shift relative to the
-        // glide's own live position (positionViewAtIndex inside the
-        // restore moves the view transiently, but the final write is
-        // beforeY + shift).
-        const double afterRestoreY =
-            timeline->property("contentY").toDouble();
-        QVERIFY2(qAbs(afterRestoreY - (beforeRestoreY + simulatedShift)) < 1.0,
-                 qPrintable(QStringLiteral(
-                     "restore did not apply the relative shift: after=%1 "
-                     "expected=%2")
-                     .arg(afterRestoreY)
-                     .arg(beforeRestoreY + simulatedShift)));
-
-        // And the translated glide keeps travelling upward past the
-        // restore point before settling — a frozen glide never moves again.
+                 "a real pagination completion killed the in-flight wheel "
+                 "glide (the 'snaps me back partway' defect)");
+        QTRY_VERIFY_WITH_TIMEOUT(
+            timeline->property("contentY").toDouble()
+                < beforeCompletionY - 20.0,
+            kSignalTimeoutMs);
         QTRY_VERIFY_WITH_TIMEOUT(!scroll->motionActive(), kSignalTimeoutMs);
-        const double settledY = timeline->property("contentY").toDouble();
-        QVERIFY2(settledY < afterRestoreY - 20.0,
-                 qPrintable(QStringLiteral(
-                     "glide did not continue after the restore: settled=%1 "
-                     "restorePoint=%2")
-                     .arg(settledY).arg(afterRestoreY)));
         QCOMPARE(warnings, QStringList{});
     }
 
-    // Deterministic guard for the anchorCaptureToken ownership contract
-    // (the multi-batch near-top race): a STALE completion's restore must
-    // neither move the view nor clear the NEWER capture's anchor. Directly
-    // callable — no mock extension or empty-page simulation needed.
-    void staleTokenRestoreLeavesNewerCaptureUntouched()
+    // THE load-bearing test for the unification, driven from the TOP EDGE
+    // where the reader actually is when backfill fires. Review probes showed
+    // Qt behaves differently there than mid-list: a prepend gives the new
+    // rows the low positions and pushes the reader's row down by the whole
+    // batch — far outside cacheBuffer, destroying its delegate — whereas
+    // deeper in history row positions do not move at all. A mid-list test
+    // therefore proves nothing: its expected delta is zero and it passes
+    // whether or not compensation happens. This one forces the real case,
+    // with a gesture in flight, and asserts the reader's tracked row keeps
+    // the SAME viewport offset across the batch. It fails if the displaced
+    // anchor is not resolved (the view re-anchors onto the newly loaded
+    // content and ratifies the jump — the teleport cascade).
+    void topEdgePrependKeepsReaderOnTheSameRowMidGesture()
     {
         AppController controller(AppController::MockBackend);
         QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
@@ -2836,6 +2770,7 @@ private Q_SLOTS:
         QVERIFY(mock != nullptr);
         const QString roomId = QStringLiteral("!general:mock.local");
         controller.setCurrentRoomId(roomId);
+        mock->setPaginationDelayForTest(60);
 
         QList<TimelineEvent> events;
         for (int i = 0; i < 30; ++i) {
@@ -2849,14 +2784,44 @@ private Q_SLOTS:
             e.status = TimelineEvent::Sent;
             events.append(e);
         }
-        mock->resetTimelineForTest(roomId, events, /*paginationPages=*/1);
+        mock->resetTimelineForTest(roomId, events, /*paginationPages=*/2);
+        // A REAL-SIZED batch. The default mock page is 3 short rows, whose
+        // displacement stays inside cacheBuffer (800) — the anchor delegate
+        // survives, the resolve branch never runs, and the test would pass
+        // whether or not the fix is present (verified: it did). Production
+        // pages are PAGINATION_BATCH = 20, which pushes the reader's row far
+        // outside the buffer and destroys its delegate — the only geometry
+        // in which this defect exists. Reproduce that here.
+        QList<TimelineEvent> chunk;
+        for (int i = 0; i < 20; ++i) {
+            TimelineEvent e;
+            e.sender = QStringLiteral("@carol:mock.local");
+            e.senderDisplayName = QStringLiteral("Carol");
+            // Deliberately long enough to WRAP to several lines: 20 short
+            // rows land right at the cacheBuffer boundary (verified — the
+            // delegate survives and the test stops discriminating). Real
+            // messages are taller than one line; this reproduces the
+            // production geometry where the reader's row is pushed clear of
+            // the buffer and its delegate is destroyed.
+            e.body = QStringLiteral(
+                "older backfilled message %1 — this body is deliberately "
+                "long so the row wraps to several lines and the prepended "
+                "batch displaces the reader's anchor well beyond the "
+                "ListView cache buffer, reproducing the real top-edge "
+                "geometry rather than a compact synthetic one").arg(i);
+            e.timestamp =
+                QDateTime::currentDateTimeUtc().addSecs(-(600 + i) * 60);
+            e.type = TimelineEvent::TextMessage;
+            e.status = TimelineEvent::Sent;
+            chunk.append(e);
+        }
+        mock->setPaginationChunkForTest(chunk);
 
         QQmlApplicationEngine engine;
         QStringList warnings;
         connect(&engine, &QQmlEngine::warnings, this,
                 [&warnings](const QList<QQmlError> &errors) {
-                    for (const auto &e : errors)
-                        warnings << e.toString();
+                    for (const auto &e : errors) warnings << e.toString();
                 });
         engine.rootContext()->setContextProperty("app", &controller);
         QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
@@ -2883,81 +2848,206 @@ private Q_SLOTS:
         QTRY_VERIFY_WITH_TIMEOUT(!controller.pagination()->busy(),
                                  kSignalTimeoutMs);
 
+        // Put the reader AT THE TOP EDGE, which is where near-top backfill
+        // fires and where an upward glide parks against StopAtBounds.
+        QVERIFY(timeline->setProperty("stickToBottom", false));
+        QVERIFY(QMetaObject::invokeMethod(timeline, "positionViewAtBeginning"));
+        QCoreApplication::processEvents();
+        QVERIFY(QMetaObject::invokeMethod(timeline, "captureViewAnchor"));
+        const QString anchorId = timeline->property("viewAnchorId").toString();
+        QVERIFY2(!anchorId.isEmpty(), "the fixture must yield a live anchor");
+
+        // The reader's row and where it sits in the viewport right now.
+        const int rowBefore = controller.timeline()->rowForStableId(anchorId);
+        QVERIFY(rowBefore >= 0);
+        QQuickItem *itemBefore = nullptr;
+        QVERIFY(QMetaObject::invokeMethod(
+            timeline, "itemAtIndex", Q_RETURN_ARG(QQuickItem *, itemBefore),
+            Q_ARG(int, rowBefore)));
+        QVERIFY(itemBefore != nullptr);
+        const double offsetBefore =
+            itemBefore->y() - timeline->property("contentY").toDouble();
+
+        // A gesture is in flight (the case the resolve branch used to skip).
+        auto *settleTimer = timeline->findChild<QObject *>(
+            QStringLiteral("scrollSettleTimer"));
+        QVERIFY(settleTimer != nullptr);
+        GestureHold gesture(settleTimer);
+        QVERIFY(timeline->property("userScrollActive").toBool());
+        QVERIFY2(!timeline->property("moving").toBool(),
+                 "this is the self-driven path, not a native drag");
+
+        const double heightBefore =
+            timeline->property("contentHeight").toDouble();
+        QSignalSpy completedSpy(controller.pagination(),
+                               &PaginationController::paginationCompleted);
+        controller.pagination()->requestNearTop();
+        QTRY_VERIFY_WITH_TIMEOUT(!completedSpy.isEmpty(), kSignalTimeoutMs);
+        QVERIFY2(completedSpy.constFirst().at(0).toInt() > 0,
+                 "fixture assumption: the near-top page must insert rows");
+
+        // ENFORCE the premise that makes this test discriminating: the batch
+        // must displace the anchor beyond the cache buffer, or the delegate
+        // survives, the resolve branch never runs, and this test would pass
+        // on broken code (which an earlier version of it did). Fail loudly
+        // here rather than silently going vacuous if fonts or delegate
+        // metrics change.
+        const double cacheBufferPx = 800.0;
+        double heightGrowth = 0;
+        QTRY_VERIFY_WITH_TIMEOUT(
+            (heightGrowth = timeline->property("contentHeight").toDouble()
+                            - heightBefore,
+             heightGrowth > cacheBufferPx + timeline->height()),
+            kSignalTimeoutMs);
+        QVERIFY2(heightGrowth > cacheBufferPx + timeline->height(),
+                 qPrintable(QStringLiteral(
+                     "fixture no longer displaces the anchor past the cache "
+                     "buffer (growth %1 <= %2) — this test would pass on "
+                     "broken code")
+                     .arg(heightGrowth).arg(cacheBufferPx + timeline->height())));
+
+        // The reader's row must still sit at the same place in the viewport.
+        const int rowAfter = controller.timeline()->rowForStableId(anchorId);
+        QVERIFY2(rowAfter > rowBefore,
+                 "fixture assumption: the prepend must shift the row index");
+        double offsetAfter = 0;
+        QTRY_VERIFY_WITH_TIMEOUT(
+            ([&] {
+                QQuickItem *itemAfter = nullptr;
+                QMetaObject::invokeMethod(
+                    timeline, "itemAtIndex",
+                    Q_RETURN_ARG(QQuickItem *, itemAfter), Q_ARG(int, rowAfter));
+                if (!itemAfter)
+                    return false;
+                offsetAfter = itemAfter->y()
+                    - timeline->property("contentY").toDouble();
+                return qAbs(offsetAfter - offsetBefore) < 2.0;
+            }()),
+            kSignalTimeoutMs);
+        QVERIFY2(qAbs(offsetAfter - offsetBefore) < 2.0,
+                 qPrintable(QStringLiteral(
+                     "a top-edge prepend moved the reader off their row "
+                     "mid-gesture: viewport offset %1 -> %2 (the teleport "
+                     "cascade)").arg(offsetBefore).arg(offsetAfter)));
+        QCOMPARE(warnings, QStringList{});
+    }
+
+    // The multi-batch guarantee the deleted stale-token bookkeeping existed
+    // for: back-to-back prepends must each be compensated exactly once — no
+    // lost batch (the "teleports toward the top" cascade) and no double
+    // application. Also asserts the old per-batch state is genuinely gone.
+    // NOTE: anchored mid-list, where a prepend leaves row positions
+    // unchanged, so this asserts "no spurious write" rather than proving
+    // compensation — topEdgePrependKeepsReaderOnTheSameRowMidGesture above
+    // is the test that proves the compensation itself.
+    void consecutivePaginationBatchesEachCompensateWithoutDoubleCounting()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        auto *mock = controller.findChild<MockMatrixClient *>();
+        QVERIFY(mock != nullptr);
+        const QString roomId = QStringLiteral("!general:mock.local");
+        controller.setCurrentRoomId(roomId);
+        mock->setPaginationDelayForTest(30);
+
+        QList<TimelineEvent> events;
+        for (int i = 0; i < 30; ++i) {
+            TimelineEvent e;
+            e.sender = QStringLiteral("@alice:mock.local");
+            e.senderDisplayName = QStringLiteral("Alice");
+            e.body = QStringLiteral("history message %1").arg(i);
+            e.timestamp =
+                QDateTime::currentDateTimeUtc().addSecs(-(60 - i) * 60);
+            e.type = TimelineEvent::TextMessage;
+            e.status = TimelineEvent::Sent;
+            events.append(e);
+        }
+        // Three pages: startup fill, then this test's two requests.
+        mock->resetTimelineForTest(roomId, events, /*paginationPages=*/3);
+
+        QQmlApplicationEngine engine;
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this,
+                [&warnings](const QList<QQmlError> &errors) {
+                    for (const auto &e : errors) warnings << e.toString();
+                });
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("TimelinePane"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(root != nullptr);
+        QQuickWindow window;
+        window.resize(760, 620);
+        root->setParentItem(window.contentItem());
+        root->setSize(QSizeF(window.width(), window.height()));
+        window.show();
+
+        auto *timeline = root->findChild<QQuickItem *>(
+            QStringLiteral("timelineListView"));
+        QVERIFY(timeline != nullptr);
+        QTRY_VERIFY_WITH_TIMEOUT(
+            timeline->property("presentationReady").toBool(), kSignalTimeoutMs);
+        QTRY_VERIFY_WITH_TIMEOUT(timeline->property("count").toInt() >= 30,
+                                 kSignalTimeoutMs);
+        QTRY_VERIFY_WITH_TIMEOUT(!controller.pagination()->busy(),
+                                 kSignalTimeoutMs);
+
+        // The per-batch capture bookkeeping is gone from the live object.
+        QVERIFY(!timeline->property("anchorStableId").isValid());
+
         QVERIFY(timeline->setProperty("stickToBottom", false));
         QVERIFY(QMetaObject::invokeMethod(timeline, "positionViewAtIndex",
                                           Q_ARG(int, 15),
                                           Q_ARG(int, 0 /*ListView.Beginning*/)));
         QCoreApplication::processEvents();
+        QVERIFY(QMetaObject::invokeMethod(timeline, "captureViewAnchor"));
+        const QString anchorId = timeline->property("viewAnchorId").toString();
+        QVERIFY(!anchorId.isEmpty());
+        const int rowBefore = controller.timeline()->rowForStableId(anchorId);
+        QQuickItem *itemBefore = nullptr;
+        QVERIFY(QMetaObject::invokeMethod(
+            timeline, "itemAtIndex", Q_RETURN_ARG(QQuickItem *, itemBefore),
+            Q_ARG(int, rowBefore)));
+        QVERIFY(itemBefore != nullptr);
+        const double yBefore = itemBefore->y();
+        const double contentYBefore = timeline->property("contentY").toDouble();
 
-        // Batch A captures...
-        QVERIFY(QMetaObject::invokeMethod(timeline, "captureAnchor"));
-        const int staleToken =
-            timeline->property("anchorCaptureToken").toInt();
-        // ...then batch B captures on top (bumping the token; B's anchor is
-        // now the live one).
-        QVERIFY(QMetaObject::invokeMethod(timeline, "captureAnchor"));
-        QVERIFY(timeline->property("anchorCaptureToken").toInt()
-                != staleToken);
-        const QString liveAnchor =
-            timeline->property("anchorStableId").toString();
-        QVERIFY(!liveAnchor.isEmpty());
-        const double beforeY = timeline->property("contentY").toDouble();
+        QSignalSpy completedSpy(controller.pagination(),
+                               &PaginationController::paginationCompleted);
+        controller.pagination()->requestNearTop();
+        QTRY_COMPARE_WITH_TIMEOUT(completedSpy.count(), 1, kSignalTimeoutMs);
+        QCoreApplication::processEvents();
+        controller.pagination()->requestNearTop();
+        QTRY_COMPARE_WITH_TIMEOUT(completedSpy.count(), 2, kSignalTimeoutMs);
+        QCoreApplication::processEvents();
 
-        // Batch A's deferred completion finally runs with its stale token:
-        // it must do NOTHING — no view movement, and critically it must NOT
-        // clear batch B's anchor out from under B's own pending completion
-        // (pre-fix it did exactly that via the inserted<=0 path, leaving
-        // B's prepend uncompensated — the "teleports toward the top" leg).
-        QVERIFY(QMetaObject::invokeMethod(timeline, "restoreAnchor",
-                                          Q_ARG(QVariant, QVariant(5)),
-                                          Q_ARG(QVariant,
-                                                QVariant(staleToken)),
-                                          Q_ARG(QVariant, QVariant(false)),
-                                          Q_ARG(QVariant, QVariant(false))));
-        QCoreApplication::processEvents();
-        QCOMPARE(timeline->property("contentY").toDouble(), beforeY);
-        QCOMPARE(timeline->property("anchorStableId").toString(), liveAnchor);
-
-        // The production busy-start path goes through captureAnchorIfNone,
-        // which must NOT steal an outstanding capture — and zero-insert
-        // NON-TERMINAL completions must KEEP the capture (the near-top
-        // continuation only ever arms on exactly that case), so across a
-        // multi-batch run the batch that finally inserts rows still owns
-        // its capture (the teleport-cascade fix; overlapping capture
-        // windows double-count, so the gate forbids them outright).
-        const int liveToken = timeline->property("anchorCaptureToken").toInt();
-        const double liveItemY = timeline->property("anchorItemY").toDouble();
-        QVERIFY(QMetaObject::invokeMethod(timeline, "captureAnchorIfNone"));
-        QCOMPARE(timeline->property("anchorCaptureToken").toInt(), liveToken);
-        QCOMPARE(timeline->property("anchorStableId").toString(), liveAnchor);
-        QCOMPARE(timeline->property("anchorItemY").toDouble(), liveItemY);
-        // A zero-insert completion whose run genuinely continues
-        // (willContinue) keeps the capture alive for the batch that will
-        // insert...
-        QVERIFY(QMetaObject::invokeMethod(timeline, "restoreAnchor",
-                                          Q_ARG(QVariant, QVariant(0)),
-                                          Q_ARG(QVariant, QVariant(liveToken)),
-                                          Q_ARG(QVariant, QVariant(false)),
-                                          Q_ARG(QVariant, QVariant(true))));
-        QCoreApplication::processEvents();
-        QCOMPARE(timeline->property("anchorStableId").toString(), liveAnchor);
-        // ...but a LATCHED empty completion (no continuation scheduled —
-        // strike budget exhausted) is a run END and must release it, or
-        // the maintainViewAnchor stabilizer stays disabled for the rest of
-        // the room visit. The gate then reopens for the next run.
-        QVERIFY(QMetaObject::invokeMethod(timeline, "restoreAnchor",
-                                          Q_ARG(QVariant, QVariant(0)),
-                                          Q_ARG(QVariant, QVariant(liveToken)),
-                                          Q_ARG(QVariant, QVariant(false)),
-                                          Q_ARG(QVariant, QVariant(false))));
-        QCoreApplication::processEvents();
-        QCOMPARE(timeline->property("anchorStableId").toString(), QString());
-        QVERIFY(QMetaObject::invokeMethod(timeline, "captureAnchorIfNone"));
-        QCOMPARE(timeline->property("anchorCaptureToken").toInt(),
-                 liveToken + 1);
-        QVERIFY(!timeline->property("anchorStableId").toString().isEmpty());
+        const int rowAfter = controller.timeline()->rowForStableId(anchorId);
+        QVERIFY(rowAfter >= 0);
+        QQuickItem *itemAfter = nullptr;
+        QTRY_VERIFY_WITH_TIMEOUT(
+            (QMetaObject::invokeMethod(timeline, "itemAtIndex",
+                                       Q_RETURN_ARG(QQuickItem *, itemAfter),
+                                       Q_ARG(int, rowAfter)),
+             itemAfter != nullptr),
+            kSignalTimeoutMs);
+        const double expected = contentYBefore + (itemAfter->y() - yBefore);
+        double actual = 0;
+        QTRY_VERIFY_WITH_TIMEOUT(
+            (actual = timeline->property("contentY").toDouble(),
+             qAbs(actual - expected) < 1.0),
+            kSignalTimeoutMs);
+        QVERIFY2(qAbs(actual - expected) < 1.0,
+                 qPrintable(QStringLiteral(
+                     "two consecutive prepends were not each compensated "
+                     "exactly once: actual=%1 expected=%2")
+                     .arg(actual).arg(expected)));
         QCOMPARE(warnings, QStringList{});
     }
+
 
     // Round-3 growth fix: the deterministic proof for "an image pops up
     // while scrolling up and the view jumps by a lot". No real delegate
@@ -3273,7 +3363,6 @@ private Q_SLOTS:
         // Preconditions, so a future geometry change fails loudly here
         // instead of as a confusing "growth not compensated".
         QVERIFY(!controller.pagination()->busy());
-        QVERIFY(timeline->property("anchorStableId").toString().isEmpty());
 
         QVERIFY(QMetaObject::invokeMethod(timeline, "captureViewAnchor"));
         const QString anchorId = timeline->property("viewAnchorId").toString();

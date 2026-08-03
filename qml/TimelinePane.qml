@@ -109,10 +109,6 @@ Rectangle {
             // A pinned message-action toolbar belongs to the room it was
             // pinned in; drop it when the room changes.
             timeline.pinnedActionsKey = ""
-            timeline.anchorStableId = ""
-            timeline.anchorOffset = 0
-            timeline.anchorContentHeight = 0
-            timeline.anchorItemY = 0
             timeline.viewAnchorId = ""
             timeline.viewAnchorOffset = 0
             timeline.viewAnchorLastY = 0
@@ -694,10 +690,11 @@ Rectangle {
                 // message under the cursor. The anchor is the first visible
                 // stable item id plus its pixel offset; every coalesced
                 // content-height change re-aligns to it. Bottom-pinned and
-                // in-motion states are owned by their own mechanisms; the
-                // backward-pagination prepend keeps its dedicated capture/
-                // restore pair (which can re-locate rows that left the
-                // instantiated range).
+                // in-motion states are owned by their own mechanisms. As of
+                // v0.7.2 this is the ONLY position-preserving mechanism: the
+                // backward-pagination prepend used to keep a dedicated
+                // capture/restore pair, and that duplication is what four
+                // rounds of live-reported scroll bugs were about.
                 property string viewAnchorId: ""
                 property real viewAnchorOffset: 0
                 // The anchor row's own content-space y at the moment it was
@@ -707,10 +704,29 @@ Rectangle {
                 // growth that happened since then, never growth already
                 // compensated (no double-counting across repeated calls).
                 property real viewAnchorLastY: 0
+                // Row count at the last anchor measurement. The displaced-
+                // anchor probe below is only warranted when rows were
+                // INSERTED (a prepend always changes count); when the reader
+                // has merely scrolled more than a cache-buffer away from the
+                // anchor, the delegate is missing for a cheap reason and the
+                // re-capture fallback is the right answer. Without this the
+                // probe's forceLayout + positionViewAtIndex would run on
+                // every coalesced height change in that state, sweeping
+                // delegate creation (and media requests) across the rows it
+                // passes — the exact cost profile that made loading laggy.
+                property int viewAnchorCount: 0
+                // Set while the probe transiently moves contentY to
+                // materialise a delegate. onContentYChanged must ignore that
+                // transient: it recomputes stickToBottom and can dispatch a
+                // user-initiated near-top request (which resets the
+                // controller's zero-progress strike budget) from a position
+                // the reader was never actually at.
+                property bool anchorProbeActive: false
                 function captureViewAnchor() {
                     if (stickToBottom || count === 0) {
                         viewAnchorId = ""
                         viewAnchorLastY = 0
+                        viewAnchorCount = count
                         return
                     }
                     var row = indexAt(width / 2, contentY + topMargin + 1)
@@ -733,6 +749,7 @@ Rectangle {
                     viewAnchorId = app.timeline.stableIdAt(row)
                     viewAnchorOffset = it ? (contentY - it.y) : 0
                     viewAnchorLastY = it ? it.y : 0
+                    viewAnchorCount = count
                 }
                 property bool viewAnchorScheduled: false
                 function maintainViewAnchorCoalesced() {
@@ -747,27 +764,76 @@ Rectangle {
                 function maintainViewAnchor() {
                     if (viewAnchorId === "" || stickToBottom)
                         return
-                    // The backward-pagination prepend owns re-anchoring for
-                    // the whole run: restoreCapturedAnchor() measures the
-                    // anchor row's TOTAL y drift since ITS capture, which
-                    // already includes any growth this function would also
-                    // compensate. Sharing the run was tried (advancing that
-                    // capture's baseline in step, to smooth growth
-                    // continuously instead of in one end-of-run correction)
-                    // and REVERTED on live report: writing contentY and
-                    // re-measuring on every content-height change while
-                    // history is loading — precisely when the timeline churns
-                    // hardest — made loading visibly laggy. Deferring to the
-                    // run's own single restore is the cheaper trade, and the
-                    // residual it costs is the far milder complaint.
-                    if (app.pagination.busy || anchorStableId !== "")
-                        return
+                    // v0.7.2: the SINGLE anchor-correction mechanism for
+                    // every structural change that can move the anchor row's
+                    // own y — a backward-pagination prepend, a pooled
+                    // delegate re-measuring after rebinding to a taller row,
+                    // late decryption, a link preview resolving. Pagination
+                    // used to run a SEPARATE capture/restore pair alongside
+                    // this one, and four rounds of live reports were entirely
+                    // about the TWO mechanisms coordinating. The revert that
+                    // ended that sequence is easy to misread as "don't
+                    // compensate during pagination"; the actual lesson is
+                    // narrower — don't run TWO mechanisms that both write
+                    // contentY and must reason about which one currently owns
+                    // the correction. With one mechanism there is nothing to
+                    // coordinate with: this runs once per coalesced
+                    // onContentHeightChanged regardless of WHY height
+                    // changed, and a filtered batch that inserts nothing
+                    // fires no such signal, so it needs no keep-alive
+                    // bookkeeping. Do NOT reintroduce a pagination stand-down
+                    // guard here: that guard is what created those bugs.
                     var row = app.timeline.rowForStableId(viewAnchorId)
                     var it = row >= 0 ? itemAtIndex(row) : null
+                    var anchorY = it ? it.y : 0
+                    if (!it && row >= 0 && !moving
+                        && count !== viewAnchorCount) {
+                        // Resolve a DISPLACED anchor. This is not a rare
+                        // idle-only nicety — it is the load-bearing case:
+                        // when the reader sits at the very top edge (exactly
+                        // where near-top backfill fires, and where
+                        // StopAtBounds parks an upward glide), Qt gives the
+                        // prepended rows the low positions and pushes the
+                        // reader's row down by the WHOLE batch — far outside
+                        // cacheBuffer, so its delegate is destroyed. Without
+                        // resolving it here, the fallback below would
+                        // re-anchor onto the newly loaded content and RATIFY
+                        // that jump: the teleport cascade. (Deeper in
+                        // history a prepend leaves row positions untouched
+                        // and none of this runs.)
+                        //
+                        // Gated on `moving` — Flickable's own drag/flick —
+                        // NOT on userScrollActive: on the self-driven paths
+                        // WE own contentY, and the correction below is
+                        // RELATIVE, so it cannot fight the gesture. Under a
+                        // native drag Flickable would discard our write
+                        // anyway, so that case still defers to settle.
+                        var probeY = contentY
+                        anchorProbeActive = true
+                        forceLayout()
+                        it = itemAtIndex(row)
+                        if (!it) {
+                            positionViewAtIndex(row, ListView.Beginning)
+                            it = itemAtIndex(row)
+                        }
+                        if (it)
+                            anchorY = it.y
+                        // positionViewAtIndex MOVES the view; it is used here
+                        // only to materialise the delegate so its
+                        // content-space y can be read. Always put the
+                        // position back — both so the correction below is
+                        // computed from where the reader actually was, and so
+                        // a still-unresolvable row cannot leave an
+                        // unrequested scroll behind (which saveRoomPosition()
+                        // would then persist).
+                        if (contentY !== probeY)
+                            contentY = probeY
+                        anchorProbeActive = false
+                    }
                     if (!it) {
-                        // The tracked row is no longer resolvable — recycled
-                        // out of the instantiated delegate range, or its
-                        // stable id no longer exists. Re-measuring a fresh
+                        // Genuinely unresolvable — the stable id no longer
+                        // exists (redaction, local-echo id change), or a
+                        // native drag owns the view. Re-measuring a fresh
                         // anchor writes no position (pure measurement), so it
                         // is safe even mid-gesture; the next call's delta is
                         // then measured from this new baseline rather than a
@@ -793,7 +859,12 @@ Rectangle {
                         // touchpad pixel delta) only ever
                         // changes contentY — it never moves a row's own
                         // content-space y. So `it.y` changes if and only if
-                        // content ABOVE this row resized. The dominant
+                        // content ABOVE this row resized OR rows were
+                        // inserted above it — a pagination prepend is simply
+                        // the insertion case of the same rule and needs no
+                        // special handling: same delta, same application,
+                        // including translating an active glide rather than
+                        // freezing it. The dominant resize
                         // source is a POST-CREATION height change — a pooled
                         // (reuseItems) delegate re-measuring once it is bound
                         // to a taller row, media/decryption/link-preview
@@ -811,10 +882,10 @@ Rectangle {
                         // exactly, unlike writing an ABSOLUTE position (the
                         // idle-path formula below), which can disagree with
                         // wherever the gesture has since moved the view and
-                        // fight it. This mirrors how restoreCapturedAnchor()
-                        // and translateActiveMotion() already apply RELATIVE
-                        // shifts instead of absolute writes for the same
-                        // reason. Deliberately NOT clamped to
+                        // fight it. This is the same reason
+                        // translateActiveMotion() applies a RELATIVE shift
+                        // rather than an absolute write. Deliberately NOT
+                        // clamped to
                         // wheelMinY()/wheelMaxY(). The UPPER bound tracks
                         // growth exactly (originY + contentHeight is the last
                         // row's end), so a positive delta cannot push past
@@ -827,7 +898,7 @@ Rectangle {
                         // subtracting it cannot cross wheelMinY(). Do not
                         // restate this as "both bounds move together": they
                         // do not.
-                        var delta = it.y - viewAnchorLastY
+                        var delta = anchorY - viewAnchorLastY
                         if (Math.abs(delta) > 0.5) {
                             if (diagActive)
                                 diagGrowthCorrections += 1
@@ -837,8 +908,7 @@ Rectangle {
                             // Shifting contentY here without also translating
                             // it would let the glide's very next frame
                             // overwrite this correction with its stale
-                            // pre-growth position — the same failure mode the
-                            // pagination-restore path already guards against.
+                            // pre-growth position.
                             if (app.timelineScroll.motionActive)
                                 app.timelineScroll.translateActiveMotion(delta)
                         }
@@ -846,12 +916,21 @@ Rectangle {
                         // threshold: sub-pixel churn is deliberately absorbed
                         // rather than accumulated, since applying it would be
                         // its own source of jitter.
-                        viewAnchorLastY = it.y
+                        viewAnchorLastY = anchorY
+                        viewAnchorCount = count
                         return
                     }
                     // Idle: no gesture to fight, so an absolute restore to
-                    // the exact captured offset is safe.
-                    var desired = it.y + viewAnchorOffset
+                    // the exact captured offset is safe. Static-case
+                    // equivalence with the relative formula above: with
+                    // nothing else moving contentY between measurements,
+                    // `it.y + viewAnchorOffset` and `contentY + delta` are
+                    // identical (viewAnchorOffset was defined as contentY
+                    // minus the row's y at capture) — so a prepend landing
+                    // while idle is restored exactly like one landing
+                    // mid-gesture, just via the absolute form, which is only
+                    // safe because nothing is competing for contentY.
+                    var desired = anchorY + viewAnchorOffset
                     var lo = wheelMinY()
                     var hi = wheelMaxY()
                     desired = desired < lo ? lo : (desired > hi ? hi : desired)
@@ -860,7 +939,8 @@ Rectangle {
                             diagAnchorCorrections += 1
                         contentY = desired
                     }
-                    viewAnchorLastY = it.y
+                    viewAnchorLastY = anchorY
+                    viewAnchorCount = count
                 }
 
                 // v0.6.0: MessageDelegate view contract — the room timeline
@@ -1038,15 +1118,13 @@ Rectangle {
                 // send it back. See the counter block below for what
                 // anchorCorrections and growthCorrections each mean now that
                 // maintainViewAnchor() has two modes.
-                // paginationRestores is the same idea for
-                // the backward-pagination anchor restore (restoreCapturedAnchor):
-                // it counts restores that landed while userScrollActive was
-                // true, i.e. a prepend arrived mid-gesture. That is expected
-                // to be non-zero on a real near-top scroll — it is not itself
-                // a bug — but before the concurrent-scroll fix it correlated
-                // with a visible jump/reverse and was invisible to
-                // anchorCorrections, which only covers maintainViewAnchor's
-                // idle path.
+                // v0.7.2: a separate paginationRestores counter used to
+                // live here for the pagination anchor's own restore path. It
+                // is gone because that whole mechanism is gone — a prepend
+                // landing mid-gesture is now counted by growthCorrections,
+                // exactly like any other structural change above the anchor.
+                // Its disappearance IS the evidence the two mechanisms
+                // actually merged rather than one being renamed.
                 // No message content, ids, or URLs are logged.
                 readonly property bool scrollTrace: app.timelineScroll.scrollTraceEnabled
                 property bool diagActive: false
@@ -1067,7 +1145,6 @@ Rectangle {
                 // defect, not a regression of it.
                 property int diagAnchorCorrections: 0
                 property int diagGrowthCorrections: 0
-                property int diagPaginationRestores: 0
                 property real diagStartY: 0
                 property real diagStartHeight: 0
                 function diagNoteEvent(isPixel) {
@@ -1080,7 +1157,6 @@ Rectangle {
                         diagAngleEvents = 0
                         diagAnchorCorrections = 0
                         diagGrowthCorrections = 0
-                        diagPaginationRestores = 0
                         diagStartY = contentY
                         diagStartHeight = contentHeight
                     }
@@ -1102,7 +1178,6 @@ Rectangle {
                         + " dContentH=" + Math.round(contentHeight - diagStartHeight)
                         + " anchorCorrections=" + diagAnchorCorrections
                         + " growthCorrections=" + diagGrowthCorrections
-                        + " paginationRestores=" + diagPaginationRestores
                         + " stick=" + (stickToBottom ? 1 : 0)
                         + " nearTop=" + (contentY <= nearTopEnterY ? 1 : 0))
                 }
@@ -1142,6 +1217,18 @@ Rectangle {
                 property bool nearTopCheckScheduled: false
                 property bool nearTopCheckUserInitiated: false
                 function maybeRequestNearTop(userInitiated) {
+                    // Establish the anchor at REQUEST time if the reader does
+                    // not have one yet. captureViewAnchor() otherwise only
+                    // runs at gesture settle, so a reader who scrolls
+                    // continuously from the bottom to the top has no anchor
+                    // for the whole gesture — every prepend during it would
+                    // find viewAnchorId empty, compensate nothing, and the
+                    // settle-time capture 250ms later would lock in whatever
+                    // position the jump left. One capture per dispatched
+                    // request, never per delta, so this does not reintroduce
+                    // the touchpad hot-path scan.
+                    if (!stickToBottom && viewAnchorId === "")
+                        captureViewAnchor()
                     if (userInitiated)
                         nearTopCheckUserInitiated = true
                     if (nearTopCheckScheduled)
@@ -1302,6 +1389,7 @@ Rectangle {
                 // hundreds of intermediate anchors mid-scroll.
                 Timer {
                     id: scrollSettleTimer
+                    objectName: "scrollSettleTimer"
                     interval: 250
                     onTriggered: {
                         timeline.updateStickAndPaginate()
@@ -1473,266 +1561,34 @@ Rectangle {
                     }
                 }
 
-                // v0.5.11: scroll-anchor preservation across a backward
-                // prepend. When older events are inserted at the top, a fixed
-                // contentY would make the whole conversation jump. We record
-                // the first visible event's stable id and its pixel offset
-                // when a request starts, then re-align to it once the prepend
-                // lands (falling back to a content-height delta if the anchor
-                // scrolled out of the created range).
-                property string anchorStableId: ""
-                property real anchorOffset: 0
-                property real anchorContentHeight: 0
-                // The anchor row's own content-space y at capture time. Used
-                // by restoreCapturedAnchor() to compute how far the prepend
-                // shifted the anchor row itself, rather than recomputing an
-                // absolute target from the stale pre-fetch contentY (see
-                // restoreCapturedAnchor for why that goes wrong under a
-                // concurrent gesture).
-                property real anchorItemY: 0
-                // Bumped on every captureAnchor() call. The busy-start
-                // capture is gated on "no anchor already outstanding"
-                // (captureAnchorIfNone below), so under normal pagination
-                // flow this token never actually mismatches — a new capture
-                // structurally cannot happen while an older one is still
-                // unconsumed. It remains a defensive backstop for any OTHER
-                // caller that captures/restores without going through that
-                // gate: a completion whose token no longer matches the live
-                // capture is stale and must not touch it.
-                property int anchorCaptureToken: 0
-
-                function captureAnchor() {
-                    anchorCaptureToken += 1
-                    var row = indexAt(width / 2, contentY + topMargin + 1)
-                    if (row < 0) { anchorStableId = ""; return }
-                    var it = itemAtIndex(row)
-                    // Room-activity rows may collapse during a presentation
-                    // toggle. Prefer the first loaded non-activity row so the
-                    // anchor still has height after either setting value.
-                    for (var probe = row; probe < count; ++probe) {
-                        var candidate = itemAtIndex(probe)
-                        if (!candidate)
-                            break
-                        if (!candidate.isStateActivity) {
-                            row = probe
-                            it = candidate
-                            break
-                        }
-                    }
-                    anchorStableId = app.timeline.stableIdAt(row)
-                    anchorOffset = it ? (contentY - it.y) : 0
-                    anchorContentHeight = contentHeight
-                    anchorItemY = it ? it.y : 0
-                }
-                function restoreCapturedAnchor() {
-                    if (anchorStableId === "")
-                        return false
-                    // Read the CURRENT position before anything below moves
-                    // the view. Backward pagination is a real async SDK
-                    // round-trip (PaginationController::finishBatch), so the
-                    // reader may have kept scrolling (most commonly via an
-                    // in-flight touchpad gesture, which sets neither `moving`
-                    // nor `wheelAnimating`) between captureAnchor() and here.
-                    // The restore below is a RELATIVE shift applied to
-                    // beforeY, never an absolute jump back to the stale
-                    // pre-fetch contentY — discarding concurrent scrolling is
-                    // exactly the "jump / reverse while history is loading"
-                    // defect this replaces.
-                    var beforeY = contentY
-                    // Captured before cancelWheelMotion() below, which can
-                    // itself flip wheelAnimating (part of userScrollActive)
-                    // off — the diagnostic must reflect whether the reader's
-                    // gesture actually owned the view at the moment this
-                    // restore fired, not after we cancel it.
-                    var wasScrollActive = userScrollActive
-                    // A still-decelerating discrete-wheel glide carries a
-                    // coalesced target the reader is mid-flight toward
-                    // (TimelineScrollController's m_targetY). Cancelling it
-                    // unconditionally here threw that remaining distance
-                    // away and froze the glide, which reads as the view
-                    // snapping back partway through an upward scroll the
-                    // instant history finishes loading. A touchpad gesture
-                    // carries no such hidden state (every physical delta
-                    // already wrote contentY directly), so only an in-flight
-                    // wheel glide needs translating instead of cancelling.
-                    var wheelWasActive = app.timelineScroll.motionActive
-                    if (!wheelWasActive)
-                        cancelWheelMotion()
-                    var newRow = app.timeline.rowForStableId(anchorStableId)
-                    if (newRow < 0) {
-                        anchorStableId = ""
-                        return false
-                    }
-                    // The anchor row's geometry has to be REAL, not an
-                    // averaged estimate for an uncreated row — but forcing it
-                    // is only necessary when the delegate does not already
-                    // exist. The anchor is the row at the top of the viewport,
-                    // so on a normal backfill it IS instantiated, and
-                    // positionViewAtIndex would then jump the whole view to it
-                    // (creating and destroying delegates, laying out, kicking
-                    // off media requests for whatever it swept past) purely to
-                    // be jumped straight back by the contentY write below.
-                    // Doing that on every inserting batch is what made a
-                    // sustained backfill run visibly laggy on a real account.
-                    // Force it only in the genuine miss case.
-                    // forceLayout() applies the prepend's pending layout so
-                    // it.y below is the row's REAL post-prepend position
-                    // (without it the read is stale by exactly the batch's
-                    // growth — the concurrent-scroll guard catches that).
-                    // Unlike positionViewAtIndex it does NOT move the view,
-                    // so the reposition only happens in the genuine miss case.
-                    forceLayout()
-                    var it = itemAtIndex(newRow)
-                    if (!it) {
-                        positionViewAtIndex(newRow, ListView.Beginning)
-                        it = itemAtIndex(newRow)
-                    }
-                    if (it) {
-                        if (diagActive && wasScrollActive)
-                            diagPaginationRestores += 1
-                        // shift = how far the prepend moved the anchor row's
-                        // own y. Applying it to beforeY (not a recomputed
-                        // absolute position) keeps any concurrent scroll
-                        // intact. Static-case equivalence: when the reader
-                        // did not scroll during the fetch, beforeY equals the
-                        // contentY captureAnchor() saw, and anchorOffset was
-                        // defined as (that contentY - anchorItemY), so
-                        // beforeY + (it.y - anchorItemY) === it.y +
-                        // anchorOffset — byte-identical to the prior formula.
-                        var shift = it.y - anchorItemY
-                        // Translate the still-running glide by the same
-                        // shift instead of letting a competing correction
-                        // fight (or freeze) it: the engine keeps integrating
-                        // toward a target that moved down with the anchor,
-                        // so the reader's momentum survives the prepend.
-                        if (wheelWasActive)
-                            app.timelineScroll.translateActiveMotion(shift)
-                        contentY = beforeY + shift
-                    } else if (wheelWasActive) {
-                        // Invariant: every path that moves contentY either
-                        // translates the glide or cancels it. positionView-
-                        // AtIndex above already moved the view; with no item
-                        // to compute the shift from, the glide's next frame
-                        // would write its stale pre-prepend position straight
-                        // back — cancel is the only safe reconciliation left.
-                        cancelWheelMotion()
-                    }
-                    anchorStableId = ""
-                    // The prepend moved every row; the persistent viewport
-                    // anchor must re-derive from the restored position.
-                    captureViewAnchor()
-                    return true
-                }
-                function restoreAnchor(inserted, expectedToken, reachedStart,
-                                       willContinue) {
-                    // A newer captureAnchor() already ran since this
-                    // completion's batch started: anchorStableId now belongs
-                    // to that newer capture, not this one. That newer
-                    // capture's own completion owns restoring it.
-                    if (expectedToken !== anchorCaptureToken)
-                        return
-                    if (anchorStableId === "")
-                        return
-                    if (stickToBottom) {
-                        anchorStableId = ""
-                        return
-                    }
-                    if (inserted <= 0) {
-                        // A zero-insert batch has nothing to compensate —
-                        // and the near-top continuation only ever arms on
-                        // exactly this case (zero rows, start not reached),
-                        // so clearing here would hand the batch that
-                        // FINALLY inserts an empty anchor and leave its
-                        // prepend uncompensated (the cascade's second leg).
-                        // KEEP the capture only while the controller has
-                        // ACTUALLY scheduled the next batch of the run
-                        // (willContinue); every other empty completion —
-                        // start reached, continuation latched after the
-                        // strike budget, an empty retry/navigation batch —
-                        // is a run END and must RELEASE it, or the
-                        // maintainViewAnchor async-growth stabilizer
-                        // (suppressed while a capture is outstanding)
-                        // stays disabled for the rest of the room visit.
-                        if (willContinue === true && reachedStart !== true)
-                            return
-                        anchorStableId = ""
-                        return
-                    }
-                    var newRow = app.timeline.rowForStableId(anchorStableId)
-                    if (newRow < 0) {
-                        var delta = contentHeight - anchorContentHeight
-                        if (delta > 0) {
-                            // Same rule as restoreCapturedAnchor(): a raw
-                            // contentY correction under an active wheel
-                            // glide would be overwritten by the engine's
-                            // next frame — translate the glide with it.
-                            if (app.timelineScroll.motionActive)
-                                app.timelineScroll.translateActiveMotion(delta)
-                            contentY += delta
-                        }
-                        anchorStableId = ""
-                        captureViewAnchor()
-                        return
-                    }
-                    restoreCapturedAnchor()
-                }
-
-                // A near-top continuation (scheduleNearTopContinuation) can
-                // complete several filtered/zero-insert batches back-to-back,
-                // each toggling busy false->true->false. Re-capturing on
-                // every busy-start would overwrite anchorStableId before an
-                // earlier, still-pending completion could restore against
-                // it — anchorCaptureToken then correctly refuses to let that
-                // stale completion touch the newer capture, but that only
-                // prevents corruption: the older batch's own compensation is
-                // simply lost and its real prepend goes uncompensated — the
-                // "teleports to the top, then keeps pulling me up" cascade.
-                // Capturing only when NO anchor is outstanding — combined
-                // with restoreAnchor() KEEPING the capture through
-                // zero-insert completions whose run is genuinely
-                // continuing (willContinue) and RELEASING it on every
-                // run-ending completion (inserted, start reached, latched,
-                // failed) — makes the SAME anchor persist across an entire
-                // multi-batch run: the batch that actually inserts visible
-                // rows always still owns an unconsumed capture, and a run
-                // that ends empty never strands one.
-                // (Overlapping capture windows cannot be fixed by per-batch
-                // snapshots either — two captures independently measuring
-                // absolute shifts double-count any prepend both windows
-                // span.)
-                function captureAnchorIfNone() {
-                    if (anchorStableId === "")
-                        captureAnchor()
-                }
+                // v0.5.11 through v0.7: backward-pagination prepend
+                // compensation used to be a SEPARATE capture/restore pair
+                // here (anchorStableId/anchorOffset/anchorContentHeight/
+                // anchorItemY/anchorCaptureToken, captureAnchor()/
+                // restoreCapturedAnchor()/restoreAnchor(), plus a
+                // willContinue keep-alive across a multi-batch run). v0.7.2
+                // removed it: a prepend is, from the anchor's point of view,
+                // exactly the same event as a pooled delegate resizing above
+                // the reader — something changed the tracked row's own
+                // content-space y — and the persistent view anchor above
+                // (viewAnchorId/viewAnchorLastY, maintainViewAnchor())
+                // already reacts to that via onContentHeightChanged, which a
+                // prepend fires just as reliably as a resize does. Four
+                // same-day rounds were entirely about these two mechanisms
+                // coordinating with each other: sharing a run, standing one
+                // down while the other owned it, a stale capture token, a
+                // jump-then-unjump double reposition per batch. With one
+                // mechanism left there is nothing to coordinate with — no
+                // capture at request start, no willContinue bookkeeping to
+                // keep a capture alive across a multi-batch filtered run (a
+                // zero-insert batch fires no onContentHeightChanged, so
+                // there is nothing to correct and nothing to keep alive),
+                // and no stale-token guard (there is only ever one anchor,
+                // continuously tracked). Do not reintroduce a
+                // pagination-specific anchor here — see maintainViewAnchor().
 
                 Connections {
                     target: app.pagination
-                    property bool wasBusy: false
-                    function onStateChanged() {
-                        if (app.pagination.busy && !wasBusy
-                            && !timeline.stickToBottom)
-                            timeline.captureAnchorIfNone()
-                        if (wasBusy && !app.pagination.busy
-                            && app.pagination.failed) {
-                            timeline.anchorStableId = ""
-                            timeline.anchorOffset = 0
-                            timeline.anchorContentHeight = 0
-                            timeline.anchorItemY = 0
-                        }
-                        wasBusy = app.pagination.busy
-                    }
-                    function onPaginationCompleted(inserted, reachedStart,
-                                                   willContinue) {
-                        // Snapshot synchronously in this same signal dispatch:
-                        // must reflect whichever capture was current for THIS
-                        // batch, not whatever it is once the deferred restore
-                        // actually runs.
-                        var expectedToken = timeline.anchorCaptureToken
-                        Qt.callLater(function() {
-                            timeline.restoreAnchor(inserted, expectedToken,
-                                                   reachedStart, willContinue)
-                        })
-                    }
                     function onTargetLocated(row, pixelOffset, highlight) {
                         // Reply navigation takes control immediately.
                         timeline.cancelWheelMotion()
@@ -1766,9 +1622,18 @@ Rectangle {
                             Qt.callLater(timeline.scrollToEndDeferred)
                             return
                         }
-                        timeline.captureAnchor()
+                        // v0.7.2: this used to run the now-removed
+                        // pagination-specific capture/restore pair — a THIRD
+                        // call site of that duplicated mechanism, for an
+                        // unrelated cause (a settings toggle, not a fetch).
+                        // Capture the surviving anchor explicitly right
+                        // before the reflow and correct right after, so the
+                        // correction lands on the same deferred turn as
+                        // before rather than waiting for a separately
+                        // coalesced onContentHeightChanged.
+                        timeline.captureViewAnchor()
                         Qt.callLater(function() {
-                            timeline.restoreCapturedAnchor()
+                            timeline.maintainViewAnchor()
                             timeline.maybeFillViewport()
                         })
                     }
@@ -1777,7 +1642,12 @@ Rectangle {
                 onContentYChanged: {
                     // React to a user drag/flick AND to our own wheel/pixel
                     // motion; ignore programmatic navigation (jump, reply,
-                    // restore) which manages follow-latest itself.
+                    // restore) which manages follow-latest itself, and the
+                    // anchor probe's transient materialising move — reading
+                    // stickToBottom or dispatching a near-top request from a
+                    // position the reader was never at would be wrong (and a
+                    // user-initiated request resets the strike budget).
+                    if (anchorProbeActive) return
                     if (!moving && !wheelAnimating) return
                     stickToBottom = atBottomEdge()
                     // Trigger backfill as the user approaches the top
@@ -1821,10 +1691,6 @@ Rectangle {
                         timeline.stickToBottom = true
                         timeline.pinnedActionsKey = ""
                         timeline.emojiPickerOpen = false
-                        timeline.anchorStableId = ""
-                        timeline.anchorOffset = 0
-                        timeline.anchorContentHeight = 0
-                        timeline.anchorItemY = 0
                         timeline.viewAnchorId = ""
                         timeline.viewAnchorOffset = 0
                         timeline.viewAnchorLastY = 0
