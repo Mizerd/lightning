@@ -125,6 +125,7 @@ private Q_SLOTS:
     void groupingRefreshCoalescesAcrossPrependBurst();
     void memberProfileUpdateEmitsIdentityRoles();
     void replyToSenderResolvesDisplayNameWithLocalpartFallback();
+    void threadRoleIndexTracksEveryStructuralMutation();
     void clientSwitchDoesNotLeakSenderProfile();
     void messageActionsUseStableIdentityAndSafeMetadata();
     void staleAndInapplicableMessageActionsAreRejected();
@@ -970,6 +971,70 @@ void TimelineModelDiffTest::searchSurvivesEditAndExcludesRedacted()
     m_client->mirror[1] = redacted;
     Q_EMIT m_client->eventChangedAt(kRoom, 1, redacted);
     QCOMPARE(m_model->searchResultCount(), 0);
+}
+
+
+// The thread roles answer from an incrementally maintained index instead of
+// scanning the whole event list per query (that cost every delegate two
+// full-timeline scans and scaled with loaded history — a real scroll-jitter
+// source while backfilling). An index can go stale where a scan could not,
+// so this drives each structural mutation and re-checks the answers.
+void TimelineModelDiffTest::threadRoleIndexTracksEveryStructuralMutation()
+{
+    const QString rootId = QStringLiteral("$root");
+    auto root = makeEvent(rootId, QStringLiteral("topic"));
+    auto reply = makeEvent(QStringLiteral("$r1"), QStringLiteral("reply one"));
+    reply.threadRootId = rootId;
+    auto plain = makeEvent(QStringLiteral("$p1"), QStringLiteral("unrelated"));
+
+    // Reset path.
+    m_client->mirror = { root, reply, plain };
+    Q_EMIT m_client->timelineReset(kRoom);
+    auto isRoot = [this](int row) {
+        return m_model->data(m_model->index(row),
+                             TimelineModel::IsThreadRootRole).toBool();
+    };
+    auto replies = [this](int row) {
+        return m_model->data(m_model->index(row),
+                             TimelineModel::ThreadReplyCountRole).toInt();
+    };
+    QVERIFY(isRoot(0));
+    QCOMPARE(replies(0), 1);
+    QVERIFY(!isRoot(2));           // an ordinary row is never a root
+    QCOMPARE(replies(2), 0);
+
+    // Append path: a second reply raises the root's count.
+    auto reply2 = makeEvent(QStringLiteral("$r2"), QStringLiteral("reply two"));
+    reply2.threadRootId = rootId;
+    m_client->mirror.append(reply2);
+    Q_EMIT m_client->eventAppended(kRoom, reply2);
+    QCOMPARE(replies(0), 2);
+
+    // Prepend path: older history carrying another reply to the same root.
+    auto older = makeEvent(QStringLiteral("$r0"), QStringLiteral("older reply"));
+    older.threadRootId = rootId;
+    m_client->mirror.prepend(older);
+    Q_EMIT m_client->eventsPrepended(kRoom, { older });
+    QCOMPARE(replies(1), 3);       // the root shifted down by the prepend
+    QVERIFY(isRoot(1));
+
+    // Removal path: dropping a reply lowers the count again.
+    m_client->mirror.removeAt(0);
+    Q_EMIT m_client->eventRemovedAt(kRoom, 0);
+    QCOMPARE(replies(0), 2);
+
+    // In-place replacement path: a late decryption revealing a thread
+    // relation must make the previously-plain row count toward its root.
+    // Rows here are [root, reply, plain, reply2]; plain is row 2.
+    const int plainRow = 2;
+    QCOMPARE(m_model->data(m_model->index(plainRow),
+                           TimelineModel::EventIdRole).toString(),
+             QStringLiteral("$p1"));
+    auto revealed = plain;
+    revealed.threadRootId = rootId;
+    m_client->mirror[plainRow] = revealed;
+    Q_EMIT m_client->eventChangedAt(kRoom, plainRow, revealed);
+    QCOMPARE(replies(0), 3);
 }
 
 QTEST_GUILESS_MAIN(TimelineModelDiffTest)

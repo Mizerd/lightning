@@ -3,6 +3,7 @@
 #include "matrix/TimelineEvent.h"
 
 #include <QAbstractListModel>
+#include <QHash>
 #include <QList>
 #include <QStringList>
 #include <QTimer>
@@ -301,6 +302,16 @@ private:
     QString m_roomId;
     QString m_selfUserId;
     QList<TimelineEvent> m_events;
+    // Loaded thread replies per root event id. IsThreadRootRole and
+    // ThreadReplyCountRole used to answer by scanning the WHOLE event list
+    // on every query, and every delegate binds both — so each instantiated
+    // row cost two full-timeline scans on creation and on every
+    // dataChanged, growing linearly with loaded history. That is O(rows x
+    // events) per refresh and was a measurable source of scroll jitter
+    // while backfilling a long room. Rebuilt on every structural mutation
+    // (one pass per batch) so both roles answer in O(1).
+    QHash<QString, int> m_threadReplyCounts;
+    void rebuildThreadReplyIndex();
     QString m_typingText;
 
     // Fires once on the next event-loop turn to emit one coalesced

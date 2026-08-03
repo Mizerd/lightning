@@ -410,6 +410,19 @@ void TimelineModel::emitPresentationGroupingChanged()
                          EndsSenderGroupRole, ShowSenderIdentityRole });
 }
 
+void TimelineModel::rebuildThreadReplyIndex()
+{
+    // One pass per structural mutation (a whole pagination batch is one
+    // mutation), replacing the per-query full scans the thread roles used
+    // to do. Only true m.thread replies carry a threadRootId, so this is
+    // typically far smaller than the event list.
+    m_threadReplyCounts.clear();
+    for (const auto &e : m_events) {
+        if (!e.threadRootId.isEmpty())
+            ++m_threadReplyCounts[e.threadRootId];
+    }
+}
+
 void TimelineModel::scheduleGroupingRefresh()
 {
     if (m_events.isEmpty())
@@ -524,22 +537,19 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
     case ThreadRootIdRole:       return e.threadRootId;
     case IsThreadRootRole: {
         // v0.6.0: the SDK's bundled thread summary is authoritative when
-        // present; otherwise scan the loaded timeline (mock/HTTP backends).
+        // present; otherwise consult the loaded-reply index (mock/HTTP
+        // backends, and SDK rows whose summary has not arrived). O(1) —
+        // this used to scan the whole event list per query, and since the
+        // early-out never fires for an ORDINARY row, every delegate paid a
+        // full-timeline scan just to be told "not a thread root".
         if (e.isThreadRoot)
             return true;
-        for (const auto &other : m_events) {
-            if (other.threadRootId == e.eventId) return true;
-        }
-        return false;
+        return m_threadReplyCounts.contains(e.eventId);
     }
     case ThreadReplyCountRole: {
         if (e.threadReplyCount >= 0)
             return e.threadReplyCount;   // SDK summary (server aggregation)
-        int c = 0;
-        for (const auto &other : m_events) {
-            if (other.threadRootId == e.eventId) ++c;
-        }
-        return c;
+        return m_threadReplyCounts.value(e.eventId, 0);
     }
     case ThreadLatestPreviewRole:   return e.threadLatestPreview;
     case ThreadLatestKindRole:      return e.threadLatestKind;
@@ -797,6 +807,7 @@ void TimelineModel::onEventAppended(const QString &roomId, const TimelineEvent &
     const int row = m_events.size();
     beginInsertRows({}, row, row);
     m_events.append(event);
+    rebuildThreadReplyIndex();
     endInsertRows();
     Q_EMIT countChanged();
     scheduleGroupingRefresh();
@@ -813,6 +824,7 @@ void TimelineModel::onEventReplaced(const QString &roomId,
         return;
     const bool groupingChanged = groupingInputsDiffer(m_events.at(row), newEvent);
     m_events[row] = newEvent;
+    rebuildThreadReplyIndex();
     const auto idx = index(row);
     Q_EMIT dataChanged(idx, idx);
     if (groupingChanged)
@@ -844,6 +856,7 @@ void TimelineModel::onEventEdited(const QString &roomId, const QString &eventId)
             const int row = rowForEventId(eventId);
             if (row < 0) return;
             m_events[row] = e;
+            rebuildThreadReplyIndex();
             const auto idx = index(row);
             Q_EMIT dataChanged(idx, idx,
                                { BodyRole, FormattedBodyRole, EditedRole });
@@ -889,6 +902,7 @@ void TimelineModel::onEventsPrepended(const QString &roomId,
     beginInsertRows({}, 0, events.size() - 1);
     for (int i = events.size() - 1; i >= 0; --i)
         m_events.prepend(events.at(i));
+    rebuildThreadReplyIndex();
     endInsertRows();
     Q_EMIT countChanged();
     scheduleGroupingRefresh();
@@ -917,6 +931,7 @@ void TimelineModel::onEventInsertedAt(const QString &roomId, int index,
     }
     beginInsertRows({}, index, index);
     m_events.insert(index, event);
+    rebuildThreadReplyIndex();
     endInsertRows();
     Q_EMIT countChanged();
     scheduleGroupingRefresh();
@@ -938,6 +953,7 @@ void TimelineModel::onEventChangedAt(const QString &roomId, int index,
     // multiplied one item update into a whole-timeline relayout.
     const bool groupingChanged = groupingInputsDiffer(m_events.at(index), event);
     m_events[index] = event;
+    rebuildThreadReplyIndex();
     const auto idx = this->index(index);
     Q_EMIT dataChanged(idx, idx);
     if (groupingChanged)
@@ -954,6 +970,7 @@ void TimelineModel::onEventRemovedAt(const QString &roomId, int index)
     }
     beginRemoveRows({}, index, index);
     m_events.removeAt(index);
+    rebuildThreadReplyIndex();
     endRemoveRows();
     Q_EMIT countChanged();
     scheduleGroupingRefresh();
@@ -972,6 +989,7 @@ void TimelineModel::onEventsTruncatedTo(const QString &roomId, int length)
     beginRemoveRows({}, length, m_events.size() - 1);
     while (m_events.size() > length)
         m_events.removeLast();
+    rebuildThreadReplyIndex();
     endRemoveRows();
     Q_EMIT countChanged();
     scheduleGroupingRefresh();
@@ -982,6 +1000,7 @@ void TimelineModel::onLoggedOut()
     m_groupingRefreshTimer.stop();
     beginResetModel();
     m_events.clear();
+    m_threadReplyCounts.clear();
     m_roomId.clear();
     endResetModel();
     Q_EMIT roomIdChanged();
@@ -1302,6 +1321,7 @@ void TimelineModel::reload()
     m_events = (m_client && !m_roomId.isEmpty())
                    ? m_client->timeline(m_roomId)
                    : QList<TimelineEvent>{};
+    rebuildThreadReplyIndex();
     endResetModel();
     Q_EMIT countChanged();
 }
