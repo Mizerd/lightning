@@ -715,18 +715,26 @@ Rectangle {
                 // delegate creation (and media requests) across the rows it
                 // passes — the exact cost profile that made loading laggy.
                 property int viewAnchorCount: 0
-                // Set while the probe transiently moves contentY to
-                // materialise a delegate. onContentYChanged must ignore that
-                // transient: it recomputes stickToBottom and can dispatch a
-                // user-initiated near-top request (which resets the
-                // controller's zero-progress strike budget) from a position
-                // the reader was never actually at.
-                property bool anchorProbeActive: false
+                // Row index and content height at the last measurement. When
+                // an insertion displaces the anchor beyond the delegate cache
+                // (a prepend while the reader sits at the top edge), these
+                // two give the shift ARITHMETICALLY — the row index rising
+                // proves rows were inserted ABOVE the reader, and the content
+                // height growth is how tall they were — so the correction
+                // needs no delegate materialised for it. That matters
+                // enormously: forcing the row into existence sweeps delegate
+                // creation and media requests across every row it passes,
+                // once per loaded batch, which is what made scrolling up in a
+                // BIG room lag while smaller rooms felt fine.
+                property int viewAnchorRow: -1
+                property real viewAnchorContentHeight: 0
                 function captureViewAnchor() {
                     if (stickToBottom || count === 0) {
                         viewAnchorId = ""
                         viewAnchorLastY = 0
                         viewAnchorCount = count
+                        viewAnchorRow = -1
+                        viewAnchorContentHeight = contentHeight
                         return
                     }
                     var row = indexAt(width / 2, contentY + topMargin + 1)
@@ -750,6 +758,8 @@ Rectangle {
                     viewAnchorOffset = it ? (contentY - it.y) : 0
                     viewAnchorLastY = it ? it.y : 0
                     viewAnchorCount = count
+                    viewAnchorRow = row
+                    viewAnchorContentHeight = contentHeight
                 }
                 property bool viewAnchorScheduled: false
                 function maintainViewAnchorCoalesced() {
@@ -787,48 +797,44 @@ Rectangle {
                     var it = row >= 0 ? itemAtIndex(row) : null
                     var anchorY = it ? it.y : 0
                     if (!it && row >= 0 && !moving
-                        && count !== viewAnchorCount) {
-                        // Resolve a DISPLACED anchor. This is not a rare
-                        // idle-only nicety — it is the load-bearing case:
-                        // when the reader sits at the very top edge (exactly
-                        // where near-top backfill fires, and where
-                        // StopAtBounds parks an upward glide), Qt gives the
-                        // prepended rows the low positions and pushes the
-                        // reader's row down by the WHOLE batch — far outside
-                        // cacheBuffer, so its delegate is destroyed. Without
-                        // resolving it here, the fallback below would
-                        // re-anchor onto the newly loaded content and RATIFY
-                        // that jump: the teleport cascade. (Deeper in
-                        // history a prepend leaves row positions untouched
-                        // and none of this runs.)
+                        && row > viewAnchorRow && viewAnchorRow >= 0) {
+                        // DISPLACED by an insertion above the reader. The row
+                        // index rising is the proof: rows were inserted
+                        // before it, which at the top edge pushes it clear of
+                        // the delegate cache so Qt destroys it. The shift is
+                        // then exactly how much taller the content became —
+                        // no delegate needs to exist to know that. Applying
+                        // it relatively preserves an in-flight gesture, and
+                        // the baseline moves by the same amount (the row's own
+                        // y rose by the growth), so nothing double-counts.
                         //
-                        // Gated on `moving` — Flickable's own drag/flick —
-                        // NOT on userScrollActive: on the self-driven paths
-                        // WE own contentY, and the correction below is
-                        // RELATIVE, so it cannot fight the gesture. Under a
-                        // native drag Flickable would discard our write
-                        // anyway, so that case still defers to settle.
-                        var probeY = contentY
-                        anchorProbeActive = true
-                        forceLayout()
-                        it = itemAtIndex(row)
-                        if (!it) {
-                            positionViewAtIndex(row, ListView.Beginning)
-                            it = itemAtIndex(row)
+                        // The previous version resolved this by forcing the
+                        // row into existence (forceLayout, then
+                        // positionViewAtIndex). That is correct but ruinously
+                        // expensive on exactly the reported path: in a big
+                        // room every scroll-up loads a page, and every page
+                        // then swept delegate creation and media requests
+                        // across the intervening rows. Small rooms load
+                        // rarely, which is why they felt fine.
+                        //
+                        // Bounded inaccuracy, deliberately accepted: if a
+                        // live message is appended BELOW the reader in the
+                        // same coalesced turn, its height is included here
+                        // too. That is one row's worth, versus a full-view
+                        // sweep per batch.
+                        var grew = contentHeight - viewAnchorContentHeight
+                        if (Math.abs(grew) > 0.5) {
+                            if (diagActive)
+                                diagGrowthCorrections += 1
+                            contentY += grew
+                            if (app.timelineScroll.motionActive)
+                                app.timelineScroll.translateActiveMotion(grew)
+                            viewAnchorLastY += grew
                         }
-                        if (it)
-                            anchorY = it.y
-                        // positionViewAtIndex MOVES the view; it is used here
-                        // only to materialise the delegate so its
-                        // content-space y can be read. Always put the
-                        // position back — both so the correction below is
-                        // computed from where the reader actually was, and so
-                        // a still-unresolvable row cannot leave an
-                        // unrequested scroll behind (which saveRoomPosition()
-                        // would then persist).
-                        if (contentY !== probeY)
-                            contentY = probeY
-                        anchorProbeActive = false
+                        viewAnchorCount = count
+                        viewAnchorRow = row
+                        viewAnchorContentHeight = contentHeight
+                        return
                     }
                     if (!it) {
                         // Genuinely unresolvable — the stable id no longer
@@ -918,6 +924,8 @@ Rectangle {
                         // its own source of jitter.
                         viewAnchorLastY = anchorY
                         viewAnchorCount = count
+                        viewAnchorRow = row
+                        viewAnchorContentHeight = contentHeight
                         return
                     }
                     // Idle: no gesture to fight, so an absolute restore to
@@ -941,6 +949,8 @@ Rectangle {
                     }
                     viewAnchorLastY = anchorY
                     viewAnchorCount = count
+                    viewAnchorRow = row
+                    viewAnchorContentHeight = contentHeight
                 }
 
                 // v0.6.0: MessageDelegate view contract — the room timeline
@@ -1645,9 +1655,7 @@ Rectangle {
                     // restore) which manages follow-latest itself, and the
                     // anchor probe's transient materialising move — reading
                     // stickToBottom or dispatching a near-top request from a
-                    // position the reader was never at would be wrong (and a
-                    // user-initiated request resets the strike budget).
-                    if (anchorProbeActive) return
+                    // position the reader was never at would be wrong.
                     if (!moving && !wheelAnimating) return
                     stickToBottom = atBottomEdge()
                     // Trigger backfill as the user approaches the top
