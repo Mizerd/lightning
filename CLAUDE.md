@@ -24,12 +24,13 @@ frontend.
 
 ## 2. Current release and development state
 
-Release facts, verified on 2026-07-29:
+Release facts, verified on 2026-08-04:
 
-- Latest published release: **Lightning 0.6.4** (`v0.6.4` -> `e719bbe`)
-- Previous releases: `v0.6.3` -> `97f10b7`, `v0.6.2` -> `fe3b85f`,
-  `v0.6.1` -> `86d30b4`, `v0.6.0` -> `2157194` (all immutable, unchanged)
-- Application version: **0.6.4** in `CMakeLists.txt`, `rust/Cargo.toml`, and
+- Latest published release: **Lightning 0.6.5** (`v0.6.5` -> `4cdace3`)
+- Previous releases: `v0.6.4` -> `e719bbe`, `v0.6.3` -> `97f10b7`,
+  `v0.6.2` -> `fe3b85f`, `v0.6.1` -> `86d30b4`, `v0.6.0` -> `2157194`
+  (all immutable, unchanged)
+- Application version: **0.6.5** in `CMakeLists.txt`, `rust/Cargo.toml`, and
   the Rust/HTTP user agent
 
 The narrative below describes the 0.6.2-era checkpoints and has not been
@@ -652,8 +653,8 @@ Published tags and GitLab Releases are immutable. Never move, recreate, or
 replace them. Do not bump a version, tag, or create a release unless Rokas
 explicitly requests release work.
 
-Version 0.6.1 is released and the synchronized CMake, Rust, and user-agent
-version report 0.6.1. Any future version bump is a release checkpoint alone and
+Version 0.6.5 is released and the synchronized CMake, Rust, and user-agent
+version report 0.6.5. Any future version bump is a release checkpoint alone and
 updates those same synchronized locations. Before release, run complete Rust
 tests plus Rust and non-Rust builds/CTest, and report unavailable live
 validation honestly.
@@ -688,9 +689,10 @@ For an existing release that is missing packages, use
 links to the existing release without altering its tag, notes, or source
 archives). This was used to backfill `v0.6.1`.
 
-The latest published release is `v0.6.1`, cut from its release commit on `main`.
-The previous release `v0.6.0` at `2157194` remains immutable and unchanged.
-Publishing packages for `v0.6.1` did not move or recreate its tag or release.
+The latest published release is `v0.6.5` (`4cdace3`), cut from its release
+commit on `main` by the project 7 pipeline in `RELEASE_ACTION=create` mode.
+All earlier releases and tags (`v0.6.4` and older) remain immutable and
+unchanged.
 
 ## 15. Licensing and public repository state
 
@@ -734,7 +736,7 @@ Keep this list grounded in source and recent history:
   Element interoperability (formatted-body rendering) is still user-pending.
 - Live-validate the redesigned Settings screen and the baked-mask avatar
   rendering interactively on a real desktop (automated suites cover both).
-- Plan any post-0.6.1 work only through explicitly requested checkpoints.
+- Plan any post-0.6.5 work only through explicitly requested checkpoints.
 
 Do not list the implemented GIF browser, favorites/recents, download/send path,
 provider networking, thread summaries/attachments, notification sounds, or E2EE
