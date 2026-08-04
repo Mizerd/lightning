@@ -81,6 +81,8 @@ void PaginationController::resetPerRoomState()
     m_requestActive = false;
     m_activeReason = Reason::None;
     m_batchInserted = 0;
+    m_batchStartRows = 0;
+    m_continuationPending = false;
     m_batchStableIds.clear();
     m_deferredFill = false;
     m_completionPending = false;
@@ -97,7 +99,7 @@ void PaginationController::resetPerRoomState()
 
 bool PaginationController::busy() const
 {
-    if (m_requestActive || m_autoRetryTimer.isActive())
+    if (m_requestActive || m_autoRetryTimer.isActive() || m_continuationPending)
         return true;
     return m_client && !m_roomId.isEmpty() && m_client->paginating(m_roomId);
 }
@@ -332,6 +334,7 @@ void PaginationController::request(Reason reason)
     m_requestActive = true;
     m_activeReason = reason;
     m_batchInserted = 0;
+    m_batchStartRows = m_timelineModel ? m_timelineModel->rowCount() : 0;
     m_batchStableIds.clear();
     m_completionPending = false;
     m_seenLoading = false;
@@ -397,6 +400,12 @@ void PaginationController::onPaginationStateChanged(const QString &roomId)
             m_requestActive = true;
             m_activeReason = Reason::None;
             m_batchInserted = 0;
+            // Also re-baseline the row count. Without this an externally
+            // started batch measures batchRowGrowth() against the PREVIOUS
+            // dispatch's baseline and reports an arbitrarily inflated
+            // insertedCount — a lie in the completion signal this class
+            // documents as "what the reader actually gained".
+            m_batchStartRows = m_timelineModel ? m_timelineModel->rowCount() : 0;
         }
         m_seenLoading = true;
         Q_EMIT stateChanged();
@@ -447,10 +456,22 @@ void PaginationController::onPaginationStateChanged(const QString &roomId)
     Q_EMIT stateChanged();
 }
 
+int PaginationController::batchRowGrowth() const
+{
+    if (!m_timelineModel)
+        return 0;
+    return m_timelineModel->rowCount() - m_batchStartRows;
+}
+
 void PaginationController::finishBatch(bool hitStart)
 {
     const Reason reason = m_activeReason;
-    const int inserted = m_batchInserted;
+    // Signal-counted inserts UNDER-report on the real backend (see
+    // batchRowGrowth()); the model is the ground truth for whether the reader
+    // gained anything. Take the larger so a backend that does report its
+    // prepends faithfully is never made to look worse.
+    const int signalled = m_batchInserted;
+    const int inserted = qMax(signalled, batchRowGrowth());
     m_requestActive = false;
     m_activeReason = Reason::None;
     m_batchInserted = 0;
@@ -462,6 +483,7 @@ void PaginationController::finishBatch(bool hitStart)
         m_initialHistoryHasSucceeded = true;
 
     qCInfo(lcPagination) << "timeline pagination completed added=" << inserted
+                         << "signalled=" << signalled
                          << "reached_start=" << hitStart
                          << "reason=" << reasonName(reason)
                          << "generation=" << m_generation;
@@ -526,16 +548,59 @@ void PaginationController::finishBatch(bool hitStart)
 void PaginationController::scheduleNearTopContinuation()
 {
     const quint64 generation = m_generation;
-    // Defer to the next event-loop turn so this batch's completion, anchor
-    // restore, and stateChanged settle first; network latency then paces the
-    // bounded continuation (it is not a tight spin). The generation / active /
-    // room / bound re-checks make a room switch, sign-out, or a re-arm that
-    // landed meanwhile cancel it cleanly.
-    QTimer::singleShot(0, this, [this, generation] {
-        if (generation != m_generation || m_requestActive || m_roomId.isEmpty())
+    const int rowsAtDispatch = m_batchStartRows;
+    m_continuationPending = true;
+    // Deferred so this batch's completion, anchor restore, and stateChanged
+    // settle first; network latency then paces the bounded continuation (it is
+    // not a tight spin). The generation / active / room / bound re-checks make
+    // a room switch, sign-out, or a re-arm that landed meanwhile cancel it
+    // cleanly. The delay is long enough for one more bridge poll, so the
+    // model-growth re-check below can see item diffs that arrived after
+    // finishBatch() already classified the page.
+    QTimer::singleShot(m_nearTopContinuationDelayMs, this,
+                       [this, generation, rowsAtDispatch] {
+        if (generation != m_generation) {
+            // A room switch / reset / sign-out already cleared the flag through
+            // resetPerRoomState(); this timer belongs to the previous
+            // generation and must touch nothing.
+            return;
+        }
+        // Cleared on EVERY remaining path, before anything can return: leaving
+        // it set would pin busy() true and strand the loading overlay visible
+        // for the rest of the room visit.
+        m_continuationPending = false;
+        // Notify UNCONDITIONALLY, before any decision. busy() just changed, and
+        // request() below has silent early returns (timeline not ready, cannot
+        // paginate) that would otherwise leave the overlay latched on Loading
+        // with no notify to bring it down. request() emits again on the paths
+        // that proceed; a duplicate notify only re-evaluates bindings, and the
+        // overlay is a sibling of the ListView so it cannot perturb geometry.
+        Q_EMIT stateChanged();
+        if (m_requestActive || m_roomId.isEmpty())
             return;
         if (m_nearTopEmptyStrikes >= kMaxNearTopEmptyStrikes)
             return;
+        // The page DID add rows; the strike was a measurement artefact of the
+        // asynchronous bridge (see batchRowGrowth()). Continuing here is what
+        // turned one deliberate approach to the top into four network batches
+        // and made a big room feel like it "keeps loading". Clear the strike
+        // and stop — the reader now has older history in front of them, and a
+        // further deliberate approach re-arms through QML.
+        //
+        // Deliberately accepted false positive: a LIVE message appended below
+        // the reader inside this window also reads as growth and cancels the
+        // continuation. That costs one page of genuinely filtered history and
+        // errs toward loading less, which is the direction the defect reports
+        // all point in.
+        const int growth = m_timelineModel
+            ? m_timelineModel->rowCount() - rowsAtDispatch : 0;
+        if (growth > 0) {
+            m_nearTopEmptyStrikes = 0;
+            qCInfo(lcPagination)
+                << "timeline pagination continuation cancelled rows_added="
+                << growth << "generation=" << m_generation;
+            return; // already notified above
+        }
         request(Reason::NearTop);
     });
 }

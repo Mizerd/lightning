@@ -90,8 +90,69 @@ private Q_SLOTS:
         // wider exit band); the passive atYBeginning fill trigger stays.
         QVERIFY(pane.contains(QStringLiteral("function checkNearTopEdge(")));
         QVERIFY(pane.contains(QStringLiteral("nearTopArmed")));
-        QVERIFY(pane.contains(QStringLiteral("nearTopEnterY")));
-        QVERIFY(pane.contains(QStringLiteral("nearTopExitY")));
+
+        // v0.7.3: every near-top proximity comparison is measured against
+        // distanceFromTop(), never against raw contentY. contentY is an offset
+        // from originY, and originY is arbitrary and MOVES as history loads.
+        // MEASURED: it sat at ~+2484 in the offscreen fixture with the reader at
+        // the very top, so `contentY <= height/2` was permanently FALSE there.
+        // INFERRED from the live trace: it sat far enough the other way that raw
+        // contentY stayed inside the band through all of loaded history, making
+        // the enter band permanently true and the exit band unreachable, so the
+        // gesture-settle re-arm fired after EVERY gesture in either direction and
+        // each one bought four more pagination batches — the reported "it keeps
+        // loading old messages each time I scroll up ... and down".
+        //
+        // A geometry test cannot police this on its own: whether the two
+        // measures disagree depends on where originY happens to sit in the
+        // fixture, so a fixture with a small originY would pass either way. This
+        // scan is the mechanism-level guard — the comparison sites themselves —
+        // and no choice of fixture geometry can make it vacuous.
+        QVERIFY(pane.contains(QStringLiteral("function distanceFromTop()")));
+        QVERIFY(pane.contains(QStringLiteral(
+            "return contentY - wheelMinY()")));
+        // The bands are DISTANCES now, and are named so. The old ...Y names
+        // invited exactly the frame confusion above; forbid their return.
+        QVERIFY(pane.contains(QStringLiteral("nearTopEnterDistance")));
+        QVERIFY(pane.contains(QStringLiteral("nearTopExitDistance")));
+        QVERIFY(!pane.contains(QStringLiteral("nearTopEnterY")));
+        QVERIFY(!pane.contains(QStringLiteral("nearTopExitY")));
+        for (const QString &raw :
+                 { QStringLiteral("contentY <= nearTopEnterDistance"),
+                   QStringLiteral("contentY >= nearTopExitDistance"),
+                   QStringLiteral("contentY < nearTopEnterDistance"),
+                   QStringLiteral("contentY > nearTopExitDistance") }) {
+            QVERIFY2(!pane.contains(raw),
+                     qPrintable(QStringLiteral(
+                         "near-top proximity compared against raw contentY "
+                         "(\"%1\"); contentY is an offset from a moving originY, "
+                         "so this is not a proximity test — use "
+                         "distanceFromTop()").arg(raw)));
+        }
+        // Both bands, and the gesture-settle re-arm, read the corrected measure.
+        QVERIFY(pane.contains(QStringLiteral("fromTop <= nearTopEnterDistance")));
+        QVERIFY(pane.contains(QStringLiteral("fromTop >= nearTopExitDistance")));
+        QVERIFY(pane.contains(QStringLiteral(
+            "<= timeline.nearTopEnterDistance")));
+        // The progress gate lives at the DISPATCH site, not on the settle
+        // re-arm. Guarding only the re-arm was wrong twice over: an upward
+        // gesture re-armed the latch and the next DOWNWARD gesture consumed it
+        // and fetched, and a reader parked at the exact top could never re-arm
+        // because contentY is at its minimum there and cannot decrease. Both
+        // conditions live in the distanceFromTop() frame.
+        QVERIFY(pane.contains(QStringLiteral("nearTopRequestDistance")));
+        QVERIFY(pane.contains(QStringLiteral("fromTop <= 1")));
+        QVERIFY(pane.contains(QStringLiteral(
+            "fromTop < nearTopRequestDistance - 1")));
+        // The baseline must RATCHET to the closest approach, on every in-band
+        // sample — not merely record the distance at the last dispatch. Without
+        // this, everything between the top and the dispatch point stays unpaid
+        // and a later downward sample fetches, which is the reported defect
+        // surviving its own fix.
+        QVERIFY(pane.contains(QStringLiteral(
+            "if (fromTop < nearTopRequestDistance)")));
+        QVERIFY2(!pane.contains(QStringLiteral("nearTopRequestY")),
+                 "the progress baseline must not live in the raw contentY frame");
         QVERIFY(!pane.contains(QStringLiteral(
             "readonly property int paginationState")));
         QVERIFY(!pane.contains(QStringLiteral("showPaginationStatus")));

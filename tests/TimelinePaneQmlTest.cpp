@@ -10,6 +10,8 @@
 // room-switch presentation states.
 #include <QtTest/QtTest>
 
+#include <limits>
+
 #include <QGuiApplication>
 #include <QClipboard>
 #include <QWheelEvent>
@@ -2929,6 +2931,323 @@ private Q_SLOTS:
                      "a top-edge prepend moved the reader off their row "
                      "mid-gesture: viewport offset %1 -> %2 (the teleport "
                      "cascade)").arg(offsetBefore).arg(offsetAfter)));
+        QCOMPARE(warnings, QStringList{});
+    }
+
+    // The reported loading storm: "it keeps loading old messages each time I
+    // scroll up ... and down", with the lag and jitter that come with it. A
+    // live trace showed one deliberate upward gesture producing a burst of four
+    // near_top batches, and the SAME burst after a DOWNWARD gesture.
+    //
+    // Root cause: near-top proximity was measured as `contentY <= height/2`.
+    // contentY is not a distance from anything — it is an offset from originY,
+    // and originY is arbitrary and MOVES as history loads. So the comparison
+    // was not a weak proximity test, it was not a proximity test at all, and it
+    // failed in either direction depending on where originY sat. Live it
+    // answered "near the top" everywhere once a page had landed: the enter test
+    // was permanently true, the exit test unreachable, and the gesture-settle
+    // re-arm therefore fired after EVERY gesture in either direction, each one
+    // resetting the controller's filtered-page bound to buy four more batches.
+    //
+    // What this test can and cannot prove, stated plainly because the fixture's
+    // originY is what decides it:
+    //   * measured here, originY sits POSITIVE (~2484 with the reader at the top
+    //     of loaded history), so the old comparison under-triggered in this
+    //     fixture rather than over-triggering as it did live. The
+    //     "downward gesture must not re-arm" assertion is therefore a
+    //     regression guard here, not a reproduction of the live defect;
+    //   * the final assertion — continued UPWARD movement still re-arms — DOES
+    //     fail on the old code in this fixture, because the old comparison never
+    //     re-armed at a positive originY at all;
+    //   * the mechanism itself (every band compared against distanceFromTop(),
+    //     never raw contentY) is pinned by a text scan in
+    //     QmlBindingContractTest, which no choice of fixture geometry can make
+    //     vacuous. That scan is the primary guard; this test proves the geometry
+    //     and the behaviour agree with it.
+    void nearTopProximityIsMeasuredFromLoadedHistoryNotAbsoluteContentY()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        auto *mock = controller.findChild<MockMatrixClient *>();
+        QVERIFY(mock != nullptr);
+        const QString roomId = QStringLiteral("!general:mock.local");
+        controller.setCurrentRoomId(roomId);
+
+        QList<TimelineEvent> events;
+        for (int i = 0; i < 30; ++i) {
+            TimelineEvent e;
+            e.sender = QStringLiteral("@alice:mock.local");
+            e.senderDisplayName = QStringLiteral("Alice");
+            e.body = QStringLiteral("history message %1").arg(i);
+            e.timestamp =
+                QDateTime::currentDateTimeUtc().addSecs(-(60 - i) * 60);
+            e.type = TimelineEvent::TextMessage;
+            e.status = TimelineEvent::Sent;
+            events.append(e);
+        }
+        mock->resetTimelineForTest(roomId, events, /*paginationPages=*/6);
+        // A production-sized page (PAGINATION_BATCH = 20) of WRAPPING rows, so
+        // the batch moves originY by much more than the band width. The default
+        // 3-short-row mock page would leave the two measures within noise of
+        // each other and the test could not tell them apart.
+        QList<TimelineEvent> chunk;
+        for (int i = 0; i < 20; ++i) {
+            TimelineEvent e;
+            e.sender = QStringLiteral("@carol:mock.local");
+            e.senderDisplayName = QStringLiteral("Carol");
+            e.body = QStringLiteral(
+                "older backfilled message %1 — deliberately long enough to "
+                "wrap to several lines so the prepended batch moves originY by "
+                "far more than one near-top band width").arg(i);
+            e.timestamp =
+                QDateTime::currentDateTimeUtc().addSecs(-(600 + i) * 60);
+            e.type = TimelineEvent::TextMessage;
+            e.status = TimelineEvent::Sent;
+            chunk.append(e);
+        }
+        mock->setPaginationChunkForTest(chunk);
+
+        QQmlApplicationEngine engine;
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this,
+                [&warnings](const QList<QQmlError> &errors) {
+                    for (const auto &e : errors) warnings << e.toString();
+                });
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("TimelinePane"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(root != nullptr);
+        QQuickWindow window;
+        window.resize(760, 620);
+        root->setParentItem(window.contentItem());
+        root->setSize(QSizeF(window.width(), window.height()));
+        window.show();
+
+        auto *timeline = root->findChild<QQuickItem *>(
+            QStringLiteral("timelineListView"));
+        QVERIFY(timeline != nullptr);
+        QTRY_VERIFY_WITH_TIMEOUT(
+            timeline->property("presentationReady").toBool(), kSignalTimeoutMs);
+        QTRY_VERIFY_WITH_TIMEOUT(timeline->property("count").toInt() >= 30,
+                                 kSignalTimeoutMs);
+        QTRY_VERIFY_WITH_TIMEOUT(!controller.pagination()->busy(),
+                                 kSignalTimeoutMs);
+
+        // wheelMinY(), i.e. the topmost reachable contentY. Read from the
+        // Flickable's own properties so the test measures Qt's geometry rather
+        // than trusting a QML helper to agree with it.
+        const auto topmostY = [timeline] {
+            return timeline->property("originY").toDouble()
+                   - timeline->property("topMargin").toDouble();
+        };
+        const auto bandWidth = [timeline] {
+            return timeline->property("nearTopEnterDistance").toDouble();
+        };
+
+        QVERIFY(timeline->setProperty("stickToBottom", false));
+        QVERIFY(QMetaObject::invokeMethod(timeline, "positionViewAtBeginning"));
+        QCoreApplication::processEvents();
+        const double topBefore = topmostY();
+
+        // At the top of loaded history: both measures agree that the reader is
+        // near the top, and the edge latches exactly once.
+        QVERIFY(timeline->setProperty("nearTopArmed", true));
+        QVERIFY(QMetaObject::invokeMethod(timeline, "checkNearTopEdge",
+                                          Q_ARG(QVariant, QVariant(true))));
+        QVERIFY2(!timeline->property("nearTopArmed").toBool(),
+                 "an approach to the top must consume the latch");
+
+        QSignalSpy completedSpy(controller.pagination(),
+                               &PaginationController::paginationCompleted);
+        controller.pagination()->requestNearTop(/*userInitiated=*/true);
+        QTRY_VERIFY_WITH_TIMEOUT(!completedSpy.isEmpty(), kSignalTimeoutMs);
+        QTRY_VERIFY_WITH_TIMEOUT(
+            timeline->property("contentY").toDouble() - topmostY()
+                > bandWidth(),
+            kSignalTimeoutMs);
+
+        const double contentY = timeline->property("contentY").toDouble();
+        const double fromTop = contentY - topmostY();
+        qInfo("top-edge batch geometry: topmostY %g -> %g, contentY %g, "
+              "distance %g, band %g",
+              topBefore, topmostY(), contentY, fromTop, bandWidth());
+
+        // The reader now has a whole batch of history above them, so they are
+        // NOT near the top — whichever coordinate Qt moved to absorb the
+        // batch. This is what the fix reads.
+        QVERIFY2(fromTop > bandWidth(),
+                 qPrintable(QStringLiteral(
+                     "a landed batch left the reader classified 'near the top' "
+                     "(distance %1 <= band %2) — every further gesture would "
+                     "re-arm and buy four more batches")
+                     .arg(fromTop).arg(bandWidth())));
+        QVariant reported;
+        QVERIFY(QMetaObject::invokeMethod(timeline, "distanceFromTop",
+                                          Q_RETURN_ARG(QVariant, reported)));
+        const double reportedDistance = reported.toDouble();
+        QVERIFY2(qAbs(reportedDistance - fromTop) < 1.0,
+                 qPrintable(QStringLiteral(
+                     "distanceFromTop() (%1) must agree with Qt's own geometry "
+                     "(%2)").arg(reportedDistance).arg(fromTop)));
+
+        // ── the progress gate, at the DISPATCH site ──────────────────────
+        // The gate lives in checkNearTopEdge(), not on the gesture-settle
+        // re-arm. Putting it on the re-arm was wrong twice over: an upward
+        // gesture re-armed the latch and the next DOWNWARD gesture consumed it
+        // and fetched anyway, and a reader parked at the exact top could never
+        // re-arm at all (contentY is at its minimum there, so "must have moved
+        // further up" is unsatisfiable). So the settle re-arm is now
+        // unconditional within the band — an armed latch that a downward sample
+        // cannot consume is harmless — and these assertions target consumption.
+        //
+        // No further page may LAND during this phase: one would move the top and
+        // invalidate the probe positions. Pages stay AVAILABLE (the settle
+        // re-arm is suppressed once history is exhausted, which would make this
+        // vacuous); they simply never complete.
+        mock->setPaginationDelayForTest(60000);
+        QVERIFY2(!controller.pagination()->reachedStart(),
+                 "premise: backfill must still be available");
+        QVERIFY(QMetaObject::invokeMethod(timeline, "positionViewAtBeginning"));
+        QCoreApplication::processEvents();
+        // Every probe below must stay INSIDE the band, including the downward
+        // one — the band is only ~232 px here (half the ListView height, not
+        // half the window), so leave room for the +40 excursion.
+        const double probeBase = 120;
+        const double probeStep = 40;
+        QVERIFY2(probeBase + probeStep < bandWidth(),
+                 qPrintable(QStringLiteral(
+                     "fixture: every probe must sit inside the band (max %1 vs "
+                     "band %2)").arg(probeBase + probeStep).arg(bandWidth())));
+        const double inBand = topmostY() + probeBase;
+        QVERIFY(timeline->setProperty("contentY", inBand));
+        QCoreApplication::processEvents();
+
+        auto *settleTimer = timeline->findChild<QObject *>(
+            QStringLiteral("scrollSettleTimer"));
+        QVERIFY(settleTimer != nullptr);
+        // checkNearTopEdge() short-circuits to "re-arm and return" when
+        // stickToBottom is true, which would make every "did not consume"
+        // assertion below pass vacuously. atBottomEdge() is known to be
+        // frame-confused in the same way this round fixes (it omits originY —
+        // recorded as a follow-up, not touched here), so with the positive
+        // originY this fixture has, assert the premise rather than trust it.
+        const auto notFollowingBottom = [timeline] {
+            return !timeline->property("stickToBottom").toBool();
+        };
+        QVERIFY2(notFollowingBottom(),
+                 "premise: these probes require stickToBottom == false");
+        const auto armAndCheck = [timeline] {
+            timeline->setProperty("nearTopArmed", true);
+            QCoreApplication::processEvents();
+            QMetaObject::invokeMethod(timeline, "checkNearTopEdge",
+                                      Q_ARG(QVariant, QVariant(true)));
+            // Consumed == dispatched. Still armed == the gate refused.
+            return !timeline->property("nearTopArmed").toBool();
+        };
+
+        // A first approach with no baseline yet consumes the latch and records
+        // its distance.
+        QVERIFY(timeline->setProperty("nearTopRequestDistance",
+                                      std::numeric_limits<double>::infinity()));
+        QVERIFY2(armAndCheck(), "a fresh approach must dispatch");
+        QCOMPARE(timeline->property("nearTopRequestDistance").toDouble(), probeBase);
+
+        // Now DOWNWARD, still inside the band. The settle re-arms (expected and
+        // harmless), but the dispatch must refuse — this is the reported "it
+        // keeps loading old messages ... when I scroll down".
+        QVERIFY(timeline->setProperty("contentY", inBand + probeStep));
+        QCoreApplication::processEvents();
+        QVERIFY(QMetaObject::invokeMethod(settleTimer, "restart"));
+        QTRY_VERIFY_WITH_TIMEOUT(!settleTimer->property("running").toBool(),
+                                 kSignalTimeoutMs);
+        QVERIFY2(timeline->property("nearTopArmed").toBool(),
+                 "the settle re-arm is deliberately unconditional in the band");
+        // The settle ran updateStickAndPaginate(), the one thing here that can
+        // flip stickToBottom. Re-assert before the refusal check.
+        QVERIFY2(notFollowingBottom(),
+                 "the settle re-pinned follow-latest; the refusal check below "
+                 "would pass vacuously");
+        QVERIFY2(!armAndCheck(),
+                 "a DOWNWARD sample inside the band consumed the latch and "
+                 "fetched a page — history loads while scrolling down");
+
+        // Continuing UP past the last request dispatches again, so "keep
+        // scrolling up" still means "keep loading".
+        QVERIFY(timeline->setProperty("contentY", inBand - probeStep));
+        QCoreApplication::processEvents();
+        QVERIFY2(armAndCheck(), "continued upward progress must still dispatch");
+        QCOMPARE(timeline->property("nearTopRequestDistance").toDouble(),
+                 probeBase - probeStep);
+
+        // Pinned against the exact top with the baseline already AT the top:
+        // "must have come closer" is unsatisfiable there, so without the
+        // pinned-at-top clause this reader can never load again — the stranding
+        // case the reviewer caught. Being unable to scroll further up IS the
+        // intent; the controller's strike bound is what throttles from here.
+        QVERIFY(timeline->setProperty("contentY", topmostY()));
+        QCoreApplication::processEvents();
+        QVariant atTopDistance;
+        QVERIFY(QMetaObject::invokeMethod(timeline, "distanceFromTop",
+                                          Q_RETURN_ARG(QVariant, atTopDistance)));
+        QVERIFY2(atTopDistance.toDouble() <= 1.0,
+                 qPrintable(QStringLiteral(
+                     "premise: the probe must be pinned at the top (distance %1)")
+                     .arg(atTopDistance.toDouble())));
+        QVERIFY(timeline->setProperty("nearTopRequestDistance", 0.0));
+        QVERIFY2(armAndCheck(),
+                 "a reader pinned at the exact top could not dispatch — history "
+                 "is unreachable at the one place they most want it");
+
+        // ── the baseline must RATCHET, not record the last dispatch ───────
+        // The ordinary sequence, and the one the first version of this gate
+        // still got wrong: an upward gesture dispatches on band ENTRY, carries
+        // on much closer to the top WITHOUT dispatching again (the latch is
+        // already consumed), settles, and is followed by a downward gesture.
+        // If the baseline only remembered the DISPATCH distance, everything
+        // between the top and that point stayed unpaid and the downward sample
+        // fetched — the reported defect surviving its own fix. The baseline must
+        // therefore track the CLOSEST approach, including on samples that did
+        // not dispatch.
+        const double entry = 200;
+        const double deep = 40;
+        const double backOff = 45;   // closer than `entry`, farther than `deep`
+        QVERIFY2(entry < bandWidth(),
+                 "fixture: the entry probe must sit inside the band");
+        QVERIFY(timeline->setProperty("nearTopRequestDistance",
+                                      std::numeric_limits<double>::infinity()));
+        QVERIFY(timeline->setProperty("contentY", topmostY() + entry));
+        QCoreApplication::processEvents();
+        QVERIFY2(armAndCheck(), "band entry must dispatch");
+
+        // Same gesture continues up. The latch is spent, so this must NOT
+        // dispatch — but it MUST lower the baseline.
+        QVERIFY(timeline->setProperty("contentY", topmostY() + deep));
+        QCoreApplication::processEvents();
+        QVERIFY(QMetaObject::invokeMethod(timeline, "checkNearTopEdge",
+                                          Q_ARG(QVariant, QVariant(true))));
+        const double ratcheted =
+            timeline->property("nearTopRequestDistance").toDouble();
+        QVERIFY2(qFuzzyCompare(ratcheted, deep),
+                 qPrintable(QStringLiteral(
+                     "the baseline did not ratchet to the closest approach "
+                     "(%1, expected %2) — the region between the top and the "
+                     "last dispatch stays unpaid, so a later downward sample "
+                     "fetches").arg(ratcheted).arg(deep)));
+
+        // Now the downward gesture. Its sample is closer to the top than the
+        // last DISPATCH (200) but farther than the closest approach (40), so it
+        // must refuse. Without the ratchet it would fetch.
+        QVERIFY(timeline->setProperty("contentY", topmostY() + backOff));
+        QCoreApplication::processEvents();
+        QVERIFY2(!armAndCheck(),
+                 "a downward sample inside the region already traversed "
+                 "consumed the latch — 'scroll up near the top, then scroll "
+                 "down a little' still loads history");
         QCOMPARE(warnings, QStringList{});
     }
 

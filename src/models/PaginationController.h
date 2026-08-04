@@ -30,9 +30,12 @@ struct TimelineEvent;
 //     complete into the newly shown timeline;
 //   * explicit retry after a transient failure.
 //
-// QML drives it with requestViewportFill() / requestNearTop() / retry() and
-// listens to paginationCompleted(insertedCount, reachedStart) to restore the
-// scroll anchor after a prepend (final anchor QML belongs to 0.5.11 UI work).
+// QML drives it with requestViewportFill() / requestNearTop() / retry().
+// It does NOT listen to paginationCompleted: since v0.7.2 the timeline keeps
+// ONE position-preserving mechanism (TimelinePane.qml's view anchor, driven by
+// coalesced content-height changes regardless of why height changed), so there
+// is no pagination-specific restore step to trigger. The signal survives as the
+// controller's completion contract for tests and any future consumer.
 //
 // Never logs message bodies, room ids, or URLs — only reasons, counts and
 // generations.
@@ -124,18 +127,20 @@ public:
     { m_maxAutomaticRetries = attempts; m_autoRetryBaseDelayMs = baseDelayMs; }
     void setHighlightDurationForTest(int durationMs)
     { m_highlightDurationMs = durationMs; }
+    void setNearTopContinuationDelayForTest(int delayMs)
+    { m_nearTopContinuationDelayMs = delayMs; }
 
 Q_SIGNALS:
     void roomIdChanged();
     void stateChanged();
     // One completed backward batch for the CURRENT room and generation.
-    // insertedCount is the number of events prepended by this batch.
-    // willContinue: THIS completion already scheduled a near-top
-    // continuation batch (zero visible rows, start not reached, strike
-    // budget left). The anchor logic keeps its capture only while that is
-    // true — a terminal, latched, or budget-exhausted empty completion
-    // must release it or async-growth anchoring stays disabled for the
-    // rest of the room visit.
+    // insertedCount is what the reader actually gained: the larger of the
+    // prepends this controller observed and the rows the model grew by (see
+    // batchRowGrowth() for why the two disagree on the real backend).
+    // willContinue: THIS completion scheduled a bounded near-top continuation
+    // (zero rows gained, start not reached, strike budget left). That
+    // continuation still re-checks row growth before dispatching, so
+    // willContinue=true means "scheduled", not "will certainly fetch".
     void paginationCompleted(int insertedCount, bool reachedStart,
                              bool willContinue);
     void targetLocated(int row, qreal pixelOffset, bool highlight);
@@ -167,10 +172,22 @@ private:
     void finishBatch(bool reachedStart);
     // Bounded auto-continuation after a NearTop page that advanced the SDK
     // back-pagination cursor but produced no visible rows (thread-only /
-    // hidden history). Schedules exactly one more NearTop request on the next
-    // event-loop turn while under the empty-strike bound, so filtered history
-    // is paged through a strictly bounded number of times instead of spinning.
+    // hidden history). Schedules exactly one more NearTop request while under
+    // the empty-strike bound, so filtered history is paged through a strictly
+    // bounded number of times instead of spinning. Re-checks real model
+    // progress before dispatching — see batchRowGrowth().
     void scheduleNearTopContinuation();
+    // Rows the timeline model actually gained since the active batch was
+    // dispatched. THE authoritative progress measure for the near-top
+    // continuation, because the signal-counted m_batchInserted is not
+    // trustworthy on the real backend: it only counts eventsPrepended /
+    // eventInsertedAt(index 0) seen inside the request window, and the Rust
+    // bridge delivers a batch's item diffs from a task independent of the one
+    // that reports pagination idle, through a 100 ms poll that is capped per
+    // drain. A page that really did add twenty messages can therefore still be
+    // classified "no visible rows" — and four such pages per approach is the
+    // reported "it keeps loading old messages each time I scroll up".
+    int batchRowGrowth() const;
     void scheduleAutomaticRetry();
     void continueNavigation(bool reachedStart);
     void failNavigation();
@@ -187,6 +204,9 @@ private:
     bool m_requestActive = false;
     Reason m_activeReason = Reason::None;
     int m_batchInserted = 0;
+    // Model row count when the active batch was dispatched. See
+    // batchRowGrowth().
+    int m_batchStartRows = 0;
     QSet<QString> m_batchStableIds;
     bool m_deferredFill = false;
     bool m_completionPending = false;
@@ -208,6 +228,17 @@ private:
     // events. Bounds passive geometry-driven backfill; reset by a user gesture,
     // any batch that adds content, reaching the start, or a room (re)open.
     int m_nearTopEmptyStrikes = 0;
+    // How long the bounded continuation waits before dispatching. Long enough
+    // for one more 100 ms bridge poll to deliver a batch's item diffs, so
+    // batchRowGrowth() can cancel a continuation the page did not need.
+    int m_nearTopContinuationDelayMs = 250;
+    // A bounded continuation is scheduled and has not yet run. Folded into
+    // busy() so presentationState() stays Loading across the gap: without it
+    // the pagination overlay collapses to 0 px and re-expands once per chained
+    // page, which is a new visible flicker in a round about jitter. (The
+    // overlay is a sibling of the ListView, never list content, so it cannot
+    // move timeline geometry either way — this is purely cosmetic.)
+    bool m_continuationPending = false;
 
     NavigationPurpose m_navigationPurpose = NavigationPurpose::None;
     QString m_navigationEventId;

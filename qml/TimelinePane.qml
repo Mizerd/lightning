@@ -822,8 +822,35 @@ Rectangle {
                         // same coalesced turn, its height is included here
                         // too. That is one row's worth, versus a full-view
                         // sweep per batch.
+                        //
+                        // POSITIVE net only. `grew` is a WHOLE-CONTENT delta, so
+                        // a negative value is dominated by either ListView's
+                        // average-size estimate for rows it has not built or a
+                        // below-viewport shrink — and neither is something this
+                        // quantity can correct for. (Not "a negative can never
+                        // be a displacement": +1000 above the reader coalesced
+                        // with -1200 below yields -200 while a real displacement
+                        // happened. Applying -200 would then be wrong by 1200;
+                        // applying 0 is wrong by 1000. Skipping is the better of
+                        // two approximations, not an exact answer.)
+                        //
+                        // A live trace of an upward scroll through a media-heavy
+                        // room showed contentHeight swinging ±17000 px across
+                        // single gestures with no model change at all, with the
+                        // correction counter spiking on exactly those gestures.
+                        // Feeding that noise into contentY is itself jitter.
+                        // A skipped shrink is ABSORBED at settle, not repaired:
+                        // captureViewAnchor() records `contentY - it.y` as the
+                        // new offset, i.e. it accepts wherever the reader now is
+                        // as correct. So the cost is bounded and one-time, while
+                        // over-correcting on noise is visible every frame.
+                        // viewAnchorLastY is deliberately NOT advanced in the
+                        // skipped case: in the dominant pure-noise case the
+                        // row's own y has not moved, so leaving the baseline
+                        // alone yields delta 0 when the delegate returns —
+                        // advancing it would MANUFACTURE a jump there.
                         var grew = contentHeight - viewAnchorContentHeight
-                        if (Math.abs(grew) > 0.5) {
+                        if (grew > 0.5) {
                             if (diagActive)
                                 diagGrowthCorrections += 1
                             contentY += grew
@@ -1189,7 +1216,8 @@ Rectangle {
                         + " anchorCorrections=" + diagAnchorCorrections
                         + " growthCorrections=" + diagGrowthCorrections
                         + " stick=" + (stickToBottom ? 1 : 0)
-                        + " nearTop=" + (contentY <= nearTopEnterY ? 1 : 0))
+                        + " topDist=" + Math.round(distanceFromTop())
+                        + " nearTop=" + (distanceFromTop() <= nearTopEnterDistance ? 1 : 0))
                 }
 
                 // Valid contentY range for this ListView, accounting for the
@@ -1266,21 +1294,97 @@ Rectangle {
                 // continuation through filtered pages. A successful visible
                 // prepend pushes the reader well below the exit band (older rows
                 // now sit above), which naturally re-arms for the next approach.
-                readonly property real nearTopEnterY: height * 0.5
-                readonly property real nearTopExitY: height * 0.9
+                // DISTANCES from the earliest loaded row, not contentY
+                // thresholds — the ...Distance names are deliberate. The
+                // previous ...Y names invited exactly the frame confusion
+                // described below, which is the whole of this defect.
+                readonly property real nearTopEnterDistance: height * 0.5
+                readonly property real nearTopExitDistance: height * 0.9
                 property bool nearTopArmed: true
+                // How far the viewport top sits BELOW the earliest loaded row.
+                // The proximity bands MUST be measured against this and never
+                // against raw contentY, because contentY is not a distance from
+                // anything: it is an offset from originY, and originY is an
+                // arbitrary value that MOVES as history loads and as ListView
+                // re-estimates the rows it has not built.
+                //
+                // MEASURED, in the offscreen fixture: originY sat at ~+2484
+                // with the reader at the very TOP of loaded history, so
+                // `contentY <= height/2` was permanently FALSE there — standing
+                // exactly at the top did not register as near the top at all,
+                // and the latch was never consumed.
+                // INFERRED, from the user's live trace: it sat far enough the
+                // other way that raw contentY stayed inside the band through all
+                // of loaded history, so the enter test was permanently true and
+                // the exit test unreachable. (The trace logged netY/dContentH,
+                // not originY. The inference is that a gesture moving +1869 px
+                // AWAY from the top still reported nearTop=1, and atYBeginning
+                // only fires on a false->true edge, so the band itself must have
+                // been true there. Treat it as a strong inference, not a
+                // measurement.)
+                //
+                // Both are the same fact: `contentY <= height/2` was not a weak
+                // proximity test, it was not a proximity test at all, and which
+                // way it failed depended on where originY happened to sit. Live
+                // it over-triggered, so the settle re-arm fired after EVERY
+                // gesture in either direction and each re-arm reset the
+                // controller's filtered-page bound to buy four more batches —
+                // the reported "it keeps loading old messages each time I scroll
+                // up ... and down", and that loading storm is what the lag and
+                // jitter were made of.
+                function distanceFromTop() { return contentY - wheelMinY() }
+                // The CLOSEST distanceFromTop() reached during this visit to the
+                // band — a ratchet, not "the distance at the last dispatch".
+                // The difference is the whole guarantee: with only the dispatch
+                // distance recorded, an upward gesture that dispatched on band
+                // ENTRY (say 225) and then carried on up to 40 left everything
+                // between 40 and 225 unpaid, so the next DOWNWARD gesture's
+                // first sample at 45 satisfied `45 < 224` and fetched. That is
+                // the ordinary "scroll up to near the top, then scroll down a
+                // little" sequence, i.e. the reported defect surviving its own
+                // fix. Ratcheting to the closest approach makes the invariant
+                // real: only motion strictly closer to the top than the reader
+                // has already been can fetch.
+                // Reset to Infinity on leaving via the exit band or on returning
+                // to the bottom, because a landed page moves the top and a fresh
+                // approach is owed a fresh baseline.
+                property real nearTopRequestDistance: Infinity
                 function checkNearTopEdge(userInitiated) {
                     if (stickToBottom) {
                         nearTopArmed = true
+                        nearTopRequestDistance = Infinity
                         return
                     }
-                    if (contentY <= nearTopEnterY) {
-                        if (nearTopArmed) {
+                    var fromTop = distanceFromTop()
+                    if (fromTop <= nearTopEnterDistance) {
+                        // The progress gate lives HERE, at the dispatch, not on
+                        // the gesture-settle re-arm below. Guarding only the
+                        // re-arm left the reported symptom reachable: an upward
+                        // gesture re-armed the latch, and the next DOWNWARD
+                        // gesture then consumed it and fetched a page. Consuming
+                        // the latch requires either being pinned against the top
+                        // (nothing further up to scroll to — the reader cannot
+                        // express the intent any more strongly, and this is the
+                        // one place they most want history) or having come
+                        // strictly closer to the top than the reader has ALREADY
+                        // BEEN this visit. Because the baseline below is a
+                        // ratchet, a downward sample can satisfy neither.
+                        if (nearTopArmed
+                            && (fromTop <= 1
+                                || fromTop < nearTopRequestDistance - 1)) {
                             nearTopArmed = false
                             maybeRequestNearTop(userInitiated)
                         }
-                    } else if (contentY >= nearTopExitY) {
+                        // Ratchet AFTER the gate has read the old value, and on
+                        // every in-band sample — including the ones that did not
+                        // dispatch because the latch was already consumed. Those
+                        // are exactly the samples whose omission left the region
+                        // between the top and the last dispatch unpaid.
+                        if (fromTop < nearTopRequestDistance)
+                            nearTopRequestDistance = fromTop
+                    } else if (fromTop >= nearTopExitDistance) {
                         nearTopArmed = true
+                        nearTopRequestDistance = Infinity
                     }
                 }
 
@@ -1417,9 +1521,18 @@ Rectangle {
                         // exists for (one request per deliberate gesture,
                         // never a per-frame spin) while letting "keep
                         // scrolling up" keep meaning "keep loading".
+                        // Re-arming here is unconditional within the band on
+                        // purpose: checkNearTopEdge() owns the progress gate, so
+                        // an armed latch a downward gesture cannot consume is
+                        // harmless. Putting the direction test HERE instead was
+                        // wrong twice over — it left an upward-then-downward
+                        // sequence able to fetch, and it permanently stranded a
+                        // reader parked at the exact top, where contentY is at
+                        // its minimum and can never decrease further.
                         if (!timeline.stickToBottom
                             && !app.pagination.reachedStart
-                            && timeline.contentY <= timeline.nearTopEnterY)
+                            && timeline.distanceFromTop()
+                               <= timeline.nearTopEnterDistance)
                             timeline.nearTopArmed = true
                         // The single gesture-settle point for both the touchpad
                         // and mouse-engine paths (the engine's settle restarts
@@ -1706,6 +1819,7 @@ Rectangle {
                         // edge so the first genuine approach to the top of the
                         // new room triggers backfill.
                         timeline.nearTopArmed = true
+                        timeline.nearTopRequestDistance = Infinity
                         timeline.expandedStateGroups = ({})
                         // Re-engage the presentation gate for the fresh
                         // snapshot. Recompute only after this whole signal

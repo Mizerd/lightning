@@ -80,6 +80,19 @@ public:
         Q_EMIT paginationStateChanged(roomId);
         QCoreApplication::processEvents();
     }
+    // Rows that reach the MODEL without the shape PaginationController counts
+    // (eventsPrepended / eventInsertedAt at index 0). This is the production
+    // case on the Rust backend: a batch's item diffs come from a task
+    // independent of the one that reports pagination idle, through a capped
+    // 100 ms poll, so they can miss the controller's request window entirely
+    // while the reader plainly sees them.
+    void insertUnattributed(const QString &roomId, int count)
+    {
+        for (int i = 0; i < count; ++i)
+            Q_EMIT eventInsertedAt(
+                roomId, 1,
+                makeEvent(QStringLiteral("$unattributed%1:example.org").arg(i)));
+    }
     void failBatch(const QString &roomId, bool transient = false)
     {
         states[roomId].loading = false;
@@ -480,6 +493,11 @@ private Q_SLOTS:
         PaginationController controller;
         controller.setClient(&client);
         controller.setRoomId(kRoomA);
+        // These drive the bounded continuation synchronously with
+        // processEvents(); production paces it with a delay so real row
+        // growth can be re-checked first (see
+        // nearTopContinuationKeysOnRealRowGrowthNotPrependSignals).
+        controller.setNearTopContinuationDelayForTest(0);
 
         // One completed initial fill so later NearTop is not redirected to fill.
         controller.requestViewportFill();
@@ -506,10 +524,13 @@ private Q_SLOTS:
             QCoreApplication::processEvents();      // fire the continuation
         }
         QCOMPARE(dispatched, 4); // kMaxNearTopEmptyStrikes: one approach, 4 pages
-        // willContinue tells the anchor logic whether THIS empty completion
-        // already scheduled the run's next batch: true for the first three
-        // strikes, false for the latching fourth — the release signal that
-        // keeps a latched run from stranding a scroll-anchor capture.
+        // willContinue reports whether THIS empty completion scheduled the run's
+        // next batch: true for the first three strikes, false for the latching
+        // fourth. No anchor logic listens any more (TimelinePane.qml keeps ONE
+        // position-preserving mechanism and consumes no pagination signal); it
+        // remains the controller's own completion contract, and it now means
+        // "scheduled", not "will certainly fetch" — the continuation re-checks
+        // real row growth before dispatching.
         QCOMPARE(completions.count(), 4);
         for (int i = 0; i < 4; ++i)
             QCOMPARE(completions.at(i).at(2).toBool(), i < 3);
@@ -544,6 +565,11 @@ private Q_SLOTS:
         PaginationController controller;
         controller.setClient(&client);
         controller.setRoomId(kRoomA);
+        // These drive the bounded continuation synchronously with
+        // processEvents(); production paces it with a delay so real row
+        // growth can be re-checked first (see
+        // nearTopContinuationKeysOnRealRowGrowthNotPrependSignals).
+        controller.setNearTopContinuationDelayForTest(0);
 
         controller.requestViewportFill();
         client.beginLoading(kRoomA);
@@ -590,6 +616,11 @@ private Q_SLOTS:
         PaginationController controller;
         controller.setClient(&client);
         controller.setRoomId(kRoomA);
+        // These drive the bounded continuation synchronously with
+        // processEvents(); production paces it with a delay so real row
+        // growth can be re-checked first (see
+        // nearTopContinuationKeysOnRealRowGrowthNotPrependSignals).
+        controller.setNearTopContinuationDelayForTest(0);
 
         controller.requestViewportFill();
         client.beginLoading(kRoomA);
@@ -613,6 +644,127 @@ private Q_SLOTS:
         for (int i = 0; i < 5; ++i)
             QCoreApplication::processEvents();
         QCOMPARE(client.loadOlderCalls, afterVisible);
+    }
+
+    // The reported loading storm: "it keeps loading old messages each time I
+    // scroll up, so that causes the lag and jitter". A live trace showed
+    // "completed added=0 reached_start=false" on EVERY page and four pages per
+    // approach, in a room that was visibly filling with history — so the
+    // "filtered page" classification the continuation rests on was wrong, and
+    // the continuation was buying batches nobody needed.
+    //
+    // The fix keys the classification on rows the reader actually gained. All
+    // three cases matter: growth visible when the batch completes, growth that
+    // lands during the continuation's window, and a genuinely filtered page
+    // that must still be paged through.
+    void nearTopContinuationKeysOnRealRowGrowthNotPrependSignals()
+    {
+        FakeClient client;
+        TimelineModel model;
+        model.setClient(&client);
+        model.setRoomId(kRoomA);
+        PaginationController controller;
+        controller.setClient(&client);
+        controller.setTimelineModel(&model);
+        controller.setRoomId(kRoomA);
+        controller.setNearTopContinuationDelayForTest(40);
+
+        // Initial history, so NearTop is not redirected to the initial fill and
+        // the unattributed inserts below have somewhere to land.
+        controller.requestViewportFill();
+        client.beginLoading(kRoomA);
+        client.completeBatch(kRoomA, 5, false);
+        QCOMPARE(model.rowCount(), 5);
+        int calls = client.loadOlderCalls;
+
+        // (1) The rows are in the model by the time the batch completes. One
+        // deliberate approach must cost exactly ONE batch.
+        controller.requestNearTop(true);
+        QCOMPARE(client.loadOlderCalls, calls + 1);
+        calls = client.loadOlderCalls;
+        client.beginLoading(kRoomA);
+        client.insertUnattributed(kRoomA, 20);
+        client.completeBatch(kRoomA, 0, false); // no prepend signals at all
+        QCOMPARE(model.rowCount(), 25);
+        QTest::qWait(80);
+        QVERIFY2(client.loadOlderCalls == calls,
+                 qPrintable(QStringLiteral(
+                     "a page that added 20 rows still bought %1 more batches")
+                     .arg(client.loadOlderCalls - calls)));
+
+        // (2) The rows land only AFTER the batch was classified — the async
+        // case the continuation delay exists for. The continuation must cancel
+        // itself rather than fetch a page the reader did not need.
+        controller.requestNearTop(true);
+        QCOMPARE(client.loadOlderCalls, calls + 1);
+        calls = client.loadOlderCalls;
+        client.beginLoading(kRoomA);
+        client.completeBatch(kRoomA, 0, false); // classified as filtered...
+        client.insertUnattributed(kRoomA, 20);  // ...then the rows arrive
+        QTest::qWait(120);
+        QCOMPARE(model.rowCount(), 45);
+        QVERIFY2(client.loadOlderCalls == calls,
+                 qPrintable(QStringLiteral(
+                     "a late-delivered page still bought %1 more batches")
+                     .arg(client.loadOlderCalls - calls)));
+
+        // (3) A page that genuinely produced nothing (thread-only / hidden
+        // history) must still continue, or filtered history is stranded and the
+        // reader can never reach past it.
+        controller.requestNearTop(true);
+        QCOMPARE(client.loadOlderCalls, calls + 1);
+        calls = client.loadOlderCalls;
+        const int rowsBefore = model.rowCount();
+        client.beginLoading(kRoomA);
+        client.completeBatch(kRoomA, 0, false);
+        QTRY_COMPARE(client.loadOlderCalls, calls + 1);
+        QCOMPARE(model.rowCount(), rowsBefore);
+    }
+
+    // The PRODUCTION delay, with no test override. Every other test overrides
+    // it, so without this a regression setting the default to 0 (restoring the
+    // four-batches-per-approach amplification) or to something enormous
+    // (stalling filtered backfill) would pass the whole suite. Asserts the
+    // default is long enough to observe a late row delivery — the real Rust
+    // bridge ordering, where a batch's item diffs arrive from a task
+    // independent of the one reporting pagination idle, through a 100 ms poll.
+    void continuationDelayDefaultOutlivesALateRowDelivery()
+    {
+        FakeClient client;
+        TimelineModel model;
+        model.setClient(&client);
+        model.setRoomId(kRoomA);
+        PaginationController controller;
+        controller.setClient(&client);
+        controller.setTimelineModel(&model);
+        controller.setRoomId(kRoomA);
+        // No setNearTopContinuationDelayForTest() — this is the shipped value.
+
+        controller.requestViewportFill();
+        client.beginLoading(kRoomA);
+        client.completeBatch(kRoomA, 4, false);
+        const int calls = client.loadOlderCalls;
+
+        controller.requestNearTop(true);
+        QCOMPARE(client.loadOlderCalls, calls + 1);
+        client.beginLoading(kRoomA);
+        client.completeBatch(kRoomA, 0, false); // classified as filtered...
+
+        // The continuation must still be pending here: if the default were 0 it
+        // would already have dispatched, and the reader would be paying for a
+        // page the batch had in fact delivered.
+        QCOMPARE(client.loadOlderCalls, calls + 1);
+        QVERIFY2(controller.busy(),
+                 "a scheduled continuation must keep the loading state up, or "
+                 "the pagination overlay blinks once per chained page");
+
+        client.insertUnattributed(kRoomA, 12); // ...then the rows land, late
+        QTest::qWait(600);
+        QCOMPARE(model.rowCount(), 16);
+        QCOMPARE(client.loadOlderCalls, calls + 1);
+        QVERIFY2(!controller.busy(),
+                 "the cancelled continuation must clear the loading state, not "
+                 "strand it visible for the rest of the room visit");
     }
 
     void progressResetsNoProgressStrikes()
