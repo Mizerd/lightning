@@ -11,7 +11,7 @@ provides synchronisation, timelines, end-to-end encryption, threads, and media.
 > formally audited or certified — expect rough edges and occasional regressions.
 
 [![Licence: GPL-3.0-or-later](https://img.shields.io/badge/licence-GPL--3.0--or--later-blue.svg)](LICENSE)
-[![Latest release](https://img.shields.io/badge/release-v0.6.4-2f6be0.svg)](https://gitlab.smetonis.net/Mizerd/lightning/-/releases)
+[![Latest release](https://img.shields.io/badge/release-v0.6.5-2f6be0.svg)](https://gitlab.smetonis.net/Mizerd/lightning/-/releases)
 [![Qt 6](https://img.shields.io/badge/Qt-6.5%2B-41CD52.svg)](https://www.qt.io/)
 [![matrix-rust-sdk](https://img.shields.io/badge/matrix--rust--sdk-0.18-000000.svg)](https://github.com/matrix-org/matrix-rust-sdk)
 [![Platform: Linux](https://img.shields.io/badge/platform-Linux-FCC624.svg)](https://www.kernel.org/)
@@ -25,7 +25,9 @@ provides synchronisation, timelines, end-to-end encryption, threads, and media.
 
 > The screenshots on this page are taken from Lightning's development-only
 > [screenshot-demo mode](#screenshot-demo-mode) and show fictional `*.example`
-> accounts and locally generated media — not real conversations.
+> accounts and locally generated media — not real conversations. They were
+> captured before the 0.6.5 Storm design refresh, so current builds look
+> somewhat different.
 
 ## Contents
 
@@ -46,9 +48,10 @@ provides synchronisation, timelines, end-to-end encryption, threads, and media.
 ## Overview
 
 Lightning aims to be a responsive, native desktop Matrix experience rather than
-a web view: a four-pane shell (Spaces rail, room list, timeline, side panel),
-SDK-backed encryption, modern room and thread workflows, efficient timeline
-navigation, and native desktop integration — all under an open-source licence.
+a web view: a four-pane shell (Spaces rail, room list, timeline, side panel)
+with a cohesive design language (Storm, as of 0.6.5), SDK-backed encryption,
+modern room and thread workflows, efficient timeline navigation, and native
+desktop integration — all under an open-source licence.
 
 Matrix behaviour (login, sync, timelines, E2EE, media) is owned entirely by the
 official Rust Matrix SDK; Lightning does not implement its own Matrix
@@ -68,7 +71,8 @@ still developing, some workflows remain experimental.
 - Scoped account removal and logout that never touch other accounts
 - Joined rooms, direct messages, invites, and Matrix Space hierarchy navigation
 - Room creation, member lists and roles, room-profile editing, and invites
-- Keyboard quick-switch (Ctrl-K) across rooms, DMs, Spaces, and invites, plus
+- Keyboard quick switcher (Ctrl-K) with a **navigate mode** across rooms, DMs,
+  Spaces, and invites and a **command mode** (`>`) with scope chips, plus
   search across the currently loaded timeline
 
 ### Messaging and timelines
@@ -78,8 +82,14 @@ still developing, some workflows remain experimental.
 - **MSC3381 polls** — vote, change your vote, and see live tallies
 - Unread and mention states, marked-unread, first-unread and jump-to-latest
   navigation, and backward pagination
-- Member profile popovers and room-details panel
-- Smooth mouse-wheel and touchpad scrolling with per-room position preservation
+- Display names resolved everywhere the member roster knows them — mentions,
+  reply headers, and thread summary cards — with the roster hydrated on room
+  open
+- Content-width reply cards, quiet edge-bar mention highlighting, and member
+  profile popovers with Copy ID, plus a room-details panel
+- Smooth mouse-wheel and touchpad scrolling with per-room position
+  preservation, and a reading position that survives history loading — older
+  messages and image pop-in no longer shove the view around
 
 ### Threads
 
@@ -102,18 +112,32 @@ still developing, some workflows remain experimental.
 
 - Encrypted send/receive through the Rust Matrix SDK, with automatic key
   handling, late in-place decryption, and manual retry
-- SAS emoji device verification and read-only session-trust information
+- SAS emoji device verification **in both directions** (either device may
+  initiate) and read-only session-trust information, including a Trust card
+  bound to real crypto-health state
 - Secure Backup recovery-key or passphrase restore and encrypted room-key import
 - Crypto health, recovery, and diagnostics controls in Settings
+- A sanitized support-diagnostics export (hashed account identifiers, no
+  paths, no tokens), offered from the sign-in repair flow when a
+  session-store failure is detected
 
 ### Desktop experience and personalization
 
-- Ten complete, WCAG-AA-tested semantic themes — Moss Light, Indigo Night, Deep
-  Teal (the design-handoff set that *System* follows), plus Lightning Light/Dark,
-  Graphite, Midnight, Nordic, Purple Dusk, and Warm — persistent and
-  live-switching, with a message-layout selector and text-size scaling (all
-  per-account)
-- Bundled Manrope and JetBrains Mono fonts and five selectable UI fonts
+- The **Storm design language** (new in 0.6.5) across the whole menu system:
+  redesigned context menus with keycap accelerators and a quick-reaction strip,
+  a per-room notifications flyout, redesigned emoji/GIF pickers and mention
+  popup, identity cards in the account switcher, and dialogs (new conversation,
+  invite people, create poll) in one shared visual language
+- Eleven complete, WCAG-AA-tested semantic themes — **Storm** (the deep-navy,
+  bolt-yellow brand theme; *System* resolves to Storm in dark mode and Moss
+  Light in light mode), Moss Light, Indigo Night, Deep Teal, plus Lightning
+  Light/Dark, Graphite, Midnight, Nordic, Purple Dusk, and Warm — persistent
+  and live-switching, with a message-layout selector and text-size scaling
+  (all per-account)
+- A searchable full-view Settings screen with featured theme cards and the
+  Trust card embedded in Sessions
+- Bundled Manrope, JetBrains Mono, and Space Grotesk (brand) fonts, and five
+  selectable UI fonts
 - Native freedesktop notifications with mentions, per-room modes, active-room
   suppression, privacy modes, and sounds
 - Responsive layouts from narrow to wide, a local Unicode emoji picker, an
@@ -164,7 +188,7 @@ published to its GitLab Package Registry.
 - **macOS** is not currently supported.
 
 The authoritative per-release list of artifacts is the release notes — for
-example [`docs/releases/v0.6.4.md`](docs/releases/v0.6.4.md) — and the Releases
+example [`docs/releases/v0.6.5.md`](docs/releases/v0.6.5.md) — and the Releases
 page itself. Packaging, cross-platform builds, publishing, and verification are
 maintained in a separate automation project,
 [**lightning-deploy**](https://gitlab.smetonis.net/Mizerd/lightning-deploy); this
