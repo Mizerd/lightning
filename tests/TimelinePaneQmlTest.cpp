@@ -2934,6 +2934,200 @@ private Q_SLOTS:
         QCOMPARE(warnings, QStringList{});
     }
 
+    // Regression guard, not a proof of a fix: a HELD near-top run with
+    // several consecutive real batches, each large enough to displace the
+    // anchor past the cache buffer exactly like
+    // topEdgePrependKeepsReaderOnTheSameRowMidGesture, checked AFTER EVERY
+    // batch rather than only at the end. The double-counting test
+    // (consecutivePaginationBatchesEachCompensateWithoutDoubleCounting)
+    // samples once before the whole run and once after it, so it cannot by
+    // itself distinguish "each batch re-based its own displacement as it
+    // landed" from "nothing was corrected until the run ended, then one
+    // shift paid for all of it" — both leave the same before/after totals.
+    // This test samples the reader's viewport offset between every batch
+    // instead. It PASSES on the current mechanism (maintainViewAnchor()'s
+    // exit paths already resync viewAnchorContentHeight to current truth on
+    // every coalesced onContentHeightChanged tick, independent of how a
+    // batch was dispatched), so it is not evidence that a live jitter
+    // report is fixed or even reproduced — the deterministic mock harness
+    // used here cannot manufacture the ListView contentHeight estimate
+    // churn a real, media-heavy room produces (2735bb3's own trace measured
+    // swings of thousands of pixels "with no model change at all", which
+    // this fixture has no mechanism to generate). Its purpose is narrower
+    // and honest: catch a FUTURE regression that reintroduces visible
+    // per-batch drift in the one respect this harness CAN observe.
+    void nearTopHeldRunCompensatesEveryBatchNotJustTheFinalOne()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        auto *mock = controller.findChild<MockMatrixClient *>();
+        QVERIFY(mock != nullptr);
+        const QString roomId = QStringLiteral("!general:mock.local");
+        controller.setCurrentRoomId(roomId);
+        mock->setPaginationDelayForTest(60);
+
+        QList<TimelineEvent> events;
+        for (int i = 0; i < 30; ++i) {
+            TimelineEvent e;
+            e.sender = QStringLiteral("@alice:mock.local");
+            e.senderDisplayName = QStringLiteral("Alice");
+            e.body = QStringLiteral("history message %1").arg(i);
+            e.timestamp =
+                QDateTime::currentDateTimeUtc().addSecs(-(60 - i) * 60);
+            e.type = TimelineEvent::TextMessage;
+            e.status = TimelineEvent::Sent;
+            events.append(e);
+        }
+        // One page for the initial viewport fill plus one spare (so a
+        // startup fill that ever needs a second page cannot starve the
+        // run), then three near-top batches this test drives explicitly
+        // while a gesture is held. The spare also keeps the last sampled
+        // batch away from the reached-start transition.
+        constexpr int kBatches = 3;
+        mock->resetTimelineForTest(roomId, events,
+                                   /*paginationPages=*/2 + kBatches);
+        QList<TimelineEvent> chunk;
+        for (int i = 0; i < 20; ++i) {
+            TimelineEvent e;
+            e.sender = QStringLiteral("@carol:mock.local");
+            e.senderDisplayName = QStringLiteral("Carol");
+            e.body = QStringLiteral(
+                "older backfilled message %1 — deliberately long so the row "
+                "wraps to several lines and each prepended batch displaces "
+                "the reader's anchor well beyond the ListView cache buffer, "
+                "reproducing the real top-edge geometry of a sustained "
+                "near-top loading run rather than a compact synthetic one")
+                .arg(i);
+            e.timestamp =
+                QDateTime::currentDateTimeUtc().addSecs(-(600 + i) * 60);
+            e.type = TimelineEvent::TextMessage;
+            e.status = TimelineEvent::Sent;
+            chunk.append(e);
+        }
+        mock->setPaginationChunkForTest(chunk);
+
+        QQmlApplicationEngine engine;
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this,
+                [&warnings](const QList<QQmlError> &errors) {
+                    for (const auto &e : errors) warnings << e.toString();
+                });
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("TimelinePane"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(root != nullptr);
+        QQuickWindow window;
+        window.resize(760, 620);
+        root->setParentItem(window.contentItem());
+        root->setSize(QSizeF(window.width(), window.height()));
+        window.show();
+
+        auto *timeline = root->findChild<QQuickItem *>(
+            QStringLiteral("timelineListView"));
+        QVERIFY(timeline != nullptr);
+        QTRY_VERIFY_WITH_TIMEOUT(
+            timeline->property("presentationReady").toBool(), kSignalTimeoutMs);
+        QTRY_VERIFY_WITH_TIMEOUT(timeline->property("count").toInt() >= 30,
+                                 kSignalTimeoutMs);
+        QTRY_VERIFY_WITH_TIMEOUT(!controller.pagination()->busy(),
+                                 kSignalTimeoutMs);
+
+        QVERIFY(timeline->setProperty("stickToBottom", false));
+        QVERIFY(QMetaObject::invokeMethod(timeline, "positionViewAtBeginning"));
+        QCoreApplication::processEvents();
+        QVERIFY(QMetaObject::invokeMethod(timeline, "captureViewAnchor"));
+        const QString anchorId = timeline->property("viewAnchorId").toString();
+        QVERIFY2(!anchorId.isEmpty(), "the fixture must yield a live anchor");
+
+        int rowBefore = controller.timeline()->rowForStableId(anchorId);
+        QVERIFY(rowBefore >= 0);
+        QQuickItem *itemBefore = nullptr;
+        QVERIFY(QMetaObject::invokeMethod(
+            timeline, "itemAtIndex", Q_RETURN_ARG(QQuickItem *, itemBefore),
+            Q_ARG(int, rowBefore)));
+        QVERIFY(itemBefore != nullptr);
+        double offsetBefore =
+            itemBefore->y() - timeline->property("contentY").toDouble();
+
+        auto *settleTimer = timeline->findChild<QObject *>(
+            QStringLiteral("scrollSettleTimer"));
+        QVERIFY(settleTimer != nullptr);
+        GestureHold gesture(settleTimer);
+        QVERIFY(timeline->property("userScrollActive").toBool());
+        QVERIFY2(!timeline->property("moving").toBool(),
+                 "this is the self-driven path, not a native drag");
+
+        const double cacheBufferPx = 800.0;
+        for (int batch = 0; batch < kBatches; ++batch) {
+            const double heightBeforeBatch =
+                timeline->property("contentHeight").toDouble();
+            QSignalSpy completedSpy(controller.pagination(),
+                                   &PaginationController::paginationCompleted);
+            controller.pagination()->requestNearTop();
+            QTRY_VERIFY_WITH_TIMEOUT(!completedSpy.isEmpty(), kSignalTimeoutMs);
+            QVERIFY2(completedSpy.constFirst().at(0).toInt() > 0,
+                     "fixture assumption: each near-top page must insert rows");
+
+            double heightGrowth = 0;
+            QTRY_VERIFY_WITH_TIMEOUT(
+                (heightGrowth = timeline->property("contentHeight").toDouble()
+                                - heightBeforeBatch,
+                 heightGrowth > cacheBufferPx + timeline->height()),
+                kSignalTimeoutMs);
+            QVERIFY2(heightGrowth > cacheBufferPx + timeline->height(),
+                     qPrintable(QStringLiteral(
+                         "batch %1: fixture no longer displaces the anchor "
+                         "past the cache buffer (growth %2 <= %3) — this "
+                         "test would pass on broken code")
+                         .arg(batch).arg(heightGrowth)
+                         .arg(cacheBufferPx + timeline->height())));
+
+            const int rowAfter = controller.timeline()->rowForStableId(anchorId);
+            QVERIFY2(rowAfter > rowBefore,
+                     "fixture assumption: the prepend must shift the row index");
+
+            // Sample the offset RIGHT AFTER this single batch settles its own
+            // onContentHeightChanged reaction — before the next batch is
+            // even requested. A future mechanism that defers per-batch
+            // compensation to one end-of-run shift would fail this per-batch
+            // sample even though the whole-run before/after comparison in the
+            // sibling test would still pass — that per-batch view is what
+            // this guard adds.
+            double offsetAfter = 0;
+            QTRY_VERIFY_WITH_TIMEOUT(
+                ([&] {
+                    QQuickItem *itemAfter = nullptr;
+                    QMetaObject::invokeMethod(
+                        timeline, "itemAtIndex",
+                        Q_RETURN_ARG(QQuickItem *, itemAfter),
+                        Q_ARG(int, rowAfter));
+                    if (!itemAfter)
+                        return false;
+                    offsetAfter = itemAfter->y()
+                        - timeline->property("contentY").toDouble();
+                    return qAbs(offsetAfter - offsetBefore) < 2.0;
+                }()),
+                kSignalTimeoutMs);
+            QVERIFY2(qAbs(offsetAfter - offsetBefore) < 2.0,
+                     qPrintable(QStringLiteral(
+                         "batch %1 of %2: a near-top prepend during a held "
+                         "run moved the reader off their row before the run "
+                         "ended: viewport offset %3 -> %4 (compensation "
+                         "deferred instead of applied per batch)")
+                         .arg(batch + 1).arg(kBatches)
+                         .arg(offsetBefore).arg(offsetAfter)));
+
+            rowBefore = rowAfter;
+            offsetBefore = offsetAfter;
+        }
+        QCOMPARE(warnings, QStringList{});
+    }
+
     // The reported loading storm: "it keeps loading old messages each time I
     // scroll up ... and down", with the lag and jitter that come with it. A
     // live trace showed one deliberate upward gesture producing a burst of four
