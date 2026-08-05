@@ -2451,6 +2451,291 @@ private Q_SLOTS:
         QCOMPARE(warnings, QStringList{});
     }
 
+    // Read-receipt chips: empty list = zero footprint (the strip stays
+    // invisible and adds no height), a populated list renders a bounded
+    // stack of 4 avatar chips + a "+N" overflow chip, and the strip carries
+    // one accessible/tooltip summary line. Two independent engine loads —
+    // swapping the "model" context property after load triggers Repeater
+    // instantiation inside the context-replacement cascade, where document
+    // ids do not resolve (a harness artifact; the live path delivers role
+    // updates through dataChanged inside a real ListView, the same
+    // mechanism reaction chips already use).
+    void readReceiptChipsRenderBoundedAndCollapseWhenEmpty()
+    {
+        // Repeater-created delegates have a VISUAL parent but no QObject
+        // parent in the item tree, so findChildren() cannot see them —
+        // count them by walking childItems() instead.
+        const auto visualChildrenByName =
+            [](QQuickItem *root, const QString &name) {
+                QList<QQuickItem *> out;
+                QList<QQuickItem *> stack{root};
+                while (!stack.isEmpty()) {
+                    QQuickItem *item = stack.takeLast();
+                    const auto kids = item->childItems();
+                    for (QQuickItem *k : kids) {
+                        if (k->objectName() == name)
+                            out.append(k);
+                        stack.append(k);
+                    }
+                }
+                return out;
+            };
+
+        AppController controller(AppController::MockBackend);
+        QVariantMap fixture;
+        const auto roles = controller.timeline()->roleNames();
+        for (auto it = roles.cbegin(); it != roles.cend(); ++it)
+            fixture.insert(QString::fromUtf8(it.value()), QVariant{});
+        fixture.insert(QStringLiteral("isVirtual"), false);
+        fixture.insert(QStringLiteral("isStateActivity"), false);
+        fixture.insert(QStringLiteral("stateGroupEntries"), QVariantList{});
+        fixture.insert(QStringLiteral("showSenderIdentity"), true);
+        fixture.insert(QStringLiteral("itemId"), QString{});
+        fixture.insert(QStringLiteral("eventId"), QString{});
+        fixture.insert(QStringLiteral("sender"),
+                       QStringLiteral("@fixture:mock.local"));
+        fixture.insert(QStringLiteral("senderDisplayName"),
+                       QStringLiteral("Fixture"));
+        fixture.insert(QStringLiteral("senderInitials"), QStringLiteral("F"));
+        fixture.insert(QStringLiteral("body"),
+                       QStringLiteral("Receipt fixture body"));
+        fixture.insert(QStringLiteral("eventType"), 0);
+        fixture.insert(QStringLiteral("status"), 0);
+        fixture.insert(QStringLiteral("isOwn"), false);
+        fixture.insert(QStringLiteral("replyToEventId"), QString{});
+        fixture.insert(QStringLiteral("timestamp"),
+                       QDateTime::currentDateTimeUtc());
+        fixture.insert(QStringLiteral("undecryptable"), false);
+        fixture.insert(QStringLiteral("redacted"), false);
+        fixture.insert(QStringLiteral("isImage"), false);
+        fixture.insert(QStringLiteral("isFile"), false);
+        fixture.insert(QStringLiteral("reactions"), QVariantList{});
+
+        QStringList warnings;
+        const auto loadDelegate =
+            [this, &controller, &warnings](
+                QQmlApplicationEngine &engine,
+                const QVariantMap &model, qreal width) -> QQuickItem * {
+            connect(&engine, &QQmlEngine::warnings, this,
+                    [&warnings](const QList<QQmlError> &errors) {
+                        for (const auto &e : errors)
+                            warnings << e.toString();
+                    });
+            engine.rootContext()->setContextProperty("app", &controller);
+            engine.rootContext()->setContextProperty("model", model);
+            QSignalSpy createdSpy(&engine,
+                                  &QQmlApplicationEngine::objectCreated);
+            engine.loadFromModule(QStringLiteral("MatrixClient"),
+                                  QStringLiteral("MessageDelegate"));
+            if (createdSpy.isEmpty()
+                && !createdSpy.wait(kSignalTimeoutMs))
+                return nullptr;
+            auto *root = qobject_cast<QQuickItem *>(
+                createdSpy.at(0).at(0).value<QObject *>());
+            if (root == nullptr)
+                return nullptr;
+            root->setWidth(width);
+            QCoreApplication::processEvents();
+            return root;
+        };
+
+        // Load 1 — no receipts: invisible strip, no chips, empty summary.
+        // An invisible child adds no ColumnLayout height, so an unread
+        // message keeps exactly its previous geometry.
+        qreal emptyHeight = 0.0;
+        {
+            QQmlApplicationEngine engine;
+            QVariantMap empty = fixture;
+            empty.insert(QStringLiteral("readReceipts"), QVariantList{});
+            QQuickItem *root = loadDelegate(engine, empty, 1400);
+            QVERIFY(root != nullptr);
+            auto *strip = root->findChild<QQuickItem *>(
+                QStringLiteral("readReceiptStrip"));
+            QVERIFY(strip != nullptr);
+            QVERIFY(!strip->isVisible());
+            QVERIFY(visualChildrenByName(root,
+                                         QStringLiteral("readReceiptChip"))
+                        .isEmpty());
+            QCOMPARE(strip->property("summary").toString(), QString{});
+            emptyHeight = root->implicitHeight();
+            QVERIFY(emptyHeight > 0.0);
+        }
+
+        // Load 2 — six readers (uncapped total 6): 4 avatar chips + "+2"
+        // overflow, newest-first list as the model delivers it, one
+        // summary line for the tooltip and the accessible name. Loaded
+        // WIDE (1400px) so the content column's 760px cap engages and the
+        // chip stack must trail the COLUMN's right edge, not float at the
+        // row's far edge hundreds of pixels from the text.
+        QVariantList receipts;
+        const QStringList names = {
+            QStringLiteral("Alice"), QStringLiteral("Bob"),
+            QStringLiteral("Carol"), QStringLiteral("Dave"),
+            QStringLiteral("Erin"), QStringLiteral("Frank"),
+        };
+        for (int i = 0; i < names.size(); ++i) {
+            QVariantMap r;
+            r.insert(QStringLiteral("userId"),
+                     QStringLiteral("@u%1:mock.local").arg(i));
+            r.insert(QStringLiteral("displayName"), names.at(i));
+            r.insert(QStringLiteral("avatarMxc"), QString{});
+            r.insert(QStringLiteral("tsMs"),
+                     Q_INT64_C(1700000000000) - i * 1000);
+            receipts.append(r);
+        }
+        {
+            QQmlApplicationEngine engine;
+            QVariantMap populated = fixture;
+            populated.insert(QStringLiteral("readReceipts"), receipts);
+            populated.insert(QStringLiteral("readReceiptsTotal"), 6);
+            QQuickItem *root = loadDelegate(engine, populated, 1400);
+            QVERIFY(root != nullptr);
+            auto *strip = root->findChild<QQuickItem *>(
+                QStringLiteral("readReceiptStrip"));
+            QVERIFY(strip != nullptr);
+            QVERIFY(strip->isVisible());
+            QCOMPARE(visualChildrenByName(root,
+                                          QStringLiteral("readReceiptChip"))
+                         .size(),
+                     4);
+            auto *overflow = root->findChild<QQuickItem *>(
+                QStringLiteral("readReceiptOverflow"));
+            QVERIFY(overflow != nullptr);
+            QVERIFY(overflow->isVisible());
+            QCOMPARE(overflow->childItems().first()
+                         ->property("text").toString(),
+                     QStringLiteral("+2"));
+            QCOMPARE(strip->property("summary").toString(),
+                     QStringLiteral("Read by Alice, Bob and 4 others"));
+            // The populated strip is the only geometry difference between
+            // the two loads.
+            QVERIFY(root->implicitHeight() > emptyHeight);
+
+            // Geometry: the chip stack's right edge sits exactly on the
+            // content column's right edge (the same geometry the message
+            // body occupies), far from the 1400px row edge.
+            auto *column = root->findChild<QQuickItem *>(
+                QStringLiteral("messageContentColumn"));
+            auto *chipRow = strip->findChild<QQuickItem *>(
+                QStringLiteral("readReceiptRow"));
+            QVERIFY(column != nullptr);
+            QVERIFY(chipRow != nullptr);
+            const qreal columnRight =
+                column->mapToScene(QPointF(column->width(), 0)).x();
+            const qreal chipsRight =
+                chipRow->mapToScene(QPointF(chipRow->width(), 0)).x();
+            QCOMPARE(chipsRight, columnRight);
+            QVERIFY(chipsRight < 1400.0 - 100.0);
+        }
+
+        QCOMPARE(warnings, QStringList{});
+    }
+
+    // SDK receipt tracking (required for the receipt chips) also revives
+    // the SDK's ReadMarker virtual row. While the reader is pinned to the
+    // bottom, the own-receipt ack cycle would bounce the 28px "New
+    // messages" divider in and out under every incoming message — so the
+    // divider must render COLLAPSED while stickToBottom holds, and appear
+    // only for a reader who scrolled up.
+    void newMessagesDividerCollapsesWhilePinnedToBottom()
+    {
+        AppController controller(AppController::MockBackend);
+        const QString roomId = loginAndRoomIdAt(controller, /*row=*/0);
+        QVERIFY(!roomId.isEmpty());
+        auto *mock = controller.findChild<MockMatrixClient *>();
+        QVERIFY(mock != nullptr);
+        controller.setCurrentRoomId(roomId);
+
+        QQmlApplicationEngine engine;
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this,
+                [&warnings](const QList<QQmlError> &errors) {
+                    for (const auto &e : errors)
+                        warnings << e.toString();
+                });
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("TimelinePane"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(root != nullptr);
+        QQuickWindow window;
+        window.resize(760, 620);
+        root->setParentItem(window.contentItem());
+        root->setSize(QSizeF(window.width(), window.height()));
+        window.show();
+
+        // Stage a short timeline with the SDK-style read marker between
+        // the read part and one unread message (all rows fit on screen).
+        const QDateTime base =
+            QDateTime::currentDateTimeUtc().addSecs(-600);
+        QList<TimelineEvent> events;
+        for (int i = 0; i < 3; ++i) {
+            TimelineEvent e;
+            e.eventId = QStringLiteral("$m%1").arg(i);
+            e.itemId = QStringLiteral("uid-m%1").arg(i);
+            e.roomId = roomId;
+            e.sender = QStringLiteral("@alice:mock.local");
+            e.body = QStringLiteral("message %1").arg(i);
+            e.timestamp = base.addSecs(i * 60);
+            events.append(e);
+        }
+        TimelineEvent marker;
+        marker.itemId = QStringLiteral("uid-marker");
+        marker.roomId = roomId;
+        marker.type = TimelineEvent::ReadMarker;
+        events.append(marker);
+        TimelineEvent unread;
+        unread.eventId = QStringLiteral("$unread");
+        unread.itemId = QStringLiteral("uid-unread");
+        unread.roomId = roomId;
+        unread.sender = QStringLiteral("@bob:mock.local");
+        unread.body = QStringLiteral("the unread one");
+        unread.timestamp = base.addSecs(300);
+        events.append(unread);
+        mock->resetTimelineForTest(roomId, events, /*paginationPages=*/0);
+
+        auto *timeline = root->findChild<QQuickItem *>(
+            QStringLiteral("timelineListView"));
+        QVERIFY(timeline != nullptr);
+        QTRY_VERIFY_WITH_TIMEOUT(
+            timeline->property("presentationReady").toBool(), 5000);
+        QVERIFY(timeline->property("stickToBottom").toBool());
+
+        QQuickItem *markerItem = nullptr;
+        QTRY_VERIFY_WITH_TIMEOUT(
+            (QMetaObject::invokeMethod(timeline, "itemAtIndex",
+                                       Q_RETURN_ARG(QQuickItem *, markerItem),
+                                       Q_ARG(int, 3)),
+             markerItem != nullptr),
+            5000);
+        auto *divider = markerItem->findChild<QQuickItem *>(
+            QStringLiteral("unreadDivider"));
+        QVERIFY(divider != nullptr);
+
+        // Pinned to the bottom: the marker row exists but renders as
+        // nothing — no divider, zero height, no layout bounce when the
+        // ack cycle inserts/removes it.
+        QVERIFY(!divider->isVisible());
+        QCOMPARE(markerItem->implicitHeight(), 0.0);
+
+        // A reader who scrolled up (bottom-follow disengaged) gets the
+        // divider back.
+        QVERIFY(timeline->setProperty("stickToBottom", false));
+        QTRY_VERIFY_WITH_TIMEOUT(divider->isVisible(), 2000);
+        QVERIFY(markerItem->implicitHeight() >= 28.0);
+
+        // Returning to the bottom collapses it again.
+        QVERIFY(timeline->setProperty("stickToBottom", true));
+        QTRY_VERIFY_WITH_TIMEOUT(!divider->isVisible(), 2000);
+        QCOMPARE(markerItem->implicitHeight(), 0.0);
+
+        QCOMPARE(warnings, QStringList{});
+    }
+
     void threadScrollMotionIsIsolatedFromRoomTimeline()
     {
         AppController controller(AppController::MockBackend);

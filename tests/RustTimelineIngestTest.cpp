@@ -69,6 +69,9 @@ private Q_SLOTS:
     void parsesLocalEchoStates();
     void parsesVirtualItems();
     void parsesReactionsAndReply();
+    // Read-receipt chips: read_by parsing and Set-diff movement.
+    void parsesReadReceipts();
+    void readReceiptsMoveBetweenRowsViaSet();
     void parsesThreadSummary();
     void threadSummaryAbsentKeepsFallbackContract();
     void threadPanelIngestPreservesReplies();
@@ -456,6 +459,102 @@ void RustTimelineIngestTest::parsesReactionsAndReply()
                                "@brotato:example.org) tai jo"));
     const TimelineEvent m = eventFromItemJson(item, kRoom);
     QCOMPARE(m.replyToPreview, QStringLiteral("Grok AI tai jo"));
+}
+
+void RustTimelineIngestTest::parsesReadReceipts()
+{
+    QJsonObject item = itemJson(QStringLiteral("uid1"), QStringLiteral("$ev1"),
+                                QStringLiteral("hello"));
+    QJsonArray readBy;
+    QJsonObject bob;
+    bob.insert(QStringLiteral("user_id"), QStringLiteral("@bob:example.org"));
+    bob.insert(QStringLiteral("ts"), 1700000123000.0);
+    readBy.append(bob);
+    // A receipt without a timestamp serializes ts as null → tsMs stays 0.
+    QJsonObject carol;
+    carol.insert(QStringLiteral("user_id"),
+                 QStringLiteral("@carol:example.org"));
+    carol.insert(QStringLiteral("ts"), QJsonValue::Null);
+    readBy.append(carol);
+    // Malformed entries: no user id, or not an object at all — dropped,
+    // never an empty-identity chip.
+    QJsonObject noUser;
+    noUser.insert(QStringLiteral("ts"), 1700000000000.0);
+    readBy.append(noUser);
+    readBy.append(QStringLiteral("not an object"));
+    item.insert(QStringLiteral("read_by"), readBy);
+
+    const TimelineEvent e = eventFromItemJson(item, kRoom);
+    QCOMPARE(e.readBy.size(), 2);
+    QCOMPARE(e.readBy.at(0).userId, QStringLiteral("@bob:example.org"));
+    QCOMPARE(e.readBy.at(0).tsMs, Q_INT64_C(1700000123000));
+    QCOMPARE(e.readBy.at(1).userId, QStringLiteral("@carol:example.org"));
+    QCOMPARE(e.readBy.at(1).tsMs, Q_INT64_C(0));
+    // No read_by_total → clamps to the delivered list size.
+    QCOMPARE(e.readByTotal, 2);
+
+    // The uncapped total rides along when present (capped-window shape)…
+    item.insert(QStringLiteral("read_by_total"), 40);
+    QCOMPARE(eventFromItemJson(item, kRoom).readByTotal, 40);
+    // …and an inconsistent lower-than-list total clamps up so "+N" can
+    // never undercount what is visibly delivered.
+    item.insert(QStringLiteral("read_by_total"), 1);
+    QCOMPARE(eventFromItemJson(item, kRoom).readByTotal, 2);
+
+    // Absent fields keep the empty defaults (thread timelines and every
+    // pre-receipt payload).
+    const TimelineEvent plain = eventFromItemJson(
+        itemJson(QStringLiteral("uid2"), QStringLiteral("$ev2"),
+                 QStringLiteral("plain")), kRoom);
+    QVERIFY(plain.readBy.isEmpty());
+    QCOMPARE(plain.readByTotal, 0);
+}
+
+// The SDK attaches each user's receipt to the LATEST item it applies to, so
+// a receipt advancing arrives as two Set diffs: the old row loses the entry,
+// the new row gains it. Full-row replacement must carry the field both ways.
+void RustTimelineIngestTest::readReceiptsMoveBetweenRowsViaSet()
+{
+    QJsonObject older = itemJson(QStringLiteral("uidA"), QStringLiteral("$a"),
+                                 QStringLiteral("first"));
+    QJsonObject bobReceipt;
+    bobReceipt.insert(QStringLiteral("user_id"),
+                      QStringLiteral("@bob:example.org"));
+    bobReceipt.insert(QStringLiteral("ts"), 1700000001000.0);
+    older.insert(QStringLiteral("read_by"), QJsonArray{ bobReceipt });
+    QJsonArray items;
+    items.append(older);
+    items.append(itemJson(QStringLiteral("uidB"), QStringLiteral("$b"),
+                          QStringLiteral("second")));
+    auto mirror = eventsFromItemArray(items, kRoom);
+    QCOMPARE(mirror.at(0).readBy.size(), 1);
+    QVERIFY(mirror.at(1).readBy.isEmpty());
+
+    // Bob reads the newer message: Set(0) without read_by, Set(1) with it.
+    QJsonObject clearOld = diffJson(QStringLiteral("set"));
+    clearOld.insert(QStringLiteral("index"), 0);
+    clearOld.insert(QStringLiteral("item"),
+                    itemJson(QStringLiteral("uidA"), QStringLiteral("$a"),
+                             QStringLiteral("first")));
+    QCOMPARE(applyTimelineDiff(mirror, clearOld, kRoom).kind,
+             DiffOutcome::Changed);
+
+    QJsonObject newer = itemJson(QStringLiteral("uidB"), QStringLiteral("$b"),
+                                 QStringLiteral("second"));
+    bobReceipt.insert(QStringLiteral("ts"), 1700000002000.0);
+    newer.insert(QStringLiteral("read_by"), QJsonArray{ bobReceipt });
+    QJsonObject setNew = diffJson(QStringLiteral("set"));
+    setNew.insert(QStringLiteral("index"), 1);
+    setNew.insert(QStringLiteral("item"), newer);
+    QCOMPARE(applyTimelineDiff(mirror, setNew, kRoom).kind,
+             DiffOutcome::Changed);
+
+    QCOMPARE(mirror.size(), 2); // in place — no duplicate rows
+    QVERIFY(mirror.at(0).readBy.isEmpty());
+    QCOMPARE(mirror.at(1).readBy.size(), 1);
+    QCOMPARE(mirror.at(1).readBy.first().userId,
+             QStringLiteral("@bob:example.org"));
+    QCOMPARE(mirror.at(1).readBy.first().tsMs, Q_INT64_C(1700000002000));
 }
 
 // v0.6.0: SDK thread-summary fields on a thread root item.

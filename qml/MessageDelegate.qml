@@ -226,7 +226,21 @@ Item {
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
             spacing: AppTheme.spacingS
+            // SDK receipt tracking (which the receipt chips require) also
+            // revives the SDK's ReadMarker virtual row. While the reader
+            // is pinned to the bottom, the own-receipt ack cycle
+            // (~800ms ReadReceiptCoordinator debounce) would insert this
+            // divider above every incoming message and remove it a moment
+            // later — a 28px layout bounce under a live conversation. So
+            // the divider renders ONLY when the reader is NOT following
+            // the bottom (scrolled up = genuinely catching up). Standalone
+            // hosts without a timeline ListView (fixtures, previews) keep
+            // it visible.
+            readonly property bool suppressedWhilePinned:
+                root.ListView.view
+                && root.ListView.view.stickToBottom === true
             visible: root.isVirtualRow && model.eventType === 8
+                     && !suppressedWhilePinned
             // v0.6.5: reads unreadBadge, not accent — this divider is the
             // same "unread" semantic as every numeric unread badge in the
             // app, and it renders once per unread boundary in the visible
@@ -275,6 +289,7 @@ Item {
     }
 
     Rectangle {
+        id: rowHighlight
         visible: !root.isVirtualRow && !root.isStateActivity
                  && (rowHover.hovered || root.actionsPinned
                      || app.pagination.highlightedEventId === (model.eventId || ""))
@@ -1363,6 +1378,176 @@ Item {
                         app.composer.reactTo(root.eventIdForActions(), modelData.key)
                 }
             }
+        }
+
+        // Element-style read-receipt chips: a small stack of the OTHER
+        // users whose read receipt points at this message (the model
+        // already excludes the local user AND the sender's implicit
+        // receipt, and sorts newest first). Bounded to 4 avatars + a "+N"
+        // overflow chip fed by the uncapped readReceiptsTotal. Invisible
+        // when the list is empty — a ColumnLayout skips invisible children
+        // entirely, so an unread message keeps exactly its previous
+        // geometry. Thread rows never carry receipt metadata (their SDK
+        // timelines deliberately keep receipt tracking Disabled: the SDK's
+        // receipt handling is not thread-aware, so enabling it would
+        // attach the room's unthreaded receipts to thread rows), so the
+        // strip stays collapsed in the thread panel.
+        Item {
+            id: readReceiptStrip
+            objectName: "readReceiptStrip"
+            readonly property var receipts: model.readReceipts || []
+            readonly property int maxAvatars: 4
+            // Uncapped other-reader count from the model; degrades to the
+            // delivered list length when the role is absent (fixtures,
+            // older payloads) — undefined fails the >= 0 test.
+            readonly property int totalOthers:
+                model.readReceiptsTotal >= 0 ? model.readReceiptsTotal
+                                             : receipts.length
+            readonly property int overflowCount:
+                Math.max(0, totalOthers - shown.length)
+
+            // Chip payload with an identity guard: `receipts` delivers a
+            // fresh array object on every role read, and binding the
+            // Repeater to a per-evaluation slice() would tear down and
+            // recreate every chip delegate on each unrelated Set diff.
+            // `shown` is reassigned ONLY when the projected content
+            // actually changes (≤4 plain objects — stringify comparison
+            // is cheap).
+            property var shown: []
+            function refreshShown() {
+                var next = []
+                var n = Math.min(receipts.length, maxAvatars)
+                for (var i = 0; i < n; ++i) {
+                    var r = receipts[i]
+                    next.push({ userId: r.userId || "",
+                                displayName: r.displayName || "",
+                                avatarMxc: r.avatarMxc || "" })
+                }
+                if (JSON.stringify(next) !== JSON.stringify(shown))
+                    shown = next
+            }
+            onReceiptsChanged: refreshShown()
+            Component.onCompleted: refreshShown()
+
+            // One line for the tooltip, the accessible name, and the QML
+            // test. Reads at most the first two names; the rest is the
+            // total count — never a walk over all N receipts.
+            readonly property string summary: {
+                if (totalOthers <= 0 || receipts.length === 0)
+                    return ""
+                var first = receipts[0].displayName || ""
+                if (totalOthers === 1)
+                    return qsTr("Read by %1").arg(first)
+                var second = receipts.length > 1
+                             ? (receipts[1].displayName || "") : ""
+                if (second.length === 0)
+                    return qsTr("Read by %1 and %2 others")
+                        .arg(first).arg(totalOthers - 1)
+                if (totalOthers === 2)
+                    return qsTr("Read by %1 and %2")
+                        .arg(first).arg(second)
+                if (totalOthers === 3)
+                    return qsTr("Read by %1, %2 and 1 other")
+                        .arg(first).arg(second)
+                return qsTr("Read by %1, %2 and %3 others")
+                    .arg(first).arg(second).arg(totalOthers - 2)
+            }
+            visible: !model.redacted && receipts.length > 0
+            // Sender status must never drive horizontal flow in Modern
+            // rows — that is the semantic rule of the one-left-aligned-
+            // sender presentation contract (whose scan enforces it by
+            // banning the layout right-align literal in this file). This
+            // strip respects it: the placement is identical for every
+            // message, own or not. The chip stack trails the CONTENT
+            // COLUMN's right edge — the same geometry the message body
+            // and reactions occupy — not the row's far edge: on a wide
+            // pane the column is capped (AppTheme.timelineContentMaxWidth)
+            // and chips must not float hundreds of pixels away from the
+            // text they annotate.
+            Layout.fillWidth: true
+            Layout.topMargin: 2
+            implicitHeight: receiptRow.implicitHeight
+
+            Row {
+                id: receiptRow
+                objectName: "readReceiptRow"
+                x: Math.max(root.avatarGutterWidth,
+                            bubble.x + bubble.width - width)
+                // Facepile overlap; each avatar sits on an 18px surface
+                // ring so overlapped edges stay legible on any theme.
+                spacing: -4
+                // The ring must paint what the row currently shows — a
+                // bare AppTheme.background ring punches visible holes
+                // into the hover/selection tint.
+                readonly property color hoverTint:
+                    rowHighlight.visible ? rowHighlight.color : "transparent"
+                Repeater {
+                    // Array model + modelData, the same shape the reaction
+                    // chips use: each delegate carries its receipt
+                    // directly, with no document-id dereference from
+                    // delegate scope (which resolved undefined under the
+                    // engine-test fixture). `shown` is the identity-
+                    // guarded projection above, so delegates are only
+                    // recreated when the visible chips actually change.
+                    model: readReceiptStrip.shown
+                    Rectangle {
+                        id: chip
+                        objectName: "readReceiptChip"
+                        width: 18
+                        height: 18
+                        radius: 9
+                        color: AppTheme.background
+                        z: index
+                        // Hover-tint overlay: composites the row's own
+                        // highlight tint over the ring exactly like the
+                        // row rectangle composites it over the pane
+                        // background. Reads only the guarded visual
+                        // parent chain — no document ids from delegate
+                        // scope.
+                        Rectangle {
+                            anchors.fill: parent
+                            radius: chip.radius
+                            color: chip.parent ? chip.parent.hoverTint
+                                               : "transparent"
+                        }
+                        Avatar {
+                            anchors.centerIn: parent
+                            size: 16
+                            mxc: modelData.avatarMxc
+                            name: modelData.displayName
+                            colorKey: modelData.userId
+                        }
+                    }
+                }
+                Rectangle {
+                    objectName: "readReceiptOverflow"
+                    visible: readReceiptStrip.overflowCount > 0
+                    width: Math.max(18, overflowLabel.implicitWidth + 8)
+                    height: 18
+                    radius: AppTheme.radiusPill
+                    color: AppTheme.reactionBackground
+                    border.color: AppTheme.border
+                    border.width: 1
+                    z: readReceiptStrip.maxAvatars
+                    Label {
+                        id: overflowLabel
+                        anchors.centerIn: parent
+                        text: "+" + readReceiptStrip.overflowCount
+                        color: AppTheme.textSecondary
+                        font.pixelSize: 9
+                        font.weight: Font.Bold
+                    }
+                }
+            }
+
+            HoverHandler { id: receiptHover }
+            ToolTip.text: summary
+            ToolTip.visible: receiptHover.hovered && summary.length > 0
+            ToolTip.delay: 500
+            // One accessible summary for the whole strip — individual
+            // chips are deliberately not focus stops.
+            Accessible.role: Accessible.StaticText
+            Accessible.name: summary
         }
     }
 

@@ -8,6 +8,8 @@
 #include <QUrl>
 #include <QVariantMap>
 
+#include <algorithm>
+
 namespace {
 // Element/Discord-style visual grouping window. Five minutes is short enough
 // to keep conversations scannable while suppressing repetitive identity.
@@ -338,6 +340,53 @@ QVariantList TimelineModel::pollAnswersVariant(const TimelineEvent &e) const
     return out;
 }
 
+QVariantList TimelineModel::readReceiptsVariant(const TimelineEvent &e) const
+{
+    // Element convention: the user's own receipt is never shown, and
+    // neither is the row SENDER's — the SDK synthesizes an implicit
+    // receipt for every event's sender, so without this a sender's latest
+    // message would permanently carry a "read by its author" chip even
+    // when nobody else read it. The exclusions live HERE (one presentation
+    // rule for every backend), not in the FFI mirror. Newest readers first
+    // so the bounded chip stack and its "+N" overflow always show the most
+    // recent readers. Identity resolution mirrors senderDisplayName():
+    // member lookup first, then the LOCALPART — the complete MXID is never
+    // the visible label.
+    QList<ReadReceipt> receipts;
+    receipts.reserve(e.readBy.size());
+    for (const auto &r : e.readBy) {
+        if (r.userId != m_selfUserId && r.userId != e.sender)
+            receipts.append(r);
+    }
+    std::stable_sort(receipts.begin(), receipts.end(),
+                     [](const ReadReceipt &a, const ReadReceipt &b) {
+                         return a.tsMs > b.tsMs;
+                     });
+    QVariantList out;
+    out.reserve(receipts.size());
+    for (const auto &r : receipts) {
+        QString display;
+        if (m_client) {
+            const QString resolved = m_client->displayNameFor(e.roomId, r.userId);
+            // Backends return the raw user id when nothing is known — that
+            // is "unresolved", not a display name.
+            if (!resolved.isEmpty() && resolved != r.userId)
+                display = resolved;
+        }
+        if (display.isEmpty())
+            display = matrix::user_lookup::localpartOrUserId(r.userId);
+        QVariantMap m;
+        m.insert(QStringLiteral("userId"),      r.userId);
+        m.insert(QStringLiteral("displayName"), display);
+        m.insert(QStringLiteral("avatarMxc"),
+                 m_client ? m_client->avatarMxcFor(e.roomId, r.userId)
+                          : QString{});
+        m.insert(QStringLiteral("tsMs"),        r.tsMs);
+        out.append(m);
+    }
+    return out;
+}
+
 // Virtual rows (date dividers, read markers, the timeline-start marker) are
 // synthetic SDK bookkeeping items, not visible messages — matrix-sdk-ui
 // freely interleaves them between real events (a date divider at every day
@@ -521,6 +570,22 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
         return out;
     }
     case ReactionsRole:          return reactionsVariant(e);
+    case ReadReceiptsRole:       return readReceiptsVariant(e);
+    case ReadReceiptsTotalRole: {
+        // Total OTHER readers for the "+N" chip: the uncapped server-side
+        // count minus the presentation exclusions (self, sender) found in
+        // the delivered window. Exclusions hiding beyond the capped window
+        // cannot be detected — bounded overcount of at most 2, only in
+        // >16-reader rooms; never an undercount of what is shown.
+        int excluded = 0;
+        for (const auto &r : e.readBy) {
+            if (r.userId == m_selfUserId || r.userId == e.sender)
+                ++excluded;
+        }
+        const int reported =
+            qMax(e.readByTotal, static_cast<int>(e.readBy.size()));
+        return qMax(0, reported - excluded);
+    }
     case IsPollRole:             return e.type == TimelineEvent::Poll;
     case PollQuestionRole:       return e.pollQuestion;
     case PollKindRole:           return e.pollKind;
@@ -713,6 +778,8 @@ QHash<int, QByteArray> TimelineModel::roleNames() const
         { PollTotalVotersRole,      "pollTotalVoters" },
         { PollEndedRole,            "pollEnded" },
         { CanEndPollRole,           "canEndPoll" },
+        { ReadReceiptsRole,         "readReceipts" },
+        { ReadReceiptsTotalRole,    "readReceiptsTotal" },
     };
 }
 
@@ -952,8 +1019,16 @@ void TimelineModel::onEventChangedAt(const QString &roomId, int index,
     // profile resolution, decryption, reaction, or send-state update, which
     // multiplied one item update into a whole-timeline relayout.
     const bool groupingChanged = groupingInputsDiffer(m_events.at(index), event);
+    // The thread-reply index depends ONLY on each row's threadRootId, so a
+    // Set that keeps it unchanged (receipt moves, profile resolution,
+    // reactions, send-state, decryption) skips the O(n) rebuild — receipts
+    // multiplied the Set frequency enough to make the unconditional
+    // rebuild a real cost in long timelines.
+    const bool threadIndexChanged =
+        m_events.at(index).threadRootId != event.threadRootId;
     m_events[index] = event;
-    rebuildThreadReplyIndex();
+    if (threadIndexChanged)
+        rebuildThreadReplyIndex();
     const auto idx = this->index(index);
     Q_EMIT dataChanged(idx, idx);
     if (groupingChanged)
@@ -1029,7 +1104,11 @@ void TimelineModel::onMembersChanged(const QString &roomId)
                        { SenderDisplayNameRole, SenderInitialsRole,
                          SenderAvatarMxcRole, FormattedBodyRole,
                          ReplyToSenderRole,
-                         ThreadLatestSenderDisplayNameRole });
+                         ThreadLatestSenderDisplayNameRole,
+                         // Receipt chips resolve reader names/avatars
+                         // through the same member lookup — hydration must
+                         // refresh them off their localpart fallback too.
+                         ReadReceiptsRole });
     refreshTypingText();
 }
 

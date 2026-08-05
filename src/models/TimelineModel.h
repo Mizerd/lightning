@@ -128,6 +128,26 @@ public:
         PollTotalVotersRole,
         PollEndedRole,
         CanEndPollRole,         // own poll, not ended (conservative rule)
+        // Element-style read-receipt chips: OTHER users whose read receipt
+        // points at this event, newest first, as a list of
+        // {userId, displayName, avatarMxc, tsMs}. Excluded (Element
+        // convention): the local user, and the row's SENDER — the SDK
+        // synthesizes an implicit receipt for every event's sender, which
+        // would otherwise pin a permanent "read by the author" chip to
+        // their latest message. Names/avatars resolve live through the
+        // same member lookup as every other identity. Thread timelines
+        // always answer an empty list: their builders deliberately leave
+        // SDK receipt tracking Disabled (the SDK's receipt handling is not
+        // thread-aware; enabling it would attach unthreaded receipts to
+        // thread rows).
+        ReadReceiptsRole,
+        // Companion count for the "+N" overflow chip: total OTHER readers
+        // (uncapped server-side count minus the exclusions above), >= the
+        // list size ReadReceiptsRole answers. The FFI window is capped at
+        // 16 newest receipts, so exclusions hiding beyond the window can
+        // overcount by at most 2 in >16-reader rooms — conservative, never
+        // an undercount of what is visibly shown.
+        ReadReceiptsTotalRole,
     };
 
     explicit TimelineModel(QObject *parent = nullptr);
@@ -271,6 +291,7 @@ private:
     void refreshTypingText();
     QVariantList reactionsVariant(const TimelineEvent &e) const;
     QVariantList pollAnswersVariant(const TimelineEvent &e) const;
+    QVariantList readReceiptsVariant(const TimelineEvent &e) const;
     // Grouping is transparent through virtual rows (date dividers, read
     // markers, timeline-start) — only a visible message/media event ends a
     // group. See TimelineModel.cpp for the rationale.

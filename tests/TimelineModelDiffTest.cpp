@@ -131,6 +131,13 @@ private Q_SLOTS:
     void staleAndInapplicableMessageActionsAreRejected();
     // v0.7: MSC3381 poll roles and the conservative end-poll rule.
     void pollRolesExposeOutcomeAndEndPermission();
+    // Read-receipt chips: identity resolution, own-receipt exclusion,
+    // newest-first order, live Set-diff/member-hydration updates, and
+    // ReadMarker-row neutrality.
+    void readReceiptsRoleResolvesExcludesSelfAndSortsNewestFirst();
+    void readReceiptsUpdateViaSetDiffAndMemberHydration();
+    void receiptOnlySetKeepsThreadIndexWithoutRebuild();
+    void readMarkerRowsStayReceiptFreeWithoutIndexDrift();
     // v0.6.1 loaded-timeline search.
     void searchFindsMatchesAndNavigatesWithWrap();
     void searchUpdatesOnPaginationInsert();
@@ -487,6 +494,228 @@ void TimelineModelDiffTest::pollRolesExposeOutcomeAndEndPermission()
              QByteArrayLiteral("pollAnswers"));
     QCOMPARE(names.value(TimelineModel::CanEndPollRole),
              QByteArrayLiteral("canEndPoll"));
+}
+
+void TimelineModelDiffTest::readReceiptsRoleResolvesExcludesSelfAndSortsNewestFirst()
+{
+    m_client->displayNames.insert(QStringLiteral("@carol:example.org"),
+                                  QStringLiteral("Carol"));
+    m_client->avatarMxc.insert(QStringLiteral("@carol:example.org"),
+                               QStringLiteral("mxc://example.org/carol"));
+
+    // Sender is @alice (makeEvent). Own receipt first (excluded), then the
+    // SENDER's implicit receipt (excluded — the SDK synthesizes one for
+    // every event's author, which must never render a permanent "read by
+    // its author" chip), then two genuine other readers with Carol's
+    // receipt OLDER than the unknown member's.
+    TimelineEvent read = makeEvent(QStringLiteral("$read"),
+                                   QStringLiteral("seen by others"));
+    read.readBy = {
+        { QStringLiteral("@me:example.org"),      Q_INT64_C(1700000005000) },
+        { QStringLiteral("@alice:example.org"),   Q_INT64_C(1700000004000) },
+        { QStringLiteral("@carol:example.org"),   Q_INT64_C(1700000001000) },
+        { QStringLiteral("@unknown:example.org"), Q_INT64_C(1700000003000) },
+    };
+    m_client->mirror.append(read);
+    Q_EMIT m_client->eventAppended(kRoom, read);
+
+    const auto idx = m_model->index(2);
+    const QVariantList receipts =
+        m_model->data(idx, TimelineModel::ReadReceiptsRole).toList();
+    // Neither the local user nor the sender is ever shown.
+    QCOMPARE(receipts.size(), 2);
+    // Newest reader first.
+    const QVariantMap newest = receipts.at(0).toMap();
+    QCOMPARE(newest.value(QStringLiteral("userId")).toString(),
+             QStringLiteral("@unknown:example.org"));
+    QCOMPARE(newest.value(QStringLiteral("tsMs")).toLongLong(),
+             Q_INT64_C(1700000003000));
+    // Unresolved member: LOCALPART fallback, never the bare MXID.
+    QCOMPARE(newest.value(QStringLiteral("displayName")).toString(),
+             QStringLiteral("unknown"));
+    QVERIFY(newest.value(QStringLiteral("avatarMxc")).toString().isEmpty());
+    const QVariantMap carol = receipts.at(1).toMap();
+    QCOMPARE(carol.value(QStringLiteral("displayName")).toString(),
+             QStringLiteral("Carol"));
+    QCOMPARE(carol.value(QStringLiteral("avatarMxc")).toString(),
+             QStringLiteral("mxc://example.org/carol"));
+
+    // Companion total: no explicit readByTotal → the delivered list (4)
+    // minus the two exclusions found in it.
+    QCOMPARE(m_model->data(idx, TimelineModel::ReadReceiptsTotalRole).toInt(),
+             2);
+
+    // A DIFFERENT user's receipt on the sender's own message still shows:
+    // exclusion keys on the receipt's user, never on the row having an
+    // author.
+    TimelineEvent bySender = makeEvent(QStringLiteral("$by-sender"),
+                                       QStringLiteral("alice's message"));
+    bySender.readBy = {
+        { QStringLiteral("@carol:example.org"), Q_INT64_C(1700000006000) },
+    };
+    // Capped-window shape: the server knows 30 readers, the FFI window
+    // delivered 1 → "+N" math uses the uncapped total minus in-window
+    // exclusions (none here).
+    bySender.readByTotal = 30;
+    m_client->mirror.append(bySender);
+    Q_EMIT m_client->eventAppended(kRoom, bySender);
+    const auto senderIdx = m_model->index(3);
+    const QVariantList onOwn =
+        m_model->data(senderIdx, TimelineModel::ReadReceiptsRole).toList();
+    QCOMPARE(onOwn.size(), 1);
+    QCOMPARE(onOwn.first().toMap().value(QStringLiteral("userId")).toString(),
+             QStringLiteral("@carol:example.org"));
+    QCOMPARE(m_model->data(senderIdx,
+                           TimelineModel::ReadReceiptsTotalRole).toInt(),
+             30);
+
+    // Rows without receipts answer an empty list and a zero total (thread
+    // timelines, local echoes, unread messages).
+    QVERIFY(m_model->data(m_model->index(0), TimelineModel::ReadReceiptsRole)
+                .toList()
+                .isEmpty());
+    QCOMPARE(m_model->data(m_model->index(0),
+                           TimelineModel::ReadReceiptsTotalRole).toInt(),
+             0);
+    // Role-name contract for QML.
+    QCOMPARE(m_model->roleNames().value(TimelineModel::ReadReceiptsRole),
+             QByteArrayLiteral("readReceipts"));
+    QCOMPARE(m_model->roleNames().value(TimelineModel::ReadReceiptsTotalRole),
+             QByteArrayLiteral("readReceiptsTotal"));
+}
+
+void TimelineModelDiffTest::readReceiptsUpdateViaSetDiffAndMemberHydration()
+{
+    TimelineEvent read = makeEvent(QStringLiteral("$e1"),
+                                   QStringLiteral("m1"));
+    read.readBy = {
+        { QStringLiteral("@bob:example.org"), Q_INT64_C(1700000001000) },
+    };
+    m_client->mirror[1] = read;
+    QSignalSpy spy(m_model, &QAbstractItemModel::dataChanged);
+    Q_EMIT m_client->eventChangedAt(kRoom, 1, read);
+
+    // The Set diff replaced the row in place and re-announced every role
+    // (empty role vector), so the receipt strip re-reads too.
+    QCOMPARE(m_model->rowCount(), 2);
+    QCOMPARE(spy.count(), 1);
+    QVERIFY(spy.at(0).at(2).value<QVector<int>>().isEmpty());
+    QVariantList receipts =
+        m_model->data(m_model->index(1), TimelineModel::ReadReceiptsRole)
+            .toList();
+    QCOMPARE(receipts.size(), 1);
+    // Unhydrated member: localpart fallback for now.
+    QCOMPARE(receipts.first().toMap()
+                 .value(QStringLiteral("displayName")).toString(),
+             QStringLiteral("bob"));
+
+    // Member hydration announces ReadReceiptsRole so chips leave the
+    // localpart fallback exactly like every other member-derived label.
+    m_client->displayNames.insert(QStringLiteral("@bob:example.org"),
+                                  QStringLiteral("Bob"));
+    spy.clear();
+    Q_EMIT m_client->membersChanged(kRoom);
+    QVERIFY(spy.count() >= 1);
+    const auto roles = spy.at(0).at(2).value<QVector<int>>();
+    QVERIFY(roles.contains(TimelineModel::ReadReceiptsRole));
+    receipts = m_model->data(m_model->index(1),
+                             TimelineModel::ReadReceiptsRole).toList();
+    QCOMPARE(receipts.first().toMap()
+                 .value(QStringLiteral("displayName")).toString(),
+             QStringLiteral("Bob"));
+
+    // A later Set diff that clears the receipts (Bob read a newer message)
+    // empties the strip in place.
+    TimelineEvent cleared = read;
+    cleared.readBy.clear();
+    m_client->mirror[1] = cleared;
+    Q_EMIT m_client->eventChangedAt(kRoom, 1, cleared);
+    QVERIFY(m_model->data(m_model->index(1), TimelineModel::ReadReceiptsRole)
+                .toList()
+                .isEmpty());
+}
+
+void TimelineModelDiffTest::receiptOnlySetKeepsThreadIndexWithoutRebuild()
+{
+    // onEventChangedAt rebuilds the O(n) thread-reply index ONLY when the
+    // row's threadRootId changed. Receipts multiply Set frequency (every
+    // receipt move is a Set), so a receipts-only Set must leave the index
+    // untouched-but-correct, while a Set that genuinely rewires the thread
+    // relation still rebuilds it. There is no rebuild counter; this pins
+    // the observable contract on both sides of the guard.
+    TimelineEvent reply = makeEvent(QStringLiteral("$reply"),
+                                    QStringLiteral("in thread"));
+    reply.threadRootId = QStringLiteral("$e0");
+    m_client->mirror.append(reply);
+    Q_EMIT m_client->eventAppended(kRoom, reply);
+    const auto rootIdx = m_model->index(0);
+    QVERIFY(m_model->data(rootIdx, TimelineModel::IsThreadRootRole).toBool());
+    QCOMPARE(m_model->data(rootIdx,
+                           TimelineModel::ThreadReplyCountRole).toInt(), 1);
+
+    // Receipts-only Set on the reply: threadRootId unchanged → no rebuild
+    // needed, and the thread roles keep answering identically.
+    TimelineEvent withReceipt = reply;
+    withReceipt.readBy = {
+        { QStringLiteral("@bob:example.org"), Q_INT64_C(1700000002000) },
+    };
+    m_client->mirror[2] = withReceipt;
+    Q_EMIT m_client->eventChangedAt(kRoom, 2, withReceipt);
+    QVERIFY(m_model->data(rootIdx, TimelineModel::IsThreadRootRole).toBool());
+    QCOMPARE(m_model->data(rootIdx,
+                           TimelineModel::ThreadReplyCountRole).toInt(), 1);
+    QCOMPARE(m_model->data(m_model->index(2),
+                           TimelineModel::ReadReceiptsRole).toList().size(),
+             1);
+
+    // A Set that clears the thread relation must still rebuild: the root
+    // stops being a root.
+    TimelineEvent detached = withReceipt;
+    detached.threadRootId.clear();
+    m_client->mirror[2] = detached;
+    Q_EMIT m_client->eventChangedAt(kRoom, 2, detached);
+    QVERIFY(!m_model->data(rootIdx, TimelineModel::IsThreadRootRole).toBool());
+    QCOMPARE(m_model->data(rootIdx,
+                           TimelineModel::ThreadReplyCountRole).toInt(), 0);
+}
+
+void TimelineModelDiffTest::readMarkerRowsStayReceiptFreeWithoutIndexDrift()
+{
+    // Enabling SDK receipt tracking also produces ReadMarker virtual rows.
+    // They stay ordinary virtual rows: no receipts of their own, no index
+    // drift for the event rows around them, grouping stays transparent.
+    TimelineEvent marker;
+    marker.roomId = kRoom;
+    marker.itemId = QStringLiteral("read-marker-stable");
+    marker.type = TimelineEvent::ReadMarker;
+    TimelineEvent read = makeEvent(QStringLiteral("$after"),
+                                   QStringLiteral("after the marker"));
+    read.readBy = {
+        { QStringLiteral("@bob:example.org"), Q_INT64_C(1700000002000) },
+    };
+    m_client->mirror.insert(1, marker);
+    Q_EMIT m_client->eventInsertedAt(kRoom, 1, marker);
+    m_client->mirror.append(read);
+    Q_EMIT m_client->eventAppended(kRoom, read);
+
+    QCOMPARE(m_model->rowCount(), 4);
+    QVERIFY(m_model->data(m_model->index(1), TimelineModel::IsVirtualRole)
+                .toBool());
+    QVERIFY(m_model->data(m_model->index(1), TimelineModel::ReadReceiptsRole)
+                .toList()
+                .isEmpty());
+    // The rows around the marker kept their identity and data.
+    QCOMPARE(m_model->data(m_model->index(2), TimelineModel::EventIdRole)
+                 .toString(),
+             QStringLiteral("$e1"));
+    QCOMPARE(m_model->data(m_model->index(3), TimelineModel::ReadReceiptsRole)
+                 .toList()
+                 .size(),
+             1);
+    // Grouping remains transparent through the marker: the $e1 row still
+    // continues Alice's group started at $e0.
+    QVERIFY(m_model->data(m_model->index(2),
+                          TimelineModel::ContinuesSenderGroupRole).toBool());
 }
 
 void TimelineModelDiffTest::typingTextFormatsByCount()

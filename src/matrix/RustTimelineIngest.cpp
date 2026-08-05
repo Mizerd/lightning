@@ -193,6 +193,28 @@ TimelineEvent eventFromItemJson(const QJsonObject &item, const QString &roomId)
             e.reactions.append(r);
     }
 
+    // Read receipts on this event (absent fields => empty list). Only the
+    // reader's user id and the receipt timestamp cross the FFI; an entry
+    // without a user id is malformed and dropped, a null/absent ts keeps
+    // the 0 = "no timestamp" default. Receipts move between rows through
+    // ordinary Set diffs (full-row replacement carries the new list).
+    // read_by is a bounded newest-first window (Rust caps at 16);
+    // read_by_total is the uncapped count — absent or inconsistent totals
+    // clamp to the delivered list size so "+N" can never undercount what
+    // is visibly present.
+    const QJsonArray readBy = item.value(QStringLiteral("read_by")).toArray();
+    for (const auto &value : readBy) {
+        const QJsonObject obj = value.toObject();
+        ReadReceipt receipt;
+        receipt.userId = obj.value(QStringLiteral("user_id")).toString();
+        receipt.tsMs = static_cast<qint64>(
+            obj.value(QStringLiteral("ts")).toDouble(0));
+        if (!receipt.userId.isEmpty())
+            e.readBy.append(receipt);
+    }
+    e.readByTotal = qMax(item.value(QStringLiteral("read_by_total")).toInt(0),
+                         static_cast<int>(e.readBy.size()));
+
     // v0.7: MSC3381 poll presentation. Counts arrive pre-gated from Rust
     // (0 for a running undisclosed poll); nothing here re-aggregates.
     if (e.type == TimelineEvent::Poll) {

@@ -12,6 +12,21 @@ struct Reaction {
     QString myEventId;       // If byMe: the event_id of our reaction, needed to redact.
 };
 
+// One user's read receipt on the event (Rust backend, SDK receipt
+// tracking). Carries ONLY the public receipt metadata the server already
+// shares: the reader's stable user id and the receipt timestamp (0 when
+// the receipt carried none). The SDK attaches each user's receipt to the
+// LATEST message-like event it applies to, so receipts advance between
+// rows via ordinary Set diffs. Thread-timeline rows always carry an empty
+// list: Lightning's thread builders deliberately leave receipt tracking
+// Disabled, because the SDK's receipt handling is not thread-aware and
+// enabling it there would attach the room's unthreaded receipts to thread
+// rows (wrong data, not merely missing data).
+struct ReadReceipt {
+    QString userId;
+    qint64 tsMs = 0;
+};
+
 // One MSC3381 poll answer with its SDK-aggregated tally (v0.7). `count` is
 // 0 for undisclosed polls that have not ended — hidden tallies never cross
 // the FFI. `byMe` reflects the user's latest valid response.
@@ -131,6 +146,18 @@ struct TimelineEvent {
 
     // Reactions attached to this event (v0.3).
     QList<Reaction> reactions;
+
+    // Read receipts of every user whose receipt points at this event,
+    // including the local user (see struct ReadReceipt). Presentation
+    // excludes the local user and the row's sender (Element convention) in
+    // TimelineModel, not here — the mirror stays a faithful copy of what
+    // the SDK reported. The Rust bridge sends a bounded newest-first
+    // window (16 entries); readByTotal below keeps the uncapped count.
+    QList<ReadReceipt> readBy;
+    // Total receipts the SDK reported for this event BEFORE the FFI cap
+    // (>= readBy.size()). The ingest clamps it to at least the delivered
+    // list size, so mock/HTTP rows that never set it stay consistent.
+    int readByTotal = 0;
 
     // v0.7: MSC3381 poll presentation (type == Poll, Rust backend only).
     // Aggregation is SDK/ruma-owned; these fields carry only the outcome.

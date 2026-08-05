@@ -35,6 +35,7 @@ use matrix_sdk::{
                     UnstablePollStartEventContent,
                 },
             },
+            receipt::Receipt,
             room::{
                 message::{
                     FormattedBody, MessageFormat, MessageType,
@@ -56,7 +57,8 @@ use matrix_sdk_ui::{
         AttachmentConfig, AttachmentSource, EncryptedMessage, EventSendState,
         EventTimelineItem, MsgLikeKind, PollResult, Timeline, TimelineBuilder,
         TimelineDetails, TimelineEventItemId, TimelineFocus, TimelineItem,
-        TimelineItemContent, TimelineItemKind, VirtualTimelineItem,
+        TimelineItemContent, TimelineItemKind, TimelineReadReceiptTracking,
+        VirtualTimelineItem,
     },
 };
 use serde_json::json;
@@ -1662,8 +1664,24 @@ async fn open_room_task(
         return;
     };
 
-    // TimelineBuilder::new (not RoomExt::timeline_builder) — read-receipt
-    // tracking stays off; Lightning does not consume receipt metadata yet.
+    // TimelineBuilder::new (not RoomExt::timeline_builder) with read-receipt
+    // tracking enabled for MESSAGE-LIKE events only: Lightning renders
+    // Element-style per-message receipt chips, and MessageLikeEvents keeps
+    // state rows (membership, topic, …) from ever carrying receipt decoration
+    // (AllEvents would attach them there too). ONE switch enables BOTH the
+    // per-item receipts and the SDK's VirtualTimelineItem::ReadMarker row —
+    // there is no way to get receipts without also reviving the marker row.
+    // The marker's presentation policy (render the "New messages" divider,
+    // but collapse it while the reader is pinned to the bottom, so the
+    // own-receipt ack cycle cannot bounce a 28px divider in and out under a
+    // live conversation) lives entirely in QML (MessageDelegate).
+    //
+    // The thread-focused timelines below deliberately KEEP tracking
+    // Disabled. The SDK's receipt handling is not thread-aware (its docs:
+    // read_receipts() "currently ignores threads"), so enabling it on a
+    // thread timeline would attach the room's UNTHREADED receipts to thread
+    // rows — wrong data, not merely missing data. Thread rows therefore
+    // never emit read_by entries.
     //
     // hide_threaded_events: true asks the SDK to keep in-thread replies out of
     // the live room timeline (its `should_add` rule is
@@ -1675,6 +1693,7 @@ async fn open_room_task(
     // thread_summary) still stays in the main timeline.
     let timeline = match TimelineBuilder::new(&room)
         .with_focus(TimelineFocus::Live { hide_threaded_events: true })
+        .track_read_marker_and_receipts(TimelineReadReceiptTracking::MessageLikeEvents)
         .build()
         .await
     {
@@ -2247,6 +2266,51 @@ fn item_to_json(
     }
 }
 
+/// Read-receipt chips: at most this many receipt entries cross the FFI per
+/// event. The last message of a busy room can carry hundreds of receipts
+/// and is re-serialized on every receipt move; the UI shows 4 chips + a
+/// "+N" total, so a bounded newest-first window plus the full count is all
+/// the presentation ever needs.
+const READ_BY_CAP: usize = 16;
+
+/// Read-receipt chips: serialize the SDK's per-item receipt map as
+/// (`[{"user_id": "...", "ts": <ms or null>}]`, total_count). ONLY the
+/// public receipt metadata the server already shares crosses the FFI — a
+/// stable user id and the receipt timestamp; never event content or crypto
+/// state. Entries are sorted newest-first and capped at [`READ_BY_CAP`];
+/// the returned total is the UNCAPPED receipt count so the "+N" overflow
+/// chip stays truthful past the cap. The SDK attaches each user's receipt
+/// to the LATEST timeline item it applies to, so a receipt advancing
+/// arrives as two ordinary Set diffs (the old row without the entry, the
+/// new row with it). Local echoes always have an empty map. Thread
+/// timelines never call this with entries: their builders deliberately
+/// leave receipt tracking Disabled (see the live-builder comment — the
+/// SDK's receipt handling is not thread-aware, so enabling it there would
+/// attach unthreaded receipts to thread rows).
+fn read_by_json<'a>(
+    receipts: impl IntoIterator<Item = (&'a OwnedUserId, &'a Receipt)>,
+) -> (Vec<serde_json::Value>, usize) {
+    let mut entries: Vec<(Option<u64>, String)> = receipts
+        .into_iter()
+        .map(|(user_id, receipt)| {
+            (
+                receipt.ts.map(|ts| u64::from(ts.get())),
+                user_id.to_string(),
+            )
+        })
+        .collect();
+    let total = entries.len();
+    // Newest first; receipts without a timestamp sort last (stable, so
+    // ties keep the SDK's order).
+    entries.sort_by(|a, b| b.0.unwrap_or(0).cmp(&a.0.unwrap_or(0)));
+    entries.truncate(READ_BY_CAP);
+    let serialized = entries
+        .into_iter()
+        .map(|(ts, user_id)| json!({ "user_id": user_id, "ts": ts }))
+        .collect();
+    (serialized, total)
+}
+
 fn event_item_to_json(
     unique_id: &str,
     event: &EventTimelineItem,
@@ -2285,6 +2349,18 @@ fn event_item_to_json(
         if let Some(avatar) = &profile.avatar_url {
             out["sender_avatar_url"] = avatar.to_string().into();
         }
+    }
+
+    // Per-message read receipts (empty for local echoes; absent fields keep
+    // the ingest's empty-list default). The user's own receipt is forwarded
+    // too — presentation-side exclusion lives in ONE place (TimelineModel),
+    // so mock/HTTP rows follow the identical rule. read_by is a bounded
+    // newest-first window; read_by_total carries the uncapped count.
+    let receipts = event.read_receipts();
+    if !receipts.is_empty() {
+        let (entries, total) = read_by_json(receipts);
+        out["read_by"] = entries.into();
+        out["read_by_total"] = total.into();
     }
 
     if let Some(state) = event.send_state() {
@@ -3148,6 +3224,85 @@ mod tests {
     fn empty_import_result_maps_to_empty() {
         let keys = BTreeMap::new();
         assert!(sessions_by_room_from_import(&keys).is_empty());
+    }
+
+    // Read-receipt serialization: only user id + timestamp cross the FFI,
+    // and a receipt without a timestamp serializes ts as null (the C++
+    // ingest maps that to 0 = "no timestamp").
+    #[test]
+    fn read_by_serializes_user_id_and_timestamp_only() {
+        use matrix_sdk::ruma::{
+            events::receipt::Receipt, MilliSecondsSinceUnixEpoch, OwnedUserId,
+            UInt, UserId,
+        };
+
+        let alice: OwnedUserId =
+            UserId::parse("@alice:example.org").unwrap().to_owned();
+        let bob: OwnedUserId =
+            UserId::parse("@bob:example.org").unwrap().to_owned();
+        let with_ts = Receipt::new(MilliSecondsSinceUnixEpoch(
+            UInt::try_from(1_700_000_123_000u64).unwrap(),
+        ));
+        let without_ts = Receipt::default();
+
+        let (entries, total) =
+            super::read_by_json([(&alice, &with_ts), (&bob, &without_ts)]);
+        assert_eq!(entries.len(), 2);
+        assert_eq!(total, 2);
+        // Newest first; the timestampless receipt sorts last.
+        assert_eq!(entries[0]["user_id"], "@alice:example.org");
+        assert_eq!(entries[0]["ts"], 1_700_000_123_000u64);
+        assert_eq!(entries[1]["user_id"], "@bob:example.org");
+        assert!(entries[1]["ts"].is_null());
+        // Exactly the two documented fields — nothing else crosses the FFI.
+        for entry in &entries {
+            assert_eq!(entry.as_object().unwrap().len(), 2);
+        }
+
+        let (empty, empty_total) = super::read_by_json(
+            std::iter::empty::<(&OwnedUserId, &Receipt)>(),
+        );
+        assert!(empty.is_empty());
+        assert_eq!(empty_total, 0);
+    }
+
+    // The FFI window is bounded: a busy room's last message can carry
+    // hundreds of receipts, but only the newest READ_BY_CAP entries cross,
+    // while the total keeps the uncapped count for a truthful "+N".
+    #[test]
+    fn read_by_caps_entries_newest_first_and_reports_total() {
+        use matrix_sdk::ruma::{
+            events::receipt::Receipt, MilliSecondsSinceUnixEpoch, OwnedUserId,
+            UInt, UserId,
+        };
+
+        let users: Vec<OwnedUserId> = (0..20)
+            .map(|i| {
+                UserId::parse(format!("@u{i}:example.org"))
+                    .unwrap()
+                    .to_owned()
+            })
+            .collect();
+        // Ascending timestamps: @u19 is the newest reader.
+        let receipts: Vec<Receipt> = (0..20)
+            .map(|i| {
+                Receipt::new(MilliSecondsSinceUnixEpoch(
+                    UInt::try_from(1_700_000_000_000u64 + i * 1000).unwrap(),
+                ))
+            })
+            .collect();
+
+        let (entries, total) =
+            super::read_by_json(users.iter().zip(receipts.iter()));
+        assert_eq!(total, 20);
+        assert_eq!(entries.len(), super::READ_BY_CAP);
+        // Newest first: @u19 leads, and the 4 oldest (@u0..@u3) fell
+        // outside the window.
+        assert_eq!(entries[0]["user_id"], "@u19:example.org");
+        assert_eq!(
+            entries[super::READ_BY_CAP - 1]["user_id"],
+            "@u4:example.org"
+        );
     }
 
     // The interactive send paths construct message content through the
