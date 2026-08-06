@@ -216,8 +216,70 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                    const QString &threadRootId) {
         Q_EMIT notificationOpenRequested(roomId, eventId, threadRootId);
     });
+    // Server-reported per-room notification mode. ONLY an explicit
+    // user-defined room rule reconciles the device-local cache (server
+    // wins for real rules): a resolved account DEFAULT must never mutate
+    // persisted state — it would silently destroy a device-local choice an
+    // upgrading user made before server sync existed (and, resolved from
+    // an unloaded ruleset, could rewrite policy with a guess). The display
+    // consequence is accepted and deliberate: a room following an account
+    // default that differs from the local value keeps showing the local
+    // value in the pickers; reflecting defaults without persisting them is
+    // a follow-up. SettingsManager::setRoomNotificationMode is idempotent,
+    // and server writes are issued only from the UI entry point
+    // (AppController::setRoomNotificationMode), so an echo of our own
+    // write can never loop back into another server write.
+    // Stale-generation events are already rejected inside
+    // RustSdkMatrixClient, so a report from a previous account cannot
+    // reach the next account's settings.
+    connect(m_client.get(), &MatrixClient::roomNotificationModeChanged, this,
+            [this](const QString &roomId, int mode, bool userDefined) {
+        if (!userDefined) {
+            qCDebug(lcApp) << "room notification default report (not persisted)";
+            return;
+        }
+        // Defence-in-depth: the dispatcher range-guards too, but this
+        // handler is also reachable from tests/backends directly. Dropping
+        // is the conservative choice (SettingsManager would clamp to 0 —
+        // the LEAST conservative mode).
+        if (mode < 0 || mode > 2)
+            return;
+        // While a room carries kept-on-this-device failure state, the
+        // local value is authoritative: a failed write never reached the
+        // SDK's rules, so a poll can report the room's OLD explicit rule
+        // as user-defined. Applying it would silently revert the user's
+        // choice and erase the honest failure chip in the same stroke.
+        // Only a report that EQUALS the cached value is a real write
+        // acknowledgement; a differing one is dropped.
+        if (m_notificationModeSyncFailures.contains(roomId)) {
+            if (mode != m_settings->roomNotificationMode(roomId)) {
+                qCDebug(lcApp) << "room notification report differs while"
+                               << "unsynced (kept local value)";
+                return;
+            }
+            m_settings->setRoomNotificationMode(roomId, mode);
+            m_notificationModeSyncFailures.remove(roomId);
+            Q_EMIT roomNotificationModeSyncStateChanged(roomId);
+            return;
+        }
+        m_settings->setRoomNotificationMode(roomId, mode);
+    });
+    connect(m_client.get(), &MatrixClient::roomNotificationModeWriteFailed,
+            this, [this](const QString &roomId) {
+        if (m_notificationModeSyncFailures.contains(roomId))
+            return;
+        m_notificationModeSyncFailures.insert(roomId);
+        Q_EMIT roomNotificationModeSyncStateChanged(roomId);
+    });
     connect(m_client.get(), &MatrixClient::loggedOut, this,
-            [this] { m_notifications->clearPending(); m_knownInvites.clear(); });
+            [this] {
+                m_notifications->clearPending();
+                m_knownInvites.clear();
+                // Session-scoped sync-failure state must not leak into the
+                // next account. No per-room signals: the pickers re-query
+                // when they (re)open.
+                m_notificationModeSyncFailures.clear();
+            });
     // Room-open roster hydration marks a room BEFORE its fetch resolves;
     // a failed fetch must un-mark it or the room's mention chips and reply
     // headers stay localparts for the whole session (review: a silent
@@ -920,6 +982,41 @@ QString AppController::backendName() const
     case HttpBackend:
     default:          return QStringLiteral("http");
     }
+}
+
+bool AppController::serverRoomNotificationModes() const
+{
+    return m_client && m_client->supportsServerNotificationModes();
+}
+
+void AppController::setRoomNotificationMode(const QString &roomId, int mode)
+{
+    // Defence-in-depth: the composite thread-timeline id must never reach
+    // settings keys or a protocol call (the pickers only ever pass real
+    // room ids; this guards against any future caller slipping one in).
+    if (roomId.isEmpty() || mode < 0 || mode > 2
+        || MatrixClient::isThreadTimelineId(roomId))
+        return;
+    // Device-local value first: NotificationManager reads it (see the
+    // eventAppended context wiring), so the choice takes effect instantly
+    // and keeps working offline. On server-capable backends it doubles as
+    // the cache of the account's push-rule mode.
+    m_settings->setRoomNotificationMode(roomId, mode);
+    if (m_client && m_client->supportsServerNotificationModes())
+        m_client->setRoomNotificationMode(roomId, mode);
+}
+
+void AppController::requestRoomNotificationMode(const QString &roomId)
+{
+    if (roomId.isEmpty() || MatrixClient::isThreadTimelineId(roomId)
+        || !m_client || !m_client->supportsServerNotificationModes())
+        return;
+    m_client->requestRoomNotificationMode(roomId);
+}
+
+bool AppController::roomNotificationModeSyncFailed(const QString &roomId) const
+{
+    return m_notificationModeSyncFailures.contains(roomId);
 }
 
 SettingsManager *AppController::settings() const { return m_settings.get(); }

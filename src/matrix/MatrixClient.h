@@ -288,6 +288,29 @@ public:
         Q_UNUSED(roomId);
         Q_UNUSED(unread);
     }
+    // Server-synchronized per-room notification mode (account push rules
+    // managed entirely by the Matrix SDK). Modes match SettingsManager /
+    // NotificationManager::RoomMode: 0 = all messages, 1 = mentions &
+    // keywords, 2 = mute. Backends without push-rule support keep the
+    // false default and the per-room mode stays a device-local setting.
+    // setRoomNotificationMode is label-faithful: mode 0 sets an explicit
+    // AllMessages rule (a "follow account default" choice that removes the
+    // user rule instead is an accepted follow-up, not offered yet).
+    // requestRoomNotificationMode usually answers asynchronously via
+    // roomNotificationModeChanged with the user-defined rule when one
+    // exists, else the account default resolved for the room's shape —
+    // but it is deliberately SKIPPED while a write for the room is queued
+    // or in flight (the write's own report is authoritative and imminent).
+    virtual bool supportsServerNotificationModes() const { return false; }
+    virtual void setRoomNotificationMode(const QString &roomId, int mode)
+    {
+        Q_UNUSED(roomId);
+        Q_UNUSED(mode);
+    }
+    virtual void requestRoomNotificationMode(const QString &roomId)
+    {
+        Q_UNUSED(roomId);
+    }
     virtual void acceptInvite(const QString &roomId) { Q_UNUSED(roomId); }
     virtual void rejectInvite(const QString &roomId) { Q_UNUSED(roomId); }
     virtual void sendImage(const QString &roomId, const QString &localPath) = 0;
@@ -517,6 +540,17 @@ Q_SIGNALS:
     void paginationStateChanged(const QString &roomId);
     void typingChanged(const QString &roomId);
     void membersChanged(const QString &roomId);
+
+    // Server-reported per-room notification mode (0/1/2 as above).
+    // userDefined is true for an explicit per-room rule, false when the
+    // report is the account default resolved for this room. Carries mode
+    // integers and the room id only — never push-rule JSON.
+    void roomNotificationModeChanged(const QString &roomId, int mode,
+                                     bool userDefined);
+    // A server push-rule write for this room failed: the device-local mode
+    // is kept and the UI must say so instead of claiming the mode was
+    // saved to the account. Room id only — no error text, no rule JSON.
+    void roomNotificationModeWriteFailed(const QString &roomId);
 
     void errorOccurred(const QString &message);
 

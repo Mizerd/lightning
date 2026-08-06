@@ -36,8 +36,10 @@ room list's mention badge (SDK `num_unread_mentions`) predates 0.6.0.
 decision policy from freedesktop `org.freedesktop.Notifications` DBus
 delivery (Linux-first; a build without QtDBus degrades to a no-op).
 Policy: own messages, local echoes, state/virtual rows never notify;
-local per-room modes All messages / Mentions only / Mute (explicitly
-this-device-only — NOT server push rules, stated in the UI); active-room
+per-room modes All messages / Mentions & keywords / Mute (server push
+rules on the Rust backend — SDK-managed, account-scoped device cache
+with honest failed-write disclosure; device-local on other backends,
+stated in the UI); active-room
 suppression when the room is on screen, focused, and at the latest
 message (scrolled-away rooms still notify). Privacy modes (Settings →
 Notifications): Sender and message / **Sender only (default)** /

@@ -1798,12 +1798,24 @@ Item {
                                     wrapMode: Text.WordWrap
                                     color: AppTheme.stormTextMuted
                                     font.pixelSize: AppTheme.fontCaption
-                                    text: qsTr("Per-room notification modes (set from "
-                                               + "Room information) apply to this "
-                                               + "device only — they are not server "
-                                               + "push rules. Push registration for "
-                                               + "mobile-style notifications is not "
-                                               + "implemented.")
+                                    // Backend-honest: the Rust backend saves
+                                    // per-room modes to the account's server
+                                    // push rules; other backends keep them
+                                    // device-local. The push-registration
+                                    // sentence stays unconditional — that
+                                    // remains true on every backend.
+                                    text: (app.serverRoomNotificationModes
+                                           ? qsTr("Per-room notification modes (set "
+                                                  + "from Room information) are saved "
+                                                  + "to your account's notification "
+                                                  + "settings (server push rules). ")
+                                           : qsTr("Per-room notification modes (set "
+                                                  + "from Room information) apply to "
+                                                  + "this device only — they are not "
+                                                  + "server push rules. "))
+                                          + qsTr("Push registration for "
+                                                 + "mobile-style notifications is not "
+                                                 + "implemented.")
                                 }
                             }
                         }

@@ -38,6 +38,11 @@ Rectangle {
         memberFilter = ""
         memberSearch.text = ""
         refreshRoomData()
+        // Poll-on-open: re-query the room's server push-rule mode so a
+        // change made in another client lands in the local cache (and the
+        // notifications combo below). A guarded no-op on backends without
+        // server push-rule support.
+        app.requestRoomNotificationMode(roomId)
     }
     function refreshRoomData() {
         roomData = app.roomInfo.roomId !== ""
@@ -171,9 +176,10 @@ Rectangle {
                 width: parent.width
                 spacing: AppTheme.spacing12
 
-                // v0.6.0 checkpoint 11: LOCAL per-room notification mode.
-                // Explicitly this-device-only — never presented as a server
-                // push rule.
+                // v0.6.0 checkpoint 11: per-room notification mode. On the
+                // Rust backend the choice is written to the account's server
+                // push rules through the SDK (the local value is the
+                // device cache); other backends stay this-device-only.
                 ColumnLayout {
                     Layout.fillWidth: true
                     Layout.leftMargin: AppTheme.spacing12
@@ -181,26 +187,66 @@ Rectangle {
                     Layout.topMargin: AppTheme.spacing12
                     spacing: 4
                     Label {
-                        text: qsTr("Notifications (this device)")
+                        text: app.serverRoomNotificationModes
+                              ? qsTr("Notifications")
+                              : qsTr("Notifications (this device)")
                         color: AppTheme.textSecondary
                         font.pixelSize: AppTheme.fontSecondary
                         font.weight: Font.DemiBold
                     }
                     AppComboBox {
+                        id: notificationModeCombo
                         objectName: "roomNotificationModeCombo"
                         Layout.fillWidth: true
                         model: [
                             qsTr("All messages"),
-                            qsTr("Mentions only"),
+                            // "& keywords" is what the rule actually does:
+                            // the SDK's MentionsAndKeywordsOnly mode keeps
+                            // keyword rules firing.
+                            qsTr("Mentions & keywords"),
                             qsTr("Mute")
                         ]
-                        currentIndex: app.roomInfo.roomId !== ""
-                            ? app.settings.roomNotificationMode(
-                                  app.roomInfo.roomId)
-                            : 0
+                        // Explicit mirrors of the cached mode and the
+                        // room's sync-failure state: both getters are
+                        // Q_INVOKABLEs, so bindings cannot observe their
+                        // changes — refreshMode() is re-run from the
+                        // change signals and on room switches instead.
+                        property int displayedMode: 0
+                        property bool syncFailed: false
+                        function refreshMode() {
+                            displayedMode = app.roomInfo.roomId !== ""
+                                ? app.settings.roomNotificationMode(
+                                      app.roomInfo.roomId)
+                                : 0
+                            syncFailed = app.roomInfo.roomId !== ""
+                                && app.roomNotificationModeSyncFailed(
+                                       app.roomInfo.roomId)
+                        }
+                        Component.onCompleted: refreshMode()
+                        currentIndex: displayedMode
+                        Connections {
+                            target: app.settings
+                            function onRoomNotificationModeChanged(roomId) {
+                                if (roomId === app.roomInfo.roomId)
+                                    notificationModeCombo.refreshMode()
+                            }
+                        }
+                        Connections {
+                            target: app
+                            function onRoomNotificationModeSyncStateChanged(roomId) {
+                                if (roomId === app.roomInfo.roomId)
+                                    notificationModeCombo.refreshMode()
+                            }
+                        }
+                        Connections {
+                            target: app.roomInfo
+                            function onRoomIdChanged() {
+                                notificationModeCombo.refreshMode()
+                            }
+                        }
                         onActivated: (index) => {
                             if (app.roomInfo.roomId !== "")
-                                app.settings.setRoomNotificationMode(
+                                app.setRoomNotificationMode(
                                     app.roomInfo.roomId, index)
                         }
                     }
@@ -209,8 +255,17 @@ Rectangle {
                         wrapMode: Text.WordWrap
                         color: AppTheme.textMuted
                         font.pixelSize: AppTheme.fontCaption
-                        text: qsTr("Local setting: it does not change this "
-                                   + "room's server push rules.")
+                        // Backend-honest, phrased exactly like the room
+                        // context-menu flyout disclaimer ("saved", not
+                        // continuously synced; a failed write is admitted).
+                        text: app.serverRoomNotificationModes
+                              ? (notificationModeCombo.syncFailed
+                                 ? qsTr("Couldn't save to the server — "
+                                        + "kept on this device.")
+                                 : qsTr("Saved to your account's notification "
+                                        + "settings (server push rules)."))
+                              : qsTr("Local setting: it does not change this "
+                                     + "room's server push rules.")
                     }
                 }
 

@@ -436,7 +436,7 @@ Rectangle {
                 onMarkRead: app.roomList.markRoomRead(model.roomId)
                 onMarkUnread: app.roomList.markRoomUnread(model.roomId)
                 onSetNotificationMode: (mode) =>
-                    app.settings.setRoomNotificationMode(model.roomId, mode)
+                    app.setRoomNotificationMode(model.roomId, mode)
                 onCopyRoomLink: {
                     var link = app.roomList.roomPermalink(
                         model.roomId, model.canonicalAlias || "")

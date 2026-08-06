@@ -1486,6 +1486,26 @@ void RustSdkMatrixClient::setRoomMarkedUnread(const QString &roomId, bool unread
     if (!result.isEmpty()) qCWarning(lcRust) << "marked-unread command rejected";
 }
 
+void RustSdkMatrixClient::setRoomNotificationMode(const QString &roomId, int mode)
+{
+    if (!m_rustHandle || roomId.isEmpty() || mode < 0 || mode > 2) return;
+    const QByteArray room = roomId.toUtf8();
+    const QString result = takeRustString(mx_rust_set_room_notification_mode(
+        m_rustHandle, room.constData(), mode));
+    if (!result.isEmpty())
+        qCWarning(lcRust) << "notification-mode command rejected";
+}
+
+void RustSdkMatrixClient::requestRoomNotificationMode(const QString &roomId)
+{
+    if (!m_rustHandle || roomId.isEmpty()) return;
+    const QByteArray room = roomId.toUtf8();
+    const QString result = takeRustString(mx_rust_get_room_notification_mode(
+        m_rustHandle, room.constData()));
+    if (!result.isEmpty())
+        qCWarning(lcRust) << "notification-mode query rejected";
+}
+
 void RustSdkMatrixClient::acceptInvite(const QString &roomId)
 {
     if (!m_rustHandle || roomId.isEmpty()) return;
@@ -2467,6 +2487,31 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
         if (action == QLatin1String("read_receipt"))
             m_lastReceiptSent.remove(event.value(QStringLiteral("room_id")).toString());
         qCWarning(lcRust) << "room action failed category=" << action;
+        return;
+    }
+
+    // Server push-rule state for one room: an explicit user-defined rule, or
+    // the resolved account default. AppController reconciles the device-local
+    // cache from user-defined reports. Mode integers only — no rule JSON.
+    if (type == QLatin1String("room_notification_mode")) {
+        const QString roomId = event.value(QStringLiteral("room_id")).toString();
+        const int mode = event.value(QStringLiteral("mode")).toInt(-1);
+        if (roomId.isEmpty() || mode < 0 || mode > 2) return;
+        Q_EMIT roomNotificationModeChanged(
+            roomId, mode,
+            event.value(QStringLiteral("user_defined")).toBool());
+        return;
+    }
+
+    // A push-rule write failed. The device-local mode is deliberately kept
+    // (notification policy already reflects the user's choice); the signal
+    // lets the pickers replace their "saved to your account" wording with
+    // an honest kept-on-this-device state for the room.
+    if (type == QLatin1String("notification_mode_error")) {
+        const QString roomId = event.value(QStringLiteral("room_id")).toString();
+        if (roomId.isEmpty()) return;
+        qCWarning(lcRust) << "room action failed category= notification_mode";
+        Q_EMIT roomNotificationModeWriteFailed(roomId);
         return;
     }
 

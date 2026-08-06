@@ -152,9 +152,18 @@ public:
     int notificationSound() const;
     void setNotificationSound(int mode);
     void setNotificationPreview(int mode);
-    // v0.6.0 checkpoint 11: LOCAL per-room notification mode (0 = all
-    // messages, 1 = mentions only, 2 = mute). Explicitly this-device-only —
-    // it is NOT synchronized to server push rules.
+    // v0.6.0 checkpoint 11: per-room notification mode (0 = all messages,
+    // 1 = mentions & keywords, 2 = mute). On backends WITHOUT server
+    // push-rule support this stays a pure this-device setting. On the Rust
+    // backend it is the device-local CACHE of the account's server
+    // push-rule mode: AppController::setRoomNotificationMode writes it
+    // optimistically with each user choice and reconciles it from the
+    // backend's USER-DEFINED roomNotificationModeChanged reports (server
+    // wins for explicit rules; resolved account defaults are never
+    // persisted). Stored per account with a lazy read-fallback to the
+    // legacy device-global key; mode 0 still removes the stored key where
+    // no legacy value needs shadowing (compact settings file). The
+    // explicit server rule lives in the account's push rules, never here.
     Q_INVOKABLE int roomNotificationMode(const QString &roomId) const;
     Q_INVOKABLE void setRoomNotificationMode(const QString &roomId, int mode);
     void setNotificationsEnabled(bool v);
@@ -372,10 +381,24 @@ private:
     void setAppearanceValue(const char *globalKey, const QVariant &value);
     QString accountKey(const QString &slug, const char *subKey) const;
     QString slugForSavedAccount(const QString &userId) const;
+    // Per-room notification-mode keys: the account-scoped key (empty when
+    // no account is active) and the legacy device-global fallback key.
+    static QString roomNotificationModeGlobalKey(const QString &roomId);
+    QString roomNotificationModeScopedKey(const QString &roomId) const;
+    // Hot-path slug lookup: roomNotificationMode() runs for every appended
+    // remote event (NotificationManager context), so the active account's
+    // slug is cached keyed by the active user id. An account can only
+    // become active while its record exists (setActiveAccountUserId
+    // checks), and every removal path clears the active id, so keying by
+    // the user id is sufficient invalidation; setActiveAccountUserId also
+    // clears the cache explicitly, belt and braces.
+    QString activeAccountSlugCached() const;
     bool upsertAccountRecord(const QString &userId,
                              const QString &homeserver,
                              const QString &deviceId);
 
     std::unique_ptr<QSettings> m_store;
     SecretStore *m_secretStore = nullptr; // not owned; lifetime = process
+    mutable QString m_activeSlugCacheUserId;
+    mutable QString m_activeSlugCache;
 };

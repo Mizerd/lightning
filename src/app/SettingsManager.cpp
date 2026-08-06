@@ -401,6 +401,8 @@ void SettingsManager::setActiveAccountUserId(const QString &userId)
         m_store->remove(kActiveAccount);
     else
         m_store->setValue(kActiveAccount, next);
+    m_activeSlugCacheUserId.clear();
+    m_activeSlugCache.clear();
     Q_EMIT sessionChanged();
     Q_EMIT homeserverUrlChanged();
     // Appearance is per-account: the switched-to account may resolve
@@ -779,13 +781,48 @@ void SettingsManager::setNotificationSound(int mode)
     Q_EMIT notificationSoundChanged();
 }
 
+// The per-room mode became account-derived state when the Rust backend's
+// server push-rule sync landed, so it is stored per account
+// (accounts/<slug>/notifications/room-mode/<roomId>) like the appearance
+// values. Legacy (pre-scoping) modes live under the bare global key; reads
+// fall back to it so an upgrading user keeps every mode until an account's
+// first write shadows it. The legacy key is never deleted by an account
+// write — it remains the shared fallback for the OTHER accounts.
+QString SettingsManager::roomNotificationModeGlobalKey(const QString &roomId)
+{
+    return QStringLiteral("notifications/room-mode/") + roomId;
+}
+
+QString SettingsManager::activeAccountSlugCached() const
+{
+    const QString active = activeAccountUserId();
+    if (active.isEmpty())
+        return {};
+    if (active != m_activeSlugCacheUserId) {
+        m_activeSlugCacheUserId = active;
+        m_activeSlugCache = slugForSavedAccount(active);
+    }
+    return m_activeSlugCache;
+}
+
+QString SettingsManager::roomNotificationModeScopedKey(const QString &roomId) const
+{
+    const QString slug = activeAccountSlugCached();
+    if (slug.isEmpty())
+        return {};
+    return QLatin1String(kAccountsGroup) + QLatin1Char('/') + slug
+        + QLatin1Char('/') + roomNotificationModeGlobalKey(roomId);
+}
+
 int SettingsManager::roomNotificationMode(const QString &roomId) const
 {
     if (roomId.isEmpty())
         return 0;
-    const int mode = m_store
-        ->value(QStringLiteral("notifications/room-mode/") + roomId, 0)
-        .toInt();
+    const QString scopedKey = roomNotificationModeScopedKey(roomId);
+    const QString readKey = (!scopedKey.isEmpty() && m_store->contains(scopedKey))
+        ? scopedKey
+        : roomNotificationModeGlobalKey(roomId);
+    const int mode = m_store->value(readKey, 0).toInt();
     return (mode < 0 || mode > 2) ? 0 : mode;
 }
 
@@ -797,11 +834,24 @@ void SettingsManager::setRoomNotificationMode(const QString &roomId, int mode)
         mode = 0;
     if (roomNotificationMode(roomId) == mode)
         return;
-    const QString key = QStringLiteral("notifications/room-mode/") + roomId;
-    if (mode == 0)
-        m_store->remove(key);     // default: keep the settings file compact
-    else
-        m_store->setValue(key, mode);
+    const QString globalKey = roomNotificationModeGlobalKey(roomId);
+    const QString scopedKey = roomNotificationModeScopedKey(roomId);
+    if (scopedKey.isEmpty()) {
+        // No active account (logged out / pre-login): the global key keeps
+        // its original device-local semantics.
+        if (mode == 0)
+            m_store->remove(globalKey);  // default: keep the file compact
+        else
+            m_store->setValue(globalKey, mode);
+    } else if (mode == 0 && !m_store->contains(globalKey)) {
+        m_store->remove(scopedKey);      // default: keep the file compact
+    } else {
+        // Write-through per account. While a legacy global value exists
+        // for this room, even mode 0 is stored EXPLICITLY: removing the
+        // scoped key would resurrect the legacy mode on the next read, and
+        // deleting the legacy key would steal the other accounts' fallback.
+        m_store->setValue(scopedKey, mode);
+    }
     Q_EMIT roomNotificationModeChanged(roomId);
 }
 

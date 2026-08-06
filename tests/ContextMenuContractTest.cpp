@@ -168,16 +168,30 @@ private Q_SLOTS:
             "menuWidth: AppTheme.menuWidthFlyout")));
         QVERIFY(block.contains(QStringLiteral(
             "submenuIconName: \"notifications\"")));
-        // Re-queried on show and on the settings manager's own change signal.
+        // Re-queried on show and on the settings manager's own change signal;
+        // opening also re-polls the server rule (a guarded no-op on
+        // backends without server push-rule support).
         QVERIFY(block.contains(QStringLiteral(
             "currentMode = app.settings.roomNotificationMode(model.roomId)")));
-        QVERIFY(block.contains(QStringLiteral("onAboutToShow: refreshMode()")));
+        const int aboutToShow =
+            block.indexOf(QStringLiteral("onAboutToShow: {"));
+        QVERIFY(aboutToShow >= 0);
+        const QString showBlock = block.mid(aboutToShow, 500);
+        QVERIFY(showBlock.contains(QStringLiteral("refreshMode()")));
+        QVERIFY(showBlock.contains(QStringLiteral(
+            "app.requestRoomNotificationMode(model.roomId)")));
         QVERIFY(block.contains(QStringLiteral(
             "function onRoomNotificationModeChanged(roomId) {")));
         // Three radio rows, each a pure binding — never an imperative
         // assignment (AppMenuItem itself never self-toggles radioSelected;
-        // the owner must not either).
+        // the owner must not either). Mode 1 is labeled for what the SDK
+        // rule actually does: mentions AND keyword rules keep firing.
         QCOMPARE(block.count(QStringLiteral("radio: true")), 3);
+        QVERIFY(block.contains(QStringLiteral("text: qsTr(\"All messages\")")));
+        QVERIFY(block.contains(QStringLiteral(
+            "text: qsTr(\"Mentions & keywords\")")));
+        QVERIFY(block.contains(QStringLiteral("text: qsTr(\"Muted\")")));
+        QVERIFY(!block.contains(QStringLiteral("Mentions only")));
         QVERIFY(block.contains(QStringLiteral(
             "radioSelected: notificationsFlyout.currentMode === 0")));
         QVERIFY(block.contains(QStringLiteral(
@@ -185,31 +199,87 @@ private Q_SLOTS:
         QVERIFY(block.contains(QStringLiteral(
             "radioSelected: notificationsFlyout.currentMode === 2")));
         QVERIFY(!block.contains(QStringLiteral("radioSelected =")));
-        // The writes are signal-routed, not direct app.settings calls.
+        // The writes are signal-routed, not direct app/app.settings calls.
         QVERIFY(block.contains(QStringLiteral("root.setNotificationMode(0)")));
         QVERIFY(block.contains(QStringLiteral("root.setNotificationMode(1)")));
         QVERIFY(block.contains(QStringLiteral("root.setNotificationMode(2)")));
         QVERIFY(!block.contains(QStringLiteral("app.settings.setRoomNotificationMode")));
+        QVERIFY(!block.contains(QStringLiteral("app.setRoomNotificationMode")));
     }
 
-    void notificationsFlyoutCarriesTheExactExistingDisclaimer()
+    // Every surface that talks about per-room notification modes phrases
+    // itself from the backend's real capability
+    // (app.serverRoomNotificationModes): "saved to your account" wording
+    // iff the backend writes the account's push rules — demoted to an
+    // honest "kept on this device" while the room's last write is known to
+    // have failed — and the exact pre-existing local-only wording
+    // otherwise. Identical picker strings in the flyout and Room
+    // Information; the Settings → Notifications caption carries the same
+    // conditional, with its push-registration sentence unconditional
+    // (that stays true on every backend).
+    void notificationDisclaimersAreBackendHonest()
     {
         const QString delegate = read(QStringLiteral("RoomDelegate.qml"));
         const QString roomInfo = read(QStringLiteral("RoomInfoPanel.qml"));
+        const QString settings = read(QStringLiteral("SettingsScreen.qml"));
         QVERIFY(!delegate.isEmpty());
         QVERIFY(!roomInfo.isEmpty());
+        QVERIFY(!settings.isEmpty());
         const QString block = roomMenuBlock(delegate);
         QVERIFY(!block.isEmpty());
-        const QString disclaimerFragment1 =
+        const QString savedFragment1 =
+            QStringLiteral("Saved to your account's notification");
+        const QString savedFragment2 =
+            QStringLiteral("settings (server push rules).");
+        const QString failedFragment1 =
+            QStringLiteral("Couldn't save to the server");
+        const QString failedFragment2 =
+            QStringLiteral("kept on this device.");
+        const QString localFragment1 =
             QStringLiteral("Local setting: it does not change this");
-        const QString disclaimerFragment2 =
+        const QString localFragment2 =
             QStringLiteral("room's server push rules.");
-        // Exact existing wording from RoomInfoPanel.qml, reused verbatim.
-        QVERIFY(roomInfo.contains(disclaimerFragment1));
-        QVERIFY(roomInfo.contains(disclaimerFragment2));
-        QVERIFY(block.contains(disclaimerFragment1));
-        QVERIFY(block.contains(disclaimerFragment2));
-        // Storm skin: the disclaimer rides the faint storm mono ink.
+        const QString capabilityGate =
+            QStringLiteral("app.serverRoomNotificationModes");
+        for (const QString &source : { block, roomInfo }) {
+            QVERIFY(source.contains(capabilityGate));
+            QVERIFY(source.contains(savedFragment1));
+            QVERIFY(source.contains(savedFragment2));
+            QVERIFY(source.contains(failedFragment1));
+            QVERIFY(source.contains(failedFragment2));
+            QVERIFY(source.contains(localFragment1));
+            QVERIFY(source.contains(localFragment2));
+            // Never over-promise: no "synced with" phrasing anywhere (there
+            // is no live push-rule watcher yet).
+            QVERIFY(!source.contains(QStringLiteral("Synced with")));
+        }
+        // The failed-write demotion is driven by the per-room state the
+        // controller tracks, re-queried through each surface's refresh.
+        QVERIFY(block.contains(QStringLiteral("notificationsFlyout.syncFailed")));
+        QVERIFY(block.contains(QStringLiteral(
+            "app.roomNotificationModeSyncFailed(model.roomId)")));
+        QVERIFY(roomInfo.contains(QStringLiteral("notificationModeCombo.syncFailed")));
+        QVERIFY(roomInfo.contains(QStringLiteral(
+            "app.roomNotificationModeSyncFailed(")));
+        // Room Information's heading drops "(this device)" only when the
+        // backend really saves the mode to the account.
+        QVERIFY(roomInfo.contains(QStringLiteral("? qsTr(\"Notifications\")")));
+        QVERIFY(roomInfo.contains(
+            QStringLiteral(": qsTr(\"Notifications (this device)\")")));
+        // Settings → Notifications: same capability gate, its own "are
+        // saved to your account" / device-only variants, and the
+        // unconditional push-registration sentence.
+        QVERIFY(settings.contains(capabilityGate));
+        QVERIFY(settings.contains(QStringLiteral("are saved")));
+        QVERIFY(settings.contains(QStringLiteral(
+            "to your account's notification")));
+        QVERIFY(settings.contains(QStringLiteral(
+            "settings (server push rules).")));
+        QVERIFY(settings.contains(QStringLiteral("apply to")));
+        QVERIFY(settings.contains(QStringLiteral("this device only")));
+        QVERIFY(settings.contains(QStringLiteral("Push registration for")));
+        QVERIFY(settings.contains(QStringLiteral("implemented.")));
+        // Storm skin: the flyout disclaimer rides the faint storm mono ink.
         QVERIFY(block.contains(QStringLiteral("color: AppTheme.stormTextFaint")));
         QVERIFY(block.contains(QStringLiteral("font.pixelSize: AppTheme.fontMicro")));
         QVERIFY(block.contains(QStringLiteral("wrapMode: Text.WordWrap")));

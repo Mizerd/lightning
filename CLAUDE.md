@@ -342,8 +342,11 @@ were never backed up or shared.
   privacy modes, active-room suppression, invite and verification notices
 - Cold-start/backlog suppression, bounded click routing to room/event/thread,
   configurable sounds, and burst coalescing
-- Per-room notification modes are currently device-local, not synchronized
-  server push rules
+- Per-room notification modes synchronize to server push rules on the Rust
+  backend (SDK-managed; user-defined-rule reports reconcile a device-local
+  cache that keeps policy working offline, and a failed write is disclosed
+  in the UI as kept-on-this-device). Non-Rust backends remain device-local.
+  Live homeserver/Element interoperability of the rules is NOT TESTED
 
 ### Settings, usability, and accessibility
 

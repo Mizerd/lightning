@@ -26,6 +26,9 @@ use matrix_sdk::{
     encryption::verification::{
         SasState, SasVerification, VerificationRequest, VerificationRequestState,
     },
+    notification_settings::{
+        IsEncrypted, IsOneToOne, NotificationSettings, RoomNotificationMode,
+    },
     room::MessagesOptions,
     ruma::{
         api::{error::ErrorKind, FeatureFlag},
@@ -128,6 +131,23 @@ struct RustClient {
     receipt_targets: Arc<Mutex<HashMap<String, OwnedEventId>>>,
     receipt_serial: Arc<tokio::sync::Mutex<()>>,
     invite_actions: Arc<Mutex<BTreeSet<String>>>,
+    // Server-synchronized per-room notification mode (SDK push rules).
+    // Writes are serialized behind one async mutex — the SDK's
+    // set_room_notification_mode is a rules read/modify/write, and two
+    // interleaved tasks could otherwise each insert a rule — and coalesced
+    // per room to the LATEST requested mode, mirroring the receipt pattern.
+    // A room's entry lives until the task that will report for it consumes
+    // it, so it doubles as the "write in flight" marker the read path
+    // checks (see mx_rust_get_room_notification_mode).
+    notification_mode_targets: Arc<Mutex<HashMap<String, u8>>>,
+    notification_mode_serial: Arc<tokio::sync::Mutex<()>>,
+    // ONE session-long NotificationSettings, created lazily on first use.
+    // A fresh Client::notification_settings() per call would discard the
+    // rule state the SDK applies locally after each successful write, so a
+    // second write (or a read) issued before the next push-rules sync
+    // would act on stale rules. Cleared with the session on sign-out /
+    // detach, exactly like media_results.
+    notification_settings: Arc<Mutex<Option<NotificationSettings>>>,
     // v0.5.0: SAS verification state. Single active flow at a time keeps
     // the FFI simple; a second request arriving while one is live is
     // cancelled on the wire rather than silently evicting the live flow.
@@ -201,6 +221,9 @@ impl RustClient {
             receipt_targets: Arc::new(Mutex::new(HashMap::new())),
             receipt_serial: Arc::new(tokio::sync::Mutex::new(())),
             invite_actions: Arc::new(Mutex::new(BTreeSet::new())),
+            notification_mode_targets: Arc::new(Mutex::new(HashMap::new())),
+            notification_mode_serial: Arc::new(tokio::sync::Mutex::new(())),
+            notification_settings: Arc::new(Mutex::new(None)),
             active_request: Arc::new(Mutex::new(None)),
             active_sas: Arc::new(Mutex::new(None)),
             verification_tasks: Mutex::new(Vec::new()),
@@ -367,6 +390,16 @@ impl RustClient {
         // v0.5.9: drop any parked (possibly decrypted) media bytes with the
         // session; nothing may hand them out after sign-out.
         if let Ok(mut guard) = self.media_results.lock() {
+            guard.clear();
+        }
+        // Notification-settings state is session-scoped: the cached
+        // NotificationSettings holds a Client clone (and an event-handler
+        // guard) that must not outlive the session, and leftover pending
+        // write markers must never leak into the next account.
+        if let Ok(mut guard) = self.notification_settings.lock() {
+            *guard = None;
+        }
+        if let Ok(mut guard) = self.notification_mode_targets.lock() {
             guard.clear();
         }
         (import_joined, sync_stopped)
@@ -1797,6 +1830,284 @@ pub unsafe extern "C" fn mx_rust_set_marked_unread(
                     "type": "room_action_error", "action": "marked_unread"
                 })),
             }
+        });
+        Ok(String::new())
+    })
+}
+
+/// Lightning's per-room notification-mode integers, shared with the C++
+/// side (SettingsManager / NotificationManager::RoomMode): 0 = all
+/// messages, 1 = mentions & keywords only, 2 = mute. The mapping is
+/// label-faithful — mode 0 sets an explicit AllMessages rule server-side.
+/// A separate "follow account default" choice (user-rule removal via
+/// delete_user_defined_room_rules) is an accepted follow-up; the UI does
+/// not offer it yet.
+pub(crate) fn notification_mode_to_int(mode: RoomNotificationMode) -> u8 {
+    match mode {
+        RoomNotificationMode::AllMessages => 0,
+        RoomNotificationMode::MentionsAndKeywordsOnly => 1,
+        RoomNotificationMode::Mute => 2,
+    }
+}
+
+pub(crate) fn notification_mode_from_int(mode: c_int) -> Option<RoomNotificationMode> {
+    match mode {
+        0 => Some(RoomNotificationMode::AllMessages),
+        1 => Some(RoomNotificationMode::MentionsAndKeywordsOnly),
+        2 => Some(RoomNotificationMode::Mute),
+        _ => None,
+    }
+}
+
+/// True when `mode` is still the newest requested mode for `room_id`
+/// (checked before the server write; a superseded task must not write).
+fn is_latest_notification_target(
+    targets: &Arc<Mutex<HashMap<String, u8>>>,
+    room_id: &str,
+    mode: u8,
+) -> bool {
+    targets.lock().ok().and_then(|guard| guard.get(room_id).copied()) == Some(mode)
+}
+
+/// Consume the room's pending-write marker iff this task's mode is still
+/// the newest AFTER its server round-trip. Returns true when consumed —
+/// this task owns the room's authoritative report (success or failure).
+/// Returns false when a newer set superseded this one mid-flight: the
+/// marker is left in place and the newer task (queued behind the write
+/// serial) produces the room's report instead.
+fn take_notification_target_if_latest(
+    targets: &Arc<Mutex<HashMap<String, u8>>>,
+    room_id: &str,
+    mode: u8,
+) -> bool {
+    if let Ok(mut guard) = targets.lock() {
+        if guard.get(room_id).copied() == Some(mode) {
+            guard.remove(room_id);
+            return true;
+        }
+    }
+    false
+}
+
+/// Clears this task's pending-write marker on ANY exit path — normal
+/// completion (where the authoritative-report consume usually got there
+/// first and this is a no-op), supersession, a panic inside the SDK
+/// write, an abort during the shutdown join window, or the spawn path
+/// declining so the future is dropped unpolled (the guard is created at
+/// the FFI entry and MOVED into the future precisely so that last case
+/// still drops it). Without this, an orphaned marker would keep
+/// `notification_write_pending()` true forever and silently disable
+/// read reports for the room for the rest of the session. Only the
+/// exact (room, mode) pair this task inserted is removed — a newer
+/// task's marker is never touched.
+struct NotificationTargetGuard {
+    targets: Arc<Mutex<HashMap<String, u8>>>,
+    room_id: String,
+    mode: u8,
+}
+
+impl Drop for NotificationTargetGuard {
+    fn drop(&mut self) {
+        if let Ok(mut guard) = self.targets.lock() {
+            if guard.get(&self.room_id).copied() == Some(self.mode) {
+                guard.remove(&self.room_id);
+            }
+        }
+    }
+}
+
+/// True while a set for this room is queued or in flight (its marker is
+/// consumed only when the owning task reports).
+fn notification_write_pending(
+    targets: &Arc<Mutex<HashMap<String, u8>>>,
+    room_id: &str,
+) -> bool {
+    targets
+        .lock()
+        .ok()
+        .map(|guard| guard.contains_key(room_id))
+        .unwrap_or(false)
+}
+
+/// The session's single NotificationSettings, created lazily on first use.
+/// All clones share one inner rule set (Arc), so a read issued after a
+/// completed write observes the locally-applied post-write rules instead
+/// of a stale fresh snapshot. Racing creators are resolved by
+/// double-checking under the lock; the loser's instance simply drops.
+/// Known limitation (accepted follow-up): if the FIRST call lands before
+/// the initial sync delivered m.push_rules, the SDK builds the instance
+/// from a fallback rule set (server_default, or empty on a store read
+/// error) and that fallback stays cached until a PushRulesEvent arrives.
+/// The per-call construction this replaced self-healed but discarded
+/// post-write state (a worse trade). Invalidate-after-first-sync would
+/// close the window.
+async fn notification_settings_handle(
+    slot: &Arc<Mutex<Option<NotificationSettings>>>,
+    client: &Client,
+) -> NotificationSettings {
+    if let Some(existing) = slot.lock().ok().and_then(|guard| guard.clone()) {
+        return existing;
+    }
+    let created = client.notification_settings().await;
+    if let Ok(mut guard) = slot.lock() {
+        if let Some(existing) = guard.clone() {
+            return existing;
+        }
+        *guard = Some(created.clone());
+    }
+    created
+}
+
+/// Set the account's per-room notification mode through the SDK's push-rule
+/// manager (`NotificationSettings::set_room_notification_mode`). All rule
+/// construction, keyword handling, and conflicting-rule cleanup stay inside
+/// matrix-sdk — this bridge never builds or inspects rule JSON. Success
+/// enqueues a `room_notification_mode` report; failure enqueues a dedicated
+/// sanitized `notification_mode_error` (room id only, never the SDK error
+/// text, which can embed rule bodies) so the UI can show an honest
+/// "kept on this device" state. Automatic retry on reconnect is an
+/// accepted follow-up; this round reports the failure and stops.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_set_room_notification_mode(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    mode: c_int,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let mode = notification_mode_from_int(mode)
+            .ok_or_else(|| "invalid notification mode".to_owned())?;
+        let client = bridge.client.lock().ok().and_then(|guard| guard.clone())
+            .ok_or_else(|| "no active Matrix session".to_owned())?;
+        let room = RoomId::parse(&room_id).ok().and_then(|id| client.get_room(&id))
+            .ok_or_else(|| "unknown room".to_owned())?;
+        let events = Arc::clone(&bridge.events);
+        let targets = Arc::clone(&bridge.notification_mode_targets);
+        let serial = Arc::clone(&bridge.notification_mode_serial);
+        let settings_slot = Arc::clone(&bridge.notification_settings);
+        let my_mode = notification_mode_to_int(mode);
+        if let Ok(mut guard) = targets.lock() {
+            guard.insert(room_id.clone(), my_mode);
+        }
+        // Created OUTSIDE the future and moved into it: if the spawn path
+        // declines and the future is dropped unpolled, the guard still
+        // drops and the marker cannot orphan (see NotificationTargetGuard).
+        let target_guard = NotificationTargetGuard {
+            targets: Arc::clone(&targets),
+            room_id: room_id.clone(),
+            mode: my_mode,
+        };
+        bridge.spawn_room_action(async move {
+            let _target_guard = target_guard;
+            let _serial = serial.lock().await;
+            // Already superseded before this task even ran — skip the
+            // write; the task holding the newest target performs it.
+            if !is_latest_notification_target(&targets, &room_id, my_mode) {
+                return;
+            }
+            let settings = notification_settings_handle(&settings_slot, &client).await;
+            let result = settings.set_room_notification_mode(room.room_id(), mode).await;
+            // Re-check AFTER the round-trip: a newer choice may have been
+            // queued while this write was in flight (its FFI entry replaced
+            // the target before its task blocked on the serial). This task
+            // must then report NOTHING — neither its now-stale mode as
+            // authoritative nor a failure for a choice the user already
+            // replaced; the newer task, next on the serial, produces the
+            // room's authoritative report. Consuming the marker on report
+            // is also what lets the read path treat "marker present" as
+            // "write still in flight".
+            if !take_notification_target_if_latest(&targets, &room_id, my_mode) {
+                return;
+            }
+            match result {
+                Ok(()) => enqueue(&events, json!({
+                    "type": "room_notification_mode",
+                    "room_id": room_id,
+                    "mode": my_mode,
+                    "user_defined": true,
+                })),
+                Err(_) => enqueue(&events, json!({
+                    "type": "notification_mode_error",
+                    "room_id": room_id,
+                })),
+            }
+        });
+        Ok(String::new())
+    })
+}
+
+/// Report a room's current notification mode: the account's user-defined
+/// room rule when one exists, otherwise the account DEFAULT resolved for
+/// this room's shape (encrypted? one-to-one?), flagged `user_defined:false`.
+/// Reads are local rule-set lookups on the shared session
+/// NotificationSettings (no server round-trip), so there is no
+/// asynchronous failure path and no need for the write serial. Refresh is
+/// poll-on-open: the C++ side calls this when a notification picker opens;
+/// a live `subscribe_to_changes` push-rule watcher is an accepted
+/// follow-up, not implemented here.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_get_room_notification_mode(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let client = bridge.client.lock().ok().and_then(|guard| guard.clone())
+            .ok_or_else(|| "no active Matrix session".to_owned())?;
+        let room = RoomId::parse(&room_id).ok().and_then(|id| client.get_room(&id))
+            .ok_or_else(|| "unknown room".to_owned())?;
+        let events = Arc::clone(&bridge.events);
+        let targets = Arc::clone(&bridge.notification_mode_targets);
+        let settings_slot = Arc::clone(&bridge.notification_settings);
+        bridge.spawn_room_action(async move {
+            // A write for this room is queued or in flight: its own report
+            // (or failure event) is authoritative and imminent, and a read
+            // taken now could observe the pre-write rules and — running on
+            // another worker thread — enqueue AFTER the write's report,
+            // wedging the C++ cache on the stale mode. Bail instead; the
+            // pending write reports for the room.
+            if notification_write_pending(&targets, &room_id) {
+                return;
+            }
+            let settings =
+                notification_settings_handle(&settings_slot, &client).await;
+            if let Some(mode) = settings
+                .get_user_defined_room_notification_mode(room.room_id())
+                .await
+            {
+                enqueue(&events, json!({
+                    "type": "room_notification_mode",
+                    "room_id": room_id,
+                    "mode": notification_mode_to_int(mode),
+                    "user_defined": true,
+                }));
+                return;
+            }
+            // No per-room rule: resolve the account default with the same
+            // inputs the SDK's own helpers use. `encryption_state()` is the
+            // store's current knowledge; a still-Unknown state deliberately
+            // maps to NotEncrypted (it only varies which default push rule
+            // answers — never crypto behavior) and this read path fires no
+            // state request. One-to-one uses JOINED members: the server
+            // evaluates `.m.rule.room_one_to_one`'s member_count against
+            // joined members, so counting invitees (active_members_count)
+            // would resolve a different default than push evaluation uses.
+            let is_encrypted = room.encryption_state().is_encrypted();
+            let is_one_to_one = room.joined_members_count() == 2;
+            let mode = settings
+                .get_default_room_notification_mode(
+                    IsEncrypted::from(is_encrypted),
+                    IsOneToOne::from(is_one_to_one),
+                )
+                .await;
+            enqueue(&events, json!({
+                "type": "room_notification_mode",
+                "room_id": room_id,
+                "mode": notification_mode_to_int(mode),
+                "user_defined": false,
+            }));
         });
         Ok(String::new())
     })
@@ -5680,6 +5991,111 @@ fn classify_import_error(message: &str) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::classify_import_error;
+
+    // Server-synchronized per-room notification modes: the FFI integers are
+    // a stable contract with C++ (SettingsManager cache values and
+    // NotificationManager::RoomMode). The mapping must stay label-faithful
+    // in both directions and reject anything outside 0..=2.
+    #[test]
+    fn notification_mode_ints_round_trip_label_faithfully() {
+        use matrix_sdk::notification_settings::RoomNotificationMode;
+        for (int, mode) in [
+            (0, RoomNotificationMode::AllMessages),
+            (1, RoomNotificationMode::MentionsAndKeywordsOnly),
+            (2, RoomNotificationMode::Mute),
+        ] {
+            assert_eq!(super::notification_mode_from_int(int), Some(mode));
+            assert_eq!(super::notification_mode_to_int(mode), int as u8);
+        }
+    }
+
+    #[test]
+    fn out_of_range_notification_modes_are_rejected() {
+        assert_eq!(super::notification_mode_from_int(-1), None);
+        assert_eq!(super::notification_mode_from_int(3), None);
+        assert_eq!(super::notification_mode_from_int(i32::MAX), None);
+    }
+
+    // The coalescing marker discipline for notification-mode writes: a
+    // superseded task must neither write nor report (before OR after its
+    // round-trip), the winning task consumes the room's marker exactly
+    // once when it reports, and the read path sees "pending" only while a
+    // write is genuinely unreported.
+    #[test]
+    fn notification_targets_supersede_consume_and_pend_correctly() {
+        use std::collections::HashMap;
+        use std::sync::{Arc, Mutex};
+        let targets: Arc<Mutex<HashMap<String, u8>>> =
+            Arc::new(Mutex::new(HashMap::new()));
+        let room = "!room:example.org";
+
+        // set(2) queued: marker present, latest, read path pends.
+        targets.lock().unwrap().insert(room.to_owned(), 2);
+        assert!(super::is_latest_notification_target(&targets, room, 2));
+        assert!(super::notification_write_pending(&targets, room));
+
+        // set(1) arrives while set(2)'s write is in flight: set(2) is no
+        // longer latest — it must skip its report and leave the marker.
+        targets.lock().unwrap().insert(room.to_owned(), 1);
+        assert!(!super::is_latest_notification_target(&targets, room, 2));
+        assert!(!super::take_notification_target_if_latest(&targets, room, 2));
+        assert!(super::notification_write_pending(&targets, room));
+
+        // set(1)'s task reports: it is latest, consumes the marker once.
+        assert!(super::take_notification_target_if_latest(&targets, room, 1));
+        assert!(!super::notification_write_pending(&targets, room));
+        // A second consume attempt (double report) finds nothing.
+        assert!(!super::take_notification_target_if_latest(&targets, room, 1));
+
+        // Duplicate queued sets of the SAME mode: the first reporter
+        // consumes the marker; the second skips silently.
+        targets.lock().unwrap().insert(room.to_owned(), 0);
+        assert!(super::take_notification_target_if_latest(&targets, room, 0));
+        assert!(!super::is_latest_notification_target(&targets, room, 0));
+
+        // Other rooms are independent.
+        targets.lock().unwrap().insert("!other:example.org".to_owned(), 2);
+        assert!(!super::notification_write_pending(&targets, room));
+        assert!(super::notification_write_pending(&targets, "!other:example.org"));
+    }
+
+    #[test]
+    fn notification_target_guard_clears_only_its_own_marker() {
+        use std::collections::HashMap;
+        use std::sync::{Arc, Mutex};
+        let targets: Arc<Mutex<HashMap<String, u8>>> =
+            Arc::new(Mutex::new(HashMap::new()));
+        let room = "!room:example.org";
+
+        // Orphan path: the marker survives to guard drop (task panicked,
+        // was aborted, or its future was never polled) — the guard clears
+        // it so reads for the room are not disabled for the session.
+        targets.lock().unwrap().insert(room.to_owned(), 2);
+        drop(super::NotificationTargetGuard {
+            targets: Arc::clone(&targets),
+            room_id: room.to_owned(),
+            mode: 2,
+        });
+        assert!(!super::notification_write_pending(&targets, room));
+
+        // Superseded path: a newer task's marker is NEVER touched.
+        targets.lock().unwrap().insert(room.to_owned(), 1);
+        drop(super::NotificationTargetGuard {
+            targets: Arc::clone(&targets),
+            room_id: room.to_owned(),
+            mode: 2,
+        });
+        assert!(super::is_latest_notification_target(&targets, room, 1));
+
+        // Normal path: the report consume got there first; guard no-ops.
+        assert!(super::take_notification_target_if_latest(&targets, room, 1));
+        drop(super::NotificationTargetGuard {
+            targets: Arc::clone(&targets),
+            room_id: room.to_owned(),
+            mode: 1,
+        });
+        assert!(!super::notification_write_pending(&targets, room));
+    }
 
     // v0.7 media defense-in-depth: the terminal lane's tripwire overflow
     // frees the parked payload of the dropped event, so decrypted bytes can

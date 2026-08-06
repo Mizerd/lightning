@@ -1293,6 +1293,24 @@ if(BUILD_TESTING)
     set_tests_properties(verification-flow PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+    # Server-synchronized per-room notification modes: the AppController
+    # entry point (cache-first write, capability-gated server write and
+    # refresh), account-scoped SettingsManager storage with legacy-key
+    # fallback (mode 0 removes the scoped key only when no legacy value
+    # shadows it), and cache reconciliation from USER-DEFINED backend
+    # reports only — gated by the per-room sync-failure state (a differing
+    # report never overrides an unsynced local choice).
+    # Rust-backend slots QSKIP without ENABLE_RUST_SDK_BACKEND.
+    qt_add_executable(room-notification-mode-test
+        tests/RoomNotificationModeTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_app(room-notification-mode-test)
+    target_link_libraries(room-notification-mode-test PRIVATE Qt6::Test)
+    add_test(NAME room-notification-mode COMMAND room-notification-mode-test)
+    set_tests_properties(room-notification-mode PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
     # One-line semantic event summaries for side surfaces (room list,
     # notifications): poll fallbacks, mention markdown, newline collapse,
     # bounded length. Pins the multi-line poll room-row regression.

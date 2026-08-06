@@ -259,12 +259,14 @@ Item {
             onTriggered: root.markUnread()
         }
         AppMenuSeparator {}
-        // v0.6.5 (SPEC 1d): device-local notification mode, three radio
-        // rows bound to the REAL setting (SettingsManager::roomNotification-
+        // v0.6.5 (SPEC 1d): per-room notification mode, three radio rows
+        // bound to the REAL setting (SettingsManager::roomNotification-
         // Mode is Q_INVOKABLE, not a property, so it is re-queried explicitly
         // rather than bound directly — see refreshMode() below). radioSelected
         // stays a pure binding on the local currentMode property; it is never
         // imperatively assigned (AppMenuItem itself never self-toggles it).
+        // On backends with server push-rule support the setting doubles as
+        // the cache of the account's server mode (see AppController).
         AppMenu {
             id: notificationsFlyout
             objectName: "roomNotificationsFlyout"
@@ -275,13 +277,32 @@ Item {
             contextLabel: qsTr("Notify mode")
             contextBolt: false
             property int currentMode: 0
+            // True while the room's last server push-rule write failed —
+            // the disclaimer then says the mode was kept on this device
+            // instead of claiming it was saved to the account.
+            property bool syncFailed: false
             function refreshMode() {
                 currentMode = app.settings.roomNotificationMode(model.roomId)
+                syncFailed = app.roomNotificationModeSyncFailed(model.roomId)
             }
-            onAboutToShow: refreshMode()
+            onAboutToShow: {
+                refreshMode()
+                // Poll-on-open: re-query the server rule so a change made
+                // in another client lands in the cache (and, via the
+                // Connections below, in this flyout). A guarded no-op on
+                // backends without server push-rule support.
+                app.requestRoomNotificationMode(model.roomId)
+            }
             Connections {
                 target: app.settings
                 function onRoomNotificationModeChanged(roomId) {
+                    if (roomId === model.roomId)
+                        notificationsFlyout.refreshMode()
+                }
+            }
+            Connections {
+                target: app
+                function onRoomNotificationModeSyncStateChanged(roomId) {
                     if (roomId === model.roomId)
                         notificationsFlyout.refreshMode()
                 }
@@ -293,7 +314,9 @@ Item {
                 onTriggered: root.setNotificationMode(0)
             }
             AppMenuItem {
-                text: qsTr("Mentions only")
+                // "& keywords" is what the rule actually does: the SDK's
+                // MentionsAndKeywordsOnly mode keeps keyword rules firing.
+                text: qsTr("Mentions & keywords")
                 radio: true
                 radioSelected: notificationsFlyout.currentMode === 1
                 onTriggered: root.setNotificationMode(1)
@@ -310,8 +333,20 @@ Item {
                 rightPadding: AppTheme.menuItemPadding
                 topPadding: AppTheme.spacing4
                 bottomPadding: AppTheme.spacing6
-                text: qsTr("Local setting: it does not change this "
-                           + "room's server push rules.")
+                // Backend-honest: the Rust backend writes the account's
+                // server push rules through the SDK ("saved", not
+                // continuously synced — there is no live push-rule watcher
+                // yet); a failed write is admitted instead of claimed
+                // saved; other backends keep the mode strictly
+                // device-local.
+                text: app.serverRoomNotificationModes
+                      ? (notificationsFlyout.syncFailed
+                         ? qsTr("Couldn't save to the server — "
+                                + "kept on this device.")
+                         : qsTr("Saved to your account's notification "
+                                + "settings (server push rules)."))
+                      : qsTr("Local setting: it does not change this "
+                             + "room's server push rules.")
                 color: AppTheme.stormTextFaint
                 font.pixelSize: AppTheme.fontMicro
                 wrapMode: Text.WordWrap

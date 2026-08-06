@@ -63,6 +63,23 @@ char *mx_rust_send_read_receipt(void *client,
                                 const char *room_id,
                                 const char *event_id);
 char *mx_rust_set_marked_unread(void *client, const char *room_id, int unread);
+/* Server-synchronized per-room notification mode (SDK push rules).
+ * mode: 0 = all messages, 1 = mentions & keywords only, 2 = mute. Set is
+ * label-faithful (mode 0 writes an explicit AllMessages rule); every rule
+ * construction and cleanup stays inside matrix-sdk. Get resolves the
+ * user-defined room rule first, else the account default for the room's
+ * shape; a get issued while a write for the room is still in flight is
+ * silently skipped — the write's own report is authoritative. Result
+ * event on the poll queue:
+ *   {"type":"room_notification_mode","room_id","mode":0|1|2,
+ *    "user_defined":bool}
+ * A failed write enqueues the dedicated
+ *   {"type":"notification_mode_error","room_id"}
+ * — room id only, never rule JSON or SDK error text. */
+char *mx_rust_set_room_notification_mode(void *client,
+                                         const char *room_id,
+                                         int mode);
+char *mx_rust_get_room_notification_mode(void *client, const char *room_id);
 char *mx_rust_accept_invite(void *client, const char *room_id);
 char *mx_rust_reject_invite(void *client, const char *room_id);
 /* Re-emit a full room_list_reset from the SDK's current room set. Safety

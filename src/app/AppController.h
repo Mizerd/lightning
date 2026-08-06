@@ -57,6 +57,12 @@ class AppController : public QObject
     // present so QML bindings resolve; null in every non-demo build.
     Q_PROPERTY(QObject* demo READ demoController CONSTANT)
     Q_PROPERTY(QString backendName READ backendName CONSTANT)
+    // True when the active backend synchronizes per-room notification modes
+    // with the account's server push rules (Rust SDK backend). Fixed per
+    // backend for the whole process lifetime, like backendName. The QML
+    // notification pickers phrase their disclaimer from this.
+    Q_PROPERTY(bool serverRoomNotificationModes READ serverRoomNotificationModes
+               CONSTANT)
     Q_PROPERTY(QString connectionStatus READ connectionStatus NOTIFY connectionStatusChanged)
     Q_PROPERTY(QString syncModeLabel READ syncModeLabel NOTIFY syncModeChanged)
     // v0.5.11: platform colour-scheme hint for the "System" theme. Reflects
@@ -246,6 +252,7 @@ public:
     // screenshot demo is active. Exposed to QML as `app.demo`.
     QObject *demoController() const { return m_demoController; }
     QString backendName() const;
+    bool serverRoomNotificationModes() const;
     QString connectionStatus() const { return m_connectionStatus; }
     QString syncModeLabel() const;
     bool systemDarkMode() const;
@@ -317,6 +324,30 @@ public Q_SLOTS:
     void showMain();
     void showSettings();
     void openRoom(const QString &roomId);
+
+    // Per-room notification mode (0 = all, 1 = mentions & keywords,
+    // 2 = mute) — the single UI entry point. Always writes the
+    // device-local SettingsManager value first (NotificationManager reads
+    // it, so policy works instantly and offline); on a backend with
+    // server push-rule support it then issues the SDK write. The async
+    // roomNotificationModeChanged report reconciles the cache only when
+    // it is USER-DEFINED (a resolved account default is never persisted),
+    // and while the room carries kept-on-this-device failure state only a
+    // report EQUAL to the cached value — the real write acknowledgement —
+    // is accepted. Note the deliberate semantic shift on such backends:
+    // mode 0 used to merely remove the local key — it now ALSO sets an
+    // explicit server "all messages" rule (label-faithful mapping; a
+    // separate "follow account default" choice is an accepted follow-up).
+    Q_INVOKABLE void setRoomNotificationMode(const QString &roomId, int mode);
+    // Poll-on-open refresh: re-query the server rule when a notification
+    // picker opens so changes made in another client land in the cache.
+    // No-op on backends without server support.
+    Q_INVOKABLE void requestRoomNotificationMode(const QString &roomId);
+    // True while the room's LAST server push-rule write is known to have
+    // failed (the device-local mode still applies). Cleared by the next
+    // successful user-defined report for the room; session-scoped, never
+    // persisted. Automatic retry on reconnect is an accepted follow-up.
+    Q_INVOKABLE bool roomNotificationModeSyncFailed(const QString &roomId) const;
 
     // v0.7 multi-account. Switch the whole Matrix context (client session,
     // stores, crypto, models, notifications) to another saved account
@@ -488,6 +519,11 @@ Q_SIGNALS:
                                    const QString &eventId,
                                    const QString &threadRootId);
 
+    // The room's server notification-mode sync state flipped (a push-rule
+    // write failed, or a later server report cleared the failure). The
+    // pickers re-query roomNotificationModeSyncFailed() on this.
+    void roomNotificationModeSyncStateChanged(const QString &roomId);
+
     // v0.5.6 Security & Recovery.
     void securityStateChanged();
     void roomKeyImportStateChanged();
@@ -589,6 +625,10 @@ private:
     bool m_sessionDevicesFailed = false;
     bool m_activeRoomAtLatest = false;
     QSet<QString> m_knownInvites;
+    // Rooms whose last server push-rule write failed, so the pickers can
+    // say "kept on this device" instead of claiming the mode was saved to
+    // the account. Session-scoped: cleared on logout/account switch.
+    QSet<QString> m_notificationModeSyncFailures;
     std::unique_ptr<SpaceManager> m_spaces;
     std::unique_ptr<ThreadManager> m_threads;
     std::unique_ptr<ThreadController> m_thread;

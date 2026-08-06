@@ -230,6 +230,11 @@ public:
     void sendTyping(const QString &roomId, bool isTyping, int timeoutMs = 20000) override;
     void sendReadReceipt(const QString &roomId, const QString &eventId) override;
     void setRoomMarkedUnread(const QString &roomId, bool unread) override;
+    // Server-synchronized per-room notification modes through the SDK's
+    // NotificationSettings push-rule manager (label-faithful 0/1/2).
+    bool supportsServerNotificationModes() const override { return true; }
+    void setRoomNotificationMode(const QString &roomId, int mode) override;
+    void requestRoomNotificationMode(const QString &roomId) override;
     void acceptInvite(const QString &roomId) override;
     void rejectInvite(const QString &roomId) override;
     void sendImage(const QString &roomId, const QString &localPath) override;
