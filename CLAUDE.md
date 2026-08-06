@@ -328,7 +328,10 @@ backend capability checks and honest live-test status.
 - Automatic room-key requests and SDK backup download after decryption failure
 - Late in-place decryption updates, manual bounded retry, key import, and
   recovery-key/passphrase backup restore controls
-- SAS emoji device verification in both directions, session/device trust UI,
+- SAS emoji device verification in both directions, show-QR verification
+  (Lightning displays a code the other device scans; SDK-owned reciprocate
+  flow, SAS fallback, never scans — live Element interop NOT TESTED),
+  session/device trust UI,
   cross-signing/backup state, and generation-isolated callbacks
 
 These mechanisms cannot guarantee recovery of historical messages whose keys

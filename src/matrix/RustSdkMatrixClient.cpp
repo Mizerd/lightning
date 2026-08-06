@@ -2,6 +2,7 @@
 
 #include "app/SettingsManager.h"
 #include "crypto/E2eeDiagnostics.h"
+#include "crypto/QrImageProvider.h"
 #include "matrix/EventPreview.h"
 #include "matrix/MediaHelpers.h"
 #include "matrix/RustSessionPolicy.h"
@@ -2782,6 +2783,48 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
             event.value(QStringLiteral("flow_id")).toString());
         return;
     }
+    if (type == QLatin1String("verification_qr_ready")) {
+        // Geometry only. `bits_b64` is the QR MODULE GRID, never the
+        // payload the code encodes — that stays inside the Rust bridge.
+        // Nothing here is logged: even the grid reconstructs the payload.
+        const QString flowId = event.value(QStringLiteral("flow_id")).toString();
+        const int modules = event.value(QStringLiteral("size")).toInt(0);
+        // Bound the geometry BEFORE decoding, so an absurd size can never
+        // drive the base64 decode of an oversized payload.
+        if (modules <= 0 || modules > QrCodeStore::kMaxModules) {
+            qCWarning(lcRust) << "verification QR grid rejected: bad geometry";
+            return;
+        }
+        const QByteArray bits = QByteArray::fromBase64(
+            event.value(QStringLiteral("bits_b64")).toString().toLatin1(),
+            QByteArray::Base64Encoding | QByteArray::AbortOnBase64DecodingErrors);
+        // Reject a malformed grid rather than rendering a sheared or
+        // truncated code: an unscannable picture presented as a working one
+        // is worse than no QR offer at all.
+        const int stride = (modules + 7) / 8;
+        if (bits.size() != stride * modules) {
+            qCWarning(lcRust) << "verification QR grid rejected: bad geometry";
+            return;
+        }
+        Q_EMIT verificationQrReady(flowId, modules, bits);
+        return;
+    }
+    if (type == QLatin1String("verification_qr_scanned")) {
+        Q_EMIT verificationQrScanned(
+            event.value(QStringLiteral("flow_id")).toString());
+        return;
+    }
+    if (type == QLatin1String("verification_qr_confirmed")) {
+        Q_EMIT verificationQrConfirmed(
+            event.value(QStringLiteral("flow_id")).toString());
+        return;
+    }
+    if (type == QLatin1String("verification_qr_dismissed")) {
+        Q_EMIT verificationQrDismissed(
+            event.value(QStringLiteral("flow_id")).toString(),
+            event.value(QStringLiteral("reason")).toString());
+        return;
+    }
     if (type == QLatin1String("verification_done")) {
         Q_EMIT verificationDone(
             event.value(QStringLiteral("flow_id")).toString());
@@ -3386,6 +3429,16 @@ void RustSdkMatrixClient::confirmVerification(const QString &flowId)
     if (!m_rustHandle || flowId.isEmpty()) return;
     const QByteArray b = flowId.toUtf8();
     const QString r = takeRustString(mx_rust_confirm_verification(m_rustHandle, b.constData()));
+    if (!r.isEmpty()) Q_EMIT verificationFailed(flowId,
+        r.startsWith(QLatin1String("error: ")) ? r.mid(7) : r);
+}
+
+void RustSdkMatrixClient::confirmQrVerification(const QString &flowId)
+{
+    if (!m_rustHandle || flowId.isEmpty()) return;
+    const QByteArray b = flowId.toUtf8();
+    const QString r =
+        takeRustString(mx_rust_confirm_qr_verification(m_rustHandle, b.constData()));
     if (!r.isEmpty()) Q_EMIT verificationFailed(flowId,
         r.startsWith(QLatin1String("error: ")) ? r.mid(7) : r);
 }

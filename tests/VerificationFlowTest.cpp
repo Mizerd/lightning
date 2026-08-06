@@ -47,6 +47,28 @@ private:
         return emojis;
     }
 
+    // A synthetic, well-formed module grid. Never a real QR payload: the
+    // handshake that produces one lives entirely inside matrix-sdk, whose
+    // QrVerification cannot be constructed from a test.
+    static constexpr int kModules = 21;
+    static QByteArray sampleGrid()
+    {
+        const int stride = (kModules + 7) / 8;
+        return QByteArray(stride * kModules, '\x55');
+    }
+
+    // Drive an outbound flow to a displayed QR code.
+    static void reachQrReady(AppController &app, RustSdkMatrixClient *rust,
+                             const QString &flowId)
+    {
+        Q_EMIT rust->verificationRequestStarted(
+            flowId, QStringLiteral("@self:example.org"), true);
+        Q_EMIT rust->verificationReady(flowId);
+        QCOMPARE(app.verificationState(), QStringLiteral("ready"));
+        Q_EMIT rust->verificationQrReady(flowId, kModules, sampleGrid());
+        QVERIFY(app.verificationQrAvailable());
+    }
+
     // Drive an outbound self-verification flow to the emoji screen using
     // the same signals the Rust event dispatcher emits.
     static void reachSasReady(AppController &app, RustSdkMatrixClient *rust,
@@ -615,6 +637,270 @@ private Q_SLOTS:
                                             QStringLiteral("late failure"));
             QCOMPARE(app.verificationState(), QStringLiteral("done"));
         }
+#endif
+    }
+
+    // ── Show-QR leg ────────────────────────────────────────────────────
+    //
+    // HONEST SCOPE: these drive the SIGNALS the Rust dispatcher emits, so
+    // they prove the UI state machine and nothing else. The reciprocate
+    // handshake, a real phone scanning the code, and Element / Element X
+    // interoperability are NOT exercised here and are NOT TESTED.
+
+    void qrIsShownThenScannedThenConfirmedThroughToDone()
+    {
+#ifndef ENABLE_RUST_SDK_BACKEND
+        QSKIP("Verification exists on the Rust backend only.");
+#else
+        AppController app(AppController::RustBackend);
+        auto *rust = rustClient(app);
+        QVERIFY(rust);
+        reachQrReady(app, rust, QStringLiteral("flow-qr-1"));
+
+        // Showing a code does not move the SAS state machine: the QR is an
+        // alternative presentation of the SAME flow.
+        QCOMPARE(app.verificationState(), QStringLiteral("ready"));
+        QVERIFY(!app.verificationQrScanned());
+        QVERIFY(!app.verificationQrConfirming());
+        // The URL is opaque and carries no flow id.
+        const QString url = app.verificationQrImage();
+        QVERIFY(url.startsWith(QStringLiteral("image://lightning-qr/")));
+        QVERIFY(!url.contains(QStringLiteral("flow-qr-1")));
+
+        // Confirming before the peer scanned is a no-op — nothing may be
+        // auto-confirmed, and nothing may be confirmed early either.
+        QSignalSpy changed(&app, &AppController::verificationStateChanged);
+        app.confirmQrVerification();
+        QCOMPARE(changed.count(), 0);
+        QVERIFY(!app.verificationQrConfirming());
+
+        Q_EMIT rust->verificationQrScanned(QStringLiteral("flow-qr-1"));
+        QVERIFY(app.verificationQrScanned());
+        QVERIFY(!app.verificationQrConfirming());
+
+        // The user's explicit confirmation is acknowledged synchronously,
+        // but it is a request to the SDK — never a success claim.
+        changed.clear();
+        app.confirmQrVerification();
+        QCOMPARE(changed.count(), 1);
+        QVERIFY(app.verificationQrConfirming());
+        QVERIFY(app.verificationState() != QLatin1String("done"));
+
+        // Repeat presses are inert.
+        changed.clear();
+        app.confirmQrVerification();
+        QCOMPARE(changed.count(), 0);
+
+        Q_EMIT rust->verificationQrConfirmed(QStringLiteral("flow-qr-1"));
+        QVERIFY(app.verificationQrConfirming());
+        QVERIFY(app.verificationState() != QLatin1String("done"));
+
+        // Only the SDK's Done reports success, and it retires the code.
+        Q_EMIT rust->verificationDone(QStringLiteral("flow-qr-1"));
+        QCOMPARE(app.verificationState(), QStringLiteral("done"));
+        QVERIFY(!app.verificationQrAvailable());
+        QVERIFY(app.verificationQrImage().isEmpty());
+#endif
+    }
+
+    // The "peer cannot scan" fallback: the SDK moves the request onto SAS,
+    // Rust reports the QR dismissed, and the card returns to the emoji
+    // presentation without the flow being disturbed.
+    void aDismissedQrFallsBackToTheSasFlowCleanly()
+    {
+#ifndef ENABLE_RUST_SDK_BACKEND
+        QSKIP("Verification exists on the Rust backend only.");
+#else
+        for (const QString &reason : {QStringLiteral("peer_started_sas"),
+                                      QStringLiteral("not_scanned")}) {
+            AppController app(AppController::RustBackend);
+            auto *rust = rustClient(app);
+            QVERIFY(rust);
+            reachQrReady(app, rust, QStringLiteral("flow-qr-fb"));
+
+            Q_EMIT rust->verificationQrDismissed(
+                QStringLiteral("flow-qr-fb"), reason);
+            QVERIFY2(!app.verificationQrAvailable(), qPrintable(reason));
+            QVERIFY(app.verificationQrImage().isEmpty());
+            // The flow itself is untouched and still live.
+            QCOMPARE(app.verificationState(), QStringLiteral("ready"));
+            QCOMPARE(app.verificationFlowId(), QStringLiteral("flow-qr-fb"));
+
+            // SAS then proceeds exactly as it always has.
+            Q_EMIT rust->verificationSasReady(QStringLiteral("flow-qr-fb"),
+                                              sampleEmojis(), QVariantList{});
+            QCOMPARE(app.verificationState(), QStringLiteral("sas_ready"));
+            app.confirmVerification();
+            QCOMPARE(app.verificationState(), QStringLiteral("confirming"));
+            Q_EMIT rust->verificationDone(QStringLiteral("flow-qr-fb"));
+            QCOMPARE(app.verificationState(), QStringLiteral("done"));
+        }
+#endif
+    }
+
+    // Every terminal state retires the code. A cancelled or failed flow
+    // that kept a scannable code on screen would invite the user to scan
+    // something that can no longer verify anything.
+    void everyTerminalStateRetiresTheQrCode()
+    {
+#ifndef ENABLE_RUST_SDK_BACKEND
+        QSKIP("Verification exists on the Rust backend only.");
+#else
+        const QList<QString> kinds{QStringLiteral("done"),
+                                   QStringLiteral("cancelled"),
+                                   QStringLiteral("failed"),
+                                   QStringLiteral("local-cancel")};
+        for (const QString &kind : kinds) {
+            AppController app(AppController::RustBackend);
+            auto *rust = rustClient(app);
+            QVERIFY(rust);
+            reachQrReady(app, rust, QStringLiteral("flow-qr-term"));
+            Q_EMIT rust->verificationQrScanned(QStringLiteral("flow-qr-term"));
+            QVERIFY(app.verificationQrScanned());
+
+            if (kind == QLatin1String("done"))
+                Q_EMIT rust->verificationDone(QStringLiteral("flow-qr-term"));
+            else if (kind == QLatin1String("cancelled"))
+                Q_EMIT rust->verificationCancelled(
+                    QStringLiteral("flow-qr-term"), QStringLiteral("User"));
+            else if (kind == QLatin1String("failed"))
+                Q_EMIT rust->verificationFailed(
+                    QStringLiteral("flow-qr-term"), QStringLiteral("sanitized"));
+            else
+                app.cancelVerification();
+
+            QVERIFY2(!app.verificationQrAvailable(), qPrintable(kind));
+            QVERIFY2(!app.verificationQrScanned(), qPrintable(kind));
+            QVERIFY2(!app.verificationQrConfirming(), qPrintable(kind));
+            QVERIFY2(app.verificationQrImage().isEmpty(), qPrintable(kind));
+        }
+#endif
+    }
+
+    // A QR event for another flow — or one arriving after this flow already
+    // finished — must never put a code back on screen.
+    void qrEventsAreFlowScopedAndCannotResurrectAFinishedFlow()
+    {
+#ifndef ENABLE_RUST_SDK_BACKEND
+        QSKIP("Verification exists on the Rust backend only.");
+#else
+        AppController app(AppController::RustBackend);
+        auto *rust = rustClient(app);
+        QVERIFY(rust);
+        reachQrReady(app, rust, QStringLiteral("flow-qr-scope"));
+        const QString mine = app.verificationQrImage();
+
+        // A stranger's grid must not replace the visible code.
+        Q_EMIT rust->verificationQrReady(QStringLiteral("other-flow"),
+                                         kModules, sampleGrid());
+        QCOMPARE(app.verificationQrImage(), mine);
+        Q_EMIT rust->verificationQrScanned(QStringLiteral("other-flow"));
+        QVERIFY(!app.verificationQrScanned());
+        Q_EMIT rust->verificationQrConfirmed(QStringLiteral("other-flow"));
+        QVERIFY(!app.verificationQrConfirming());
+        // A stranger's dismissal must not take our code away either.
+        Q_EMIT rust->verificationQrDismissed(QStringLiteral("other-flow"),
+                                             QStringLiteral("not_scanned"));
+        QCOMPARE(app.verificationQrImage(), mine);
+
+        // After the flow finishes, a late grid cannot repaint the card as
+        // something still waiting to be scanned.
+        Q_EMIT rust->verificationDone(QStringLiteral("flow-qr-scope"));
+        QCOMPARE(app.verificationState(), QStringLiteral("done"));
+        Q_EMIT rust->verificationQrReady(QStringLiteral("flow-qr-scope"),
+                                         kModules, sampleGrid());
+        QVERIFY(!app.verificationQrAvailable());
+        Q_EMIT rust->verificationQrScanned(QStringLiteral("flow-qr-scope"));
+        QVERIFY(!app.verificationQrScanned());
+#endif
+    }
+
+    // Malformed geometry must show no code at all rather than an
+    // unscannable picture presented as a working one.
+    void aMalformedGridIsRefusedAndLeavesNoCodeOnScreen()
+    {
+#ifndef ENABLE_RUST_SDK_BACKEND
+        QSKIP("Verification exists on the Rust backend only.");
+#else
+        AppController app(AppController::RustBackend);
+        auto *rust = rustClient(app);
+        QVERIFY(rust);
+        Q_EMIT rust->verificationRequestStarted(
+            QStringLiteral("flow-qr-bad"), QStringLiteral("@self:example.org"),
+            true);
+        Q_EMIT rust->verificationReady(QStringLiteral("flow-qr-bad"));
+
+        // Byte count does not match the module count.
+        Q_EMIT rust->verificationQrReady(QStringLiteral("flow-qr-bad"),
+                                         kModules, QByteArray(4, '\0'));
+        QVERIFY(!app.verificationQrAvailable());
+        // Zero modules.
+        Q_EMIT rust->verificationQrReady(QStringLiteral("flow-qr-bad"), 0,
+                                         QByteArray());
+        QVERIFY(!app.verificationQrAvailable());
+        // The flow is unharmed and still finishes on SAS.
+        QCOMPARE(app.verificationState(), QStringLiteral("ready"));
+        Q_EMIT rust->verificationSasReady(QStringLiteral("flow-qr-bad"),
+                                          sampleEmojis(), QVariantList{});
+        QCOMPARE(app.verificationState(), QStringLiteral("sas_ready"));
+#endif
+    }
+
+    // A new flow — in either direction — must never inherit the previous
+    // flow's code.
+    void anewFlowNeverInheritsThePreviousCode()
+    {
+#ifndef ENABLE_RUST_SDK_BACKEND
+        QSKIP("Verification exists on the Rust backend only.");
+#else
+        {
+            AppController app(AppController::RustBackend);
+            auto *rust = rustClient(app);
+            QVERIFY(rust);
+            reachQrReady(app, rust, QStringLiteral("flow-qr-old"));
+            Q_EMIT rust->verificationRequestReceived(
+                QStringLiteral("flow-qr-new"),
+                QStringLiteral("@self:example.org"),
+                QStringLiteral("OTHERDEV"), true);
+            QCOMPARE(app.verificationState(), QStringLiteral("requested"));
+            QVERIFY(!app.verificationQrAvailable());
+        }
+        {
+            AppController app(AppController::RustBackend);
+            auto *rust = rustClient(app);
+            QVERIFY(rust);
+            reachQrReady(app, rust, QStringLiteral("flow-qr-old2"));
+            Q_EMIT rust->verificationRequestStarted(
+                QStringLiteral("flow-qr-new2"),
+                QStringLiteral("@self:example.org"), true);
+            QVERIFY(!app.verificationQrAvailable());
+        }
+#endif
+    }
+
+    void logoutClearsTheDisplayedQrCode()
+    {
+#ifndef ENABLE_RUST_SDK_BACKEND
+        QSKIP("Verification exists on the Rust backend only.");
+#else
+        AppController app(AppController::RustBackend);
+        auto *rust = rustClient(app);
+        QVERIFY(rust);
+        reachQrReady(app, rust, QStringLiteral("flow-qr-out"));
+        Q_EMIT rust->verificationQrScanned(QStringLiteral("flow-qr-out"));
+        QVERIFY(app.verificationQrScanned());
+
+        // Account switching detaches through the same loggedOut signal; a
+        // code must never survive into the next account's UI.
+        Q_EMIT rust->loggedOut();
+        QVERIFY(!app.verificationQrAvailable());
+        QVERIFY(!app.verificationQrScanned());
+        QVERIFY(app.verificationQrImage().isEmpty());
+
+        // Late events from the dead flow stay rejected.
+        Q_EMIT rust->verificationQrReady(QStringLiteral("flow-qr-out"),
+                                         kModules, sampleGrid());
+        QVERIFY(!app.verificationQrAvailable());
 #endif
     }
 

@@ -2794,9 +2794,17 @@ Item {
                                                 implicitWidth: 18
                                                 implicitHeight: 18
                                                 visible: running
+                                                // While a QR code is on
+                                                // screen the user is meant
+                                                // to act, not wait, so
+                                                // "ready" does not spin —
+                                                // but confirming the scan
+                                                // does.
                                                 running: app.verificationState === "confirming"
                                                          || app.verificationState === "waiting_for_peer"
-                                                         || app.verificationState === "ready"
+                                                         || app.verificationQrConfirming
+                                                         || (app.verificationState === "ready"
+                                                             && !app.verificationQrAvailable)
                                             }
                                             Label {
                                                 objectName: "verificationStatusLabel"
@@ -2808,6 +2816,25 @@ Item {
                                                 Accessible.role: Accessible.StaticText
                                                 Accessible.name: text
                                                 text: {
+                                                    // The show-QR leg owns
+                                                    // the message while a
+                                                    // code is displayed. It
+                                                    // is cleared on every
+                                                    // terminal state, so
+                                                    // this can never mask
+                                                    // done/cancelled/failed.
+                                                    if (app.verificationQrAvailable) {
+                                                        if (app.verificationQrConfirming)
+                                                            return qsTr("Confirming verification…")
+                                                        if (app.verificationQrScanned)
+                                                            return qsTr(
+                                                                "Your other device scanned the code. " +
+                                                                "Confirm below only if that device says " +
+                                                                "the verification succeeded.")
+                                                        return qsTr(
+                                                            "Scan this code with your other device to " +
+                                                            "verify this session.")
+                                                    }
                                                     if (app.verificationState === "starting")
                                                         return qsTr("Sending verification request…")
                                                     if (app.verificationState === "waiting_for_other_session")
@@ -2859,6 +2886,131 @@ Item {
                                                         return qsTr("Verification failed.")
                                                     }
                                                     return qsTr("Waiting…")
+                                                }
+                                            }
+                                        }
+                                        // ── Show-QR panel ───────────────
+                                        // Lightning DISPLAYS a code for the
+                                        // other device to scan; it never
+                                        // scans (no camera), so
+                                        // m.qr_code.scan.v1 is never
+                                        // advertised. Shown only while the
+                                        // SDK has a live code for THIS flow;
+                                        // AppController drops it on every
+                                        // terminal state, on cancel, and on
+                                        // logout, so a code cannot outlive
+                                        // its flow.
+                                        ColumnLayout {
+                                            objectName: "verificationQrPanel"
+                                            Layout.fillWidth: true
+                                            spacing: AppTheme.spacing8
+                                            visible: app.verificationQrAvailable
+
+                                            Rectangle {
+                                                // Deliberately theme-INDEPENDENT.
+                                                // A QR code has to be dark
+                                                // modules on a light field
+                                                // with a quiet zone for a
+                                                // camera to read it; that is
+                                                // a physical constraint, not
+                                                // a styling choice, so this
+                                                // one surface stays white
+                                                // under every theme. The
+                                                // dark modules and the
+                                                // 4-module quiet zone are
+                                                // baked into the image by
+                                                // QrImageProvider.
+                                                color: "#FFFFFF"
+                                                radius: AppTheme.radiusSm
+                                                Layout.alignment: Qt.AlignHCenter
+                                                implicitWidth: qrImage.width + 2 * AppTheme.spacing8
+                                                implicitHeight: qrImage.height + 2 * AppTheme.spacing8
+
+                                                Image {
+                                                    id: qrImage
+                                                    objectName: "verificationQrImage"
+                                                    anchors.centerIn: parent
+                                                    source: app.verificationQrImage
+                                                    // Ask for a size the
+                                                    // provider can round DOWN
+                                                    // to whole modules; it
+                                                    // returns the exact
+                                                    // whole-module bitmap and
+                                                    // the item takes that
+                                                    // natural size, so no
+                                                    // resampling can blur a
+                                                    // module edge.
+                                                    sourceSize: Qt.size(240, 240)
+                                                    width: implicitWidth
+                                                    height: implicitHeight
+                                                    smooth: false
+                                                    // A verification code is
+                                                    // single-use and secret;
+                                                    // it must never sit in
+                                                    // the QML image cache.
+                                                    cache: false
+                                                    Accessible.role: Accessible.Graphic
+                                                    Accessible.name: qsTr(
+                                                        "Verification QR code — scan with your " +
+                                                        "other device")
+                                                }
+                                            }
+
+                                            Label {
+                                                objectName: "verificationQrHint"
+                                                Layout.fillWidth: true
+                                                horizontalAlignment: Text.AlignHCenter
+                                                wrapMode: Text.WordWrap
+                                                font.pixelSize: AppTheme.fontCaption
+                                                color: AppTheme.stormTextMuted
+                                                Accessible.role: Accessible.StaticText
+                                                Accessible.name: text
+                                                // The honest fallback note.
+                                                // Starting emoji from THIS
+                                                // side would invalidate the
+                                                // code currently on screen,
+                                                // so while one is displayed
+                                                // the switch is left to the
+                                                // other device — and it also
+                                                // happens automatically if
+                                                // the code goes unscanned.
+                                                // An in-app "Use emoji
+                                                // instead" button is an
+                                                // accepted follow-up (it
+                                                // needs a new FFI).
+                                                text: app.verificationQrScanned
+                                                    ? qsTr("Only confirm if the other device reports success.")
+                                                    : qsTr(
+                                                        "Can't scan? Choose emoji verification on the " +
+                                                        "other device instead.")
+                                            }
+
+                                            Flow {
+                                                Layout.fillWidth: true
+                                                Layout.alignment: Qt.AlignHCenter
+                                                spacing: AppTheme.spacing8
+                                                // Appears only once the SDK
+                                                // reports the peer actually
+                                                // scanned. Nothing is ever
+                                                // auto-confirmed, and this
+                                                // press is a request to the
+                                                // SDK — never a local trust
+                                                // promotion.
+                                                visible: app.verificationQrScanned
+                                                AppButton {
+                                                    storm: true
+                                                    objectName: "verificationQrConfirmButton"
+                                                    text: qsTr("It reported success")
+                                                    kind: "primary"
+                                                    enabled: !app.verificationQrConfirming
+                                                    onClicked: app.confirmQrVerification()
+                                                }
+                                                AppButton {
+                                                    storm: true
+                                                    objectName: "verificationQrRejectButton"
+                                                    text: qsTr("It did not")
+                                                    enabled: !app.verificationQrConfirming
+                                                    onClicked: app.cancelVerification()
                                                 }
                                             }
                                         }

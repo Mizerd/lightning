@@ -118,6 +118,10 @@ public:
     void confirmVerification(const QString &flowId);
     void mismatchVerification(const QString &flowId);
     void cancelVerification(const QString &flowId);
+    // The user confirmed that the OTHER device reported a successful scan
+    // of the QR code Lightning displayed. Only the SDK performs the trust
+    // change; this never promotes trust locally.
+    void confirmQrVerification(const QString &flowId);
 
     // v0.5.6. Lightning-initiated SAS verification of the current
     // session against another session belonging to the same Matrix
@@ -373,6 +377,25 @@ Q_SIGNALS:
     // confirmation before verificationDone can fire. Emitted at most once
     // per flow; carries the flow id only, never emoji values.
     void verificationSasConfirmed(const QString &flowId);
+    // Show-QR verification. Lightning DISPLAYS a code for the other device
+    // to scan; it never scans (no camera), so m.qr_code.scan.v1 is never
+    // advertised. `modules` is the code's width in modules and `bits` its
+    // row-major bitmap (MSB first, each row starting on a fresh byte,
+    // stride = (modules + 7) / 8, set bit = dark module). ONLY that
+    // geometry crosses this boundary — the payload the code encodes is
+    // cross-signing key material and the flow's shared secret, and it never
+    // leaves the Rust bridge.
+    void verificationQrReady(const QString &flowId, int modules,
+                             const QByteArray &bits);
+    // The peer scanned our code. The user must now confirm that the other
+    // device reported success; nothing is auto-confirmed.
+    void verificationQrScanned(const QString &flowId);
+    // Our confirmation reached the SDK; it is finishing the exchange.
+    void verificationQrConfirmed(const QString &flowId);
+    // The code is no longer usable and the flow continues on SAS.
+    // `reason` is a sanitized category, never free-form SDK text:
+    // "peer_started_sas" or "not_scanned".
+    void verificationQrDismissed(const QString &flowId, const QString &reason);
     void verificationDone(const QString &flowId);
     void verificationCancelled(const QString &flowId, const QString &message);
     void verificationFailed(const QString &flowId, const QString &message);

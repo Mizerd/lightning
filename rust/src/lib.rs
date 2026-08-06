@@ -24,7 +24,8 @@ use matrix_sdk::{
     authentication::matrix::MatrixSession,
     config::SyncSettings,
     encryption::verification::{
-        SasState, SasVerification, VerificationRequest, VerificationRequestState,
+        QrVerification, QrVerificationState, SasState, SasVerification, VerificationRequest,
+        VerificationRequestState,
     },
     notification_settings::{
         IsEncrypted, IsOneToOne, NotificationSettings, RoomNotificationMode,
@@ -157,6 +158,13 @@ struct RustClient {
     // (flow_id, sas) — SasVerification has no flow_id() accessor on
     // matrix-sdk 0.18, so we track it externally.
     active_sas: Arc<Mutex<Option<(String, SasVerification)>>>,
+    // (flow_id, qr) — the SHOW-QR half of the same single-flow policy.
+    // QrVerification likewise has no flow_id() accessor, so the id is
+    // tracked alongside it exactly like the SAS slot. At most one of
+    // active_sas / active_qr is ever occupied for a given request: the SDK
+    // replaces the request's `Verification` when the flow switches method,
+    // and the drivers release their own slot on the way out.
+    active_qr: Arc<Mutex<Option<(String, QrVerification)>>>,
     // v0.7.3: managed SAS driver tasks. These hold an Arc<Client> for THIS
     // account, so one still polling after the handle is destroyed keeps the
     // account's SQLite crypto store open while sign-out deletes it — the
@@ -226,6 +234,7 @@ impl RustClient {
             notification_settings: Arc::new(Mutex::new(None)),
             active_request: Arc::new(Mutex::new(None)),
             active_sas: Arc::new(Mutex::new(None)),
+            active_qr: Arc::new(Mutex::new(None)),
             verification_tasks: Mutex::new(Vec::new()),
             verification_shutdown: Arc::new(AtomicBool::new(false)),
             import_active: Arc::new(AtomicBool::new(false)),
@@ -328,11 +337,13 @@ impl RustClient {
         // RustSdkMatrixClient::logout, which calls it before mx_rust_logout),
         // so a cancel placed in the logout FFI would find both slots already
         // empty and never run.
-        let (pending_sas, pending_request) =
-            take_pending_flows(&self.active_request, &self.active_sas);
-        if pending_sas.is_some() || pending_request.is_some() {
+        let (pending_sas, pending_qr, pending_request) = take_pending_flows(
+            &self.active_request, &self.active_sas, &self.active_qr,
+        );
+        if pending_sas.is_some() || pending_qr.is_some() || pending_request.is_some() {
             self.runtime.block_on(cancel_flow_best_effort(
                 pending_sas.as_ref(),
+                pending_qr.as_ref(),
                 pending_request.as_ref(),
             ));
         }
@@ -614,6 +625,7 @@ pub unsafe extern "C" fn mx_rust_login(
         let events = Arc::clone(&bridge.events);
         let active_request = Arc::clone(&bridge.active_request);
         let active_sas = Arc::clone(&bridge.active_sas);
+        let active_qr = Arc::clone(&bridge.active_qr);
         // Shared runtime: the SDK's post-login E2EE initialization task
         // must outlive this call (see run_async_on).
         let shared_runtime = Arc::clone(&bridge.runtime);
@@ -627,6 +639,7 @@ pub unsafe extern "C" fn mx_rust_login(
                             Arc::clone(&events),
                             Arc::clone(&active_request),
                             Arc::clone(&active_sas),
+                            Arc::clone(&active_qr),
                         );
                         let login = client
                             .matrix_auth()
@@ -714,6 +727,7 @@ pub unsafe extern "C" fn mx_rust_restore_from_file(
         let events = Arc::clone(&bridge.events);
         let active_request = Arc::clone(&bridge.active_request);
         let active_sas = Arc::clone(&bridge.active_sas);
+        let active_qr = Arc::clone(&bridge.active_qr);
         // Shared runtime: the SDK's post-restore E2EE initialization task
         // must outlive this call (see run_async_on).
         let shared_runtime = Arc::clone(&bridge.runtime);
@@ -768,6 +782,7 @@ pub unsafe extern "C" fn mx_rust_restore_from_file(
                             Arc::clone(&events),
                             Arc::clone(&active_request),
                             Arc::clone(&active_sas),
+                            Arc::clone(&active_qr),
                         );
                         if let Err(err) =
                             save_persistent_session(&session_file, &homeserver, &stored.session)
@@ -833,6 +848,7 @@ pub unsafe extern "C" fn mx_rust_restore(
         let events = Arc::clone(&bridge.events);
         let active_request = Arc::clone(&bridge.active_request);
         let active_sas = Arc::clone(&bridge.active_sas);
+        let active_qr = Arc::clone(&bridge.active_qr);
         // Shared runtime: the SDK's post-restore E2EE initialization task
         // must outlive this call (see run_async_on).
         let shared_runtime = Arc::clone(&bridge.runtime);
@@ -848,6 +864,7 @@ pub unsafe extern "C" fn mx_rust_restore(
                             Arc::clone(&events),
                             Arc::clone(&active_request),
                             Arc::clone(&active_sas),
+                            Arc::clone(&active_qr),
                         );
                         if let Ok(mut guard) = client_slot.lock() {
                             *guard = Some(client);
@@ -2679,6 +2696,402 @@ const VERIFICATION_PEER_TICKS: u32 = 600;
 /// together stay inside the existing shutdown budget: telling the peer is
 /// worth a short wait, never a stalled sign-out.
 const VERIFICATION_CANCEL_TIMEOUT_SECS: u64 = 3;
+/// How long a displayed QR code waits to be scanned before the flow falls
+/// back to SAS (120 s). Bounded on purpose: see `drive_qr_flow`.
+const QR_DISPLAY_TICKS: u32 = 240;
+/// How long the flow may take to complete AFTER the peer scanned (240 s).
+///
+/// Deliberately twice `SAS_COMPLETION_TICKS`. Past the scan this step is
+/// gated on a HUMAN reading a result off a second device and coming back to
+/// confirm — often physically walking to it — whereas SAS asks both users to
+/// compare emoji already on screen. Timing the two the same would abort a
+/// perfectly good verification while the user was still walking back.
+const QR_COMPLETION_TICKS: u32 = 480;
+/// Sanity bound on the module count of a QR code we will render. QR version
+/// 40 — far above anything a verification payload needs — is 177 modules
+/// per side, so anything beyond this is a malformed grid, not a big code.
+const QR_MAX_MODULES: usize = 200;
+
+/// The verification methods Lightning advertises, in BOTH directions.
+///
+/// * `m.sas.v1` — emoji verification. The universal fallback, and the only
+///   method that works with a peer that can neither show nor scan.
+/// * `m.qr_code.show.v1` — Lightning DISPLAYS a QR code for the other
+///   device to scan.
+/// * `m.reciprocate.v1` — the method name of the
+///   `m.key.verification.start` a SCANNING peer sends back after reading
+///   our code. Advertising `show` without it would leave the peer no legal
+///   way to answer the code we displayed.
+///
+/// `m.qr_code.scan.v1` is deliberately ABSENT. Lightning has no camera and
+/// no scanner, so claiming it would invite a peer to display a code we can
+/// never read; the peer would then sit waiting on a reciprocate that never
+/// comes, all the way to matrix-sdk-crypto's 10-minute VERIFICATION_TIMEOUT.
+///
+/// This replaces the SAS-only vectors introduced by c259b60. That commit's
+/// rationale was correct *for a build without the `qrcode` feature*: with
+/// the feature off, matrix-sdk-crypto compiles no `ReciprocateV1` arm into
+/// `receive_start` at all, so a reciprocate start was answered with a
+/// warning and NO cancel, stalling the peer. The feature is now enabled
+/// (see rust/Cargo.toml), that arm exists, and advertising reciprocate is
+/// precisely what makes showing a QR code possible.
+fn advertised_verification_methods() -> Vec<VerificationMethod> {
+    vec![
+        VerificationMethod::SasV1,
+        VerificationMethod::QrCodeShowV1,
+        VerificationMethod::ReciprocateV1,
+    ]
+}
+
+/// Pack a QR module grid into row-major bits and base64 it for the FFI.
+///
+/// `modules[y * size + x] == true` means a DARK module. Bits are packed
+/// most-significant-bit-first within each byte, and every ROW starts on a
+/// fresh byte, so the C++ renderer can address a row at `y * stride`
+/// (`stride = (size + 7) / 8`) without carrying a bit offset across rows.
+///
+/// ONLY this geometry crosses the FFI. A verification QR payload encodes
+/// cross-signing key material and the flow's shared secret, so the decoded
+/// bytes are never logged, persisted, or placed in any error text — the
+/// module grid is rendered and forwarded, and nothing else.
+fn pack_qr_modules(modules: &[bool], size: usize) -> Option<String> {
+    if size == 0 || size > QR_MAX_MODULES || modules.len() != size * size {
+        return None;
+    }
+    let stride = size.div_ceil(8);
+    let mut packed = vec![0u8; stride * size];
+    for y in 0..size {
+        for x in 0..size {
+            if modules[y * size + x] {
+                packed[y * stride + x / 8] |= 0x80u8 >> (x % 8);
+            }
+        }
+    }
+    use base64::Engine;
+    Some(base64::engine::general_purpose::STANDARD.encode(&packed))
+}
+
+/// Render an SDK `QrVerification` to the (size, packed-bits) pair the UI
+/// needs. Returns `None` if the SDK could not encode the code at all.
+fn render_qr_payload(qr: &QrVerification) -> Option<(usize, String)> {
+    // `EncodingError` is discarded because it is not user-actionable and the
+    // flow is not broken by it — SAS still runs. It carries no secret: the
+    // type is `Qr(qrcode::types::QrError) | FlowId(TryFromIntError)`
+    // (matrix-sdk-qrcode error.rs), neither of which quotes payload bytes.
+    let code = qr.to_qr_code().ok()?;
+    let size = code.width();
+    // `Color::select(dark, light)` avoids naming `qrcode::Color`, which
+    // matrix-sdk does not re-export.
+    let modules: Vec<bool> =
+        code.to_colors().into_iter().map(|c| c.select(true, false)).collect();
+    pack_qr_modules(&modules, size).map(|bits| (size, bits))
+}
+
+/// How the show-QR leg of a flow ended.
+enum QrOutcome {
+    /// Terminal for the whole flow: `verification_done`,
+    /// `verification_cancelled` or `verification_failed` has been emitted.
+    Finished,
+    /// The QR leg is over but the REQUEST is still alive and must continue
+    /// on SAS.
+    FallBackToSas,
+    /// The session is going away; the flow was cancelled best-effort.
+    ShuttingDown,
+}
+
+/// Ask the SDK for a QR code to display, and publish its module grid.
+///
+/// Returns `None` whenever showing a code is not possible — which is a
+/// normal outcome, never an error, because SAS remains available in every
+/// one of those cases.
+async fn maybe_generate_qr(
+    request: &VerificationRequest,
+    flow_id: &str,
+    events: &Arc<Mutex<VecDeque<String>>>,
+) -> Option<QrVerification> {
+    // NEVER generate a code once the request has left Ready.
+    //
+    // `generate_qr_code()` is PERMITTED from `Transitioned` (matrix-sdk-crypto
+    // verification/requests.rs: `InnerRequest::Transitioned(s) =>
+    // s.generate_qr_code(..)`), and it ends in `VerificationCache::insert`,
+    // which is destructive:
+    //
+    //     // Cancel all the old verifications as well as the new one we have
+    //     // for this user if someone tries to have two verifications going
+    //     // on at once.
+    //
+    // (verification/cache.rs — `insert_qr` calls `insert`, unlike
+    // `replace_sas` which calls the non-cancelling `replace`.) So if the peer
+    // sent `.ready` and `.start` inside one poll window — the exact race the
+    // outbound peer-wait loop already accepts `Transitioned` for — generating
+    // a code here would cancel the live SAS the peer just started AND the new
+    // QR, and the user would watch a working verification die with a
+    // `verification_cancelled` nobody asked for.
+    //
+    // Staying in Ready means the request has no verification installed yet,
+    // so `insert` has nothing to cancel. A `Transitioned` request falls
+    // straight through to `drive_sas_flow`, which adopts the peer's Sas.
+    //
+    // HONEST LIMITATION: this narrows the window but cannot close it — the
+    // state may still change between this check and the call. It is also NOT
+    // unit-testable: `VerificationRequest` has crate-private constructors, so
+    // no test in this repository can build one in either state.
+    if !matches!(request.state(), VerificationRequestState::Ready { .. }) {
+        return None;
+    }
+    // Only attempt when the peer advertised that it can SCAN.
+    // matrix-sdk-crypto enforces the same rule itself and returns `Ok(None)`
+    // ("if the other side doesn't support scanning QR codes bail early",
+    // verification/requests.rs `generate_qr_code`), so this is an
+    // optimisation and a documentation point rather than the safety net —
+    // the `Ok(None)` arm below is the real one.
+    let peer_can_scan = request
+        .their_supported_methods()
+        .is_some_and(|methods| methods.contains(&VerificationMethod::QrCodeScanV1));
+    if !peer_can_scan {
+        return None;
+    }
+    let qr = match request.generate_qr_code().await {
+        Ok(Some(qr)) => qr,
+        // Expected, not exceptional. `Ok(None)` here means the account has no
+        // cross-signing identity at all, or its identity carries no master
+        // key — there is nothing to bind into a code. Note this is NOT the
+        // ordinary new-session case: a fresh session on a cross-signed
+        // account still gets a code through the SDK's `new_self_no_master`
+        // branch, which is precisely the sign-in-a-new-device flow.
+        Ok(None) => return None,
+        // Not user-actionable, and the flow is not broken — SAS still runs —
+        // so this is dropped rather than surfaced.
+        Err(_) => return None,
+    };
+    let (size, bits_b64) = render_qr_payload(&qr)?;
+    enqueue(events, json!({
+        "type": "verification_qr_ready",
+        "flow_id": flow_id,
+        "size": size,
+        "bits_b64": bits_b64,
+    }));
+    Some(qr)
+}
+
+/// Drive a displayed QR code to a terminal state, or hand the request back
+/// for SAS.
+///
+/// Polls rather than consuming `qr.changes()` for the same reason
+/// `drive_sas_flow` polls: the decisive transition here is a REQUEST-level
+/// one. When the peer answers our code with `m.key.verification.start`
+/// carrying `m.sas.v1`, matrix-sdk-crypto replaces the request's
+/// `Verification` with a `Sas` and the `QrVerification` we hold simply
+/// stops changing — a `changes()` stream on it would report nothing at all
+/// and the flow would hang until the timeout. Polling both the QR state and
+/// the request state is what makes the "peer cannot scan" fallback visible.
+///
+/// Never reports success unless the SDK reached `QrVerificationState::Done`,
+/// and never confirms on the user's behalf: `Scanned` is surfaced to the UI
+/// and the flow then waits for an explicit
+/// `mx_rust_confirm_qr_verification` call.
+async fn drive_qr_flow(
+    request: &VerificationRequest,
+    qr: &QrVerification,
+    flow_id: &str,
+    events: &Arc<Mutex<VecDeque<String>>>,
+    nudges: &RecoveryNudgeSlot,
+    shutdown: &Arc<AtomicBool>,
+) -> QrOutcome {
+    let poll = std::time::Duration::from_millis(VERIFICATION_POLL_MS);
+    let mut emitted_scanned = false;
+    let mut emitted_confirmed = false;
+    let mut display_ticks: u32 = 0;
+    let mut progress_ticks: u32 = 0;
+
+    loop {
+        if shutdown.load(Ordering::SeqCst) {
+            cancel_flow_best_effort(None, Some(qr), Some(request)).await;
+            return QrOutcome::ShuttingDown;
+        }
+        tokio::time::sleep(poll).await;
+
+        // ONE snapshot per tick, classified with no await inside, so nothing
+        // SDK-owned is held across a suspend point.
+        let state = qr.state();
+
+        // A REQUEST-level termination is invisible to `qr.state()`: the QR
+        // object simply stops changing. That happens when another of our own
+        // sessions answers the request (`Passive` — a distinct InnerRequest
+        // state, NOT covered by `is_cancelled()`), and when a cancel lands in
+        // the window between emitting `verification_ready` and this loop
+        // taking over. Without this check the code would stay on screen,
+        // scannable and dead, for the whole display window. `drive_sas_flow`
+        // guards its pre-SAS wait the same way.
+        //
+        // Only NON-SUCCESS request terminals may trigger this exit.
+        // `request.is_done()` is deliberately ABSENT: the SDK writes the
+        // request's Done synchronously but the QR's Done only after an
+        // awaited signing/store round (machine.rs receive_done ordering),
+        // so a tick sampling qr.state() before that second write while the
+        // request already reads Done would report a SUCCESSFUL verification
+        // as cancelled — and request-Done is a success terminal, so the
+        // "cancelled" label would be wrong even outside the race. A
+        // request-Done-but-QR-pending situation resolves on a later tick
+        // when the QR's own Done lands, or via the bounded
+        // QR_COMPLETION_TICKS expiry (which cancels on the wire first).
+        // Both cancel paths ARE written synchronously into the QR by the
+        // sync task (machine.rs), so for is_cancelled/is_passive the
+        // QR-verdict-first ordering below is genuinely race-free.
+        let qr_reached_verdict = matches!(
+            state,
+            QrVerificationState::Done { .. } | QrVerificationState::Cancelled(_)
+        );
+        if !qr_reached_verdict
+            && (request.is_cancelled() || request.is_passive())
+        {
+            enqueue(events, json!({
+                "type": "verification_cancelled",
+                "flow_id": flow_id,
+                "message": "cancelled",
+            }));
+            return QrOutcome::Finished;
+        }
+
+        match state {
+            QrVerificationState::Done { .. } => {
+                enqueue(events, json!({
+                    "type": "verification_done",
+                    "flow_id": flow_id,
+                }));
+                notify_recovery_nudge(nudges, RecoveryNudge::VerificationDone);
+                return QrOutcome::Finished;
+            }
+            QrVerificationState::Cancelled(info) => {
+                enqueue(events, json!({
+                    "type": "verification_cancelled",
+                    "flow_id": flow_id,
+                    "message": format!("{:?}", info.reason()),
+                }));
+                return QrOutcome::Finished;
+            }
+            // The peer read our code and sent `m.reciprocate.v1`. The SDK
+            // will NOT complete the flow until we confirm, and confirming
+            // is the user's decision — the whole security value of showing
+            // a code is that a human checks the other device really did
+            // report success.
+            QrVerificationState::Scanned => {
+                if !emitted_scanned {
+                    emitted_scanned = true;
+                    enqueue(events, json!({
+                        "type": "verification_qr_scanned",
+                        "flow_id": flow_id,
+                    }));
+                }
+            }
+            // Our confirmation is registered; the SDK is finishing the
+            // signature exchange.
+            QrVerificationState::Confirmed => {
+                if !emitted_confirmed {
+                    emitted_confirmed = true;
+                    enqueue(events, json!({
+                        "type": "verification_qr_confirmed",
+                        "flow_id": flow_id,
+                    }));
+                }
+            }
+            // Only reachable for the side that SCANNED a code. Lightning
+            // never scans, so this is not expected here; treat it as
+            // progress rather than asserting on SDK internals.
+            QrVerificationState::Reciprocated => {}
+            QrVerificationState::Started => {
+                // The peer chose emoji instead of scanning. matrix-sdk-crypto
+                // allows exactly this while the QR is still in `Started`
+                // ("it is legit to transition from QR display to SAS",
+                // verification/requests.rs `receive_start`), and the SAS
+                // driver adopts the Sas the SDK just installed.
+                if request_moved_to_sas(request) {
+                    enqueue(events, json!({
+                        "type": "verification_qr_dismissed",
+                        "flow_id": flow_id,
+                        "reason": "peer_started_sas",
+                    }));
+                    return QrOutcome::FallBackToSas;
+                }
+                display_ticks += 1;
+                // Bounded display. Without this the flow has no exit but the
+                // SDK's 10-minute timeout whenever the peer neither scans
+                // nor offers an emoji button — and Lightning would have
+                // REMOVED the working SAS path it has today for every peer
+                // that advertises `m.qr_code.scan.v1`. Falling through to
+                // SAS keeps emoji verification the guaranteed outcome.
+                //
+                // FOLLOW-UP (accepted, not this round): an in-app "Use emoji
+                // instead" button would let the user make this switch
+                // immediately rather than waiting out the window. It needs a
+                // new FFI, and it IS safe to build: the SDK's
+                // `start_sas_helper` path stores through
+                // `VerificationCache::replace`, which overwrites without
+                // cancelling — unlike the `insert` that `insert_qr` uses.
+                if display_ticks >= QR_DISPLAY_TICKS {
+                    enqueue(events, json!({
+                        "type": "verification_qr_dismissed",
+                        "flow_id": flow_id,
+                        "reason": "not_scanned",
+                    }));
+                    return QrOutcome::FallBackToSas;
+                }
+                continue;
+            }
+        }
+
+        // Past `Started` the reciprocate start has already been exchanged
+        // and the spec no longer permits switching to SAS, so this leg owns
+        // the flow to the end. Bound it so a peer that stops answering
+        // fails visibly instead of hanging.
+        progress_ticks += 1;
+        if progress_ticks >= QR_COMPLETION_TICKS {
+            // Tell the peer before giving up. It has already SCANNED our
+            // code, so abandoning the flow silently would leave it waiting
+            // out matrix-sdk-crypto's full 10-minute VERIFICATION_TIMEOUT
+            // on a confirmation that is never coming.
+            //
+            // FOLLOW-UP (pre-existing, deliberately not changed here):
+            // `drive_sas_flow`'s own completion timeout still returns
+            // without a cancel and has the same effect on its peer.
+            cancel_flow_best_effort(None, Some(qr), Some(request)).await;
+            enqueue(events, json!({
+                "type": "verification_failed",
+                "flow_id": flow_id,
+                "message": "Timed out waiting for QR verification to complete.",
+            }));
+            return QrOutcome::Finished;
+        }
+    }
+}
+
+/// Drive a request the peer has answered (`m.key.verification.ready`
+/// exchanged) to a terminal state, preferring the show-QR path and using
+/// SAS as the fallback. Shared by BOTH directions.
+#[allow(clippy::too_many_arguments)]
+async fn drive_ready_request(
+    client: &Client,
+    request: &VerificationRequest,
+    flow_id: &str,
+    events: &Arc<Mutex<VecDeque<String>>>,
+    sas_slot: &KeyedFlowSlot<SasVerification>,
+    qr_slot: &KeyedFlowSlot<QrVerification>,
+    nudges: &RecoveryNudgeSlot,
+    shutdown: &Arc<AtomicBool>,
+) {
+    if let Some(qr) = maybe_generate_qr(request, flow_id, events).await {
+        if let Ok(mut guard) = qr_slot.lock() {
+            *guard = Some((flow_id.to_owned(), qr.clone()));
+        }
+        match drive_qr_flow(request, &qr, flow_id, events, nudges, shutdown).await {
+            QrOutcome::Finished | QrOutcome::ShuttingDown => return,
+            // Release the QR slot before SAS takes over so a cancel issued
+            // during the SAS leg cannot try to cancel a retired QR.
+            QrOutcome::FallBackToSas => release_keyed_slot(qr_slot, flow_id),
+        }
+    }
+    drive_sas_flow(client, request, flow_id, events, sas_slot, nudges, shutdown).await;
+}
 
 /// Best-effort, bounded cancellation for a session that is going away.
 ///
@@ -2691,12 +3104,21 @@ const VERIFICATION_CANCEL_TIMEOUT_SECS: u64 = 3;
 /// idempotent and either one may be the live half of the flow.
 async fn cancel_flow_best_effort(
     sas: Option<&SasVerification>,
+    qr: Option<&QrVerification>,
     request: Option<&VerificationRequest>,
 ) {
     let budget = std::time::Duration::from_secs(VERIFICATION_CANCEL_TIMEOUT_SECS);
     if let Some(sas) = sas {
         if !sas.is_cancelled() && !sas.is_done() {
             let _ = tokio::time::timeout(budget, sas.cancel()).await;
+        }
+    }
+    // A displayed QR is just as much a live flow as a SAS: the peer may be
+    // holding a camera up to it. Abandoning it silently leaves that peer
+    // waiting out matrix-sdk-crypto's 10-minute VERIFICATION_TIMEOUT.
+    if let Some(qr) = qr {
+        if !qr.is_cancelled() && !qr.is_done() {
+            let _ = tokio::time::timeout(budget, qr.cancel()).await;
         }
     }
     if let Some(request) = request {
@@ -2720,6 +3142,21 @@ fn sas_from_request(request: &VerificationRequest) -> Option<SasVerification> {
         VerificationRequestState::Transitioned { verification } => verification.sas(),
         _ => None,
     }
+}
+
+/// True once the SDK has moved this request onto a SAS verification.
+///
+/// This is the QR driver's hand-off signal. `generate_qr_code()` puts the
+/// request into `Transitioned { verification: QrV1(..) }`; if the peer then
+/// sends `m.key.verification.start` with `m.sas.v1`, matrix-sdk-crypto's
+/// `receive_start` REPLACES that verification with a `Sas`
+/// (verification/requests.rs, the `Some(Verification::QrV1(old))` arm:
+/// "it is legit to transition from QR display to SAS" while the QR is still
+/// in `Started`). That is the peer choosing emoji because it cannot scan,
+/// and it is the only thing that may retire a displayed QR in favour of the
+/// existing SAS driver.
+fn request_moved_to_sas(request: &VerificationRequest) -> bool {
+    sas_from_request(request).is_some()
 }
 
 /// Can this flow handle still make progress?
@@ -2758,33 +3195,66 @@ impl FlowLiveness for SasVerification {
     }
 }
 
+impl FlowLiveness for QrVerification {
+    fn is_finished(&self) -> bool {
+        self.is_cancelled() || self.is_done()
+    }
+}
+
+/// A flow slot keyed by flow id, for the method-level handles (`SasVerification`,
+/// `QrVerification`) that carry no `flow_id()` accessor of their own.
+type KeyedFlowSlot<T> = Arc<Mutex<Option<(String, T)>>>;
+
+/// Clear a keyed slot if its occupant can no longer progress, and report
+/// whether anything live is left. Dead occupants are dropped in passing so
+/// a slot is self-healing rather than sticky.
+fn keyed_slot_is_live<T: FlowLiveness>(slot: &KeyedFlowSlot<T>) -> bool {
+    if let Ok(mut guard) = slot.lock() {
+        if guard.as_ref().is_some_and(|(_, flow)| flow.is_finished()) {
+            *guard = None;
+        }
+        return guard.is_some();
+    }
+    false
+}
+
+/// Clear a keyed slot, but ONLY where it still holds this flow.
+fn release_keyed_slot<T>(slot: &KeyedFlowSlot<T>, flow_id: &str) {
+    if let Ok(mut guard) = slot.lock() {
+        if guard.as_ref().is_some_and(|(stored, _)| stored == flow_id) {
+            *guard = None;
+        }
+    }
+}
+
 /// True when the single-flow slots still hold a LIVE flow.
 ///
 /// Dead occupants (cancelled, done, or answered by another of our
 /// sessions) are cleared in passing, so the slots are self-healing instead
 /// of sticky: an abandoned request can never refuse every later attempt
 /// for the rest of the process lifetime.
-fn flow_slots_are_live<R, S>(
+fn flow_slots_are_live<R, S, Q>(
     request_slot: &Arc<Mutex<Option<R>>>,
-    sas_slot: &Arc<Mutex<Option<(String, S)>>>,
+    sas_slot: &KeyedFlowSlot<S>,
+    qr_slot: &KeyedFlowSlot<Q>,
 ) -> bool
 where
     R: FlowLiveness,
     S: FlowLiveness,
+    Q: FlowLiveness,
 {
     if let Ok(mut guard) = request_slot.lock() {
         if guard.as_ref().is_some_and(|request| request.is_finished()) {
             *guard = None;
         }
     }
-    if let Ok(mut guard) = sas_slot.lock() {
-        if guard.as_ref().is_some_and(|(_, sas)| sas.is_finished()) {
-            *guard = None;
-        }
-    }
+    // Evaluate BOTH method slots before short-circuiting: each call is also
+    // the sweep that clears a dead occupant, and `||` would skip the QR
+    // sweep whenever a SAS flow happened to still be live.
+    let sas_live = keyed_slot_is_live(sas_slot);
+    let qr_live = keyed_slot_is_live(qr_slot);
     let request_live = request_slot.lock().map(|g| g.is_some()).unwrap_or(false);
-    let sas_live = sas_slot.lock().map(|g| g.is_some()).unwrap_or(false);
-    request_live || sas_live
+    request_live || sas_live || qr_live
 }
 
 /// Release the single-flow slots, but ONLY where they still hold this flow.
@@ -2793,18 +3263,16 @@ where
 /// wiped whatever occupied the slot — including a NEWER request that had
 /// arrived in the meantime, whose Accept then failed with "no active
 /// verification request".
-fn release_flow_slots<R, S>(
+fn release_flow_slots<R, S, Q>(
     request_slot: &Arc<Mutex<Option<R>>>,
-    sas_slot: &Arc<Mutex<Option<(String, S)>>>,
+    sas_slot: &KeyedFlowSlot<S>,
+    qr_slot: &KeyedFlowSlot<Q>,
     flow_id: &str,
 ) where
     R: FlowIdentity,
 {
-    if let Ok(mut guard) = sas_slot.lock() {
-        if guard.as_ref().is_some_and(|(stored, _)| stored == flow_id) {
-            *guard = None;
-        }
-    }
+    release_keyed_slot(sas_slot, flow_id);
+    release_keyed_slot(qr_slot, flow_id);
     if let Ok(mut guard) = request_slot.lock() {
         if guard.as_ref().is_some_and(|r| r.flow_key() == flow_id) {
             *guard = None;
@@ -2820,17 +3288,23 @@ fn release_flow_slots<R, S>(
 /// this change ended up with a cancel that could never fire, because
 /// `shutdown_managed_tasks` emptied the slots before `mx_rust_logout` (the
 /// function that held the cancel) ever ran.
-fn take_pending_flows<R, S>(
+fn take_pending_flows<R, S, Q>(
     request_slot: &Arc<Mutex<Option<R>>>,
-    sas_slot: &Arc<Mutex<Option<(String, S)>>>,
-) -> (Option<S>, Option<R>) {
+    sas_slot: &KeyedFlowSlot<S>,
+    qr_slot: &KeyedFlowSlot<Q>,
+) -> (Option<S>, Option<Q>, Option<R>) {
     let sas = sas_slot
         .lock()
         .ok()
         .and_then(|mut guard| guard.take())
         .map(|(_, sas)| sas);
+    let qr = qr_slot
+        .lock()
+        .ok()
+        .and_then(|mut guard| guard.take())
+        .map(|(_, qr)| qr);
     let request = request_slot.lock().ok().and_then(|mut guard| guard.take());
-    (sas, request)
+    (sas, qr, request)
 }
 
 /// Releases this flow's slots when its driver ends for ANY reason —
@@ -2841,25 +3315,29 @@ fn take_pending_flows<R, S>(
 /// `mx_rust_start_own_verification` then refused outright, so one failed
 /// attempt bricked verification until the app restarted. Cleanup on drop
 /// makes future exits safe by construction rather than by remembering.
-struct FlowSlotGuard<R: FlowIdentity, S> {
+struct FlowSlotGuard<R: FlowIdentity, S, Q> {
     request_slot: Arc<Mutex<Option<R>>>,
-    sas_slot: Arc<Mutex<Option<(String, S)>>>,
+    sas_slot: KeyedFlowSlot<S>,
+    qr_slot: KeyedFlowSlot<Q>,
     flow_id: String,
 }
 
-impl<R: FlowIdentity, S> FlowSlotGuard<R, S> {
+impl<R: FlowIdentity, S, Q> FlowSlotGuard<R, S, Q> {
     fn new(
         request_slot: Arc<Mutex<Option<R>>>,
-        sas_slot: Arc<Mutex<Option<(String, S)>>>,
+        sas_slot: KeyedFlowSlot<S>,
+        qr_slot: KeyedFlowSlot<Q>,
         flow_id: String,
     ) -> Self {
-        Self { request_slot, sas_slot, flow_id }
+        Self { request_slot, sas_slot, qr_slot, flow_id }
     }
 }
 
-impl<R: FlowIdentity, S> Drop for FlowSlotGuard<R, S> {
+impl<R: FlowIdentity, S, Q> Drop for FlowSlotGuard<R, S, Q> {
     fn drop(&mut self) {
-        release_flow_slots(&self.request_slot, &self.sas_slot, &self.flow_id);
+        release_flow_slots(
+            &self.request_slot, &self.sas_slot, &self.qr_slot, &self.flow_id,
+        );
     }
 }
 
@@ -2909,7 +3387,7 @@ async fn drive_sas_flow(
                     if shutdown.load(Ordering::SeqCst) {
                         // No SAS exists yet, but the request does, and the
                         // peer is waiting on it.
-                        cancel_flow_best_effort(None, Some(request)).await;
+                        cancel_flow_best_effort(None, None, Some(request)).await;
                         return;
                     }
                     tokio::time::sleep(poll).await;
@@ -2972,7 +3450,7 @@ async fn drive_sas_flow(
             // what stops the peer sitting on an emoji screen for ten
             // minutes; the slot sweep in shutdown_managed_tasks only covers
             // flows this driver no longer owns.
-            cancel_flow_best_effort(Some(&sas), Some(request)).await;
+            cancel_flow_best_effort(Some(&sas), None, Some(request)).await;
             return;
         }
         tokio::time::sleep(poll).await;
@@ -3086,11 +3564,15 @@ pub unsafe extern "C" fn mx_rust_accept_verification(
             // Nothing can drive this flow any more. Release the slot rather
             // than parking a dead request that would refuse every later
             // attempt for the rest of the process lifetime.
-            release_flow_slots(&bridge.active_request, &bridge.active_sas, &flow_id);
+            release_flow_slots(
+                &bridge.active_request, &bridge.active_sas, &bridge.active_qr,
+                &flow_id,
+            );
             return Ok("error: Rust SDK session is not logged in.".to_owned());
         };
         let events = Arc::clone(&bridge.events);
         let sas_slot = Arc::clone(&bridge.active_sas);
+        let qr_slot = Arc::clone(&bridge.active_qr);
         let request_slot = Arc::clone(&bridge.active_request);
         let nudges = Arc::clone(&bridge.recovery_nudges);
         let shutdown = Arc::clone(&bridge.verification_shutdown);
@@ -3098,22 +3580,18 @@ pub unsafe extern "C" fn mx_rust_accept_verification(
             let _slots = FlowSlotGuard::new(
                 Arc::clone(&request_slot),
                 Arc::clone(&sas_slot),
+                Arc::clone(&qr_slot),
                 flow_id.clone(),
             );
 
-            // Advertise ONLY what this client can actually perform.
-            // `accept()` would use the SDK's SUPPORTED_METHODS, which
-            // includes `m.reciprocate.v1` (matrix-sdk-crypto
-            // verification/requests.rs) — telling the peer we can scan a QR
-            // code it shows us. Lightning builds without the `qrcode`
-            // feature and has no scanner, so that invites a reciprocate
-            // start we can never answer. Worse, without that feature the
-            // SDK's `receive_start` has no ReciprocateV1 arm at all: it
-            // warns and returns, sending no cancel, so the peer waits out
-            // the full 10-minute timeout. Both directions advertise SAS
-            // only.
+            // Advertise exactly what this client can actually perform — see
+            // `advertised_verification_methods`. Not `accept()`, which would
+            // use the SDK's own SUPPORTED_METHODS: that set is currently
+            // identical, but it is the SDK's choice rather than ours, and a
+            // future release adding `m.qr_code.scan.v1` to it would silently
+            // make Lightning claim a scanner it does not have.
             if let Err(err) = request
-                .accept_with_methods(vec![VerificationMethod::SasV1])
+                .accept_with_methods(advertised_verification_methods())
                 .await
             {
                 enqueue(&events, json!({
@@ -3129,9 +3607,9 @@ pub unsafe extern "C" fn mx_rust_accept_verification(
                 "flow_id": flow_id,
             }));
 
-            drive_sas_flow(
-                &client, &request, &flow_id, &events, &sas_slot, &nudges,
-                &shutdown,
+            drive_ready_request(
+                &client, &request, &flow_id, &events, &sas_slot, &qr_slot,
+                &nudges, &shutdown,
             )
             .await;
         });
@@ -3196,25 +3674,80 @@ pub unsafe extern "C" fn mx_rust_mismatch_verification(
     }))
 }
 
+/// The user confirmed that the OTHER device reported a successful scan.
+///
+/// This is the human check that gives showing a QR code its security value,
+/// so it is never issued automatically: `drive_qr_flow` surfaces
+/// `verification_qr_scanned` and then waits for exactly this call. The SDK
+/// performs the trust change (`QrVerification::confirm` ->
+/// `confirm_scanning`); nothing here promotes trust locally.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_confirm_qr_verification(
+    ptr: *mut c_void,
+    flow_id: *const c_char,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let flow_id = unsafe { cstr_arg(flow_id) }?;
+        let entry = match bridge.active_qr.lock() {
+            Ok(g) => g.clone(),
+            Err(_) => None,
+        };
+        let Some((stored_flow, qr)) = entry else {
+            return Ok("error: no active QR verification.".to_owned());
+        };
+        if stored_flow != flow_id {
+            return Ok("error: QR verification flow id mismatch.".to_owned());
+        }
+        // `confirm_scanning()` returns None outside `Scanned`
+        // (verification/qrcode.rs), so an early confirm would be swallowed
+        // and the flow would then sit until its timeout with the UI
+        // believing it had acted. Refuse it visibly instead. The wording
+        // states the flow's state, not a user mistake — this is reachable
+        // from an ordinary race, not only from a misplaced click.
+        if !matches!(qr.state(), QrVerificationState::Scanned) {
+            return Ok("error: the code has not been scanned yet.".to_owned());
+        }
+        let events = Arc::clone(&bridge.events);
+        // Joinable like the SAS actions: `confirm()` uploads a signature and
+        // writes to the crypto store, so it must not still be running when
+        // sign-out deletes that store.
+        bridge.spawn_verification_task(async move {
+            if let Err(err) = qr.confirm().await {
+                enqueue(&events, json!({
+                    "type": "verification_failed",
+                    "flow_id": stored_flow,
+                    "message": format_matrix_error("verification_qr_confirm", err),
+                }));
+            }
+        });
+        Ok(String::new())
+    })
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_cancel_verification(
     ptr: *mut c_void,
     flow_id: *const c_char,
 ) -> *mut c_char {
-    // Cancel at BOTH levels. Each SDK cancel is idempotent (it returns no
+    // Cancel at EVERY level. Each SDK cancel is idempotent (it returns no
     // outgoing request once the flow is already cancelled or done), so
-    // running both is safe — and necessary. These used to be `if` /
+    // running them all is safe — and necessary. These used to be `if` /
     // `else if`, which meant an `active_sas` belonging to some OTHER flow
     // suppressed the request-level cancel entirely: nothing reached the
     // wire, the peer waited out matrix-sdk-crypto's 10-minute
-    // VERIFICATION_TIMEOUT, and both slots were cleared regardless.
+    // VERIFICATION_TIMEOUT, and both slots were cleared regardless. The QR
+    // level joins on the same terms: closing the dialog while a code is on
+    // screen must tell the peer, not just hide the picture.
     ffi_string(|| {
         let bridge = unsafe { bridge(ptr)? };
         let flow_id = unsafe { cstr_arg(flow_id) }?;
         let sas_entry = bridge.active_sas.lock().ok().and_then(|g| g.clone());
+        let qr_entry = bridge.active_qr.lock().ok().and_then(|g| g.clone());
         let request = bridge.active_request.lock().ok().and_then(|g| g.clone());
         let events = Arc::clone(&bridge.events);
         let sas_slot = Arc::clone(&bridge.active_sas);
+        let qr_slot = Arc::clone(&bridge.active_qr);
         let request_slot = Arc::clone(&bridge.active_request);
         bridge.spawn_verification_task(async move {
             let mut cancelled = false;
@@ -3222,6 +3755,14 @@ pub unsafe extern "C" fn mx_rust_cancel_verification(
                 if stored_flow == flow_id {
                     if !sas.is_cancelled() && !sas.is_done() {
                         let _ = sas.cancel().await;
+                    }
+                    cancelled = true;
+                }
+            }
+            if let Some((stored_flow, qr)) = qr_entry {
+                if stored_flow == flow_id {
+                    if !qr.is_cancelled() && !qr.is_done() {
+                        let _ = qr.cancel().await;
                     }
                     cancelled = true;
                 }
@@ -3244,7 +3785,7 @@ pub unsafe extern "C" fn mx_rust_cancel_verification(
                     "message": "cancelled",
                 }));
             }
-            release_flow_slots(&request_slot, &sas_slot, &flow_id);
+            release_flow_slots(&request_slot, &sas_slot, &qr_slot, &flow_id);
         });
         Ok(String::new())
     })
@@ -3252,14 +3793,15 @@ pub unsafe extern "C" fn mx_rust_cancel_verification(
 
 /// Lightning-initiated (outbound) SAS verification of the current
 /// session against another session belonging to the same Matrix
-/// account. Advertises SAS as the only method so the SDK does not
-/// send an m.qr_code.* request Lightning cannot follow through.
+/// account. Advertises the methods Lightning can genuinely perform
+/// (see `advertised_verification_methods`) — never `m.qr_code.scan.v1`,
+/// which it has no scanner for.
 ///
 /// Emits `verification_request_started` as soon as the SDK has sent the
 /// request, then `verification_ready` once the peer answers, and hands
-/// off to the shared `drive_sas_flow` driver — the same one the
+/// off to the shared `drive_ready_request` driver — the same one the
 /// receive-first path uses, so both directions perform the identical
-/// start/accept/key/mac sequence.
+/// show-QR-then-SAS sequence.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_start_own_verification(
     ptr: *mut c_void,
@@ -3274,13 +3816,16 @@ pub unsafe extern "C" fn mx_rust_start_own_verification(
         // whenever a dead request stayed parked — an incoming request occupies
         // the slot with no user action at all. Testing liveness (and clearing
         // what is dead) keeps the slot self-healing.
-        if flow_slots_are_live(&bridge.active_request, &bridge.active_sas) {
+        if flow_slots_are_live(
+            &bridge.active_request, &bridge.active_sas, &bridge.active_qr,
+        ) {
             return Ok("error: A verification is already in progress.".to_owned());
         }
 
         let events = Arc::clone(&bridge.events);
         let request_slot = Arc::clone(&bridge.active_request);
         let sas_slot = Arc::clone(&bridge.active_sas);
+        let qr_slot = Arc::clone(&bridge.active_qr);
         let nudges = Arc::clone(&bridge.recovery_nudges);
         let shutdown = Arc::clone(&bridge.verification_shutdown);
         bridge.spawn_verification_task(async move {
@@ -3330,7 +3875,7 @@ pub unsafe extern "C" fn mx_rust_start_own_verification(
             };
 
             let request = match identity
-                .request_verification_with_methods(vec![VerificationMethod::SasV1])
+                .request_verification_with_methods(advertised_verification_methods())
                 .await
             {
                 Ok(r) => r,
@@ -3379,6 +3924,7 @@ pub unsafe extern "C" fn mx_rust_start_own_verification(
             let _slots = FlowSlotGuard::new(
                 Arc::clone(&request_slot),
                 Arc::clone(&sas_slot),
+                Arc::clone(&qr_slot),
                 flow_id.clone(),
             );
 
@@ -3407,7 +3953,7 @@ pub unsafe extern "C" fn mx_rust_start_own_verification(
                 if shutdown.load(Ordering::SeqCst) {
                     // We asked the peer to verify and are now walking away;
                     // withdraw the request instead of leaving it pending.
-                    cancel_flow_best_effort(None, Some(&request)).await;
+                    cancel_flow_best_effort(None, None, Some(&request)).await;
                     return;
                 }
                 tokio::time::sleep(
@@ -3455,9 +4001,9 @@ pub unsafe extern "C" fn mx_rust_start_own_verification(
                 "flow_id": flow_id.clone(),
             }));
 
-            drive_sas_flow(
-                &client, &request, &flow_id, &events, &sas_slot, &nudges,
-                &shutdown,
+            drive_ready_request(
+                &client, &request, &flow_id, &events, &sas_slot, &qr_slot,
+                &nudges, &shutdown,
             )
             .await;
         });
@@ -5035,29 +5581,32 @@ fn install_event_handlers(
     client: &Client,
     events: Arc<Mutex<VecDeque<String>>>,
     active_request: Arc<Mutex<Option<VerificationRequest>>>,
-    active_sas: Arc<Mutex<Option<(String, SasVerification)>>>,
+    active_sas: KeyedFlowSlot<SasVerification>,
+    active_qr: KeyedFlowSlot<QrVerification>,
 ) {
-    // v0.5.0: SAS emoji verification, receive-first. matrix-sdk 0.18 does
+    // v0.5.0: interactive verification, receive-first. matrix-sdk 0.18 does
     // NOT expose a public `recv_verification_requests` stream, so we
     // observe incoming requests via a to-device event handler and then
     // hydrate the `VerificationRequest` via
     // `client.encryption().get_verification_request(user, flow_id)`.
     //
     // The active flow (single-flow policy) is stored in
-    // `active_request`; the FFI accept path drives `accept()` +
-    // `start_sas()` from that stored handle. No secret material is
-    // ever forwarded through the FFI — only flow id, mxid, device id,
-    // is_self_verification, and SAS emojis (which are safe to display
-    // by SAS design).
+    // `active_request`; the FFI accept path drives `accept_with_methods()`
+    // and then the show-QR / SAS driver from that stored handle. No secret
+    // material is ever forwarded through the FFI — only flow id, mxid,
+    // device id, is_self_verification, SAS emojis (safe to display by SAS
+    // design), and a QR MODULE GRID (never the payload it encodes).
     let verif_events = Arc::clone(&events);
     let verif_slot = Arc::clone(&active_request);
     let verif_sas_slot = Arc::clone(&active_sas);
+    let verif_qr_slot = Arc::clone(&active_qr);
     let client_clone = client.clone();
     client.add_event_handler(
         move |ev: ToDeviceKeyVerificationRequestEvent| {
             let events = Arc::clone(&verif_events);
             let slot = Arc::clone(&verif_slot);
             let sas_slot = Arc::clone(&verif_sas_slot);
+            let qr_slot = Arc::clone(&verif_qr_slot);
             let client = client_clone.clone();
             async move {
                 let flow_id = ev.content.transaction_id.to_string();
@@ -5078,7 +5627,7 @@ fn install_event_handlers(
                 // cleared in passing. Tell the peer rather than leaving it
                 // to the SDK's 10-minute timeout; the flow already on screen
                 // owns the single-flow UI, so this one is not surfaced.
-                if flow_slots_are_live(&slot, &sas_slot) {
+                if flow_slots_are_live(&slot, &sas_slot, &qr_slot) {
                     let _ = request.cancel().await;
                     return;
                 }
@@ -6215,31 +6764,38 @@ mod tests {
         }
 
         type RequestSlot = Arc<Mutex<Option<FakeFlow>>>;
-        type SasSlot = Arc<Mutex<Option<(String, FakeFlow)>>>;
+        // The SAS and show-QR slots are structurally identical (both are
+        // keyed by flow id because neither SDK handle exposes one), so one
+        // fake covers both halves of the single-flow policy.
+        type MethodSlot = Arc<Mutex<Option<(String, FakeFlow)>>>;
 
-        fn slots() -> (RequestSlot, SasSlot) {
-            (Arc::new(Mutex::new(None)), Arc::new(Mutex::new(None)))
+        fn slots() -> (RequestSlot, MethodSlot, MethodSlot) {
+            (
+                Arc::new(Mutex::new(None)),
+                Arc::new(Mutex::new(None)),
+                Arc::new(Mutex::new(None)),
+            )
         }
 
         fn request_flow(slot: &RequestSlot) -> Option<String> {
             slot.lock().unwrap().as_ref().map(|f| f.flow_id.clone())
         }
 
-        fn sas_flow(slot: &SasSlot) -> Option<String> {
+        fn sas_flow(slot: &MethodSlot) -> Option<String> {
             slot.lock().unwrap().as_ref().map(|(id, _)| id.clone())
         }
 
         #[test]
         fn empty_slots_are_not_live() {
-            let (request, sas) = slots();
-            assert!(!crate::flow_slots_are_live(&request, &sas));
+            let (request, sas, qr) = slots();
+            assert!(!crate::flow_slots_are_live(&request, &sas, &qr));
         }
 
         #[test]
         fn a_live_request_blocks_a_second_start() {
-            let (request, sas) = slots();
+            let (request, sas, qr) = slots();
             *request.lock().unwrap() = Some(FakeFlow::live("flow-a"));
-            assert!(crate::flow_slots_are_live(&request, &sas));
+            assert!(crate::flow_slots_are_live(&request, &sas, &qr));
             // Still there: a live flow must not be silently evicted.
             assert_eq!(request_flow(&request).as_deref(), Some("flow-a"));
         }
@@ -6250,35 +6806,69 @@ mod tests {
         // of the process lifetime.
         #[test]
         fn a_finished_occupant_is_cleared_and_does_not_block() {
-            let (request, sas) = slots();
+            let (request, sas, qr) = slots();
             *request.lock().unwrap() = Some(FakeFlow::finished("flow-dead"));
             *sas.lock().unwrap() =
                 Some(("flow-dead".to_owned(), FakeFlow::finished("flow-dead")));
+            *qr.lock().unwrap() =
+                Some(("flow-dead".to_owned(), FakeFlow::finished("flow-dead")));
 
-            assert!(!crate::flow_slots_are_live(&request, &sas));
+            assert!(!crate::flow_slots_are_live(&request, &sas, &qr));
             assert_eq!(request_flow(&request), None);
             assert_eq!(sas_flow(&sas), None);
+            assert_eq!(sas_flow(&qr), None);
         }
 
         #[test]
         fn a_live_sas_alone_still_counts_as_live() {
-            let (request, sas) = slots();
+            let (request, sas, qr) = slots();
             *sas.lock().unwrap() =
                 Some(("flow-b".to_owned(), FakeFlow::live("flow-b")));
-            assert!(crate::flow_slots_are_live(&request, &sas));
+            assert!(crate::flow_slots_are_live(&request, &sas, &qr));
             assert_eq!(sas_flow(&sas).as_deref(), Some("flow-b"));
+        }
+
+        // A QR code on screen is a live flow: the peer may be pointing a
+        // camera at it. A second start must be refused exactly as it is for
+        // a live SAS, or showing a code would silently orphan itself.
+        #[test]
+        fn a_live_qr_alone_still_counts_as_live() {
+            let (request, sas, qr) = slots();
+            *qr.lock().unwrap() =
+                Some(("flow-qr".to_owned(), FakeFlow::live("flow-qr")));
+            assert!(crate::flow_slots_are_live(&request, &sas, &qr));
+            assert_eq!(sas_flow(&qr).as_deref(), Some("flow-qr"));
+        }
+
+        // The sweep that clears dead occupants must run for BOTH method
+        // slots. Short-circuiting on a live SAS would leave a dead QR parked
+        // forever — the same sticky-slot brick, one slot over.
+        #[test]
+        fn a_dead_qr_is_swept_even_while_a_sas_is_live() {
+            let (request, sas, qr) = slots();
+            *sas.lock().unwrap() =
+                Some(("flow-live".to_owned(), FakeFlow::live("flow-live")));
+            *qr.lock().unwrap() =
+                Some(("flow-dead".to_owned(), FakeFlow::finished("flow-dead")));
+
+            assert!(crate::flow_slots_are_live(&request, &sas, &qr));
+            assert_eq!(sas_flow(&qr), None);
+            assert_eq!(sas_flow(&sas).as_deref(), Some("flow-live"));
         }
 
         #[test]
         fn releasing_clears_only_the_owning_flow() {
-            let (request, sas) = slots();
+            let (request, sas, qr) = slots();
             *request.lock().unwrap() = Some(FakeFlow::live("flow-mine"));
             *sas.lock().unwrap() =
                 Some(("flow-mine".to_owned(), FakeFlow::live("flow-mine")));
+            *qr.lock().unwrap() =
+                Some(("flow-mine".to_owned(), FakeFlow::live("flow-mine")));
 
-            crate::release_flow_slots(&request, &sas, "flow-mine");
+            crate::release_flow_slots(&request, &sas, &qr, "flow-mine");
             assert_eq!(request_flow(&request), None);
             assert_eq!(sas_flow(&sas), None);
+            assert_eq!(sas_flow(&qr), None);
         }
 
         // The clobber: a terminating driver used to run `*g = None`
@@ -6287,30 +6877,58 @@ mod tests {
         // failed with "no active verification request".
         #[test]
         fn releasing_never_evicts_a_newer_flow() {
-            let (request, sas) = slots();
+            let (request, sas, qr) = slots();
             *request.lock().unwrap() = Some(FakeFlow::live("flow-new"));
             *sas.lock().unwrap() =
                 Some(("flow-new".to_owned(), FakeFlow::live("flow-new")));
+            *qr.lock().unwrap() =
+                Some(("flow-new".to_owned(), FakeFlow::live("flow-new")));
 
             // The OLD flow terminates and releases.
-            crate::release_flow_slots(&request, &sas, "flow-old");
+            crate::release_flow_slots(&request, &sas, &qr, "flow-old");
 
             assert_eq!(request_flow(&request).as_deref(), Some("flow-new"));
             assert_eq!(sas_flow(&sas).as_deref(), Some("flow-new"));
+            assert_eq!(sas_flow(&qr).as_deref(), Some("flow-new"));
+        }
+
+        // The QR-to-SAS hand-off: when the peer answers a displayed code
+        // with an SAS start, `drive_ready_request` retires ONLY the QR slot
+        // and lets the SAS driver take the same request. Releasing more than
+        // that would pull the request out from under the driver about to
+        // use it.
+        #[test]
+        fn retiring_a_qr_leaves_the_request_for_the_sas_driver() {
+            let (request, sas, qr) = slots();
+            *request.lock().unwrap() = Some(FakeFlow::live("flow-fallback"));
+            *qr.lock().unwrap() =
+                Some(("flow-fallback".to_owned(), FakeFlow::live("flow-fallback")));
+
+            crate::release_keyed_slot(&qr, "flow-fallback");
+
+            assert_eq!(sas_flow(&qr), None);
+            assert_eq!(request_flow(&request).as_deref(), Some("flow-fallback"));
+            assert_eq!(sas_flow(&sas), None);
         }
 
         #[test]
         fn the_guard_releases_on_a_normal_exit() {
-            let (request, sas) = slots();
+            let (request, sas, qr) = slots();
             *request.lock().unwrap() = Some(FakeFlow::live("flow-guarded"));
+            *qr.lock().unwrap() =
+                Some(("flow-guarded".to_owned(), FakeFlow::live("flow-guarded")));
             {
                 let _guard = FlowSlotGuard::new(
                     Arc::clone(&request),
                     Arc::clone(&sas),
+                    Arc::clone(&qr),
                     "flow-guarded".to_owned(),
                 );
             }
             assert_eq!(request_flow(&request), None);
+            // A QR displayed when the driver exits must not stay parked
+            // either, or it would refuse every later attempt.
+            assert_eq!(sas_flow(&qr), None);
         }
 
         // A driver that panicked used to leak both slots: `run_async`
@@ -6318,19 +6936,23 @@ mod tests {
         // Ready blocked verification until the app restarted.
         #[test]
         fn the_guard_releases_on_a_panic() {
-            let (request, sas) = slots();
+            let (request, sas, qr) = slots();
             *request.lock().unwrap() = Some(FakeFlow::live("flow-panic"));
+            *qr.lock().unwrap() =
+                Some(("flow-panic".to_owned(), FakeFlow::live("flow-panic")));
             let req = Arc::clone(&request);
             let sasc = Arc::clone(&sas);
+            let qrc = Arc::clone(&qr);
 
             let result = std::panic::catch_unwind(move || {
                 let _guard =
-                    FlowSlotGuard::new(req, sasc, "flow-panic".to_owned());
+                    FlowSlotGuard::new(req, sasc, qrc, "flow-panic".to_owned());
                 panic!("driver blew up");
             });
 
             assert!(result.is_err());
             assert_eq!(request_flow(&request), None);
+            assert_eq!(sas_flow(&qr), None);
         }
 
         // Teardown's cancellation can only work if the flow is still in the
@@ -6344,13 +6966,13 @@ mod tests {
         // network round trip through SDK types no test can construct.
         #[test]
         fn teardown_takes_the_parked_flow_instead_of_discarding_it() {
-            let (request, sas) = slots();
+            let (request, sas, qr) = slots();
             *request.lock().unwrap() = Some(FakeFlow::live("flow-teardown"));
             *sas.lock().unwrap() =
                 Some(("flow-teardown".to_owned(), FakeFlow::live("flow-teardown")));
 
-            let (taken_sas, taken_request) =
-                crate::take_pending_flows(&request, &sas);
+            let (taken_sas, taken_qr, taken_request) =
+                crate::take_pending_flows(&request, &sas, &qr);
 
             // Handed to the caller so it still has something to cancel...
             assert_eq!(
@@ -6361,17 +6983,48 @@ mod tests {
                 taken_sas.as_ref().map(|f| f.flow_id.as_str()),
                 Some("flow-teardown")
             );
+            assert!(taken_qr.is_none());
             // ...and the slots are empty, so nothing can act on it again.
             assert_eq!(request_flow(&request), None);
             assert_eq!(sas_flow(&sas), None);
         }
 
+        // Sign-out while a code is on screen. The QR handle is the only
+        // thing that can send that peer a cancel, so teardown has to take it
+        // rather than clear it — otherwise the peer waits out the SDK's
+        // 10-minute timeout staring at a scanner.
+        #[test]
+        fn teardown_takes_a_displayed_qr_so_the_peer_can_be_told() {
+            let (request, sas, qr) = slots();
+            *request.lock().unwrap() = Some(FakeFlow::live("flow-qr-teardown"));
+            *qr.lock().unwrap() = Some((
+                "flow-qr-teardown".to_owned(),
+                FakeFlow::live("flow-qr-teardown"),
+            ));
+
+            let (taken_sas, taken_qr, taken_request) =
+                crate::take_pending_flows(&request, &sas, &qr);
+
+            assert!(taken_sas.is_none());
+            assert_eq!(
+                taken_qr.as_ref().map(|f| f.flow_id.as_str()),
+                Some("flow-qr-teardown")
+            );
+            assert_eq!(
+                taken_request.as_ref().map(|f| f.flow_id.as_str()),
+                Some("flow-qr-teardown")
+            );
+            assert_eq!(sas_flow(&qr), None);
+            assert_eq!(request_flow(&request), None);
+        }
+
         #[test]
         fn teardown_has_nothing_to_cancel_when_no_flow_is_parked() {
-            let (request, sas) = slots();
-            let (taken_sas, taken_request) =
-                crate::take_pending_flows(&request, &sas);
+            let (request, sas, qr) = slots();
+            let (taken_sas, taken_qr, taken_request) =
+                crate::take_pending_flows(&request, &sas, &qr);
             assert!(taken_sas.is_none());
+            assert!(taken_qr.is_none());
             assert!(taken_request.is_none());
         }
 
@@ -6380,13 +7033,14 @@ mod tests {
         // gone.
         #[test]
         fn teardown_takes_a_request_that_never_had_a_driver() {
-            let (request, sas) = slots();
+            let (request, sas, qr) = slots();
             *request.lock().unwrap() = Some(FakeFlow::live("flow-unanswered"));
 
-            let (taken_sas, taken_request) =
-                crate::take_pending_flows(&request, &sas);
+            let (taken_sas, taken_qr, taken_request) =
+                crate::take_pending_flows(&request, &sas, &qr);
 
             assert!(taken_sas.is_none());
+            assert!(taken_qr.is_none());
             assert_eq!(
                 taken_request.as_ref().map(|f| f.flow_id.as_str()),
                 Some("flow-unanswered")
@@ -6396,14 +7050,16 @@ mod tests {
 
         #[test]
         fn the_guard_leaves_a_newer_flow_alone_on_a_panic() {
-            let (request, sas) = slots();
+            let (request, sas, qr) = slots();
             let req = Arc::clone(&request);
             let sasc = Arc::clone(&sas);
+            let qrc = Arc::clone(&qr);
 
             let result = std::panic::catch_unwind(move || {
                 let _guard = FlowSlotGuard::new(
                     Arc::clone(&req),
                     Arc::clone(&sasc),
+                    Arc::clone(&qrc),
                     "flow-old".to_owned(),
                 );
                 // A newer request claims the slot before we die.
@@ -6413,6 +7069,150 @@ mod tests {
 
             assert!(result.is_err());
             assert_eq!(request_flow(&request).as_deref(), Some("flow-new"));
+        }
+    }
+
+    // ── QR verification: advertisement + module packing ────────────────
+    //
+    // HONEST LIMITATION, identical to the SAS coverage above: matrix-sdk's
+    // `VerificationRequest` and `QrVerification` have crate-private
+    // constructors, so no test here can build a real one. The handshake
+    // itself — generate_qr_code, the reciprocate exchange, confirm(), and
+    // the QR-to-SAS transition against a real peer — is therefore NOT
+    // covered by any automated test in this repository and must be
+    // validated live against Element / Element X. What IS covered is
+    // everything Lightning owns outright: which methods we advertise, and
+    // the pure grid-to-bits transform the UI renders.
+    mod qr_verification {
+        use matrix_sdk::ruma::events::key::verification::VerificationMethod;
+
+        // The security-critical half of the advertisement. Claiming
+        // `m.qr_code.scan.v1` would tell a peer to display a code at a
+        // client that has no camera, and the peer would then wait out
+        // matrix-sdk-crypto's 10-minute VERIFICATION_TIMEOUT for a
+        // reciprocate that can never come.
+        #[test]
+        fn we_never_advertise_a_scanner_we_do_not_have() {
+            let methods = crate::advertised_verification_methods();
+            assert!(!methods.contains(&VerificationMethod::QrCodeScanV1));
+        }
+
+        // Showing a code is useless without `m.reciprocate.v1`: that is the
+        // method name of the `m.key.verification.start` the scanning peer
+        // sends back, so advertising show without it leaves the peer no
+        // legal way to answer.
+        #[test]
+        fn showing_a_qr_is_advertised_together_with_reciprocate() {
+            let methods = crate::advertised_verification_methods();
+            assert!(methods.contains(&VerificationMethod::QrCodeShowV1));
+            assert!(methods.contains(&VerificationMethod::ReciprocateV1));
+        }
+
+        // SAS must survive as the fallback for every peer that can neither
+        // show nor scan. Dropping it would strand exactly the peers QR
+        // cannot serve.
+        #[test]
+        fn sas_remains_advertised_as_the_fallback() {
+            let methods = crate::advertised_verification_methods();
+            assert!(methods.contains(&VerificationMethod::SasV1));
+            assert_eq!(methods.len(), 3);
+        }
+
+        // Both advertisement sites (inbound `accept_with_methods`, outbound
+        // `request_verification_with_methods`) must offer the SAME set. A
+        // peer that answered a request advertising one set and then saw
+        // another would have no consistent view of what we can do.
+        #[test]
+        fn the_advertised_set_is_stable_across_calls() {
+            assert_eq!(
+                crate::advertised_verification_methods(),
+                crate::advertised_verification_methods()
+            );
+        }
+
+        fn decode(bits: &str) -> Vec<u8> {
+            use base64::Engine;
+            base64::engine::general_purpose::STANDARD.decode(bits).expect("base64")
+        }
+
+        // Row-major, MSB-first, one fresh byte per row. The C++ renderer
+        // addresses rows at `y * stride` with `stride = (size + 7) / 8`, so
+        // a packing that let rows share a byte would shear the image
+        // diagonally for every size that is not a multiple of 8.
+        #[test]
+        fn modules_pack_row_major_msb_first_with_a_fresh_byte_per_row() {
+            // 3x3: only the top-left and bottom-right modules are dark.
+            let modules = vec![
+                true, false, false,
+                false, false, false,
+                false, false, true,
+            ];
+            let bits = crate::pack_qr_modules(&modules, 3).expect("packed");
+            let bytes = decode(&bits);
+            // stride = 1 byte per row, 3 rows.
+            assert_eq!(bytes.len(), 3);
+            assert_eq!(bytes[0], 0b1000_0000); // x=0 dark
+            assert_eq!(bytes[1], 0b0000_0000);
+            assert_eq!(bytes[2], 0b0010_0000); // x=2 dark
+        }
+
+        // A row wider than one byte must start the next row on a new byte,
+        // not continue mid-byte.
+        #[test]
+        fn a_row_wider_than_one_byte_still_starts_the_next_row_fresh() {
+            let size = 9;
+            let mut modules = vec![false; size * size];
+            modules[0] = true;                 // row 0, x = 0
+            modules[size + 8] = true;          // row 1, x = 8
+            let bytes = decode(&crate::pack_qr_modules(&modules, size).expect("packed"));
+            // stride = 2 bytes per row, 9 rows.
+            assert_eq!(bytes.len(), 2 * 9);
+            assert_eq!(bytes[0], 0b1000_0000);
+            assert_eq!(bytes[1], 0);
+            assert_eq!(bytes[2], 0);
+            assert_eq!(bytes[3], 0b1000_0000); // row 1 byte 1, bit for x=8
+        }
+
+        #[test]
+        fn an_all_dark_grid_sets_every_module_bit_and_pads_with_zeros() {
+            let size = 3;
+            let bytes =
+                decode(&crate::pack_qr_modules(&vec![true; size * size], size).expect("packed"));
+            assert_eq!(bytes.len(), 3);
+            // Three dark modules, five padding bits that must stay clear so
+            // the renderer does not draw a black bar past the code edge.
+            for byte in bytes {
+                assert_eq!(byte, 0b1110_0000);
+            }
+        }
+
+        // Malformed geometry must be refused, not rendered. A short slice
+        // would otherwise index out of bounds, and an absurd size would let
+        // a bad grid drive an unbounded allocation.
+        #[test]
+        fn malformed_grids_are_refused_rather_than_rendered() {
+            assert!(crate::pack_qr_modules(&[], 0).is_none());
+            assert!(crate::pack_qr_modules(&[true, false], 3).is_none());
+            assert!(crate::pack_qr_modules(&[true; 9], 2).is_none());
+            let oversized = crate::QR_MAX_MODULES + 1;
+            assert!(crate::pack_qr_modules(&vec![false; 4], oversized).is_none());
+        }
+
+        // The packed payload is pure geometry. It must round-trip back to
+        // the same grid — which is also the proof that nothing else (the
+        // encoded secret, the flow id, a device key) rides along in it.
+        #[test]
+        fn packing_round_trips_to_the_same_grid() {
+            let size = 21; // the smallest real QR version.
+            let modules: Vec<bool> = (0..size * size).map(|i| i % 7 == 0).collect();
+            let bytes = decode(&crate::pack_qr_modules(&modules, size).expect("packed"));
+            let stride = size.div_ceil(8);
+            for y in 0..size {
+                for x in 0..size {
+                    let bit = bytes[y * stride + x / 8] & (0x80u8 >> (x % 8)) != 0;
+                    assert_eq!(bit, modules[y * size + x], "module ({x},{y})");
+                }
+            }
         }
     }
 

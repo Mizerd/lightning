@@ -8,6 +8,7 @@
 #include "crypto/CryptoBootstrapModel.h"
 #include "crypto/CryptoHealthModel.h"
 #include "crypto/CryptoManager.h"
+#include "crypto/QrImageProvider.h"
 #include "media/MediaBridge.h"
 #include "media/MediaPlaybackController.h"
 #include "media/MediaManager.h"
@@ -130,6 +131,15 @@ class AppController : public QObject
     Q_PROPERTY(QString verificationState READ verificationState NOTIFY verificationStateChanged)
     Q_PROPERTY(QVariantList verificationEmojis READ verificationEmojis NOTIFY verificationStateChanged)
     Q_PROPERTY(QVariantList verificationDecimals READ verificationDecimals NOTIFY verificationStateChanged)
+
+    // Show-QR verification, orthogonal to verificationState on purpose:
+    // the QR leg is an alternative presentation of the SAME flow, so the
+    // existing state machine is untouched and the card simply prefers the
+    // QR panel while one is available.
+    Q_PROPERTY(bool verificationQrAvailable READ verificationQrAvailable NOTIFY verificationStateChanged)
+    Q_PROPERTY(QString verificationQrImage READ verificationQrImage NOTIFY verificationStateChanged)
+    Q_PROPERTY(bool verificationQrScanned READ verificationQrScanned NOTIFY verificationStateChanged)
+    Q_PROPERTY(bool verificationQrConfirming READ verificationQrConfirming NOTIFY verificationStateChanged)
 
     Q_PROPERTY(SettingsManager* settings READ settings CONSTANT)
     Q_PROPERTY(AuthManager* auth READ auth CONSTANT)
@@ -440,6 +450,11 @@ public Q_SLOTS:
     Q_INVOKABLE void mismatchVerification();
     Q_INVOKABLE void cancelVerification();
 
+    // The user confirmed that the OTHER device reported a successful scan
+    // of the displayed QR code. Only meaningful once the SDK has reported
+    // the scan; the SDK alone performs the trust change.
+    Q_INVOKABLE void confirmQrVerification();
+
     // v0.5.6. Initiate SAS verification of this Lightning session
     // against another session belonging to the same Matrix account.
     Q_INVOKABLE void startOwnVerification();
@@ -467,6 +482,21 @@ public Q_SLOTS:
     QString verificationState() const { return m_verificationState; }
     QVariantList verificationEmojis() const { return m_verificationEmojis; }
     QVariantList verificationDecimals() const { return m_verificationDecimals; }
+    bool verificationQrAvailable() const { return !m_verificationQrToken.isEmpty(); }
+    QString verificationQrImage() const
+    {
+        // The token is the whole URL identity: opaque, per-code, and never
+        // derived from the flow id, so no flow id ever reaches a URL. A
+        // fresh token per code also busts QML's image cache.
+        return m_verificationQrToken.isEmpty()
+            ? QString{}
+            : QStringLiteral("image://lightning-qr/") + m_verificationQrToken;
+    }
+    bool verificationQrScanned() const { return m_verificationQrScanned; }
+    bool verificationQrConfirming() const { return m_verificationQrConfirming; }
+
+    // Owned here so it outlives the QML engine that holds the provider.
+    QrCodeStore *qrCodeStore() { return &m_qrCodeStore; }
 
     // v0.5.6 Security & Recovery accessors.
     QString sessionTrustState() const { return m_sessionTrustState; }
@@ -644,6 +674,16 @@ private:
     std::unique_ptr<GifSendController> m_gifSend;
     std::unique_ptr<TimelineScrollController> m_timelineScroll;
     std::unique_ptr<TimelineScrollController> m_threadScroll;
+
+    // Show-QR verification. The grid itself lives in the store (memory
+    // only); the controller keeps just the opaque URL token and the
+    // SDK-reported progress flags. `clearVerificationQr` is the single
+    // point that drops both, and every flow-ending path calls it.
+    QrCodeStore m_qrCodeStore;
+    QString m_verificationQrToken;
+    bool m_verificationQrScanned = false;
+    bool m_verificationQrConfirming = false;
+    void clearVerificationQr();
 
     // v0.5.0 SAS verification state cache.
     QString m_verificationFlowId;

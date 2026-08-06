@@ -88,7 +88,11 @@ the SDK supplies them) predates 0.6.0 and is unchanged. Honest
 limitation, stated in the UI: removing/signing out OTHER sessions
 requires interactive re-authentication (UIA), which Lightning does not
 implement in this release — the destructive action is omitted rather than
-faked. QR verification is not offered (SAS only).
+faked. Show-QR verification is offered alongside SAS: when the peer can
+scan, Lightning displays an SDK-generated code (memory-only, never
+logged), the scan is confirmed explicitly by the user, and a bounded
+display window falls back to SAS; Lightning never scans (no camera).
+Live Element / Element X QR interop is NOT TESTED.
 
 ## v0.6.0 — automatic E2EE key recovery and decryption retry
 

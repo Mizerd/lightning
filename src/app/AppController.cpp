@@ -43,6 +43,7 @@
 #include <QSysInfo>
 #include <QPalette>
 #include <QStyleHints>
+#include <QUuid>
 #include <QLoggingCategory>
 
 Q_LOGGING_CATEGORY(lcApp, "matrix.app")
@@ -638,6 +639,9 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             m_verificationState.clear();
             m_verificationEmojis.clear();
             m_verificationDecimals.clear();
+            // A displayed code must never survive a sign-out or an account
+            // switch: it belongs to the session that is going away.
+            clearVerificationQr();
             Q_EMIT verificationStateChanged();
             m_sessionTrustState = QStringLiteral("Unknown");
             m_sessionDeviceId.clear();
@@ -673,6 +677,8 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             m_verificationState = QStringLiteral("requested");
             m_verificationEmojis.clear();
             m_verificationDecimals.clear();
+            // A different flow's code must never survive into this card.
+            clearVerificationQr();
             Q_EMIT verificationStateChanged();
         });
         // Both sides are Ready and the SAS handshake is in flight. This is
@@ -712,10 +718,63 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             m_verificationState = QStringLiteral("waiting_for_peer");
             Q_EMIT verificationStateChanged();
         });
+        // Show-QR leg. Deliberately orthogonal to m_verificationState: the
+        // QR is an alternative presentation of the SAME flow, so none of
+        // these handlers moves the state machine. Every one of them is
+        // flow-scoped, and a code is never shown for a flow that already
+        // finished — a late grid must not repaint a completed verification
+        // as something still awaiting a scan.
+        connect(rust, &RustSdkMatrixClient::verificationQrReady,
+                this, [this](const QString &flowId, int modules,
+                             const QByteArray &bits) {
+            if (flowId.isEmpty() || flowId != m_verificationFlowId) return;
+            if (m_verificationState == QLatin1String("done")
+                || m_verificationState == QLatin1String("cancelled")
+                || m_verificationState.startsWith(QLatin1String("failed")))
+                return;
+            // Opaque, per-code, not derived from the flow id.
+            const QString token =
+                QUuid::createUuid().toString(QUuid::WithoutBraces);
+            if (!m_qrCodeStore.setCode(token, modules, bits)) {
+                // Geometry the renderer cannot honour. Show no QR rather
+                // than an unscannable picture; the flow continues on SAS.
+                return;
+            }
+            m_verificationQrToken = token;
+            m_verificationQrScanned = false;
+            m_verificationQrConfirming = false;
+            Q_EMIT verificationStateChanged();
+        });
+        connect(rust, &RustSdkMatrixClient::verificationQrScanned,
+                this, [this](const QString &flowId) {
+            if (flowId != m_verificationFlowId) return;
+            if (m_verificationQrToken.isEmpty()) return;
+            m_verificationQrScanned = true;
+            Q_EMIT verificationStateChanged();
+        });
+        connect(rust, &RustSdkMatrixClient::verificationQrConfirmed,
+                this, [this](const QString &flowId) {
+            if (flowId != m_verificationFlowId) return;
+            if (m_verificationQrToken.isEmpty()) return;
+            // The SDK registered our confirmation. This is progress, NOT
+            // success: only verificationDone may report that.
+            m_verificationQrConfirming = true;
+            Q_EMIT verificationStateChanged();
+        });
+        connect(rust, &RustSdkMatrixClient::verificationQrDismissed,
+                this, [this](const QString &flowId, const QString &) {
+            if (flowId != m_verificationFlowId) return;
+            if (m_verificationQrToken.isEmpty()) return;
+            // The peer chose emoji, or the display window elapsed. Drop the
+            // panel and let the card fall back to the SAS presentation.
+            clearVerificationQr();
+            Q_EMIT verificationStateChanged();
+        });
         connect(rust, &RustSdkMatrixClient::verificationDone,
                 this, [this, rust](const QString &flowId) {
             if (flowId != m_verificationFlowId) return;
             m_verificationState = QStringLiteral("done");
+            clearVerificationQr();
             Q_EMIT verificationStateChanged();
             // v0.5.6: after a successful flow, re-query the SDK trust
             // state so the Settings pane doesn't fall back to the local
@@ -757,6 +816,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             if (flowId != m_verificationFlowId) return;
             if (m_verificationState == QLatin1String("done")) return;
             m_verificationState = QStringLiteral("cancelled");
+            clearVerificationQr();
             Q_EMIT verificationStateChanged();
         });
         connect(rust, &RustSdkMatrixClient::verificationFailed,
@@ -764,6 +824,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             if (flowId != m_verificationFlowId) return;
             if (m_verificationState == QLatin1String("done")) return;
             m_verificationState = QStringLiteral("failed:%1").arg(msg);
+            clearVerificationQr();
             Q_EMIT verificationStateChanged();
         });
 
@@ -782,6 +843,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             m_verificationState = QStringLiteral("waiting_for_other_session");
             m_verificationEmojis.clear();
             m_verificationDecimals.clear();
+            clearVerificationQr();
             Q_EMIT verificationStateChanged();
         });
 
@@ -1442,8 +1504,45 @@ void AppController::cancelVerification()
     m_verificationState.clear();
     m_verificationEmojis.clear();
     m_verificationDecimals.clear();
+    // Closing the card must not leave a zombie code on screen. The wire
+    // cancel above already told the peer; this drops the picture and the
+    // grid bytes with it.
+    clearVerificationQr();
     Q_EMIT verificationStateChanged();
 #endif
+}
+
+// The user confirmed the OTHER device reported a successful scan. This is
+// a request to the SDK, never a trust promotion: `confirming` is local
+// progress feedback, and only verificationDone (SDK QrVerificationState
+// ::Done) may report success.
+void AppController::confirmQrVerification()
+{
+#ifdef ENABLE_RUST_SDK_BACKEND
+    if (m_backend != RustBackend || !m_client || m_verificationFlowId.isEmpty())
+        return;
+    // Only meaningful once the SDK has actually reported the scan. Repeat
+    // clicks, and clicks before the peer scanned, are no-ops — the Rust FFI
+    // refuses the latter outright rather than letting it be swallowed.
+    if (!m_verificationQrScanned || m_verificationQrConfirming)
+        return;
+    m_verificationQrConfirming = true;
+    Q_EMIT verificationStateChanged();
+    if (auto *rust = qobject_cast<RustSdkMatrixClient *>(m_client.get()))
+        rust->confirmQrVerification(m_verificationFlowId);
+#endif
+}
+
+// Drop the displayed code and the grid backing it. Called from every path
+// that ends, replaces, or resets a flow, so a code can never outlive the
+// verification it belongs to or leak into the next account's UI. Does not
+// emit — the caller owns the notification.
+void AppController::clearVerificationQr()
+{
+    m_qrCodeStore.clear();
+    m_verificationQrToken.clear();
+    m_verificationQrScanned = false;
+    m_verificationQrConfirming = false;
 }
 
 void AppController::startOwnVerification()
@@ -1466,6 +1565,7 @@ void AppController::startOwnVerification()
     m_verificationFlowId.clear();
     m_verificationEmojis.clear();
     m_verificationDecimals.clear();
+    clearVerificationQr();
     m_verificationState = QStringLiteral("starting");
     Q_EMIT verificationStateChanged();
     if (auto *rust = qobject_cast<RustSdkMatrixClient *>(m_client.get()))
@@ -1929,6 +2029,7 @@ void AppController::clearCrossAccountCaches()
     m_verificationState.clear();
     m_verificationEmojis.clear();
     m_verificationDecimals.clear();
+    clearVerificationQr();
     Q_EMIT verificationStateChanged();
     m_sessionTrustState = QStringLiteral("Unknown");
     m_sessionDeviceId.clear();

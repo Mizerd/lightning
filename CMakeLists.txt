@@ -293,6 +293,8 @@ set(APP_SOURCES
     src/crypto/CryptoBootstrapModel.cpp
     src/crypto/E2eeDiagnostics.h
     src/crypto/E2eeDiagnostics.cpp
+    src/crypto/QrImageProvider.h
+    src/crypto/QrImageProvider.cpp
     src/spaces/SpaceManager.h
     src/spaces/SpaceManager.cpp
     src/threads/ThreadManager.h
@@ -1282,7 +1284,9 @@ if(BUILD_TESTING)
 
     # Verification UI state machine: sas_ready -> confirming (synchronous)
     # -> waiting_for_peer -> done, no-op guards, stale-flow rejection, and
-    # logout clearing. Slots QSKIP without the Rust backend.
+    # logout clearing. Also the show-QR leg: ready -> scanned -> confirm ->
+    # done, the QR-to-SAS fallback, terminal retirement of the code, and
+    # flow scoping. Slots QSKIP without the Rust backend.
     qt_add_executable(verification-flow-test
         tests/VerificationFlowTest.cpp
         ${APP_LIB_SOURCES}
@@ -1291,6 +1295,36 @@ if(BUILD_TESTING)
     target_link_libraries(verification-flow-test PRIVATE Qt6::Test)
     add_test(NAME verification-flow COMMAND verification-flow-test)
     set_tests_properties(verification-flow PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    # Show-QR rendering: packed grid -> QImage (module placement, quiet
+    # zone, whole-module scaling), unknown/stale token renders nothing,
+    # malformed geometry refused, and clear() dropping the code so it
+    # cannot outlive its flow.
+    qt_add_executable(qr-image-provider-test
+        tests/QrImageProviderTest.cpp
+        src/crypto/QrImageProvider.h
+        src/crypto/QrImageProvider.cpp
+    )
+    target_include_directories(qr-image-provider-test PRIVATE src)
+    target_link_libraries(qr-image-provider-test PRIVATE
+        Qt6::Core Qt6::Gui Qt6::Quick Qt6::Test)
+    add_test(NAME qr-image-provider COMMAND qr-image-provider-test)
+    set_tests_properties(qr-image-provider PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    # The show-QR panel inside the REAL SettingsScreen verification card:
+    # present only while the SDK has a live code, opaque provider URL (no
+    # flow id), the confirm prompt gated on the SDK's scan report, and the
+    # panel retiring on dismissal and on completion. Zero QML warnings.
+    qt_add_executable(verification-qr-qml-test
+        tests/VerificationQrQmlTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_app(verification-qr-qml-test)
+    target_link_libraries(verification-qr-qml-test PRIVATE Qt6::Test)
+    add_test(NAME verification-qr-qml COMMAND verification-qr-qml-test)
+    set_tests_properties(verification-qr-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     # Server-synchronized per-room notification modes: the AppController

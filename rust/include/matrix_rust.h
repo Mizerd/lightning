@@ -131,16 +131,40 @@ char *mx_rust_reload_room_timeline(void *client,
                                    unsigned int limit);
 
 /*
- * SAS emoji verification (v0.5.0). Receive-first flow: the Rust bridge
- * installs a to-device verification-request handler at
- * install_event_handlers time and emits `verification_request_received`
- * for incoming requests. From C++:
- *   accept   -> drive request -> SAS handshake, emit `verification_sas_ready`
- *              with the 7 emojis + decimals when ready.
- *   confirm  -> user says "they match".
- *   mismatch -> user says "they do not match".
- *   cancel   -> either SAS-level or request-level cancel, depending on
- *              where the flow currently is.
+ * Interactive device verification (v0.5.0; QR added post-0.6.5).
+ * Receive-first flow: the Rust bridge installs a to-device
+ * verification-request handler at install_event_handlers time and emits
+ * `verification_request_received` for incoming requests. From C++:
+ *   accept    -> drive request -> show-QR leg, then the SAS handshake,
+ *               emitting `verification_sas_ready` with the 7 emojis +
+ *               decimals when SAS is reached.
+ *   confirm   -> user says "they match" (SAS).
+ *   confirmQr -> user says the OTHER device reported a successful scan.
+ *   mismatch  -> user says "they do not match" (SAS).
+ *   cancel    -> SAS-, QR- and request-level cancel; whichever levels
+ *               belong to this flow id are cancelled on the wire.
+ *
+ * Method advertisement is [m.sas.v1, m.qr_code.show.v1, m.reciprocate.v1]
+ * in BOTH directions. `m.qr_code.scan.v1` is never advertised: Lightning
+ * has no camera and cannot scan a code the peer displays.
+ *
+ * Show-QR events on the poll queue:
+ *   { "type": "verification_qr_ready", "flow_id", "size", "bits_b64" }
+ *       The QR module GRID only: `size` modules per side, and `bits_b64` a
+ *       base64 row-major bitmap, MSB-first, each row starting on a fresh
+ *       byte (stride = (size + 7) / 8, 1 = dark). The QR PAYLOAD — which
+ *       encodes cross-signing key material and the flow's shared secret —
+ *       never crosses this FFI, is never logged, and is never persisted.
+ *   { "type": "verification_qr_scanned",   "flow_id" }
+ *       The peer scanned. The UI must ask the USER whether the other
+ *       device reported success; nothing is auto-confirmed.
+ *   { "type": "verification_qr_confirmed", "flow_id" }
+ *   { "type": "verification_qr_dismissed", "flow_id", "reason" }
+ *       The code is no longer usable and the flow continues on SAS.
+ *       `reason` is a sanitized category: "peer_started_sas" (the peer
+ *       chose emoji) or "not_scanned" (the display window elapsed).
+ * Completion still arrives as verification_done / _cancelled / _failed.
+ *
  * Only one active flow at a time (single-flow policy). All flow ids are
  * safe to log; emojis are also safe (SAS design). No secrets are ever
  * forwarded through this FFI.
@@ -151,18 +175,29 @@ char *mx_rust_mismatch_verification(void *client, const char *flow_id);
 char *mx_rust_cancel_verification(void *client, const char *flow_id);
 
 /*
- * Lightning-initiated (outbound) SAS verification (v0.5.6). Requests
+ * Confirm that the OTHER device reported a successful scan of the QR code
+ * Lightning displayed. This is the human check that gives showing a code
+ * its security value, so it is never issued automatically. Returns
+ * "error: ..." synchronously when there is no active QR flow, the flow id
+ * does not match, or the peer has not scanned yet (the SDK would silently
+ * drop a confirm sent outside its Scanned state).
+ */
+char *mx_rust_confirm_qr_verification(void *client, const char *flow_id);
+
+/*
+ * Lightning-initiated (outbound) verification (v0.5.6). Requests
  * verification of the current session against another session belonging
- * to the SAME Matrix account. Advertises SAS as the only method. Uses
- * the SDK's `UserIdentity::request_verification_with_methods` path, which
- * for the account owner sends the request over to-device to the user's
- * other E2EE-capable devices.
+ * to the SAME Matrix account. Advertises the same method set as the
+ * inbound path. Uses the SDK's
+ * `UserIdentity::request_verification_with_methods` path, which for the
+ * account owner sends the request over to-device to the user's other
+ * E2EE-capable devices.
  *
  * Result events on the poll queue:
  *   { "type": "verification_request_started", "flow_id": "..." }
- * followed later by the usual verification_ready / verification_sas_ready
- * / verification_done / verification_cancelled events, exactly like the
- * receive-first flow.
+ * followed later by the usual verification_ready / verification_qr_* /
+ * verification_sas_ready / verification_done / verification_cancelled
+ * events, exactly like the receive-first flow.
  *
  * Returns "error: ..." synchronously if there is already an active flow,
  * the SDK does not have the account's own user identity available, or

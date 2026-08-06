@@ -22,7 +22,11 @@ crate-type = ["staticlib"]
 # SAS completion and is otherwise unrepeatable). Every `testing`-gated code
 # site in matrix-sdk/-base 0.18.0 was audited: all are additive helpers or
 # mirror fields; none alter runtime behavior.
-matrix-sdk = { version = "0.18", default-features = false, features = ["e2e-encryption", "sqlite", "markdown", "testing"] }
+# qrcode: enables SDK QR verification (QrVerification, generate_qr_code,
+# the QrCodeShowV1/ReciprocateV1 methods). Deliberate dependency addition
+# vendored with network access on 2026-08-05 (matrix-sdk-qrcode 0.18.0 +
+# the qrcode encoder crate); the build remains --offline --locked.
+matrix-sdk = { version = "0.18", default-features = false, features = ["e2e-encryption", "sqlite", "markdown", "testing", "qrcode"] }
 # Same release train as the pinned matrix-sdk. Provides the persistent
 # Timeline (initial items + VectorDiff subscription, retry decryption,
 # pagination, local echoes) used by the live timeline registry.

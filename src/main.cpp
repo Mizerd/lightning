@@ -4,6 +4,7 @@
 #ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO
 #include "app/ScreenshotDemoController.h"  // demo CLI validation (dev builds only)
 #endif
+#include "crypto/QrImageProvider.h"
 #include "gif/GifBuildKeys.h"
 #include "gif/GifProviderSelfTest.h"
 #include "media/MediaImageProvider.h"
@@ -789,6 +790,12 @@ int main(int argc, char *argv[])
     // The engine takes ownership of the provider; the bridge outlives it.
     engine.addImageProvider(QStringLiteral("lightning-media"),
                             new MediaImageProvider(controller.mediaBridge()));
+    // Show-QR verification. Memory-only and single-slot; the store lives on
+    // the AppController (declared before the engine, so it outlives it) and
+    // is cleared whenever the flow ends. Never the QR payload — only the
+    // module grid reaches this side at all.
+    engine.addImageProvider(QStringLiteral("lightning-qr"),
+                            new QrImageProvider(controller.qrCodeStore()));
 
     QObject::connect(
         &engine, &QQmlApplicationEngine::objectCreationFailed,
