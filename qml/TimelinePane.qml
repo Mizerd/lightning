@@ -1634,6 +1634,109 @@ Rectangle {
                            && timeline.stickToBottom
                 }
 
+                // ── v0.7.x: near-top backfill "virtual scrolling" ────────
+                // Live report: loading gets "jittery and laggy and
+                // teleporty" once messages start loading WHILE the reader
+                // holds a scroll gesture through it — the per-batch anchor
+                // correction below IS exact for a run that never engages
+                // the staging window this comment describes (see
+                // TimelinePaneQmlTest.cpp's
+                // nearTopUnstagedRunStillCompensatesEveryBatchImmediately,
+                // which deliberately never lets nearTopRunActive or
+                // nearTopArmed become true so it can prove exactly that
+                // path — a NearTop-driven run, the shape this comment is
+                // actually about, engages staging below instead, and is
+                // proven in the same file by
+                // nearTopControllerDrivenRunAlsoStagesAcrossEveryBatchThenReconcilesOnce
+                // and
+                // nearTopVirtualScrollingFreezesTheViewportAcrossAHeldRunThenReconcilesOnce
+                // — names kept on one line so they grep). Either way, every
+                // landed batch still pays real relayout/delegate/media-
+                // request cost stacked against the held gesture. The fix
+                // is architectural, not another compensation tweak:
+                // while a gesture is active AND a near-top approach to the
+                // top is unsettled, TimelineModel holds landed batches out
+                // of the exposed row space entirely (see
+                // TimelineModel::setBackfillStagingActive) — the ListView
+                // sees no structural change at all until this flips back to
+                // false. That is genuinely "scroll what's already loaded,
+                // then reconcile once" rather than buffering the visual
+                // CONSEQUENCES of updates that still land one at a time.
+                //
+                // "A near-top approach is unsettled" is deliberately the OR
+                // of two signals, not just one:
+                //   * !nearTopArmed — QML's OWN edge latch (checkNearTopEdge)
+                //     is consumed at dispatch and only re-arms at gesture
+                //     settle or leaving the exit band, so it already spans
+                //     the WHOLE approach across every chained batch a
+                //     continued upward scroll triggers — not just one
+                //     request's own round trip. This is what makes multiple
+                //     real backfill pages during one continuous scroll
+                //     coalesce into a single reconcile instead of one per
+                //     batch.
+                //   * app.pagination.nearTopRunActive — the controller's own
+                //     view of "a NearTop request or its bounded continuation
+                //     is in flight right now", true even when something
+                //     dispatched a request WITHOUT going through QML's edge
+                //     latch (a bounded continuation re-dispatches directly in
+                //     C++; so can a test or any future caller).
+                // Either alone is a real signal that the reader is mid-
+                // approach; this must never depend on exactly which path
+                // triggered the fetch.
+                readonly property bool backfillStagingActive:
+                    userScrollActive
+                    && (!nearTopArmed || app.pagination.nearTopRunActive)
+                // NOT a direct Binding. QQmlTimer.restart() while already
+                // running is stop()+start() — two separate synchronous
+                // runningChanged emits, momentarily false then true — and
+                // scrollSettleTimer.restart() is called from EVERY wheel/
+                // touchpad delta during a real gesture (see the WheelHandler
+                // below). A direct Binding would therefore flush-then-
+                // restage on every single input event during the exact
+                // gesture this exists to keep smooth — the opposite of the
+                // goal, and additional jitter of its own. Qt.callLater
+                // coalesces the momentary blip-and-recover within the same
+                // synchronous turn into zero net change, applying only the
+                // value that is still current once the call stack unwinds —
+                // the same pattern maintainViewAnchorCoalesced() and
+                // maybeRequestNearTop() already use for this exact reason.
+                // No generation/room token, unlike PaginationController's
+                // deferred C++ callbacks (scheduleNearTopContinuation() etc,
+                // which DO carry one) — and that is not an oversight, it is
+                // the same reasoning maintainViewAnchorCoalesced() already
+                // relies on without one. Those C++ callbacks capture FROZEN
+                // values at schedule time (rowsAtDispatch, a specific batch)
+                // that a room switch can make meaningless, so they must
+                // reject a stale generation outright. This callback captures
+                // NOTHING: it reads `timeline.backfillStagingActive` fresh,
+                // live, at the moment it actually runs — never a value
+                // snapshotted at schedule time — so it always applies
+                // whatever is CURRENTLY true, however many gestures, room
+                // switches, or property changes happened in between. A room
+                // switch in that window is also independently safe on the
+                // C++ side: TimelineModel::reload() zeroes the hidden prefix
+                // and the staging flag directly (not through this property)
+                // the instant the switch happens, synchronously, before this
+                // already-queued callback can run — so even a "stale"
+                // pending write lands on a model that has already reset
+                // itself and simply re-applies current truth.
+                property bool backfillStagingSyncScheduled: false
+                onBackfillStagingActiveChanged: {
+                    if (backfillStagingSyncScheduled)
+                        return
+                    backfillStagingSyncScheduled = true
+                    Qt.callLater(function() {
+                        backfillStagingSyncScheduled = false
+                        // Re-read here, not a captured parameter — this IS
+                        // the "apply the latest transition" guarantee: no
+                        // matter how many changes coalesced into this one
+                        // callback, or what else ran meanwhile, the value
+                        // written is whatever is true right now.
+                        app.timeline.backfillStagingActive =
+                            timeline.backfillStagingActive
+                    })
+                }
+
                 // v0.5.11: ask the pagination controller for one more batch
                 // whenever the loaded content cannot fill the viewport (a
                 // short initial snapshot never scrolls, so a scroll-position

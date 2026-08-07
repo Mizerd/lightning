@@ -65,6 +65,46 @@ class PaginationController : public QObject
                    NOTIFY stateChanged)
     Q_PROPERTY(QString highlightedEventId READ highlightedEventId NOTIFY navigationChanged)
     Q_PROPERTY(QString navigationMessage READ navigationMessage NOTIFY navigationChanged)
+    // v0.7.x: true while a NearTop-driven backfill run is in flight or a
+    // bounded continuation to one is scheduled — bounded whether or not the
+    // view is currently staged/frozen: independent review H-A found (and
+    // this property's own earlier "bounded" claim briefly went stale
+    // during) a staged run that keeps re-dispatching regardless of growth,
+    // since freezing the view removes the visual feedback that would
+    // otherwise make a reader stop swiping against a thread-heavy room
+    // returning zero-visible-row pages. scheduleNearTopContinuation()'s
+    // becauseStagingHeld branch now re-checks the SAME
+    // kMaxNearTopEmptyStrikes bound as the un-staged path, measured at
+    // fire time. QML combines this with its own gesture-active/edge-latch
+    // signal to gate TimelineModel's near-top staging window ("virtual
+    // scrolling" while a reader holds a gesture through active loading) —
+    // see TimelinePane.qml's backfillStagingActive. Deliberately NOT the
+    // same thing as busy(): this alone excludes ViewportFill/Retry from
+    // EVER starting a staging window (they cannot make nearTopRunActive or
+    // QML's edge latch true).
+    //
+    // What this property does NOT guarantee, stated precisely because an
+    // earlier draft of this comment overstated it: TimelineModel's staging
+    // is model-wide, not reason-scoped — once ANY near-top approach has
+    // engaged it (via this property OR QML's own !nearTopArmed, which can
+    // stay consumed between the enter/exit bands independent of what
+    // dispatches next), a ViewportFill/AutomaticRetry prepend that happens
+    // to land in that same window is staged too, exactly like any other
+    // backward prepend. That is harmless, not a correctness bug: the
+    // content is never lost, only its exposure is deferred alongside
+    // whatever else the run is holding, which is the same guarantee every
+    // other staged prepend gets. Reason-scoping staging at the TimelineModel
+    // level would require it to know PaginationController's dispatch
+    // reason at the exact moment a signal from the SAME independently-
+    // listened-to MatrixClient signal arrives — an ordering-sensitive
+    // coupling between two independent listeners that is not worth adding
+    // for a cosmetic delay. Navigation is the one case that actually
+    // matters (a stuck-hidden reply target can misreport "not loaded" to
+    // callers that treat -1 as such) and is handled directly: jumpToEvent(),
+    // restoreScrollAnchor(), and continueNavigation() explicitly flush any
+    // held staging before doing their own row lookup — see
+    // TimelineModel::flushPendingBackfillForNavigation().
+    Q_PROPERTY(bool nearTopRunActive READ nearTopRunActive NOTIFY stateChanged)
 
 public:
     enum PresentationState { Hidden, Loading, Failed };
@@ -88,6 +128,7 @@ public:
     void setRoomId(const QString &roomId);
 
     bool busy() const;
+    bool nearTopRunActive() const;
     bool reachedStart() const;
     bool failed() const;
     PresentationState presentationState() const;
@@ -170,13 +211,34 @@ private:
     void request(Reason reason);
     void resetPerRoomState();
     void finishBatch(bool reachedStart);
-    // Bounded auto-continuation after a NearTop page that advanced the SDK
-    // back-pagination cursor but produced no visible rows (thread-only /
-    // hidden history). Schedules exactly one more NearTop request while under
-    // the empty-strike bound, so filtered history is paged through a strictly
-    // bounded number of times instead of spinning. Re-checks real model
-    // progress before dispatching — see batchRowGrowth().
-    void scheduleNearTopContinuation();
+    // Schedules exactly one more NearTop request, paced by
+    // m_nearTopContinuationDelayMs (never a tight loop). Two distinct
+    // reasons share this mechanism, distinguished by becauseStagingHeld:
+    //   * becauseStagingHeld=false — a page advanced the SDK back-pagination
+    //     cursor but produced no visible rows (thread-only / hidden
+    //     history). Bounded by the empty-strike budget, and re-checks real
+    //     model progress before dispatching — see batchRowGrowth() — so a
+    //     page that DID add rows (just reported late by the async backend)
+    //     cancels the continuation instead of fetching one the reader did
+    //     not need.
+    //   * becauseStagingHeld=true — TimelineModel is actively staging a
+    //     near-top run (the reader is still holding a gesture through it —
+    //     see TimelineModel::backfillStagingActive), so view-space proximity
+    //     is meaningless: the view is frozen and cannot report "the reader
+    //     approached the top again". Growth is the WHOLE POINT here, never
+    //     a reason to cancel — this keeps loading real content while the
+    //     view holds still, exactly the design the live report asked for
+    //     ("emulate scrolling on what is loaded... when content loads
+    //     actually allow normal scrolling again"). Bounded three ways: by
+    //     re-checking backfillStagingActive() at fire time (the reader may
+    //     have let go while this was pending), by request()'s own
+    //     canPaginate() check (reached start silently ends the chain), and
+    //     by the fire-time empty-strike accounting in this branch —
+    //     internalEventCount() growth since dispatch resets the strikes,
+    //     a no-growth page increments them, and kMaxNearTopEmptyStrikes
+    //     latches the chain shut (the 2735bb3 storm bound, kept real
+    //     while the view is frozen).
+    void scheduleNearTopContinuation(bool becauseStagingHeld);
     // Rows the timeline model actually gained since the active batch was
     // dispatched. THE authoritative progress measure for the near-top
     // continuation, because the signal-counted m_batchInserted is not

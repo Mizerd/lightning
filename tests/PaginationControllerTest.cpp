@@ -1131,6 +1131,247 @@ private Q_SLOTS:
         controller.restoreScrollAnchor(kRoomA);
         QCOMPARE(latest.count(), 1);
     }
+
+    // v0.7.x: TimelinePane.qml gates TimelineModel's near-top backfill
+    // staging window ("virtual scrolling" while a reader holds a gesture
+    // through active loading) on nearTopRunActive() combined with its own
+    // gesture-active signal. Pin the transitions: true only for the
+    // NearTop reason (never ViewportFill — an initial-history fill must
+    // never freeze the view this way), true across the bounded
+    // continuation's wait window, and false again once the run genuinely
+    // ends (no continuation scheduled).
+    void nearTopRunActiveReflectsRequestAndBoundedContinuationOnly()
+    {
+        FakeClient client;
+        TimelineModel model;
+        model.setClient(&client);
+        model.setRoomId(kRoomA);
+        PaginationController controller;
+        controller.setClient(&client);
+        controller.setTimelineModel(&model);
+        controller.setRoomId(kRoomA);
+        controller.setNearTopContinuationDelayForTest(40);
+
+        QVERIFY(!controller.nearTopRunActive());
+
+        // An initial-history ViewportFill must never read as a near-top run.
+        controller.requestViewportFill();
+        QVERIFY(!controller.nearTopRunActive());
+        client.beginLoading(kRoomA);
+        client.completeBatch(kRoomA, 5, false);
+        QVERIFY(!controller.nearTopRunActive());
+        QCOMPARE(model.rowCount(), 5);
+
+        // A genuine NearTop request: active from dispatch...
+        controller.requestNearTop(true);
+        QVERIFY(controller.nearTopRunActive());
+        client.beginLoading(kRoomA);
+        // ...through to a batch that added visible rows, which ends the run
+        // (no continuation) with nothing further scheduled.
+        client.completeBatch(kRoomA, 3, false);
+        QVERIFY(!controller.nearTopRunActive());
+
+        // A filtered (zero-visible-rows) page schedules a bounded
+        // continuation: nearTopRunActive must stay true across that wait,
+        // not just across the network round trip. Rows landing just after
+        // classification (the async case the continuation delay exists for)
+        // cancel it, so the run then reads as genuinely ended rather than
+        // dispatching a page the reader did not need.
+        controller.requestNearTop(true);
+        QVERIFY(controller.nearTopRunActive());
+        client.beginLoading(kRoomA);
+        client.completeBatch(kRoomA, 0, false); // classified as filtered...
+        QVERIFY2(controller.nearTopRunActive(),
+                 "a scheduled continuation must still read as an active run");
+        client.insertUnattributed(kRoomA, 4);   // ...then the rows arrive
+        QTest::qWait(80); // longer than the 40ms continuation delay above
+        QVERIFY2(!controller.nearTopRunActive(),
+                 "growth cancelled the continuation; the run must read as "
+                 "ended, not still active");
+    }
+
+    // Independent review M2: rowForStableId() answers "not found" (-1) for
+    // a row still staged inside TimelineModel's near-top backfill window,
+    // and jumpToEvent() treats -1 as "not loaded" — burning
+    // kMaxNavigationBatches extra homeserver pages and then showing the
+    // false "Original message is unavailable." for an event that is
+    // sitting right there in the mirror. Jumping is an explicit take-
+    // control-of-the-viewport action: it must flush any held staging
+    // FIRST, before doing its own lookup.
+    void jumpToEventFlushesHeldStagingBeforeLookingUpTheTarget()
+    {
+        FakeClient client;
+        TimelineModel model;
+        model.setClient(&client);
+        model.setRoomId(kRoomA);
+        PaginationController controller;
+        controller.setClient(&client);
+        controller.setTimelineModel(&model);
+        controller.setHighlightDurationForTest(5);
+        controller.setRoomId(kRoomA);
+
+        // Stage a batch containing the target event: it is in the mirror,
+        // but not yet exposed to any view.
+        model.setBackfillStagingActive(true);
+        const auto target = makeEvent(QStringLiteral("$target:example.org"));
+        Q_EMIT client.eventsPrepended(kRoomA, { target });
+        QCOMPARE(model.rowCount(), 0); // held
+        QCOMPARE(model.rowForStableId(QStringLiteral("$target:example.org")),
+                 -1);
+
+        QSignalSpy located(&controller, &PaginationController::targetLocated);
+        const int callsBefore = client.loadOlderCalls;
+        controller.jumpToEvent(QStringLiteral("$target:example.org"));
+
+        // Resolves IMMEDIATELY: flushing exposes the target, so the lookup
+        // finds it on the first try — no extra homeserver request, no
+        // failure message.
+        QCOMPARE(located.count(), 1);
+        QCOMPARE(located.first().at(0).toInt(), 0);
+        QCOMPARE(client.loadOlderCalls, callsBefore);
+        QVERIFY(controller.navigationMessage().isEmpty());
+        QCOMPARE(model.rowCount(), 1);
+    }
+
+    // Independent review M5: with staging engaged, the view is frozen, so
+    // view-space proximity ("did the reader approach the top again") is
+    // meaningless — a genuine multi-page approach must not stall after its
+    // first successful page. Pins that ONE gesture (one requestNearTop()
+    // call from the reader) can accumulate several batches' worth of
+    // growth, all invisibly, while backfillStagingActive stays engaged —
+    // exactly the "keep loading while the view holds still" half of the
+    // design — and that releasing the gesture stops the chain and exposes
+    // everything accumulated in one flush.
+    void nearTopKeepsChainingBatchesWhileStagingHoldsTheGesture()
+    {
+        FakeClient client;
+        TimelineModel model;
+        model.setClient(&client);
+        model.setRoomId(kRoomA);
+        PaginationController controller;
+        controller.setClient(&client);
+        controller.setTimelineModel(&model);
+        controller.setRoomId(kRoomA);
+        controller.setNearTopContinuationDelayForTest(20);
+
+        controller.requestViewportFill();
+        client.beginLoading(kRoomA);
+        client.completeBatch(kRoomA, 5, false);
+        QCOMPARE(model.rowCount(), 5);
+
+        // Simulate the reader holding a gesture through the whole run:
+        // staging engages BEFORE the approach dispatches, exactly like
+        // TimelinePane.qml engages it ahead of the first request (see
+        // maybeRequestNearTop()).
+        model.setBackfillStagingActive(true);
+
+        int calls = client.loadOlderCalls;
+        controller.requestNearTop(true);
+        QCOMPARE(client.loadOlderCalls, calls + 1);
+
+        // Batch 1 completes with REAL visible rows. Before this fix that
+        // ended the run (visible progress -> stop); staging held must keep
+        // chaining instead — the NEXT dispatch below happens with NO
+        // further call to requestNearTop() from this test.
+        calls = client.loadOlderCalls;
+        client.beginLoading(kRoomA);
+        client.completeBatch(kRoomA, 20, false);
+        QTRY_COMPARE_WITH_TIMEOUT(client.loadOlderCalls, calls + 1, 1000);
+
+        // Batch 2: still chains, for the same reason.
+        calls = client.loadOlderCalls;
+        client.beginLoading(kRoomA);
+        client.completeBatch(kRoomA, 15, false);
+        QTRY_COMPARE_WITH_TIMEOUT(client.loadOlderCalls, calls + 1, 1000);
+
+        // The reader lets go. Everything this ONE held gesture accumulated
+        // (5 initial + 20 + 15 = 40) becomes reachable in one flush.
+        calls = client.loadOlderCalls;
+        model.setBackfillStagingActive(false);
+        QCOMPARE(model.rowCount(), 40);
+
+        // The continuation scheduled by batch 2 must NOT dispatch now that
+        // the gesture has been released.
+        QTest::qWait(80); // longer than the 20ms continuation delay above
+        QCOMPARE(client.loadOlderCalls, calls);
+    }
+
+    // Independent review H-A (recheck of M5): the staged continuation branch
+    // must NOT lose the kMaxNearTopEmptyStrikes bound
+    // automaticNearTopBackfillIsBoundedButUserGestureReArms() pins for the
+    // un-staged path. A thread-heavy room returns reached_start=false with
+    // no visible rows for every page (matrix-rust-sdk keeps advancing its
+    // cursor through thread-only history) — exactly the premise that bound
+    // exists for. Freezing the view while staged removes the visual
+    // feedback that would otherwise make a reader stop swiping against it,
+    // so an unbounded staged chain would reopen 2735bb3's request storm,
+    // just gated on holding a gesture instead of on scrolling. Mirrors
+    // automaticNearTopBackfillIsBoundedButUserGestureReArms()'s exact
+    // synchronous drive pattern (continuation delay 0, processEvents() per
+    // page) so the bound is asserted deterministically, not by racing a
+    // timer.
+    void nearTopStagedRunStopsAtTheEmptyStrikeBoundEvenWhileFrozen()
+    {
+        FakeClient client;
+        TimelineModel model;
+        model.setClient(&client);
+        model.setRoomId(kRoomA);
+        PaginationController controller;
+        controller.setClient(&client);
+        controller.setTimelineModel(&model);
+        controller.setRoomId(kRoomA);
+        controller.setNearTopContinuationDelayForTest(0);
+
+        controller.requestViewportFill();
+        client.beginLoading(kRoomA);
+        client.completeBatch(kRoomA, 3, false);
+        const int afterInitial = client.loadOlderCalls;
+        QCOMPARE(model.rowCount(), 3);
+
+        // The reader holds a gesture through the whole approach: staging
+        // engages exactly as TimelinePane.qml would (before the first
+        // dispatch), and every page below reports zero visible rows.
+        model.setBackfillStagingActive(true);
+
+        QSignalSpy completions(&controller,
+                               &PaginationController::paginationCompleted);
+        controller.requestNearTop(/*userInitiated=*/true);
+        int dispatched = 0;
+        for (int guard = 0; guard < 20
+                            && client.loadOlderCalls > afterInitial + dispatched;
+             ++guard) {
+            ++dispatched;
+            client.beginLoading(kRoomA);
+            client.completeBatch(kRoomA, 0, false); // empty (filtered) page
+            QCoreApplication::processEvents();      // fire the continuation
+        }
+        QCOMPARE(dispatched, 4); // kMaxNearTopEmptyStrikes: bounded even staged
+        QCOMPARE(completions.count(), 4);
+        // Unlike the un-staged path (willContinue false only on the
+        // latching strike, since finishBatch() itself decides there),
+        // EVERY staged completion reports willContinue=true — finishBatch()
+        // always schedules a continuation while staging holds (see its
+        // stagingHeld branch), deferring the strike/dispatch decision to
+        // the continuation's own fire time. The 4th one still schedules,
+        // and it is that fired continuation which finds the bound already
+        // reached and declines to dispatch — confirmed above by
+        // `dispatched == 4`, not 5.
+        for (int i = 0; i < 4; ++i)
+            QVERIFY(completions.at(i).at(2).toBool());
+
+        // The continuation has latched: no further automatic dispatch spins,
+        // even though the gesture (staging) is still held.
+        const int capped = client.loadOlderCalls;
+        QVERIFY(model.backfillStagingActive());
+        QTest::qWait(20);
+        QCoreApplication::processEvents();
+        QCOMPARE(client.loadOlderCalls, capped);
+        QVERIFY(!controller.busy());
+
+        // None of the filtered pages were ever visible rows, so the frozen
+        // view never had anything to expose.
+        QCOMPARE(model.rowCount(), 3);
+    }
 };
 
 QTEST_GUILESS_MAIN(PaginationControllerTest)
