@@ -10,10 +10,13 @@
 #include "matrix/MatrixClient.h"
 #include "auth/AccountManager.h"
 #include "auth/AuthManager.h"
+#include "gif/GifSearchController.h"
+#include "gif/GifStarredStore.h"
 #include "storage/AppDataPaths.h"
 #include "storage/SecretStore.h"
 
 #include <QDir>
+#include <QFile>
 #include <QHash>
 #include <QSignalSpy>
 #include <QTemporaryDir>
@@ -402,6 +405,192 @@ private Q_SLOTS:
         QCOMPARE(app.settings()->accessTokenFor(kBob),
                  QStringLiteral("bob-token-fixture"));
         QVERIFY(QDir(bobRoot).exists());
+    }
+
+    // v0.6.6 (review CRITICAL-1): a genuine sign-out — the common case,
+    // reached via AuthManager::logout(), not "remove account" — must delete
+    // the client-local starred-GIF store for the account that WAS active.
+    // Real (server) logout already deletes the Rust crypto store this same
+    // way; this is the app-level store's own equivalent, exercised here
+    // through AppController::onLoggedOut regardless of backend.
+    void signOutDeletesStarredGifStore()
+    {
+        AppController app(AppController::MockBackend);
+        FakeSecretStore secrets;
+        app.settings()->setSecretStore(&secrets);
+        app.settings()->saveSession(kHsOne, kAlice,
+                                    QStringLiteral("ALICEDEV"),
+                                    QStringLiteral("alice-token-fixture"));
+        app.switchToAccount(kAlice);
+        QTRY_VERIFY(!app.accountSwitching());
+        QTRY_COMPARE(app.auth()->currentUserId(), kAlice);
+
+        const QByteArray gif = QByteArray("GIF89a\x10\x00\x10\x00", 10);
+        app.gif()->starredStore()->starBytes(QStringLiteral("mk"), gif);
+        QCOMPARE(app.gif()->starredStore()->count(), 1);
+        const QString starredDir = matrix::app_data::starredGifsDir(kAlice);
+        QVERIFY(QDir(starredDir).exists());
+
+        app.auth()->logout();
+
+        // The mock backend never clears the saved account record on
+        // logout (see logoutContinuesWithRemainingAccount's own comment),
+        // so with only one saved account onLoggedOut()'s fallback loop
+        // finds that SAME account again and signs back in — a real-world
+        // quirk of this backend, not what this test is about. What matters
+        // for CRITICAL-1 is that the directory was actually deleted (never
+        // just incidentally emptied by something that runs later): a fresh
+        // re-login's openStarredStoreFor() never recreates a directory by
+        // merely opening it (creation is deferred to the first real star),
+        // so the deletion is still observable afterward.
+        QTRY_VERIFY(!app.accountSwitching());
+        QVERIFY(!QDir(starredDir).exists());
+        QCOMPARE(app.gif()->starredStore()->count(), 0);
+    }
+
+    // "Remove account" on the currently-ACTIVE, logged-in account routes
+    // through the exact same AuthManager::logout() path as a plain sign-out
+    // (AppController::removeAccount's active branch) — the starred-GIF
+    // store must be deleted there too, and the switch falls back to the
+    // remaining account.
+    void removingActiveAccountDeletesStarredGifStore()
+    {
+        AppController app(AppController::MockBackend);
+        FakeSecretStore secrets;
+        app.settings()->setSecretStore(&secrets);
+        app.settings()->saveSession(kHsOne, kAlice,
+                                    QStringLiteral("ALICEDEV"),
+                                    QStringLiteral("alice-token-fixture"));
+        app.settings()->saveSession(kHsTwo, kBob,
+                                    QStringLiteral("BOBDEV"),
+                                    QStringLiteral("bob-token-fixture"));
+        app.switchToAccount(kAlice);
+        QTRY_VERIFY(!app.accountSwitching());
+        QTRY_COMPARE(app.auth()->currentUserId(), kAlice);
+
+        const QByteArray gif = QByteArray("GIF89a\x10\x00\x10\x00", 10);
+        app.gif()->starredStore()->starBytes(QStringLiteral("mk"), gif);
+        const QString aliceStarredDir = matrix::app_data::starredGifsDir(kAlice);
+        QVERIFY(QDir(aliceStarredDir).exists());
+
+        app.removeAccount(kAlice); // active + logged in -> logout path
+
+        QTRY_VERIFY(!app.accountSwitching());
+        QTRY_COMPARE(app.auth()->currentUserId(), kBob); // fell back to bob
+        QVERIFY(!QDir(aliceStarredDir).exists());
+    }
+
+    // Background-account removal: the explicit starred-gifs cleanup fires
+    // for the removed account, and — the point of this test — a DIFFERENT
+    // account's starred store is never touched, even though the removed
+    // account is resolved from a saved record and not the live session.
+    void removingBackgroundAccountDeletesOnlyItsStarredGifStore()
+    {
+        AppController app(AppController::MockBackend);
+        FakeSecretStore secrets;
+        app.settings()->setSecretStore(&secrets);
+        app.settings()->saveSession(kHsOne, kAlice,
+                                    QStringLiteral("ALICEDEV"),
+                                    QStringLiteral("alice-token-fixture"));
+        app.settings()->saveSession(kHsTwo, kBob,
+                                    QStringLiteral("BOBDEV"),
+                                    QStringLiteral("bob-token-fixture"));
+        app.switchToAccount(kBob);
+        QTRY_VERIFY(!app.accountSwitching());
+        QTRY_COMPARE(app.auth()->currentUserId(), kBob);
+
+        // Alice is a BACKGROUND account here (bob is active) — give her a
+        // starred-gif file directly on disk (content-addressed, exactly
+        // the shape GifStarredStore itself writes) without ever opening a
+        // live store for her, since only the active account's store is
+        // ever open.
+        const QString aliceStarredDir = matrix::app_data::starredGifsDir(kAlice);
+        QVERIFY(QDir().mkpath(aliceStarredDir));
+        QFile aliceGif(aliceStarredDir + QStringLiteral("/") + QString(64, QLatin1Char('a'))
+                       + QStringLiteral(".gif"));
+        QVERIFY(aliceGif.open(QIODevice::WriteOnly));
+        aliceGif.write("GIF89a\x10\x00\x10\x00", 10);
+        aliceGif.close();
+
+        // Bob (the ACTIVE account) has his own real starred GIF.
+        const QByteArray gif = QByteArray("GIF89a\x10\x00\x10\x00", 10);
+        app.gif()->starredStore()->starBytes(QStringLiteral("mk"), gif);
+        QCOMPARE(app.gif()->starredStore()->count(), 1);
+        const QString bobStarredDir = matrix::app_data::starredGifsDir(kBob);
+        QVERIFY(QDir(bobStarredDir).exists());
+
+        app.removeAccount(kAlice); // background account
+
+        QVERIFY(!QDir(aliceStarredDir).exists());
+        // Bob's store — a completely different account's data — survives
+        // untouched, both on disk and in the live (still-open) instance.
+        QVERIFY(QDir(bobStarredDir).exists());
+        QCOMPARE(app.gif()->starredStore()->count(), 1);
+        QCOMPARE(app.auth()->currentUserId(), kBob);
+    }
+
+    // The mirror image of the deletion tests, pinning the m_accountSwitching
+    // gate itself: a LIVE-session account SWITCH is not a sign-out, and must
+    // never delete the outgoing account's starred store. Without the gate in
+    // AppController::onLoggedOut (detachSession emits loggedOut mid-switch)
+    // every switch would silently destroy the outgoing account's decrypted
+    // GIFs — and before this test, removing that gate left every suite
+    // green.
+    void switchingAccountsPreservesTheOutgoingStarredGifStore()
+    {
+        // Self-cleaning fixture: earlier cases in this binary legitimately
+        // leave starred files behind (the suite shares one XDG home), and
+        // this test's premise is that BOTH accounts start with none.
+        // Guard against an empty path: QDir(QString()) resolves to "." and
+        // removeRecursively() would then eat the working directory.
+        const QString aliceDirToClean = matrix::app_data::starredGifsDir(kAlice);
+        const QString bobDirToClean = matrix::app_data::starredGifsDir(kBob);
+        QVERIFY(!aliceDirToClean.isEmpty());
+        QVERIFY(!bobDirToClean.isEmpty());
+        QDir(aliceDirToClean).removeRecursively();
+        QDir(bobDirToClean).removeRecursively();
+
+        AppController app(AppController::MockBackend);
+        FakeSecretStore secrets;
+        app.settings()->setSecretStore(&secrets);
+        app.settings()->saveSession(kHsOne, kAlice,
+                                    QStringLiteral("ALICEDEV"),
+                                    QStringLiteral("alice-token-fixture"));
+        app.settings()->saveSession(kHsTwo, kBob,
+                                    QStringLiteral("BOBDEV"),
+                                    QStringLiteral("bob-token-fixture"));
+        app.switchToAccount(kAlice);
+        QTRY_VERIFY(!app.accountSwitching());
+        QTRY_COMPARE(app.auth()->currentUserId(), kAlice);
+
+        const QByteArray gif = QByteArray("GIF89a\x10\x00\x10\x00", 10);
+        app.gif()->starredStore()->starBytes(QStringLiteral("mk"), gif);
+        const QString aliceStarredDir = matrix::app_data::starredGifsDir(kAlice);
+        const QString aliceGifFile = QDir(aliceStarredDir)
+                .entryList({ QStringLiteral("*.gif") }, QDir::Files)
+                .value(0);
+        QVERIFY(!aliceGifFile.isEmpty());
+
+        app.switchToAccount(kBob); // live session -> detachSession path
+        QTRY_VERIFY(!app.accountSwitching());
+        QTRY_COMPARE(app.auth()->currentUserId(), kBob);
+
+        // Alice's directory AND her actual stored bytes survive the switch.
+        QVERIFY(QDir(aliceStarredDir).exists());
+        QVERIFY(QFile::exists(aliceStarredDir + QStringLiteral("/")
+                              + aliceGifFile));
+        // The live store instance now belongs to Bob: his (empty) directory,
+        // none of Alice's rows. QTRY: the open for the incoming account
+        // rides onLoginSucceeded, which the mock delivers through a
+        // deferred hop after accountSwitching flips false.
+        QTRY_COMPARE(app.gif()->starredStore()->currentDirectory(),
+                     matrix::app_data::starredGifsDir(kBob));
+        QCOMPARE(app.gif()->starredStore()->count(), 0);
+        // And the survival assertions hold STILL — the open of Bob's store
+        // must not have deleted or mutated Alice's data as a side effect.
+        QVERIFY(QDir(aliceStarredDir).exists());
+        QVERIFY(QFile::exists(aliceStarredDir + QStringLiteral("/")
+                              + aliceGifFile));
     }
 
 private:

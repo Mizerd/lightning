@@ -39,8 +39,12 @@ Popup {
 
     // "browse" (trending/search/categories) | "favorites" | "recent".
     property string section: "browse"
+    // v0.6.6: Favorites shows client-local starred chat GIFs alongside
+    // provider favorites (starred entries first — see
+    // GifFavoritesMergedModel's header for the exact ordering rule and why
+    // it is a grouped-by-kind merge rather than a cross-kind interleave).
     readonly property var activeModel:
-        section === "favorites" ? gif.favorites
+        section === "favorites" ? gif.favoritesAndStarred
         : section === "recent" ? gif.recent
         : gif.results
 
@@ -153,12 +157,22 @@ Popup {
     onClosed: gif.reset()
     onSectionChanged: grid.currentIndex = -1
 
-    // Toggle favorite for the tile at `row` of the currently shown model,
-    // without sending. Refreshes the browse grid's star state.
-    function toggleFavorite(row) {
-        if (row < 0 || row >= activeModel.count)
+    // Toggle favorite (or unstar, for a local row) for the EXACT tile the
+    // user acted on, without sending. `result` is the tile's own captured
+    // snapshot (see tile.snapshot() below) — never a row index re-resolved
+    // against activeModel, which could have moved on by the time this runs.
+    // A local-starred row lives in a DIFFERENT backing store than provider
+    // favorites (GifStarredStore, not GifFavoritesModel); routing is keyed
+    // by the snapshot's own provider/gifId fields, never by re-deriving
+    // anything from a row position.
+    function toggleFavorite(result) {
+        if (!result || !result.provider || !result.gifId)
             return
-        gif.toggleFavorite(activeModel.get(row))
+        if (result.provider === "local") {
+            gif.starredStore.unstar(result.gifId)
+            return
+        }
+        gif.toggleFavorite(result)
     }
 
     background: Rectangle {
@@ -483,6 +497,16 @@ Popup {
                 // GifStoredModel::BytesRole — always present, never undefined.
                 required property real gifBytes
                 readonly property bool current: GridView.isCurrentItem
+                // A local-starred tile has no provider CDN URL (see
+                // GifFavoritesMergedModel/GifStarredStore) — its
+                // previewUrl/stillUrl are deliberately empty in the
+                // persisted row, so the ONLY source of truth for where to
+                // load it from is a re-validated lookup by content hash,
+                // done fresh on every binding evaluation (never a path
+                // trusted from the persisted index).
+                readonly property string localSource:
+                    tile.provider === "local"
+                        ? picker.gif.starredStore.source(tile.gifId) : ""
 
                 // The exact record this delegate is rendering right now,
                 // captured from its OWN bound properties rather than
@@ -520,7 +544,8 @@ Popup {
                     // top once decoded, and only while the picker is visible.
                     Image {
                         anchors.fill: parent
-                        source: tile.stillUrl
+                        source: tile.provider === "local"
+                                ? tile.localSource : tile.stillUrl
                         fillMode: Image.PreserveAspectCrop
                         asynchronous: true
                         cache: true
@@ -529,7 +554,8 @@ Popup {
                     AnimatedImage {
                         id: anim
                         anchors.fill: parent
-                        source: tile.previewUrl
+                        source: tile.provider === "local"
+                                ? tile.localSource : tile.previewUrl
                         fillMode: Image.PreserveAspectCrop
                         asynchronous: true
                         cache: true
@@ -546,7 +572,12 @@ Popup {
                     }
 
                     // Choosing (send) is the tile body; the star toggles
-                    // favorite WITHOUT sending. The star is always actionable.
+                    // favorite/local-star WITHOUT sending. The star is
+                    // always actionable. Both routes pass the tile's OWN
+                    // captured snapshot — never a row index re-resolved
+                    // against activeModel later — so the action can never
+                    // drift from what is on screen under this exact tile,
+                    // the same invariant choose() already enforces.
                     MouseArea {
                         anchors.fill: parent
                         cursorShape: Qt.PointingHandCursor
@@ -554,7 +585,7 @@ Popup {
                         onClicked: (mouse) => {
                             grid.currentIndex = tile.index
                             if (mouse.button === Qt.RightButton)
-                                picker.toggleFavorite(tile.index)
+                                picker.toggleFavorite(tile.snapshot())
                             else
                                 picker.choose(tile.snapshot())
                         }
@@ -612,10 +643,12 @@ Popup {
                                                  : AppTheme.scrimInk
                         }
                         opacity: tile.favorite || tileHover.hovered ? 1 : 0
-                        Accessible.name: tile.favorite
-                            ? qsTr("Remove from favorites")
-                            : qsTr("Add to favorites")
-                        onClicked: picker.toggleFavorite(tile.index)
+                        Accessible.name: tile.provider === "local"
+                            ? qsTr("Remove from starred GIFs")
+                            : (tile.favorite
+                               ? qsTr("Remove from favorites")
+                               : qsTr("Add to favorites"))
+                        onClicked: picker.toggleFavorite(tile.snapshot())
                         background: Rectangle {
                             radius: 12
                             color: AppTheme.overlayScrim
@@ -661,7 +694,7 @@ Popup {
                 if (!picker.gif.available)
                     return qsTr("GIFs are unavailable on this backend.")
                 if (picker.section === "favorites")
-                    return picker.gif.favorites.count === 0
+                    return picker.gif.favoritesAndStarred.count === 0
                         ? qsTr("No favorites yet. Tap the star on a GIF to save it.")
                         : ""
                 if (picker.section === "recent")

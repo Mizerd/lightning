@@ -102,6 +102,34 @@ QString accountRoot(const QString &userId);
 // <accountRoot>/<matrix-rust-sdk-store>. Matches RustSdkMatrixClient.
 QString rustSdkStorePath(const QString &userId);
 
+// <accountRoot(userId)>/starred-gifs — the client-local "star a chat GIF"
+// store's directory (see GifStarredStore). Centralized here, rather than
+// each caller concatenating the literal itself, because GifStarredStore's
+// caller (AppController, when opening the store on login) and the sign-out
+// / account-removal cleanup paths (AppController::onLoggedOut,
+// AppController::removeAccount) all need the EXACT same path: the same
+// literal typed independently in more than one place is a silent-divergence
+// risk — get it wrong in the cleanup path and account removal reports
+// success while decrypted GIF bytes survive on disk. Always derived from
+// the CANONICAL accountRoot(userId), never from a recorded/divergent store
+// slug — GifStarredStore never opens or deletes anywhere else.
+QString starredGifsDir(const QString &userId);
+
+// Outcome of removing ONE already-resolved app-data directory (currently
+// only starredGifsDir()). A simpler tri-state than RemovalSummary (which
+// tallies several files/dirs at once): this always concerns exactly one
+// directory, and the caller must report "deleted" and "absent" as distinct
+// outcomes rather than folding a no-op into "success".
+enum class DirRemoval { Deleted, Absent, Failed };
+
+// Remove `dir` if it exists. A pure filesystem operation on an
+// already-resolved, already-scoped path — this function never derives,
+// validates, or re-resolves an account identity itself; the caller is
+// responsible for only ever passing a path built from
+// matrix::app_data::accountRoot()/starredGifsDir(). A path that is itself a
+// symlink has the link removed, never followed/recursed through.
+DirRemoval removeAppDataDir(const QString &dir);
+
 // Smoke-only MatrixSession sidecar used by LIGHTNING_TEST_PERSISTENT_STORE=1.
 // It is account-specific session state, not an interactive QSettings or
 // SecretStore entry. Never print its token contents.

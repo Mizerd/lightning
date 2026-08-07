@@ -201,12 +201,17 @@ void MediaBridge::insertCache(const QString &cacheKey, const QByteArray &bytes)
 
 bool MediaBridge::alreadyPending(const QString &cacheKey) const
 {
+    // Save/star requests never satisfy an ordinary caller: onMediaReady's
+    // save/star branches return before inserting into the cache or emitting
+    // mediaCached(), so an ordinary mediaSource()/animatedSource() call that
+    // treated one of them as "already in flight" would wait for a signal
+    // that never comes for that key.
     for (const Pending &p : m_inflight) {
-        if (p.cacheKey == cacheKey && !p.saveRequest)
+        if (p.cacheKey == cacheKey && !p.saveRequest && !p.starRequest)
             return true;
     }
     for (const Pending &p : m_queue) {
-        if (p.cacheKey == cacheKey && !p.saveRequest)
+        if (p.cacheKey == cacheKey && !p.saveRequest && !p.starRequest)
             return true;
     }
     return false;
@@ -573,12 +578,24 @@ void MediaBridge::dispatch(const Pending &request)
         ++m_statFailed;
         qCWarning(lcMedia, "fetch %s unavailable (backend returned opId=0)",
                   qUtf8Printable(keyTag(tracked.cacheKey)));
-        markFailed(tracked, QStringLiteral("unavailable"));
-        Q_EMIT mediaFetchFailed(tracked.cacheKey,
-                                QStringLiteral("unavailable"));
-        if (tracked.saveRequest)
+        // A save/star dispatch failure is reported ONLY through its own
+        // signal, never through mediaFetchFailed(cacheKey) — a save/star
+        // request shares its cacheKey ("full:<mediaKey>") with the ORDINARY
+        // fetch for the same media (e.g. an inline GIF preview already on
+        // screen), so an unguarded mediaFetchFailed here would tell that
+        // unrelated, still-healthy consumer its OWN fetch failed. Mirrors
+        // markFailed()'s own save/star exemption below.
+        if (tracked.saveRequest) {
             Q_EMIT saveFinished(false, tr("The file could not be downloaded."),
                                 tracked.mediaKey);
+        } else if (tracked.starRequest) {
+            Q_EMIT mediaBytesForStar(tracked.mediaKey, false, {},
+                                     QStringLiteral("unavailable"));
+        } else {
+            markFailed(tracked, QStringLiteral("unavailable"));
+            Q_EMIT mediaFetchFailed(tracked.cacheKey,
+                                    QStringLiteral("unavailable"));
+        }
         return;
     }
     qCDebug(lcMedia, "fetch %s opId=%llu inflight=%lld",
@@ -609,7 +626,7 @@ void MediaBridge::checkInflightTimeouts()
     QList<quint64> expired;
     for (auto it = m_inflight.constBegin(); it != m_inflight.constEnd(); ++it) {
         const Pending &p = it.value();
-        const qint64 limit = p.saveRequest ? m_saveTimeoutMs
+        const qint64 limit = (p.saveRequest || p.starRequest) ? m_saveTimeoutMs
                            : p.timeoutClass == 1 ? m_playableTimeoutMs
                                                  : m_inflightTimeoutMs;
         if (p.dispatchedAtMs >= 0 && now - p.dispatchedAtMs >= limit)
@@ -630,6 +647,9 @@ void MediaBridge::checkInflightTimeouts()
         if (request.saveRequest) {
             Q_EMIT saveFinished(false, tr("The download timed out."),
                                 request.mediaKey);
+        } else if (request.starRequest) {
+            Q_EMIT mediaBytesForStar(request.mediaKey, false, {},
+                                     QStringLiteral("timeout"));
         } else {
             // Transient category: expires like a network failure, so QML
             // surfaces a fallback immediately and re-dispatches once the
@@ -696,6 +716,13 @@ void MediaBridge::onMediaReady(quint64 opId, const QString &mediaKey, int kind,
 
     if (request.saveRequest) {
         writeSaveFile(request.saveDestination, bytes, request.mediaKey);
+        return;
+    }
+    if (request.starRequest) {
+        // Same "export, not cache" treatment as Save As — never inserted
+        // into the shared RAM cache, GIF-specific validation happens
+        // downstream (GifStarredStore), never here.
+        Q_EMIT mediaBytesForStar(request.mediaKey, true, bytes, QString());
         return;
     }
     ++m_statCompleted;
@@ -809,8 +836,8 @@ QString MediaBridge::writeAnimatedFile(const QString &cacheKey,
 
 void MediaBridge::markFailed(const Pending &request, const QString &category)
 {
-    if (request.saveRequest)
-        return; // Save As reports through saveFinished, not source state.
+    if (request.saveRequest || request.starRequest)
+        return; // Save/star report through their own signal, not source state.
     if (m_failed.size() >= kMaxFailureMarks)
         m_failed.clear(); // defensive bound; never realistically reached
     m_failed.insert(request.cacheKey,
@@ -835,6 +862,10 @@ void MediaBridge::onMediaFailed(quint64 opId, const QString &mediaKey, int kind,
     if (request.saveRequest) {
         Q_EMIT saveFinished(false, tr("The file could not be downloaded."),
                             request.mediaKey);
+        return;
+    }
+    if (request.starRequest) {
+        Q_EMIT mediaBytesForStar(request.mediaKey, false, {}, category);
         return;
     }
     ++m_statFailed;
@@ -873,6 +904,42 @@ void MediaBridge::saveAs(const QString &mediaKey, const QUrl &destination)
     request.saveRequest = true;
     request.saveDestination = destination;
     request.timeoutClass = 2; // save class (270s Rust / 5min watchdog)
+    dispatch(request);
+}
+
+void MediaBridge::fetchFullForStar(const QString &mediaKey)
+{
+    if (mediaKey.isEmpty() || !supported()) {
+        Q_EMIT mediaBytesForStar(mediaKey, false, {},
+                                 QStringLiteral("unavailable"));
+        return;
+    }
+    // Serve from cache when the full payload is already in memory — the
+    // common case: a GIF already rendered inline (animatedSource()) already
+    // fetched these exact bytes.
+    const QByteArray cached = cachedBytes(mediaCacheKey(mediaKey, 0));
+    if (!cached.isEmpty()) {
+        Q_EMIT mediaBytesForStar(mediaKey, true, cached, QString());
+        return;
+    }
+    // Dedup: a rapid double-activation of "Star GIF" on the same row (the
+    // menu closing is not synchronous with the click) must not dispatch a
+    // second identical fetch — the second call is dropped silently; the
+    // first, already in flight, will resolve both.
+    for (const Pending &p : m_inflight) {
+        if (p.starRequest && p.mediaKey == mediaKey)
+            return;
+    }
+    for (const Pending &p : m_queue) {
+        if (p.starRequest && p.mediaKey == mediaKey)
+            return;
+    }
+    Pending request;
+    request.cacheKey = mediaCacheKey(mediaKey, 0);
+    request.mediaKey = mediaKey;
+    request.kind = 0;
+    request.starRequest = true;
+    request.timeoutClass = 2; // save class — an explicit user export
     dispatch(request);
 }
 

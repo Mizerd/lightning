@@ -315,6 +315,24 @@ Rectangle {
             timeline.noteSaveFinished(ok, mediaKey)
         }
     }
+    // v0.6.6: "Star GIF" / "Unstar GIF" feedback — the same auto-clearing
+    // banner Save As already uses (an explicit-export action of the same
+    // class; see GifStarredStore's header). Honest failures only: no silent
+    // drop. `message` is ALREADY a translated, ready-to-display sentence
+    // (see GifStarredStore::categoryMessage) — never a raw category token.
+    Connections {
+        target: app.gif.starredStore
+        function onStarFinished(mediaKey, ok, category, message) {
+            saveResult.ok = ok
+            saveResult.text = ok ? qsTr("Starred.") : message
+            saveResultTimer.restart()
+        }
+        function onUnstarFinished(hash) {
+            saveResult.ok = true
+            saveResult.text = qsTr("Removed from starred GIFs.")
+            saveResultTimer.restart()
+        }
+    }
 
     RowLayout {
         anchors.fill: parent

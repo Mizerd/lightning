@@ -22,6 +22,8 @@
 #include "app/AppController.h"
 #include "app/SettingsManager.h"
 #include "auth/AuthManager.h"
+#include "gif/GifSearchController.h"
+#include "gif/GifStarredStore.h"
 #include "models/TimelineModel.h"
 #include "threads/ThreadController.h"
 
@@ -613,6 +615,55 @@ private slots:
         QCoreApplication::processEvents();
         QTRY_VERIFY(!resultsPanel->isVisible());
         QTRY_VERIFY(accountNav->isVisible());
+    }
+
+    // v0.6.6 (review HIGH-2): the client-local starred-GIF store gets its
+    // own visible count/size row (never folded into Favorites/Recents,
+    // which hold no actual file bytes) and a confirmed destructive Clear
+    // All — this is real GifStarredStore state, real QML bindings, and a
+    // real Dialog, not a source-scan pin.
+    void starredGifsSettingsRowReflectsStoreAndClearAllEmptiesIt()
+    {
+        auto *navRow = item("settingsNavRow_privacy");
+        QVERIFY(navRow);
+        clickItem(navRow);
+        QCoreApplication::processEvents();
+
+        auto *summary = item("starredGifsSummaryLabel");
+        auto *clearButton = item("clearStarredGifsButton");
+        QVERIFY(summary);
+        QVERIFY(clearButton);
+        QCOMPARE(summary->property("text").toString(),
+                 QStringLiteral("0 GIF(s), 0 B — kept on this device only and removed when you sign out of this account."));
+        QVERIFY(!clearButton->property("enabled").toBool());
+
+        auto *store = m_controller->gif()->starredStore();
+        const QByteArray gif = QByteArray("GIF89a\x10\x00\x10\x00", 10);
+        store->starBytes(QStringLiteral("mk-settings-test"), gif);
+        QCoreApplication::processEvents();
+
+        // The row is a live binding off the store's own count/totalBytes
+        // properties — no manual refresh needed.
+        QCOMPARE(summary->property("text").toString(),
+                 QStringLiteral("1 GIF(s), 10 B — kept on this device only and removed when you sign out of this account."));
+        QVERIFY(clearButton->property("enabled").toBool());
+
+        clickItem(clearButton);
+        QCoreApplication::processEvents();
+        auto *confirmDialog = m_window->findChild<QObject *>(
+            QStringLiteral("starredGifsClearConfirm"));
+        QVERIFY(confirmDialog);
+        QVERIFY(confirmDialog->property("visible").toBool());
+
+        // accept() drives the exact same onAccepted path a real "Yes" click
+        // would, without depending on the modal popup's screen position.
+        QMetaObject::invokeMethod(confirmDialog, "accept");
+        QCoreApplication::processEvents();
+
+        QCOMPARE(store->count(), 0);
+        QCOMPARE(summary->property("text").toString(),
+                 QStringLiteral("0 GIF(s), 0 B — kept on this device only and removed when you sign out of this account."));
+        QVERIFY(!clearButton->property("enabled").toBool());
     }
 
     void noQmlWarnings()

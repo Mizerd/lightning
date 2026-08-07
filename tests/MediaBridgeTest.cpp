@@ -896,6 +896,112 @@ private Q_SLOTS:
                      .value(QStringLiteral("droppedStale")).toLongLong(),
                  1);
     }
+
+    // v0.6.6: "star a chat GIF" fetch trigger — mirrors saveAs()'s
+    // dispatch/cache/failure shape but relays raw bytes via
+    // mediaBytesForStar() instead of writing a user-chosen file.
+    void fetchFullForStarDispatchesAtSaveTimeoutClassAndDeliversBytes()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        QSignalSpy starred(&bridge, &MediaBridge::mediaBytesForStar);
+
+        bridge.fetchFullForStar(QStringLiteral("$gif"));
+        QCOMPARE(client.fetches.size(), 1);
+        QCOMPARE(client.fetches.first().timeoutClass, 2); // save class
+        QCOMPARE(starred.count(), 0);
+
+        client.succeed(client.fetches.first().opId, QByteArray("GIF89a..."));
+        QCOMPARE(starred.count(), 1);
+        QVERIFY(starred.first().at(1).toBool());
+        QCOMPARE(starred.first().at(2).toByteArray(), QByteArray("GIF89a..."));
+        // Never inserted into the shared RAM cache — an "export" fetch,
+        // exactly like saveAs.
+        QCOMPARE(bridge.cacheBytesUsed(), 0);
+    }
+
+    void fetchFullForStarServesFromCacheWithoutDispatching()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        // Prime the cache the way an inline preview (animatedSource) would.
+        bridge.mediaSource(QStringLiteral("$gif"), QStringLiteral("full"));
+        client.succeed(client.fetches.first().opId, QByteArray("cached-bytes"));
+        QCOMPARE(client.fetches.size(), 1);
+
+        QSignalSpy starred(&bridge, &MediaBridge::mediaBytesForStar);
+        bridge.fetchFullForStar(QStringLiteral("$gif"));
+        QCOMPARE(client.fetches.size(), 1); // no new dispatch — cache hit
+        QCOMPARE(starred.count(), 1);
+        QVERIFY(starred.first().at(1).toBool());
+        QCOMPARE(starred.first().at(2).toByteArray(), QByteArray("cached-bytes"));
+    }
+
+    // L10: a rapid double-activation of "Star GIF" for the SAME row must
+    // not dispatch two identical fetches.
+    void fetchFullForStarDedupsInFlightRequestsForSameMediaKey()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        QSignalSpy starred(&bridge, &MediaBridge::mediaBytesForStar);
+
+        bridge.fetchFullForStar(QStringLiteral("$gif"));
+        bridge.fetchFullForStar(QStringLiteral("$gif"));
+        QCOMPARE(client.fetches.size(), 1); // the second call was dropped
+
+        // A DIFFERENT media key is never suppressed by the first's dedup.
+        bridge.fetchFullForStar(QStringLiteral("$other"));
+        QCOMPARE(client.fetches.size(), 2);
+
+        client.succeed(client.fetches.at(0).opId, QByteArray("a"));
+        client.succeed(client.fetches.at(1).opId, QByteArray("b"));
+        QCOMPARE(starred.count(), 2); // both real requests still resolve
+    }
+
+    // L11: a save/star dispatch failure must be reported ONLY through its
+    // own signal — never through mediaFetchFailed(cacheKey), which an
+    // ordinary consumer of the SAME cache key (an inline preview already on
+    // screen) would otherwise misread as ITS OWN fetch having failed.
+    void starDispatchFailureNeverEmitsMediaFetchFailed()
+    {
+        FakeClient client;
+        client.rejectFetches = true;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        QSignalSpy starred(&bridge, &MediaBridge::mediaBytesForStar);
+        QSignalSpy fetchFailed(&bridge, &MediaBridge::mediaFetchFailed);
+
+        bridge.fetchFullForStar(QStringLiteral("$gif"));
+
+        QCOMPARE(starred.count(), 1);
+        QVERIFY(!starred.first().at(1).toBool());
+        QCOMPARE(fetchFailed.count(), 0); // the ordinary-consumer signal
+    }
+
+    // An ordinary fetch for the SAME media key as an in-flight star request
+    // must dispatch its own real fetch rather than being treated as
+    // "already pending" — onMediaReady's star branch returns before ever
+    // emitting mediaCached(), so an ordinary caller folded into that
+    // dedup would wait forever.
+    void ordinaryFetchNotDedupedAgainstInFlightStarRequest()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        QSignalSpy cached(&bridge, &MediaBridge::mediaCached);
+
+        bridge.fetchFullForStar(QStringLiteral("$gif")); // in flight, save class
+        const QString source =
+            bridge.mediaSource(QStringLiteral("$gif"), QStringLiteral("full"));
+        QCOMPARE(source, QString()); // not cached yet — dispatched, not skipped
+        QCOMPARE(client.fetches.size(), 2);
+
+        client.succeed(client.fetches.at(1).opId, QByteArray("real-bytes"));
+        QCOMPARE(cached.count(), 1); // the ordinary fetch resolved normally
+    }
 };
 
 QTEST_GUILESS_MAIN(MediaBridgeTest)

@@ -214,6 +214,27 @@ void GifStoredModel::clearAll()
     save();
 }
 
+void GifStoredModel::reopen(QSettings *settings)
+{
+    // Drop in-memory rows WITHOUT persisting anything: load() below early-
+    // returns when the new settings object has no value yet for this key,
+    // which must never leave the PREVIOUS settings object's rows visible
+    // under the new one. Explicitly not save()-ing here also matters the
+    // other way around: `settings` may be the SAME account's store being
+    // reopened (e.g. logout followed by the same user logging back in), and
+    // persisting an empty array before load() re-reads it would destroy
+    // that account's real data instead of restoring it.
+    if (!m_rows.isEmpty()) {
+        beginResetModel();
+        m_rows.clear();
+        endResetModel();
+        Q_EMIT countChanged();
+    }
+    m_settings = settings;
+    if (m_settings)
+        load();
+}
+
 void GifStoredModel::load()
 {
     if (!m_settings)

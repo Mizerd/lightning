@@ -295,8 +295,30 @@ private Q_SLOTS:
         // Previews animate only while visible (offscreen/hidden → paused).
         QVERIFY(picker.contains(QStringLiteral("playing: picker.visible")));
         // Tiles use the PREVIEW variant, never the sendable original gifUrl.
-        QVERIFY(picker.contains(QStringLiteral("source: tile.previewUrl")));
-        QVERIFY(!picker.contains(QStringLiteral("source: tile.gifUrl")));
+        {
+            // v0.6.6: a local-starred tile (see GifFavoritesMergedModel/
+            // GifStarredStore) has no provider previewUrl/stillUrl, so both
+            // the static Image and the AnimatedImage branch on
+            // tile.provider now — the non-local fallback is still exactly
+            // tile.stillUrl / tile.previewUrl, never tile.gifUrl anywhere in
+            // the tile delegate.
+            const int tileStart =
+                picker.indexOf(QStringLiteral("delegate: Item {"));
+            const int tileEnd = picker.indexOf(
+                QStringLiteral("Keys.onReturnPressed:"), tileStart);
+            QVERIFY(tileStart >= 0 && tileEnd > tileStart);
+            const QString tileBlock = picker.mid(tileStart, tileEnd - tileStart);
+            QVERIFY(tileBlock.contains(QStringLiteral(
+                "source: tile.provider === \"local\"\n"
+                "                                ? tile.localSource : tile.stillUrl")));
+            QVERIFY(tileBlock.contains(QStringLiteral(
+                "source: tile.provider === \"local\"\n"
+                "                                ? tile.localSource : tile.previewUrl")));
+            // tile.gifUrl DOES legitimately appear once, in snapshot()'s
+            // "gifUrl: tile.gifUrl," field capture (send-time identity, not
+            // a rendered source) — scoped to an actual `source:` binding.
+            QVERIFY(!tileBlock.contains(QStringLiteral("source: tile.gifUrl")));
+        }
         // State overlays cover missing-key / offline / rate-limit / error.
         QVERIFY(picker.contains(QStringLiteral("GifSearchController.MissingKey")));
         QVERIFY(picker.contains(QStringLiteral("GifSearchController.RateLimited")));
@@ -341,6 +363,23 @@ private Q_SLOTS:
             "GIF searches are sent directly to the ")));
         QVERIFY(settings.contains(QStringLiteral("gifClearConfirm.open(\"favorites\")")));
         QVERIFY(settings.contains(QStringLiteral("app.gif.favorites.clearAll()")));
+        // v0.6.6 (review HIGH-2): the client-local starred-GIF store gets
+        // its own visible count/size row and confirmed Clear All — never
+        // folded into the Favorites/Recents clear actions above, since it
+        // holds actual decrypted file bytes on this device rather than
+        // small provider-CDN metadata rows.
+        QVERIFY(settings.contains(QStringLiteral("objectName: \"starredGifsSummaryLabel\"")));
+        QVERIFY(settings.contains(QStringLiteral("app.gif.starredStore.count")));
+        QVERIFY(settings.contains(QStringLiteral("app.gif.starredStore.totalBytes")));
+        QVERIFY(settings.contains(QStringLiteral("kept on this ")));
+        // The copy must disclose the sign-out consequence (review finding:
+        // sign-out deletes the store; "kept on this device only" alone
+        // would read as a durability promise).
+        QVERIFY(settings.contains(QStringLiteral("device only and removed ")));
+        QVERIFY(settings.contains(QStringLiteral(
+            "when you sign out of this ")));
+        QVERIFY(settings.contains(QStringLiteral("starredGifsClearConfirm.open()")));
+        QVERIFY(settings.contains(QStringLiteral("app.gif.starredStore.clearAll()")));
     }
 
     // v0.6.1: the thread root uses the Element-style summary card wired to the

@@ -37,6 +37,18 @@ public:
     Q_INVOKABLE QVariantMap get(int row) const;
     Q_INVOKABLE void clearAll();
 
+    // v0.6.6: re-point persistence at `settings` (nullptr for "no backing
+    // store yet") and reload, replacing every current row. For a normal
+    // Favorites/Recent instance `settings` is fixed for the object's whole
+    // life and this is never called; GifStarredStore uses it to repoint one
+    // long-lived model instance at a fresh account-scoped file on login/
+    // switch/logout WITHOUT destroying and recreating the QObject — a
+    // stable identity that GifFavoritesMergedModel's addSourceModel() (added
+    // exactly once) requires. A null `settings` clears every row (never
+    // leaves the previous account's rows visible) without attempting to
+    // persist the now-empty state anywhere.
+    void reopen(QSettings *settings);
+
     gif::GifResult resultAt(int row) const;
 
     // Build a safe GifResult from a QML result map (GifResultModel role names).

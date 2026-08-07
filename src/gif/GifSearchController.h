@@ -3,7 +3,9 @@
 #include "gif/GifProvider.h"
 #include "gif/GifResultModel.h"
 #include "gif/GifFavoritesModel.h"
+#include "gif/GifFavoritesMergedModel.h"
 #include "gif/GifRecentModel.h"
+#include "gif/GifStarredStore.h"
 
 #include <QHash>
 #include <QSet>
@@ -38,6 +40,11 @@ class GifSearchController : public QObject
     Q_PROPERTY(GifResultModel *results READ results CONSTANT)
     Q_PROPERTY(GifFavoritesModel *favorites READ favorites CONSTANT)
     Q_PROPERTY(GifRecentModel *recent READ recent CONSTANT)
+    // v0.6.6: client-local starred chat GIFs (see GifStarredStore) and the
+    // merged presentation model the picker's Favorites tab renders from.
+    Q_PROPERTY(GifStarredStore *starredStore READ starredStore CONSTANT)
+    Q_PROPERTY(GifFavoritesMergedModel *favoritesAndStarred
+               READ favoritesAndStarred CONSTANT)
     Q_PROPERTY(bool available READ available NOTIFY availableChanged)
     Q_PROPERTY(QStringList providerIds READ providerIds CONSTANT)
     Q_PROPERTY(QString providerId READ providerId NOTIFY providerChanged)
@@ -82,6 +89,19 @@ public:
     GifResultModel *results() { return &m_results; }
     GifFavoritesModel *favorites() { return m_favorites.get(); }
     GifRecentModel *recent() { return m_recent.get(); }
+    GifStarredStore *starredStore() const { return m_starred.get(); }
+    GifFavoritesMergedModel *favoritesAndStarred() const
+    { return m_favoritesAndStarred.get(); }
+
+    // Account-scoped open/close for the local-starred store, called by
+    // AppController on login/switch/logout. `accountDir` is already
+    // account-scoped and safety-validated (matrix::app_data::accountRoot());
+    // see GifStarredStore's header for why this class never derives one
+    // itself. Kept as plain C++ (not Q_INVOKABLE): only AppController calls
+    // these, from the account-lifecycle path, never from QML.
+    void openStarredStoreFor(const QString &accountDir)
+    { m_starred->openFor(accountDir); }
+    void closeStarredStore() { m_starred->close(); }
     bool available() const;
     QStringList providerIds() const { return gif::knownGifProviderIds(); }
     QString providerId() const { return m_activeProviderId; }
@@ -155,6 +175,8 @@ private:
     std::unique_ptr<QSettings> m_settings;
     std::unique_ptr<GifFavoritesModel> m_favorites;
     std::unique_ptr<GifRecentModel> m_recent;
+    std::unique_ptr<GifStarredStore> m_starred;
+    std::unique_ptr<GifFavoritesMergedModel> m_favoritesAndStarred;
     GifTransport *m_transport = nullptr;
 
     QString m_activeProviderId = QStringLiteral("giphy");

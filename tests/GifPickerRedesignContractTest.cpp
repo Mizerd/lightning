@@ -155,8 +155,33 @@ private Q_SLOTS:
             QStringLiteral("function onModelReset() { grid.currentIndex = -1 }")));
         QVERIFY(picker.contains(QStringLiteral("gif.toggleFavorite(")));
         QVERIFY(picker.contains(QStringLiteral("playing: picker.visible")));
-        QVERIFY(picker.contains(QStringLiteral("source: tile.previewUrl")));
-        QVERIFY(!picker.contains(QStringLiteral("source: tile.gifUrl")));
+        {
+            // v0.6.6: a local-starred tile has no provider previewUrl/
+            // stillUrl (see GifFavoritesMergedModel/GifStarredStore) — both
+            // the static Image and the AnimatedImage now branch on
+            // tile.provider, but the non-local fallback is still exactly
+            // tile.stillUrl / tile.previewUrl. Bounded to the tile delegate
+            // block so the negative check below cannot false-positive on
+            // anything outside it.
+            const int tileStart =
+                picker.indexOf(QStringLiteral("delegate: Item {"));
+            const int tileEnd = picker.indexOf(
+                QStringLiteral("Keys.onReturnPressed:"), tileStart);
+            QVERIFY(tileStart >= 0 && tileEnd > tileStart);
+            const QString tileBlock = picker.mid(tileStart, tileEnd - tileStart);
+            QVERIFY(tileBlock.contains(QStringLiteral(
+                "source: tile.provider === \"local\"\n"
+                "                                ? tile.localSource : tile.stillUrl")));
+            QVERIFY(tileBlock.contains(QStringLiteral(
+                "source: tile.provider === \"local\"\n"
+                "                                ? tile.localSource : tile.previewUrl")));
+            // The sendable original is NEVER rendered as a live image
+            // source anywhere in the tile. tile.gifUrl DOES legitimately
+            // appear once, in snapshot()'s "gifUrl: tile.gifUrl," field
+            // capture (send-time identity, not a rendered source) — the
+            // check is deliberately scoped to an actual `source:` binding.
+            QVERIFY(!tileBlock.contains(QStringLiteral("source: tile.gifUrl")));
+        }
         QVERIFY(picker.contains(QStringLiteral("GifSearchController.MissingKey")));
         QVERIFY(picker.contains(QStringLiteral("GifSearchController.RateLimited")));
         QVERIFY(picker.contains(

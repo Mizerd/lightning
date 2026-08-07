@@ -131,6 +131,15 @@ public:
     // or opens the file. Result arrives via saveFinished().
     Q_INVOKABLE void saveAs(const QString &mediaKey, const QUrl &destination);
 
+    // v0.6.6: "star a chat GIF" fetch trigger. Fetches the full payload
+    // (cache or network, decrypted by the SDK exactly like every other
+    // attachment) and hands the raw bytes back via mediaBytesForStar() —
+    // this class stays media-generic and does no GIF-specific validation or
+    // disk writing itself; see AppController::starChatGif for the caller
+    // that relays the result into GifStarredStore. Mirrors saveAs()'s
+    // dispatch/timeout class exactly (an explicit user export, same bound).
+    Q_INVOKABLE void fetchFullForStar(const QString &mediaKey);
+
     Q_INVOKABLE void clear();
 
     // Shared with MediaImageProvider (called from the QML render thread).
@@ -161,6 +170,11 @@ Q_SIGNALS:
     // feedback can never show another download's outcome.
     void saveFinished(bool ok, const QString &message,
                       const QString &mediaKey);
+    // Result of fetchFullForStar(). `bytes` is empty and `category` is
+    // non-empty on failure; category is "" on success. Never GIF-validated
+    // here — that is GifStarredStore's job (see AppController::starChatGif).
+    void mediaBytesForStar(const QString &mediaKey, bool ok,
+                           const QByteArray &bytes, const QString &category);
 
 private Q_SLOTS:
     void onMediaReady(quint64 opId, const QString &mediaKey, int kind,
@@ -179,6 +193,10 @@ private:
         int size = 0;     // mxc thumbnail edge
         bool saveRequest = false;
         QUrl saveDestination;
+        // v0.6.6: same fetch shape as saveRequest (full payload, save-class
+        // timeout) but the result is relayed raw via mediaBytesForStar()
+        // instead of written to a user-chosen file.
+        bool starRequest = false;
         // v0.7: backend timeout class (0 standard / 1 playable / 2 save).
         // The Rust timeout for each class sits strictly below the matching
         // C++ watchdog deadline, so Rust normally emits the terminal event

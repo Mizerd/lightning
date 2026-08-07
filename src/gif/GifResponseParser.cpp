@@ -148,6 +148,39 @@ bool isSendableGifUrl(const QString &url)
     return isSendableGifUrlForHosts(url, { QStringLiteral(".giphy.com") });
 }
 
+GifByteValidation validateGifBytes(const QByteArray &bytes)
+{
+    GifByteValidation out;
+    if (bytes.size() < 10) {
+        out.category = QStringLiteral("invalid_media");
+        return out;
+    }
+    // GIF magic: "GIF87a" or "GIF89a" — nothing else may be treated as a
+    // real GIF (never an HTML page, JSON error, mp4, or webp renamed into
+    // place). Matches rust/src/gifs.rs::validate_gif_bytes exactly.
+    if (!bytes.startsWith("GIF87a") && !bytes.startsWith("GIF89a")) {
+        out.category = QStringLiteral("not_a_gif");
+        return out;
+    }
+    // Logical-screen descriptor: width/height are little-endian u16 at [6..10).
+    const auto *d = reinterpret_cast<const unsigned char *>(bytes.constData());
+    const int width = d[6] | (d[7] << 8);
+    const int height = d[8] | (d[9] << 8);
+    if (width <= 0 || height <= 0) {
+        out.category = QStringLiteral("invalid_media");
+        return out;
+    }
+    if (width > kMaxGifDimension || height > kMaxGifDimension
+        || bytes.size() > kMaxGifBytes) {
+        out.category = QStringLiteral("too_large");
+        return out;
+    }
+    out.ok = true;
+    out.width = width;
+    out.height = height;
+    return out;
+}
+
 ParseOutcome parseGiphy(const QByteArray &json, Rating maxRating,
                         int requestOffset)
 {

@@ -77,8 +77,18 @@ bool GifSendController::hasIdenticalPending(const Pending &candidate) const
 
 void GifSendController::start(Pending pending)
 {
-    if (!m_client || pending.roomId.isEmpty()
-        || pending.result.gifUrl.isEmpty()) {
+    if (!m_client || pending.roomId.isEmpty()) {
+        Q_EMIT sendFailed(QStringLiteral("unavailable"), pending.isThread);
+        return;
+    }
+    // A client-local starred GIF is a stored file, never a provider URL —
+    // route it to the synchronous local-bytes send path instead of the
+    // download pipeline below.
+    if (pending.result.provider == QLatin1String("local")) {
+        startLocal(std::move(pending));
+        return;
+    }
+    if (pending.result.gifUrl.isEmpty()) {
         Q_EMIT sendFailed(QStringLiteral("unavailable"), pending.isThread);
         return;
     }
@@ -152,6 +162,54 @@ void GifSendController::onGifDownloadFinished(quint64 opId, bool ok,
     if (m_recent)
         m_recent->recordSent(p.result);
     Q_EMIT sendSucceeded(p.isThread);
+}
+
+void GifSendController::startLocal(Pending pending)
+{
+    if (pending.result.id.isEmpty() || !m_localGifReader) {
+        Q_EMIT sendFailed(QStringLiteral("unavailable"), pending.isThread);
+        return;
+    }
+    Q_EMIT sendStarted(pending.isThread);
+    // Read fresh from disk and re-validate — never trusted from the
+    // snapshot captured at activation: the file may have been unstarred or
+    // caps refuse rather than evict, so the store never removes a file on
+    // its own — but the user can have unstarred it since choosing it.
+    const QByteArray bytes = m_localGifReader(pending.result.id);
+    const gif::GifByteValidation v = gif::validateGifBytes(bytes);
+    if (!v.ok) {
+        Q_EMIT sendFailed(bytes.isEmpty() ? QStringLiteral("unavailable")
+                                          : v.category,
+                          pending.isThread);
+        return;
+    }
+    if (pending.isThread && pending.rootId.isEmpty()) {
+        // Never attempted — a captured thread destination with no root id
+        // is an unavailable target, not a send that was tried and failed.
+        Q_EMIT sendFailed(QStringLiteral("unavailable"), pending.isThread);
+        return;
+    }
+    const QString filename = safeFilename(pending.result);
+    const quint64 sendOp = pending.isThread
+        ? m_client->sendThreadAttachmentBytes(
+              pending.roomId, pending.rootId, bytes, filename,
+              QStringLiteral("image/gif"), v.width, v.height)
+        : m_client->sendAttachmentBytes(
+              pending.roomId, bytes, filename, QStringLiteral("image/gif"),
+              v.width, v.height);
+    if (sendOp == 0) {
+        Q_EMIT sendFailed(QStringLiteral("send_failed"), pending.isThread);
+        return;
+    }
+    // Deliberately NOT recorded into Recents: Recents is a global (not
+    // account-scoped) store, while starred-GIF bytes live under the
+    // account's own directory. Recording a "local:<hash>" reference there
+    // would let a hint of one account's starred content leak into another
+    // account's picker after switching on the same machine (the bytes stay
+    // unreachable, but the reference itself should not cross accounts).
+    // The item is already visible in Favorites, which the local-starred
+    // store keeps account-scoped.
+    Q_EMIT sendSucceeded(pending.isThread);
 }
 
 void GifSendController::cancelAll()

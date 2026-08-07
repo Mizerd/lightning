@@ -160,6 +160,23 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_gif->setTransport(m_gifTransport.get());
     m_gifSend      = std::make_unique<GifSendController>(this);
     m_gifSend->setRecentModel(m_gif->recent());
+    // v0.6.6: a local-favorite send reads the stored bytes straight off
+    // disk by content hash — no network, no MatrixClient::gifDownload().
+    m_gifSend->setLocalGifReader([this](const QString &hash) {
+        return m_gif->starredStore()->readBytes(hash);
+    });
+    // The star-fetch trigger (starChatGif) lives on MediaBridge and stays
+    // GIF-agnostic; this is the one place its result is routed into the
+    // local-starred store, keeping src/media/ and src/gif/ decoupled from
+    // each other.
+    connect(m_mediaBridge.get(), &MediaBridge::mediaBytesForStar, this,
+            [this](const QString &mediaKey, bool ok, const QByteArray &bytes,
+                   const QString &category) {
+        if (ok)
+            m_gif->starredStore()->starBytes(mediaKey, bytes);
+        else
+            m_gif->starredStore()->reportFetchFailed(mediaKey, category);
+    });
 
     // GIF policy follows the persisted settings live.
     m_gif->setRating(m_settings->gifSafeSearch());
@@ -274,6 +291,25 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     });
     connect(m_client.get(), &MatrixClient::loggedOut, this,
             [this] {
+                // Close the local-starred-GIF store's live handle (if any)
+                // on EVERY session detach — a genuine sign-out, an
+                // account-removal-via-logout, AND a plain account SWITCH
+                // (MatrixClient::detachSession() also emits this). This
+                // matters most for the SWITCH case: AuthManager's own
+                // handler on this same signal runs first (registered
+                // earlier, in its own constructor) and synchronously
+                // triggers AppController::onLoggedOut(), which returns
+                // immediately while m_accountSwitching is true — WITHOUT
+                // touching the store — so without this line the store would
+                // keep showing the outgoing account's rows in the merged
+                // Favorites model until the new account's login succeeds
+                // and calls openStarredStoreFor(). Idempotent/harmless to
+                // call again here for a genuine sign-out too, where
+                // onLoggedOut() (which ran just before this) already closed
+                // it as part of its own deletion. The actual on-disk
+                // deletion (sign-out/removal only, never a plain switch) is
+                // separate — see onLoggedOut() and removeAccount().
+                m_gif->closeStarredStore();
                 m_notifications->clearPending();
                 m_knownInvites.clear();
                 // Session-scoped sync-failure state must not leak into the
@@ -1442,6 +1478,19 @@ void AppController::reloadCurrentRoomTimeline(int limit)
 #endif
 }
 
+void AppController::starChatGif(const QString &mediaKey)
+{
+    if (mediaKey.isEmpty())
+        return;
+    // A star fetch still in flight when the user signs out simply produces
+    // no starFinished()/banner: the QML Connections that would show it are
+    // gone with the rest of the UI, and MediaBridge::clear() (called from
+    // clearCrossAccountCaches on the next login) drops the in-flight
+    // request. Deliberate, not a bug — there is no surface left to report
+    // to by the time it would resolve.
+    m_mediaBridge->fetchFullForStar(mediaKey);
+}
+
 void AppController::acceptVerification()
 {
 #ifdef ENABLE_RUST_SDK_BACKEND
@@ -1947,6 +1996,14 @@ void AppController::onLoginSucceeded()
     m_lastSessionUserId = uid;
     if (accountChanged)
         clearCrossAccountCaches();
+    // v0.6.6: the local-starred-GIF store is account-scoped storage (see
+    // GifStarredStore's header) — point it at this account's own directory
+    // on every login, including the first one and a same-account restore
+    // (openFor() is cheap and idempotent; an empty root leaves it closed).
+    // Path from the ONE shared helper — the open path and both delete
+    // paths must never derive this independently (silent divergence here
+    // is how cleanup reports "absent" while decrypted bytes survive).
+    m_gif->openStarredStoreFor(matrix::app_data::starredGifsDir(uid));
     m_accounts->setActiveUser(uid);
     setLocalRustResetRequired(false);
     clearLocalSessionFailure();
@@ -1980,8 +2037,46 @@ void AppController::onLoggedOut()
     Q_EMIT currentRoomIdChanged();
     if (m_accountSwitching) {
         // The old session was detached locally as part of a switch; stay on
-        // the main screen while the target account activates.
+        // the main screen while the target account activates. A plain
+        // switch never deletes the outgoing account's starred-GIF store —
+        // only a genuine sign-out (below) does.
         return;
+    }
+    // v0.6.6: a genuine sign-out (never a switch — that returned above,
+    // never merely "removing the account record" as such, since removing
+    // the ACTIVE logged-in account (removeAccount()) delegates to
+    // AuthManager::logout() and lands here too). The local-starred-GIF
+    // store for the account that WAS active must not survive: real
+    // sign-out already deletes the Rust crypto store this same way
+    // (RustSdkMatrixClient::finishSignOut -> removeAccountRustState), and
+    // this app-level store follows the identical CLAUDE.md §6 rule ("never
+    // leave decrypted material behind after the user asked to sign out").
+    // Read m_lastSessionUserId BEFORE it is cleared just below — it is the
+    // identity that was actually active, never re-derived for a different
+    // account. This handler runs BEFORE m_client.get()'s own
+    // MatrixClient::loggedOut connection (registered LATER, so it fires
+    // later in the same dispatch — see that lambda's own comment), so the
+    // close happens explicitly here rather than being assumed already done.
+    if (!m_lastSessionUserId.isEmpty()) {
+        m_gif->closeStarredStore(); // never delete a directory still "open"
+        const QString starredDir =
+            matrix::app_data::starredGifsDir(m_lastSessionUserId);
+        const auto outcome = matrix::app_data::removeAppDataDir(starredDir);
+        // A FAILED delete leaves decrypted material behind — warn, so it
+        // survives a normal log filter; deleted/absent stay informational.
+        if (outcome == matrix::app_data::DirRemoval::Failed) {
+            qCWarning(lcApp)
+                << "starred-GIF store sign-out cleanup FAILED slug="
+                << matrix::app_data::safeUserSlug(m_lastSessionUserId);
+        } else {
+            qCInfo(lcApp) << "starred-GIF store sign-out cleanup"
+                          << "slug="
+                          << matrix::app_data::safeUserSlug(m_lastSessionUserId)
+                          << "outcome="
+                          << (outcome == matrix::app_data::DirRemoval::Deleted
+                                  ? "deleted"
+                                  : "absent");
+        }
     }
     m_accounts->clearActiveUser();
     m_lastSessionUserId.clear();
@@ -2133,8 +2228,10 @@ void AppController::removeAccount(const QString &userId)
 
     const bool isActive = target == m_settings->activeAccountUserId();
     if (isActive && m_client->isLoggedIn()) {
-        // Real (server) logout. Local store/record cleanup and switching to
-        // a remaining account follow from the logout flow.
+        // Real (server) logout. Local store/record cleanup (Rust crypto
+        // store AND the local-starred-GIF store — see
+        // AppController::onLoggedOut) and switching to a remaining account
+        // follow from the logout flow.
         m_auth->logout();
         return;
     }
@@ -2159,6 +2256,39 @@ void AppController::removeAccount(const QString &userId)
     }
     if (resolved) {
         const auto removed = matrix::app_data::removeAccountRustState(identity);
+
+        // v0.6.6: the local-starred-GIF store lives under the CANONICAL
+        // account root (matrix::app_data::accountRoot(userId) — see
+        // GifStarredStore's header), which can differ from
+        // identity.accountRoot for an account with a recorded divergent
+        // store slug — the roots-sweep loop below already handles that
+        // divergence for the Rust store/cache.sqlite, but this directory
+        // gets its own explicit, distinctly-reported deletion here rather
+        // than relying on being incidentally swept. Close it first if it
+        // happens to be the store this process currently has open (e.g.
+        // this was the last signed-in account before being fully signed
+        // out, and nothing has opened a different account's store since —
+        // MatrixClient::loggedOut's own close only fires on a session
+        // detach, which this explicit-removal path is not).
+        const QString starredDir =
+            matrix::app_data::starredGifsDir(identity.userId);
+        if (m_gif->starredStore()->currentDirectory() == starredDir)
+            m_gif->closeStarredStore();
+        const auto starredOutcome = matrix::app_data::removeAppDataDir(starredDir);
+        // FAILED leaves decrypted material behind — warn (normal filters).
+        if (starredOutcome == matrix::app_data::DirRemoval::Failed) {
+            qCWarning(lcApp) << "removing account starred-GIF store FAILED"
+                             << "slug=" << identity.slug;
+        } else {
+            qCInfo(lcApp) << "removed account starred-GIF store"
+                          << "slug=" << identity.slug
+                          << "outcome="
+                          << (starredOutcome
+                                      == matrix::app_data::DirRemoval::Deleted
+                                  ? "deleted"
+                                  : "absent");
+        }
+
         // A divergent store slug means this account owns TWO directories: the
         // recorded one holding the SDK store, and the canonical one, which is
         // where CacheStore::openFor() unconditionally puts cache.sqlite

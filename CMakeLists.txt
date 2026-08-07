@@ -265,6 +265,12 @@ set(APP_SOURCES
     src/gif/GifFavoritesModel.cpp
     src/gif/GifRecentModel.h
     src/gif/GifRecentModel.cpp
+    src/gif/GifStarredModel.h
+    src/gif/GifStarredModel.cpp
+    src/gif/GifStarredStore.h
+    src/gif/GifStarredStore.cpp
+    src/gif/GifFavoritesMergedModel.h
+    src/gif/GifFavoritesMergedModel.cpp
     src/gif/GifTransport.h
     src/gif/GifSearchController.h
     src/gif/GifSearchController.cpp
@@ -774,6 +780,12 @@ if(BUILD_TESTING)
         src/gif/GifFavoritesModel.cpp
         src/gif/GifRecentModel.h
         src/gif/GifRecentModel.cpp
+        src/gif/GifStarredModel.h
+        src/gif/GifStarredModel.cpp
+        src/gif/GifStarredStore.h
+        src/gif/GifStarredStore.cpp
+        src/gif/GifFavoritesMergedModel.h
+        src/gif/GifFavoritesMergedModel.cpp
         src/gif/GifTransport.h
         src/gif/GifSearchController.h
         src/gif/GifSearchController.cpp
@@ -919,10 +931,39 @@ if(BUILD_TESTING)
         src/gif/GifFavoritesModel.cpp
         src/gif/GifRecentModel.h
         src/gif/GifRecentModel.cpp
+        src/gif/GifStarredModel.h
+        src/gif/GifStarredModel.cpp
     )
     target_include_directories(gif-collections-test PRIVATE src)
     target_link_libraries(gif-collections-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME gif-collections COMMAND gif-collections-test)
+
+    # "Star a chat GIF" local store: content-hash dedup, item/byte-size caps
+    # that REFUSE rather than silently evict, account-scope isolation (two
+    # openFor() directories never see each other's rows), unstar deleting
+    # the file, a stale/tampered index entry never surfacing an unplayable
+    # tile, and the Favorites-tab merge (local rows first, provider rows
+    # follow, row-kind routing for the star button).
+    qt_add_executable(gif-starred-store-test
+        tests/GifStarredStoreTest.cpp
+        src/gif/GifResponseParser.h
+        src/gif/GifResponseParser.cpp
+        src/gif/GifResultModel.h
+        src/gif/GifResultModel.cpp
+        src/gif/GifStoredModel.h
+        src/gif/GifStoredModel.cpp
+        src/gif/GifFavoritesModel.h
+        src/gif/GifFavoritesModel.cpp
+        src/gif/GifStarredModel.h
+        src/gif/GifStarredModel.cpp
+        src/gif/GifStarredStore.h
+        src/gif/GifStarredStore.cpp
+        src/gif/GifFavoritesMergedModel.h
+        src/gif/GifFavoritesMergedModel.cpp
+    )
+    target_include_directories(gif-starred-store-test PRIVATE src)
+    target_link_libraries(gif-starred-store-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME gif-starred-store COMMAND gif-starred-store-test)
 
     qt_add_executable(gif-send-controller-test
         tests/GifSendControllerTest.cpp

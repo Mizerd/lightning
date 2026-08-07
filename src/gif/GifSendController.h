@@ -9,6 +9,8 @@
 #include <QString>
 #include <QVariantMap>
 
+#include <functional>
+
 class MatrixClient;
 class GifRecentModel;
 
@@ -36,6 +38,14 @@ public:
 
     void setClient(MatrixClient *client);
     void setRecentModel(GifRecentModel *recent) { m_recent = recent; }
+    // v0.6.6: reads the bytes for a starred local GIF's content hash (see
+    // GifStarredStore::readBytes) — reads fresh from disk at send time,
+    // never trusted from the captured snapshot, so a GIF unstarred/removed
+    // between activation and send is refused rather than sent from stale
+    // data. Empty return means "unavailable".
+    using LocalGifReader = std::function<QByteArray(const QString &hash)>;
+    void setLocalGifReader(LocalGifReader reader)
+    { m_localGifReader = std::move(reader); }
 
     int activeCount() const { return m_pending.size(); }
 
@@ -62,6 +72,12 @@ private:
     };
 
     void start(Pending pending);
+    // Local-favorite send path: the "GIF" is a client-local starred file,
+    // not a provider URL. Synchronous end-to-end (disk read, validate, hand
+    // to the SDK attachment path) — there is no async in-flight window, so
+    // hasIdenticalPending()'s dedup backstop (built for the download-latency
+    // window below) does not apply here.
+    void startLocal(Pending pending);
     // Authoritative de-duplication backstop: true if an IDENTICAL send
     // (same destination + same provider-qualified GIF) is already in
     // flight. GifPicker.qml's own one-shot `activated` latch is the first
@@ -84,5 +100,6 @@ private:
 
     MatrixClient *m_client = nullptr;
     GifRecentModel *m_recent = nullptr;
+    LocalGifReader m_localGifReader;
     QHash<quint64, Pending> m_pending; // download op id -> captured destination
 };

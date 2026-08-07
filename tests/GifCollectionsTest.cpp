@@ -6,6 +6,7 @@
 #include "gif/GifFavoritesModel.h"
 #include "gif/GifRecentModel.h"
 #include "gif/GifResultModel.h"
+#include "gif/GifStarredModel.h"
 
 #include <QSettings>
 #include <QtTest/QtTest>
@@ -42,6 +43,21 @@ QVariantMap toMap(const gif::GifResult &r)
     return m;
 }
 
+// A local-starred row exactly as GifStarredStore builds it: provider
+// "local", id a content-hash-shaped string, no URLs at all (see
+// GifStarredStore's header — the actual playback source is re-derived from
+// the hash, never trusted from a persisted URL).
+gif::GifResult makeLocal(const QString &hash, qint64 bytes = 1234)
+{
+    gif::GifResult r;
+    r.provider = QStringLiteral("local");
+    r.id = hash;
+    r.gifWidth = 64;
+    r.gifHeight = 48;
+    r.gifBytes = bytes;
+    return r;
+}
+
 } // namespace
 
 class GifCollectionsTest : public QObject
@@ -75,6 +91,15 @@ private Q_SLOTS:
     void corruptedStoreRecovers();
     void rejectsUnsafeStoredUrl();
     void noSensitiveFieldsPersisted();
+
+    // v0.6.6: GifStarredModel — the thin GifStoredModel sibling
+    // GifStarredStore persists local-starred rows through.
+    void starredInsertDedupsByHashAndOrdersNewestFirst();
+    void starredPersistsAcrossReloadWithNoUrlFields();
+    void starredUnstarRemovesEntry();
+    void starredTotalBytesSumsRows();
+    void starredNoSensitiveFieldsPersisted();
+    void reopenReplacesRowsAndCanGoStorageless();
 };
 
 void GifCollectionsTest::favoriteToggleAndDedup()
@@ -202,6 +227,110 @@ void GifCollectionsTest::noSensitiveFieldsPersisted()
         QVERIFY2(!raw.contains(QLatin1String(forbidden)),
                  forbidden);
     }
+}
+
+void GifCollectionsTest::starredInsertDedupsByHashAndOrdersNewestFirst()
+{
+    GifStarredModel starred(store);
+    const QString h1 = QString(64, QLatin1Char('1'));
+    const QString h2 = QString(64, QLatin1Char('2'));
+    starred.insertLocal(makeLocal(h1));
+    starred.insertLocal(makeLocal(h2));
+    QCOMPARE(starred.count(), 2);
+    QCOMPARE(starred.get(0).value(QStringLiteral("gifId")).toString(), h2); // newest first
+    QVERIFY(starred.hasHash(h1));
+    QVERIFY(starred.hasHash(h2));
+
+    // Re-inserting the SAME hash (re-starring identical content) moves it
+    // to the front instead of duplicating.
+    starred.insertLocal(makeLocal(h1));
+    QCOMPARE(starred.count(), 2);
+    QCOMPARE(starred.get(0).value(QStringLiteral("gifId")).toString(), h1);
+}
+
+void GifCollectionsTest::starredPersistsAcrossReloadWithNoUrlFields()
+{
+    const QString h = QString(64, QLatin1Char('a'));
+    {
+        GifStarredModel starred(store);
+        starred.insertLocal(makeLocal(h, 5000));
+        QCOMPARE(starred.count(), 1);
+    }
+    store->sync();
+    GifStarredModel reloaded(store);
+    QCOMPARE(reloaded.count(), 1);
+    const QVariantMap row = reloaded.get(0);
+    QCOMPARE(row.value(QStringLiteral("provider")).toString(),
+             QStringLiteral("local"));
+    QCOMPARE(row.value(QStringLiteral("gifId")).toString(), h);
+    QCOMPARE(row.value(QStringLiteral("previewUrl")).toString(), QString());
+    QCOMPARE(row.value(QStringLiteral("gifUrl")).toString(), QString());
+}
+
+void GifCollectionsTest::starredUnstarRemovesEntry()
+{
+    GifStarredModel starred(store);
+    const QString h = QString(64, QLatin1Char('b'));
+    starred.insertLocal(makeLocal(h));
+    QCOMPARE(starred.count(), 1);
+    starred.unstar(h);
+    QCOMPARE(starred.count(), 0);
+    QVERIFY(!starred.hasHash(h));
+}
+
+void GifCollectionsTest::starredTotalBytesSumsRows()
+{
+    GifStarredModel starred(store);
+    starred.insertLocal(makeLocal(QString(64, QLatin1Char('c')), 1000));
+    starred.insertLocal(makeLocal(QString(64, QLatin1Char('d')), 2500));
+    QCOMPARE(starred.totalBytes(), qint64(3500));
+}
+
+void GifCollectionsTest::starredNoSensitiveFieldsPersisted()
+{
+    GifStarredModel starred(store);
+    starred.insertLocal(makeLocal(QString(64, QLatin1Char('e'))));
+    store->sync();
+    const QString raw = store->value(QStringLiteral("gif/starred")).toString();
+    QVERIFY(raw.contains(QStringLiteral("provider")));
+    for (const char *forbidden : { "roomId", "eventId", "threadRootId",
+                                   "userId", "!room", "$event", "@user",
+                                   "access_token", "mediaKey", "sender" }) {
+        QVERIFY2(!raw.contains(QLatin1String(forbidden)), forbidden);
+    }
+}
+
+void GifCollectionsTest::reopenReplacesRowsAndCanGoStorageless()
+{
+    GifStarredModel starred(store);
+    starred.insertLocal(makeLocal(QString(64, QLatin1Char('f'))));
+    QCOMPARE(starred.count(), 1);
+
+    // Re-point at "no backing store" (closed) — every row drops, and
+    // nothing is written back to the OLD settings object (still holding
+    // the account-A row untouched on disk).
+    starred.reopen(nullptr);
+    QCOMPARE(starred.count(), 0);
+
+    // Re-point at a DIFFERENT settings object (a different account
+    // directory) and load whatever it holds.
+    QSettings other(QStringLiteral("/tmp/lightning-gif-collections-test-b.ini"),
+                    QSettings::IniFormat);
+    other.clear();
+    starred.reopen(&other);
+    QCOMPARE(starred.count(), 0); // fresh store, nothing in it yet
+    starred.insertLocal(makeLocal(QString(64, QLatin1Char('g'))));
+    QCOMPARE(starred.count(), 1);
+    other.sync();
+
+    // The original settings object's "gif/starred" key is untouched by any
+    // of the above — reopen() never persists into the store it just left.
+    store->sync();
+    GifStarredModel original(store);
+    QCOMPARE(original.count(), 1);
+    QCOMPARE(original.get(0).value(QStringLiteral("gifId")).toString(),
+             QString(64, QLatin1Char('f')));
+    other.clear();
 }
 
 QTEST_MAIN(GifCollectionsTest)

@@ -10,6 +10,9 @@ GifSearchController::GifSearchController(QObject *parent)
     , m_settings(std::make_unique<QSettings>())
     , m_favorites(std::make_unique<GifFavoritesModel>(m_settings.get(), this))
     , m_recent(std::make_unique<GifRecentModel>(m_settings.get(), this))
+    , m_starred(std::make_unique<GifStarredStore>(this))
+    , m_favoritesAndStarred(std::make_unique<GifFavoritesMergedModel>(
+          m_starred->model(), m_favorites.get(), this))
 {
     // Resolve provider keys through the shared source of truth (process
     // environment > local env file > compiled build key > unconfigured).

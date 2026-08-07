@@ -288,6 +288,17 @@ Item {
         return "settings"
     }
 
+    // v0.6.6: human-readable byte size for the Starred GIFs summary row.
+    // Mirrors GifPicker.qml's own formatBytes() (kept local/duplicated
+    // rather than shared: both are tiny, presentation-only, and each file
+    // already owns the rest of its own formatting conventions).
+    function formatBytes(n) {
+        if (!n || n <= 0) return "0 B"
+        if (n < 1024) return n + " B"
+        if (n < 1024 * 1024) return Math.round(n / 1024) + " KB"
+        return (n / (1024 * 1024)).toFixed(1) + " MB"
+    }
+
     // Deep links from older code paths (message rows jump to "security",
     // etc.) keep working through this mapping.
     function mapLegacySection(key) {
@@ -357,6 +368,32 @@ Item {
             if (kind === "favorites") app.gif.favorites.clearAll()
             else if (kind === "recent") app.gif.recent.clearAll()
         }
+    }
+
+    // v0.6.6: confirmation before clearing the client-local starred-GIF
+    // store (see GifStarredStore) — unlike Favorites/Recents this one holds
+    // actual decrypted file bytes on disk, so the same confirmed-danger
+    // pattern applies with its own dedicated dialog rather than reusing
+    // gifClearConfirm's two-kind switch.
+    Dialog {
+        id: starredGifsClearConfirm
+        objectName: "starredGifsClearConfirm"
+        title: qsTr("Clear starred GIFs?")
+        anchors.centerIn: parent
+        modal: true
+        standardButtons: Dialog.Yes | Dialog.Cancel
+        // Explicit bounded width: sizing this dialog from its fixed-width
+        // content fed implicitWidth back into itself — the same latent
+        // loop resetConfirmDialog (below, Privacy & security → Recovery)
+        // already documents and works around the same way.
+        width: 320
+        Label {
+            width: 280
+            wrapMode: Text.WordWrap
+            text: qsTr("Delete every GIF you've starred from this device? "
+                       + "This cannot be undone.")
+        }
+        onAccepted: app.gif.starredStore.clearAll()
     }
 
     Rectangle { anchors.fill: parent; color: AppTheme.stormDeep }
@@ -1701,6 +1738,49 @@ Item {
                                         enabled: app.gif.favorites.count > 0
                                         onClicked: gifClearConfirm.open("favorites")
                                     }
+                                }
+
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    implicitHeight: 1
+                                    color: AppTheme.stormBorder
+                                }
+
+                                // v0.6.6: client-local GIF starring. Unlike
+                                // Favorites/Recents (small provider-CDN
+                                // metadata rows) this store holds actual
+                                // decrypted file bytes on this device — see
+                                // GifStarredStore's header — so it gets its
+                                // own visible count/size and confirmed
+                                // Clear All, not folded into the row above.
+                                Label {
+                                    text: qsTr("Starred GIFs")
+                                    color: AppTheme.stormText
+                                    font.pixelSize: AppTheme.fontBody
+                                    font.weight: Font.DemiBold
+                                    Layout.topMargin: AppTheme.spacing4
+                                }
+                                Label {
+                                    objectName: "starredGifsSummaryLabel"
+                                    Layout.fillWidth: true
+                                    wrapMode: Text.WordWrap
+                                    color: AppTheme.stormTextSecondary
+                                    font.pixelSize: AppTheme.fontCaption
+                                    text: qsTr("%1 GIF(s), %2 — kept on this "
+                                               + "device only and removed "
+                                               + "when you sign out of this "
+                                               + "account.")
+                                        .arg(app.gif.starredStore.count)
+                                        .arg(root.formatBytes(
+                                            app.gif.starredStore.totalBytes))
+                                }
+                                AppButton {
+                                    objectName: "clearStarredGifsButton"
+                                    storm: true
+                                    kind: "danger"
+                                    text: qsTr("Clear all starred GIFs")
+                                    enabled: app.gif.starredStore.count > 0
+                                    onClicked: starredGifsClearConfirm.open()
                                 }
                             }
                         }

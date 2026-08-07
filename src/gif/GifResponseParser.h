@@ -91,4 +91,19 @@ bool isSendableGifUrl(const QString &url);
 // Remove provider tracking query params, keeping the bare CDN path.
 QString stripTracking(const QString &url);
 
+// v0.6.6: byte-level GIF validation for bytes that never go through the
+// Rust provider-download path (see GifStarredStore / the "star a chat GIF"
+// local-media pipeline). Mirrors rust/src/gifs.rs::validate_gif_bytes
+// exactly and deliberately (magic bytes, logical-screen-descriptor
+// width/height, the same kMaxGifDimension/kMaxGifBytes caps) so a locally
+// sourced GIF is held to the identical bar as a provider-downloaded one.
+struct GifByteValidation {
+    bool ok = false;
+    // "not_a_gif" | "invalid_media" | "too_large" | "" when ok.
+    QString category;
+    int width = 0;
+    int height = 0;
+};
+GifByteValidation validateGifBytes(const QByteArray &bytes);
+
 } // namespace gif

@@ -133,6 +133,39 @@ private Q_SLOTS:
         QVERIFY(block.count(QStringLiteral("app.composer.beginEdit(")) == 2);
     }
 
+    // v0.6.6: "Star GIF" — visible only for a confirmed GIF media row with a
+    // fetchable source, toggles label/action by this-session starred state,
+    // and never falls back to a mutable row index (routes by model.mediaKey,
+    // captured at menu-open time exactly like every other row action here).
+    void starGifMenuItemGatedOnGifMimetypeAndTogglesByStarredState()
+    {
+        const QString delegate = read(QStringLiteral("MessageDelegate.qml"));
+        const QString block = moreMenuBlock(delegate);
+        QVERIFY(!block.isEmpty());
+        const int start = block.indexOf(QStringLiteral("starGifMenuItem"));
+        QVERIFY(start >= 0);
+        const int end = block.indexOf(QStringLiteral("AppMenuSeparator"), start);
+        QVERIFY(end > start);
+        const QString item = block.mid(start, end - start);
+
+        QVERIFY(item.contains(QStringLiteral(
+            "(model.mediaMimetype || \"\")\n"
+            "                                             .toLowerCase() === \"image/gif\"")));
+        QVERIFY(item.contains(QStringLiteral(
+            "model.mediaSourceAvailable === true")));
+        QVERIFY(item.contains(QStringLiteral("app.mediaBridge.supported")));
+        QVERIFY(item.contains(QStringLiteral(
+            "app.gif.starredStore.isStarredThisSession(")));
+        QVERIFY(item.contains(QStringLiteral("qsTr(\"Unstar GIF\")")));
+        QVERIFY(item.contains(QStringLiteral("qsTr(\"Star GIF\")")));
+        // The action re-resolves model.mediaKey inside onTriggered (a stable
+        // per-row identifier), never a captured index or currentIndex.
+        QVERIFY(item.contains(QStringLiteral("var key = model.mediaKey || \"\"")));
+        QVERIFY(item.contains(QStringLiteral(
+            "app.gif.starredStore.unstarByMediaKey(key)")));
+        QVERIFY(item.contains(QStringLiteral("app.starChatGif(key)")));
+    }
+
     void messageActionBarUsesSpecChrome()
     {
         const QString delegate = read(QStringLiteral("MessageDelegate.qml"));

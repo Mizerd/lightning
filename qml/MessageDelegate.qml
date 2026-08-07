@@ -1286,6 +1286,38 @@ Item {
                                             model.mediaFilename || "download")
                                 }
                             }
+                            // v0.6.6: client-local GIF starring (Discord-
+                            // style). Only for confirmed GIF media rows
+                            // (mediaMimetype is the same reliable per-row
+                            // signal the inline animated-preview logic
+                            // already uses). "Unstar" reflects only what
+                            // was starred/confirmed THIS session — see
+                            // GifStarredStore::isStarredThisSession — a row
+                            // starred in an earlier session still offers
+                            // "Star GIF" (re-starring is a safe, deduped
+                            // no-op, never a duplicate).
+                            AppMenuItem {
+                                objectName: "starGifMenuItem"
+                                iconName: "star"
+                                text: app.gif.starredStore.isStarredThisSession(
+                                          model.mediaKey || "")
+                                      ? qsTr("Unstar GIF") : qsTr("Star GIF")
+                                visible: (model.mediaMimetype || "")
+                                             .toLowerCase() === "image/gif"
+                                         && model.mediaSourceAvailable === true
+                                         && app.mediaBridge.supported
+                                enabled: visible && root.menuEventId !== ""
+                                onTriggered: {
+                                    var key = model.mediaKey || ""
+                                    if (!key)
+                                        return
+                                    if (app.gif.starredStore
+                                            .isStarredThisSession(key))
+                                        app.gif.starredStore.unstarByMediaKey(key)
+                                    else
+                                        app.starChatGif(key)
+                                }
+                            }
                             // SPEC 1a: the copy group and the people/editing
                             // group are separate — third divider.
                             AppMenuSeparator { }

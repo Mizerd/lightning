@@ -284,6 +284,30 @@ QString rustSdkStorePath(const QString &userId)
     return account + QLatin1Char('/') + kRustStoreName;
 }
 
+QString starredGifsDir(const QString &userId)
+{
+    const QString account = accountRoot(userId);
+    if (account.isEmpty())
+        return {};
+    return account + QLatin1String("/starred-gifs");
+}
+
+DirRemoval removeAppDataDir(const QString &dir)
+{
+    if (dir.trimmed().isEmpty())
+        return DirRemoval::Absent;
+    const QFileInfo info(dir);
+    if (!info.exists() && !info.isSymLink())
+        return DirRemoval::Absent;
+    if (info.isSymLink()) {
+        // Never recurse through a symlink — remove only the link itself,
+        // exactly like removeAccountRustState's own symlink handling.
+        return QFile::remove(dir) ? DirRemoval::Deleted : DirRemoval::Failed;
+    }
+    return QDir(dir).removeRecursively() ? DirRemoval::Deleted
+                                         : DirRemoval::Failed;
+}
+
 QString rustSdkSmokeSessionPath(const QString &userId)
 {
     const QString account = accountRoot(userId);

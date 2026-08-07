@@ -444,6 +444,16 @@ public Q_SLOTS:
     // time — the wrapper dedupes by event_id. No-op on non-Rust.
     Q_INVOKABLE void reloadCurrentRoomTimeline(int limit = 30);
 
+    // v0.6.6: "Star GIF" — the chat message context menu's entry point.
+    // Fetches `mediaKey`'s decrypted bytes through the existing controlled
+    // media bridge (works in encrypted rooms exactly like Save As) and hands
+    // them to the local-starred store once they arrive; see
+    // GifStarredStore's header for the documented rationale. Progress/result
+    // is observable via app.gif.starredStore.starFinished. This is the ONLY
+    // place MediaBridge and the gif:: local-star store meet, so neither
+    // gains a dependency on the other.
+    Q_INVOKABLE void starChatGif(const QString &mediaKey);
+
     // v0.5.0 SAS emoji verification invocables.
     Q_INVOKABLE void acceptVerification();
     Q_INVOKABLE void confirmVerification();
