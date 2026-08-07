@@ -70,6 +70,30 @@ public:
 private:
     QTimer m_ticker;
 };
+
+// Captures every message logged while alive (same pattern as
+// GifKeyConfigTest.cpp's LogCapture) — used here to verify the
+// LIGHTNING_SCROLL_TRACE "scroll-gesture" line actually renders every
+// field, since console.info() in QML does not otherwise surface to a
+// QSignalSpy or a property the test can read directly.
+class LogCapture
+{
+public:
+    LogCapture()
+    {
+        s_messages.clear();
+        m_previous = qInstallMessageHandler(
+            [](QtMsgType, const QMessageLogContext &, const QString &msg) {
+                s_messages.append(msg);
+            });
+    }
+    ~LogCapture() { qInstallMessageHandler(m_previous); }
+    static QStringList messages() { return s_messages; }
+
+private:
+    QtMessageHandler m_previous = nullptr;
+    inline static QStringList s_messages;
+};
 } // namespace
 
 class TimelinePaneQmlTest : public QObject
@@ -5111,6 +5135,1024 @@ private Q_SLOTS:
         QVERIFY2(qAbs(baselineAfter - (realItemY - simulatedGrowth)) < 0.5,
                  "the baseline was consumed on the drag path, which would "
                  "hide the growth from settle-time re-anchoring");
+    }
+
+    // ── v0.7.x round-2 review: per-branch scroll-trace instrumentation ──
+    // A proposed fix to the displaced-anchor branch (bounding/symmetrizing
+    // its correction) was reviewed and WITHDRAWN: the single combined
+    // diagGrowthCorrections counter cannot tell WHICH of the five distinct
+    // outcomes in maintainViewAnchor() actually ran during a real
+    // reported jitter/teleport gesture, nor whether a correction's
+    // magnitude was proportionate to real inserted content. The tests
+    // below pin ONLY the trace plumbing itself (each counter increments on
+    // its own branch, the emitted line renders every field, tracing off
+    // costs nothing) — none of them claim any scroll POSITION behavior
+    // changed, because none did: maintainViewAnchor()'s actual corrections
+    // are byte-for-byte the pre-existing logic, with diagnostic-only
+    // `if (scrollTrace)` bookkeeping added alongside (carry-bucket: the
+    // counters reset at print, so post-settle reconciles land on the
+    // next line instead of vanishing).
+
+    // Guard verification: with LIGHTNING_SCROLL_TRACE unset, scrollTrace
+    // is false (bound to the CONSTANT scrollTraceEnabled, read once from
+    // the environment), so every `if (scrollTrace)` increment site
+    // short-circuits — this drives the exact growth scenario that WOULD
+    // move diagMaterializedFirings/diagMaterializedAppliedSum/
+    // diagMaterializedMaxAbsDelta if tracing were on, with it explicitly
+    // off, and proves nothing moved and no line was emitted.
+    void scrollTraceDisabledAddsNoDiagnosticCost()
+    {
+        qunsetenv("LIGHTNING_SCROLL_TRACE");
+
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!controller.timelineScroll()->scrollTraceEnabled());
+        const QString roomId = QStringLiteral("!general:mock.local");
+        controller.setCurrentRoomId(roomId);
+        auto *mock = controller.findChild<MockMatrixClient *>();
+        QVERIFY(mock != nullptr);
+
+        QList<TimelineEvent> events;
+        for (int i = 0; i < 30; ++i) {
+            TimelineEvent e;
+            e.sender = QStringLiteral("@alice:mock.local");
+            e.senderDisplayName = QStringLiteral("Alice");
+            e.body = QStringLiteral("history message %1").arg(i);
+            e.timestamp =
+                QDateTime::currentDateTimeUtc().addSecs(-(60 - i) * 60);
+            e.type = TimelineEvent::TextMessage;
+            e.status = TimelineEvent::Sent;
+            events.append(e);
+        }
+        mock->resetTimelineForTest(roomId, events, /*paginationPages=*/1);
+
+        QQmlApplicationEngine engine;
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this,
+                [&warnings](const QList<QQmlError> &errors) {
+                    for (const auto &e : errors) warnings << e.toString();
+                });
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("TimelinePane"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(root != nullptr);
+
+        QQuickWindow window;
+        window.resize(760, 620);
+        root->setParentItem(window.contentItem());
+        root->setSize(QSizeF(window.width(), window.height()));
+        window.show();
+        QCoreApplication::processEvents();
+
+        auto *timeline = root->findChild<QQuickItem *>(
+            QStringLiteral("timelineListView"));
+        QVERIFY(timeline != nullptr);
+        QTRY_VERIFY_WITH_TIMEOUT(timeline->property("count").toInt() >= 30,
+                                 kSignalTimeoutMs);
+        QTRY_VERIFY_WITH_TIMEOUT(!controller.pagination()->busy(),
+                                 kSignalTimeoutMs);
+        QCOMPARE(timeline->property("scrollTrace").toBool(), false);
+
+        QVERIFY(timeline->setProperty("stickToBottom", false));
+        QVERIFY(QMetaObject::invokeMethod(timeline, "positionViewAtIndex",
+                                          Q_ARG(int, 15),
+                                          Q_ARG(int, 0 /*ListView.Beginning*/)));
+        QCoreApplication::processEvents();
+        QVERIFY(QMetaObject::invokeMethod(timeline, "captureViewAnchor"));
+
+        LogCapture capture;
+
+        const QPointF pos(320, 300);
+        for (int attempt = 0; attempt < 50; ++attempt) {
+            QWheelEvent wheel(pos, window.mapToGlobal(pos.toPoint()),
+                              QPoint(0, 24), QPoint(0, 0), Qt::NoButton,
+                              Qt::NoModifier, Qt::ScrollUpdate,
+                              /*inverted=*/false);
+            QCoreApplication::sendEvent(&window, &wheel);
+            QCoreApplication::processEvents();
+            if (timeline->property("userScrollActive").toBool())
+                break;
+            QTest::qWait(10);
+        }
+        QVERIFY(timeline->setProperty(
+            "viewAnchorLastY",
+            timeline->property("viewAnchorLastY").toDouble() - 270.0));
+        QVERIFY(QMetaObject::invokeMethod(timeline, "maintainViewAnchor"));
+
+        QCOMPARE(timeline->property("diagActive").toBool(), false);
+        QCOMPARE(timeline->property("diagNoAnchorReturns").toInt(), 0);
+        QCOMPARE(timeline->property("diagDisplacedFirings").toInt(), 0);
+        QCOMPARE(timeline->property("diagDisplacedAppliedSum").toDouble(), 0.0);
+        QCOMPARE(timeline->property("diagDisplacedMaxAbsGrew").toDouble(), 0.0);
+        QCOMPARE(timeline->property("diagDisplacedMaxAbsGrewRows").toInt(), 0);
+        QCOMPARE(timeline->property("diagMaterializedFirings").toInt(), 0);
+        QCOMPARE(timeline->property("diagMaterializedAppliedSum").toDouble(), 0.0);
+        QCOMPARE(timeline->property("diagMaterializedMaxAbsDelta").toDouble(), 0.0);
+        QCOMPARE(timeline->property("diagUnresolvedIdFallbacks").toInt(), 0);
+        QCOMPARE(timeline->property("diagEvictedNoInsertFallbacks").toInt(), 0);
+        QCOMPARE(timeline->property("diagDragDeferrals").toInt(), 0);
+
+        for (const QString &m : capture.messages()) {
+            QVERIFY2(!m.contains(QStringLiteral("scroll-gesture")),
+                     qPrintable(QStringLiteral(
+                         "a scroll-gesture line was emitted with tracing "
+                         "off: %1").arg(m)));
+        }
+    }
+
+    // "The line renders all fields" (lead instruction 3): capture the real
+    // console.info() emission through a genuine gesture reaching settle,
+    // and assert every per-branch field name from the extended line is
+    // present alongside the pre-existing ones. Deliberately loose about
+    // VALUES — that is covered by the dedicated per-branch tests below —
+    // this only pins that the line's shape cannot silently drop a field.
+    void scrollTraceLineIncludesAllPerBranchFields()
+    {
+        qputenv("LIGHTNING_SCROLL_TRACE", "1");
+        struct Guard { ~Guard() { qunsetenv("LIGHTNING_SCROLL_TRACE"); } } guard;
+
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(controller.timelineScroll()->scrollTraceEnabled());
+        controller.setCurrentRoomId(QStringLiteral("!general:mock.local"));
+
+        QQmlApplicationEngine engine;
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this,
+                [&warnings](const QList<QQmlError> &errors) {
+                    for (const auto &e : errors) warnings << e.toString();
+                });
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("TimelinePane"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(root != nullptr);
+        auto *timeline = root->findChild<QQuickItem *>(
+            QStringLiteral("timelineListView"));
+        QVERIFY(timeline != nullptr);
+
+        QQuickWindow window;
+        window.resize(640, 480);
+        root->setParentItem(window.contentItem());
+        root->setWidth(window.width());
+        root->setHeight(window.height());
+        window.show();
+        QCoreApplication::processEvents();
+
+        QVERIFY(timeline->setProperty("stickToBottom", false));
+        QCoreApplication::processEvents();
+
+        LogCapture capture;
+
+        const QPointF pos(320, 300);
+        bool opened = false;
+        for (int attempt = 0; attempt < 50 && !opened; ++attempt) {
+            QWheelEvent wheel(pos, window.mapToGlobal(pos.toPoint()),
+                              QPoint(0, 24), QPoint(0, 0), Qt::NoButton,
+                              Qt::NoModifier, Qt::ScrollUpdate,
+                              /*inverted=*/false);
+            QCoreApplication::sendEvent(&window, &wheel);
+            QCoreApplication::processEvents();
+            opened = timeline->property("userScrollActive").toBool();
+            if (!opened)
+                QTest::qWait(10);
+        }
+        QVERIFY2(opened, "a touchpad delta must open the scroll session");
+
+        QTRY_VERIFY_WITH_TIMEOUT(
+            !timeline->property("userScrollActive").toBool(), 3000);
+
+        QString line;
+        for (const QString &m : capture.messages()) {
+            if (m.contains(QStringLiteral("scroll-gesture"))) {
+                line = m;
+                break;
+            }
+        }
+        QVERIFY2(!line.isEmpty(), "no scroll-gesture line was emitted at settle");
+
+        const QStringList expectedFields = {
+            QStringLiteral("events="),
+            QStringLiteral("pixel="),
+            QStringLiteral("angle="),
+            QStringLiteral("netY="),
+            QStringLiteral("dContentH="),
+            QStringLiteral("noAnchorReturns="),
+            QStringLiteral("anchorCorrections="),
+            QStringLiteral("growthCorrections="),
+            QStringLiteral("displacedFirings="),
+            QStringLiteral("displacedApplied="),
+            QStringLiteral("displacedMaxAbsGrew="),
+            QStringLiteral("displacedMaxAbsGrewRows="),
+            QStringLiteral("materializedFirings="),
+            QStringLiteral("materializedApplied="),
+            QStringLiteral("materializedMaxAbsDelta="),
+            QStringLiteral("unresolvedId="),
+            QStringLiteral("evictedNoInsert="),
+            QStringLiteral("dragDeferrals="),
+            QStringLiteral("stick="),
+            QStringLiteral("topDist="),
+            QStringLiteral("nearTop="),
+        };
+        for (const QString &field : expectedFields) {
+            QVERIFY2(line.contains(field),
+                     qPrintable(QStringLiteral(
+                         "scroll-gesture line is missing field %1: %2")
+                         .arg(field, line)));
+        }
+    }
+
+    // Per-branch counter (materialized path): discriminates whether the
+    // already-tested, already-symmetric self-driven growth-delta branch —
+    // NOT the displaced branch under review — is where a reported jitter
+    // is actually coming from. Reuses
+    // maintainViewAnchorAppliesGrowthDeltaMidGestureWithoutGlide's exact
+    // drive; asserts ONLY the new counters, not scroll correctness (already
+    // covered there, unchanged by this round).
+    void diagMaterializedCountersTrackTheSelfDrivenGrowthBranch()
+    {
+        qputenv("LIGHTNING_SCROLL_TRACE", "1");
+        struct Guard { ~Guard() { qunsetenv("LIGHTNING_SCROLL_TRACE"); } } guard;
+
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(controller.timelineScroll()->scrollTraceEnabled());
+        const QString roomId = QStringLiteral("!general:mock.local");
+        controller.setCurrentRoomId(roomId);
+        auto *mock = controller.findChild<MockMatrixClient *>();
+        QVERIFY(mock != nullptr);
+
+        QList<TimelineEvent> events;
+        for (int i = 0; i < 30; ++i) {
+            TimelineEvent e;
+            e.sender = QStringLiteral("@alice:mock.local");
+            e.senderDisplayName = QStringLiteral("Alice");
+            e.body = QStringLiteral("history message %1").arg(i);
+            e.timestamp =
+                QDateTime::currentDateTimeUtc().addSecs(-(60 - i) * 60);
+            e.type = TimelineEvent::TextMessage;
+            e.status = TimelineEvent::Sent;
+            events.append(e);
+        }
+        mock->resetTimelineForTest(roomId, events, /*paginationPages=*/1);
+
+        QQmlApplicationEngine engine;
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this,
+                [&warnings](const QList<QQmlError> &errors) {
+                    for (const auto &e : errors) warnings << e.toString();
+                });
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("TimelinePane"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(root != nullptr);
+
+        QQuickWindow window;
+        window.resize(760, 620);
+        root->setParentItem(window.contentItem());
+        root->setSize(QSizeF(window.width(), window.height()));
+        window.show();
+        QCoreApplication::processEvents();
+
+        auto *timeline = root->findChild<QQuickItem *>(
+            QStringLiteral("timelineListView"));
+        QVERIFY(timeline != nullptr);
+        QTRY_VERIFY_WITH_TIMEOUT(timeline->property("count").toInt() >= 30,
+                                 kSignalTimeoutMs);
+        QTRY_VERIFY_WITH_TIMEOUT(!controller.pagination()->busy(),
+                                 kSignalTimeoutMs);
+
+        QVERIFY(timeline->setProperty("stickToBottom", false));
+        QVERIFY(QMetaObject::invokeMethod(timeline, "positionViewAtIndex",
+                                          Q_ARG(int, 15),
+                                          Q_ARG(int, 0 /*ListView.Beginning*/)));
+        QCoreApplication::processEvents();
+
+        QVERIFY(QMetaObject::invokeMethod(timeline, "captureViewAnchor"));
+        const QString anchorId = timeline->property("viewAnchorId").toString();
+        QVERIFY(!anchorId.isEmpty());
+        const int anchorRow = controller.timeline()->rowForStableId(anchorId);
+        QVERIFY(anchorRow >= 0);
+        QQuickItem *anchorItem = nullptr;
+        QVERIFY(QMetaObject::invokeMethod(
+            timeline, "itemAtIndex", Q_RETURN_ARG(QQuickItem *, anchorItem),
+            Q_ARG(int, anchorRow)));
+        QVERIFY(anchorItem != nullptr);
+        const double realItemY = anchorItem->y();
+
+        const QPointF pos(320, 300);
+        bool opened = false;
+        for (int attempt = 0; attempt < 50 && !opened; ++attempt) {
+            QWheelEvent wheel(pos, window.mapToGlobal(pos.toPoint()),
+                              QPoint(0, 24), QPoint(0, 0), Qt::NoButton,
+                              Qt::NoModifier, Qt::ScrollUpdate,
+                              /*inverted=*/false);
+            QCoreApplication::sendEvent(&window, &wheel);
+            QCoreApplication::processEvents();
+            opened = timeline->property("userScrollActive").toBool();
+            if (!opened)
+                QTest::qWait(10);
+        }
+        QVERIFY2(opened, "a touchpad delta must open the scroll session");
+        QVERIFY(timeline->property("diagActive").toBool());
+        QCOMPARE(timeline->property("diagMaterializedFirings").toInt(), 0);
+
+        constexpr double simulatedGrowth = 270.0;
+        QVERIFY(timeline->setProperty("viewAnchorLastY",
+                                      realItemY - simulatedGrowth));
+
+        QVERIFY(QMetaObject::invokeMethod(timeline, "maintainViewAnchor"));
+
+        QCOMPARE(timeline->property("diagMaterializedFirings").toInt(), 1);
+        QVERIFY2(qAbs(timeline->property("diagMaterializedAppliedSum").toDouble()
+                     - simulatedGrowth) < 1.0,
+                 "diagMaterializedAppliedSum did not record the applied delta");
+        QVERIFY2(qAbs(timeline->property("diagMaterializedMaxAbsDelta").toDouble()
+                     - simulatedGrowth) < 1.0,
+                 "diagMaterializedMaxAbsDelta did not record the delta magnitude");
+        QCOMPARE(timeline->property("diagDisplacedFirings").toInt(), 0);
+        QCOMPARE(timeline->property("diagUnresolvedIdFallbacks").toInt(), 0);
+        QCOMPARE(timeline->property("diagEvictedNoInsertFallbacks").toInt(), 0);
+        QCOMPARE(timeline->property("diagDragDeferrals").toInt(), 0);
+        QCOMPARE(warnings, QStringList{});
+    }
+
+    // Per-branch counter (drag-deferral): discriminates H-A — whether a
+    // native drag/flick ever actually engages maintainViewAnchor()'s defer
+    // path. A pure click-drag never opens the diag session by itself (only
+    // a wheel/pixel delta calls diagNoteEvent()), so this opens the session
+    // with one touchpad delta first — the realistic "mixed gesture" case —
+    // then immediately performs a real native drag, exactly like
+    // growthDeltaIsDeferredWhileFlickableOwnsTheDrag's proven drive.
+    void diagDragDeferralsCountsNativeDragEngagements()
+    {
+        qputenv("LIGHTNING_SCROLL_TRACE", "1");
+        struct Guard { ~Guard() { qunsetenv("LIGHTNING_SCROLL_TRACE"); } } guard;
+
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(controller.timelineScroll()->scrollTraceEnabled());
+        const QString roomId = QStringLiteral("!general:mock.local");
+        controller.setCurrentRoomId(roomId);
+        auto *mock = controller.findChild<MockMatrixClient *>();
+        QVERIFY(mock != nullptr);
+
+        QList<TimelineEvent> events;
+        for (int i = 0; i < 30; ++i) {
+            TimelineEvent e;
+            e.sender = QStringLiteral("@alice:mock.local");
+            e.senderDisplayName = QStringLiteral("Alice");
+            e.body = QStringLiteral("history message %1").arg(i);
+            e.timestamp =
+                QDateTime::currentDateTimeUtc().addSecs(-(60 - i) * 60);
+            e.type = TimelineEvent::TextMessage;
+            e.status = TimelineEvent::Sent;
+            events.append(e);
+        }
+        mock->resetTimelineForTest(roomId, events, /*paginationPages=*/1);
+
+        QQmlApplicationEngine engine;
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("TimelinePane"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(root != nullptr);
+
+        QQuickWindow window;
+        window.resize(760, 620);
+        root->setParentItem(window.contentItem());
+        root->setSize(QSizeF(window.width(), window.height()));
+        window.show();
+        QCoreApplication::processEvents();
+
+        auto *timeline = root->findChild<QQuickItem *>(
+            QStringLiteral("timelineListView"));
+        QVERIFY(timeline != nullptr);
+        QTRY_VERIFY_WITH_TIMEOUT(timeline->property("count").toInt() >= 30,
+                                 kSignalTimeoutMs);
+        QTRY_VERIFY_WITH_TIMEOUT(!controller.pagination()->busy(),
+                                 kSignalTimeoutMs);
+
+        QVERIFY(timeline->setProperty("stickToBottom", false));
+        QVERIFY(QMetaObject::invokeMethod(timeline, "positionViewAtIndex",
+                                          Q_ARG(int, 15),
+                                          Q_ARG(int, 0 /*ListView.Beginning*/)));
+        QCoreApplication::processEvents();
+        QVERIFY(QMetaObject::invokeMethod(timeline, "captureViewAnchor"));
+        const QString anchorId = timeline->property("viewAnchorId").toString();
+        QVERIFY(!anchorId.isEmpty());
+        const int anchorRow = controller.timeline()->rowForStableId(anchorId);
+        QVERIFY(anchorRow >= 0);
+        QQuickItem *anchorItem = nullptr;
+        QVERIFY(QMetaObject::invokeMethod(
+            timeline, "itemAtIndex", Q_RETURN_ARG(QQuickItem *, anchorItem),
+            Q_ARG(int, anchorRow)));
+        QVERIFY(anchorItem != nullptr);
+        const double realItemY = anchorItem->y();
+
+        // Open the diag session first (a pure drag never calls
+        // diagNoteEvent() on its own).
+        const QPointF pos(320, 300);
+        bool opened = false;
+        for (int attempt = 0; attempt < 50 && !opened; ++attempt) {
+            QWheelEvent wheel(pos, window.mapToGlobal(pos.toPoint()),
+                              QPoint(0, 24), QPoint(0, 0), Qt::NoButton,
+                              Qt::NoModifier, Qt::ScrollUpdate,
+                              /*inverted=*/false);
+            QCoreApplication::sendEvent(&window, &wheel);
+            QCoreApplication::processEvents();
+            opened = timeline->property("userScrollActive").toBool();
+            if (!opened)
+                QTest::qWait(10);
+        }
+        QVERIFY2(opened, "a touchpad delta must open the scroll session");
+        QVERIFY(timeline->property("diagActive").toBool());
+        QCOMPARE(timeline->property("diagDragDeferrals").toInt(), 0);
+
+        // Immediately (same as growthDeltaIsDeferredWhileFlickableOwnsThe-
+        // Drag): a real native drag, so Flickable's own `moving` turns true.
+        QTest::mousePress(&window, Qt::LeftButton, Qt::NoModifier,
+                          QPoint(360, 400));
+        for (int step = 1; step <= 8; ++step) {
+            QTest::mouseMove(&window, QPoint(360, 400 + step * 14));
+            QCoreApplication::processEvents();
+        }
+        QVERIFY2(timeline->property("moving").toBool(),
+                 "a native drag must set Flickable.moving");
+        QVERIFY2(!timeline->property("selfDrivenScrollActive").toBool(),
+                 "a drag is NOT a self-driven (Lightning-owned) scroll");
+
+        QVERIFY(timeline->setProperty("viewAnchorLastY",
+                                      realItemY - 250.0));
+        const double beforeY = timeline->property("contentY").toDouble();
+        QVERIFY(QMetaObject::invokeMethod(timeline, "maintainViewAnchor"));
+        const double afterY = timeline->property("contentY").toDouble();
+
+        QTest::mouseRelease(&window, Qt::LeftButton, Qt::NoModifier,
+                            QPoint(360, 512));
+
+        QCOMPARE(afterY, beforeY);
+        QCOMPARE(timeline->property("diagDragDeferrals").toInt(), 1);
+        QCOMPARE(timeline->property("diagDisplacedFirings").toInt(), 0);
+        QCOMPARE(timeline->property("diagMaterializedFirings").toInt(), 0);
+        QCOMPARE(timeline->property("diagUnresolvedIdFallbacks").toInt(), 0);
+        QCOMPARE(timeline->property("diagEvictedNoInsertFallbacks").toInt(), 0);
+    }
+
+    // Per-branch counter (L1 split, unresolved-id half): a stable id that no
+    // longer resolves to any row (redaction, local-echo id change, or — as
+    // this fixture drives it — a fabricated id) must increment
+    // diagUnresolvedIdFallbacks specifically, NOT diagEvictedNoInsertFallbacks
+    // — that is the whole point of the split (see the L1 comment on the two
+    // declarations): "the id is gone" and "the id is fine but the delegate
+    // was merely evicted" are different causes with different implications,
+    // and conflating them is exactly what the old single counter did.
+    void diagUnresolvedIdFallbackCountsGenuinelyUnresolvableAnchor()
+    {
+        qputenv("LIGHTNING_SCROLL_TRACE", "1");
+        struct Guard { ~Guard() { qunsetenv("LIGHTNING_SCROLL_TRACE"); } } guard;
+
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(controller.timelineScroll()->scrollTraceEnabled());
+        const QString roomId = QStringLiteral("!general:mock.local");
+        controller.setCurrentRoomId(roomId);
+        auto *mock = controller.findChild<MockMatrixClient *>();
+        QVERIFY(mock != nullptr);
+
+        QList<TimelineEvent> events;
+        for (int i = 0; i < 30; ++i) {
+            TimelineEvent e;
+            e.sender = QStringLiteral("@alice:mock.local");
+            e.senderDisplayName = QStringLiteral("Alice");
+            e.body = QStringLiteral("history message %1").arg(i);
+            e.timestamp =
+                QDateTime::currentDateTimeUtc().addSecs(-(60 - i) * 60);
+            e.type = TimelineEvent::TextMessage;
+            e.status = TimelineEvent::Sent;
+            events.append(e);
+        }
+        mock->resetTimelineForTest(roomId, events, /*paginationPages=*/1);
+
+        QQmlApplicationEngine engine;
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("TimelinePane"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(root != nullptr);
+
+        QQuickWindow window;
+        window.resize(760, 620);
+        root->setParentItem(window.contentItem());
+        root->setSize(QSizeF(window.width(), window.height()));
+        window.show();
+        QCoreApplication::processEvents();
+
+        auto *timeline = root->findChild<QQuickItem *>(
+            QStringLiteral("timelineListView"));
+        QVERIFY(timeline != nullptr);
+        QTRY_VERIFY_WITH_TIMEOUT(timeline->property("count").toInt() >= 30,
+                                 kSignalTimeoutMs);
+        QTRY_VERIFY_WITH_TIMEOUT(!controller.pagination()->busy(),
+                                 kSignalTimeoutMs);
+
+        QVERIFY(timeline->setProperty("stickToBottom", false));
+        QVERIFY(QMetaObject::invokeMethod(timeline, "positionViewAtIndex",
+                                          Q_ARG(int, 15),
+                                          Q_ARG(int, 0 /*ListView.Beginning*/)));
+        QCoreApplication::processEvents();
+
+        // Open the diag session.
+        const QPointF pos(320, 300);
+        bool opened = false;
+        for (int attempt = 0; attempt < 50 && !opened; ++attempt) {
+            QWheelEvent wheel(pos, window.mapToGlobal(pos.toPoint()),
+                              QPoint(0, 24), QPoint(0, 0), Qt::NoButton,
+                              Qt::NoModifier, Qt::ScrollUpdate,
+                              /*inverted=*/false);
+            QCoreApplication::sendEvent(&window, &wheel);
+            QCoreApplication::processEvents();
+            opened = timeline->property("userScrollActive").toBool();
+            if (!opened)
+                QTest::qWait(10);
+        }
+        QVERIFY2(opened, "a touchpad delta must open the scroll session");
+        QCOMPARE(timeline->property("diagUnresolvedIdFallbacks").toInt(), 0);
+        QCOMPARE(timeline->property("diagEvictedNoInsertFallbacks").toInt(), 0);
+
+        // A stable id that resolves to no row at all — rowForStableId()
+        // returns -1, so `it` is null and `row >= 0` is false: this cannot
+        // enter the displaced branch (which requires row >= 0) and falls
+        // straight to the capture fallback.
+        QVERIFY(timeline->setProperty(
+            "viewAnchorId", QStringLiteral("$this-event-id-does-not-exist")));
+
+        QVERIFY(QMetaObject::invokeMethod(timeline, "maintainViewAnchor"));
+
+        QCOMPARE(timeline->property("diagUnresolvedIdFallbacks").toInt(), 1);
+        QCOMPARE(timeline->property("diagEvictedNoInsertFallbacks").toInt(), 0);
+        QCOMPARE(timeline->property("diagDisplacedFirings").toInt(), 0);
+        QCOMPARE(timeline->property("diagMaterializedFirings").toInt(), 0);
+        QCOMPARE(timeline->property("diagDragDeferrals").toInt(), 0);
+    }
+
+    // Per-branch counter (L1 split, evicted-no-insert half): the SAME real
+    // eviction geometry as diagDisplacedBranchCountersTrackFiringsAndMagnitude
+    // below, but WITHOUT injecting a displaced viewAnchorRow — so row ===
+    // viewAnchorRow (no proof of an insertion) and the call falls through to
+    // the fallback with a perfectly valid, still-resolving stable id. This is
+    // expected to be the DOMINANT fallback cause in a real media-heavy room:
+    // ordinary scrolling evicts delegates from cacheBuffer constantly, with
+    // no pagination or insertion involved at all.
+    void diagEvictedNoInsertFallbackCountsCacheEvictionWithoutProvenInsert()
+    {
+        qputenv("LIGHTNING_SCROLL_TRACE", "1");
+        struct Guard { ~Guard() { qunsetenv("LIGHTNING_SCROLL_TRACE"); } } guard;
+
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(controller.timelineScroll()->scrollTraceEnabled());
+        const QString roomId = QStringLiteral("!general:mock.local");
+        controller.setCurrentRoomId(roomId);
+        auto *mock = controller.findChild<MockMatrixClient *>();
+        QVERIFY(mock != nullptr);
+
+        QList<TimelineEvent> events;
+        for (int i = 0; i < 60; ++i) {
+            TimelineEvent e;
+            e.sender = QStringLiteral("@alice:mock.local");
+            e.senderDisplayName = QStringLiteral("Alice");
+            e.body = QStringLiteral(
+                "message %1 — deliberately long enough to wrap across "
+                "several lines so a handful of rows already exceeds the "
+                "ListView cache buffer, reproducing the real geometry "
+                "where a delegate is evicted purely by ordinary scrolling")
+                .arg(i);
+            e.timestamp =
+                QDateTime::currentDateTimeUtc().addSecs(-(600 - i) * 60);
+            e.type = TimelineEvent::TextMessage;
+            e.status = TimelineEvent::Sent;
+            events.append(e);
+        }
+        mock->resetTimelineForTest(roomId, events, /*paginationPages=*/1);
+
+        QQmlApplicationEngine engine;
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("TimelinePane"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(root != nullptr);
+
+        QQuickWindow window;
+        window.resize(760, 620);
+        root->setParentItem(window.contentItem());
+        root->setSize(QSizeF(window.width(), window.height()));
+        window.show();
+        QCoreApplication::processEvents();
+
+        auto *timeline = root->findChild<QQuickItem *>(
+            QStringLiteral("timelineListView"));
+        QVERIFY(timeline != nullptr);
+        QTRY_VERIFY_WITH_TIMEOUT(timeline->property("count").toInt() >= 60,
+                                 kSignalTimeoutMs);
+        QTRY_VERIFY_WITH_TIMEOUT(!controller.pagination()->busy(),
+                                 kSignalTimeoutMs);
+
+        QVERIFY(timeline->setProperty("stickToBottom", false));
+        QVERIFY(QMetaObject::invokeMethod(timeline, "positionViewAtIndex",
+                                          Q_ARG(int, 5),
+                                          Q_ARG(int, 0 /*ListView.Beginning*/)));
+        QCoreApplication::processEvents();
+        QVERIFY(QMetaObject::invokeMethod(timeline, "captureViewAnchor"));
+        const QString anchorId = timeline->property("viewAnchorId").toString();
+        QVERIFY2(!anchorId.isEmpty(), "the fixture must yield a live anchor");
+        const int anchorRow = controller.timeline()->rowForStableId(anchorId);
+        QVERIFY(anchorRow >= 0);
+
+        QVERIFY(QMetaObject::invokeMethod(timeline, "positionViewAtIndex",
+                                          Q_ARG(int, 50),
+                                          Q_ARG(int, 0 /*ListView.Beginning*/)));
+        QCoreApplication::processEvents();
+        QQuickItem *evicted = nullptr;
+        QMetaObject::invokeMethod(timeline, "itemAtIndex",
+                                  Q_RETURN_ARG(QQuickItem *, evicted),
+                                  Q_ARG(int, anchorRow));
+        QVERIFY2(evicted == nullptr,
+                 "fixture no longer evicts the anchor's delegate — this "
+                 "test would pass on broken code");
+        QVERIFY2(!timeline->property("moving").toBool(),
+                 "positionViewAtIndex must not leave Flickable.moving true");
+        // Pin the id back (see the same race documented in the displaced
+        // test below) but deliberately leave viewAnchorRow ALONE — it
+        // already equals anchorRow from the real captureViewAnchor() call
+        // above, so row === viewAnchorRow and the displaced branch's
+        // `row > viewAnchorRow` guard is false: no insertion is provable.
+        QVERIFY(timeline->setProperty("viewAnchorId", anchorId));
+        QCOMPARE(timeline->property("viewAnchorRow").toInt(), anchorRow);
+
+        const QPointF pos(320, 300);
+        bool opened = false;
+        for (int attempt = 0; attempt < 50 && !opened; ++attempt) {
+            QWheelEvent wheel(pos, window.mapToGlobal(pos.toPoint()),
+                              QPoint(0, 24), QPoint(0, 0), Qt::NoButton,
+                              Qt::NoModifier, Qt::ScrollUpdate,
+                              /*inverted=*/false);
+            QCoreApplication::sendEvent(&window, &wheel);
+            QCoreApplication::processEvents();
+            opened = timeline->property("userScrollActive").toBool();
+            if (!opened)
+                QTest::qWait(10);
+        }
+        QVERIFY2(opened, "a touchpad delta must open the scroll session");
+        QCOMPARE(timeline->property("viewAnchorId").toString(), anchorId);
+        QCOMPARE(timeline->property("diagEvictedNoInsertFallbacks").toInt(), 0);
+        QCOMPARE(timeline->property("diagUnresolvedIdFallbacks").toInt(), 0);
+
+        QVERIFY(QMetaObject::invokeMethod(timeline, "maintainViewAnchor"));
+
+        QCOMPARE(timeline->property("diagEvictedNoInsertFallbacks").toInt(), 1);
+        QCOMPARE(timeline->property("diagUnresolvedIdFallbacks").toInt(), 0);
+        QCOMPARE(timeline->property("diagDisplacedFirings").toInt(), 0);
+        QCOMPARE(timeline->property("diagMaterializedFirings").toInt(), 0);
+        QCOMPARE(timeline->property("diagDragDeferrals").toInt(), 0);
+    }
+
+    // Per-branch counter (displaced): discriminates the reviewer's H1 —
+    // whether this branch fires at all during a driven scenario, and
+    // whether its magnitude/insertedRows bookkeeping is recorded correctly.
+    // Reuses topEdgePrependKeepsReaderOnTheSameRowMidGesture's real-
+    // eviction geometry (a handful of long-bodied rows exceeds cacheBuffer)
+    // rather than reproducing ListView's own internal estimate churn, which
+    // no offscreen test can control. Deliberately injects
+    // viewAnchorRow/viewAnchorContentHeight (same technique the withdrawn
+    // tests used) so the exact grew/insertedRows values are known — this
+    // pins ONLY that the counters record what maintainViewAnchor() already
+    // (and unchanged) computes, not any claim about what a real gesture's
+    // numbers would be.
+    void diagDisplacedBranchCountersTrackFiringsAndMagnitude()
+    {
+        qputenv("LIGHTNING_SCROLL_TRACE", "1");
+        struct Guard { ~Guard() { qunsetenv("LIGHTNING_SCROLL_TRACE"); } } guard;
+
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(controller.timelineScroll()->scrollTraceEnabled());
+        const QString roomId = QStringLiteral("!general:mock.local");
+        controller.setCurrentRoomId(roomId);
+        auto *mock = controller.findChild<MockMatrixClient *>();
+        QVERIFY(mock != nullptr);
+
+        QList<TimelineEvent> events;
+        for (int i = 0; i < 60; ++i) {
+            TimelineEvent e;
+            e.sender = QStringLiteral("@alice:mock.local");
+            e.senderDisplayName = QStringLiteral("Alice");
+            e.body = QStringLiteral(
+                "message %1 — deliberately long enough to wrap across "
+                "several lines so a handful of rows already exceeds the "
+                "ListView cache buffer, reproducing the real geometry "
+                "where a displaced anchor's delegate is destroyed").arg(i);
+            e.timestamp =
+                QDateTime::currentDateTimeUtc().addSecs(-(600 - i) * 60);
+            e.type = TimelineEvent::TextMessage;
+            e.status = TimelineEvent::Sent;
+            events.append(e);
+        }
+        mock->resetTimelineForTest(roomId, events, /*paginationPages=*/1);
+
+        QQmlApplicationEngine engine;
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("TimelinePane"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(root != nullptr);
+
+        QQuickWindow window;
+        window.resize(760, 620);
+        root->setParentItem(window.contentItem());
+        root->setSize(QSizeF(window.width(), window.height()));
+        window.show();
+        QCoreApplication::processEvents();
+
+        auto *timeline = root->findChild<QQuickItem *>(
+            QStringLiteral("timelineListView"));
+        QVERIFY(timeline != nullptr);
+        QTRY_VERIFY_WITH_TIMEOUT(timeline->property("count").toInt() >= 60,
+                                 kSignalTimeoutMs);
+        QTRY_VERIFY_WITH_TIMEOUT(!controller.pagination()->busy(),
+                                 kSignalTimeoutMs);
+
+        QVERIFY(timeline->setProperty("stickToBottom", false));
+        QVERIFY(QMetaObject::invokeMethod(timeline, "positionViewAtIndex",
+                                          Q_ARG(int, 5),
+                                          Q_ARG(int, 0 /*ListView.Beginning*/)));
+        QCoreApplication::processEvents();
+        QVERIFY(QMetaObject::invokeMethod(timeline, "captureViewAnchor"));
+        const QString anchorId = timeline->property("viewAnchorId").toString();
+        QVERIFY2(!anchorId.isEmpty(), "the fixture must yield a live anchor");
+        const int anchorRow = controller.timeline()->rowForStableId(anchorId);
+        QVERIFY(anchorRow >= 0);
+
+        // Jump far away so the anchor's delegate falls outside cacheBuffer
+        // and is destroyed — the precondition the displaced branch needs.
+        QVERIFY(QMetaObject::invokeMethod(timeline, "positionViewAtIndex",
+                                          Q_ARG(int, 50),
+                                          Q_ARG(int, 0 /*ListView.Beginning*/)));
+        QCoreApplication::processEvents();
+        QQuickItem *evicted = nullptr;
+        QMetaObject::invokeMethod(timeline, "itemAtIndex",
+                                  Q_RETURN_ARG(QQuickItem *, evicted),
+                                  Q_ARG(int, anchorRow));
+        QVERIFY2(evicted == nullptr,
+                 "fixture no longer evicts the anchor's delegate — this "
+                 "test would pass on broken code");
+        QVERIFY2(!timeline->property("moving").toBool(),
+                 "positionViewAtIndex must not leave Flickable.moving true");
+        // The processEvents() above can let a queued
+        // maintainViewAnchorCoalesced() fire and silently re-capture the
+        // anchor onto whatever row is CURRENTLY at the top of the viewport
+        // (the delegate is already evicted, so that call's own `if (!it)`
+        // fallback runs) — pin viewAnchorId back to the row-5 anchor this
+        // test needs before opening the diag session below.
+        QVERIFY(timeline->setProperty("viewAnchorId", anchorId));
+
+        // Open the diag session AFTER the eviction dance above, so its own
+        // (harmless) contentY nudge cannot race the eviction check, and so
+        // diagNoteEvent() resets every counter to a known 0 right before
+        // the driven call below.
+        const QPointF pos(320, 300);
+        bool opened = false;
+        for (int attempt = 0; attempt < 50 && !opened; ++attempt) {
+            QWheelEvent wheel(pos, window.mapToGlobal(pos.toPoint()),
+                              QPoint(0, 24), QPoint(0, 0), Qt::NoButton,
+                              Qt::NoModifier, Qt::ScrollUpdate,
+                              /*inverted=*/false);
+            QCoreApplication::sendEvent(&window, &wheel);
+            QCoreApplication::processEvents();
+            opened = timeline->property("userScrollActive").toBool();
+            if (!opened)
+                QTest::qWait(10);
+        }
+        QVERIFY2(opened, "a touchpad delta must open the scroll session");
+        QCOMPARE(timeline->property("viewAnchorId").toString(), anchorId);
+        QCOMPARE(timeline->property("diagDisplacedFirings").toInt(), 0);
+
+        constexpr double simulatedGrowth = 1234.0;
+        constexpr int insertedRows = 3;
+        const double contentHeightNow =
+            timeline->property("contentHeight").toDouble();
+        QVERIFY(timeline->setProperty("viewAnchorRow", anchorRow - insertedRows));
+        QVERIFY(timeline->setProperty("viewAnchorContentHeight",
+                                      contentHeightNow - simulatedGrowth));
+
+        QVERIFY(QMetaObject::invokeMethod(timeline, "maintainViewAnchor"));
+
+        QCOMPARE(timeline->property("diagDisplacedFirings").toInt(), 1);
+        QVERIFY2(qAbs(timeline->property("diagDisplacedMaxAbsGrew").toDouble()
+                     - simulatedGrowth) < 1.0,
+                 "diagDisplacedMaxAbsGrew did not record the grew value");
+        QCOMPARE(timeline->property("diagDisplacedMaxAbsGrewRows").toInt(),
+                 insertedRows);
+        QVERIFY2(qAbs(timeline->property("diagDisplacedAppliedSum").toDouble()
+                     - simulatedGrowth) < 1.0,
+                 "diagDisplacedAppliedSum did not record the applied amount");
+        QCOMPARE(timeline->property("diagMaterializedFirings").toInt(), 0);
+        QCOMPARE(timeline->property("diagUnresolvedIdFallbacks").toInt(), 0);
+        QCOMPARE(timeline->property("diagEvictedNoInsertFallbacks").toInt(), 0);
+        QCOMPARE(timeline->property("diagDragDeferrals").toInt(), 0);
+    }
+
+    // M2: an all-zero line does not distinguish "the mechanism ran and had
+    // nothing to correct" from "the mechanism never engaged at all"
+    // (viewAnchorId empty, or stickToBottom). diagNoAnchorReturns must
+    // increment on that early-return path specifically.
+    void diagNoAnchorReturnsCountsTheEarlyReturn()
+    {
+        qputenv("LIGHTNING_SCROLL_TRACE", "1");
+        struct Guard { ~Guard() { qunsetenv("LIGHTNING_SCROLL_TRACE"); } } guard;
+
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(controller.timelineScroll()->scrollTraceEnabled());
+        controller.setCurrentRoomId(QStringLiteral("!general:mock.local"));
+
+        QQmlApplicationEngine engine;
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("TimelinePane"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(root != nullptr);
+        auto *timeline = root->findChild<QQuickItem *>(
+            QStringLiteral("timelineListView"));
+        QVERIFY(timeline != nullptr);
+
+        QQuickWindow window;
+        window.resize(640, 480);
+        root->setParentItem(window.contentItem());
+        root->setWidth(window.width());
+        root->setHeight(window.height());
+        window.show();
+        QCoreApplication::processEvents();
+
+        // stickToBottom true is the cheapest way to force the early return
+        // regardless of viewAnchorId's own state (which starts "" anyway on
+        // a fresh room, itself already satisfying the OTHER half of the
+        // guard).
+        QVERIFY(timeline->setProperty("stickToBottom", true));
+        QCOMPARE(timeline->property("diagNoAnchorReturns").toInt(), 0);
+
+        QVERIFY(QMetaObject::invokeMethod(timeline, "maintainViewAnchor"));
+        QCOMPARE(timeline->property("diagNoAnchorReturns").toInt(), 1);
+
+        QVERIFY(QMetaObject::invokeMethod(timeline, "maintainViewAnchor"));
+        QCOMPARE(timeline->property("diagNoAnchorReturns").toInt(), 2);
+
+        // Every other counter must stay at 0 — nothing else ran.
+        QCOMPARE(timeline->property("diagDisplacedFirings").toInt(), 0);
+        QCOMPARE(timeline->property("diagMaterializedFirings").toInt(), 0);
+        QCOMPARE(timeline->property("diagUnresolvedIdFallbacks").toInt(), 0);
+        QCOMPARE(timeline->property("diagEvictedNoInsertFallbacks").toInt(), 0);
+        QCOMPARE(timeline->property("diagDragDeferrals").toInt(), 0);
+        QCOMPARE(timeline->property("diagAnchorCorrections").toInt(), 0);
+    }
+
+    // M1, the structural fix itself: scrollSettleTimer.onTriggered calls
+    // diagFlushGesture() as its LAST statement, but the staged-loading
+    // reconcile it exists to observe lands via Qt.callLater chains AFTER
+    // that handler returns — so every outcome counter must survive being
+    // incremented while diagActive is false (before any gesture has ever
+    // opened a session, exactly like a reconcile call landing after a flush)
+    // and must still appear on the NEXT line that gets printed, not be lost.
+    // Drives maintainViewAnchor()/diagNoteEvent()/diagFlushGesture()
+    // directly (bypassing real WheelEvent/Timer scheduling, which the other
+    // tests already cover) so this is deterministic and cannot be polluted
+    // by incidental delegate/layout churn between "before settle" and
+    // "after settle".
+    void diagOutcomeCountersSurviveAcrossAFlushBoundary()
+    {
+        qputenv("LIGHTNING_SCROLL_TRACE", "1");
+        struct Guard { ~Guard() { qunsetenv("LIGHTNING_SCROLL_TRACE"); } } guard;
+
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(controller.timelineScroll()->scrollTraceEnabled());
+        controller.setCurrentRoomId(QStringLiteral("!general:mock.local"));
+
+        QQmlApplicationEngine engine;
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this,
+                [&warnings](const QList<QQmlError> &errors) {
+                    for (const auto &e : errors) warnings << e.toString();
+                });
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("TimelinePane"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(root != nullptr);
+        auto *timeline = root->findChild<QQuickItem *>(
+            QStringLiteral("timelineListView"));
+        QVERIFY(timeline != nullptr);
+
+        QQuickWindow window;
+        window.resize(640, 480);
+        root->setParentItem(window.contentItem());
+        root->setWidth(window.width());
+        root->setHeight(window.height());
+        window.show();
+        QCoreApplication::processEvents();
+
+        // Two early-returns BEFORE any gesture has ever opened a session —
+        // diagActive is false throughout, standing in for a reconcile call
+        // landing after a prior flush already printed and reset.
+        QVERIFY(timeline->setProperty("stickToBottom", true));
+        QCOMPARE(timeline->property("diagActive").toBool(), false);
+        QVERIFY(QMetaObject::invokeMethod(timeline, "maintainViewAnchor"));
+        QVERIFY(QMetaObject::invokeMethod(timeline, "maintainViewAnchor"));
+        QCOMPARE(timeline->property("diagNoAnchorReturns").toInt(), 2);
+
+        // Opening a gesture (diagNoteEvent(), via a real touchpad delta —
+        // the same proven pattern the other tests in this file use) must
+        // NOT reset the carried outcome count — only the event/pixel/angle
+        // group is gesture-local. viewAnchorId stays "" throughout (nothing
+        // here ever calls captureViewAnchor()), so this single delta cannot
+        // itself trigger any further maintainViewAnchor() outcome.
+        const QPointF pos(320, 300);
+        bool opened = false;
+        for (int attempt = 0; attempt < 50 && !opened; ++attempt) {
+            QWheelEvent wheel(pos, window.mapToGlobal(pos.toPoint()),
+                              QPoint(0, 24), QPoint(0, 0), Qt::NoButton,
+                              Qt::NoModifier, Qt::ScrollUpdate,
+                              /*inverted=*/false);
+            QCoreApplication::sendEvent(&window, &wheel);
+            QCoreApplication::processEvents();
+            opened = timeline->property("userScrollActive").toBool();
+            if (!opened)
+                QTest::qWait(10);
+        }
+        QVERIFY2(opened, "a touchpad delta must open the scroll session");
+        QCOMPARE(timeline->property("diagActive").toBool(), true);
+        QCOMPARE(timeline->property("diagNoAnchorReturns").toInt(), 2);
+
+        LogCapture capture;
+        QVERIFY(QMetaObject::invokeMethod(timeline, "diagFlushGesture"));
+
+        QString line;
+        for (const QString &m : capture.messages()) {
+            if (m.contains(QStringLiteral("scroll-gesture"))) {
+                line = m;
+                break;
+            }
+        }
+        QVERIFY2(!line.isEmpty(), "no scroll-gesture line was emitted");
+        QVERIFY2(line.contains(QStringLiteral("noAnchorReturns=2")),
+                 qPrintable(QStringLiteral(
+                     "the pre-gesture outcome count was not carried into "
+                     "the flushed line: %1").arg(line)));
+
+        // Drained exactly at print, not before and not left to accumulate
+        // forever: a fresh early-return after this line starts back at 1.
+        QCOMPARE(timeline->property("diagNoAnchorReturns").toInt(), 0);
+        QVERIFY(QMetaObject::invokeMethod(timeline, "maintainViewAnchor"));
+        QCOMPARE(timeline->property("diagNoAnchorReturns").toInt(), 1);
+        QCOMPARE(warnings, QStringList{});
     }
 };
 

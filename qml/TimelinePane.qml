@@ -790,8 +790,15 @@ Rectangle {
                     })
                 }
                 function maintainViewAnchor() {
-                    if (viewAnchorId === "" || stickToBottom)
+                    if (viewAnchorId === "" || stickToBottom) {
+                        // Diagnostics only: distinguishes "the mechanism ran
+                        // and had nothing to correct" (every other counter
+                        // legitimately 0) from "the mechanism never engaged
+                        // at all" — see the M2 comment on diagNoAnchorReturns.
+                        if (scrollTrace)
+                            diagNoAnchorReturns += 1
                         return
+                    }
                     // v0.7.2: the SINGLE anchor-correction mechanism for
                     // every structural change that can move the anchor row's
                     // own y — a backward-pagination prepend, a pooled
@@ -868,9 +875,32 @@ Rectangle {
                         // alone yields delta 0 when the delegate returns —
                         // advancing it would MANUFACTURE a jump there.
                         var grew = contentHeight - viewAnchorContentHeight
+                        // Diagnostics only (see the diagDisplaced* block
+                        // above) — discriminates the reviewer's H1: whether
+                        // this branch fires at all during a real jitter
+                        // gesture, and whether |grew| stays proportionate to
+                        // insertedRows (real growth) or spikes far beyond
+                        // what that many rows could plausibly account for
+                        // (the estimate-noise hypothesis). Recorded on EVERY
+                        // entry, including the skipped-negative case, so a
+                        // real trace can show the swing this branch actually
+                        // saw even when nothing was applied. Gated on
+                        // scrollTrace, not diagActive — see the M1 comment on
+                        // the diagDisplaced* declarations for why this must
+                        // survive past the gesture that triggered it.
+                        if (scrollTrace) {
+                            diagDisplacedFirings += 1
+                            var insertedRowsForDiag = row - viewAnchorRow
+                            if (Math.abs(grew) > Math.abs(diagDisplacedMaxAbsGrew)) {
+                                diagDisplacedMaxAbsGrew = grew
+                                diagDisplacedMaxAbsGrewRows = insertedRowsForDiag
+                            }
+                        }
                         if (grew > 0.5) {
-                            if (diagActive)
+                            if (scrollTrace) {
                                 diagGrowthCorrections += 1
+                                diagDisplacedAppliedSum += grew
+                            }
                             contentY += grew
                             if (app.timelineScroll.motionActive)
                                 app.timelineScroll.translateActiveMotion(grew)
@@ -889,6 +919,30 @@ Rectangle {
                         // is safe even mid-gesture; the next call's delta is
                         // then measured from this new baseline rather than a
                         // stale, unresolvable one.
+                        // Diagnostics only (see the L1 comment on the
+                        // diagUnresolvedIdFallbacks/diagEvictedNoInsertFallbacks
+                        // declarations): split by whether the stable id
+                        // still resolves to a real row at all. row < 0 means
+                        // it does not (redaction, local-echo id swap, or a
+                        // genuinely stale/unknown id) — a true "give up and
+                        // re-derive". row >= 0 means the id is fine and the
+                        // delegate was simply evicted from the cache with no
+                        // row-index proof anything was inserted above it
+                        // (including the moving===true case, where the
+                        // displaced branch's arithmetic path is blocked even
+                        // if row > viewAnchorRow, and the viewAnchorRow < 0
+                        // case where no row was ever recorded) — expected to
+                        // dominate in a media-heavy room on ordinary
+                        // scrolling alone. Counters are not reset on a room
+                        // switch, so the first line after one can carry the
+                        // previous room's outcomes ("since the previous
+                        // line" applies across rooms too).
+                        if (scrollTrace) {
+                            if (row < 0)
+                                diagUnresolvedIdFallbacks += 1
+                            else
+                                diagEvictedNoInsertFallbacks += 1
+                        }
                         captureViewAnchor()
                         return
                     }
@@ -903,6 +957,15 @@ Rectangle {
                             // is absorbed and re-anchored (onMovementEnded ->
                             // captureViewAnchor), exactly as it was before
                             // this round.
+                            // Diagnostics only: discriminates H-A — whether a
+                            // native drag/flick ever actually engages for the
+                            // reporter's real input (a touchpad delivers
+                            // pixelDelta wheel events, which never set
+                            // `moving`, so this should stay near zero for a
+                            // touchpad-only session; a non-zero count here
+                            // means real drag/flick input occurred).
+                            if (scrollTrace)
+                                diagDragDeferrals += 1
                             return
                         }
                         // Mid-gesture correction, on the self-driven paths
@@ -950,9 +1013,22 @@ Rectangle {
                         // restate this as "both bounds move together": they
                         // do not.
                         var delta = anchorY - viewAnchorLastY
+                        // Diagnostics only: discriminates whether THIS
+                        // already-symmetric, already-tested path (not the
+                        // displaced branch above) is where a reported
+                        // jitter/teleport is actually coming from — a check
+                        // on the round-1 investigation's conclusion that
+                        // this branch was already correct.
+                        if (scrollTrace) {
+                            diagMaterializedFirings += 1
+                            if (Math.abs(delta) > Math.abs(diagMaterializedMaxAbsDelta))
+                                diagMaterializedMaxAbsDelta = delta
+                        }
                         if (Math.abs(delta) > 0.5) {
-                            if (diagActive)
+                            if (scrollTrace) {
                                 diagGrowthCorrections += 1
+                                diagMaterializedAppliedSum += delta
+                            }
                             contentY += delta
                             // A discrete-wheel glide carries its own
                             // coalesced target inside TimelineScrollController.
@@ -988,7 +1064,7 @@ Rectangle {
                     var hi = wheelMaxY()
                     desired = desired < lo ? lo : (desired > hi ? hi : desired)
                     if (Math.abs(contentY - desired) > 0.5) {
-                        if (diagActive)
+                        if (scrollTrace)
                             diagAnchorCorrections += 1
                         contentY = desired
                     }
@@ -1171,8 +1247,10 @@ Rectangle {
                 // emitted per wheel/touchpad gesture at settle — never one per
                 // event — so a physical tester can capture a real trace and
                 // send it back. See the counter block below for what
-                // anchorCorrections and growthCorrections each mean now that
-                // maintainViewAnchor() has two modes.
+                // anchorCorrections and growthCorrections each mean across
+                // maintainViewAnchor()'s five distinct outcomes (no-anchor
+                // return, displaced, fallback capture, drag deferral,
+                // materialized delta / idle restore).
                 // v0.7.2: a separate paginationRestores counter used to
                 // live here for the pagination anchor's own restore path. It
                 // is gone because that whole mechanism is gone — a prepend
@@ -1187,9 +1265,16 @@ Rectangle {
                 property int diagPixelEvents: 0
                 property int diagAngleEvents: 0
                 // diagAnchorCorrections counts ONLY the idle absolute-restore
-                // path in maintainViewAnchor() — it must stay 0 while a
-                // gesture owns the view; a non-zero value there would be an
-                // absolute write fighting the input. diagGrowthCorrections
+                // path in maintainViewAnchor(). Under the carry-bucket
+                // semantics (counters reset at print, not per gesture) it is
+                // EXPECTED to be non-zero on ordinary traces: the idle path
+                // runs between gestures — media hydration or late decryption
+                // while the reader is parked mid-history — and those counts
+                // carry into the next printed line. It can NOT run while a
+                // gesture owns the view (the userScrollActive block returns
+                // first), so it is no longer a fought-the-input red flag;
+                // read it as "idle restores since the previous line".
+                // diagGrowthCorrections
                 // counts the SEPARATE relative-delta path that DOES run
                 // mid-gesture: how many times content growth above the anchor
                 // (a pooled delegate re-measuring after rebinding, media
@@ -1200,6 +1285,102 @@ Rectangle {
                 // defect, not a regression of it.
                 property int diagAnchorCorrections: 0
                 property int diagGrowthCorrections: 0
+                // v0.7.x live report round 2 ("teleporty ... when there is
+                // images ... scrolling up"): a proposed fix to the displaced-
+                // anchor branch (bounding/symmetrizing its correction) was
+                // reviewed and WITHDRAWN — the reviewer showed the premise
+                // could not be confirmed from the existing single combined
+                // diagGrowthCorrections counter, which cannot tell which of
+                // the FIVE distinct outcomes in maintainViewAnchor() actually
+                // ran — displaced, the capture-fallback, drag-deferral,
+                // materialized, or the idle absolute restore — nor whether
+                // the magnitude of any one correction was proportionate to
+                // real inserted content. These per-outcome counters exist
+                // ONLY to answer that empirically, from a real physical
+                // gesture, before any behavior changes again. A second review
+                // pass then found the counters below still had a structural
+                // blind spot for exactly the scenario this exists to
+                // diagnose, plus two smaller gaps; both are fixed here:
+                //
+                //   M1 (blind spot): diagFlushGesture() used to run as the
+                //   LAST statement of scrollSettleTimer.onTriggered, i.e.
+                //   while diagActive was still true — but the staged-loading
+                //   reconcile it exists to observe does NOT happen inside
+                //   that handler. Leaving the staged prefix (see
+                //   TimelineModel::setBackfillStagingActive) is driven by
+                //   `app.timeline.backfillStagingActive = false`, which is
+                //   written from a Qt.callLater (onBackfillStagingActiveChanged
+                //   below) — one turn after settle at the earliest — and
+                //   THAT write is what triggers flushHiddenPrefix()'s row
+                //   insert, which is what fires onContentHeightChanged,
+                //   which is what schedules maintainViewAnchorCoalesced()'s
+                //   OWN Qt.callLater — so the displaced-branch call this is
+                //   built to catch lands at least two event-loop turns after
+                //   the line was already printed and diagActive already
+                //   false. Every gesture that actually triggered a staged
+                //   flush reported displacedFirings=0: a false negative on
+                //   exactly the H1 question. Guessing the right number of
+                //   turns to defer the flush by is fragile (the chain depth
+                //   is an implementation detail, not a contract) — instead,
+                //   every outcome counter below (everything except the
+                //   events/pixel/angle/netY/dContentH group, which describes
+                //   THIS gesture's own physical input and has no async-loss
+                //   risk) is now gated on `scrollTrace` alone, not
+                //   `diagActive`, and is drained (printed, then zeroed) only
+                //   at the point it is actually printed, not at the next
+                //   gesture's first input. A correction landing in the gap
+                //   between one flush and the next gesture's first delta is
+                //   therefore carried forward and appears on the NEXT
+                //   printed line rather than being silently dropped — never
+                //   lost, at the cost of coarser attribution: a line's
+                //   outcome counts are "since the previous line", which can
+                //   include the tail of the gesture before it. For the
+                //   maintainer's actual capture procedure (continuous
+                //   scrolling) the gap is short and the attribution stays
+                //   meaningful; a long pause between two unrelated gestures
+                //   could carry a stale correction into an unrelated line.
+                //   Read the counters as "what happened since the last
+                //   line", not "what this gesture caused".
+                //
+                //   M2 (uninterpretable all-zero line): a line where every
+                //   outcome counter is 0 does not distinguish "the mechanism
+                //   ran and had nothing to correct" from "the mechanism
+                //   never ran at all" (viewAnchorId empty, or stickToBottom).
+                //   diagNoAnchorReturns below counts the latter.
+                //
+                //   L1 (conflated fallback causes): the old single
+                //   captureFallbacks counter merged two different causes of
+                //   "the delegate isn't there" — a stable id that no longer
+                //   resolves to any row at all (redaction, local-echo id
+                //   swap: diagUnresolvedIdFallbacks) and a row that still
+                //   resolves fine but whose delegate was simply evicted from
+                //   the cache with NO proof any row was inserted above it
+                //   (diagEvictedNoInsertFallbacks — expected to DOMINATE in
+                //   a media-heavy room, since tall image rows push the
+                //   cache window around on ordinary scrolling with no
+                //   pagination involved at all). Distinguishing them is
+                //   exactly what a real capture needs to tell "an insertion
+                //   happened but couldn't be resolved" apart from "nothing
+                //   was inserted, this is just eviction".
+                //
+                // displacedMaxAbsGrew and materializedMaxAbsDelta store the
+                // SIGNED value at the sample with the largest ABSOLUTE
+                // magnitude (selection by |x|, storage without abs()) — a
+                // large negative outlier is not lost to Math.abs(), and the
+                // printed sign tells you which direction the outlier swung.
+                //
+                // Numbers only — no message content, ids, or URLs.
+                property int diagNoAnchorReturns: 0
+                property int diagDisplacedFirings: 0
+                property real diagDisplacedAppliedSum: 0
+                property real diagDisplacedMaxAbsGrew: 0
+                property int diagDisplacedMaxAbsGrewRows: 0
+                property int diagMaterializedFirings: 0
+                property real diagMaterializedAppliedSum: 0
+                property real diagMaterializedMaxAbsDelta: 0
+                property int diagUnresolvedIdFallbacks: 0
+                property int diagEvictedNoInsertFallbacks: 0
+                property int diagDragDeferrals: 0
                 property real diagStartY: 0
                 property real diagStartHeight: 0
                 function diagNoteEvent(isPixel) {
@@ -1210,8 +1391,6 @@ Rectangle {
                         diagEvents = 0
                         diagPixelEvents = 0
                         diagAngleEvents = 0
-                        diagAnchorCorrections = 0
-                        diagGrowthCorrections = 0
                         diagStartY = contentY
                         diagStartHeight = contentHeight
                     }
@@ -1221,6 +1400,9 @@ Rectangle {
                     else
                         diagAngleEvents += 1
                 }
+                // Drains (prints then zeroes) every outcome counter — see the
+                // M1 comment above for why this is the ONLY place they reset,
+                // rather than at the next gesture's first input.
                 function diagFlushGesture() {
                     if (!scrollTrace || !diagActive)
                         return
@@ -1231,11 +1413,35 @@ Rectangle {
                         + " angle=" + diagAngleEvents
                         + " netY=" + Math.round(contentY - diagStartY)
                         + " dContentH=" + Math.round(contentHeight - diagStartHeight)
+                        + " noAnchorReturns=" + diagNoAnchorReturns
                         + " anchorCorrections=" + diagAnchorCorrections
                         + " growthCorrections=" + diagGrowthCorrections
+                        + " displacedFirings=" + diagDisplacedFirings
+                        + " displacedApplied=" + Math.round(diagDisplacedAppliedSum)
+                        + " displacedMaxAbsGrew=" + Math.round(diagDisplacedMaxAbsGrew)
+                        + " displacedMaxAbsGrewRows=" + diagDisplacedMaxAbsGrewRows
+                        + " materializedFirings=" + diagMaterializedFirings
+                        + " materializedApplied=" + Math.round(diagMaterializedAppliedSum)
+                        + " materializedMaxAbsDelta=" + Math.round(diagMaterializedMaxAbsDelta)
+                        + " unresolvedId=" + diagUnresolvedIdFallbacks
+                        + " evictedNoInsert=" + diagEvictedNoInsertFallbacks
+                        + " dragDeferrals=" + diagDragDeferrals
                         + " stick=" + (stickToBottom ? 1 : 0)
                         + " topDist=" + Math.round(distanceFromTop())
                         + " nearTop=" + (distanceFromTop() <= nearTopEnterDistance ? 1 : 0))
+                    diagNoAnchorReturns = 0
+                    diagAnchorCorrections = 0
+                    diagGrowthCorrections = 0
+                    diagDisplacedFirings = 0
+                    diagDisplacedAppliedSum = 0
+                    diagDisplacedMaxAbsGrew = 0
+                    diagDisplacedMaxAbsGrewRows = 0
+                    diagMaterializedFirings = 0
+                    diagMaterializedAppliedSum = 0
+                    diagMaterializedMaxAbsDelta = 0
+                    diagUnresolvedIdFallbacks = 0
+                    diagEvictedNoInsertFallbacks = 0
+                    diagDragDeferrals = 0
                 }
 
                 // Valid contentY range for this ListView, accounting for the
