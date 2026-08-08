@@ -266,8 +266,23 @@ quint64 MockMatrixClient::fetchMxcThumbnail(const QString &mxc, int width,
 {
     Q_UNUSED(width);
     Q_UNUSED(height);
-    if (!m_screenshotDemoMode)
-        return 0;
+    if (!m_screenshotDemoMode) {
+        // Test-only avatar bytes (receipt-chip avatar suite): resolve a
+        // registered mxc through the SAME async op-id contract the Rust
+        // backend uses. Unregistered keys keep the honest "unsupported"
+        // rejection.
+        const auto it = m_avatarBytesForTest.constFind(mxc);
+        if (!m_mediaBridgeSupportedForTest
+            || it == m_avatarBytesForTest.constEnd())
+            return 0;
+        const quint64 op = ++m_mediaOpCounter;
+        const QByteArray bytes = it->bytes;
+        const QString mime = it->mime;
+        QTimer::singleShot(0, this, [this, op, mxc, bytes, mime] {
+            Q_EMIT mediaReady(op, mxc, 2, bytes, mime, mxc);
+        });
+        return op;
+    }
     // The avatar key is the mxc's last path segment ("avatar-alex").
     const QString key = mxc.section(QLatin1Char('/'), -1);
     QByteArray bytes;
@@ -2510,6 +2525,26 @@ void MockMatrixClient::resetTimelineForTest(const QString &roomId,
     }
     Q_EMIT timelineReset(roomId);
     Q_EMIT paginationStateChanged(roomId);
+}
+
+void MockMatrixClient::setRoomMemberForTest(const QString &roomId,
+                                            const MemberInfo &member)
+{
+    // Mirror of the Rust backend's room_members merge: never clobber known
+    // data with empty fields, then announce membersChanged so every
+    // member-derived surface (names, receipt chips) re-resolves.
+    for (auto &r : m_rooms) {
+        if (r.id != roomId)
+            continue;
+        MemberInfo &slot = r.members[member.userId];
+        slot.userId = member.userId;
+        if (!member.displayName.isEmpty())
+            slot.displayName = member.displayName;
+        if (!member.avatarMxcUrl.isEmpty())
+            slot.avatarMxcUrl = member.avatarMxcUrl;
+        Q_EMIT membersChanged(roomId);
+        return;
+    }
 }
 
 void MockMatrixClient::changeEventAtForTest(const QString &roomId, int index,

@@ -88,11 +88,47 @@ Rectangle {
         return cleaned.charAt(0).toUpperCase()
     }
 
+    // The media bridge this avatar loads through. Normally the shared
+    // app.mediaBridge — but resolved DEFENSIVELY: when a Repeater
+    // instantiates a delegate synchronously from inside a property-change
+    // handler (the read-receipt chips: `shown` is reassigned while the row
+    // is still being built, or from a receipts dataChanged), the FIRST
+    // unqualified `app` context lookup performed during that nested
+    // creation resolves to undefined; every LATER lookup in the same
+    // object resolves correctly (observed by direct probing — the
+    // Qt-internal cause is not established, so this is a behavioral
+    // characterization, not a mechanism claim). A binding that THROWS on
+    // that first lookup (the 2026-08 live bug: "TypeError: Cannot read
+    // property 'mediaBridge' of undefined") sticks at its last value
+    // because none of its captured dependencies (only the per-chip
+    // constant `mxc`) ever changes for a chip — the avatar never fetched,
+    // initials only. So: `typeof`-guard the binding (never throws), and
+    // re-resolve via resolveBridge() at completion and on every refresh().
+    // KEEP `bridge` THE FIRST `app` REFERENCE IN THIS FILE: it is the
+    // canary that absorbs the one poisoned lookup; move another `app`
+    // binding above it and THAT binding takes the hit instead. A consumer
+    // can also inject its own bridge explicitly; resolveBridge() never
+    // overwrites a non-null value.
+    property var bridge: (typeof app !== "undefined" && app)
+                         ? app.mediaBridge : null
+    // Idempotent recovery: safe to call anywhere, no-op once resolved
+    // (and app.mediaBridge is a CONSTANT property, so replacing the
+    // original binding loses nothing).
+    function resolveBridge() {
+        if (!bridge && typeof app !== "undefined" && app && app.mediaBridge)
+            bridge = app.mediaBridge
+    }
     readonly property bool hasImage:
-        mxc.length > 0 && app.mediaBridge && app.mediaBridge.supported
+        mxc.length > 0 && bridge !== null && bridge !== undefined
+        && bridge.supported
     property string src: ""
 
     function refresh() {
+        // Recovery point: if BOTH the creation-time lookup and completion
+        // missed (never observed, but unbounded by inspection), any later
+        // poke — an mxc change, hasImage flip, size change — self-heals
+        // instead of leaving a permanently initials-only avatar.
+        resolveBridge()
         if (!hasImage) {
             src = ""
             return
@@ -100,14 +136,14 @@ Rectangle {
         // The bridge fetches every avatar at one canonical server-side
         // edge regardless of the render size (a single request, cache
         // entry, and failure mark per identity); the Image scales down.
-        var s = app.mediaBridge.avatarSource(mxc, size)
+        var s = bridge.avatarSource(mxc, size)
         src = s
         // "" is either "fetch in flight" (loading) or "suppressed by a
         // failure mark". The mark case has NO later signal of its own, so
         // ask synchronously and show honest initials instead of an
         // eternal skeleton; mediaRetryable promotes it back once the
         // transient window expires.
-        if (s === "" && app.mediaBridge.avatarFailureCategory(mxc) !== "")
+        if (s === "" && bridge.avatarFailureCategory(mxc) !== "")
             fetchFailed = true
     }
     onMxcChanged: {
@@ -118,15 +154,21 @@ Rectangle {
         refresh()
     }
     onSizeChanged: refresh()
-    // Covers app.mediaBridge.supported flipping after a late setClient
-    // (session restore/account switch): the avatar re-resolves the moment
-    // the bridge becomes usable instead of staying empty until an
-    // unrelated poke.
+    // Covers bridge.supported flipping after a late setClient (session
+    // restore/account switch): the avatar re-resolves the moment the
+    // bridge becomes usable instead of staying empty until an unrelated
+    // poke.
     onHasImageChanged: refresh()
-    Component.onCompleted: refresh()
+    Component.onCompleted: {
+        // The completion half of the defensive bridge resolution (see the
+        // `bridge` property): by completion the scope was observed wired
+        // in every exercised creation path. refresh() calls
+        // resolveBridge() itself, so this is one call, not two.
+        refresh()
+    }
 
     Connections {
-        target: app.mediaBridge
+        target: root.bridge
         enabled: root.hasImage
         function onMediaCached(cacheKey) {
             // Cache keys end with the mxc URI ("mxc:<edge>:<uri>") — only

@@ -104,7 +104,8 @@ public:
     // video-poster / GIF rows and avatars render as real pictures (no network,
     // no mxc fetch, no token). Off outside demo mode, so the shared mock
     // fixtures and every other backend behaviour are unchanged.
-    bool supportsMediaBridge() const override { return m_screenshotDemoMode; }
+    bool supportsMediaBridge() const override
+    { return m_screenshotDemoMode || m_mediaBridgeSupportedForTest; }
     quint64 fetchMedia(const QString &mediaKey, int kind,
                        int timeoutClass = 0) override;
     quint64 fetchMxcThumbnail(const QString &mxc, int width, int height) override;
@@ -235,6 +236,18 @@ public:
     void setRestoreDelayForTest(int ms) { m_restoreDelayMs = ms; }
     void failNextRestoreForTest() { m_failNextRestore = true; }
 
+    // Read-receipt-chip avatar hooks (2026-08 live bug): serve avatar bytes
+    // through the REAL MediaBridge → MediaImageProvider path without the
+    // demo scene, and hydrate one room member exactly like the Rust
+    // backend's room_members merge does (merge into the member cache, then
+    // membersChanged). Test-only; no network I/O.
+    void setSupportsMediaBridgeForTest(bool on)
+    { m_mediaBridgeSupportedForTest = on; }
+    void setAvatarBytesForTest(const QString &mxc, const QByteArray &bytes,
+                               const QString &mime)
+    { m_avatarBytesForTest.insert(mxc, { bytes, mime }); }
+    void setRoomMemberForTest(const QString &roomId, const MemberInfo &member);
+
 private:
     void seedMockData();
     void seedScreenshotDemoData();     // development-only rich demo scene
@@ -294,6 +307,14 @@ private:
     QList<TimelineEvent> m_paginationChunkOverride;
     int m_restoreDelayMs = 0;
     bool m_failNextRestore = false;
+
+    // Read-receipt-chip avatar hooks (see the public ForTest setters).
+    bool m_mediaBridgeSupportedForTest = false;
+    struct AvatarBytesFixture {
+        QByteArray bytes;
+        QString mime;
+    };
+    QHash<QString, AvatarBytesFixture> m_avatarBytesForTest; // mxc → bytes
 
     quint64 m_eventCounter = 0;
     quint64 m_txnCounter = 0;
