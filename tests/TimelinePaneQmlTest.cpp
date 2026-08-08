@@ -5053,12 +5053,36 @@ private Q_SLOTS:
         QCOMPARE(timeline->property("diagDisplacedAppliedSum").toDouble(), 0.0);
         QCOMPARE(timeline->property("diagDisplacedMaxAbsGrew").toDouble(), 0.0);
         QCOMPARE(timeline->property("diagDisplacedMaxAbsGrewRows").toInt(), 0);
+        QCOMPARE(timeline->property(
+                     "diagDisplacedMaxAbsGrewOriginShift").toDouble(),
+                 0.0);
+        QCOMPARE(timeline->property(
+                     "diagDisplacedMaxAbsOriginShift").toDouble(),
+                 0.0);
+        QCOMPARE(timeline->property(
+                     "diagDisplacedMaxAbsOriginShiftContentDelta").toDouble(),
+                 0.0);
+        QCOMPARE(timeline->property(
+                     "diagDisplacedMaxAbsOriginShiftRows").toInt(),
+                 0);
         QCOMPARE(timeline->property("diagMaterializedFirings").toInt(), 0);
         QCOMPARE(timeline->property("diagMaterializedAppliedSum").toDouble(), 0.0);
         QCOMPARE(timeline->property("diagMaterializedMaxAbsDelta").toDouble(), 0.0);
         QCOMPARE(timeline->property("diagUnresolvedIdFallbacks").toInt(), 0);
         QCOMPARE(timeline->property("diagEvictedNoInsertFallbacks").toInt(), 0);
         QCOMPARE(timeline->property("diagDragDeferrals").toInt(), 0);
+        QCOMPARE(timeline->property("diagPrependFirings").toInt(), 0);
+        QCOMPARE(timeline->property("diagPrependOriginShiftSum").toDouble(), 0.0);
+        QCOMPARE(timeline->property("diagPrependMaxAbsOriginShift").toDouble(),
+                 0.0);
+        QCOMPARE(timeline->property("diagPrependMaxAbsOriginShiftRows").toInt(),
+                 0);
+        QCOMPARE(timeline->property(
+                     "diagPrependMaxAbsOriginShiftContentDelta").toDouble(),
+                 0.0);
+        QCOMPARE(timeline->property(
+                     "diagPrependMaxAbsOriginShiftPath").toString(),
+                 QStringLiteral("none"));
 
         for (const QString &m : capture.messages()) {
             QVERIFY2(!m.contains(QStringLiteral("scroll-gesture")),
@@ -5149,6 +5173,8 @@ private Q_SLOTS:
             QStringLiteral("angle="),
             QStringLiteral("netY="),
             QStringLiteral("dContentH="),
+            QStringLiteral("originY="),
+            QStringLiteral("dOriginY="),
             QStringLiteral("noAnchorReturns="),
             QStringLiteral("stickToBottomReturns="),
             QStringLiteral("anchorCorrections="),
@@ -5157,12 +5183,22 @@ private Q_SLOTS:
             QStringLiteral("displacedApplied="),
             QStringLiteral("displacedMaxAbsGrew="),
             QStringLiteral("displacedMaxAbsGrewRows="),
+            QStringLiteral("displacedMaxAbsGrewOriginShift="),
+            QStringLiteral("displacedMaxAbsOriginShift="),
+            QStringLiteral("displacedMaxAbsOriginShiftDContentH="),
+            QStringLiteral("displacedMaxAbsOriginShiftRows="),
             QStringLiteral("materializedFirings="),
             QStringLiteral("materializedApplied="),
             QStringLiteral("materializedMaxAbsDelta="),
             QStringLiteral("unresolvedId="),
             QStringLiteral("evictedNoInsert="),
             QStringLiteral("dragDeferrals="),
+            QStringLiteral("prependFirings="),
+            QStringLiteral("prependOriginShift="),
+            QStringLiteral("prependMaxAbsOriginShift="),
+            QStringLiteral("prependMaxAbsOriginShiftRows="),
+            QStringLiteral("prependMaxAbsOriginShiftDContentH="),
+            QStringLiteral("prependMaxAbsOriginShiftPath="),
             QStringLiteral("stick="),
             QStringLiteral("topDist="),
             QStringLiteral("nearTop="),
@@ -5829,25 +5865,80 @@ private Q_SLOTS:
         const int baseDragDeferrals =
             timeline->property("diagDragDeferrals").toInt();
 
-        constexpr double simulatedGrowth = 1234.0;
-        constexpr int insertedRows = 3;
+        // Two firings whose maxima deliberately DISAGREE. The first is the
+        // live defect's shape: a large negative whole-content delta (skipped
+        // by production correction) with a smaller origin candidate. The
+        // second has a small positive content delta but the larger origin
+        // candidate. A trace that stores independent maxima without pairing
+        // them cannot tell which origin shift accompanied the skipped -3582
+        // firing and this test fails.
+        constexpr double firstContentDelta = -3582.0;
+        constexpr double firstOriginShift = 300.0;
+        constexpr int firstInsertedRows = 3;
         const double contentHeightNow =
             timeline->property("contentHeight").toDouble();
-        QVERIFY(timeline->setProperty("viewAnchorRow", anchorRow - insertedRows));
+        const double originYNow = timeline->property("originY").toDouble();
+        QVERIFY(timeline->setProperty("viewAnchorRow",
+                                      anchorRow - firstInsertedRows));
         QVERIFY(timeline->setProperty("viewAnchorContentHeight",
-                                      contentHeightNow - simulatedGrowth));
+                                      contentHeightNow - firstContentDelta));
+        QVERIFY(timeline->setProperty("viewAnchorOriginY",
+                                      originYNow + firstOriginShift));
 
         QVERIFY(QMetaObject::invokeMethod(timeline, "maintainViewAnchor"));
 
-        QCOMPARE(timeline->property("diagDisplacedFirings").toInt(), 1);
+        constexpr double secondContentDelta = 100.0;
+        constexpr double secondOriginShift = 500.0;
+        constexpr int secondInsertedRows = 2;
+        QVERIFY(timeline->setProperty("viewAnchorRow",
+                                      anchorRow - secondInsertedRows));
+        QVERIFY(timeline->setProperty("viewAnchorContentHeight",
+                                      contentHeightNow - secondContentDelta));
+        QVERIFY(timeline->setProperty("viewAnchorOriginY",
+                                      originYNow + secondOriginShift));
+
+        QVERIFY(QMetaObject::invokeMethod(timeline, "maintainViewAnchor"));
+
+        QCOMPARE(timeline->property("diagDisplacedFirings").toInt(), 2);
         QVERIFY2(qAbs(timeline->property("diagDisplacedMaxAbsGrew").toDouble()
-                     - simulatedGrowth) < 1.0,
+                     - firstContentDelta) < 1.0,
                  "diagDisplacedMaxAbsGrew did not record the grew value");
         QCOMPARE(timeline->property("diagDisplacedMaxAbsGrewRows").toInt(),
-                 insertedRows);
+                 firstInsertedRows);
+        QVERIFY2(qAbs(timeline->property(
+                         "diagDisplacedMaxAbsGrewOriginShift").toDouble()
+                     - firstOriginShift) < 1.0,
+                 "largest content delta lost its paired origin shift");
+        QVERIFY2(qAbs(timeline->property(
+                         "diagDisplacedMaxAbsOriginShift").toDouble()
+                     - secondOriginShift) < 1.0,
+                 "largest origin shift was not retained");
+        QVERIFY2(qAbs(timeline->property(
+                         "diagDisplacedMaxAbsOriginShiftContentDelta").toDouble()
+                     - secondContentDelta) < 1.0,
+                 "largest origin shift lost its paired content delta");
+        QCOMPARE(timeline->property(
+                     "diagDisplacedMaxAbsOriginShiftRows").toInt(),
+                 secondInsertedRows);
         QVERIFY2(qAbs(timeline->property("diagDisplacedAppliedSum").toDouble()
-                     - simulatedGrowth) < 1.0,
+                     - secondContentDelta) < 1.0,
                  "diagDisplacedAppliedSum did not record the applied amount");
+        QCOMPARE(timeline->property("diagPrependFirings").toInt(), 2);
+        QVERIFY2(qAbs(timeline->property("diagPrependOriginShiftSum").toDouble()
+                     - firstOriginShift - secondOriginShift) < 1.0,
+                 "diagPrependOriginShiftSum did not record the candidate");
+        QVERIFY2(qAbs(timeline->property("diagPrependMaxAbsOriginShift").toDouble()
+                     - secondOriginShift) < 1.0,
+                 "diagPrependMaxAbsOriginShift did not record the candidate");
+        QCOMPARE(timeline->property("diagPrependMaxAbsOriginShiftRows").toInt(),
+                 secondInsertedRows);
+        QVERIFY2(qAbs(timeline->property(
+                         "diagPrependMaxAbsOriginShiftContentDelta").toDouble()
+                     - secondContentDelta) < 1.0,
+                 "origin candidate was not paired with its content-height delta");
+        QCOMPARE(timeline->property(
+                     "diagPrependMaxAbsOriginShiftPath").toString(),
+                 QStringLiteral("displaced"));
         QCOMPARE(timeline->property("diagMaterializedFirings").toInt(),
                  baseMaterialized);
         QCOMPARE(timeline->property("diagUnresolvedIdFallbacks").toInt(),

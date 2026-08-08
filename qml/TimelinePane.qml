@@ -740,7 +740,8 @@ Rectangle {
                 // delegate creation (and media requests) across the rows it
                 // passes — the exact cost profile that made loading laggy.
                 property int viewAnchorCount: 0
-                // Row index and content height at the last measurement. When
+                // Row index, content height, and ListView origin at the last
+                // measurement. When
                 // an insertion displaces the anchor beyond the delegate cache
                 // (a prepend while the reader sits at the top edge), these
                 // two give the shift ARITHMETICALLY — the row index rising
@@ -753,6 +754,13 @@ Rectangle {
                 // BIG room lag while smaller rooms felt fine.
                 property int viewAnchorRow: -1
                 property real viewAnchorContentHeight: 0
+                // Diagnostic baseline for the next live-scroll experiment.
+                // ListView moves originY when rows are prepended, but it also
+                // moves it while revising the average-height estimate for
+                // delegates it has not built. Recording it beside the proven
+                // row-index increase lets a physical trace distinguish those
+                // two causes without changing any scroll correction yet.
+                property real viewAnchorOriginY: 0
                 function captureViewAnchor() {
                     if (stickToBottom || count === 0) {
                         viewAnchorId = ""
@@ -760,6 +768,8 @@ Rectangle {
                         viewAnchorCount = count
                         viewAnchorRow = -1
                         viewAnchorContentHeight = contentHeight
+                        if (scrollTrace)
+                            viewAnchorOriginY = originY
                         return
                     }
                     var row = indexAt(width / 2, contentY + topMargin + 1)
@@ -785,6 +795,8 @@ Rectangle {
                     viewAnchorCount = count
                     viewAnchorRow = row
                     viewAnchorContentHeight = contentHeight
+                    if (scrollTrace)
+                        viewAnchorOriginY = originY
                 }
                 property bool viewAnchorScheduled: false
                 function maintainViewAnchorCoalesced() {
@@ -845,6 +857,38 @@ Rectangle {
                     var row = app.timeline.rowForStableId(viewAnchorId)
                     var it = row >= 0 ? itemAtIndex(row) : null
                     var anchorY = it ? it.y : 0
+                    // Diagnostics only. A stable row index increasing is the
+                    // proof that rows were inserted before the anchor. On that
+                    // exact firing, pair the signed origin shift candidate
+                    // (`old originY - new originY`) with the whole-content
+                    // delta currently used by the displaced branch. This is
+                    // the missing live measurement: originY may be quieter,
+                    // equally noisy, or worse, and production behavior must
+                    // not guess which before the physical trace answers it.
+                    if (scrollTrace && row > viewAnchorRow && viewAnchorRow >= 0) {
+                        var insertedRowsForOriginDiag = row - viewAnchorRow
+                        var originShiftForDiag = viewAnchorOriginY - originY
+                        var contentDeltaForOriginDiag =
+                                contentHeight - viewAnchorContentHeight
+                        var originPathForDiag = !it
+                                ? ((!moving) ? "displaced" : "fallback")
+                                : (userScrollActive
+                                   ? (selfDrivenScrollActive
+                                      ? "materialized" : "drag")
+                                   : "idle")
+                        diagPrependFirings += 1
+                        diagPrependOriginShiftSum += originShiftForDiag
+                        if (diagPrependFirings === 1
+                                || Math.abs(originShiftForDiag)
+                                > Math.abs(diagPrependMaxAbsOriginShift)) {
+                            diagPrependMaxAbsOriginShift = originShiftForDiag
+                            diagPrependMaxAbsOriginShiftRows =
+                                    insertedRowsForOriginDiag
+                            diagPrependMaxAbsOriginShiftContentDelta =
+                                    contentDeltaForOriginDiag
+                            diagPrependMaxAbsOriginShiftPath = originPathForDiag
+                        }
+                    }
                     if (!it && row >= 0 && !moving
                         && row > viewAnchorRow && viewAnchorRow >= 0) {
                         // DISPLACED by an insertion above the reader. The row
@@ -915,9 +959,22 @@ Rectangle {
                         if (scrollTrace) {
                             diagDisplacedFirings += 1
                             var insertedRowsForDiag = row - viewAnchorRow
+                            var displacedOriginShiftForDiag =
+                                    viewAnchorOriginY - originY
                             if (Math.abs(grew) > Math.abs(diagDisplacedMaxAbsGrew)) {
                                 diagDisplacedMaxAbsGrew = grew
                                 diagDisplacedMaxAbsGrewRows = insertedRowsForDiag
+                                diagDisplacedMaxAbsGrewOriginShift =
+                                        displacedOriginShiftForDiag
+                            }
+                            if (diagDisplacedFirings === 1
+                                    || Math.abs(displacedOriginShiftForDiag)
+                                    > Math.abs(diagDisplacedMaxAbsOriginShift)) {
+                                diagDisplacedMaxAbsOriginShift =
+                                        displacedOriginShiftForDiag
+                                diagDisplacedMaxAbsOriginShiftContentDelta = grew
+                                diagDisplacedMaxAbsOriginShiftRows =
+                                        insertedRowsForDiag
                             }
                         }
                         if (grew > 0.5) {
@@ -933,6 +990,8 @@ Rectangle {
                         viewAnchorCount = count
                         viewAnchorRow = row
                         viewAnchorContentHeight = contentHeight
+                        if (scrollTrace)
+                            viewAnchorOriginY = originY
                         return
                     }
                     if (!it) {
@@ -1071,6 +1130,8 @@ Rectangle {
                         viewAnchorCount = count
                         viewAnchorRow = row
                         viewAnchorContentHeight = contentHeight
+                        if (scrollTrace)
+                            viewAnchorOriginY = originY
                         return
                     }
                     // Idle: no gesture to fight, so an absolute restore to
@@ -1096,6 +1157,8 @@ Rectangle {
                     viewAnchorCount = count
                     viewAnchorRow = row
                     viewAnchorContentHeight = contentHeight
+                    if (scrollTrace)
+                        viewAnchorOriginY = originY
                 }
 
                 // v0.6.0: MessageDelegate view contract — the room timeline
@@ -1400,21 +1463,39 @@ Rectangle {
                 // large negative outlier is not lost to Math.abs(), and the
                 // printed sign tells you which direction the outlier swung.
                 //
-                // Numbers only — no message content, ids, or URLs.
+                // Numbers and a fixed branch label only — no message content,
+                // ids, or URLs.
                 property int diagNoAnchorReturns: 0
                 property int diagStickToBottomReturns: 0
                 property int diagDisplacedFirings: 0
                 property real diagDisplacedAppliedSum: 0
                 property real diagDisplacedMaxAbsGrew: 0
                 property int diagDisplacedMaxAbsGrewRows: 0
+                // Paired samples, deliberately selected in BOTH directions:
+                // the origin shift on the largest-|grew| firing answers the
+                // known skipped-negative case, while the content delta and
+                // rows on the largest-|origin shift| firing reveal whether
+                // originY has outliers of its own. Independent maxima without
+                // these pairings would conflate two unrelated firings.
+                property real diagDisplacedMaxAbsGrewOriginShift: 0
+                property real diagDisplacedMaxAbsOriginShift: 0
+                property real diagDisplacedMaxAbsOriginShiftContentDelta: 0
+                property int diagDisplacedMaxAbsOriginShiftRows: 0
                 property int diagMaterializedFirings: 0
                 property real diagMaterializedAppliedSum: 0
                 property real diagMaterializedMaxAbsDelta: 0
                 property int diagUnresolvedIdFallbacks: 0
                 property int diagEvictedNoInsertFallbacks: 0
                 property int diagDragDeferrals: 0
+                property int diagPrependFirings: 0
+                property real diagPrependOriginShiftSum: 0
+                property real diagPrependMaxAbsOriginShift: 0
+                property int diagPrependMaxAbsOriginShiftRows: 0
+                property real diagPrependMaxAbsOriginShiftContentDelta: 0
+                property string diagPrependMaxAbsOriginShiftPath: "none"
                 property real diagStartY: 0
                 property real diagStartHeight: 0
+                property real diagStartOriginY: 0
                 function diagNoteEvent(isPixel) {
                     if (!scrollTrace)
                         return
@@ -1425,6 +1506,7 @@ Rectangle {
                         diagAngleEvents = 0
                         diagStartY = contentY
                         diagStartHeight = contentHeight
+                        diagStartOriginY = originY
                     }
                     diagEvents += 1
                     if (isPixel)
@@ -1445,6 +1527,8 @@ Rectangle {
                         + " angle=" + diagAngleEvents
                         + " netY=" + Math.round(contentY - diagStartY)
                         + " dContentH=" + Math.round(contentHeight - diagStartHeight)
+                        + " originY=" + Math.round(originY)
+                        + " dOriginY=" + Math.round(originY - diagStartOriginY)
                         + " noAnchorReturns=" + diagNoAnchorReturns
                         + " stickToBottomReturns=" + diagStickToBottomReturns
                         + " anchorCorrections=" + diagAnchorCorrections
@@ -1453,12 +1537,22 @@ Rectangle {
                         + " displacedApplied=" + Math.round(diagDisplacedAppliedSum)
                         + " displacedMaxAbsGrew=" + Math.round(diagDisplacedMaxAbsGrew)
                         + " displacedMaxAbsGrewRows=" + diagDisplacedMaxAbsGrewRows
+                        + " displacedMaxAbsGrewOriginShift=" + Math.round(diagDisplacedMaxAbsGrewOriginShift)
+                        + " displacedMaxAbsOriginShift=" + Math.round(diagDisplacedMaxAbsOriginShift)
+                        + " displacedMaxAbsOriginShiftDContentH=" + Math.round(diagDisplacedMaxAbsOriginShiftContentDelta)
+                        + " displacedMaxAbsOriginShiftRows=" + diagDisplacedMaxAbsOriginShiftRows
                         + " materializedFirings=" + diagMaterializedFirings
                         + " materializedApplied=" + Math.round(diagMaterializedAppliedSum)
                         + " materializedMaxAbsDelta=" + Math.round(diagMaterializedMaxAbsDelta)
                         + " unresolvedId=" + diagUnresolvedIdFallbacks
                         + " evictedNoInsert=" + diagEvictedNoInsertFallbacks
                         + " dragDeferrals=" + diagDragDeferrals
+                        + " prependFirings=" + diagPrependFirings
+                        + " prependOriginShift=" + Math.round(diagPrependOriginShiftSum)
+                        + " prependMaxAbsOriginShift=" + Math.round(diagPrependMaxAbsOriginShift)
+                        + " prependMaxAbsOriginShiftRows=" + diagPrependMaxAbsOriginShiftRows
+                        + " prependMaxAbsOriginShiftDContentH=" + Math.round(diagPrependMaxAbsOriginShiftContentDelta)
+                        + " prependMaxAbsOriginShiftPath=" + diagPrependMaxAbsOriginShiftPath
                         + " stick=" + (stickToBottom ? 1 : 0)
                         + " topDist=" + Math.round(distanceFromTop())
                         + " nearTop=" + (distanceFromTop() <= nearTopEnterDistance ? 1 : 0))
@@ -1470,12 +1564,22 @@ Rectangle {
                     diagDisplacedAppliedSum = 0
                     diagDisplacedMaxAbsGrew = 0
                     diagDisplacedMaxAbsGrewRows = 0
+                    diagDisplacedMaxAbsGrewOriginShift = 0
+                    diagDisplacedMaxAbsOriginShift = 0
+                    diagDisplacedMaxAbsOriginShiftContentDelta = 0
+                    diagDisplacedMaxAbsOriginShiftRows = 0
                     diagMaterializedFirings = 0
                     diagMaterializedAppliedSum = 0
                     diagMaterializedMaxAbsDelta = 0
                     diagUnresolvedIdFallbacks = 0
                     diagEvictedNoInsertFallbacks = 0
                     diagDragDeferrals = 0
+                    diagPrependFirings = 0
+                    diagPrependOriginShiftSum = 0
+                    diagPrependMaxAbsOriginShift = 0
+                    diagPrependMaxAbsOriginShiftRows = 0
+                    diagPrependMaxAbsOriginShiftContentDelta = 0
+                    diagPrependMaxAbsOriginShiftPath = "none"
                 }
 
                 // Valid contentY range for this ListView, accounting for the
