@@ -199,7 +199,12 @@ private Q_SLOTS:
     // be hit-testable in that state, or a touch tap (no synthetic
     // hover-before-tap the way a mouse gets one) on the invisible corner
     // would silently star/unstar a GIF the user never saw a button on.
-    void tapHandlerIsGatedOnTheSameRevealedStateAsOpacity()
+    // v0.6.6 review (L2 follow-up): the TapHandler's hit-testability must
+    // match whatever is actually VISIBLE, not stay pinned to `revealed`
+    // alone once the opacity fix (below) made a starred star visible at
+    // rest too — otherwise a touch tap (no hover) on a filled, fully
+    // opaque, meaningful-looking star would silently do nothing.
+    void tapHandlerIsGatedOnTheSameVisibilityStateAsOpacity()
     {
         const QString delegate = read(QStringLiteral("MessageDelegate.qml"));
         const QString block = starBlock(delegate);
@@ -208,9 +213,24 @@ private Q_SLOTS:
             "readonly property bool revealed:\n"
             "                                gifStarHover.hovered || starHover.hovered\n"
             "                                || gifStarButton.activeFocus")));
-        QVERIFY(block.contains(QStringLiteral("opacity: revealed ? 1 : 0")));
         QVERIFY(block.contains(QStringLiteral(
-            "TapHandler {\n                                enabled: gifStarButton.revealed")));
+            "TapHandler {\n"
+            "                                enabled: gifStarButton.revealed || imageBox.starred")));
+    }
+
+    // v0.6.6 fix: a starred GIF must stay visible at rest, not only on
+    // hover/focus — GifPicker.qml's tile star already does this
+    // (opacity: tile.favorite || tileHover.hovered ? 1 : 0). Before this fix
+    // the timeline hover star had no such term, so restoring a starred state
+    // from a fresh session gave the user zero visible signal without a
+    // hover.
+    void opacityShowsAtRestWhenStarred()
+    {
+        const QString delegate = read(QStringLiteral("MessageDelegate.qml"));
+        const QString block = starBlock(delegate);
+        QVERIFY(!block.isEmpty());
+        QVERIFY(block.contains(QStringLiteral(
+            "opacity: (revealed || imageBox.starred) ? 1 : 0")));
     }
 
     void activationResolvesByMediaKeyNeverAnIndex()
@@ -219,11 +239,18 @@ private Q_SLOTS:
         const QString block = starBlock(delegate);
         QVERIFY(!block.isEmpty());
         QVERIFY(block.contains(QStringLiteral("var key = model.mediaKey || \"\"")));
-        QVERIFY(block.contains(QStringLiteral(
-            "app.gif.starredStore.isStarredThisSession(key)")));
-        QVERIFY(block.contains(QStringLiteral(
-            "app.gif.starredStore.unstarByMediaKey(key)")));
+        // v0.6.6 fix: routes through AppController's durable, two-tier
+        // check/action (session-exact fast path + content-hash durable
+        // fallback — see GifStarredStore's "DURABLE STARRED-STATE DESIGN"
+        // class comment) rather than calling the session-only
+        // GifStarredStore methods directly.
+        QVERIFY(block.contains(QStringLiteral("app.isChatGifStarred(key)")));
+        QVERIFY(block.contains(QStringLiteral("app.unstarChatGif(key)")));
         QVERIFY(block.contains(QStringLiteral("app.starChatGif(key)")));
+        QVERIFY(!block.contains(QStringLiteral(
+            "app.gif.starredStore.isStarredThisSession(key)")));
+        QVERIFY(!block.contains(QStringLiteral(
+            "app.gif.starredStore.unstarByMediaKey(key)")));
         QVERIFY(!block.contains(QStringLiteral("currentIndex")));
     }
 
@@ -235,7 +262,7 @@ private Q_SLOTS:
         QVERIFY(block.contains(QStringLiteral("activeFocusOnTab: true")));
         QVERIFY(block.contains(QStringLiteral("Accessible.role: Accessible.Button")));
         QVERIFY(block.contains(QStringLiteral(
-            "Accessible.name: imageBox.starredThisSession")));
+            "Accessible.name: imageBox.starred")));
         QVERIFY(block.contains(QStringLiteral("qsTr(\"Remove from starred GIFs\")")));
         QVERIFY(block.contains(QStringLiteral("qsTr(\"Star GIF\")")));
     }
@@ -317,6 +344,19 @@ private Q_SLOTS:
         const QString delegate = read(QStringLiteral("MessageDelegate.qml"));
         QVERIFY(delegate.contains(
             QStringLiteral("onStarEligibleChanged: refreshStarredState()")));
+    }
+
+    // v0.6.6 fix (A3): starring a GIF still on the wire as a local echo
+    // hashes/fetches bytes keyed off the echo's temporary id, then can never
+    // be matched again once the echo is replaced by the real remote event
+    // (whose mediaKey differs) — the star must not be offered at all until
+    // the row is a real, stable event.
+    void starEligibilityExcludesPendingLocalEchoRows()
+    {
+        const QString delegate = read(QStringLiteral("MessageDelegate.qml"));
+        const QString block = stateBlock(delegate);
+        QVERIFY(!block.isEmpty());
+        QVERIFY(block.contains(QStringLiteral("!imageBox.pendingMedia")));
     }
 };
 

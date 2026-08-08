@@ -39,6 +39,7 @@
 #include "gif/GifResponseParser.h"
 #include "gif/GifResultModel.h"
 #include "gif/GifSearchController.h"
+#include "gif/GifStarredStore.h"
 #include "gif/GifTransport.h"
 
 namespace {
@@ -506,6 +507,117 @@ private Q_SLOTS:
         QTRY_VERIFY(!threadPicker->property("opened").toBool());
 
         delete root;
+        QCOMPARE(warnings, QStringList{});
+    }
+
+    // v0.6.6 live-bug fix: `gif.starredStore.model()` in GifPicker.qml's
+    // activeModel binding called a plain, non-Q_INVOKABLE C++ method — QML
+    // cannot call that, the binding throws a TypeError, Qt's
+    // QQmlBinding::update catches it and (silently) leaves activeModel at
+    // its PREVIOUS value. Since activeModel starts out (starredTabActive
+    // false) bound to gif.results, selecting the Starred tab left the grid
+    // still showing trending GIPHY results — while the tab's header/footer/
+    // search-field visibility all correctly switched, because those bind on
+    // starredTabActive directly, never through the throwing expression.
+    // Every previous guard on this (QmlBindingContractTest,
+    // GifPickerRedesignContractTest) only text-scanned the QML source for
+    // the call; neither ever set starredTabActive on a real, running picker,
+    // so the throwing branch was never actually evaluated. This test drives
+    // the real engine, the real GifStarredStore, and asserts both the model
+    // identity AND that no QML warning (i.e. no caught binding exception)
+    // was ever emitted — a text scan can never prove that on its own.
+    void starredTabBindsTheStarredModelNotResults()
+    {
+        QTemporaryDir starredDir;
+        QVERIFY(starredDir.isValid());
+        GifSearchController gif;
+        gif.openStarredStoreFor(starredDir.path());
+        QVERIFY(gif.starredStore()->isOpen());
+
+        // A minimal real GIF: magic + logical-screen-descriptor width/height
+        // — the smallest shape gif::validateGifBytes accepts (mirrors
+        // GifStarredStoreTest.cpp's makeGif()).
+        QByteArray starredBytes = QByteArrayLiteral("GIF89a");
+        starredBytes.append(char(10)); starredBytes.append(char(0));
+        starredBytes.append(char(10)); starredBytes.append(char(0));
+        QSignalSpy starFinished(gif.starredStore(),
+                                &GifStarredStore::starFinished);
+        gif.starredStore()->starBytes(QStringLiteral("mk1"), starredBytes);
+        QCOMPARE(starFinished.count(), 1);
+        QVERIFY(starFinished.at(0).at(1).toBool());
+        QCOMPARE(gif.starredStore()->count(), 1);
+
+        // The browse results model stays populated with UNRELATED trending
+        // content — exactly what the bug left rendered on the Starred tab.
+        // TWO rows, deliberately: with one row each, the grid's count would
+        // be 1 in both the fixed and the broken state, so the count
+        // assertion below would pass against the bug and only the identity
+        // assertions would catch it.
+        gif.results()->reset(
+            { safeResult(QStringLiteral("giphy"), QStringLiteral("trend1")),
+              safeResult(QStringLiteral("giphy"), QStringLiteral("trend2")) });
+        QCOMPARE(gif.results()->count(), 2);
+
+        FakeGifApp fakeApp(&gif);
+
+        QQmlApplicationEngine engine;
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this,
+                [&warnings](const QList<QQmlError> &errors) {
+                    for (const auto &e : errors)
+                        warnings << e.toString();
+                });
+        engine.rootContext()->setContextProperty("app", &fakeApp);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("GifPicker"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        auto *picker = createdSpy.at(0).at(0).value<QObject *>();
+        QVERIFY(picker != nullptr);
+
+        QQuickWindow window;
+        window.resize(600, 640);
+        if (auto *item = qobject_cast<QQuickItem *>(picker))
+            item->setParentItem(window.contentItem());
+        else if (auto *popupItem =
+                     picker->property("contentItem").value<QQuickItem *>())
+            popupItem->setParentItem(window.contentItem());
+        window.show();
+        QCoreApplication::processEvents();
+
+        // Select the Starred tab exactly like the provider
+        // SegmentedControl's onActivated("starred") branch does.
+        QQmlProperty::write(picker, QStringLiteral("starredTabActive"), true);
+        QCoreApplication::processEvents();
+        QVERIFY(QQmlProperty::read(picker, QStringLiteral("starredTabActive"))
+                     .toBool());
+
+        auto *gridObj =
+            picker->findChild<QObject *>(QStringLiteral("gifResultGrid"));
+        QVERIFY(gridObj != nullptr);
+
+        // activeModel (and the grid bound to it) must be the STARRED model
+        // — never gif.results (trending).
+        QObject *activeModel =
+            QQmlProperty::read(picker, QStringLiteral("activeModel"))
+                .value<QObject *>();
+        QCOMPARE(activeModel, static_cast<QObject *>(gif.starredStore()->model()));
+        QVERIFY(activeModel != static_cast<QObject *>(gif.results()));
+
+        QObject *gridModel =
+            QQmlProperty::read(gridObj, QStringLiteral("model")).value<QObject *>();
+        QCOMPARE(gridModel, static_cast<QObject *>(gif.starredStore()->model()));
+
+        // The grid actually renders the ONE starred row, not the TWO
+        // trending rows the bug left it showing — a count assertion that
+        // discriminates on its own, not only alongside the identity checks.
+        QCOMPARE(QQmlProperty::read(gridObj, QStringLiteral("count")).toInt(), 1);
+
+        // No caught binding exception anywhere in this sequence — the
+        // regression's actual failure mode (a swallowed TypeError) would
+        // otherwise show up here even if some other code path happened to
+        // still produce the right model.
         QCOMPARE(warnings, QStringList{});
     }
 

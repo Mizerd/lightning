@@ -255,7 +255,17 @@ private Q_SLOTS:
     void starredTabBindsTheStarredModelDirectlyNotAMergedModel()
     {
         const QString picker = read(QStringLiteral(QML_DIR "/GifPicker.qml"));
+        // v0.6.6 live-bug fix: `.model()` called a plain, non-invokable C++
+        // method from a QML binding — it THROWS, and Qt silently leaves
+        // activeModel at its previous value (see QmlBindingContractTest for
+        // the full mechanism). `.model` is now a real Q_PROPERTY on
+        // GifStarredStore; a text scan alone cannot prove the binding does
+        // not throw at runtime — see
+        // GifPickerSelectionQmlTest::starredTabBindsTheStarredModelNotResults
+        // for the real-engine assertion.
         QVERIFY(picker.contains(QStringLiteral(
+            "starredTabActive ? gif.starredStore.model")));
+        QVERIFY(!picker.contains(QStringLiteral(
             "starredTabActive ? gif.starredStore.model()")));
         // Favorites reverted to provider favorites ONLY — no merged model
         // class exists any more (GifFavoritesMergedModel was deleted).

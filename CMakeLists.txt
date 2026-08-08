@@ -1160,6 +1160,23 @@ if(BUILD_TESTING)
     set_tests_properties(account-switch PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+    # v0.6.6 review (M2): AppController::isChatGifStarred/unstarChatGif's
+    # two-tier design (session-only fast path + durable content-hash
+    # fallback through MediaBridge) had no executable coverage — only
+    # MediaBridgeTest.cpp/GifStarredStoreTest.cpp exercising each half in
+    # isolation. Drives a real AppController (mock backend) with its
+    # MediaBridge repointed at a small controllable FakeClient.
+    qt_add_executable(app-controller-chat-gif-starred-test
+        tests/AppControllerChatGifStarredTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_app(app-controller-chat-gif-starred-test)
+    target_link_libraries(app-controller-chat-gif-starred-test PRIVATE Qt6::Test)
+    add_test(NAME app-controller-chat-gif-starred
+             COMMAND app-controller-chat-gif-starred-test)
+    set_tests_properties(app-controller-chat-gif-starred PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
     # v0.5.7: live-timeline diff translation + generation tracking. Pure
     # Qt (no cargo), so it runs in both build trees.
     qt_add_executable(rust-timeline-ingest-test

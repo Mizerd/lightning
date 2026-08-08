@@ -454,6 +454,23 @@ public Q_SLOTS:
     // place MediaBridge and the gif:: local-star store meet, so neither
     // gains a dependency on the other.
     Q_INVOKABLE void starChatGif(const QString &mediaKey);
+    // v0.6.6 fix: the two QML-facing entry points for the hover star's
+    // filled/outline state and its unstar action. Both are two-tier — a
+    // fast, exact, SESSION-only check/action (GifStarredStore's own
+    // isStarredThisSession/unstarByMediaKey, correct for a GIF starred in
+    // this run) with a DURABLE, content-addressed fallback for everything
+    // else (a restart, or a second message carrying the identical GIF):
+    // MediaBridge::cachedFullContentHash turns `mediaKey` into the sha256
+    // GifStarredStore already indexes by, using only bytes MediaBridge's
+    // ordinary display cache already fetched for showing the row — never a
+    // fresh fetch just to answer this, and never a Matrix identifier
+    // (mediaKey/event id) persisted anywhere. See GifStarredStore's class
+    // comment ("DURABLE STARRED-STATE DESIGN") for the full rationale and
+    // its honest staleness trade-off. This is the ONLY place MediaBridge and
+    // the gif:: local-star store meet for this purpose, mirroring
+    // starChatGif() above.
+    Q_INVOKABLE bool isChatGifStarred(const QString &mediaKey) const;
+    Q_INVOKABLE void unstarChatGif(const QString &mediaKey);
 
     // v0.5.0 SAS emoji verification invocables.
     Q_INVOKABLE void acceptVerification();

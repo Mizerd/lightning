@@ -196,6 +196,11 @@ void MediaBridge::insertCache(const QString &cacheKey, const QByteArray &bytes)
             continue;
         total -= m_cache.value(victim).size();
         m_cache.remove(victim);
+        // review H1b: the memoized content hash for an evicted key is dead
+        // weight (cachedFullContentHash() can never return it once the
+        // bytes are gone) — drop it here rather than leaving it to be
+        // silently superseded only if the same key is ever re-inserted.
+        m_contentHashCache.remove(victim);
     }
 }
 
@@ -683,6 +688,7 @@ QVariantMap MediaBridge::healthSnapshot() const
     out.insert(QStringLiteral("droppedStale"), m_statDroppedStale);
     out.insert(QStringLiteral("cacheHits"), m_statCacheHit);
     out.insert(QStringLiteral("cacheMisses"), m_statCacheMiss);
+    out.insert(QStringLiteral("contentHashComputed"), m_statContentHashComputed);
     out.insert(QStringLiteral("failureMarks"),
                static_cast<qint64>(m_failed.size()));
     out.insert(QStringLiteral("cacheBytes"), cacheBytesUsed());
@@ -943,6 +949,60 @@ void MediaBridge::fetchFullForStar(const QString &mediaKey)
     dispatch(request);
 }
 
+QString MediaBridge::cachedFullContentHash(const QString &mediaKey) const
+{
+    if (mediaKey.isEmpty())
+        return {};
+    const QString cacheKey = mediaCacheKey(mediaKey, 0);
+    QByteArray bytes; // implicitly shared: the copy itself is O(1)
+    quint32 rev = 0;
+    {
+        QMutexLocker lock(&m_cacheMutex);
+        const auto it = m_cache.constFind(cacheKey);
+        if (it == m_cache.constEnd())
+            return {};
+        // review L1: deliberately does NOT call touch() the way
+        // cachedBytes() does — this is a read-only "is this starred?"
+        // predicate fired from several QML triggers per row, not an actual
+        // display fetch, and it must never reorder LRU eviction ahead of a
+        // genuine read.
+        rev = m_revision.value(cacheKey);
+        const auto memoized = m_contentHashCache.constFind(cacheKey);
+        if (memoized != m_contentHashCache.constEnd() && memoized->revision == rev)
+            return memoized->hex;
+        bytes = it.value();
+    }
+
+    // review L-a: hash OUTSIDE the lock. m_cacheMutex is shared with
+    // MediaImageProvider::requestImage, which runs on Qt's pixmap-reader
+    // thread; SHA-256 measures ~149 MB/s here, so hashing a multi-MiB
+    // payload under the lock would stall an unrelated image load for tens
+    // of milliseconds. The COW copy above makes releasing the lock free,
+    // and the bytes stay valid even if the entry is evicted meanwhile.
+    const QString hex = QString::fromLatin1(
+        QCryptographicHash::hash(bytes, QCryptographicHash::Sha256).toHex());
+
+    QMutexLocker lock(&m_cacheMutex);
+    // Only memoize if nothing replaced or dropped the payload while we
+    // hashed — otherwise this digest describes bytes that are no longer
+    // under this key, and caching it would serve a stale answer. Identity
+    // of the shared buffer, NOT the revision counter: clear() resets
+    // m_revision, so a key at revision 1 before a clear() is at revision 1
+    // again after re-insertion — an ABA the counter cannot see. Under COW
+    // the data pointer is exact and free to compare. (Unreachable today —
+    // cachedFullContentHash, clear() and insertCache all run on the GUI
+    // thread — but moving the hash to a worker thread, which is the
+    // obvious next optimization, would make it live.)
+    const auto after = m_cache.constFind(cacheKey);
+    if (after != m_cache.constEnd()
+        && after->constData() == bytes.constData()
+        && after->size() == bytes.size()) {
+        ++m_statContentHashComputed;
+        m_contentHashCache.insert(cacheKey, { hex, rev });
+    }
+    return hex;
+}
+
 void MediaBridge::writeSaveFile(const QUrl &destination, const QByteArray &bytes,
                                 const QString &mediaKey)
 {
@@ -977,6 +1037,9 @@ void MediaBridge::clear()
         // Account isolation + bounded memory: revisions restart with the
         // session (a fresh session's first insert is revision 1 again).
         m_revision.clear();
+        // review H1b: every memoized digest refers to bytes that no longer
+        // exist past this point (sign-out/account switch) — drop them all.
+        m_contentHashCache.clear();
     }
     m_inflight.clear();
     m_queue.clear();

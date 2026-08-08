@@ -1491,6 +1491,47 @@ void AppController::starChatGif(const QString &mediaKey)
     m_mediaBridge->fetchFullForStar(mediaKey);
 }
 
+bool AppController::isChatGifStarred(const QString &mediaKey) const
+{
+    if (mediaKey.isEmpty())
+        return false;
+    // Fast path: exact for a GIF starred earlier in this session.
+    if (m_gif->starredStore()->isStarredThisSession(mediaKey))
+        return true;
+    // v0.6.6 perf fix (review H1a): nothing to possibly match — skip the
+    // MediaBridge round trip (and the SHA-256 it would otherwise compute)
+    // entirely rather than hashing a row's bytes just to compare against an
+    // empty store. This removes 100% of the hashing cost for anyone who has
+    // never starred anything, which is most GIF-viewing traffic in the app.
+    if (!m_gif->starredStore()->isOpen() || m_gif->starredStore()->count() == 0)
+        return false;
+    // Durable path: content-addressed, using only bytes MediaBridge's
+    // ordinary display cache already fetched for this row (never a fresh
+    // fetch just to answer this question, and memoized per cache key — see
+    // MediaBridge::cachedFullContentHash) — see GifStarredStore's class
+    // comment for the full rationale.
+    const QString hash = m_mediaBridge->cachedFullContentHash(mediaKey);
+    if (hash.isEmpty())
+        return false;
+    return m_gif->starredStore()->hasHash(hash);
+}
+
+void AppController::unstarChatGif(const QString &mediaKey)
+{
+    if (mediaKey.isEmpty())
+        return;
+    if (m_gif->starredStore()->isStarredThisSession(mediaKey)) {
+        m_gif->starredStore()->unstarByMediaKey(mediaKey);
+        return;
+    }
+    // v0.6.6 perf fix (review H1a): see isChatGifStarred above.
+    if (!m_gif->starredStore()->isOpen() || m_gif->starredStore()->count() == 0)
+        return;
+    const QString hash = m_mediaBridge->cachedFullContentHash(mediaKey);
+    if (!hash.isEmpty())
+        m_gif->starredStore()->unstar(hash);
+}
+
 void AppController::acceptVerification()
 {
 #ifdef ENABLE_RUST_SDK_BACKEND

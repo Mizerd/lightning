@@ -99,11 +99,74 @@ class QSettings;
 // AppController::starChatGif for the fetch trigger — so it stays a small,
 // dependency-light QtCore class (safe for unit tests with a QTemporaryDir,
 // no MediaBridge/MatrixClient linkage).
+//
+// DURABLE STARRED-STATE DESIGN (v0.6.6 fix — replaces an earlier "accepted
+// limitation" that this class does not repeat here): the timeline star must
+// answer correctly after a restart and for a second message carrying the
+// SAME GIF, not just for the row that was just starred in this session. The
+// obvious shortcut — persist `mediaKey` (the Matrix event id, or the SDK's
+// local-echo unique id) alongside the hash in index.ini — was rejected: it
+// is exactly the Matrix identifier the PRIVACY paragraph above promises this
+// index never carries, and (per MediaBridge's own cache-key-tagging comment)
+// an SDK media key can embed room/event structure, not just an opaque token.
+// The design actually used stays content-addressed and adds nothing to the
+// persisted index:
+//   - `isStarredThisSession`/`unstarByMediaKey` below remain exactly what
+//     they always were — a session-only, non-persisted mediaKey->hash
+//     lookup, correct immediately for a GIF starred in THIS run;
+//   - AppController::isChatGifStarred/unstarChatGif (the QML-facing entry
+//     points MessageDelegate.qml now calls instead of these two directly)
+//     add a second, durable tier for everything that lookup misses: they ask
+//     MediaBridge for the SHA-256 of whatever full GIF bytes are ALREADY
+//     sitting in its ordinary in-RAM display cache for that mediaKey (never
+//     triggering a fresh fetch just to answer the question), then check that
+//     hash against this store's own `hasHash()` — the same content identity
+//     `starBytes` already hashes and dedupes on. That reuses the existing
+//     player/preview fetch that already has to happen to SHOW the GIF, so no
+//     extra network traffic or decryption is added for this check.
+// Trade-off, stated honestly: the durable answer is only as fresh as
+// whatever MediaBridge happens to have cached. A starred GIF whose full
+// bytes were never fetched in this run — e.g. it sits off-screen, or
+// "Animate GIF previews" is set to Never and the row was never opened —
+// still shows unstarred (not wrong, just not yet known) until something
+// (autoplay, hover-to-play, opening the image) fetches those bytes, at which
+// point MessageDelegate.qml's onAnimatedMediaReady/onMediaCached handlers
+// re-run this check and the star fills in without a reload. This IS a real,
+// honest false negative — the unknown state renders exactly like "not
+// starred" until the bytes are cached — never a false POSITIVE (an unstarred
+// GIF is never shown filled).
+//
+// The "never re-downloads or re-persists" property holds only for the QUERY
+// path (isChatGifStarred/unstarByMediaKey's durable fallback: reading
+// MediaBridge's already-cached bytes, memoized — see MediaBridge::
+// cachedFullContentHash — never dispatches a fetch). It does NOT hold for
+// ACTIVATING the star while the answer is still unknown: the hover star's
+// activate() then takes the "star" branch (the only ambiguity-safe choice —
+// an unknown answer must never be treated as "so unstar it", which would
+// delete a file the user chose to keep on a coin-flip), which calls
+// AppController::starChatGif -> MediaBridge::fetchFullForStar. If those
+// bytes are not already cached, that IS a real network fetch and SDK
+// decrypt of a file already sitting on disk. starBytes()'s existing-hash
+// branch then refuses to rewrite the file (see below), so no bytes are
+// duplicated on disk — but it still calls insertLocal(), which re-prepends
+// the row (a visible reorder of the Starred tab for something that was
+// already there), and starFinished emits with `category` ==
+// "already_starred" so the UI can say "Already in your starred GIFs."
+// instead of implying a new star happened (see categoryMessage()).
 class GifStarredStore : public QObject
 {
     Q_OBJECT
     Q_PROPERTY(int count READ count NOTIFY countChanged)
     Q_PROPERTY(qint64 totalBytes READ totalBytes NOTIFY countChanged)
+    // GifPicker.qml's Starred tab binds this directly (`gif.starredStore.model`)
+    // exactly like GifSearchController exposes `favorites`/`recent` — a plain
+    // C++ getter is NOT enough: QML only auto-exposes Q_PROPERTY/Q_INVOKABLE/
+    // slots, so calling a bare public method from a binding throws, and a
+    // thrown QML binding silently keeps the binding's PREVIOUS value instead
+    // of failing loudly. That is exactly what happened here before this
+    // property existed — `model()` itself (below) is UNCHANGED, a plain
+    // accessor; only exposing it as a Q_PROPERTY is new.
+    Q_PROPERTY(GifStarredModel *model READ model CONSTANT)
 
 public:
     explicit GifStarredStore(QObject *parent = nullptr);
@@ -158,6 +221,12 @@ public:
     // open; "unavailable"/"timeout" — relayed fetch failures) that tests
     // assert on; `message` is the ALREADY-TRANSLATED, user-ready sentence
     // (never a raw category token reaching the UI — see categoryMessage()).
+    // On a genuine SUCCESS `category`/`message` are both empty, EXCEPT one
+    // case: `ok` true with `category` == "already_starred" means this exact
+    // content hash was already indexed (the durable-check "unknown" ->
+    // activate() -> re-fetch path documented in the class comment) — no
+    // bytes were rewritten, but the row was re-prepended, and the UI should
+    // say so rather than implying a new star just happened.
     void starBytes(const QString &mediaKey, const QByteArray &bytes);
     // Relays a failure that happened BEFORE bytes ever reached this class
     // (the media-bridge fetch itself failed/timed out) through the same
@@ -179,13 +248,27 @@ public:
     // Convenience for the chat message hover star, which only knows
     // `mediaKey`: unstars whatever hash this session remembers for it (see
     // starBytes). A row starred in an EARLIER session (no session-local
-    // mapping yet) cannot be unstarred this way — only from the picker,
-    // which has the real hash — this is the same documented, honest
-    // limitation as the filled/outline star state itself (see
-    // isStarredThisSession).
+    // mapping yet) cannot be unstarred this way — that is exactly why
+    // AppController::unstarChatGif (the QML-facing entry point) falls back
+    // to a durable, content-hash lookup through MediaBridge when this
+    // session map does not know `mediaKey` — see the class comment's
+    // "DURABLE STARRED-STATE DESIGN" section. This method itself is
+    // unchanged: fast, session-only, exact.
     Q_INVOKABLE void unstarByMediaKey(const QString &mediaKey);
+    // Session-only fast path: true only for a mediaKey this exact process
+    // starred (see starBytes). Always correct when true; a false here does
+    // NOT mean "not starred" — see AppController::isChatGifStarred, which is
+    // what MessageDelegate.qml actually calls, for the durable answer that
+    // also covers a restart or a second message with identical bytes.
     Q_INVOKABLE bool isStarredThisSession(const QString &mediaKey) const
     { return m_mediaKeyToHash.contains(mediaKey); }
+    // Durable, content-addressed answer: true iff a GIF with this exact
+    // sha256 content hash is currently starred. The caller (AppController)
+    // is responsible for turning a timeline row's mediaKey into a hash
+    // (via MediaBridge's already-cached bytes) without ever persisting the
+    // mediaKey itself — see the class comment.
+    Q_INVOKABLE bool hasHash(const QString &hash) const
+    { return isOpen() && isSafeHashHex(hash) && m_model->hasHash(hash); }
 
     // Bytes for a previously starred hash, read fresh from disk every call
     // (never trusted from a cached copy) — used by GifSendController to

@@ -13,6 +13,7 @@
 #include "matrix/MatrixClient.h"
 #include "media/MediaBridge.h"
 
+#include <QCryptographicHash>
 #include <QLoggingCategory>
 #include <QSignalSpy>
 #include <QtTest/QtTest>
@@ -1001,6 +1002,144 @@ private Q_SLOTS:
 
         client.succeed(client.fetches.at(1).opId, QByteArray("real-bytes"));
         QCOMPARE(cached.count(), 1); // the ordinary fetch resolved normally
+    }
+
+    // v0.6.6 fix: GifStarredStore's durable "is this GIF already starred?"
+    // check (AppController::isChatGifStarred/unstarChatGif) reads the
+    // content hash of whatever full payload is ALREADY cached for a
+    // mediaKey — never dispatching a fetch of its own.
+    void cachedFullContentHashMatchesSha256OfCachedFullPayloadWithoutDispatching()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        // Prime the cache the way an inline preview (animatedSource) would.
+        bridge.mediaSource(QStringLiteral("$gif"), QStringLiteral("full"));
+        const QByteArray bytes("GIF89a-cached-full-bytes");
+        client.succeed(client.fetches.first().opId, bytes);
+        QCOMPARE(client.fetches.size(), 1);
+
+        const QString expected = QString::fromLatin1(
+            QCryptographicHash::hash(bytes, QCryptographicHash::Sha256).toHex());
+        QCOMPARE(bridge.cachedFullContentHash(QStringLiteral("$gif")), expected);
+        QCOMPARE(client.fetches.size(), 1); // no new dispatch — read-only
+    }
+
+    // M2: the silent-always-false failure mode this guards against is
+    // hashing mediaCacheKey(key, 1) ("thumb:") instead of mediaCacheKey(key,
+    // 0) ("full:") — that bug would pass every other test in this file (an
+    // empty/uncached/unknown key all correctly answer "") but silently never
+    // answer true for a real GIF whose only cached entry is its thumbnail.
+    void cachedFullContentHashIsEmptyUnlessTheFullPayloadItselfIsCached()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+
+        // Empty key.
+        QVERIFY(bridge.cachedFullContentHash(QString()).isEmpty());
+        // Never requested at all.
+        QVERIFY(bridge.cachedFullContentHash(QStringLiteral("$never-fetched")).isEmpty());
+
+        // Only a THUMBNAIL is cached for this key — the full payload was
+        // never fetched. Must still answer "", not the thumbnail's hash.
+        bridge.mediaSource(QStringLiteral("$thumb-only"), QStringLiteral("thumb"));
+        client.succeed(client.fetches.first().opId, QByteArray("thumbnail-bytes"));
+        QVERIFY(bridge.cachedFullContentHash(QStringLiteral("$thumb-only")).isEmpty());
+    }
+
+    // H1b: pins the memoization itself with a deterministic, timing-
+    // independent observable (a computation counter — see
+    // MediaBridge::healthSnapshot's new "contentHashComputed" entry) rather
+    // than a wall-clock assertion. Also proves the three documented
+    // invalidation points: an actual byte re-insert (revision bump), LRU
+    // eviction, and clear().
+    void cachedFullContentHashIsMemoizedPerCacheKey()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        bridge.mediaSource(QStringLiteral("$gif"), QStringLiteral("full"));
+        client.succeed(client.fetches.first().opId, QByteArray(4096, 'x'));
+
+        // Every one of the (up to eight, per MessageDelegate.qml) triggers
+        // this query is fired from must cost ONE real hash, not eight.
+        // mediaSource() itself is a cache HIT for an already-cached key (it
+        // never re-dispatches, so there is no public way to force a second
+        // insert for the SAME key without first evicting it — see below),
+        // which is exactly the "no NOTIFY, refresh from several signals"
+        // shape MessageDelegate.qml's own repeated querying has.
+        for (int i = 0; i < 8; ++i)
+            bridge.cachedFullContentHash(QStringLiteral("$gif"));
+        QCOMPARE(bridge.healthSnapshot()
+                     .value(QStringLiteral("contentHashComputed")).toLongLong(),
+                 qint64(1));
+        QCOMPARE(bridge.cachedFullContentHash(QStringLiteral("$gif")),
+                 QString::fromLatin1(QCryptographicHash::hash(
+                     QByteArray(4096, 'x'), QCryptographicHash::Sha256).toHex()));
+
+        // LRU eviction invalidates the memo: a tiny cache limit forces
+        // "$gif" out the moment a second key is inserted, so a subsequent
+        // query for "$gif" (now uncached) answers "" without touching the
+        // stale memo entry, and does NOT count as a new computation.
+        bridge.setCacheLimitBytes(1); // smaller than either payload
+        bridge.mediaSource(QStringLiteral("$other"), QStringLiteral("full"));
+        client.succeed(client.fetches.last().opId, QByteArray(4096, 'z'));
+        QVERIFY(bridge.cachedFullContentHash(QStringLiteral("$gif")).isEmpty());
+        QCOMPARE(bridge.healthSnapshot()
+                     .value(QStringLiteral("contentHashComputed")).toLongLong(),
+                 qint64(1)); // unchanged — a cache miss never hashes
+
+        // A genuine RE-fetch of "$gif" (now actually uncached, so
+        // mediaSource() dispatches for real) is a fresh byte insert — a
+        // revision bump — and must be re-hashed exactly once, with the NEW
+        // bytes' digest, never the stale pre-eviction one.
+        bridge.setCacheLimitBytes(64 * 1024 * 1024);
+        bridge.mediaSource(QStringLiteral("$gif"), QStringLiteral("full"));
+        client.succeed(client.fetches.last().opId, QByteArray(4096, 'y'));
+        for (int i = 0; i < 3; ++i)
+            bridge.cachedFullContentHash(QStringLiteral("$gif"));
+        QCOMPARE(bridge.healthSnapshot()
+                     .value(QStringLiteral("contentHashComputed")).toLongLong(),
+                 qint64(2)); // exactly one MORE computation, not three
+        QCOMPARE(bridge.cachedFullContentHash(QStringLiteral("$gif")),
+                 QString::fromLatin1(QCryptographicHash::hash(
+                     QByteArray(4096, 'y'), QCryptographicHash::Sha256).toHex()));
+
+        // clear() (sign-out/account switch) drops every memo entry along
+        // with the cache itself — a post-clear re-fetch of the SAME key
+        // must compute again, not reuse a stale pre-clear memo entry.
+        bridge.clear();
+        bridge.mediaSource(QStringLiteral("$gif"), QStringLiteral("full"));
+        client.succeed(client.fetches.last().opId, QByteArray(4096, 'y'));
+        bridge.cachedFullContentHash(QStringLiteral("$gif"));
+        QCOMPARE(bridge.healthSnapshot()
+                     .value(QStringLiteral("contentHashComputed")).toLongLong(),
+                 qint64(3));
+
+        // review L-c: the clear() assertion above is NOT mutation-detecting
+        // on its own — "$gif" reached revision 2 before the clear and only
+        // revision 1 after it, so the revision guard would have caught a
+        // missing memo-clear anyway. This case isolates the memo clear
+        // properly: a key inserted EXACTLY ONCE (revision 1), cleared, then
+        // re-inserted with DIFFERENT bytes (revision 1 again, so the guard
+        // cannot help). Drop m_contentHashCache.clear() from clear() and
+        // this returns the stale 'p' digest for 'q' bytes.
+        const QByteArray first(2048, 'p');
+        const QByteArray second(2048, 'q');
+        bridge.mediaSource(QStringLiteral("$once"), QStringLiteral("full"));
+        client.succeed(client.fetches.last().opId, first);
+        const QString firstHex =
+            bridge.cachedFullContentHash(QStringLiteral("$once"));
+        QCOMPARE(firstHex, QString::fromLatin1(QCryptographicHash::hash(
+                     first, QCryptographicHash::Sha256).toHex()));
+
+        bridge.clear();
+        bridge.mediaSource(QStringLiteral("$once"), QStringLiteral("full"));
+        client.succeed(client.fetches.last().opId, second);
+        QCOMPARE(bridge.cachedFullContentHash(QStringLiteral("$once")),
+                 QString::fromLatin1(QCryptographicHash::hash(
+                     second, QCryptographicHash::Sha256).toHex()));
     }
 };
 

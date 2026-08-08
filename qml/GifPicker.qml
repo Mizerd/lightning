@@ -47,7 +47,7 @@ Popup {
     // the Starred tab renders GifStarredModel directly, entirely offline.
     property bool starredTabActive: false
     readonly property var activeModel:
-        starredTabActive ? gif.starredStore.model()
+        starredTabActive ? gif.starredStore.model
         : section === "favorites" ? gif.favorites
         : section === "recent" ? gif.recent
         : gif.results

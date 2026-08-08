@@ -52,6 +52,7 @@ private Q_SLOTS:
     void itemCapRefusesRatherThanEvicts();
     void byteCapRefusesRatherThanEvicts();
     void unstarDeletesFileAndRow();
+    void reStarringAlreadyIndexedHashReportsAlreadyStarredCategory();
     void unstarUnknownHashIsNoop();
     void accountScopeIsolation();
     void closingClearsRowsWithoutTouchingDisk();
@@ -107,6 +108,38 @@ void GifStarredStoreTest::reStarringSameBytesDedupsByHash()
     QCOMPARE(store.count(), 1); // no duplicate row or file
     QVERIFY(store.isStarredThisSession(QStringLiteral("mkA")));
     QVERIFY(store.isStarredThisSession(QStringLiteral("mkB")));
+}
+
+// v0.6.6 review (M1, optional/preferred improvement): the FIRST star of a
+// hash reports plain success (category/message both empty, so the UI says
+// "Starred."); re-starring the SAME already-indexed hash (the ambiguous-
+// activation path AppController::isChatGifStarred's durable check can land
+// on when it does not yet know an answer) must say so honestly rather than
+// implying a brand new star just happened — category "already_starred",
+// with a real translated message, never a raw token.
+void GifStarredStoreTest::reStarringAlreadyIndexedHashReportsAlreadyStarredCategory()
+{
+    QTemporaryDir dir;
+    GifStarredStore store;
+    store.openFor(dir.path());
+    const QByteArray gif = makeGif(64, 64);
+
+    QSignalSpy first(&store, &GifStarredStore::starFinished);
+    store.starBytes(QStringLiteral("mkA"), gif);
+    QCOMPARE(first.count(), 1);
+    QVERIFY(first.at(0).at(1).toBool());
+    QCOMPARE(first.at(0).at(2).toString(), QString()); // plain success
+    QCOMPARE(first.at(0).at(3).toString(), QString());
+
+    QSignalSpy second(&store, &GifStarredStore::starFinished);
+    store.starBytes(QStringLiteral("mkB"), gif); // same content, different key
+    QCOMPARE(second.count(), 1);
+    QVERIFY(second.at(0).at(1).toBool()); // still `ok`
+    QCOMPARE(second.at(0).at(2).toString(), QStringLiteral("already_starred"));
+    const QString message = second.at(0).at(3).toString();
+    QVERIFY(!message.isEmpty());
+    QVERIFY(!message.contains(QStringLiteral("already_starred"))); // translated, not raw
+    QCOMPARE(store.count(), 1); // still no duplicate row or file
 }
 
 void GifStarredStoreTest::rejectsNonGifBytes()

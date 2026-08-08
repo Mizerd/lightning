@@ -40,8 +40,8 @@ class GifSearchController : public QObject
     Q_PROPERTY(GifFavoritesModel *favorites READ favorites CONSTANT)
     Q_PROPERTY(GifRecentModel *recent READ recent CONSTANT)
     // v0.6.6: client-local starred chat GIFs (see GifStarredStore). The
-    // picker's own "Starred" tab binds directly to starredStore->model() —
-    // see GifPicker.qml — never merged with provider favorites.
+    // picker's own "Starred" tab binds directly to starredStore's `model`
+    // Q_PROPERTY — see GifPicker.qml — never merged with provider favorites.
     Q_PROPERTY(GifStarredStore *starredStore READ starredStore CONSTANT)
     Q_PROPERTY(bool available READ available NOTIFY availableChanged)
     Q_PROPERTY(QStringList providerIds READ providerIds CONSTANT)

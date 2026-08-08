@@ -140,6 +140,18 @@ public:
     // dispatch/timeout class exactly (an explicit user export, same bound).
     Q_INVOKABLE void fetchFullForStar(const QString &mediaKey);
 
+    // v0.6.6 fix: durable "is this GIF's content already starred" support
+    // for GifStarredStore (see AppController::isChatGifStarred/
+    // unstarChatGif, the only callers). Returns the SHA-256 hex digest of
+    // whatever FULL payload is already sitting in the ordinary in-RAM
+    // display cache for `mediaKey` — the exact bytes animatedSource()/
+    // mediaSource() already fetched to show the row — or "" when nothing is
+    // cached yet. Never dispatches a fetch and never returns raw bytes:
+    // only a content hash crosses this boundary, so this stays safe to call
+    // from the GIF-star path without handing decrypted media bytes to
+    // another module.
+    QString cachedFullContentHash(const QString &mediaKey) const;
+
     Q_INVOKABLE void clear();
 
     // Shared with MediaImageProvider (called from the QML render thread).
@@ -250,6 +262,18 @@ private:
     // cache hits keep an identical string so pixmap-cache dedup survives.
     // Guarded by m_cacheMutex; survives eviction, cleared with the cache.
     QHash<QString, quint32> m_revision;
+    // v0.6.6 perf fix (review H1b): cachedFullContentHash() is queried from
+    // up to eight different QML triggers per eligible GIF row (see the call
+    // site's own comment), and a full SHA-256 over the payload is NOT cheap
+    // — 146-149 MB/s measured on this Qt/OpenSSL build (~33ms for a 5MiB
+    // GIF, ~430ms for the 64MiB cap) run on the UI thread inside a property
+    // binding. Memoized per cache key so a given payload is ever hashed at
+    // most once: invalidated whenever the key's m_revision changes (an
+    // actual byte re-insert — see insertCache), when the key is evicted (the
+    // LRU loop in insertCache), and on clear(). Guarded by m_cacheMutex,
+    // exactly like m_cache/m_revision.
+    struct ContentHashEntry { QString hex; quint32 revision = 0; };
+    mutable QHash<QString, ContentHashEntry> m_contentHashCache;
 
     QHash<quint64, Pending> m_inflight;
     QQueue<Pending> m_queue;
@@ -283,6 +307,15 @@ private:
     qint64 m_statDroppedStale = 0;
     qint64 m_statCacheHit = 0;
     qint64 m_statCacheMiss = 0;
+    // review H1b/M2: bumped when cachedFullContentHash() runs a SHA-256 on
+    // a memo miss AND the payload survived the hash (the digest is only
+    // counted once it is actually installed) — a timing-independent,
+    // deterministic way for tests (and future diagnostics) to prove the
+    // memoization eliminates repeat hashing, rather than asserting on
+    // wall-clock cost. Written under m_cacheMutex like the memo table
+    // itself; healthSnapshot() reads it unlocked, as it does the
+    // neighbouring counters.
+    mutable qint64 m_statContentHashComputed = 0;
 
     std::unique_ptr<QTemporaryDir> m_animatedDir;
     QHash<QString, QString> m_animatedFiles;

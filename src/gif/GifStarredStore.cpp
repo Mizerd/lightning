@@ -78,6 +78,8 @@ QString GifStarredStore::categoryMessage(const QString &category) const
         return tr("The GIF could not be fetched.");
     if (category == QLatin1String("timeout"))
         return tr("Fetching the GIF timed out.");
+    if (category == QLatin1String("already_starred"))
+        return tr("Already in your starred GIFs.");
     return tr("The GIF could not be starred.");
 }
 
@@ -213,7 +215,16 @@ void GifStarredStore::starBytes(const QString &mediaKey, const QByteArray &bytes
     r.gifBytes = bytes.size();
     m_model->insertLocal(r);
     m_mediaKeyToHash.insert(mediaKey, hash);
-    Q_EMIT starFinished(mediaKey, true, QString(), QString());
+    // v0.6.6 fix (review M1): `existing` true means this content hash was
+    // ALREADY indexed before this call (no bytes rewritten above) — the
+    // durable-check-was-unknown activation path documented in the class
+    // comment. Report it honestly rather than implying a brand new star.
+    if (existing) {
+        Q_EMIT starFinished(mediaKey, true, QStringLiteral("already_starred"),
+                            categoryMessage(QStringLiteral("already_starred")));
+    } else {
+        Q_EMIT starFinished(mediaKey, true, QString(), QString());
+    }
 }
 
 void GifStarredStore::unstar(const QString &hash)

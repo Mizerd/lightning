@@ -324,7 +324,14 @@ Rectangle {
         target: app.gif.starredStore
         function onStarFinished(mediaKey, ok, category, message) {
             saveResult.ok = ok
-            saveResult.text = ok ? qsTr("Starred.") : message
+            // v0.6.6 fix (review M1): "already_starred" is still `ok`, but
+            // it is NOT a new star — the durable check was unknown when the
+            // user activated it (see GifStarredStore's class comment), so
+            // `message` says so honestly instead of implying one just
+            // happened.
+            saveResult.text = ok
+                ? (category === "already_starred" ? message : qsTr("Starred."))
+                : message
             saveResultTimer.restart()
         }
         function onUnstarFinished(hash) {

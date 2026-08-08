@@ -211,7 +211,20 @@ private Q_SLOTS:
         // (never merged into Favorites — see GifPickerRedesignContractTest
         // for the full tab-wiring pin), bound directly to GifStarredStore's
         // own model.
-        QVERIFY(picker.contains(QStringLiteral("gif.starredStore.model()")));
+        // v0.6.6 live-bug fix: `gif.starredStore.model()` — calling a plain
+        // C++ method (not Q_INVOKABLE/a property) from a QML binding —
+        // THROWS. Qt catches the exception in QQmlBinding::update and
+        // leaves activeModel at its previous value, so the Starred tab
+        // silently kept rendering whatever activeModel was bound to before
+        // (GIPHY trending), with every other tab element (header, footer,
+        // hidden search) correctly switched. GifStarredStore::model is now a
+        // real Q_PROPERTY (see GifStarredStore.h), read as a property, never
+        // called as a function. A pure text scan cannot prove the binding
+        // does not throw at runtime — see
+        // GifPickerSelectionQmlTest::starredTabBindsTheStarredModelNotResults
+        // for the real-engine assertion that actually exercises this path.
+        QVERIFY(picker.contains(QStringLiteral("gif.starredStore.model")));
+        QVERIFY(!picker.contains(QStringLiteral("gif.starredStore.model()")));
         QVERIFY(!picker.contains(QStringLiteral("favoritesAndStarred")));
         // v0.7 regression (live bug): SENDING must resolve the clicked row
         // against the model the user is looking at. Reading gif.results in

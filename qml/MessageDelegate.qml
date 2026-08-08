@@ -2167,7 +2167,7 @@ Item {
             // exists here, inside imageComponent (model.isImage rows), never
             // in stickerComponent, so a GIF sticker is no longer starrable.
             // Extending it there is not a small lift: stickerComponent has
-            // none of isGif/starEligible/starredThisSession/
+            // none of isGif/starEligible/starred/
             // refreshStarredState/the starredStore Connections, and (unlike
             // imageComponent) not even an onMediaIdentityChanged reuse hook
             // for its own media identity — duplicating that whole block
@@ -2178,20 +2178,34 @@ Item {
             // client/bot sent). Accepted as a real, honest gap rather than
             // silently claimed as covered — see
             // GifHoverStarContractTest::hoverStarIsScopedToImageRowsNotStickers.
-            // starredThisSession is a plain tracked property (not a live
-            // QML binding on the Q_INVOKABLE isStarredThisSession() call,
-            // which carries no NOTIFY QML could bind to) — refreshed on
-            // reuse/identity change and on the store's own starFinished/
-            // unstarFinished signals, exactly like bridgeSource/
-            // animatedSource above already refresh from the same signals.
+            // `starred` is a plain tracked property (not a live QML binding
+            // on the Q_INVOKABLE isChatGifStarred() call, which carries no
+            // NOTIFY QML could bind to) — refreshed on reuse/identity
+            // change, on the store's own starFinished/unstarFinished
+            // signals (exactly like bridgeSource/animatedSource above
+            // already refresh from the same signals), and — v0.6.6 fix —
+            // whenever MediaBridge caches this row's full bytes
+            // (onAnimatedMediaReady/onMediaCached below), since the durable
+            // content-hash answer app.isChatGifStarred() gives can only
+            // become true once those bytes exist. See GifStarredStore's
+            // class comment ("DURABLE STARRED-STATE DESIGN") for what
+            // app.isChatGifStarred() actually checks — it is NOT
+            // session-scoped, despite MessageDelegate only ever seeing one
+            // session.
+            //
+            // v0.6.6 fix: excludes a row still pending (local echo — see
+            // `pendingMedia`). Starring while pending would fetch/hash bytes
+            // keyed off the echo's temporary id, then never be found again
+            // once the echo is replaced by the real event (its mediaKey
+            // changes) — the hover star simply does not exist yet for a row
+            // that has not finished sending.
             readonly property bool starEligible:
                 imageBox.isGif && model.mediaSourceAvailable === true
-                && app.mediaBridge.supported
-            property bool starredThisSession: false
+                && app.mediaBridge.supported && !imageBox.pendingMedia
+            property bool starred: false
             function refreshStarredState() {
-                imageBox.starredThisSession = imageBox.starEligible
-                    && app.gif.starredStore.isStarredThisSession(
-                           model.mediaKey || "")
+                imageBox.starred = imageBox.starEligible
+                    && app.isChatGifStarred(model.mediaKey || "")
             }
             Component.onCompleted: {
                 refreshBridgeSource()
@@ -2205,7 +2219,7 @@ Item {
                 refreshStarredState()
             }
             // A row created before the SDK confirmed mediaSourceAvailable/
-            // bridge support keeps starEligible (and thus starredThisSession)
+            // bridge support keeps starEligible (and thus starred)
             // false until that flips — re-check the instant it does, rather
             // than staying stuck showing an outline star for a row that just
             // became eligible.
@@ -2216,10 +2230,32 @@ Item {
                 function onMediaCached(cacheKey) {
                     if (cacheKey === imageBox.bridgeCacheKey)
                         imageBox.bridgeSource = app.mediaBridge.cachedSource(cacheKey)
+                    // v0.6.6 fix: the durable starred check only becomes
+                    // answerable once the FULL payload (never the "thumb:"
+                    // class) is cached — re-check exactly then, whether or
+                    // not it was also this row's bridgeCacheKey.
+                    //
+                    // review H1c: mediaCached and animatedMediaReady BOTH
+                    // fire for the same "full:" key whenever a GIF's bytes
+                    // land while the animated preview path is also active
+                    // (MediaBridge emits mediaCached unconditionally, and
+                    // animatedMediaReady whenever the key was in
+                    // m_animatedWanted) — Qt.callLater coalesces the two
+                    // calls into at most one deferred refreshStarredState()
+                    // per event-loop turn, rather than running the check
+                    // twice back to back.
+                    if (imageBox.isGif && cacheKey === "full:" + (model.mediaKey || ""))
+                        Qt.callLater(imageBox.refreshStarredState)
                 }
                 function onAnimatedMediaReady(cacheKey) {
-                    if (cacheKey === "full:" + (model.mediaKey || ""))
+                    if (cacheKey === "full:" + (model.mediaKey || "")) {
                         imageBox.animatedSource = app.mediaBridge.animatedSource(model.mediaKey)
+                        // v0.6.6 fix: full bytes just landed in the cache —
+                        // the durable starred answer may now be knowable.
+                        // See the H1c comment above onMediaCached for why
+                        // this is deferred/coalesced rather than direct.
+                        Qt.callLater(imageBox.refreshStarredState)
+                    }
                 }
                 function onMediaFetchFailed(cacheKey, category) {
                     if (cacheKey === imageBox.bridgeCacheKey)
@@ -2417,11 +2453,15 @@ Item {
                             readonly property bool revealed:
                                 gifStarHover.hovered || starHover.hovered
                                 || gifStarButton.activeFocus
-                            opacity: revealed ? 1 : 0
+                            // v0.6.6 fix: a starred GIF stays visibly starred
+                            // at rest (not just on hover/focus) — the picker
+                            // tile already does this (GifPicker.qml's star
+                            // glyph is opacity-independent of hover).
+                            opacity: (revealed || imageBox.starred) ? 1 : 0
                             Behavior on opacity { NumberAnimation { duration: 100 } }
 
                             Accessible.role: Accessible.Button
-                            Accessible.name: imageBox.starredThisSession
+                            Accessible.name: imageBox.starred
                                 ? qsTr("Remove from starred GIFs") : qsTr("Star GIF")
                             Accessible.onPressAction: gifStarButton.activate()
 
@@ -2429,8 +2469,13 @@ Item {
                                 var key = model.mediaKey || ""
                                 if (!key)
                                     return
-                                if (app.gif.starredStore.isStarredThisSession(key))
-                                    app.gif.starredStore.unstarByMediaKey(key)
+                                // v0.6.6 fix: app.isChatGifStarred/
+                                // unstarChatGif give the durable,
+                                // content-addressed answer (not just this
+                                // session's) — see GifStarredStore's class
+                                // comment.
+                                if (app.isChatGifStarred(key))
+                                    app.unstarChatGif(key)
                                 else
                                     app.starChatGif(key)
                             }
@@ -2444,7 +2489,7 @@ Item {
                                 anchors.centerIn: parent
                                 name: "star"
                                 size: 15
-                                color: imageBox.starredThisSession
+                                color: imageBox.starred
                                        ? AppTheme.presenceAway : AppTheme.scrimInk
                             }
                             Rectangle {
@@ -2466,8 +2511,17 @@ Item {
                             // would otherwise let a tap on the invisible
                             // corner silently star/unstar without the user
                             // ever seeing the button.
+                            //
+                            // v0.6.6 review (L2, follow-up): ALSO gated on
+                            // `imageBox.starred` — once a starred GIF is
+                            // visible AT REST (opacity fix above), the
+                            // invisible-target hazard this guard exists for
+                            // no longer applies to it: the button is fully
+                            // opaque and exactly where it looks like it is,
+                            // so a touch tap with no hover must still work
+                            // on it.
                             TapHandler {
-                                enabled: gifStarButton.revealed
+                                enabled: gifStarButton.revealed || imageBox.starred
                                 onTapped: gifStarButton.activate()
                             }
                             // v0.6.6 review (L2): ignore key-repeat — held
