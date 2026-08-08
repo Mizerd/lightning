@@ -1,5 +1,16 @@
 # Current state (v0.6.0)
 
+> **This file is a historical changelog, not the current state.** Despite the
+> title it stops at v0.6.0; the releases 0.6.1 through 0.6.5 and all
+> post-release work are **not** recorded here. It is kept because the
+> per-feature engineering detail below is still accurate for the versions it
+> covers and is genuinely useful background.
+>
+> For what is true today, use — in this order — the repository itself
+> (`git log --oneline v0.6.5..HEAD`), then `CLAUDE.md` sections 2, 7 and 16,
+> then `docs/releases/`. Do not cite this file as evidence of current
+> behaviour.
+
 ## v0.6.0 — E2EE, threads, notifications, scrolling integration
 
 Integration fix found during the pass: sync `timeline_event` payloads for

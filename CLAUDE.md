@@ -33,6 +33,23 @@ Release facts, verified on 2026-08-04:
 - Application version: **0.6.5** in `CMakeLists.txt`, `rust/Cargo.toml`, and
   the Rust/HTTP user agent
 
+Post-release work since the tag, verified on 2026-08-08: `main` is
+**thirteen commits past `v0.6.5`**, CTest **87/87 on both trees**, with **no
+version bump pending** — none of it is released. In order: `326adff` (release
+facts), `329a65c` (scroll regression guard), `c060ef5` (Element-style read
+receipts), `21d5fb8` (per-room notification modes promoted to server push
+rules), `6fa6378` (QR device verification alongside SAS; the only dependency
+change since the release), `225c7b3` (scroll staging/freeze — **later removed
+entirely**), `3afc2d0` (receipt-chip placement), `44c29aa` + `52cf6ca` +
+`e39439a` (local starred GIFs: store, hover star + Starred tab, durable
+state), `2fe5cb0` (per-branch scroll-trace attribution), `30ee39b`
+(receipt-avatar context-lookup fix), `263268b` (runaway prefetch chain and
+the staging mechanism removed, −1463 net). Every one of these went through
+independent review to `APPROVED`. Section 16 carries what is still open.
+
+Run `git log --oneline v0.6.5..HEAD` rather than trusting this list; it will
+go stale the same way the narrative below did.
+
 The narrative below describes the 0.6.2-era checkpoints and has not been
 rewritten for every release since. Treat it as background, not as the current
 inventory: source and `git log` are authoritative, and this section will be
@@ -153,7 +170,7 @@ main
 .claude/
 ```
 
-The one carve-out is `.claude/agents/*.md`. Those four portable role
+The one carve-out is `.claude/agents/*.md`. Those portable role
 definitions are deliberately tracked (see section 18) and may be staged and
 committed like any other source file. Everything else under `.claude/` —
 `settings.local.json` and its backups, `scheduled_tasks.lock`, `worktrees/`,
@@ -299,6 +316,11 @@ backend capability checks and honest live-test status.
 - SDK-backed live timelines and local echoes
 - Text, rich replies, edits, reactions, redactions, typing indicators, read
   receipts, mentions, and room-state activity rows
+- Element-style read-receipt chips on live-room rows (newest 16 receipts
+  cross the bridge with a truthful uncapped total; the row's own sender and
+  the local user are excluded because the SDK synthesizes an implicit sender
+  receipt). Thread timeline builders deliberately keep receipt tracking
+  Disabled — SDK receipts are not thread-aware
 - Images, files, clipboard images, encrypted attachments, media viewing/saving,
   animated GIF attachments, and validated direct-raster inline previews
 - Backward pagination and retry, stable navigation, loaded-timeline search,
@@ -411,6 +433,25 @@ media path, with SDK media encryption in encrypted rooms — are implemented.
 Existing GIF attachment/direct-media playback remains separate and implemented.
 Live Element interoperability of provider GIF sends should still be tested
 honestly rather than assumed.
+
+**Locally starred GIFs** are implemented (`44c29aa`, `52cf6ca`, `e39439a`).
+A star appears on hover over a timeline GIF and copies the bytes into an
+account-scoped, content-addressed store bounded at 200 items / 64 MiB
+(refusal, never eviction — a full store must not silently discard what the
+user asked to keep). They get their own **Starred** picker tab beside GIPHY
+and KLIPY, with no provider traffic, and send from local bytes.
+
+This is a deliberate, documented exception to the section 6 rule against
+persisting decrypted media, on explicit-export semantics: the user is
+choosing to save one image, exactly as Save-As already allows. It is only
+defensible because deletion is real — the store is removed on sign-out and
+on account removal through a shared path helper with tri-state
+deleted/absent/failed reporting (an earlier version *claimed* this cleanup
+and did not have it; decrypted media would have survived sign-out
+indefinitely). Settings → Privacy & security discloses the store and offers
+Clear All. The index records **no provenance**: no room, event, or sender.
+Do not weaken any of that, and do not extend the exception to other media
+without the same deletion guarantees.
 
 ## 8. Threads and main-timeline rules
 
@@ -744,6 +785,37 @@ Keep this list grounded in source and recent history:
   rendering interactively on a real desktop (automated suites cover both).
 - Plan any post-0.6.5 work only through explicitly requested checkpoints.
 
+Open items carried by the post-0.6.5 rounds (`4cdace3..e39439a`), in the
+order a successor should pick them up:
+
+- **Timeline scroll teleport during pagination — OPEN, precisely located.**
+  A live `LIGHTNING_SCROLL_TRACE=1` capture shows a real 20-row page landing
+  while the content-height *estimate* reports a shrink
+  (`displacedMaxAbsGrew=-3582 Rows=20 applied=0`), so `maintainViewAnchor()`'s
+  positive-only guard skips the correction and the reader is moved. Do NOT
+  simply apply negatives: the same trace shows ±17000 px estimate swings with
+  no model change at all. Three attempts have failed — two withdrawn in
+  review on disproved premises, one (the staging/freeze window, `225c7b3`)
+  shipped and made it worse before being removed wholesale in `263268b`.
+  **This subsystem cannot be diagnosed from the mock harness.** Land
+  instrumentation, obtain a capture, then fix what the capture names. The
+  next unverified candidate is deriving displacement from `originY` rather
+  than `contentHeight` — measure before implementing.
+- **GIF-favorite reopen crash** — still only `1502e6b`'s commit message as
+  evidence; seven headless scenario families including an ASan build found
+  nothing. Needs a real `coredumpctl`/`gdb` backtrace.
+- **`app.` dereferences in creation-time bindings of other `Repeater`
+  delegates** (`qml/EmojiPicker.qml`, `qml/SettingsScreen.qml` theme cards) —
+  structurally exposed to the poisoned-context-lookup defect fixed in
+  `30ee39b`, not observed failing.
+- Live validation still outstanding for everything the post-release rounds
+  added: read receipts, server push-rule notification modes, QR verification
+  against Element / Element X, and local starred GIFs. All **NOT TESTED**.
+
+"Recovering never-backed-up Megolm keys" is **refused, not deferred**: a key
+that was never backed up and never shared exists nowhere, every legitimate
+recovery path is already implemented, and anything further would weaken E2EE.
+
 Do not list the implemented GIF browser, favorites/recents, download/send path,
 provider networking, thread summaries/attachments, notification sounds, or E2EE
 generation isolation as unfinished. Do not turn possible future ideas into
@@ -785,6 +857,9 @@ before they are committed. The reusable role definitions live in
 .claude/agents/lightning-integration-regression-specialist.md
 .claude/agents/lightning-gif-thread-specialist.md
 .claude/agents/lightning-touchpad-scroll-specialist.md
+.claude/agents/lightning-menu-specialist.md
+.claude/agents/lightning-layout-specialist.md
+.claude/agents/lightning-storm-design-lead.md
 .claude/agents/lightning-independent-reviewer.md
 ```
 
@@ -796,6 +871,34 @@ Rules:
   and produce a result that looks like evidence but is not. The lead holds a
   build lock and hands it to one agent at a time. Writing code and tests
   needs no compiler — implement while waiting.
+
+  This is not theoretical. Three concurrent `cmake --build build-rust` runs
+  on one tree — orphans left by killed foreground timeouts — corrupted
+  `.ninja_deps` and produced a phantom test failure that was nearly dismissed
+  as pre-existing. A build overlapping a `ctest` run on the same tree caused
+  two more flakes. Check for a live build (`pgrep -af "ninja|cmake"`) before
+  starting one, and serialize build → test strictly.
+
+- **Cap CPU-heavy work at 18 threads.** Rokas directed this on 2026-08-07:
+  pass `-j18` explicitly to every `cmake --build`, `ctest`, and `cargo`
+  invocation. The defaults use all 20 cores; he wants two left.
+
+- **Implementation agents must run builds synchronously.** Agents that
+  background a build and wait for a notification stall indefinitely at zero
+  CPU — observed repeatedly across the post-0.6.5 rounds, and detected by the
+  user rather than by the orchestrator. If an agent has only verification
+  left, stand it down and let the lock-holder verify.
+
+- **Instrument rather than guess when the harness cannot reproduce the
+  report.** Two speculative scroll fixes were withdrawn in review on
+  disproved premises and a third shipped and regressed the user's experience
+  before this was learned. A plausible mechanism supported by code reading is
+  a hypothesis; it becomes evidence when a measurement distinguishes it from
+  the alternatives. Landing an opt-in trace and asking for a capture is
+  faster than a third wrong fix.
+
+- **A regression test that does not fail on the old code is decoration.**
+  Prove the failure against the unfixed tree before claiming coverage.
 
 - Use agents only for genuinely independent, substantial work. A single
   focused edit does not need a team.
