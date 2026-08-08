@@ -836,55 +836,6 @@ private Q_SLOTS:
         QVERIFY(delegate.contains(QStringLiteral("root.menuEventId")));
     }
 
-    // v0.7.x: near-top backfill "virtual scrolling" staging window. A
-    // geometry test cannot police this mechanism on its own — see the
-    // sibling round's live bug it would not have caught: QQmlTimer.restart()
-    // while already running is stop()+start(), a synchronous false-then-true
-    // runningChanged blip, and scrollSettleTimer.restart() fires on EVERY
-    // wheel/touchpad delta. A direct `Binding` from
-    // TimelinePane.qml's backfillStagingActive to
-    // TimelineModel::backfillStagingActive would therefore flush-then-
-    // restage the held prefix on every single input event during the exact
-    // gesture this exists to keep smooth — jitter of its own, and silent:
-    // the mock-backed QML test suite only caught it because one test drives
-    // the loading-during-gesture path explicitly with a real coalescing
-    // check. Pin the two facts that test cannot re-verify on every run of
-    // the whole suite: the sync goes through Qt.callLater (never a direct
-    // Binding), and the gate is the OR of both unsettled-approach signals.
-    void nearTopBackfillStagingSyncIsCoalescedNeverADirectBinding()
-    {
-        const QString pane = read(QStringLiteral("TimelinePane.qml"));
-        const int gate = pane.indexOf(
-            QStringLiteral("readonly property bool backfillStagingActive:"));
-        QVERIFY(gate >= 0);
-        const int syncEnd = pane.indexOf(
-            QStringLiteral("app.timeline.backfillStagingActive ="), gate);
-        QVERIFY(syncEnd > gate);
-        const QString region = pane.mid(gate, syncEnd - gate);
-
-        // The gate: unsettled while the reader's own edge latch has not
-        // re-armed, OR the controller reports a NearTop request/
-        // continuation genuinely in flight — either alone is a real signal
-        // of an unfinished approach.
-        QVERIFY(region.contains(QStringLiteral("userScrollActive")));
-        QVERIFY(region.contains(QStringLiteral("!nearTopArmed")));
-        QVERIFY(region.contains(
-            QStringLiteral("app.pagination.nearTopRunActive")));
-
-        // No direct Binding element may write this property — a `Binding`
-        // writes synchronously on every dependency change, including the
-        // momentary blip above, which is exactly what must not reach
-        // TimelineModel directly. Only the coalesced
-        // onBackfillStagingActiveChanged handler below may write it.
-        QVERIFY(!pane.contains(
-            QStringLiteral("property: \"backfillStagingActive\"")));
-        QVERIFY(pane.contains(
-            QStringLiteral("onBackfillStagingActiveChanged:")));
-        QVERIFY(pane.contains(QStringLiteral("Qt.callLater(function() {\n"
-                                             "                        "
-                                             "backfillStagingSyncScheduled "
-                                             "= false")));
-    }
 };
 
 QTEST_MAIN(QmlBindingContractTest)

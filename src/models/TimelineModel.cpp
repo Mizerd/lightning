@@ -87,19 +87,7 @@ bool TimelineModel::isVisualMessage(const TimelineEvent &event) const
 
 int TimelineModel::previousMessageRowForGrouping(int row) const
 {
-    // Clamped at m_hiddenPrefixCount, NOT 0: while a near-top run is
-    // staging a hidden prefix, the exposed row space must be
-    // self-consistent on its own, exactly as if the hidden rows did not
-    // exist yet — they do not, from the view's perspective. Without this
-    // bound, the topmost EXPOSED row's "previous" lookup could resolve into
-    // the hidden prefix and find a same-sender/same-time neighbour there,
-    // making continuesSenderGroup() report true and silently drop that
-    // row's sender identity header (a ~34px shrink) — mid-gesture content
-    // loss from inside the mechanism meant to prevent exactly that class of
-    // jitter. flushHiddenPrefix() schedules a grouping refresh, so the true
-    // merge (if any) announces once, cleanly, the moment the prefix is
-    // exposed — never torn mid-run.
-    for (int probe = row - 1; probe >= m_hiddenPrefixCount; --probe) {
+    for (int probe = row - 1; probe >= 0; --probe) {
         const auto &candidate = m_events.at(probe);
         if (candidate.type == TimelineEvent::ReadMarker)
             continue;
@@ -287,15 +275,7 @@ void TimelineModel::recomputeSearch()
     m_searchResults.clear();
     const QString needle = m_searchQuery.trimmed();
     if (m_searchActive && !needle.isEmpty()) {
-        // PUBLIC (exposed) range only, starting at m_hiddenPrefixCount: a
-        // match still staged inside an active near-top run has no view row
-        // to navigate to yet (rowForStableId() reports it unresolvable —
-        // see there), so counting it here would show the reader a result
-        // they cannot jump to. The flush's beginInsertRows/endInsertRows
-        // fires rowsInserted, which the constructor already wires to a
-        // resync (see the `resync` lambda), so a staged match is picked up
-        // for free the moment it is exposed — no separate hook needed here.
-        for (int raw = m_hiddenPrefixCount; raw < m_events.size(); ++raw) {
+        for (int raw = 0; raw < m_events.size(); ++raw) {
             const auto &event = m_events.at(raw);
             if (event.isVirtual() || event.eventId.isEmpty())
                 continue;
@@ -317,56 +297,7 @@ int TimelineModel::rowCount(const QModelIndex &parent) const
 {
     if (parent.isValid())
         return 0;
-    // PUBLIC (exposed) count — see internalEventCount() for the raw mirror
-    // size a policy decision should use instead.
-    return static_cast<int>(m_events.size()) - m_hiddenPrefixCount;
-}
-
-void TimelineModel::setBackfillStagingActive(bool active)
-{
-    if (m_backfillStagingActive == active)
-        return;
-    m_backfillStagingActive = active;
-    if (!active) {
-        // Deactivating IS the flush trigger — QML binds this flag to
-        // (userScrollActive && a near-top run is active), so it already
-        // turns false at every trigger the design calls for: gesture
-        // settle, the run ending (start reached / empty-strike budget
-        // spent / no more continuation scheduled), and a room switch
-        // (reload() also clears it directly — see there). One clean insert
-        // here, through the SAME beginInsertRows/endInsertRows path
-        // onEventsPrepended already used per batch, is what lets
-        // TimelinePane.qml's existing view-anchor mechanism (idle absolute
-        // restore or the mid-gesture relative-delta correction — see
-        // maintainViewAnchor()) reconcile the reader's position exactly
-        // once instead of once per landed batch.
-        flushHiddenPrefix();
-    }
-    Q_EMIT backfillStagingActiveChanged();
-}
-
-void TimelineModel::flushHiddenPrefix()
-{
-    if (m_hiddenPrefixCount <= 0)
-        return;
-    const int count = m_hiddenPrefixCount;
-    beginInsertRows({}, 0, count - 1);
-    m_hiddenPrefixCount = 0;
-    endInsertRows();
-    Q_EMIT countChanged();
-    scheduleGroupingRefresh();
-    // No consumer today (see the signal's declaration) — the actual
-    // position-preserving mechanism is TimelinePane.qml's
-    // maintainViewAnchor(), which reacts to the beginInsertRows/
-    // endInsertRows pair above via ListView's own onContentHeightChanged,
-    // not to this signal. Emitted anyway for the same reason
-    // onEventsPrepended() already does per batch: it is the honest,
-    // symmetric description of what just happened (a multi-batch prefix
-    // flushed at once is, from any future consumer's point of view,
-    // indistinguishable from one big ordinary prepend) and dropping it here
-    // while keeping it there would make the two prepend paths inconsistent
-    // for no reason.
-    Q_EMIT olderPrepended(count);
+    return static_cast<int>(m_events.size());
 }
 
 QUrl TimelineModel::mediaHttp(const QString &mxc) const
@@ -472,15 +403,7 @@ int TimelineModel::stateGroupLeaderRow(int row) const
 
     int leader = row;
     int probe = row - 1;
-    // Clamped at m_hiddenPrefixCount for the same reason
-    // previousMessageRowForGrouping() is: while a near-top run stages a
-    // hidden prefix, the leader of an exposed state-change run must never
-    // resolve into it. Without this bound a contiguous state-change run
-    // that continues into the hidden prefix would resolve EVERY exposed
-    // row's leader to a hidden row, so StateGroupLeaderRole is false for
-    // all of them and the whole group's presentation (which renders only
-    // at the leader) collapses to height 0 mid-gesture.
-    while (probe >= m_hiddenPrefixCount) {
+    while (probe >= 0) {
         const auto &e = m_events.at(probe);
         if (e.type == TimelineEvent::StateChange) {
             leader = probe;
@@ -528,9 +451,6 @@ QVariantList TimelineModel::stateGroupEntriesFrom(int leaderRow) const
 
 void TimelineModel::emitPresentationGroupingChanged()
 {
-    // PUBLIC (exposed) range only — see setMentionStyle()'s identical
-    // reasoning. A row still hidden inside an active near-top staging run
-    // reads its correct, already-current grouping the moment it is exposed.
     const int exposed = rowCount();
     if (exposed == 0)
         return;
@@ -572,13 +492,7 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
 {
     if (!index.isValid() || index.row() < 0)
         return {};
-    // v0.7.x: a near-top backfill run stages its landed prefix out of the
-    // exposed row space (see setBackfillStagingActive()/flushHiddenPrefix())
-    // so the view sees no structural change while a reader holds a gesture
-    // through it — this is the "virtual scrolling" translation between the
-    // PUBLIC row the view/QML asks for and the RAW position in m_events,
-    // which always stays the complete, faithful mirror.
-    const int raw = index.row() + m_hiddenPrefixCount;
+    const int raw = index.row();
     if (raw >= m_events.size())
         return {};
     const auto &e = m_events.at(raw);
@@ -888,12 +802,7 @@ QVariantList TimelineModel::imageEntries() const
 QVariantList TimelineModel::mediaEntries() const
 {
     QVariantList out;
-    // Start at m_hiddenPrefixCount: a row still staged inside an active
-    // near-top run has no view row yet, so "row" below must stay a valid
-    // PUBLIC index the caller can hand back to itemAtIndex()/positionView-
-    // AtIndex() — a media item only becomes navigable once its row is
-    // exposed at flush, exactly like every other view-facing lookup here.
-    for (int raw = m_hiddenPrefixCount; raw < m_events.size(); ++raw) {
+    for (int raw = 0; raw < m_events.size(); ++raw) {
         const TimelineEvent &e = m_events.at(raw);
         const bool isMedia = e.type == TimelineEvent::Image
             || e.type == TimelineEvent::File
@@ -908,7 +817,7 @@ QVariantList TimelineModel::mediaEntries() const
         if (!e.mediaSourceAvailable && httpUrl.isEmpty())
             continue;
         QVariantMap entry;
-        entry.insert(QStringLiteral("row"), raw - m_hiddenPrefixCount);
+        entry.insert(QStringLiteral("row"), raw);
         entry.insert(QStringLiteral("mediaKey"), e.mediaKey);
         entry.insert(QStringLiteral("filename"), e.mediaFilename);
         entry.insert(QStringLiteral("sender"), senderDisplayName(e));
@@ -948,10 +857,6 @@ void TimelineModel::setMentionStyle(const QString &accentColor,
     m_mentionAccentColor = nextAccent;
     m_mentionSoftColor = nextSoft;
     m_codeBackgroundColor = nextCode;
-    // PUBLIC (exposed) range only: a row still hidden inside an active
-    // near-top staging run has no view row to notify yet, and its data()
-    // already reads the new mention colors from these member fields once it
-    // flushes into view.
     const int exposed = rowCount();
     if (exposed > 0)
         Q_EMIT dataChanged(index(0), index(exposed - 1), {FormattedBodyRole});
@@ -970,11 +875,7 @@ void TimelineModel::onEventAppended(const QString &roomId, const TimelineEvent &
 {
     if (roomId != m_roomId)
         return;
-    // A live/local-echo append at the bottom is NEVER staged — only a
-    // near-top backfill prefix is (see setBackfillStagingActive()). The
-    // PUBLIC row is the exposed count, not the raw mirror size, whenever a
-    // near-top run currently holds a hidden prefix at the front.
-    const int publicRow = m_events.size() - m_hiddenPrefixCount;
+    const int publicRow = static_cast<int>(m_events.size());
     beginInsertRows({}, publicRow, publicRow);
     m_events.append(event);
     rebuildThreadReplyIndex();
@@ -995,13 +896,8 @@ void TimelineModel::onEventReplaced(const QString &roomId,
     const bool groupingChanged = groupingInputsDiffer(m_events.at(row), newEvent);
     m_events[row] = newEvent;
     rebuildThreadReplyIndex();
-    // A row still staged inside an active near-top run's hidden prefix has
-    // no view row to notify — it reads the replaced content the instant it
-    // is exposed at flush. See data()'s comment on this translation.
-    if (row >= m_hiddenPrefixCount) {
-        const auto idx = index(row - m_hiddenPrefixCount);
-        Q_EMIT dataChanged(idx, idx);
-    }
+    const auto idx = index(row);
+    Q_EMIT dataChanged(idx, idx);
     if (groupingChanged)
         scheduleGroupingRefresh();
 }
@@ -1016,10 +912,8 @@ void TimelineModel::onEventStatusChanged(const QString &roomId,
     if (row < 0)
         return;
     m_events[row].status = status;
-    if (row >= m_hiddenPrefixCount) {
-        const auto idx = index(row - m_hiddenPrefixCount);
-        Q_EMIT dataChanged(idx, idx, { StatusRole });
-    }
+    const auto idx = index(row);
+    Q_EMIT dataChanged(idx, idx, { StatusRole });
 }
 
 void TimelineModel::onEventEdited(const QString &roomId, const QString &eventId)
@@ -1034,11 +928,9 @@ void TimelineModel::onEventEdited(const QString &roomId, const QString &eventId)
             if (row < 0) return;
             m_events[row] = e;
             rebuildThreadReplyIndex();
-            if (row >= m_hiddenPrefixCount) {
-                const auto idx = index(row - m_hiddenPrefixCount);
-                Q_EMIT dataChanged(idx, idx,
-                                   { BodyRole, FormattedBodyRole, EditedRole });
-            }
+            const auto idx = index(row);
+            Q_EMIT dataChanged(idx, idx,
+                               { BodyRole, FormattedBodyRole, EditedRole });
             return;
         }
     }
@@ -1051,10 +943,8 @@ void TimelineModel::onEventRedacted(const QString &roomId, const QString &eventI
     if (row < 0) return;
     m_events[row].redacted = true;
     m_events[row].body.clear();
-    if (row >= m_hiddenPrefixCount) {
-        const auto idx = index(row - m_hiddenPrefixCount);
-        Q_EMIT dataChanged(idx, idx, { BodyRole, RedactedRole, ReactionsRole });
-    }
+    const auto idx = index(row);
+    Q_EMIT dataChanged(idx, idx, { BodyRole, RedactedRole, ReactionsRole });
     scheduleGroupingRefresh();
 }
 
@@ -1068,10 +958,8 @@ void TimelineModel::onReactionsChanged(const QString &roomId, const QString &eve
     for (const auto &e : latest) {
         if (e.eventId == eventId) {
             m_events[row].reactions = e.reactions;
-            if (row >= m_hiddenPrefixCount) {
-                const auto idx = index(row - m_hiddenPrefixCount);
-                Q_EMIT dataChanged(idx, idx, { ReactionsRole });
-            }
+            const auto idx = index(row);
+            Q_EMIT dataChanged(idx, idx, { ReactionsRole });
             return;
         }
     }
@@ -1082,34 +970,6 @@ void TimelineModel::onEventsPrepended(const QString &roomId,
 {
     if (roomId != m_roomId) return;
     if (events.isEmpty()) return;
-    if (m_backfillStagingActive) {
-        // Near-top backfill VIRTUAL SCROLLING window: while a reader holds a
-        // gesture through an active near-top run, a landed batch is folded
-        // into the mirror but held OUT of the exposed row space instead of
-        // being inserted into the view — no beginInsertRows/endInsertRows,
-        // so the ListView sees no structural change at all and the reader's
-        // viewport is untouched by this batch. It becomes reachable in one
-        // clean insert the moment setBackfillStagingActive(false) flushes
-        // (gesture settles, the run ends, or the buffer hits its safety
-        // cap) — see flushHiddenPrefix(). m_events stays the exact, complete
-        // mirror throughout, so every OTHER diff (edit, reaction, decryption,
-        // redaction, even a reconciled insert landing inside this prefix)
-        // keeps applying correctly against it; only exposure is deferred.
-        for (int i = events.size() - 1; i >= 0; --i)
-            m_events.prepend(events.at(i));
-        // Accepted follow-up, not fixed here: this is a full O(n)
-        // rebuildThreadReplyIndex() per staged batch, same as the
-        // already-exposed path below. A staged run of many small batches
-        // could instead increment m_threadReplyCounts for just the events
-        // just prepended (mirroring how appends/removals could too), but
-        // that is a performance refinement, not a correctness fix this
-        // round is about — left as future work.
-        rebuildThreadReplyIndex();
-        m_hiddenPrefixCount += static_cast<int>(events.size());
-        if (m_hiddenPrefixCount > kMaxHiddenPrefixRows)
-            flushHiddenPrefix();
-        return;
-    }
     beginInsertRows({}, 0, events.size() - 1);
     for (int i = events.size() - 1; i >= 0; --i)
         m_events.prepend(events.at(i));
@@ -1119,8 +979,7 @@ void TimelineModel::onEventsPrepended(const QString &roomId,
     scheduleGroupingRefresh();
     // v0.5.11 factual description, corrected: a backward-pagination prepend
     // shifts every existing row down by `count`. This signal has no
-    // consumer today — see its declaration and flushHiddenPrefix()'s
-    // identical note — the actual anchor mechanism reacts to the
+    // consumer today — the actual anchor mechanism reacts to the
     // beginInsertRows/endInsertRows pair above via ListView's own
     // onContentHeightChanged, not to this signal.
     Q_EMIT olderPrepended(static_cast<int>(events.size()));
@@ -1143,23 +1002,7 @@ void TimelineModel::onEventInsertedAt(const QString &roomId, int index,
         reload();
         return;
     }
-    // `index==0` while staging is the single-event equivalent of
-    // onEventsPrepended (a bridge that delivers a backward-pagination batch
-    // one push_front at a time); `index < m_hiddenPrefixCount` is a
-    // reconciled insert landing strictly inside a prefix already staged.
-    // m_hiddenPrefixCount is always 0 while staging is inactive, so this
-    // condition can only be true here when it should be.
-    if (index < m_hiddenPrefixCount
-        || (m_backfillStagingActive && index == 0)) {
-        m_events.insert(index, event);
-        rebuildThreadReplyIndex();
-        ++m_hiddenPrefixCount;
-        if (m_hiddenPrefixCount > kMaxHiddenPrefixRows)
-            flushHiddenPrefix();
-        return;
-    }
-    const int publicRow = index - m_hiddenPrefixCount;
-    beginInsertRows({}, publicRow, publicRow);
+    beginInsertRows({}, index, index);
     m_events.insert(index, event);
     rebuildThreadReplyIndex();
     endInsertRows();
@@ -1192,12 +1035,8 @@ void TimelineModel::onEventChangedAt(const QString &roomId, int index,
     m_events[index] = event;
     if (threadIndexChanged)
         rebuildThreadReplyIndex();
-    // A row still staged inside the hidden prefix has no view row to notify;
-    // the up-to-date data is already in m_events for the moment it flushes.
-    if (index >= m_hiddenPrefixCount) {
-        const auto idx = this->index(index - m_hiddenPrefixCount);
-        Q_EMIT dataChanged(idx, idx);
-    }
+    const auto idx = this->index(index);
+    Q_EMIT dataChanged(idx, idx);
     if (groupingChanged)
         scheduleGroupingRefresh();
 }
@@ -1210,16 +1049,7 @@ void TimelineModel::onEventRemovedAt(const QString &roomId, int index)
         reload();
         return;
     }
-    if (index < m_hiddenPrefixCount) {
-        // Removed strictly inside the still-hidden prefix: the mirror and
-        // the hidden count both shrink by one, with no view row to notify.
-        m_events.removeAt(index);
-        rebuildThreadReplyIndex();
-        --m_hiddenPrefixCount;
-        return;
-    }
-    const int publicRow = index - m_hiddenPrefixCount;
-    beginRemoveRows({}, publicRow, publicRow);
+    beginRemoveRows({}, index, index);
     m_events.removeAt(index);
     rebuildThreadReplyIndex();
     endRemoveRows();
@@ -1237,18 +1067,8 @@ void TimelineModel::onEventsTruncatedTo(const QString &roomId, int length)
     }
     if (length == m_events.size())
         return;
-    if (length < m_hiddenPrefixCount) {
-        // Pathological/very rare: the backend trimmed its cache back further
-        // than what this run has staged, eating into the hidden prefix
-        // itself. Flush first (exposing everything, m_hiddenPrefixCount ->
-        // 0) so the ordinary path below always operates on a plain,
-        // consistent public range rather than a second index space.
-        flushHiddenPrefix();
-    }
-    const int publicLength = length - m_hiddenPrefixCount;
-    const int publicSize =
-        static_cast<int>(m_events.size()) - m_hiddenPrefixCount;
-    beginRemoveRows({}, publicLength, publicSize - 1);
+    const int publicSize = static_cast<int>(m_events.size());
+    beginRemoveRows({}, length, publicSize - 1);
     while (m_events.size() > length)
         m_events.removeLast();
     rebuildThreadReplyIndex();
@@ -1264,13 +1084,6 @@ void TimelineModel::onLoggedOut()
     m_events.clear();
     m_threadReplyCounts.clear();
     m_roomId.clear();
-    // See reload()'s identical reasoning: a reset presents everything (here,
-    // nothing), so a leftover staged prefix must not survive it.
-    m_hiddenPrefixCount = 0;
-    if (m_backfillStagingActive) {
-        m_backfillStagingActive = false;
-        Q_EMIT backfillStagingActiveChanged();
-    }
     endResetModel();
     Q_EMIT roomIdChanged();
     Q_EMIT countChanged();
@@ -1293,9 +1106,6 @@ void TimelineModel::onMembersChanged(const QString &roomId)
     // chips and reply headers resolve display names through the SAME member
     // lookup, and a row rendered before hydration would otherwise keep its
     // localpart fallback (a bare username) forever.
-    // PUBLIC (exposed) range only — see setMentionStyle()'s identical
-    // reasoning. A row still hidden inside an active near-top staging run
-    // reads current member data the moment it is exposed.
     const int exposed = rowCount();
     if (exposed > 0) {
         Q_EMIT dataChanged(index(0), index(exposed - 1),
@@ -1385,15 +1195,9 @@ QString TimelineModel::latestReadableEventId(qint64 *timestampMs) const
 
 QString TimelineModel::stableIdAt(int row) const
 {
-    // `row` is PUBLIC (ListView-visible) space; translate to the raw
-    // position in the always-complete m_events mirror. See data()'s comment
-    // on the same translation.
-    if (row < 0)
+    if (row < 0 || row >= m_events.size())
         return {};
-    const int raw = row + m_hiddenPrefixCount;
-    if (raw >= m_events.size())
-        return {};
-    const auto &e = m_events.at(raw);
+    const auto &e = m_events.at(row);
     // The SDK item id survives in-place updates (local echo reconciliation,
     // late decryption); prefer it and fall back to the event id.
     return e.itemId.isEmpty() ? e.eventId : e.itemId;
@@ -1401,12 +1205,9 @@ QString TimelineModel::stableIdAt(int row) const
 
 QString TimelineModel::eventIdAt(int row) const
 {
-    if (row < 0)
+    if (row < 0 || row >= m_events.size())
         return {};
-    const int raw = row + m_hiddenPrefixCount;
-    if (raw >= m_events.size())
-        return {};
-    return m_events.at(raw).eventId;
+    return m_events.at(row).eventId;
 }
 
 int TimelineModel::rowForStableId(const QString &stableId) const
@@ -1415,14 +1216,8 @@ int TimelineModel::rowForStableId(const QString &stableId) const
         return -1;
     for (int i = 0; i < m_events.size(); ++i) {
         const auto &e = m_events.at(i);
-        if (e.itemId == stableId || e.eventId == stableId) {
-            // A match still staged inside the hidden prefix has no view row
-            // yet — reported "not found", exactly like a redacted/renamed
-            // stable id the caller already treats as genuinely unresolvable
-            // (see TimelinePane.qml's maintainViewAnchor()). It becomes
-            // findable the instant the run flushes.
-            return i < m_hiddenPrefixCount ? -1 : i - m_hiddenPrefixCount;
-        }
+        if (e.itemId == stableId || e.eventId == stableId)
+            return i;
     }
     return -1;
 }
@@ -1589,10 +1384,8 @@ bool TimelineModel::paginationFailed() const
 void TimelineModel::retrySend(int row)
 {
     if (!m_client || m_roomId.isEmpty()) return;
-    if (row < 0) return;
-    const int raw = row + m_hiddenPrefixCount;
-    if (raw >= m_events.size()) return;
-    const auto &e = m_events.at(raw);
+    if (row < 0 || row >= m_events.size()) return;
+    const auto &e = m_events.at(row);
     if (e.status != TimelineEvent::Failed || e.transactionId.isEmpty())
         return;
     m_client->retryFailedSend(m_roomId, e.transactionId);
@@ -1617,18 +1410,6 @@ void TimelineModel::reload()
                    ? m_client->timeline(m_roomId)
                    : QList<TimelineEvent>{};
     rebuildThreadReplyIndex();
-    // A room/thread switch or any other full reset invalidates a staged
-    // near-top prefix outright: the fresh snapshot from the client already
-    // reflects the target room in full, and a leftover staged count would
-    // silently hide real rows of a room the reader never asked to stage.
-    // Set directly (not through the property setter) — a reset already
-    // presents everything, so there is nothing to flush, and this must not
-    // race the QML gesture/run bindings that reassert the flag afterward.
-    m_hiddenPrefixCount = 0;
-    if (m_backfillStagingActive) {
-        m_backfillStagingActive = false;
-        Q_EMIT backfillStagingActiveChanged();
-    }
     endResetModel();
     Q_EMIT countChanged();
 }

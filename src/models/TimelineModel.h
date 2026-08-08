@@ -36,17 +36,6 @@ class TimelineModel : public QAbstractListModel
                    NOTIFY searchChanged)
     Q_PROPERTY(QString searchCurrentEventId READ searchCurrentEventId
                    NOTIFY searchChanged)
-    // v0.7.x: near-top backfill "virtual scrolling" window. While true, a
-    // landed backward-pagination prepend is folded into the internal mirror
-    // but held out of the exposed row space — see setBackfillStagingActive()
-    // in the .cpp for the full mechanism. QML drives this from
-    // TimelinePane.qml, bound to (userScrollActive && a near-top run is
-    // active), so the ListView sees no structural change while a reader
-    // holds a gesture through active loading; flipping back to false flushes
-    // the held prefix in one clean insert.
-    Q_PROPERTY(bool backfillStagingActive READ backfillStagingActive
-                   WRITE setBackfillStagingActive
-                   NOTIFY backfillStagingActiveChanged)
 
 public:
     enum Roles {
@@ -167,33 +156,13 @@ public:
 
     QString roomId() const { return m_roomId; }
     void setRoomId(const QString &roomId);
-    // PUBLIC (exposed) row count — what the view sees. See eventCount()'s
-    // sibling internalEventCount() for the true mirror size a policy
-    // decision (not a view) should measure against.
-    int eventCount() const
-    { return static_cast<int>(m_events.size()) - m_hiddenPrefixCount; }
-    // The complete mirror size, INCLUDING a currently-staged, not-yet-
-    // exposed near-top prefix. PaginationController's progress accounting
-    // (batchRowGrowth()) uses this, never eventCount()/rowCount(): whether
-    // the reader's near-top run should keep chaining pages is a question
-    // about real backend growth, not about what is currently visible.
-    int internalEventCount() const { return static_cast<int>(m_events.size()); }
-
-    bool backfillStagingActive() const { return m_backfillStagingActive; }
-    void setBackfillStagingActive(bool active);
-    // Explicit take-control-of-the-viewport actions (jump-to-event, scroll-
-    // anchor restore, reply/restore navigation continuation) must see every
-    // row already in the mirror, not just what has been exposed to the
-    // ListView so far — rowForStableId()/rowForEventId() answer "not found"
-    // for a row still staged, and those callers already treat that as "not
-    // loaded yet", which would burn extra backend pages and can even
-    // surface the false "Original message is unavailable." for an event
-    // that is sitting right there in the mirror. Call this FIRST in any such
-    // path. Deliberately does NOT touch backfillStagingActive itself: QML's
-    // gesture/run gate keeps owning that decision, so a future prepend can
-    // still stage again if the gesture is still in flight when this
-    // returns — this only exposes what is CURRENTLY held, once.
-    void flushPendingBackfillForNavigation() { flushHiddenPrefix(); }
+    // Row count — what the view sees. Also the authoritative progress
+    // measure for PaginationController's near-top continuation accounting
+    // (batchRowGrowth()): with no held/hidden prefix, every row the backend
+    // delivers is immediately exposed, so there is no separate "internal
+    // mirror size" any more — this IS both the view count and the backend
+    // growth count.
+    int eventCount() const { return static_cast<int>(m_events.size()); }
 
     QString typingText() const { return m_typingText; }
     bool canPaginate() const;
@@ -287,13 +256,9 @@ Q_SIGNALS:
     void typingTextChanged();
     void paginationChanged();
     // v0.5.11: a backward-pagination batch prepended `count` rows; existing
-    // rows shifted down by exactly that amount. Fired once per EXPOSED
-    // insert — a batch held in the backfill staging window (see
-    // backfillStagingActive) fires this only when it flushes, as one insert
-    // covering everything the run accumulated while held.
+    // rows shifted down by exactly that amount. Fired once per landed batch.
     void olderPrepended(int count);
     void searchChanged();
-    void backfillStagingActiveChanged();
 
 private Q_SLOTS:
     void onEventAppended(const QString &roomId, const TimelineEvent &event);
@@ -323,10 +288,6 @@ private Q_SLOTS:
     void onPaginationStateChanged(const QString &roomId);
 
 private:
-    // Flush the currently held near-top staging prefix (if any) into the
-    // exposed row space in exactly ONE beginInsertRows/endInsertRows. See
-    // setBackfillStagingActive() for the full mechanism.
-    void flushHiddenPrefix();
     const TimelineEvent *eventForId(const QString &eventId) const;
     // Recompute search matches over the loaded timeline, preserving the
     // currently selected match's event id when it still matches.
@@ -368,23 +329,6 @@ private:
     QString m_roomId;
     QString m_selfUserId;
     QList<TimelineEvent> m_events;
-    // Near-top backfill "virtual scrolling" window. m_events ALWAYS stays
-    // the complete, faithful mirror of the backend timeline; these two
-    // fields decide how much of its FRONT is currently exposed through
-    // QAbstractListModel's row space (rowCount()/data()/index-translating
-    // Q_INVOKABLEs). m_hiddenPrefixCount is the invariant: >0 only while
-    // m_backfillStagingActive is true, and always driven back to exactly 0
-    // by flushHiddenPrefix() or a full reset (reload()/onLoggedOut()) —
-    // never left dangling across a room switch. See setBackfillStagingActive
-    // in the .cpp for the complete reasoning.
-    bool m_backfillStagingActive = false;
-    int m_hiddenPrefixCount = 0;
-    // Safety cap: if a reader holds a gesture through an unusually long
-    // near-top run, force an early flush rather than let the held prefix
-    // (and the memory it costs) grow without bound. One extra visible
-    // relayout in that rare case is a far better trade than unbounded
-    // growth while staged content stays permanently unreachable.
-    static constexpr int kMaxHiddenPrefixRows = 400;
     // Loaded thread replies per root event id. IsThreadRootRole and
     // ThreadReplyCountRole used to answer by scanning the WHOLE event list
     // on every query, and every delegate binds both — so each instantiated

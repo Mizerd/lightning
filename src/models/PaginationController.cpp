@@ -219,11 +219,11 @@ void PaginationController::requestNearTop(bool userInitiated)
         requestViewportFill();
         return;
     }
-    // Bound consecutive filtered (zero-visible-row) pages regardless of who
+    // Bound consecutive filtered (zero-growth) pages regardless of who
     // asked. matrix-rust-sdk keeps advancing its back-pagination cursor through
     // thread-only / hidden history, returning reached_start=false with no
-    // visible rows; without this bound the timeline hammers the homeserver for
-    // as long as the reader stays at the top — the reported near_top loop.
+    // mirror growth; without this bound the timeline hammers the homeserver
+    // for as long as the reader stays at the top — the reported near_top loop.
     // finishBatch() drives the bounded continuation itself, so this guard is
     // what stops it and what a stale geometry re-trigger hits.
     if (m_nearTopEmptyStrikes >= kMaxNearTopEmptyStrikes)
@@ -247,10 +247,6 @@ void PaginationController::jumpToEvent(const QString &eventId)
         failNavigation();
         return;
     }
-    // Jumping is an explicit take-control-of-the-viewport action: it must
-    // see every row already in the mirror, not just what a held near-top
-    // gesture has exposed so far. See flushPendingBackfillForNavigation().
-    m_timelineModel->flushPendingBackfillForNavigation();
     const int loadedRow = m_timelineModel->rowForStableId(eventId);
     if (loadedRow >= 0) {
         m_navigationPurpose = NavigationPurpose::Reply;
@@ -301,10 +297,6 @@ void PaginationController::restoreScrollAnchor(const QString &roomId)
         Q_EMIT restoreLatestRequested();
         return;
     }
-    // Same reasoning as jumpToEvent(): restoring the reader's saved position
-    // is an explicit take-control action.
-    if (m_timelineModel)
-        m_timelineModel->flushPendingBackfillForNavigation();
     const int row = m_timelineModel
         ? m_timelineModel->rowForStableId(it->eventId) : -1;
     if (row >= 0) {
@@ -348,7 +340,7 @@ void PaginationController::request(Reason reason)
     m_requestActive = true;
     m_activeReason = reason;
     m_batchInserted = 0;
-    m_batchStartRows = m_timelineModel ? m_timelineModel->internalEventCount() : 0;
+    m_batchStartRows = m_timelineModel ? m_timelineModel->eventCount() : 0;
     m_batchStableIds.clear();
     m_completionPending = false;
     m_seenLoading = false;
@@ -419,7 +411,7 @@ void PaginationController::onPaginationStateChanged(const QString &roomId)
             // dispatch's baseline and reports an arbitrarily inflated
             // insertedCount — a lie in the completion signal this class
             // documents as "what the reader actually gained".
-            m_batchStartRows = m_timelineModel ? m_timelineModel->internalEventCount() : 0;
+            m_batchStartRows = m_timelineModel ? m_timelineModel->eventCount() : 0;
         }
         m_seenLoading = true;
         Q_EMIT stateChanged();
@@ -474,7 +466,7 @@ int PaginationController::batchRowGrowth() const
 {
     if (!m_timelineModel)
         return 0;
-    return m_timelineModel->internalEventCount() - m_batchStartRows;
+    return m_timelineModel->eventCount() - m_batchStartRows;
 }
 
 void PaginationController::finishBatch(bool hitStart)
@@ -520,53 +512,34 @@ void PaginationController::finishBatch(bool hitStart)
 
     // NearTop progress classification and BOUNDED continuation:
     //   * reached start -> EndOfHistory: clear strikes, stop;
-    //   * a near-top run is STILL STAGED (TimelineModel::
-    //     backfillStagingActive — the reader is holding a gesture through
-    //     it, view-space proximity is meaningless while the view is
-    //     frozen) -> ALWAYS schedule a continuation, regardless of whether
-    //     THIS page added visible rows: growth is the point, not a stop
-    //     condition, and without this a genuine multi-page approach
-    //     stalled after its first successful page. Independent review H-A:
-    //     strike accounting for a staged page is deliberately NOT decided
-    //     here — see scheduleNearTopContinuation()'s becauseStagingHeld
-    //     branch. `inserted` here is exactly the value 2735bb3 proved
-    //     unreliable at this point in time (the async bridge can still be
-    //     delivering it), and unconditionally resetting the SHARED
-    //     m_nearTopEmptyStrikes counter here — as an earlier version of
-    //     this fix did — corrupts it for a later NON-staged evaluation if
-    //     the gesture releases mid-run, and more importantly removes the
-    //     bound entirely for a thread-heavy room returning zero-visible-row
-    //     pages while staged: freezing the view removes the feedback that
-    //     would make a reader stop swiping, so the SAME bound that protects
-    //     the un-staged path below must still apply here;
-    //   * visible rows added, NOT staged  -> VisibleProgress: clear strikes,
-    //     stop auto-continuation (the reader now sees older history and is
-    //     pushed off the top edge, so QML re-arms on the next deliberate
-    //     approach) — the ordinary un-staged path (e.g. a native drag,
-    //     where staging never engages);
-    //   * zero visible rows, NOT staged, not at start ->
-    //     BackendProgressWithoutVisibleRows: the SDK advanced its cursor
-    //     through filtered (thread-only / hidden) history with no gesture
-    //     holding it open. Continue a STRICTLY bounded number of times to
-    //     surface visible events, then latch and stop until the reader
-    //     deliberately re-approaches the top. This replaces the old
-    //     QML-geometry-driven loop that could spin for as long as the
-    //     reader sat at the top.
+    //   * the mirror grew (inserted > 0) -> Progress: clear strikes, stop
+    //     auto-continuation. One near-top trigger yields at most one
+    //     dispatched page once that page is productive. (v0.6.6 regression
+    //     fix: an earlier "the view is staged/frozen, so keep loading
+    //     regardless of growth" branch here turned one held gesture into an
+    //     unbounded chain that silently paginated the rest of the room —
+    //     chains of near_top requests with signalled=0 on every completion,
+    //     and multi-thousand-pixel displacedApplied corrections flushed on
+    //     release. That branch, and the TimelineModel staging/freezing
+    //     window it existed to serve, are both gone — see git history.) The
+    //     reader now has the new page in front of them and is pushed off
+    //     the top edge, so QML re-arms on the next deliberate approach;
+    //   * no growth, not at start -> BackendProgressWithoutGrowth: the SDK
+    //     advanced its cursor through filtered (thread-only / hidden)
+    //     history with nothing new in the mirror. Continue a STRICTLY
+    //     bounded number of times to surface real content, then latch and
+    //     stop until the reader deliberately re-approaches the top. This is
+    //     the 2735bb3 storm bound.
     bool willContinue = false;
     if (reason == Reason::NearTop) {
-        const bool stagingHeld =
-            m_timelineModel && m_timelineModel->backfillStagingActive();
         if (hitStart) {
             m_nearTopEmptyStrikes = 0;
-        } else if (stagingHeld) {
-            scheduleNearTopContinuation(/*becauseStagingHeld=*/true);
-            willContinue = true;
         } else if (inserted > 0) {
             m_nearTopEmptyStrikes = 0;
         } else {
             ++m_nearTopEmptyStrikes;
             if (m_nearTopEmptyStrikes < kMaxNearTopEmptyStrikes) {
-                scheduleNearTopContinuation(/*becauseStagingHeld=*/false);
+                scheduleNearTopContinuation();
                 willContinue = true;
             } else {
                 qCInfo(lcPagination)
@@ -589,7 +562,7 @@ void PaginationController::finishBatch(bool hitStart)
         continueNavigation(hitStart);
 }
 
-void PaginationController::scheduleNearTopContinuation(bool becauseStagingHeld)
+void PaginationController::scheduleNearTopContinuation()
 {
     const quint64 generation = m_generation;
     const int rowsAtDispatch = m_batchStartRows;
@@ -602,7 +575,7 @@ void PaginationController::scheduleNearTopContinuation(bool becauseStagingHeld)
     // model-growth re-check below can see item diffs that arrived after
     // finishBatch() already classified the page.
     QTimer::singleShot(m_nearTopContinuationDelayMs, this,
-                       [this, generation, rowsAtDispatch, becauseStagingHeld] {
+                       [this, generation, rowsAtDispatch] {
         if (generation != m_generation) {
             // A room switch / reset / sign-out already cleared the flag through
             // resetPerRoomState(); this timer belongs to the previous
@@ -622,52 +595,6 @@ void PaginationController::scheduleNearTopContinuation(bool becauseStagingHeld)
         Q_EMIT stateChanged();
         if (m_requestActive || m_roomId.isEmpty())
             return;
-        if (becauseStagingHeld) {
-            // The reader may have let go of the gesture while this was
-            // pending — re-check the live flag rather than a captured one.
-            if (!m_timelineModel || !m_timelineModel->backfillStagingActive())
-                return;
-            // Independent review H-A: strike accounting for a staged run
-            // lives HERE, at fire time — re-measured the same way the
-            // un-staged branch below re-measures it, and for the identical
-            // reason (2735bb3's batchRowGrowth(): the async bridge can
-            // still be delivering a batch's real growth when finishBatch()
-            // classified it). This is NOT the growth-cancels-run branch
-            // the un-staged path uses below — that was tried for staged
-            // pages during the M5 round and caused the exact stall M5 set
-            // out to fix (a genuinely successful page would cancel the
-            // chain instead of continuing it). The bound this restores is
-            // narrower and different: a CONSECUTIVE run of zero-growth
-            // pages (thread-only / hidden history) must still stop after
-            // kMaxNearTopEmptyStrikes even while the view is frozen —
-            // freezing removes the visual feedback that would otherwise
-            // make a reader stop swiping against it, so the request storm
-            // 2735bb3 fixed can otherwise reopen at
-            // m_nearTopContinuationDelayMs+RTT cadence for as long as they
-            // hold the gesture. Growth still never CANCELS continuing
-            // (unlike below) — it only resets the strike count, and the
-            // very next dispatch still goes out.
-            const int growth = m_timelineModel->internalEventCount()
-                - rowsAtDispatch;
-            if (growth > 0) {
-                m_nearTopEmptyStrikes = 0;
-            } else {
-                ++m_nearTopEmptyStrikes;
-                if (m_nearTopEmptyStrikes >= kMaxNearTopEmptyStrikes) {
-                    qCInfo(lcPagination)
-                        << "timeline pagination near-top continuation "
-                           "latched (staged) after"
-                        << m_nearTopEmptyStrikes
-                        << "filtered pages generation=" << m_generation;
-                    return;
-                }
-            }
-            // request()'s own canPaginate() check silently ends the chain
-            // at reached-start too (no dispatch, so finishBatch() never
-            // fires again from this path, so nothing reschedules).
-            request(Reason::NearTop);
-            return;
-        }
         if (m_nearTopEmptyStrikes >= kMaxNearTopEmptyStrikes)
             return;
         // The page DID add rows; the strike was a measurement artefact of the
@@ -683,7 +610,7 @@ void PaginationController::scheduleNearTopContinuation(bool becauseStagingHeld)
         // errs toward loading less, which is the direction the defect reports
         // all point in.
         const int growth = m_timelineModel
-            ? m_timelineModel->internalEventCount() - rowsAtDispatch : 0;
+            ? m_timelineModel->eventCount() - rowsAtDispatch : 0;
         if (growth > 0) {
             m_nearTopEmptyStrikes = 0;
             qCInfo(lcPagination)
@@ -725,11 +652,6 @@ void PaginationController::continueNavigation(bool hitStart)
 {
     if (m_navigationPurpose == NavigationPurpose::None || !m_timelineModel)
         return;
-    // Same reasoning as jumpToEvent(): a batch may have landed while a
-    // near-top run was ALSO staging (independent of this navigation), and
-    // the target event must be found the instant it is in the mirror, not
-    // only once that unrelated run flushes.
-    m_timelineModel->flushPendingBackfillForNavigation();
     const int row = m_timelineModel->rowForStableId(m_navigationEventId);
     if (row >= 0) {
         locateNavigationTarget(row);

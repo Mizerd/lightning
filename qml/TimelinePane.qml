@@ -795,8 +795,25 @@ Rectangle {
                         // and had nothing to correct" (every other counter
                         // legitimately 0) from "the mechanism never engaged
                         // at all" — see the M2 comment on diagNoAnchorReturns.
-                        if (scrollTrace)
-                            diagNoAnchorReturns += 1
+                        // The two early-return causes are counted SEPARATELY,
+                        // not merged — "no anchor captured yet"
+                        // (viewAnchorId empty: a real gap in anchor
+                        // coverage, e.g. a gesture that started before
+                        // captureViewAnchor() ever ran) and "returned to the
+                        // bottom before this coalesced call fired"
+                        // (stickToBottom). The second is NOT the routine
+                        // bottom-pinned case: this function is never
+                        // scheduled while stickToBottom is already true, so
+                        // it can only count a correction scheduled while
+                        // scrolled up and then dropped on return-to-bottom.
+                        // Order matters and is deliberate: an empty id wins
+                        // when both hold.
+                        if (scrollTrace) {
+                            if (viewAnchorId === "")
+                                diagNoAnchorReturns += 1
+                            else
+                                diagStickToBottomReturns += 1
+                        }
                         return
                     }
                     // v0.7.2: the SINGLE anchor-correction mechanism for
@@ -1304,24 +1321,18 @@ Rectangle {
                 //
                 //   M1 (blind spot): diagFlushGesture() used to run as the
                 //   LAST statement of scrollSettleTimer.onTriggered, i.e.
-                //   while diagActive was still true — but the staged-loading
-                //   reconcile it exists to observe does NOT happen inside
-                //   that handler. Leaving the staged prefix (see
-                //   TimelineModel::setBackfillStagingActive) is driven by
-                //   `app.timeline.backfillStagingActive = false`, which is
-                //   written from a Qt.callLater (onBackfillStagingActiveChanged
-                //   below) — one turn after settle at the earliest — and
-                //   THAT write is what triggers flushHiddenPrefix()'s row
-                //   insert, which is what fires onContentHeightChanged,
-                //   which is what schedules maintainViewAnchorCoalesced()'s
-                //   OWN Qt.callLater — so the displaced-branch call this is
-                //   built to catch lands at least two event-loop turns after
-                //   the line was already printed and diagActive already
-                //   false. Every gesture that actually triggered a staged
-                //   flush reported displacedFirings=0: a false negative on
-                //   exactly the H1 question. Guessing the right number of
-                //   turns to defer the flush by is fragile (the chain depth
-                //   is an implementation detail, not a contract) — instead,
+                //   while diagActive was still true — but a correction that
+                //   lands async relative to settle (originally: the
+                //   near-top backfill staging window's release-time flush,
+                //   since removed outright — see the near-top backfill
+                //   comment further down; the reasoning below is kept
+                //   because the SAME async-loss risk still applies to any
+                //   other post-settle correction, e.g. a media hydration or
+                //   late-decryption height change landing a turn or two
+                //   after settle) does NOT happen inside that handler, so a
+                //   naive "print on the last statement of settle" misses it
+                //   entirely: the correction fires after the line was
+                //   already printed and diagActive already false. Instead,
                 //   every outcome counter below (everything except the
                 //   events/pixel/angle/netY/dContentH group, which describes
                 //   THIS gesture's own physical input and has no async-loss
@@ -1346,7 +1357,20 @@ Rectangle {
                 //   outcome counter is 0 does not distinguish "the mechanism
                 //   ran and had nothing to correct" from "the mechanism
                 //   never ran at all" (viewAnchorId empty, or stickToBottom).
-                //   diagNoAnchorReturns below counts the latter.
+                //   diagNoAnchorReturns and diagStickToBottomReturns below
+                //   count those two causes separately (see the call site).
+                //   READ THEM CAREFULLY: maintainViewAnchor() is never
+                //   SCHEDULED while stickToBottom (both content/height
+                //   handlers take the scrollToEndDeferred arm instead), so
+                //   an ordinary bottom-pinned gesture moves NEITHER counter.
+                //   A non-zero diagStickToBottomReturns means specifically
+                //   that a correction was scheduled while scrolled up and
+                //   then dropped because the reader returned to the bottom
+                //   before the coalesced call fired — harmless in
+                //   production (scrollToEndDeferred pins the view anyway),
+                //   but it is a real signal, not routine noise. When BOTH
+                //   conditions hold the empty-anchor arm wins, so an empty
+                //   id while bottom-pinned reports as noAnchorReturns.
                 //
                 //   L1 (conflated fallback causes): the old single
                 //   captureFallbacks counter merged two different causes of
@@ -1371,6 +1395,7 @@ Rectangle {
                 //
                 // Numbers only — no message content, ids, or URLs.
                 property int diagNoAnchorReturns: 0
+                property int diagStickToBottomReturns: 0
                 property int diagDisplacedFirings: 0
                 property real diagDisplacedAppliedSum: 0
                 property real diagDisplacedMaxAbsGrew: 0
@@ -1414,6 +1439,7 @@ Rectangle {
                         + " netY=" + Math.round(contentY - diagStartY)
                         + " dContentH=" + Math.round(contentHeight - diagStartHeight)
                         + " noAnchorReturns=" + diagNoAnchorReturns
+                        + " stickToBottomReturns=" + diagStickToBottomReturns
                         + " anchorCorrections=" + diagAnchorCorrections
                         + " growthCorrections=" + diagGrowthCorrections
                         + " displacedFirings=" + diagDisplacedFirings
@@ -1430,6 +1456,7 @@ Rectangle {
                         + " topDist=" + Math.round(distanceFromTop())
                         + " nearTop=" + (distanceFromTop() <= nearTopEnterDistance ? 1 : 0))
                     diagNoAnchorReturns = 0
+                    diagStickToBottomReturns = 0
                     diagAnchorCorrections = 0
                     diagGrowthCorrections = 0
                     diagDisplacedFirings = 0
@@ -1858,108 +1885,28 @@ Rectangle {
                            && timeline.stickToBottom
                 }
 
-                // ── v0.7.x: near-top backfill "virtual scrolling" ────────
-                // Live report: loading gets "jittery and laggy and
-                // teleporty" once messages start loading WHILE the reader
-                // holds a scroll gesture through it — the per-batch anchor
-                // correction below IS exact for a run that never engages
-                // the staging window this comment describes (see
-                // TimelinePaneQmlTest.cpp's
-                // nearTopUnstagedRunStillCompensatesEveryBatchImmediately,
-                // which deliberately never lets nearTopRunActive or
-                // nearTopArmed become true so it can prove exactly that
-                // path — a NearTop-driven run, the shape this comment is
-                // actually about, engages staging below instead, and is
-                // proven in the same file by
-                // nearTopControllerDrivenRunAlsoStagesAcrossEveryBatchThenReconcilesOnce
-                // and
-                // nearTopVirtualScrollingFreezesTheViewportAcrossAHeldRunThenReconcilesOnce
-                // — names kept on one line so they grep). Either way, every
-                // landed batch still pays real relayout/delegate/media-
-                // request cost stacked against the held gesture. The fix
-                // is architectural, not another compensation tweak:
-                // while a gesture is active AND a near-top approach to the
-                // top is unsettled, TimelineModel holds landed batches out
-                // of the exposed row space entirely (see
-                // TimelineModel::setBackfillStagingActive) — the ListView
-                // sees no structural change at all until this flips back to
-                // false. That is genuinely "scroll what's already loaded,
-                // then reconcile once" rather than buffering the visual
-                // CONSEQUENCES of updates that still land one at a time.
-                //
-                // "A near-top approach is unsettled" is deliberately the OR
-                // of two signals, not just one:
-                //   * !nearTopArmed — QML's OWN edge latch (checkNearTopEdge)
-                //     is consumed at dispatch and only re-arms at gesture
-                //     settle or leaving the exit band, so it already spans
-                //     the WHOLE approach across every chained batch a
-                //     continued upward scroll triggers — not just one
-                //     request's own round trip. This is what makes multiple
-                //     real backfill pages during one continuous scroll
-                //     coalesce into a single reconcile instead of one per
-                //     batch.
-                //   * app.pagination.nearTopRunActive — the controller's own
-                //     view of "a NearTop request or its bounded continuation
-                //     is in flight right now", true even when something
-                //     dispatched a request WITHOUT going through QML's edge
-                //     latch (a bounded continuation re-dispatches directly in
-                //     C++; so can a test or any future caller).
-                // Either alone is a real signal that the reader is mid-
-                // approach; this must never depend on exactly which path
-                // triggered the fetch.
-                readonly property bool backfillStagingActive:
-                    userScrollActive
-                    && (!nearTopArmed || app.pagination.nearTopRunActive)
-                // NOT a direct Binding. QQmlTimer.restart() while already
-                // running is stop()+start() — two separate synchronous
-                // runningChanged emits, momentarily false then true — and
-                // scrollSettleTimer.restart() is called from EVERY wheel/
-                // touchpad delta during a real gesture (see the WheelHandler
-                // below). A direct Binding would therefore flush-then-
-                // restage on every single input event during the exact
-                // gesture this exists to keep smooth — the opposite of the
-                // goal, and additional jitter of its own. Qt.callLater
-                // coalesces the momentary blip-and-recover within the same
-                // synchronous turn into zero net change, applying only the
-                // value that is still current once the call stack unwinds —
-                // the same pattern maintainViewAnchorCoalesced() and
-                // maybeRequestNearTop() already use for this exact reason.
-                // No generation/room token, unlike PaginationController's
-                // deferred C++ callbacks (scheduleNearTopContinuation() etc,
-                // which DO carry one) — and that is not an oversight, it is
-                // the same reasoning maintainViewAnchorCoalesced() already
-                // relies on without one. Those C++ callbacks capture FROZEN
-                // values at schedule time (rowsAtDispatch, a specific batch)
-                // that a room switch can make meaningless, so they must
-                // reject a stale generation outright. This callback captures
-                // NOTHING: it reads `timeline.backfillStagingActive` fresh,
-                // live, at the moment it actually runs — never a value
-                // snapshotted at schedule time — so it always applies
-                // whatever is CURRENTLY true, however many gestures, room
-                // switches, or property changes happened in between. A room
-                // switch in that window is also independently safe on the
-                // C++ side: TimelineModel::reload() zeroes the hidden prefix
-                // and the staging flag directly (not through this property)
-                // the instant the switch happens, synchronously, before this
-                // already-queued callback can run — so even a "stale"
-                // pending write lands on a model that has already reset
-                // itself and simply re-applies current truth.
-                property bool backfillStagingSyncScheduled: false
-                onBackfillStagingActiveChanged: {
-                    if (backfillStagingSyncScheduled)
-                        return
-                    backfillStagingSyncScheduled = true
-                    Qt.callLater(function() {
-                        backfillStagingSyncScheduled = false
-                        // Re-read here, not a captured parameter — this IS
-                        // the "apply the latest transition" guarantee: no
-                        // matter how many changes coalesced into this one
-                        // callback, or what else ran meanwhile, the value
-                        // written is whatever is true right now.
-                        app.timeline.backfillStagingActive =
-                            timeline.backfillStagingActive
-                    })
-                }
+                // v0.6.6: TimelineModel's near-top backfill "virtual
+                // scrolling" staging window — which used to hold a landed
+                // batch out of the exposed row space entirely while a
+                // gesture was held through an unsettled near-top approach —
+                // was removed outright. With the chain-continuation defect
+                // fixed (finishBatch() now ends a near-top run at the FIRST
+                // productive page instead of auto-chaining while staged —
+                // see PaginationController::finishBatch()), staging no
+                // longer had multiple batches to coalesce: it held at most
+                // one bounded page, and for that single page it cost a real
+                // wall — the loaded page sat invisible and contentY could
+                // not advance until the gesture physically ended, the
+                // opposite of the maintainer's actual ask ("when content
+                // loads actually allow normal scrolling again"). A live
+                // bottom-append landing during that window could also be
+                // misclassified as the run's own progress, ending it having
+                // delivered no history at all, with no way to ask again
+                // while frozen. Every landed batch is now an ordinary
+                // immediate prepend again — exactly the un-staged path this
+                // file already used for ViewportFill/Retry — compensated by
+                // the same maintainViewAnchor() mechanism below as soon as
+                // it lands, never deferred to gesture-end.
 
                 // v0.5.11: ask the pagination controller for one more batch
                 // whenever the loaded content cannot fill the viewport (a
@@ -2169,15 +2116,49 @@ Rectangle {
                 // Pagination trigger: scroll to top with backfill available.
                 // Duplicate and reached-start suppression live in the
                 // controller.
+                //
+                // Deliberately NOT edge-latched through checkNearTopEdge()/
+                // nearTopArmed the way the active drag/wheel path is: that
+                // latch early-returns whole while stickToBottom is true (see
+                // its own body), which would silently swallow the fresh-room
+                // initial-history kick-off — a just-opened room starts
+                // stickToBottom=true with too little content to scroll, and
+                // this passive atYBeginning edge is the ONLY trigger for that
+                // first fill. Reusing the active latch here would need to
+                // special-case stickToBottom inside it, which risks the
+                // active path's own precisely-tested hysteresis (many
+                // existing tests pin nearTopArmed's exact enter/exit/re-arm
+                // behavior) for a passive signal that already has its own,
+                // different bound:
+                //   * onAtYBeginningChanged only re-fires on an actual
+                //     false->true transition of Qt's own atYBeginning
+                //     property — never a per-frame poll — so a dispatch here
+                //     always costs at least one real property-change event,
+                //     not a tight loop;
+                //   * userInitiated=false, so it can never RESET the
+                //     controller's empty-strike counter (only a genuine user
+                //     gesture does) — a run of filtered/empty pages this path
+                //     alone triggers still latches at kMaxNearTopEmptyStrikes,
+                //     identically to the active path;
+                //   * PaginationController::request()'s single-flight makes a
+                //     same-turn re-fire (e.g. two toggles inside one
+                //     coalesced Qt.callLater window) a harmless "duplicate
+                //     suppressed" no-op, logged and otherwise inert;
+                //   * a PRODUCTIVE page (the remaining risk: a genuinely
+                //     resettable-to-true atYBeginning caused by a ListView
+                //     content-height ESTIMATE settling back to originY after
+                //     a prepend, not real user motion) still ends the run
+                //     immediately per finishBatch() — one page, then nothing
+                //     further dispatches until atYBeginning genuinely toggles
+                //     false and true again, each occurrence separately paced
+                //     by a real network round trip. Not literally unbounded
+                //     in the sense the withdrawn M5 staging chain was (no
+                //     bound at all beyond exhausting the room); bounded by
+                //     the union of the above, at the cost of a possible extra
+                //     page or two if that estimate-churn scenario recurs —
+                //     accepted rather than risking the active path's tested
+                //     invariants for an unconfirmed, narrower edge case.
                 onAtYBeginningChanged: {
-                    // Reaching the exact top is a PASSIVE geometry signal (also
-                    // the first empty/incubating frame that kicks off the
-                    // initial-history fill). It stays userInitiated=false so it
-                    // never resets the controller's filtered-page bound, and the
-                    // controller now bounds passive requests too — so this can
-                    // neither defeat the loop stop nor be the loop. It is NOT
-                    // edge-latched because the fresh-room fill must fire even
-                    // while stickToBottom is still true.
                     if (atYBeginning)
                         maybeRequestNearTop(false)
                 }

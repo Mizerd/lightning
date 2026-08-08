@@ -56,9 +56,9 @@ public:
                          [settleTimer] {
                              QMetaObject::invokeMethod(settleTimer, "restart");
                          });
-        // 20ms, not 50ms: a v0.7.x multi-batch near-top staging test can
-        // hold this across several real network round trips, several times
-        // longer than the single-batch tests this helper was written for.
+        // 20ms, not 50ms: the multi-batch near-top tests hold this across
+        // several real network round trips, several times longer than the
+        // single-batch tests this helper was written for.
         // 50ms leaves only 5x margin against the 250ms settle timeout, and
         // under the CPU contention of a full parallel test/build run that
         // margin was observed to slip often enough to fire the settle timer
@@ -3742,34 +3742,30 @@ private Q_SLOTS:
         QCOMPARE(warnings, QStringList{});
     }
 
-    // Independent review M-A: renamed from
-    // nearTopHeldRunCompensatesEveryBatchNotJustTheFinalOne, which this test
-    // no longer does — it now asserts the OPPOSITE (frozen, zero exposed
-    // inserts, one reconcile at the end). History: it originally drove
-    // THREE manual requestNearTop() calls and checked immediate per-batch
-    // compensation after each, back when a batch that added real rows ended
-    // the run outright (no continuation) so staging released and re-engaged
-    // once per manual call. Once M5 made a genuinely held run auto-chain
-    // (see nearTopKeepsChainingBatchesWhileStagingHoldsTheGesture in
-    // PaginationControllerTest.cpp and the sibling QML test below), THIS
-    // test's own dispatch pattern started exercising that chained/staged
-    // path too — requestNearTop() makes nearTopRunActive() true for the
-    // duration of each round trip, which is on its own enough to satisfy
-    // backfillStagingActive's OR gate, matching TimelinePane.qml's comment
-    // there. So its assertions were rewritten to match what it actually now
-    // proves, and it is kept as a SEPARATE test because it is the one
-    // regression guard that a controller-driven dispatch (bypassing the
-    // QML edge latch entirely, exactly like scheduleNearTopContinuation()
-    // or any future caller) gets the same staged/frozen treatment as a
-    // reader's own gesture — nearTopVirtualScrollingFreezesTheViewport-
-    // AcrossAHeldRunThenReconcilesOnce below proves the SAME invariant via
-    // the OTHER branch of that gate (nearTopArmed forced false). The
-    // still-live UN-staged, IMMEDIATE per-batch correction path this test
-    // used to guard is now covered separately by
-    // nearTopUnstagedRunStillCompensatesEveryBatchImmediately, which
-    // deliberately never lets nearTopRunActive or nearTopArmed become true,
-    // so it cannot accidentally exercise staging.
-    void nearTopControllerDrivenRunAlsoStagesAcrossEveryBatchThenReconcilesOnce()
+    // v0.6.6 regression fix: reverted to its pre-M5 shape (formerly
+    // nearTopHeldRunCompensatesEveryBatchNotJustTheFinalOne). M5 made a
+    // genuinely held run auto-chain regardless of growth while a since-
+    // removed TimelineModel staging window held (see
+    // nearTopKeepsChainingBatchesWhileStagingHoldsTheGesture, removed from
+    // PaginationControllerTest.cpp), and this test's assertions were
+    // rewritten to match that chained/staged behavior. M5 is now withdrawn,
+    // and the staging window it interacted with is gone entirely (see
+    // TimelinePane.qml's near-top backfill comment) — a live
+    // LIGHTNING_SCROLL_TRACE capture showed the auto-chain turn into an
+    // unbounded prefetch of the room (~30 near_top requests in one session,
+    // signalled=0 on every completion, multi-thousand-pixel
+    // displacedApplied corrections on release), and staging itself then
+    // turned out to cost a hard wall for the reader once the chain was
+    // bounded — see finishBatch(). This test is restored to proving what it
+    // originally proved: driving requestNearTop() explicitly for EACH of
+    // kBatches — bypassing the QML edge latch entirely, exactly like
+    // scheduleNearTopContinuation() or any future controller-internal
+    // caller — compensates each batch IMMEDIATELY once it completes, never
+    // deferred. FAIL-ON-OLD: the nearTopRunActive() assertion right after
+    // each completion is false on the withdrawn M5 mechanism, which would
+    // have left a continuation scheduled (nearTopRunActive() still true)
+    // instead of ending the run.
+    void nearTopControllerDrivenBatchesCompensateImmediatelyNotChained()
     {
         AppController controller(AppController::MockBackend);
         QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
@@ -3778,17 +3774,6 @@ private Q_SLOTS:
         const QString roomId = QStringLiteral("!general:mock.local");
         controller.setCurrentRoomId(roomId);
         mock->setPaginationDelayForTest(60);
-        // Independent review M5: while staging is held, EVERY completed
-        // NearTop batch schedules a further auto-continuation unless it
-        // reached history's start (finishBatch()'s hitStart branch) — this
-        // test samples exactly kBatches completions and then ends the
-        // gesture, but the kBatches-th batch's OWN completion still
-        // schedules one more continuation the test does not wait for. A
-        // short, known delay lets the drain step below (see there) wait it
-        // out deterministically before ending the gesture, rather than
-        // racing the production default (250ms, close enough to the settle
-        // timer's own 250ms to occasionally lose).
-        controller.pagination()->setNearTopContinuationDelayForTest(40);
 
         QList<TimelineEvent> events;
         for (int i = 0; i < 30; ++i) {
@@ -3875,189 +3860,103 @@ private Q_SLOTS:
             timeline, "itemAtIndex", Q_RETURN_ARG(QQuickItem *, itemBefore),
             Q_ARG(int, rowBefore)));
         QVERIFY(itemBefore != nullptr);
-        const double offsetBefore =
+        double offsetBefore =
             itemBefore->y() - timeline->property("contentY").toDouble();
 
         auto *settleTimer = timeline->findChild<QObject *>(
             QStringLiteral("scrollSettleTimer"));
         QVERIFY(settleTimer != nullptr);
+        GestureHold gesture(settleTimer);
+        QVERIFY(timeline->property("userScrollActive").toBool());
+        QVERIFY2(!timeline->property("moving").toBool(),
+                 "this is the self-driven path, not a native drag");
+        QVERIFY2(timeline->property("nearTopArmed").toBool(),
+                 "this test exercises the nearTopRunActive branch alone — "
+                 "nearTopArmed must stay un-consumed throughout");
 
-        QSignalSpy inserted(controller.timeline(),
-                            &QAbstractItemModel::rowsInserted);
-        const double contentYFrozen = timeline->property("contentY").toDouble();
-        const double contentHeightFrozen =
-            timeline->property("contentHeight").toDouble();
-        const int countFrozen = timeline->property("count").toInt();
-        QSignalSpy completedSpy(controller.pagination(),
-                               &PaginationController::paginationCompleted);
-
-        {
-            GestureHold gesture(settleTimer);
-            QVERIFY(timeline->property("userScrollActive").toBool());
-            QVERIFY2(!timeline->property("moving").toBool(),
-                     "this is the self-driven path, not a native drag");
-            QVERIFY2(timeline->property("nearTopArmed").toBool(),
-                     "this test exercises the nearTopRunActive branch alone "
-                     "— nearTopArmed must stay un-consumed throughout");
-
-            // ONE dispatch. nearTopRunActive alone keeps staging engaged for
-            // as long as this run stays active; M5's auto-continuation then
-            // chains the remaining kBatches-1 pages with NO further call
-            // from this test.
+        const double cacheBufferPx = 800.0;
+        for (int batch = 0; batch < kBatches; ++batch) {
+            const double heightBeforeBatch =
+                timeline->property("contentHeight").toDouble();
+            QSignalSpy completedSpy(controller.pagination(),
+                                   &PaginationController::paginationCompleted);
             controller.pagination()->requestNearTop();
-            // Independent review N-C: >=, not ==. The chain now self-drives
-            // (each completion's own finishBatch() schedules the next while
-            // staging holds), so completedSpy can keep growing between this
-            // poll's checks — an exact QTRY_COMPARE against a monotonically
-            // growing counter would spuriously fail if it overshoots
-            // kBatches before the poll happens to observe it.
-            QTRY_VERIFY_WITH_TIMEOUT(completedSpy.count() >= kBatches,
-                                     kSignalTimeoutMs * kBatches);
-            for (int batch = 0; batch < kBatches; ++batch) {
-                QVERIFY2(completedSpy.at(batch).at(0).toInt() > 0,
-                         "fixture assumption: each near-top page must insert "
-                         "rows");
-            }
+            QTRY_VERIFY_WITH_TIMEOUT(!completedSpy.isEmpty(), kSignalTimeoutMs);
+            QVERIFY2(completedSpy.constFirst().at(0).toInt() > 0,
+                     "fixture assumption: each near-top page must insert rows");
+            // FAIL-ON-OLD: the withdrawn M5 mechanism left a continuation
+            // scheduled here whenever staging was still held (regardless of
+            // this batch's own growth), so nearTopRunActive() would still
+            // read true immediately after the completion above. It must
+            // read false — this ONE productive batch ended the run.
+            QVERIFY2(!controller.pagination()->nearTopRunActive(),
+                     "a productive batch must end the run immediately, not "
+                     "leave a continuation scheduled");
 
-            // Frozen throughout the whole chained run: not one row exposed,
-            // not one pixel of viewport motion, while kBatches pages landed.
-            QCOMPARE(inserted.count(), 0);
-            QCOMPARE(timeline->property("contentY").toDouble(), contentYFrozen);
-            QCOMPARE(timeline->property("contentHeight").toDouble(),
-                    contentHeightFrozen);
-            QCOMPARE(timeline->property("count").toInt(), countFrozen);
-            QCOMPARE(controller.timeline()->rowForStableId(anchorId), rowBefore);
+            double heightGrowth = 0;
+            QTRY_VERIFY_WITH_TIMEOUT(
+                (heightGrowth = timeline->property("contentHeight").toDouble()
+                                - heightBeforeBatch,
+                 heightGrowth > cacheBufferPx + timeline->height()),
+                kSignalTimeoutMs);
+            QVERIFY2(heightGrowth > cacheBufferPx + timeline->height(),
+                     qPrintable(QStringLiteral(
+                         "batch %1: fixture no longer displaces the anchor "
+                         "past the cache buffer (growth %2 <= %3) — this "
+                         "test would pass on broken code")
+                         .arg(batch).arg(heightGrowth)
+                         .arg(cacheBufferPx + timeline->height())));
 
-            // Drain: the kBatches-th batch's own completion just scheduled
-            // ANOTHER continuation (finishBatch() cannot know in advance
-            // that this was the reader's last one) — 40ms away, per the
-            // override above. Wait it out here, WHILE THE GESTURE IS STILL
-            // HELD, so nothing is left pending once this returns; ending the
-            // gesture without draining this would race it against the
-            // settle-driven flush below. This test never touches
-            // nearTopArmed, so staging here is held by nearTopRunActive
-            // alone — the moment that extra page lands, EITHER it keeps the
-            // run going (still frozen, absorbed into the same staged
-            // prefix) OR it exhausts the mock's page budget and reaches
-            // history's start, which is its own legitimate "run ended"
-            // trigger (see finishBatch()'s hitStart branch) and flushes
-            // immediately even though the gesture is nominally still held —
-            // correct: nothing more is coming, so there is nothing left to
-            // protect the view from. Both outcomes are valid; only the
-            // "nothing left pending" property is asserted here.
-            QTRY_VERIFY_WITH_TIMEOUT(!controller.pagination()->busy(),
-                                     kSignalTimeoutMs);
-        } // GestureHold destroyed: the ticker stops re-arming the settle timer.
+            const int rowAfter = controller.timeline()->rowForStableId(anchorId);
+            QVERIFY2(rowAfter > rowBefore,
+                     "fixture assumption: the prepend must shift the row index");
 
-        // Settle flushes everything the run accumulated in one reconcile,
-        // preserving the reader's viewport offset.
-        QTRY_VERIFY_WITH_TIMEOUT(
-            !timeline->property("userScrollActive").toBool(), kSignalTimeoutMs);
-        QTRY_COMPARE_WITH_TIMEOUT(inserted.count(), 1, kSignalTimeoutMs);
-        const int rowAfter = controller.timeline()->rowForStableId(anchorId);
-        QVERIFY2(rowAfter > rowBefore,
-                 "the flush must have shifted the anchor's row index");
-        // Independent review M-B: verify the reader's actual on-screen
-        // position INDEPENDENTLY of the formula maintainViewAnchor() itself
-        // applies (contentY += contentHeight's growth — the displaced-
-        // anchor branch in TimelinePane.qml). Re-deriving that identical
-        // formula here, as an earlier version of this test did, cannot
-        // catch a case where the formula's own PREMISE is wrong — e.g. an
-        // originY-absorbed prepend, where ListView's average-size ESTIMATE
-        // for rows it has not built swallows some of the growth
-        // internally, so contentHeight's delta no longer equals how far
-        // the anchor row's own content-space y actually moved. Applying it
-        // as contentY += growth would then teleport the reader while an
-        // arithmetic-only check — computing that identical quantity —
-        // would agree with itself and still report success. forceLayout()
-        // (repo precedent: QuickSwitcherModesQmlTest.cpp's commandRow(),
-        // for the identical "an offscreen window never gets a polish pass
-        // scheduled on its own" reason) forces synchronous delegate
-        // materialization so itemAtIndex() can be trusted here, unlike the
-        // per-batch mid-run polling above (deliberately never forced,
-        // since forcing THERE would materialize delegates for rows that
-        // must stay un-exposed while staged — forcing here, after the
-        // flush already exposed them, has no such conflict).
-        // Poll rather than a single attempt: forceLayout() only materializes
-        // a delegate for whatever contentY currently is, and the growth
-        // correction that moves contentY (see above) can still be one
-        // Qt.callLater turn away the first time this runs.
-        double offsetAfter = 0;
-        bool materialized = false;
-        QTRY_VERIFY_WITH_TIMEOUT(
-            ([&] {
-                QMetaObject::invokeMethod(timeline, "forceLayout");
-                QQuickItem *itemAfter = nullptr;
-                QMetaObject::invokeMethod(
-                    timeline, "itemAtIndex",
-                    Q_RETURN_ARG(QQuickItem *, itemAfter),
-                    Q_ARG(int, rowAfter));
-                if (!itemAfter)
-                    return false;
-                materialized = true;
-                offsetAfter = itemAfter->y()
-                    - timeline->property("contentY").toDouble();
-                return qAbs(offsetAfter - offsetBefore) < 2.0;
-            }()),
-            kSignalTimeoutMs);
-        QVERIFY2(materialized,
-                 "forceLayout() must materialize the anchor delegate after "
-                 "the settle flush");
-        QVERIFY2(qAbs(offsetAfter - offsetBefore) < 2.0,
-                 qPrintable(QStringLiteral(
-                     "settle-time reconcile did not preserve the reader's "
-                     "actual on-screen position: viewport offset %1 -> %2")
-                     .arg(offsetBefore).arg(offsetAfter)));
+            // Sample the offset RIGHT AFTER this single batch settles its own
+            // onContentHeightChanged reaction — before the next batch is even
+            // requested. Compensation must be IMMEDIATE, never deferred.
+            double offsetAfter = 0;
+            QTRY_VERIFY_WITH_TIMEOUT(
+                ([&] {
+                    QQuickItem *itemAfter = nullptr;
+                    QMetaObject::invokeMethod(
+                        timeline, "itemAtIndex",
+                        Q_RETURN_ARG(QQuickItem *, itemAfter),
+                        Q_ARG(int, rowAfter));
+                    if (!itemAfter)
+                        return false;
+                    offsetAfter = itemAfter->y()
+                        - timeline->property("contentY").toDouble();
+                    return qAbs(offsetAfter - offsetBefore) < 2.0;
+                }()),
+                kSignalTimeoutMs);
+            QVERIFY2(qAbs(offsetAfter - offsetBefore) < 2.0,
+                     qPrintable(QStringLiteral(
+                         "batch %1 of %2: a near-top prepend during a held "
+                         "gesture moved the reader off their row: viewport "
+                         "offset %3 -> %4")
+                         .arg(batch + 1).arg(kBatches)
+                         .arg(offsetBefore).arg(offsetAfter)));
 
-        // Secondary guard: the correction must have been applied exactly
-        // ONCE across the whole run (not zero times, not twice) — total
-        // contentY shift equals total contentHeight growth. This restates
-        // the production formula, so it cannot substitute for the
-        // independent check above, but a mismatch here would mean the
-        // correction fired the wrong number of times even if the position
-        // happened to still land correctly.
-        const double contentHeightAfter =
-            timeline->property("contentHeight").toDouble();
-        const double growth = contentHeightAfter - contentHeightFrozen;
-        // contentHeight updates synchronously from endInsertRows(), but the
-        // correction that applies it to contentY (maintainViewAnchor-
-        // Coalesced() -> Qt.callLater -> maintainViewAnchor()) is deferred
-        // one further turn — poll for it rather than reading contentY
-        // immediately (a bare read here previously raced it: contentY
-        // reproducibly still 0 while growth was already the full amount).
-        double contentYShift = 0;
-        QTRY_VERIFY_WITH_TIMEOUT(
-            (contentYShift = timeline->property("contentY").toDouble()
-                             - contentYFrozen,
-             qAbs(contentYShift - growth) < 2.0),
-            kSignalTimeoutMs);
-        QVERIFY2(qAbs(contentYShift - growth) < 2.0,
-                 qPrintable(QStringLiteral(
-                     "the growth correction applied the wrong total shift: "
-                     "contentY moved %1 but content grew %2")
-                     .arg(contentYShift).arg(growth)));
+            rowBefore = rowAfter;
+            offsetBefore = offsetAfter;
+        }
         QCOMPARE(warnings, QStringList{});
     }
 
-    // Independent review M-A: the still-live UN-staged, IMMEDIATE per-batch
-    // correction path — maintainViewAnchor()'s mid-gesture relative-delta
-    // branch, applied the moment each batch's onContentHeightChanged fires,
-    // with no staging involved — deserves its own guard now that BOTH tests
-    // above exercise the STAGED path (a NearTop dispatch while a gesture is
-    // held satisfies backfillStagingActive's OR gate via nearTopRunActive
-    // alone, regardless of nearTopArmed). This is what the renamed test
-    // used to cover, before its own dispatch pattern started exercising
-    // staging instead. Driven through ViewportFill instead of NearTop:
-    // ViewportFill can never set nearTopRunActive (only a NearTop-reason
-    // request does — see PaginationController::nearTopRunActive()), and
-    // this test never calls requestNearTop() or otherwise touches
-    // nearTopArmed, so backfillStagingActive's OR gate is false for the
-    // whole test — provably the un-staged path, asserted explicitly below
-    // rather than merely assumed. Same shape
+    // The IMMEDIATE per-batch correction path — maintainViewAnchor()'s
+    // mid-gesture relative-delta branch, applied the moment each batch's
+    // onContentHeightChanged fires — is now the ONLY path (v0.6.6: the
+    // near-top backfill staging window this test used to distinguish itself
+    // from is gone outright; see TimelinePane.qml's near-top backfill
+    // comment). Driven through ViewportFill rather than NearTop, so it
+    // stays a distinct regression guard from
+    // nearTopControllerDrivenBatchesCompensateImmediatelyNotChained (which
+    // drives the same invariant through requestNearTop()): this test never
+    // calls requestNearTop() or otherwise touches nearTopArmed. Same shape
     // topEdgePrependKeepsReaderOnTheSameRowMidGesture already proves for a
     // SINGLE batch, repeated here for several CONSECUTIVE batches while a
     // gesture stays held, sampling the offset after each.
-    void nearTopUnstagedRunStillCompensatesEveryBatchImmediately()
+    void viewportFillRunCompensatesEveryBatchImmediately()
     {
         AppController controller(AppController::MockBackend);
         QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
@@ -4182,9 +4081,6 @@ private Q_SLOTS:
 
         const double cacheBufferPx = 800.0;
         for (int batch = 0; batch < kBatches; ++batch) {
-            QVERIFY2(!timeline->property("backfillStagingActive").toBool(),
-                     "ViewportFill must never engage the near-top staging "
-                     "window");
             const double heightBeforeBatch =
                 timeline->property("contentHeight").toDouble();
             QSignalSpy completedSpy(controller.pagination(),
@@ -4215,9 +4111,7 @@ private Q_SLOTS:
 
             // Sample the offset RIGHT AFTER this single batch settles its
             // own onContentHeightChanged reaction — before the next batch
-            // is even requested. Un-staged, so this must be IMMEDIATE, not
-            // deferred to a run-ending flush the way the staged sibling
-            // tests above are.
+            // is even requested. This must be IMMEDIATE.
             double offsetAfter = 0;
             QTRY_VERIFY_WITH_TIMEOUT(
                 ([&] {
@@ -4235,302 +4129,15 @@ private Q_SLOTS:
                 kSignalTimeoutMs);
             QVERIFY2(qAbs(offsetAfter - offsetBefore) < 2.0,
                      qPrintable(QStringLiteral(
-                         "batch %1 of %2: an un-staged prepend during a "
-                         "held gesture moved the reader off their row "
-                         "before the next batch was even requested: "
-                         "viewport offset %3 -> %4")
+                         "batch %1 of %2: a prepend during a held gesture "
+                         "moved the reader off their row before the next "
+                         "batch was even requested: viewport offset %3 -> %4")
                          .arg(batch + 1).arg(kBatches)
                          .arg(offsetBefore).arg(offsetAfter)));
 
             rowBefore = rowAfter;
             offsetBefore = offsetAfter;
         }
-        QVERIFY2(!timeline->property("backfillStagingActive").toBool(),
-                 "ViewportFill must never engage staging, even after "
-                 "several consecutive batches");
-        QCOMPARE(warnings, QStringList{});
-    }
-
-    // v0.7.x: the live report this round answers — "the scrolling works
-    // like a dream when all messages are loaded, but when they start
-    // loading it gets jittery and laggy and teleporty". The maintainer's own
-    // suggested direction: emulate scrolling on what is loaded instead of
-    // doing actual loading while a gesture is held, and only make the
-    // loaded content reachable once things quiet down.
-    //
-    // Same fixture and batch shape as
-    // nearTopControllerDrivenRunAlsoStagesAcrossEveryBatchThenReconcilesOnce,
-    // but this drives the SAME scenario the way a real gesture crossing the
-    // near-top edge
-    // does: nearTopArmed forced false up front (what checkNearTopEdge()
-    // would have already consumed on the reader's first approach), so the
-    // near-top backfill staging window
-    // (TimelinePane.qml's backfillStagingActive) stays engaged across every
-    // chained batch, not just each one's own round trip. The invariant this
-    // proves that the sibling test cannot: DURING the held run, a landing
-    // batch changes NOTHING the view can see — contentY and contentHeight
-    // are asserted with QCOMPARE(double, double) against the exact value
-    // sampled before the loop started (Qt's built-in floating-point
-    // comparison, not a hand-rolled tolerance window — it is not literal
-    // `==`, but nothing here does arithmetic on these values between
-    // samples, so an unequal read is a real change, not float noise), and
-    // the exposed row count and the anchor row's own index (both plain
-    // ints, so QCOMPARE really is exact there) do not move either. Not one
-    // single rowsInserted fires the whole time. Only once the gesture
-    // settles does everything reconcile, in exactly ONE insert, with the
-    // reader's viewport offset preserved.
-    void nearTopVirtualScrollingFreezesTheViewportAcrossAHeldRunThenReconcilesOnce()
-    {
-        AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
-        auto *mock = controller.findChild<MockMatrixClient *>();
-        QVERIFY(mock != nullptr);
-        const QString roomId = QStringLiteral("!general:mock.local");
-        controller.setCurrentRoomId(roomId);
-        mock->setPaginationDelayForTest(60);
-        // See the sibling test's identical comment (independent review M5):
-        // a short, known delay so the drain step below can wait out the
-        // kBatches-th batch's own trailing auto-continuation deterministically.
-        controller.pagination()->setNearTopContinuationDelayForTest(40);
-
-        QList<TimelineEvent> events;
-        for (int i = 0; i < 30; ++i) {
-            TimelineEvent e;
-            e.sender = QStringLiteral("@alice:mock.local");
-            e.senderDisplayName = QStringLiteral("Alice");
-            e.body = QStringLiteral("history message %1").arg(i);
-            e.timestamp =
-                QDateTime::currentDateTimeUtc().addSecs(-(60 - i) * 60);
-            e.type = TimelineEvent::TextMessage;
-            e.status = TimelineEvent::Sent;
-            events.append(e);
-        }
-        constexpr int kBatches = 3;
-        mock->resetTimelineForTest(roomId, events,
-                                   /*paginationPages=*/2 + kBatches);
-        QList<TimelineEvent> chunk;
-        for (int i = 0; i < 20; ++i) {
-            TimelineEvent e;
-            e.sender = QStringLiteral("@carol:mock.local");
-            e.senderDisplayName = QStringLiteral("Carol");
-            e.body = QStringLiteral(
-                "older backfilled message %1 — deliberately long so the row "
-                "wraps to several lines and each prepended batch displaces "
-                "the reader's anchor well beyond the ListView cache buffer")
-                .arg(i);
-            e.timestamp =
-                QDateTime::currentDateTimeUtc().addSecs(-(600 + i) * 60);
-            e.type = TimelineEvent::TextMessage;
-            e.status = TimelineEvent::Sent;
-            chunk.append(e);
-        }
-        mock->setPaginationChunkForTest(chunk);
-
-        QQmlApplicationEngine engine;
-        QStringList warnings;
-        connect(&engine, &QQmlEngine::warnings, this,
-                [&warnings](const QList<QQmlError> &errors) {
-                    for (const auto &e : errors) warnings << e.toString();
-                });
-        engine.rootContext()->setContextProperty("app", &controller);
-        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
-        engine.loadFromModule(QStringLiteral("MatrixClient"),
-                              QStringLiteral("TimelinePane"));
-        if (createdSpy.isEmpty())
-            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
-        auto *root = qobject_cast<QQuickItem *>(
-            createdSpy.at(0).at(0).value<QObject *>());
-        QVERIFY(root != nullptr);
-        QQuickWindow window;
-        window.resize(760, 620);
-        root->setParentItem(window.contentItem());
-        root->setSize(QSizeF(window.width(), window.height()));
-        window.show();
-
-        auto *timeline = root->findChild<QQuickItem *>(
-            QStringLiteral("timelineListView"));
-        QVERIFY(timeline != nullptr);
-        QTRY_VERIFY_WITH_TIMEOUT(
-            timeline->property("presentationReady").toBool(), kSignalTimeoutMs);
-        QTRY_VERIFY_WITH_TIMEOUT(timeline->property("count").toInt() >= 30,
-                                 kSignalTimeoutMs);
-        QTRY_VERIFY_WITH_TIMEOUT(!controller.pagination()->busy(),
-                                 kSignalTimeoutMs);
-
-        QVERIFY(timeline->setProperty("stickToBottom", false));
-        QVERIFY(QMetaObject::invokeMethod(timeline, "positionViewAtBeginning"));
-        QCoreApplication::processEvents();
-        QVERIFY(QMetaObject::invokeMethod(timeline, "captureViewAnchor"));
-        const QString anchorId = timeline->property("viewAnchorId").toString();
-        QVERIFY2(!anchorId.isEmpty(), "the fixture must yield a live anchor");
-
-        const int rowBefore = controller.timeline()->rowForStableId(anchorId);
-        QVERIFY(rowBefore >= 0);
-        // Fixture sanity check only: the anchor row must actually be
-        // materialized at the start. This test's own settle-time proof
-        // stays arithmetic-only (see there for why forceLayout() is not
-        // used here, unlike the sibling test).
-        QQuickItem *itemBefore = nullptr;
-        QVERIFY(QMetaObject::invokeMethod(
-            timeline, "itemAtIndex", Q_RETURN_ARG(QQuickItem *, itemBefore),
-            Q_ARG(int, rowBefore)));
-        QVERIFY(itemBefore != nullptr);
-
-        auto *settleTimer = timeline->findChild<QObject *>(
-            QStringLiteral("scrollSettleTimer"));
-        QVERIFY(settleTimer != nullptr);
-
-        QSignalSpy inserted(controller.timeline(),
-                            &QAbstractItemModel::rowsInserted);
-        const double contentYFrozen = timeline->property("contentY").toDouble();
-        const double contentHeightFrozen =
-            timeline->property("contentHeight").toDouble();
-        const int countFrozen = timeline->property("count").toInt();
-
-        {
-            GestureHold gesture(settleTimer);
-            QVERIFY(timeline->property("userScrollActive").toBool());
-            // What checkNearTopEdge() already consumed on the reader's
-            // first approach to the top — the whole point under test is
-            // that the SAME latch, held un-re-armed across a continued
-            // gesture, is what keeps staging engaged across every chained
-            // batch rather than just one request's own round trip.
-            QVERIFY(timeline->setProperty("nearTopArmed", false));
-            QVERIFY(timeline->property("backfillStagingActive").toBool());
-            // The QML->C++ sync is coalesced (see backfillStagingActive's
-            // onBackfillStagingActiveChanged handler); let it land before
-            // dispatching so the model is actually staged for batch 0.
-            QCoreApplication::processEvents();
-            QTRY_VERIFY_WITH_TIMEOUT(
-                controller.timeline()->backfillStagingActive(),
-                kSignalTimeoutMs);
-
-            // ONE dispatch (independent review M5): nearTopArmed forced
-            // false above is what keeps staging engaged; M5's
-            // auto-continuation then chains the remaining kBatches-1 pages
-            // on its own. Calling requestNearTop() again per iteration here
-            // would race the auto-chain and over-fetch — sample the frozen
-            // state after each of the kBatches completions instead.
-            QSignalSpy completedSpy(controller.pagination(),
-                                   &PaginationController::paginationCompleted);
-            controller.pagination()->requestNearTop();
-            for (int batch = 0; batch < kBatches; ++batch) {
-                // Independent review N-C: >=, not ==. The chain self-
-                // drives (finishBatch() schedules the next completion
-                // while staging holds), so completedSpy can overshoot
-                // batch+1 before this poll observes it — an exact
-                // QTRY_COMPARE against that monotonically growing counter
-                // would spuriously fail rather than merely run ahead. The
-                // per-batch assertions below stay valid either way: staging
-                // holds EVERYTHING frozen regardless of how many batches
-                // have actually landed by this point.
-                QTRY_VERIFY_WITH_TIMEOUT(completedSpy.count() >= batch + 1,
-                                         kSignalTimeoutMs);
-                QVERIFY2(completedSpy.at(batch).at(0).toInt() > 0,
-                         "fixture assumption: each page must insert rows");
-                // Let any coalesced Qt.callLater reactions this landed batch
-                // could have scheduled actually run, so a held-but-broken
-                // mechanism gets the chance to leak a change here.
-                QCoreApplication::processEvents();
-                QTest::qWait(20);
-                QCoreApplication::processEvents();
-
-                QVERIFY2(inserted.isEmpty(),
-                         qPrintable(QStringLiteral(
-                             "batch %1: TimelineModel exposed a row while "
-                             "staging should still be holding the run")
-                             .arg(batch)));
-                QCOMPARE(timeline->property("contentY").toDouble(),
-                        contentYFrozen);
-                QCOMPARE(timeline->property("contentHeight").toDouble(),
-                        contentHeightFrozen);
-                QCOMPARE(timeline->property("count").toInt(), countFrozen);
-                QCOMPARE(controller.timeline()->rowForStableId(anchorId),
-                        rowBefore);
-            }
-
-            // Drain: the kBatches-th batch's own completion just scheduled
-            // ANOTHER continuation (finishBatch() cannot know in advance
-            // that this was the reader's last one) — 40ms away, per the
-            // override above. Wait it out here, WHILE THE GESTURE IS STILL
-            // HELD, so nothing is left pending once this returns; ending the
-            // gesture without draining this would race it against the
-            // settle-driven flush below. Unlike the sibling controller-
-            // driven test, nearTopArmed stays forced false for this whole
-            // gesture, so staging here does NOT depend on nearTopRunActive
-            // — even a reached-start extra page stays held (frozen) rather
-            // than flushing early, and this IS the invariant under test.
-            QTRY_VERIFY_WITH_TIMEOUT(!controller.pagination()->busy(),
-                                     kSignalTimeoutMs);
-            QVERIFY(inserted.isEmpty());
-        } // GestureHold destroyed: the ticker stops re-arming the settle timer.
-
-        // Settle: userScrollActive clears, which is what flips
-        // backfillStagingActive off and flushes the whole held prefix in
-        // one insert.
-        QTRY_VERIFY_WITH_TIMEOUT(
-            !timeline->property("userScrollActive").toBool(), kSignalTimeoutMs);
-        QTRY_COMPARE_WITH_TIMEOUT(inserted.count(), 1, kSignalTimeoutMs);
-        QVERIFY2(!timeline->property("backfillStagingActive").toBool(),
-                 "settle must end staging, not merely pause it");
-
-        // At least kBatches (the drain above may have let one more land,
-        // harmlessly, into the same held run).
-        QVERIFY2(timeline->property("count").toInt() >= countFrozen + 20 * kBatches,
-                 "the flush must have exposed at least the kBatches pages "
-                 "this gesture drove");
-        // countChanged()/rowsInserted fire synchronously from
-        // endInsertRows(), but ListView's own contentHeight can lag by a
-        // layout/polish pass — poll rather than read it immediately.
-        QTRY_VERIFY_WITH_TIMEOUT(
-            timeline->property("contentHeight").toDouble() > contentHeightFrozen,
-            kSignalTimeoutMs);
-
-        const int rowAfter = controller.timeline()->rowForStableId(anchorId);
-        QVERIFY2(rowAfter > rowBefore,
-                 "the flush must have shifted the anchor's row index");
-        // Independent review M-B, honest fallback: the SAME forceLayout()
-        // approach the sibling test uses (and which reliably materializes
-        // the anchor delegate there — verified stable across repeated runs)
-        // was tried here too, and DEMONSTRABLY, reproducibly (not
-        // intermittently — 0/5 runs) fails to materialize it in THIS
-        // test's specific drive pattern (nearTopArmed forced false, plus
-        // the per-batch QCoreApplication::processEvents()/qWait() pumping
-        // inside the held loop above) even though both tests reach the
-        // identical final row depth and batch count. Rather than paper
-        // over a real forceLayout()/offscreen-window limitation with a
-        // retry loop, this is stated plainly: this test verifies the
-        // "applied exactly once, by the correct total amount" guarantee
-        // below only. The independent, delegate-position-based proof that
-        // the SAME shared maintainViewAnchor() mechanism actually keeps the
-        // reader's on-screen position (not just the arithmetic) is
-        // nearTopControllerDrivenRunAlsoStagesAcrossEveryBatchThenReconcilesOnce's
-        // job, immediately above — both tests exercise the identical
-        // production code path (TimelineModel::flushHiddenPrefix() ->
-        // maintainViewAnchor()'s displaced-anchor branch), so proving it
-        // independently once is sufficient; this test's distinct value is
-        // the OTHER half — that nearTopArmed alone (not just
-        // nearTopRunActive) sustains staging across the whole run.
-        const double contentHeightAfter =
-            timeline->property("contentHeight").toDouble();
-        const double growth = contentHeightAfter - contentHeightFrozen;
-        // contentHeight updates synchronously from endInsertRows(), but the
-        // correction that applies it to contentY (maintainViewAnchor-
-        // Coalesced() -> Qt.callLater -> maintainViewAnchor()) is deferred
-        // one further turn — poll for it rather than reading contentY
-        // immediately (a bare read here previously raced it: contentY
-        // reproducibly still 0 while growth was already the full amount).
-        double contentYShift = 0;
-        QTRY_VERIFY_WITH_TIMEOUT(
-            (contentYShift = timeline->property("contentY").toDouble()
-                             - contentYFrozen,
-             qAbs(contentYShift - growth) < 2.0),
-            kSignalTimeoutMs);
-        QVERIFY2(qAbs(contentYShift - growth) < 2.0,
-                 qPrintable(QStringLiteral(
-                     "the growth correction applied the wrong total shift: "
-                     "contentY moved %1 but content grew %2")
-                     .arg(contentYShift).arg(growth)));
         QCOMPARE(warnings, QStringList{});
     }
 
@@ -5543,6 +5150,7 @@ private Q_SLOTS:
             QStringLiteral("netY="),
             QStringLiteral("dContentH="),
             QStringLiteral("noAnchorReturns="),
+            QStringLiteral("stickToBottomReturns="),
             QStringLiteral("anchorCorrections="),
             QStringLiteral("growthCorrections="),
             QStringLiteral("displacedFirings="),
@@ -6299,7 +5907,11 @@ private Q_SLOTS:
         QVERIFY(QMetaObject::invokeMethod(timeline, "maintainViewAnchor"));
         QCOMPARE(timeline->property("diagNoAnchorReturns").toInt(), 2);
 
-        // Every other counter must stay at 0 — nothing else ran.
+        // Every other counter must stay at 0 — nothing else ran. In
+        // particular the SIBLING early-return counter: an empty
+        // viewAnchorId wins over stickToBottom when both hold, and that
+        // precedence is the thing a maintainer reading a trace depends on.
+        QCOMPARE(timeline->property("diagStickToBottomReturns").toInt(), 0);
         QCOMPARE(timeline->property("diagDisplacedFirings").toInt(), 0);
         QCOMPARE(timeline->property("diagMaterializedFirings").toInt(), 0);
         QCOMPARE(timeline->property("diagUnresolvedIdFallbacks").toInt(), 0);
@@ -6308,10 +5920,72 @@ private Q_SLOTS:
         QCOMPARE(timeline->property("diagAnchorCorrections").toInt(), 0);
     }
 
+    // The sibling early-return arm, which the counter split exists to make
+    // legible: a correction scheduled while scrolled up and then dropped
+    // because the reader returned to the bottom. Requires a NON-EMPTY
+    // viewAnchorId — with an empty one the other arm wins (pinned above),
+    // and that asymmetry is exactly what a trace reader must be able to
+    // trust. Without this test the split ships unverified: nothing else in
+    // the suite ever increments diagStickToBottomReturns.
+    void diagStickToBottomReturnsCountsTheDroppedCorrection()
+    {
+        qputenv("LIGHTNING_SCROLL_TRACE", "1");
+        struct Guard { ~Guard() { qunsetenv("LIGHTNING_SCROLL_TRACE"); } } guard;
+
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(controller.timelineScroll()->scrollTraceEnabled());
+        controller.setCurrentRoomId(QStringLiteral("!general:mock.local"));
+
+        QQmlApplicationEngine engine;
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("TimelinePane"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(root != nullptr);
+        auto *timeline = root->findChild<QQuickItem *>(
+            QStringLiteral("timelineListView"));
+        QVERIFY(timeline != nullptr);
+
+        QQuickWindow window;
+        window.resize(640, 480);
+        root->setParentItem(window.contentItem());
+        root->setWidth(window.width());
+        root->setHeight(window.height());
+        window.show();
+        QCoreApplication::processEvents();
+
+        // A real anchor first (scrolled up), so the empty-id arm cannot
+        // claim the return; then the reader lands back at the bottom.
+        QVERIFY(timeline->setProperty("stickToBottom", false));
+        QVERIFY(QMetaObject::invokeMethod(timeline, "captureViewAnchor"));
+        QVERIFY(!timeline->property("viewAnchorId").toString().isEmpty());
+        QVERIFY(timeline->setProperty("stickToBottom", true));
+
+        QCOMPARE(timeline->property("diagStickToBottomReturns").toInt(), 0);
+        QVERIFY(QMetaObject::invokeMethod(timeline, "maintainViewAnchor"));
+        QCOMPARE(timeline->property("diagStickToBottomReturns").toInt(), 1);
+        QCOMPARE(timeline->property("diagNoAnchorReturns").toInt(), 0);
+
+        QVERIFY(QMetaObject::invokeMethod(timeline, "maintainViewAnchor"));
+        QCOMPARE(timeline->property("diagStickToBottomReturns").toInt(), 2);
+        QCOMPARE(timeline->property("diagNoAnchorReturns").toInt(), 0);
+
+        // No correction path ran.
+        QCOMPARE(timeline->property("diagDisplacedFirings").toInt(), 0);
+        QCOMPARE(timeline->property("diagMaterializedFirings").toInt(), 0);
+        QCOMPARE(timeline->property("diagAnchorCorrections").toInt(), 0);
+    }
+
     // M1, the structural fix itself: scrollSettleTimer.onTriggered calls
-    // diagFlushGesture() as its LAST statement, but the staged-loading
-    // reconcile it exists to observe lands via Qt.callLater chains AFTER
-    // that handler returns — so every outcome counter must survive being
+    // diagFlushGesture() as its LAST statement, but a post-settle
+    // correction (a media hydration or late-decryption height change, say)
+    // lands via Qt.callLater chains AFTER that handler returns — so every
+    // outcome counter must survive being
     // incremented while diagActive is false (before any gesture has ever
     // opened a session, exactly like a reconcile call landing after a flush)
     // and must still appear on the NEXT line that gets printed, not be lost.
