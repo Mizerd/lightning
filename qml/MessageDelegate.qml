@@ -1286,38 +1286,11 @@ Item {
                                             model.mediaFilename || "download")
                                 }
                             }
-                            // v0.6.6: client-local GIF starring (Discord-
-                            // style). Only for confirmed GIF media rows
-                            // (mediaMimetype is the same reliable per-row
-                            // signal the inline animated-preview logic
-                            // already uses). "Unstar" reflects only what
-                            // was starred/confirmed THIS session — see
-                            // GifStarredStore::isStarredThisSession — a row
-                            // starred in an earlier session still offers
-                            // "Star GIF" (re-starring is a safe, deduped
-                            // no-op, never a duplicate).
-                            AppMenuItem {
-                                objectName: "starGifMenuItem"
-                                iconName: "star"
-                                text: app.gif.starredStore.isStarredThisSession(
-                                          model.mediaKey || "")
-                                      ? qsTr("Unstar GIF") : qsTr("Star GIF")
-                                visible: (model.mediaMimetype || "")
-                                             .toLowerCase() === "image/gif"
-                                         && model.mediaSourceAvailable === true
-                                         && app.mediaBridge.supported
-                                enabled: visible && root.menuEventId !== ""
-                                onTriggered: {
-                                    var key = model.mediaKey || ""
-                                    if (!key)
-                                        return
-                                    if (app.gif.starredStore
-                                            .isStarredThisSession(key))
-                                        app.gif.starredStore.unstarByMediaKey(key)
-                                    else
-                                        app.starChatGif(key)
-                                }
-                            }
+                            // v0.6.6 UX rework: GIF starring moved OFF this
+                            // menu entirely — it is now a Discord-style hover
+                            // star overlaid on the GIF media itself (see
+                            // imageComponent's starEligible/refreshStarredState
+                            // below), never a dropdown row.
                             // SPEC 1a: the copy group and the people/editing
                             // group are separate — third divider.
                             AppMenuSeparator { }
@@ -2182,13 +2155,61 @@ Item {
                     model.mediaKey,
                     model.mediaThumbAvailable ? "thumb" : "full")
             }
-            Component.onCompleted: refreshBridgeSource()
+            // v0.6.6 UX rework: Discord-style hover star — replaced the old
+            // "Star GIF"/"Unstar GIF" context-menu rows entirely. Eligible
+            // under the exact same mimetype/source/bridge gate those rows
+            // used, and toggles through the exact same app.starChatGif /
+            // GifStarredStore path.
+            //
+            // v0.6.6 review (L1), DELIBERATE NARROWING: the removed menu
+            // row's gate was mimetype-only, so it also matched an animated
+            // GIF STICKER (m.sticker, image/gif) — this hover star only
+            // exists here, inside imageComponent (model.isImage rows), never
+            // in stickerComponent, so a GIF sticker is no longer starrable.
+            // Extending it there is not a small lift: stickerComponent has
+            // none of isGif/starEligible/starredThisSession/
+            // refreshStarredState/the starredStore Connections, and (unlike
+            // imageComponent) not even an onMediaIdentityChanged reuse hook
+            // for its own media identity — duplicating that whole block
+            // would be ~80-100 lines of new, independently-maintained state
+            // for a rare case (chat GIFs are sent as m.image via
+            // GifSendController, never as a sticker; a sticker-starrable row
+            // could previously only come from an m.sticker some other
+            // client/bot sent). Accepted as a real, honest gap rather than
+            // silently claimed as covered — see
+            // GifHoverStarContractTest::hoverStarIsScopedToImageRowsNotStickers.
+            // starredThisSession is a plain tracked property (not a live
+            // QML binding on the Q_INVOKABLE isStarredThisSession() call,
+            // which carries no NOTIFY QML could bind to) — refreshed on
+            // reuse/identity change and on the store's own starFinished/
+            // unstarFinished signals, exactly like bridgeSource/
+            // animatedSource above already refresh from the same signals.
+            readonly property bool starEligible:
+                imageBox.isGif && model.mediaSourceAvailable === true
+                && app.mediaBridge.supported
+            property bool starredThisSession: false
+            function refreshStarredState() {
+                imageBox.starredThisSession = imageBox.starEligible
+                    && app.gif.starredStore.isStarredThisSession(
+                           model.mediaKey || "")
+            }
+            Component.onCompleted: {
+                refreshBridgeSource()
+                refreshStarredState()
+            }
             onMediaIdentityChanged: {
                 animatedSource = ""
                 bridgeSource = ""
                 bridgeFailed = false
                 refreshBridgeSource()
+                refreshStarredState()
             }
+            // A row created before the SDK confirmed mediaSourceAvailable/
+            // bridge support keeps starEligible (and thus starredThisSession)
+            // false until that flips — re-check the instant it does, rather
+            // than staying stuck showing an outline star for a row that just
+            // became eligible.
+            onStarEligibleChanged: refreshStarredState()
             Connections {
                 target: app.mediaBridge
                 enabled: imageBox.usesBridge
@@ -2203,6 +2224,36 @@ Item {
                 function onMediaFetchFailed(cacheKey, category) {
                     if (cacheKey === imageBox.bridgeCacheKey)
                         imageBox.bridgeFailed = true
+                }
+            }
+            Connections {
+                target: app.gif.starredStore
+                enabled: imageBox.starEligible
+                function onStarFinished(mediaKey, ok, category, message) {
+                    if (mediaKey === (model.mediaKey || ""))
+                        imageBox.refreshStarredState()
+                }
+                function onUnstarFinished(hash) {
+                    imageBox.refreshStarredState()
+                }
+                // v0.6.6 review (H1): starFinished/unstarFinished are NOT the
+                // only ways the session-starred answer can change under a
+                // row that never gets torn down. Settings -> Clear All wipes
+                // the whole store and emits ONLY countChanged (never
+                // unstarFinished per hash); an account switch repoints the
+                // same long-lived store at a different directory via
+                // openFor()/close() -> GifStoredModel::reopen(), which also
+                // emits only countChanged. Without this handler a starred
+                // tile that Clear All just deleted from disk kept rendering
+                // filled/"Remove from starred GIFs", and activating it would
+                // have called app.starChatGif() and RE-WRITTEN the bytes the
+                // user just explicitly deleted — a real data-at-rest leak,
+                // not just a stale label. countChanged also fires on every
+                // ordinary star/unstar (GifStoredModel::insertFront/
+                // removeEntry), so this is a safe, idempotent superset of
+                // the two handlers above, not a replacement for them.
+                function onCountChanged() {
+                    imageBox.refreshStarredState()
                 }
             }
 
@@ -2297,6 +2348,143 @@ Item {
                                                      model.mediaUrl)
                     else if (model.mediaUrl && model.mediaUrl.toString().length > 0)
                         app.media.openExternal(model.mediaUrl)
+                }
+            }
+
+            // v0.6.6 review (L5): only a GIF ever needs the hover star — a
+            // Loader keeps every plain (non-GIF) image row from paying for a
+            // HoverHandler + Item + Icon + two Rectangles it will never use.
+            // `active` re-evaluates starEligible live, so a row that only
+            // later confirms itself as a GIF (see onStarEligibleChanged
+            // above) still gets one created.
+            Loader {
+                id: gifStarLoader
+                anchors.fill: parent
+                active: imageBox.starEligible
+                sourceComponent: Component {
+                    Item {
+                        id: starLayer
+                        anchors.fill: parent
+
+                        // Hover detection uses a HoverHandler — a passive
+                        // pointer handler — never a MouseArea, so it can
+                        // never grab/steal the wheel or drag gestures needed
+                        // to scroll the timeline over a GIF (CLAUDE.md GIF
+                        // integration rules; the maintainer's UX request for
+                        // a Discord-style hover star).
+                        HoverHandler {
+                            id: gifStarHover
+                        }
+
+                        // The star itself: revealed while the pointer is
+                        // over the media OR the star (so moving from the
+                        // media onto the button never hides it), or while it
+                        // holds keyboard focus. It stays present (visible:
+                        // true, only its opacity toggles) so Tab can reach
+                        // it even before the pointer hovers anything —
+                        // mirrors QuickReactionStrip's cell (HoverHandler +
+                        // TapHandler + explicit Keys handlers +
+                        // Accessible.onPressAction), never an AbstractButton
+                        // — Qt Quick Controls' built-in Space/Return
+                        // handling on AbstractButton would risk firing a
+                        // second time on top of an explicit Keys handler for
+                        // the exact same key.
+                        //
+                        // v0.6.6 review (M2): bottom-right, not top-right —
+                        // the message action bar (React/Reply/Thread/More)
+                        // is anchored top-right of the WHOLE row at z:3, and
+                        // a continuation row with no reply preview puts
+                        // mediaBox's own top flush with the row's top, so a
+                        // wide GIF filling a narrow column (the 340px thread
+                        // panel, or any narrow window) put a top-right star
+                        // directly under the action bar's higher-z buttons —
+                        // unreachable by mouse and invisible under them.
+                        // The action bar is anchored to the row's TOP only
+                        // (never bottom) regardless of width, so bottom-right
+                        // is clear in every layout; bottom-left already
+                        // belongs to the "GIF" badge, so bottom-right stays
+                        // free.
+                        Item {
+                            id: gifStarButton
+                            objectName: "gifHoverStarButton"
+                            anchors.bottom: parent.bottom
+                            anchors.right: parent.right
+                            anchors.margins: 6
+                            width: 26
+                            height: 26
+                            z: 4
+                            activeFocusOnTab: true
+                            readonly property bool revealed:
+                                gifStarHover.hovered || starHover.hovered
+                                || gifStarButton.activeFocus
+                            opacity: revealed ? 1 : 0
+                            Behavior on opacity { NumberAnimation { duration: 100 } }
+
+                            Accessible.role: Accessible.Button
+                            Accessible.name: imageBox.starredThisSession
+                                ? qsTr("Remove from starred GIFs") : qsTr("Star GIF")
+                            Accessible.onPressAction: gifStarButton.activate()
+
+                            function activate() {
+                                var key = model.mediaKey || ""
+                                if (!key)
+                                    return
+                                if (app.gif.starredStore.isStarredThisSession(key))
+                                    app.gif.starredStore.unstarByMediaKey(key)
+                                else
+                                    app.starChatGif(key)
+                            }
+
+                            Rectangle {
+                                anchors.fill: parent
+                                radius: 13
+                                color: AppTheme.overlayScrim
+                            }
+                            Icon {
+                                anchors.centerIn: parent
+                                name: "star"
+                                size: 15
+                                color: imageBox.starredThisSession
+                                       ? AppTheme.presenceAway : AppTheme.scrimInk
+                            }
+                            Rectangle {
+                                anchors.fill: parent
+                                anchors.margins: -3
+                                radius: 16
+                                color: "transparent"
+                                border.color: AppTheme.focusRing
+                                border.width: 2
+                                visible: gifStarButton.activeFocus
+                            }
+
+                            HoverHandler { id: starHover }
+                            // v0.6.6 review (L3): gated on `revealed`, not
+                            // just `enabled: true` — the Item stays
+                            // visible/hit-testable at opacity 0 so Tab can
+                            // reach it, which on a TOUCH input (no synthetic
+                            // hover-before-tap the way a mouse gets one)
+                            // would otherwise let a tap on the invisible
+                            // corner silently star/unstar without the user
+                            // ever seeing the button.
+                            TapHandler {
+                                enabled: gifStarButton.revealed
+                                onTapped: gifStarButton.activate()
+                            }
+                            // v0.6.6 review (L2): ignore key-repeat — held
+                            // Space/Return would otherwise call activate() at
+                            // OS repeat rate, each one a real file write/
+                            // QFile::remove plus a banner re-trigger.
+                            Keys.onReturnPressed: (event) => {
+                                if (!event.isAutoRepeat) gifStarButton.activate()
+                            }
+                            Keys.onEnterPressed: (event) => {
+                                if (!event.isAutoRepeat) gifStarButton.activate()
+                            }
+                            Keys.onSpacePressed: (event) => {
+                                if (!event.isAutoRepeat) gifStarButton.activate()
+                            }
+                        }
+                    }
                 }
             }
 

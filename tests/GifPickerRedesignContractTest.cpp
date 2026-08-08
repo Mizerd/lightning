@@ -116,14 +116,22 @@ private Q_SLOTS:
     void footerKeepsRealAttributionAndAddsSendHintOnly()
     {
         const QString picker = read(QStringLiteral(QML_DIR "/GifPicker.qml"));
-        QVERIFY(picker.contains(QStringLiteral("text: picker.gif.attribution")));
-        QVERIFY(!picker.contains(QStringLiteral("Tenor")));
         // The footer is the RowLayout after the "── Footer:" comment through
         // the end of the popup's contentItem: exactly one keycap ("↵ send"),
         // never a second "⇧↵ preview" hint — no preview action exists.
         const int footerStart = picker.indexOf(QStringLiteral("── Footer:"));
         QVERIFY(footerStart >= 0);
         const QString footer = picker.mid(footerStart);
+        // v0.6.6 UX rework: the footer text is now conditional (Starred tab
+        // shows a "no provider" note instead — see
+        // starredTabHasNoAttributionAndNoProviderTraffic below), so this
+        // pins the real provider attribution as the ternary's FALSE branch
+        // (the leading ": " is load-bearing — a bare substring match would
+        // also pass if "picker.gif.attribution" only ever appeared in a
+        // comment), bounded to the footer block so it cannot false-positive
+        // on anything outside it.
+        QVERIFY(footer.contains(QStringLiteral(": picker.gif.attribution")));
+        QVERIFY(!footer.contains(QStringLiteral("Tenor")));
         QCOMPARE(footer.count(QStringLiteral("MenuKeycap {")), 1);
         QVERIFY(footer.contains(QStringLiteral("iconName: \"keyboard_return\"")));
         QVERIFY(footer.contains(QStringLiteral("qsTr(\"send\")")));
@@ -156,9 +164,9 @@ private Q_SLOTS:
         QVERIFY(picker.contains(QStringLiteral("gif.toggleFavorite(")));
         QVERIFY(picker.contains(QStringLiteral("playing: picker.visible")));
         {
-            // v0.6.6: a local-starred tile has no provider previewUrl/
-            // stillUrl (see GifFavoritesMergedModel/GifStarredStore) — both
-            // the static Image and the AnimatedImage now branch on
+            // v0.6.6: a local-starred tile (rendered on the picker's own
+            // Starred tab — see GifStarredStore) has no provider previewUrl/
+            // stillUrl — both the static Image and the AnimatedImage branch on
             // tile.provider, but the non-local fallback is still exactly
             // tile.stillUrl / tile.previewUrl. Bounded to the tile delegate
             // block so the negative check below cannot false-positive on
@@ -199,6 +207,120 @@ private Q_SLOTS:
         }
         QVERIFY(!picker.contains(QStringLiteral("sendToRoom")));
         QVERIFY(!picker.contains(QStringLiteral("sendTextMessage")));
+    }
+
+    // v0.6.6 UX rework (maintainer feedback): "make a separate tab from
+    // klipy and giffy for stared gifs" — Starred is a third peer tab in the
+    // SAME row as GIPHY/KLIPY, not folded into Favorites. Pins that the
+    // Starred entry never routes through setActiveProvider (no provider
+    // network traffic) and that the grid binds GifStarredModel directly.
+    void starredIsAThirdPeerTabNextToGiphyAndKlipy()
+    {
+        const QString picker = read(QStringLiteral(QML_DIR "/GifPicker.qml"));
+        QVERIFY(!picker.isEmpty());
+        const int start = picker.indexOf(QStringLiteral("objectName: \"gifProviderTabs\""));
+        QVERIFY(start >= 0);
+        const int end = picker.indexOf(QStringLiteral("// ── Row 2:"), start);
+        QVERIFY(end > start);
+        const QString block = picker.mid(start, end - start);
+
+        // Still the real provider list, plus exactly one appended "starred"
+        // entry — never a hand-maintained duplicate of providerIds.
+        QVERIFY(block.contains(QStringLiteral("picker.gif.providerIds.map(")));
+        QVERIFY(block.contains(QStringLiteral("items.push({")));
+        QVERIFY(block.contains(QStringLiteral("value: \"starred\",")));
+        QVERIFY(block.contains(QStringLiteral("qsTr(\"Starred\")")));
+
+        // Selecting "starred" is a distinct branch that NEVER calls
+        // setActiveProvider — the only network-triggering entry point on
+        // this control — so the Starred tab makes no provider request.
+        const int activatedStart = block.indexOf(QStringLiteral("onActivated: (value) => {"));
+        QVERIFY(activatedStart >= 0);
+        const QString activatedBlock = block.mid(activatedStart);
+        const int starredBranch = activatedBlock.indexOf(QStringLiteral("value === \"starred\""));
+        QVERIFY(starredBranch >= 0);
+        const int elseBranch = activatedBlock.indexOf(QStringLiteral("} else {"), starredBranch);
+        QVERIFY(elseBranch > starredBranch);
+        const QString ifBranch = activatedBlock.mid(starredBranch, elseBranch - starredBranch);
+        // The if-branch's own comment may mention setActiveProvider() by
+        // name to explain why it is deliberately NOT called here — the real
+        // assertion is that the actual call form never appears in this
+        // branch, only in the else branch (checked below).
+        QVERIFY(!ifBranch.contains(QStringLiteral("picker.gif.setActiveProvider(")));
+        QVERIFY(ifBranch.contains(QStringLiteral("picker.starredTabActive = true")));
+        QVERIFY(activatedBlock.mid(elseBranch).contains(
+            QStringLiteral("picker.gif.setActiveProvider(value)")));
+    }
+
+    void starredTabBindsTheStarredModelDirectlyNotAMergedModel()
+    {
+        const QString picker = read(QStringLiteral(QML_DIR "/GifPicker.qml"));
+        QVERIFY(picker.contains(QStringLiteral(
+            "starredTabActive ? gif.starredStore.model()")));
+        // Favorites reverted to provider favorites ONLY — no merged model
+        // class exists any more (GifFavoritesMergedModel was deleted).
+        QVERIFY(picker.contains(QStringLiteral(
+            "section === \"favorites\" ? gif.favorites")));
+        QVERIFY(!picker.contains(QStringLiteral("favoritesAndStarred")));
+        QVERIFY(!picker.contains(QStringLiteral("GifFavoritesMergedModel")));
+    }
+
+    void starredTabHasNoAttributionAndNoProviderTraffic()
+    {
+        const QString picker = read(QStringLiteral(QML_DIR "/GifPicker.qml"));
+        // No network on the Starred tab: pagination, the busy spinner, and
+        // the search field are all explicitly gated off it.
+        QVERIFY(picker.contains(QStringLiteral(
+            "if (picker.starredTabActive\n"
+            "                    || picker.section !== \"browse\" || contentHeight <= 0)")));
+        QVERIFY(picker.contains(QStringLiteral(
+            "running: !picker.starredTabActive && picker.section === \"browse\"")));
+        QVERIFY(picker.contains(QStringLiteral("visible: !picker.starredTabActive")));
+        // Own empty-state copy, and no provider attribution string is
+        // claimed for the user's own locally-saved Matrix media.
+        QVERIFY(picker.contains(QStringLiteral(
+            "Hover a GIF in chat and press the star to save it here.")));
+        QVERIFY(picker.contains(QStringLiteral(
+            "text: picker.starredTabActive")));
+        QVERIFY(picker.contains(QStringLiteral("no provider involved")));
+    }
+
+    // v0.6.6 review (M1, MUST FIX — a11y regression): the Starred tab hides
+    // searchField (the only path that used to hand focus to the grid) along
+    // with the section/category chips, so before this fix the grid was
+    // entirely keyboard-unreachable there — a real regression versus the
+    // old merged Favorites tab, which WAS reachable. Two independent entry
+    // points: the grid becomes a direct Tab stop only on this tab, and Down
+    // on the provider tab strip hands off to it exactly like searchField's
+    // own Down/Return handlers do for every other tab.
+    void starredTabGridIsKeyboardReachable()
+    {
+        const QString picker = read(QStringLiteral(QML_DIR "/GifPicker.qml"));
+        QVERIFY(picker.contains(QStringLiteral(
+            "activeFocusOnTab: picker.starredTabActive")));
+        {
+            const int start = picker.indexOf(QStringLiteral("id: grid"));
+            QVERIFY(start >= 0);
+            const int end = picker.indexOf(QStringLiteral("// A highlighted/"), start);
+            QVERIFY(end > start);
+            const QString gridHead = picker.mid(start, end - start);
+            QVERIFY(gridHead.contains(QStringLiteral(
+                "onActiveFocusChanged: {\n"
+                "                if (activeFocus && currentIndex < 0 && count > 0)\n"
+                "                    currentIndex = 0\n"
+                "            }")));
+        }
+        {
+            const int start = picker.indexOf(QStringLiteral("objectName: \"gifProviderTabs\""));
+            QVERIFY(start >= 0);
+            const int end = picker.indexOf(QStringLiteral("// ── Row 2:"), start);
+            QVERIFY(end > start);
+            const QString providerBlock = picker.mid(start, end - start);
+            QVERIFY(providerBlock.contains(QStringLiteral("Keys.onDownPressed: {")));
+            QVERIFY(providerBlock.contains(QStringLiteral("grid.forceActiveFocus()")));
+            QVERIFY(providerBlock.contains(QStringLiteral(
+                "if (picker.starredTabActive) {")));
+        }
     }
 };
 QTEST_MAIN(GifPickerRedesignContractTest)

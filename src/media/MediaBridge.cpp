@@ -922,10 +922,10 @@ void MediaBridge::fetchFullForStar(const QString &mediaKey)
         Q_EMIT mediaBytesForStar(mediaKey, true, cached, QString());
         return;
     }
-    // Dedup: a rapid double-activation of "Star GIF" on the same row (the
-    // menu closing is not synchronous with the click) must not dispatch a
-    // second identical fetch — the second call is dropped silently; the
-    // first, already in flight, will resolve both.
+    // Dedup: a rapid double-activation of the hover star on the same row
+    // (e.g. two taps landing inside the platform's double-click window)
+    // must not dispatch a second identical fetch — the second call is
+    // dropped silently; the first, already in flight, will resolve both.
     for (const Pending &p : m_inflight) {
         if (p.starRequest && p.mediaKey == mediaKey)
             return;

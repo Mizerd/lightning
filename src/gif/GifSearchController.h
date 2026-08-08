@@ -3,7 +3,6 @@
 #include "gif/GifProvider.h"
 #include "gif/GifResultModel.h"
 #include "gif/GifFavoritesModel.h"
-#include "gif/GifFavoritesMergedModel.h"
 #include "gif/GifRecentModel.h"
 #include "gif/GifStarredStore.h"
 
@@ -40,11 +39,10 @@ class GifSearchController : public QObject
     Q_PROPERTY(GifResultModel *results READ results CONSTANT)
     Q_PROPERTY(GifFavoritesModel *favorites READ favorites CONSTANT)
     Q_PROPERTY(GifRecentModel *recent READ recent CONSTANT)
-    // v0.6.6: client-local starred chat GIFs (see GifStarredStore) and the
-    // merged presentation model the picker's Favorites tab renders from.
+    // v0.6.6: client-local starred chat GIFs (see GifStarredStore). The
+    // picker's own "Starred" tab binds directly to starredStore->model() —
+    // see GifPicker.qml — never merged with provider favorites.
     Q_PROPERTY(GifStarredStore *starredStore READ starredStore CONSTANT)
-    Q_PROPERTY(GifFavoritesMergedModel *favoritesAndStarred
-               READ favoritesAndStarred CONSTANT)
     Q_PROPERTY(bool available READ available NOTIFY availableChanged)
     Q_PROPERTY(QStringList providerIds READ providerIds CONSTANT)
     Q_PROPERTY(QString providerId READ providerId NOTIFY providerChanged)
@@ -90,8 +88,6 @@ public:
     GifFavoritesModel *favorites() { return m_favorites.get(); }
     GifRecentModel *recent() { return m_recent.get(); }
     GifStarredStore *starredStore() const { return m_starred.get(); }
-    GifFavoritesMergedModel *favoritesAndStarred() const
-    { return m_favoritesAndStarred.get(); }
 
     // Account-scoped open/close for the local-starred store, called by
     // AppController on login/switch/logout. `accountDir` is already
@@ -176,7 +172,6 @@ private:
     std::unique_ptr<GifFavoritesModel> m_favorites;
     std::unique_ptr<GifRecentModel> m_recent;
     std::unique_ptr<GifStarredStore> m_starred;
-    std::unique_ptr<GifFavoritesMergedModel> m_favoritesAndStarred;
     GifTransport *m_transport = nullptr;
 
     QString m_activeProviderId = QStringLiteral("giphy");

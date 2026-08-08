@@ -444,7 +444,8 @@ public Q_SLOTS:
     // time — the wrapper dedupes by event_id. No-op on non-Rust.
     Q_INVOKABLE void reloadCurrentRoomTimeline(int limit = 30);
 
-    // v0.6.6: "Star GIF" — the chat message context menu's entry point.
+    // v0.6.6: "Star GIF" — the Discord-style hover star overlaid on GIF
+    // media in the timeline (see MessageDelegate.qml's imageComponent).
     // Fetches `mediaKey`'s decrypted bytes through the existing controlled
     // media bridge (works in encrypted rooms exactly like Save As) and hands
     // them to the local-starred store once they arrive; see

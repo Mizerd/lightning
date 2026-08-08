@@ -43,10 +43,11 @@ public:
     // life and this is never called; GifStarredStore uses it to repoint one
     // long-lived model instance at a fresh account-scoped file on login/
     // switch/logout WITHOUT destroying and recreating the QObject — a
-    // stable identity that GifFavoritesMergedModel's addSourceModel() (added
-    // exactly once) requires. A null `settings` clears every row (never
-    // leaves the previous account's rows visible) without attempting to
-    // persist the now-empty state anywhere.
+    // stable QObject identity the picker's Starred tab (GifPicker.qml,
+    // bound to GifStarredStore::model() directly) depends on across account
+    // switches. A null `settings` clears every row (never leaves the
+    // previous account's rows visible) without attempting to persist the
+    // now-empty state anywhere.
     void reopen(QSettings *settings);
 
     gif::GifResult resultAt(int row) const;

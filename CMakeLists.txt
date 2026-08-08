@@ -269,8 +269,6 @@ set(APP_SOURCES
     src/gif/GifStarredModel.cpp
     src/gif/GifStarredStore.h
     src/gif/GifStarredStore.cpp
-    src/gif/GifFavoritesMergedModel.h
-    src/gif/GifFavoritesMergedModel.cpp
     src/gif/GifTransport.h
     src/gif/GifSearchController.h
     src/gif/GifSearchController.cpp
@@ -784,8 +782,6 @@ if(BUILD_TESTING)
         src/gif/GifStarredModel.cpp
         src/gif/GifStarredStore.h
         src/gif/GifStarredStore.cpp
-        src/gif/GifFavoritesMergedModel.h
-        src/gif/GifFavoritesMergedModel.cpp
         src/gif/GifTransport.h
         src/gif/GifSearchController.h
         src/gif/GifSearchController.cpp
@@ -941,9 +937,8 @@ if(BUILD_TESTING)
     # "Star a chat GIF" local store: content-hash dedup, item/byte-size caps
     # that REFUSE rather than silently evict, account-scope isolation (two
     # openFor() directories never see each other's rows), unstar deleting
-    # the file, a stale/tampered index entry never surfacing an unplayable
-    # tile, and the Favorites-tab merge (local rows first, provider rows
-    # follow, row-kind routing for the star button).
+    # the file, and a stale/tampered index entry never surfacing an
+    # unplayable tile.
     qt_add_executable(gif-starred-store-test
         tests/GifStarredStoreTest.cpp
         src/gif/GifResponseParser.h
@@ -952,14 +947,10 @@ if(BUILD_TESTING)
         src/gif/GifResultModel.cpp
         src/gif/GifStoredModel.h
         src/gif/GifStoredModel.cpp
-        src/gif/GifFavoritesModel.h
-        src/gif/GifFavoritesModel.cpp
         src/gif/GifStarredModel.h
         src/gif/GifStarredModel.cpp
         src/gif/GifStarredStore.h
         src/gif/GifStarredStore.cpp
-        src/gif/GifFavoritesMergedModel.h
-        src/gif/GifFavoritesMergedModel.cpp
     )
     target_include_directories(gif-starred-store-test PRIVATE src)
     target_link_libraries(gif-starred-store-test PRIVATE Qt6::Core Qt6::Test)
@@ -1031,6 +1022,19 @@ if(BUILD_TESTING)
     target_link_libraries(context-menu-contract-test PRIVATE
         Qt6::Core Qt6::Test)
     add_test(NAME context-menu-contract COMMAND context-menu-contract-test)
+
+    # v0.6.6 UX rework: the Discord-style hover star that replaced the GIF
+    # starring context-menu rows — gating parity, HoverHandler-only hover
+    # detection (never a MouseArea), one activation function reached by tap/
+    # keyboard/accessibility action, mediaKey-keyed resolution, and live
+    # refresh from the store's own signals.
+    qt_add_executable(gif-hover-star-contract-test
+        tests/GifHoverStarContractTest.cpp)
+    target_compile_definitions(gif-hover-star-contract-test PRIVATE
+        QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
+    target_link_libraries(gif-hover-star-contract-test PRIVATE
+        Qt6::Core Qt6::Test)
+    add_test(NAME gif-hover-star-contract COMMAND gif-hover-star-contract-test)
 
     # v0.6.5: 1m emoji-picker redesign contract — category rail, grid
     # metrics, footer preview, preserved choose()/recents ordering.

@@ -39,12 +39,16 @@ Popup {
 
     // "browse" (trending/search/categories) | "favorites" | "recent".
     property string section: "browse"
-    // v0.6.6: Favorites shows client-local starred chat GIFs alongside
-    // provider favorites (starred entries first — see
-    // GifFavoritesMergedModel's header for the exact ordering rule and why
-    // it is a grouped-by-kind merge rather than a cross-kind interleave).
+    // v0.6.6 UX rework: local-starred chat GIFs get their OWN tab, alongside
+    // the GIPHY/KLIPY provider tabs (providerTabs below), instead of being
+    // merged into Favorites — Favorites is provider favorites only again.
+    // starredTabActive never routes through setActiveProvider(): "starred"
+    // is not a real provider id, so it never triggers a provider request —
+    // the Starred tab renders GifStarredModel directly, entirely offline.
+    property bool starredTabActive: false
     readonly property var activeModel:
-        section === "favorites" ? gif.favoritesAndStarred
+        starredTabActive ? gif.starredStore.model()
+        : section === "favorites" ? gif.favorites
         : section === "recent" ? gif.recent
         : gif.results
 
@@ -148,6 +152,7 @@ Popup {
         gif.refreshProviderKeys()
         placeInsideWindow()
         section = "browse"
+        starredTabActive = false
         grid.currentIndex = -1
         activated = false
         if (gif.results.count === 0)
@@ -156,6 +161,7 @@ Popup {
     }
     onClosed: gif.reset()
     onSectionChanged: grid.currentIndex = -1
+    onStarredTabActiveChanged: grid.currentIndex = -1
 
     // Toggle favorite (or unstar, for a local row) for the EXACT tile the
     // user acted on, without sending. `result` is the tile's own captured
@@ -198,9 +204,24 @@ Popup {
             Layout.fillWidth: true
             spacing: AppTheme.spacingXS
 
+            // The Starred tab is a local, offline list — no search field
+            // (typing here would otherwise debounce into a GIPHY/KLIPY
+            // network request the user cannot even see the result of, since
+            // the grid stays bound to the local model).
+            Label {
+                visible: picker.starredTabActive
+                Layout.fillWidth: true
+                text: qsTr("Starred GIFs")
+                color: AppTheme.stormText
+                font.family: AppTheme.monoFont
+                font.pixelSize: AppTheme.fontChip + 1
+                font.weight: Font.Bold
+            }
+
             AppTextField {
                 id: searchField
                 objectName: "gifSearchField"
+                visible: !picker.starredTabActive
                 Layout.fillWidth: true
                 searchIcon: true
                 clearButton: true
@@ -269,7 +290,9 @@ Popup {
             }
         }
 
-        // ── Provider tabs (GIPHY/KLIPY) — own row, unchanged behavior ──
+        // ── Provider tabs — GIPHY, KLIPY, and Starred as a peer third tab
+        // (the maintainer's UX request: Starred is its own tab next to the
+        // provider tabs, not folded into Favorites) ─────────────────────
         SegmentedControl {
             id: providerTabs
             objectName: "gifProviderTabs"
@@ -277,10 +300,11 @@ Popup {
             Layout.fillWidth: true
             // cfgRevision re-evaluates enabled/tip after a key refresh;
             // unavailable providers are disabled with an explanation —
-            // never a bare "(off)" suffix.
+            // never a bare "(off)" suffix. Starred needs no key/config: it
+            // is always enabled and never fetches over the network.
             model: {
                 var rev = picker.cfgRevision
-                return picker.gif.providerIds.map(function(id) {
+                var items = picker.gif.providerIds.map(function(id) {
                     var ok = picker.gif.providerConfigured(id)
                     return {
                         label: picker.gif.providerDisplayName(id),
@@ -290,14 +314,47 @@ Popup {
                                             + "key to enable this provider"),
                     }
                 })
+                items.push({
+                    label: qsTr("Starred"),
+                    value: "starred",
+                    enabled: true,
+                    tip: "",
+                })
+                return items
             }
-            current: picker.gif.providerId
-            onActivated: (value) => picker.gif.setActiveProvider(value)
+            current: picker.starredTabActive ? "starred" : picker.gif.providerId
+            onActivated: (value) => {
+                if (value === "starred") {
+                    // Never calls setActiveProvider("starred") — "starred"
+                    // is not a provider id, so routing it there would be at
+                    // best a silent no-op and at worst a confusing state;
+                    // this branch keeps it explicit and makes no provider
+                    // request at all.
+                    picker.starredTabActive = true
+                } else {
+                    picker.starredTabActive = false
+                    picker.gif.setActiveProvider(value)
+                }
+            }
+            // v0.6.6 review (M1): a second, direct keyboard entry into the
+            // grid on the Starred tab — Down on the tab strip (unhandled by
+            // any individual segment button, so it propagates up here) hands
+            // off exactly like searchField's own Down/Return handlers do for
+            // every other tab. A no-op off the Starred tab.
+            Keys.onDownPressed: {
+                if (picker.starredTabActive) {
+                    grid.forceActiveFocus()
+                    if (grid.currentIndex < 0 && grid.count > 0)
+                        grid.currentIndex = 0
+                }
+            }
         }
 
-        // ── Row 2: section chips — Trending / Favorites / Recent ─────
+        // ── Row 2: section chips — Trending / Favorites / Recent (hidden
+        // on the Starred tab, which is already a single, un-sectioned list)
         Row {
             objectName: "gifSectionTabs"
+            visible: !picker.starredTabActive
             Layout.fillWidth: true
             spacing: AppTheme.spacing8
             Repeater {
@@ -380,7 +437,7 @@ Popup {
         Flow {
             Layout.fillWidth: true
             spacing: AppTheme.spacingXS
-            visible: picker.section === "browse"
+            visible: !picker.starredTabActive && picker.section === "browse"
                      && searchField.text.length === 0 && picker.gif.configured
             Repeater {
                 model: picker.gif.categories
@@ -438,6 +495,22 @@ Popup {
             currentIndex: -1
             keyNavigationEnabled: true
             boundsBehavior: Flickable.StopAtBounds
+            // v0.6.6 review (M1): the Starred tab hides searchField (the
+            // only path that used to hand focus to this grid — see
+            // Keys.onDownPressed/onReturnPressed above) along with the
+            // section/category chips, so without this the grid was entirely
+            // keyboard-unreachable on that tab — a real accessibility
+            // regression versus the old merged Favorites tab. Reachable via
+            // Tab directly ONLY on the Starred tab (every other tab keeps
+            // its existing searchField/chip hand-off as the entry point,
+            // unchanged); seeding currentIndex on focus-gain applies
+            // generally, matching what the Down/Return hand-offs already do
+            // by hand for the other tabs.
+            activeFocusOnTab: picker.starredTabActive
+            onActiveFocusChanged: {
+                if (activeFocus && currentIndex < 0 && count > 0)
+                    currentIndex = 0
+            }
 
             // A highlighted/keyboard-selected row is just an int — Qt does
             // not remap it when the model changes underneath. A full
@@ -467,9 +540,10 @@ Popup {
             }
 
             // Infinite scroll: only the network-backed browse view paginates;
-            // Favorites/Recent are complete local lists.
+            // Favorites/Recent/Starred are complete local lists.
             onContentYChanged: {
-                if (picker.section !== "browse" || contentHeight <= 0)
+                if (picker.starredTabActive
+                    || picker.section !== "browse" || contentHeight <= 0)
                     return
                 if (contentY + height > contentHeight - cellWidth * 2)
                     picker.gif.loadMore()
@@ -498,12 +572,12 @@ Popup {
                 required property real gifBytes
                 readonly property bool current: GridView.isCurrentItem
                 // A local-starred tile has no provider CDN URL (see
-                // GifFavoritesMergedModel/GifStarredStore) — its
-                // previewUrl/stillUrl are deliberately empty in the
-                // persisted row, so the ONLY source of truth for where to
-                // load it from is a re-validated lookup by content hash,
-                // done fresh on every binding evaluation (never a path
-                // trusted from the persisted index).
+                // GifStarredStore) — its previewUrl/stillUrl are
+                // deliberately empty in the persisted row, so the ONLY
+                // source of truth for where to load it from is a
+                // re-validated lookup by content hash, done fresh on every
+                // binding evaluation (never a path trusted from the
+                // persisted index).
                 readonly property string localSource:
                     tile.provider === "local"
                         ? picker.gif.starredStore.source(tile.gifId) : ""
@@ -636,6 +710,16 @@ Popup {
                         anchors.top: parent.top
                         anchors.right: parent.right
                         width: 24; height: 24
+                        // NIT (accepted follow-up, v0.6.6 review): on the
+                        // Starred tab every tile.favorite is definitionally
+                        // true (GifStoredModel::data always answers
+                        // FavoriteRole=true), so the scrimInk/"unfilled"
+                        // branch below is dead code specifically on that
+                        // tab — this is one "favorite" star glyph/colour
+                        // pair genuinely reused for two different concepts
+                        // (GIPHY/KLIPY favorite vs. locally-starred). Not a
+                        // functional bug (GIPHY/KLIPY tabs still show a real
+                        // unfilled state), left as-is rather than fixed here.
                         contentItem: Icon {
                             name: "star"
                             size: 15
@@ -678,7 +762,7 @@ Popup {
         BusyIndicator {
             id: busy
             anchors.centerIn: parent
-            running: picker.section === "browse"
+            running: !picker.starredTabActive && picker.section === "browse"
                      && picker.gif.state === GifSearchController.Loading
                      && picker.gif.results.count === 0
         }
@@ -691,10 +775,16 @@ Popup {
             color: AppTheme.stormTextMuted
             font.pixelSize: 13
             text: {
+                // Starred is local-only and works even when no provider is
+                // configured/available — it never depends on gif.available.
+                if (picker.starredTabActive)
+                    return picker.gif.starredStore.count === 0
+                        ? qsTr("Hover a GIF in chat and press the star to save it here.")
+                        : ""
                 if (!picker.gif.available)
                     return qsTr("GIFs are unavailable on this backend.")
                 if (picker.section === "favorites")
-                    return picker.gif.favoritesAndStarred.count === 0
+                    return picker.gif.favorites.count === 0
                         ? qsTr("No favorites yet. Tap the star on a GIF to save it.")
                         : ""
                 if (picker.section === "recent")
@@ -736,9 +826,15 @@ Popup {
             // The narrower 330px design width has no room for the previous
             // long privacy sentence alongside attribution + the send hint;
             // it moves to a hover tooltip instead of being dropped outright.
-            text: picker.gif.attribution
-            Accessible.name: picker.gif.attribution
-            ToolTip.text: qsTr("Searches are sent to the selected GIF provider")
+            // Starred tiles are the user's own saved Matrix media — no
+            // provider was involved, so no provider attribution applies.
+            text: picker.starredTabActive
+                  ? qsTr("Your device only — no provider involved")
+                  : picker.gif.attribution
+            Accessible.name: attributionLabel.text
+            ToolTip.text: picker.starredTabActive
+                ? qsTr("Starred GIFs are saved locally and never sent to a GIF provider")
+                : qsTr("Searches are sent to the selected GIF provider")
             ToolTip.visible: attributionHover.hovered
             HoverHandler { id: attributionHover }
         }

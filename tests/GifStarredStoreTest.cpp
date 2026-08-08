@@ -3,13 +3,14 @@
 // silently evict a GIF the user chose to keep, account-scope isolation
 // (two openFor() directories never see each other's rows), unstar deleting
 // the on-disk file, a stale/tampered index entry never surfacing a tile
-// that cannot actually be played, the session-only mediaKey->hash mapping
-// the chat menu's Star/Unstar label depends on, and the picker's
-// Favorites-tab merge (local rows first, provider rows follow, row-kind
-// routing for the star button).
+// that cannot actually be played, and the session-only mediaKey->hash
+// mapping the hover-star's filled/outline state depends on. The picker's
+// Starred tab binds GifStarredStore::model() (GifStarredModel) directly —
+// see GifPickerRedesignContractTest/QmlBindingContractTest for that
+// source-level wiring; there is no merged-model class to unit test here
+// any more (GifFavoritesMergedModel was removed with the UX rework that
+// gave Starred its own picker tab instead of folding it into Favorites).
 
-#include "gif/GifFavoritesMergedModel.h"
-#include "gif/GifFavoritesModel.h"
 #include "gif/GifResponseParser.h"
 #include "gif/GifStarredStore.h"
 
@@ -38,18 +39,6 @@ QByteArray makeGif(int w, int h, const QByteArray &tail = {})
     return b;
 }
 
-QVariantMap providerFixture(const QString &provider, const QString &id)
-{
-    QVariantMap m;
-    m.insert(QStringLiteral("provider"), provider);
-    m.insert(QStringLiteral("gifId"), id);
-    m.insert(QStringLiteral("gifUrl"),
-             QStringLiteral("https://media.giphy.com/media/%1/giphy.gif").arg(id));
-    m.insert(QStringLiteral("gifWidth"), 100);
-    m.insert(QStringLiteral("gifHeight"), 100);
-    return m;
-}
-
 } // namespace
 
 class GifStarredStoreTest : public QObject
@@ -68,7 +57,6 @@ private Q_SLOTS:
     void closingClearsRowsWithoutTouchingDisk();
     void staleIndexEntryIsPrunedOnOpen();
     void sessionMediaKeyMappingDrivesUnstarByMediaKey();
-    void mergedModelListsLocalFirstThenProviderAndRoutesStarButton();
 
     // Review round (CRITICAL-1/HIGH-2/M4/L7/L8/L9/L10/L13/M6) additions.
     void reStarringAfterFileWasManuallyDeletedRewritesIt();
@@ -79,6 +67,7 @@ private Q_SLOTS:
     void storeDirectoryIsOwnerOnlyAfterFirstWrite();
     void directoryIsNotCreatedUntilFirstWrite();
     void clearAllDeletesEveryFileAndRow();
+    void sessionMapIsAlreadyClearedWhenCountChangedFires();
     void countAndTotalBytesPropertiesAreReactive();
     void unstarEmitsFeedbackOnlyWhenSomethingRemoved();
     void categoryMessagesAreTranslatedNeverRawTokens();
@@ -283,38 +272,6 @@ void GifStarredStoreTest::sessionMediaKeyMappingDrivesUnstarByMediaKey()
     QVERIFY(!store.isStarredThisSession(QStringLiteral("m1")));
 }
 
-void GifStarredStoreTest::mergedModelListsLocalFirstThenProviderAndRoutesStarButton()
-{
-    QTemporaryDir dir;
-    GifStarredStore store;
-    store.openFor(dir.path());
-    store.starBytes(QStringLiteral("mk1"), makeGif(10, 10, "a"));
-    store.starBytes(QStringLiteral("mk2"), makeGif(10, 10, "b"));
-
-    QSettings settings(dir.path() + QStringLiteral("/favorites.ini"),
-                       QSettings::IniFormat);
-    GifFavoritesModel favorites(&settings);
-    QVERIFY(favorites.toggle(providerFixture(QStringLiteral("giphy"),
-                                            QStringLiteral("p1"))));
-
-    GifFavoritesMergedModel merged(store.model(), &favorites);
-    QCOMPARE(merged.count(), 3);
-    QVERIFY(merged.isLocalRow(0));
-    QVERIFY(merged.isLocalRow(1));
-    QVERIFY(!merged.isLocalRow(2));
-    QCOMPARE(merged.get(2).value(QStringLiteral("provider")).toString(),
-             QStringLiteral("giphy"));
-    QCOMPARE(merged.get(0).value(QStringLiteral("provider")).toString(),
-             QStringLiteral("local"));
-
-    // Unstarring the local-kind row via the store leaves the provider
-    // favorite untouched, and the merge stays live (no rebuild needed).
-    const QString localHash = merged.get(0).value(QStringLiteral("gifId")).toString();
-    store.unstar(localHash);
-    QCOMPARE(merged.count(), 2);
-    QVERIFY(favorites.isFavorite(QStringLiteral("giphy"), QStringLiteral("p1")));
-}
-
 void GifStarredStoreTest::reStarringAfterFileWasManuallyDeletedRewritesIt()
 {
     // L7: a re-star must not skip the write just because the INDEX still
@@ -473,6 +430,69 @@ void GifStarredStoreTest::clearAllDeletesEveryFileAndRow()
     QVERIFY(!QFileInfo::exists(dir.path() + QLatin1Char('/') + h2 + QStringLiteral(".gif")));
     QVERIFY(!store.isStarredThisSession(QStringLiteral("mk1")));
     QVERIFY(!store.isStarredThisSession(QStringLiteral("mk2")));
+}
+
+// Ordering contract, not just end state: consumers refresh their own
+// "is this starred?" view FROM countChanged (the hover star on a GIF row
+// does exactly that, and for clearAll it is the ONLY signal emitted — no
+// per-hash unstarFinished). If the session map were still populated while
+// that signal ran, the star would stay filled and its next activation
+// would RE-STAR the file — re-persisting decrypted bytes the user just
+// explicitly deleted. So the map must already read false INSIDE the
+// handler, not merely after the call returns. Asserted for both mutation
+// paths that clear mappings.
+void GifStarredStoreTest::sessionMapIsAlreadyClearedWhenCountChangedFires()
+{
+    QTemporaryDir dir;
+    GifStarredStore store;
+    store.openFor(dir.path());
+
+    // --- clearAll(): the Settings -> "Clear All" path ---
+    store.starBytes(QStringLiteral("mk1"), makeGif(10, 10, "a"));
+    store.starBytes(QStringLiteral("mk2"), makeGif(10, 10, "b"));
+    QVERIFY(store.isStarredThisSession(QStringLiteral("mk1")));
+
+    int observations = 0;
+    bool staleInsideHandler = false;
+    auto conn = QObject::connect(
+        &store, &GifStarredStore::countChanged, &store, [&] {
+            ++observations;
+            if (store.isStarredThisSession(QStringLiteral("mk1"))
+                || store.isStarredThisSession(QStringLiteral("mk2")))
+                staleInsideHandler = true;
+        });
+
+    store.clearAll();
+    QObject::disconnect(conn);
+
+    QVERIFY2(observations > 0, "clearAll must emit countChanged at all");
+    QVERIFY2(!staleInsideHandler,
+             "countChanged fired while the session map still reported the "
+             "cleared GIFs as starred — a consumer refreshing from that "
+             "signal keeps a filled star that re-persists deleted bytes");
+
+    // --- unstar(): the per-hash path (same ordering rule) ---
+    store.starBytes(QStringLiteral("mk3"), makeGif(12, 12, "c"));
+    const QString h3 =
+        store.model()->get(0).value(QStringLiteral("gifId")).toString();
+    QVERIFY(store.isStarredThisSession(QStringLiteral("mk3")));
+
+    observations = 0;
+    staleInsideHandler = false;
+    conn = QObject::connect(
+        &store, &GifStarredStore::countChanged, &store, [&] {
+            ++observations;
+            if (store.isStarredThisSession(QStringLiteral("mk3")))
+                staleInsideHandler = true;
+        });
+
+    store.unstar(h3);
+    QObject::disconnect(conn);
+
+    QVERIFY2(observations > 0, "unstar must emit countChanged at all");
+    QVERIFY2(!staleInsideHandler,
+             "countChanged fired while the session map still reported the "
+             "unstarred GIF as starred");
 }
 
 void GifStarredStoreTest::countAndTotalBytesPropertiesAreReactive()

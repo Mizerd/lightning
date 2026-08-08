@@ -6172,9 +6172,15 @@ private Q_SLOTS:
         QVERIFY(timeline->setProperty("viewAnchorId", anchorId));
 
         // Open the diag session AFTER the eviction dance above, so its own
-        // (harmless) contentY nudge cannot race the eviction check, and so
-        // diagNoteEvent() resets every counter to a known 0 right before
-        // the driven call below.
+        // (harmless) contentY nudge cannot race the eviction check.
+        // diagNoteEvent() only resets the gesture-input group (diagEvents/
+        // diagPixelEvents/diagAngleEvents/diagStartY/diagStartHeight) — the
+        // outcome/cross-branch counters asserted below are untouched by it
+        // and only reset at the NEXT diagFlushGesture(), so wherever the
+        // fixture's own eviction-dance setup above could have driven one of
+        // them nonzero, it is baseline-captured rather than assumed 0 (see
+        // baseEvicted/baseMaterialized/baseUnresolvedId/baseDragDeferrals
+        // below).
         const QPointF pos(320, 300);
         bool opened = false;
         for (int attempt = 0; attempt < 50 && !opened; ++attempt) {
@@ -6191,6 +6197,29 @@ private Q_SLOTS:
         QVERIFY2(opened, "a touchpad delta must open the scroll session");
         QCOMPARE(timeline->property("viewAnchorId").toString(), anchorId);
         QCOMPARE(timeline->property("diagDisplacedFirings").toInt(), 0);
+        // Cross-branch purity is asserted for the DRIVEN step below, not
+        // for the whole run: this fixture's tall media rows force real
+        // delegate eviction, and an evicted-no-insert fallback firing
+        // during the fixture's own setup is a legitimate timing-dependent
+        // occurrence (observed deterministically in one tree's binary
+        // after an unrelated per-delegate QML addition changed pooling
+        // timing). Baseline-capture, then assert no INCREASE across the
+        // driven maintainViewAnchor call.
+        const int baseEvicted =
+            timeline->property("diagEvictedNoInsertFallbacks").toInt();
+        if (baseEvicted != 0)
+            qWarning("diag fixture non-quiescent: evictedNoInsert=%d "
+                     "(timing-dependent eviction during setup)", baseEvicted);
+        // Same honesty for the other three cross-branch counters: the
+        // fixture's own eviction dance can drive any of them nonzero before
+        // the driven call below ever runs, exactly like evictedNoInsert
+        // above — assert no INCREASE, never a hardcoded 0.
+        const int baseMaterialized =
+            timeline->property("diagMaterializedFirings").toInt();
+        const int baseUnresolvedId =
+            timeline->property("diagUnresolvedIdFallbacks").toInt();
+        const int baseDragDeferrals =
+            timeline->property("diagDragDeferrals").toInt();
 
         constexpr double simulatedGrowth = 1234.0;
         constexpr int insertedRows = 3;
@@ -6211,10 +6240,14 @@ private Q_SLOTS:
         QVERIFY2(qAbs(timeline->property("diagDisplacedAppliedSum").toDouble()
                      - simulatedGrowth) < 1.0,
                  "diagDisplacedAppliedSum did not record the applied amount");
-        QCOMPARE(timeline->property("diagMaterializedFirings").toInt(), 0);
-        QCOMPARE(timeline->property("diagUnresolvedIdFallbacks").toInt(), 0);
-        QCOMPARE(timeline->property("diagEvictedNoInsertFallbacks").toInt(), 0);
-        QCOMPARE(timeline->property("diagDragDeferrals").toInt(), 0);
+        QCOMPARE(timeline->property("diagMaterializedFirings").toInt(),
+                 baseMaterialized);
+        QCOMPARE(timeline->property("diagUnresolvedIdFallbacks").toInt(),
+                 baseUnresolvedId);
+        QCOMPARE(timeline->property("diagEvictedNoInsertFallbacks").toInt(),
+                 baseEvicted);
+        QCOMPARE(timeline->property("diagDragDeferrals").toInt(),
+                 baseDragDeferrals);
     }
 
     // M2: an all-zero line does not distinguish "the mechanism ran and had

@@ -81,8 +81,8 @@ class QSettings;
 // "success". AppController also closes this store (harmlessly, whether or
 // not the above already did) on EVERY MatrixClient::loggedOut, including a
 // plain account SWITCH, which never deletes anything but must not leave a
-// stale open handle showing the outgoing account's rows in the merged
-// Favorites model while the next account's session is still starting.
+// stale open handle showing the outgoing account's rows in the picker's
+// Starred tab while the next account's session is still starting.
 //
 // PRIVACY: the persisted index (via GifStarredModel/GifStoredModel) carries
 // only provider="local", the content hash, safe dimensions and the byte
@@ -119,9 +119,9 @@ public:
     // Presentation model for the picker (role-compatible with
     // GifResultModel, exactly like GifFavoritesModel/GifRecentModel). This
     // instance is constructed once and never destroyed/recreated — openFor()
-    // repoints its persistence and reloads in place — so a caller that
-    // wired it into GifFavoritesMergedModel (added once) keeps a valid
-    // reference across account switches.
+    // repoints its persistence and reloads in place — so the picker's own
+    // Starred tab (GifPicker.qml, bound directly to this pointer) keeps a
+    // valid, stable QObject identity across account switches.
     GifStarredModel *model() const { return m_model.get(); }
 
     // Point the store at `accountDir` (already account-scoped; see the class
@@ -145,10 +145,11 @@ public:
     // the entry; deduplicates by content hash (re-starring an
     // already-stored GIF is a cap-exempt no-op that just refreshes recency —
     // see GifStoredModel::insertFront). `mediaKey` is remembered ONLY in an
-    // in-memory, per-session, NEVER-persisted map so the chat message menu
-    // can offer "Unstar" for a row starred earlier in this session — see the
-    // class comment on why provenance is not persisted; this is a UI
-    // convenience, not a provenance record, and does not survive restart.
+    // in-memory, per-session, NEVER-persisted map so the chat message hover
+    // star can render filled/"Remove from starred GIFs" for a row starred
+    // earlier in this session — see the class comment on why provenance is
+    // not persisted; this is a UI convenience, not a provenance record, and
+    // does not survive restart.
     // Emits starFinished(mediaKey, ok, category, message). `category` is the
     // stable, machine-readable token ("not_a_gif", "invalid_media",
     // "too_large" — gif::validateGifBytes; "cap_items", "cap_bytes" — bounded
@@ -175,12 +176,13 @@ public:
     // Privacy & security -> "Starred GIFs" -> Clear All action. A no-op
     // (and no signal) when already empty/closed.
     Q_INVOKABLE void clearAll();
-    // Convenience for the chat message menu, which only knows `mediaKey`:
-    // unstars whatever hash this session remembers for it (see starBytes).
-    // A row starred in an EARLIER session (no session-local mapping yet)
-    // cannot be unstarred this way — only from the picker, which has the
-    // real hash — this is the same documented, honest limitation as the
-    // Star/Unstar label itself (see isStarredThisSession).
+    // Convenience for the chat message hover star, which only knows
+    // `mediaKey`: unstars whatever hash this session remembers for it (see
+    // starBytes). A row starred in an EARLIER session (no session-local
+    // mapping yet) cannot be unstarred this way — only from the picker,
+    // which has the real hash — this is the same documented, honest
+    // limitation as the filled/outline star state itself (see
+    // isStarredThisSession).
     Q_INVOKABLE void unstarByMediaKey(const QString &mediaKey);
     Q_INVOKABLE bool isStarredThisSession(const QString &mediaKey) const
     { return m_mediaKeyToHash.contains(mediaKey); }

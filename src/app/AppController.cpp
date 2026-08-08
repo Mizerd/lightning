@@ -301,8 +301,8 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                 // triggers AppController::onLoggedOut(), which returns
                 // immediately while m_accountSwitching is true — WITHOUT
                 // touching the store — so without this line the store would
-                // keep showing the outgoing account's rows in the merged
-                // Favorites model until the new account's login succeeds
+                // keep showing the outgoing account's rows in the picker's
+                // Starred tab until the new account's login succeeds
                 // and calls openStarredStoreFor(). Idempotent/harmless to
                 // call again here for a genuine sign-out too, where
                 // onLoggedOut() (which ran just before this) already closed

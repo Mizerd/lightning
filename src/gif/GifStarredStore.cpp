@@ -12,7 +12,8 @@ GifStarredStore::GifStarredStore(QObject *parent)
     : QObject(parent)
     // Constructed once, with no backing store, and kept alive for this
     // object's whole life — see the header comment on why a stable model
-    // identity matters (GifFavoritesMergedModel::addSourceModel()).
+    // identity matters (GifPicker.qml's Starred tab binds this pointer
+    // directly).
     , m_model(std::make_unique<GifStarredModel>(nullptr, this))
 {
     connect(m_model.get(), &GifStoredModel::countChanged,
@@ -220,15 +221,21 @@ void GifStarredStore::unstar(const QString &hash)
     if (!isOpen() || !isSafeHashHex(hash))
         return;
     QFile::remove(filePath(hash));
-    const bool removed = m_model->unstar(hash);
-    // Drop every session mapping that pointed at this hash so the chat menu
-    // can never keep offering "Unstar" for a file that is already gone.
+    // Drop every session mapping that pointed at this hash BEFORE the model
+    // mutation: m_model->unstar() emits countChanged synchronously, and a
+    // consumer refreshing from that signal (the hover star does exactly
+    // that) must not observe a map that still claims this hash is starred —
+    // it would keep a filled star whose next activation RE-STARS the file
+    // the user just removed. Same ordering rule as openFor(). The trailing
+    // unstarFinished only fires when the row existed, so it cannot be
+    // relied on as the refresh path.
     for (auto it = m_mediaKeyToHash.begin(); it != m_mediaKeyToHash.end();) {
         if (it.value() == hash)
             it = m_mediaKeyToHash.erase(it);
         else
             ++it;
     }
+    const bool removed = m_model->unstar(hash);
     if (removed)
         Q_EMIT unstarFinished(hash);
 }
@@ -249,8 +256,14 @@ void GifStarredStore::clearAll()
         if (isSafeHashHex(hash))
             QFile::remove(filePath(hash));
     }
-    m_model->clearAll();
+    // Clear the session map BEFORE the model mutation — m_model->clearAll()
+    // emits countChanged synchronously and is the ONLY signal this path
+    // produces (no per-hash unstarFinished). A consumer refreshing from it
+    // (the hover star) would otherwise read a still-populated map and keep
+    // a filled star whose next activation re-persists decrypted bytes the
+    // user just explicitly deleted. openFor() already orders it this way.
     m_mediaKeyToHash.clear();
+    m_model->clearAll();
 }
 
 QByteArray GifStarredStore::readBytes(const QString &hash) const

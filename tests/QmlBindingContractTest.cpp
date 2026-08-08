@@ -207,6 +207,12 @@ private Q_SLOTS:
         QVERIFY(picker.contains(QStringLiteral("model: picker.activeModel")));
         QVERIFY(picker.contains(QStringLiteral("gif.favorites")));
         QVERIFY(picker.contains(QStringLiteral("gif.recent")));
+        // v0.6.6 UX rework: Starred is a third tab next to GIPHY/KLIPY
+        // (never merged into Favorites — see GifPickerRedesignContractTest
+        // for the full tab-wiring pin), bound directly to GifStarredStore's
+        // own model.
+        QVERIFY(picker.contains(QStringLiteral("gif.starredStore.model()")));
+        QVERIFY(!picker.contains(QStringLiteral("favoritesAndStarred")));
         // v0.7 regression (live bug): SENDING must resolve the clicked row
         // against the model the user is looking at. Reading gif.results in
         // choose() sent the first Trending item when a favorite was
@@ -296,12 +302,12 @@ private Q_SLOTS:
         QVERIFY(picker.contains(QStringLiteral("playing: picker.visible")));
         // Tiles use the PREVIEW variant, never the sendable original gifUrl.
         {
-            // v0.6.6: a local-starred tile (see GifFavoritesMergedModel/
-            // GifStarredStore) has no provider previewUrl/stillUrl, so both
-            // the static Image and the AnimatedImage branch on
-            // tile.provider now — the non-local fallback is still exactly
-            // tile.stillUrl / tile.previewUrl, never tile.gifUrl anywhere in
-            // the tile delegate.
+            // v0.6.6: a local-starred tile (provider === "local", rendered
+            // on the picker's own Starred tab — see GifStarredStore) has no
+            // provider previewUrl/stillUrl, so both the static Image and
+            // the AnimatedImage branch on tile.provider now — the non-local
+            // fallback is still exactly tile.stillUrl / tile.previewUrl,
+            // never tile.gifUrl anywhere in the tile delegate.
             const int tileStart =
                 picker.indexOf(QStringLiteral("delegate: Item {"));
             const int tileEnd = picker.indexOf(
