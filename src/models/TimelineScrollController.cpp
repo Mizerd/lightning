@@ -41,6 +41,49 @@ constexpr double kMinSettleSpeed = 700.0;   // px/s
 constexpr double kSnapDistance = 0.5;       // px
 constexpr double kMaxTickMs = 50.0;
 
+// HARD CEILING on how far ONE emitted frame may move contentY, as a fraction
+// of the viewport height. This is not a feel tuning knob — it exists because
+// of a specific, verified QQuickTableView behaviour.
+//
+// QQuickTableView::viewportMoved() -> QQuickTableViewPrivate::
+// scheduleRebuildIfFastFlick() (qquicktableview.cpp, Qt 6.11.1) tests whether
+// the NEW viewport rect still intersects the one cached at the last layout:
+//
+//     if (!viewportRect.intersects(QRectF(viewportRect.x(), q->contentY(),
+//                                         1, q->height())))
+//         scheduledRebuildOptions |= RebuildOption::CalculateNewTopLeftRow
+//                                  | RebuildOption::ViewportOnly;
+//
+// So ANY single contentY write of a whole viewport or more makes TableView
+// discard its current top row and GUESSTIMATE a replacement in
+// calculateTopLeft():
+//
+//     newRow = int(viewportRect.y() / (averageEdgeSize.height() + spacing))
+//     topLeftPos.y = newRow * (averageEdgeSize.height() + spacing)
+//
+// averageEdgeSize.height() is contentHeight / rowCount — ONE uniform average.
+// A message timeline has no uniform row height: a collapsed state line is
+// ~28 px and a video card ~400 px. Applied to a reader tens of thousands of
+// pixels into loaded history, that guess resolves to a row nowhere near the
+// one being read, and the table is rebuilt around it. The reader sees a
+// different part of the conversation for a frame or two until the anchor
+// machinery drags them back — the reported "jitter that loses the message I
+// was reading".
+//
+// This bites hardest exactly when older history lands: the frame that inserts
+// and lays out a page is long, wheel notches keep coalescing into the target
+// during it, and the tick after the stall integrates all of that accumulated
+// distance in one emission. VeryFast reaches 1000 px per notch, dt is capped
+// at 50 ms == 42% of the remaining distance, so a handful of notches already
+// clears a viewport in a single frame.
+//
+// Half a viewport keeps the rects overlapping with margin to spare (QML may
+// write contentY more than once between two of TableView's layout passes),
+// and costs only a few extra frames on the largest glides — the exponential
+// curve means the cap is only reached at the very start of a big motion,
+// where velocity is highest and one more frame is invisible.
+constexpr double kMaxStepViewportFraction = 0.5;
+
 const SpeedProfile &profileFor(int speed)
 {
     switch (speed) {
@@ -187,6 +230,7 @@ void TimelineScrollController::wheelNotch(double angleDeltaY, double contentY,
         m_positionY = clampY(contentY, minContentY, maxContentY);
     m_minY = minContentY;
     m_maxY = maxContentY;
+    setViewportHeight(viewportHeight);
     wheelTargetY(angleDeltaY, m_positionY, minContentY, maxContentY,
                  viewportHeight);
     if (!m_motionActive)
@@ -194,13 +238,23 @@ void TimelineScrollController::wheelNotch(double angleDeltaY, double contentY,
     startTicker();                 // idempotent while already running.
 }
 
+void TimelineScrollController::setViewportHeight(double viewportHeight)
+{
+    // Ignore a non-positive height (the pane before it has a size) rather
+    // than disabling the step cap for the motion that follows.
+    if (viewportHeight > 0.0)
+        m_viewportHeight = viewportHeight;
+}
+
 void TimelineScrollController::animateTo(double targetY, double contentY,
-                                         double minContentY, double maxContentY)
+                                         double minContentY, double maxContentY,
+                                         double viewportHeight)
 {
     if (!m_motionActive)
         m_positionY = clampY(contentY, minContentY, maxContentY);
     m_minY = minContentY;
     m_maxY = maxContentY;
+    setViewportHeight(viewportHeight);
     m_targetY = clampY(targetY, minContentY, maxContentY);
     m_direction = m_targetY < m_positionY ? -1
                   : (m_targetY > m_positionY ? 1 : m_direction);
@@ -268,6 +322,15 @@ bool TimelineScrollController::advanceMotion(double dtMs)
     const double minStep = kMinSettleSpeed * dtMs / 1000.0;
     if (std::abs(step) < minStep)
         step = std::copysign(std::min(minStep, absRemaining), remaining);
+
+    // Never emit a frame that moves the view a whole viewport or more; see
+    // kMaxStepViewportFraction. The remainder is not lost — m_targetY is
+    // untouched, so the following frames continue toward it on the same
+    // curve. Applied after the minimum-speed floor so the settle tail can
+    // never be re-inflated past the ceiling.
+    const double maxStep = m_viewportHeight * kMaxStepViewportFraction;
+    if (maxStep > 0.0 && std::abs(step) > maxStep)
+        step = std::copysign(maxStep, remaining);
 
     m_positionY += step;
     Q_EMIT wheelPositionChanged(m_positionY);

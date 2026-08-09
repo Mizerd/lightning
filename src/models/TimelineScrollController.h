@@ -121,9 +121,12 @@ public:
 
     // Smooth motion to an absolute target (keyboard paging: Page Up/Down,
     // Space). Reuses the same engine so repeated presses never queue and
-    // coalesce exactly like wheel notches.
+    // coalesce exactly like wheel notches. viewportHeight feeds the per-frame
+    // step cap (see advanceMotion); omit it and the cap keeps whatever height
+    // the last wheel notch supplied.
     Q_INVOKABLE void animateTo(double targetY, double contentY,
-                               double minContentY, double maxContentY);
+                               double minContentY, double maxContentY,
+                               double viewportHeight = 0.0);
 
     // Pure target computation for the coalescing policy (also drives
     // wheelNotch). Returns the absolute contentY goal, clamped to
@@ -171,6 +174,11 @@ public:
     // has settled (the ticker stops itself on that).
     bool advanceMotion(double dtMs);
 
+    // Viewport height used by the per-frame step cap in advanceMotion(). The
+    // wheel path supplies it with every notch; this exists for the keyboard /
+    // test paths that drive the engine without one.
+    Q_INVOKABLE void setViewportHeight(double viewportHeight);
+
     // Test hooks.
     void setPixelFactorForTest(double factor) { m_pixelFactor = factor; }
     double targetYForTest() const { return m_targetY; }
@@ -207,6 +215,10 @@ private:
     // Live clamping bounds supplied with the most recent motion request.
     double m_minY = 0.0;
     double m_maxY = 0.0;
+
+    // Viewport height from the most recent motion request; 0 until one
+    // arrives, which disables the step cap rather than guessing a height.
+    double m_viewportHeight = 0.0;
 
     // Touchpad pixel scaling. 1.0 == native; kept mild and tunable.
     double m_pixelFactor = 1.0;
