@@ -142,11 +142,11 @@ Rectangle {
     function scrollToSearchMatch() {
         var eventId = app.timeline.searchCurrentEventId
         if (eventId === "") return
-        var row = app.timeline.rowForStableId(eventId)
+        var row = timeline.viewRowForStableId(eventId)
         if (row < 0) return
         timeline.cancelWheelMotion()
         timeline.stickToBottom = false
-        timeline.positionViewAtIndex(row, ListView.Center)
+        timeline.positionViewAtViewRow(row, true)
     }
     Shortcut {
         sequences: [StandardKey.Find]
@@ -243,10 +243,10 @@ Rectangle {
             // uses (own + TextMessage + Sent), so a hit here is guaranteed
             // to render Edit (E keycap) and Delete (danger), not just
             // whatever happens to be the newest row.
-            for (var i = timeline.count - 1; i >= timeline.count - tries; --i) {
-                var eventId = app.timeline.eventIdAt(i)
+            for (var i = 0; i < tries; ++i) {
+                var eventId = timeline.eventIdAtViewRow(i)
                 if (eventId !== "" && app.timeline.canEditEvent(eventId)) {
-                    var ownItem = timeline.itemAtIndex(i)
+                    var ownItem = timeline.itemAtViewRow(i)
                     if (ownItem && ownItem.openContextMenu) {
                         ownItem.openContextMenu(ownItem.width / 2, ownItem.height / 2)
                         return
@@ -258,8 +258,8 @@ Rectangle {
             // for a virtual/state-activity row or one with no real event id
             // (it never sets menuEventId), so this backward scan skips
             // those without any special-casing here.
-            for (var j = timeline.count - 1; j >= timeline.count - tries; --j) {
-                var item = timeline.itemAtIndex(j)
+            for (var j = 0; j < tries; ++j) {
+                var item = timeline.itemAtViewRow(j)
                 if (item && item.openContextMenu) {
                     item.openContextMenu(item.width / 2, item.height / 2)
                     if (item.menuEventId !== undefined && item.menuEventId !== "")
@@ -568,43 +568,156 @@ Rectangle {
             Layout.fillWidth: true
             Layout.fillHeight: true
 
-            ListView {
+            // ── Solid timeline: no height virtualization ─────────────────
+            // Every loaded row is a real, instantiated item inside one Column,
+            // so contentHeight and every row position are MEASURED. There is
+            // no per-row estimate, no rowHeightProvider, no content-height
+            // reconciliation and no delegate recycling anywhere in the room
+            // timeline.
+            //
+            // This replaced a reversed TableView, and the reason is structural
+            // rather than a matter of tuning. Two properties of that design
+            // could not be fixed from the outside:
+            //
+            //  1. QQuickTableViewPrivate::rowsInsertedCallback schedules
+            //     RebuildOption::ViewportOnly for an insert ANYWHERE in the
+            //     model. That releases every visible delegate to the reuse
+            //     pool and re-binds it, so each pagination page re-ran
+            //     onReused, the height-seed settle, every nested Loader and
+            //     every media identity check for every row on screen. That is
+            //     a full viewport rebuild per page, and it is the stall the
+            //     reader feels as history loads. Element never does this;
+            //     prepending does not touch what is already rendered.
+            //  2. contentHeight had to be supplied from metadata ESTIMATES
+            //     while TableView laid the loaded rows out at their real
+            //     heights. Two coordinate systems that disagree by
+            //     construction, with origin/endExtent silently absorbing the
+            //     difference. Every position the app computed lived in the
+            //     estimated frame; everything the reader saw lived in the real
+            //     one. Repeated attempts to reconcile them all failed.
+            //
+            // With a Column both problems cease to exist rather than being
+            // balanced. Older history is a proxy APPEND, so it extends the
+            // column at the tail: no item already positioned can move, and
+            // contentY needs no correction at all for pagination. Rows keep
+            // their identity for as long as they are loaded, so nothing is
+            // ever rebound underneath the reader.
+            //
+            // The cost is that the whole loaded window is instantiated. That
+            // is Element's trade too. Rows arrive ~20 at a time as the reader
+            // pages, never in one burst, and a hidden row (a filtered activity
+            // line) is skipped by the positioner and occupies exactly zero
+            // height with no special case.
+            Flickable {
                 id: timeline
                 objectName: "timelineListView"
                 anchors.fill: parent
                 clip: true
+                // Rotate the viewport and counter-rotate each row: proxy row 0
+                // (newest) sits physically at the bottom, and older history
+                // extends the far/top edge.
+                rotation: 180
+                flickableDirection: Flickable.VerticalFlick
                 // The presentation gate covers the view (it keeps laying out
                 // underneath so viewport-fill pagination and positioning run
                 // against real geometry); the loading surface sits on top.
                 opacity: presentationReady ? 1 : 0
-                // Fast-scroll: pool delegates instead of re-instantiating
-                // them mid-flick. This is safe because every per-row field is
-                // either model-bound with a reset-on-change handler (preview
-                // via onActionKeyChanged; media/GIF via onMediaIdentityChanged
-                // inside a Loader), backend-owned (decryption retry is bounded
-                // in the model, not per delegate), rendered in the Overlay
-                // (context/reaction popups, details dialog — not pooled with
-                // the row), or a write-before-use popup target. MessageDelegate
-                // additionally scrubs the last group defensively in
-                // ListView.onReused -> resetForReuse(). cacheBuffer keeps a
-                // screen of pooled delegates warm above/below the viewport.
-                reuseItems: true
-                // A bigger buffer was tried (1600) as an up-scroll jitter
-                // mitigation — wrapped-text rows resolve height only on
-                // delegate creation — and REJECTED on measurement: it more
-                // than doubled the timeline suite's runtime and woke the
-                // documented offscreen adjacency flake (~29%), for a benefit
-                // no one had physically verified. The jitter's real fix, if
-                // the feel report persists, is height handling, not buffer
-                // size.
-                cacheBuffer: 800
-                // Delegates own sender-group spacing: group leaders receive
-                // a compact break while continuations stay visually glued
-                // together. A global gap made every continuation look like
-                // an unrelated row.
-                spacing: 0
-                model: app.timeline
-                verticalLayoutDirection: ListView.TopToBottom
+                // The source stays chronological for every backend and
+                // non-visual consumer. The proxy exposes newest-to-oldest.
+                readonly property int count: rowRepeater.count
+                contentWidth: width
+                contentHeight: rowColumn.height
+
+                // ── Which rows may activate their heavy content ──────────
+                // Every loaded row is instantiated now, so there can be many
+                // hundreds of live delegates. Each one asking "am I on screen?"
+                // in terms of contentY re-evaluates that binding on EVERY row
+                // on EVERY pixel scrolled — hundreds of float comparisons per
+                // frame that all answer the same question. That was a large
+                // part of the timeline feeling heavy overall.
+                //
+                // Compute the range ONCE per turn instead and let each row do a
+                // pair of integer comparisons against it. The range only
+                // changes when a row boundary is crossed, so the per-row
+                // bindings stay quiet through most of a gesture.
+                //
+                // One viewport of slack on each side means content activates
+                // before it is reached rather than popping in at the edge.
+                property int visibleFirstRow: 0
+                property int visibleLastRow: -1
+                property bool visibleRowRangeScheduled: false
+                function updateVisibleRowRange() {
+                    if (count <= 0) {
+                        visibleFirstRow = 0
+                        visibleLastRow = -1
+                        return
+                    }
+                    var first = viewRowAtContentY(contentY - height)
+                    var last = viewRowAtContentY(contentY + height * 2)
+                    visibleFirstRow = first < 0 ? 0 : first
+                    visibleLastRow = last < 0 ? count - 1 : last
+                }
+                function scheduleVisibleRowRange() {
+                    if (visibleRowRangeScheduled)
+                        return
+                    visibleRowRangeScheduled = true
+                    Qt.callLater(function() {
+                        visibleRowRangeScheduled = false
+                        updateVisibleRowRange()
+                    })
+                }
+
+                Column {
+                    id: rowColumn
+                    // Inset by the side margins directly. A Flickable's
+                    // left/right margins only widen the flickable RANGE; they
+                    // do not lay content out, and this view never scrolls
+                    // horizontally. (The 180° rotation swaps left and right,
+                    // which is harmless while the two are equal.)
+                    x: timeline.leftMargin
+                    width: Math.max(0, timeline.width - timeline.leftMargin
+                                    - timeline.rightMargin)
+                    // Delegates own sender-group spacing: group leaders
+                    // receive a compact break while continuations stay
+                    // visually glued together. A global gap made every
+                    // continuation look like an unrelated row.
+                    spacing: 0
+
+                    Repeater {
+                        id: rowRepeater
+                        model: app.timelineView
+                        // Rows are built SYNCHRONOUSLY and are direct children
+                        // of the Column. Wrapping them in an asynchronous
+                        // Loader was tried and was much worse: an incubating
+                        // row has zero height until it finishes, so a page
+                        // materialised out of order and visibly squeezed the
+                        // column, and the extra item plus incubation overhead
+                        // per row made everything slower rather than smoother.
+                        delegate: MessageDelegate {
+                            width: rowColumn.width
+                            rotation: 180
+                            // No attached view exists inside a Repeater, so
+                            // the row's view reference is injected. This also
+                            // deliberately withholds the height-seed/recycling
+                            // API (cachedDelegateHeight, rememberDelegateHeight)
+                            // that only the reused ListView path needs, so the
+                            // delegate falls through to its own natural height
+                            // — which here is simply the truth.
+                            timelineView: timeline
+                            // An INDEX-RANGE test, never a geometry test. See
+                            // visibleFirstRow below: with every loaded row
+                            // instantiated, a per-row binding on contentY costs
+                            // one float comparison per row per pixel scrolled.
+                            rowOnScreen: index >= timeline.visibleFirstRow
+                                         && index <= timeline.visibleLastRow
+                        }
+                    }
+                }
+
+                // NOTE: there is deliberately no height model here any more.
+                // The Column measures itself; contentHeight above is that
+                // measurement. Row insertions need no bookkeeping because an
+                // append cannot move an item that is already positioned.
                 // Lightning owns the scroll position (wheel/pixel motion writes
                 // contentY directly, clamped to wheelMinY/wheelMaxY). Pin the
                 // Flickable's own bounds to that same range so that if a wheel
@@ -617,21 +730,6 @@ Rectangle {
                 bottomMargin: AppTheme.spacingM
                 leftMargin: AppTheme.spacingM
                 rightMargin: AppTheme.spacingM
-
-                delegate: MessageDelegate {
-                    // Delegate incubation can begin before ListView.view has
-                    // its final width. A non-positive startup width made long
-                    // wrapped bodies measure as one-character-wide, producing
-                    // enormous transient heights and an endless create/drop
-                    // cycle. Use a normal message-column fallback only until
-                    // the real viewport width is positive.
-                    width: {
-                        var available = ListView.view
-                                      ? ListView.view.width
-                                        - AppTheme.spacingM * 2 : 0
-                        return available > 0 ? available : 640
-                    }
-                }
 
                 // Auto-scroll to end on new events when already near the bottom.
                 property bool stickToBottom: true
@@ -651,8 +749,8 @@ Rectangle {
                 // stops a hair short of the end still resumes following.
                 readonly property real bottomFollowSlack: 8
                 function atBottomEdge() {
-                    return atYEnd
-                           || (contentY + height >= contentHeight - bottomFollowSlack)
+                    return atYBeginning
+                           || contentY <= wheelMinY() + bottomFollowSlack
                 }
 
                 // ── v0.7: initial-hydration presentation gate ────────────
@@ -724,7 +822,7 @@ Rectangle {
                 property real viewAnchorOffset: 0
                 // The anchor row's own content-space y at the moment it was
                 // last measured — either at capture or after the most recent
-                // mid-gesture correction. maintainViewAnchor() re-bases this
+                // geometry pass. maintainViewAnchor() re-bases this
                 // on every application so the NEXT delta only ever covers
                 // growth that happened since then, never growth already
                 // compensated (no double-counting across repeated calls).
@@ -772,15 +870,15 @@ Rectangle {
                             viewAnchorOriginY = originY
                         return
                     }
-                    var row = indexAt(width / 2, contentY + topMargin + 1)
+                    var row = viewRowAtPhysicalTop()
                     if (row < 0) {
                         viewAnchorId = ""
                         viewAnchorLastY = 0
                         return
                     }
-                    var it = itemAtIndex(row)
-                    for (var probe = row; probe < count; ++probe) {
-                        var candidate = itemAtIndex(probe)
+                    var it = itemAtViewRow(row)
+                    for (var probe = row; probe >= 0; --probe) {
+                        var candidate = itemAtViewRow(probe)
                         if (!candidate)
                             break
                         if (!candidate.isStateActivity) {
@@ -789,9 +887,10 @@ Rectangle {
                             break
                         }
                     }
-                    viewAnchorId = app.timeline.stableIdAt(row)
-                    viewAnchorOffset = it ? (contentY - it.y) : 0
-                    viewAnchorLastY = it ? it.y : 0
+                    viewAnchorId = stableIdAtViewRow(row)
+                    var anchorPosition = anchorPositionForItem(it)
+                    viewAnchorOffset = it ? contentY - anchorPosition : 0
+                    viewAnchorLastY = anchorPosition
                     viewAnchorCount = count
                     viewAnchorRow = row
                     viewAnchorContentHeight = contentHeight
@@ -854,9 +953,9 @@ Rectangle {
                     // fires no such signal, so it needs no keep-alive
                     // bookkeeping. Do NOT reintroduce a pagination stand-down
                     // guard here: that guard is what created those bugs.
-                    var row = app.timeline.rowForStableId(viewAnchorId)
-                    var it = row >= 0 ? itemAtIndex(row) : null
-                    var anchorY = it ? it.y : 0
+                    var row = viewRowForStableId(viewAnchorId)
+                    var it = row >= 0 ? itemAtViewRow(row) : null
+                    var anchorY = anchorPositionForItem(it)
                     // Diagnostics only. A stable row index increasing is the
                     // proof that rows were inserted before the anchor. On that
                     // exact firing, pair the signed origin shift candidate
@@ -889,17 +988,16 @@ Rectangle {
                             diagPrependMaxAbsOriginShiftPath = originPathForDiag
                         }
                     }
-                    if (!it && row >= 0 && !moving
+                    if (!it && row >= 0 && !moving && !userScrollActive
                         && row > viewAnchorRow && viewAnchorRow >= 0) {
                         // DISPLACED by an insertion above the reader. The row
                         // index rising is the proof: rows were inserted
                         // before it, which at the top edge pushes it clear of
-                        // the delegate cache so Qt destroys it. The shift is
-                        // then exactly how much taller the content became —
-                        // no delegate needs to exist to know that. Applying
-                        // it relatively preserves an in-flight gesture, and
-                        // the baseline moves by the same amount (the row's own
-                        // y rose by the growth), so nothing double-counts.
+                        // the delegate cache so Qt destroys it. This estimate-
+                        // based fallback is IDLE-ONLY: active input falls
+                        // through to the measurement-only re-capture below,
+                        // because a real trace proved this quantity can cancel
+                        // essentially an entire upward wheel gesture.
                         //
                         // The previous version resolved this by forcing the
                         // row into existence (forceLayout, then
@@ -983,8 +1081,6 @@ Rectangle {
                                 diagDisplacedAppliedSum += grew
                             }
                             contentY += grew
-                            if (app.timelineScroll.motionActive)
-                                app.timelineScroll.translateActiveMotion(grew)
                             viewAnchorLastY += grew
                         }
                         viewAnchorCount = count
@@ -1020,6 +1116,13 @@ Rectangle {
                         // switch, so the first line after one can carry the
                         // previous room's outcomes ("since the previous
                         // line" applies across rooms too).
+                        if (userScrollActive) {
+                            var deferredDisplaced = row > viewAnchorRow
+                                    && viewAnchorRow >= 0
+                                    ? contentHeight - viewAnchorContentHeight
+                                    : 0
+                            diagNoteActiveDeferral(deferredDisplaced)
+                        }
                         if (scrollTrace) {
                             if (row < 0)
                                 diagUnresolvedIdFallbacks += 1
@@ -1030,108 +1133,47 @@ Rectangle {
                         return
                     }
                     if (userScrollActive) {
-                        if (!selfDrivenScrollActive) {
-                            // Native drag/flick: Flickable owns contentY and
-                            // rebuilds it from the press position each move,
-                            // so a correction written here would be silently
-                            // discarded — and re-basing viewAnchorLastY would
-                            // then hide the growth from settle-time handling
-                            // too. Leave BOTH untouched: at settle the growth
-                            // is absorbed and re-anchored (onMovementEnded ->
-                            // captureViewAnchor), exactly as it was before
-                            // this round.
-                            // Diagnostics only: discriminates H-A — whether a
-                            // native drag/flick ever actually engages for the
-                            // reporter's real input (a touchpad delivers
-                            // pixelDelta wheel events, which never set
-                            // `moving`, so this should stay near zero for a
-                            // touchpad-only session; a non-zero count here
-                            // means real drag/flick input occurred).
-                            if (scrollTrace)
-                                diagDragDeferrals += 1
-                            return
-                        }
-                        // Mid-gesture correction, on the self-driven paths
-                        // only. The key invariant: user input (wheel notch,
-                        // touchpad pixel delta) only ever
-                        // changes contentY — it never moves a row's own
-                        // content-space y. So `it.y` changes if and only if
-                        // content ABOVE this row resized OR rows were
-                        // inserted above it — a pagination prepend is simply
-                        // the insertion case of the same rule and needs no
-                        // special handling: same delta, same application,
-                        // including translating an active glide rather than
-                        // freezing it. The dominant resize
-                        // source is a POST-CREATION height change — a pooled
-                        // (reuseItems) delegate re-measuring once it is bound
-                        // to a taller row, media/decryption/link-preview
-                        // resolution — which re-triggers layoutVisibleItems():
-                        // that re-anchors on the first visible item and pushes
-                        // every following row, including this one, down. (Row
-                        // CREATION above the viewport is NOT the mechanism:
-                        // ListView positions a new row upward from the
-                        // existing first item, moving originY/contentHeight
-                        // rather than this row's y.) `delta = it.y - viewAnchorLastY` is
-                        // therefore PURELY that resize — never the user's own
-                        // scrolling — so applying it as `contentY += delta` is
-                        // a pure frame-of-reference correction: it preserves
-                        // the gesture's in-flight distance and velocity
-                        // exactly, unlike writing an ABSOLUTE position (the
-                        // idle-path formula below), which can disagree with
-                        // wherever the gesture has since moved the view and
-                        // fight it. This is the same reason
-                        // translateActiveMotion() applies a RELATIVE shift
-                        // rather than an absolute write. Deliberately NOT
-                        // clamped to
-                        // wheelMinY()/wheelMaxY(). The UPPER bound tracks
-                        // growth exactly (originY + contentHeight is the last
-                        // row's end), so a positive delta cannot push past
-                        // it. The LOWER bound does NOT move with the delta —
-                        // originY follows the averaged-size estimate, not
-                        // this row's resize — so the shrink case rests on a
-                        // different argument: a resize located above the
-                        // viewport top means contentY is already at least
-                        // that far past the first visible item's y, so
-                        // subtracting it cannot cross wheelMinY(). Do not
-                        // restate this as "both bounds move together": they
-                        // do not.
-                        var delta = anchorY - viewAnchorLastY
-                        // Diagnostics only: discriminates whether THIS
-                        // already-symmetric, already-tested path (not the
-                        // displaced branch above) is where a reported
-                        // jitter/teleport is actually coming from — a check
-                        // on the round-1 investigation's conclusion that
-                        // this branch was already correct.
+                        // deferredDelta is how far the anchor row's own y has
+                        // moved since it was last measured. Screen position is
+                        // (item y - contentY), so moving contentY by the same
+                        // amount holds the reader's message exactly where it
+                        // was while the rows around it resize.
+                        var deferredDelta = anchorY - viewAnchorLastY
+                        diagNoteActiveDeferral(deferredDelta)
                         if (scrollTrace) {
                             diagMaterializedFirings += 1
-                            if (Math.abs(delta) > Math.abs(diagMaterializedMaxAbsDelta))
-                                diagMaterializedMaxAbsDelta = delta
+                            if (Math.abs(deferredDelta)
+                                    > Math.abs(diagMaterializedMaxAbsDelta))
+                                diagMaterializedMaxAbsDelta = deferredDelta
+                            if (!selfDrivenScrollActive)
+                                diagDragDeferrals += 1
                         }
-                        if (Math.abs(delta) > 0.5) {
-                            if (scrollTrace) {
-                                diagGrowthCorrections += 1
-                                diagMaterializedAppliedSum += delta
-                            }
-                            contentY += delta
-                            // A discrete-wheel glide carries its own
-                            // coalesced target inside TimelineScrollController.
-                            // Shifting contentY here without also translating
-                            // it would let the glide's very next frame
-                            // overwrite this correction with its stale
-                            // pre-growth position.
-                            if (app.timelineScroll.motionActive)
-                                app.timelineScroll.translateActiveMotion(delta)
-                        }
-                        // Re-based even when the delta was below the
-                        // threshold: sub-pixel churn is deliberately absorbed
-                        // rather than accumulated, since applying it would be
-                        // its own source of jitter.
-                        viewAnchorLastY = anchorY
-                        viewAnchorCount = count
-                        viewAnchorRow = row
-                        viewAnchorContentHeight = contentHeight
-                        if (scrollTrace)
-                            viewAnchorOriginY = originY
+                        // NO WRITE. This has now been tried twice and rejected
+                        // by physical testing twice, the second time with the
+                        // height cache alive and with translateActiveMotion()
+                        // carrying the wheel target along — so neither "the
+                        // quantity was estimate noise" nor "the engine drove
+                        // the correction back out" explains it. Applying it
+                        // pulled the reader both up AND down during loading,
+                        // and down during ordinary scrolling with nothing
+                        // loading at all.
+                        //
+                        // The lesson is about WHAT the delta measures, not how
+                        // it is applied: anchorY moves for reasons that are not
+                        // displacement of the reader. TableView re-anchors the
+                        // loaded table on its own rebuilds, so the anchor row's
+                        // y can change while the reader's view of it did not.
+                        // Feeding that into contentY injects motion the reader
+                        // never asked for. Do not re-enable this without a
+                        // measurement that separates "the row moved under the
+                        // reader" from "the table was re-anchored beneath both
+                        // of them" — the raw delta cannot tell them apart.
+                        //
+                        // While input owns the viewport, accept Qt's live
+                        // layout position and re-base the measurement. The next
+                        // geometry change is measured from here, and settle
+                        // captures the final reading position once more.
+                        captureViewAnchor()
                         return
                     }
                     // Idle: no gesture to fight, so an absolute restore to
@@ -1142,8 +1184,9 @@ Rectangle {
                     // identical (viewAnchorOffset was defined as contentY
                     // minus the row's y at capture) — so a prepend landing
                     // while idle is restored exactly like one landing
-                    // mid-gesture, just via the absolute form, which is only
-                    // safe because nothing is competing for contentY.
+                    // after input has gone quiet, just via the absolute form,
+                    // which is only safe because nothing is competing for
+                    // contentY.
                     var desired = anchorY + viewAnchorOffset
                     var lo = wheelMinY()
                     var hi = wheelMaxY()
@@ -1165,6 +1208,108 @@ Rectangle {
                 // resolves stable-id actions against app.timeline and never
                 // suppresses a row as a pinned thread root.
                 property var timelineModel: app.timeline
+                // View row <-> source row. The reversal is anchored on the
+                // SOURCE total, never on `count`: the proxy paces newly
+                // paginated history out over a few frames, so it can briefly
+                // expose fewer rows than the model holds, and those two
+                // numbers are then not the same. `count` still bounds which
+                // view rows exist. Deriving the mapping from `count` instead
+                // would renumber every visible row for as long as a page was
+                // draining.
+                function sourceRowForViewRowAtCount(row, rowCount) {
+                    return row < 0 || row >= rowCount
+                            ? -1 : app.timeline.count - 1 - row
+                }
+                function sourceRowForViewRow(row) {
+                    return sourceRowForViewRowAtCount(row, count)
+                }
+                function viewRowForSourceRow(row) {
+                    var viewRow = app.timeline.count - 1 - row
+                    return row < 0 || viewRow < 0 || viewRow >= count
+                            ? -1 : viewRow
+                }
+                function stableIdAtViewRow(row) {
+                    return app.timeline.stableIdAt(sourceRowForViewRow(row))
+                }
+                function stableIdAtViewRowAtCount(row, rowCount) {
+                    return app.timeline.stableIdAt(
+                                sourceRowForViewRowAtCount(row, rowCount))
+                }
+                function eventIdAtViewRow(row) {
+                    return app.timeline.eventIdAt(sourceRowForViewRow(row))
+                }
+                function viewRowForStableId(stableId) {
+                    return viewRowForSourceRow(
+                                app.timeline.rowForStableId(stableId))
+                }
+                // Every loaded row is instantiated, so this is a direct lookup
+                // rather than "the delegate IF the virtualizer happens to have
+                // built it". Nothing downstream has to handle a null for a row
+                // that merely scrolled out of a cache buffer any more.
+                function itemAtViewRow(row) {
+                    return row < 0 || row >= count
+                            ? null : rowRepeater.itemAt(row)
+                }
+                // Which row occupies a given content-space y. Rows are laid out
+                // in ascending y by the Column, so this is a binary search over
+                // real geometry — no average-size guess anywhere in it. Hidden
+                // rows have zero height and are simply never the answer.
+                function viewRowAtContentY(y) {
+                    var lo = 0
+                    var hi = count - 1
+                    var best = -1
+                    while (lo <= hi) {
+                        var mid = (lo + hi) >> 1
+                        var item = rowRepeater.itemAt(mid)
+                        if (!item) {
+                            hi = mid - 1
+                            continue
+                        }
+                        if (item.y > y) {
+                            hi = mid - 1
+                        } else {
+                            best = mid
+                            lo = mid + 1
+                        }
+                    }
+                    return best
+                }
+                function viewRowAtPhysicalTop() {
+                    // Rotated: the physical top of the viewport is the far end
+                    // of the visible content range.
+                    return viewRowAtContentY(
+                        contentY + Math.max(0, height - topMargin - 1))
+                }
+                // The view is rotated: the logical bottom edge of a row is its
+                // physical top edge. Anchor that edge so row-height changes
+                // retain the message under the reader.
+                function anchorPositionForItem(item) {
+                    return item ? item.y + item.height : 0
+                }
+                // Row 0 is the newest message and sits at content y 0, which
+                // the rotation puts at the physical bottom. Following the
+                // latest is therefore just the low bound — no alignment enum,
+                // no second settling pass to correct an estimate.
+                function positionViewAtLatest() {
+                    contentY = wheelMinY()
+                }
+                function positionViewAtViewRow(row, centered) {
+                    var item = itemAtViewRow(row)
+                    if (!item)
+                        return
+                    // Place the row's physical top edge at the viewport's
+                    // physical top (or its middle when centering). Exact, on
+                    // measured geometry — this used to be positionViewAtRow(),
+                    // whose alignment ran through TableView's uniform average
+                    // row height.
+                    var target = centered
+                            ? anchorPositionForItem(item)
+                              - (height + item.height) / 2
+                            : anchorPositionForItem(item) - height + topMargin
+                    var lo = wheelMinY()
+                    var hi = wheelMaxY()
+                    contentY = target < lo ? lo : (target > hi ? hi : target)
+                }
                 property string suppressRootEventId: ""
                 property bool threadContext: false
 
@@ -1185,16 +1330,18 @@ Rectangle {
                         app.pagination.saveFollowingLatest(app.currentRoomId)
                         return
                     }
-                    var row = indexAt(width / 2, contentY + topMargin + 1)
+                    var row = viewRowAtPhysicalTop()
                     if (row < 0) return
-                    var eventId = app.timeline.eventIdAt(row)
-                    for (var probe = row; eventId === "" && probe < count; ++probe)
-                        eventId = app.timeline.eventIdAt(probe)
+                    var eventId = eventIdAtViewRow(row)
+                    for (var probe = row; eventId === "" && probe >= 0; --probe)
+                        eventId = eventIdAtViewRow(probe)
                     if (eventId === "") return
-                    var item = itemAtIndex(app.timeline.rowForStableId(eventId))
+                    var item = itemAtViewRow(viewRowForStableId(eventId))
                     app.pagination.saveScrollAnchor(
                                 app.currentRoomId, eventId,
-                                item ? contentY - item.y : 0, false)
+                                item ? contentY
+                                       - anchorPositionForItem(item) : 0,
+                                false)
                 }
                 function stateGroupExpansionKey(groupId) {
                     return (app.currentRoomId || "") + "\u001f" + groupId
@@ -1266,7 +1413,7 @@ Rectangle {
                 }
 
                 // Scroll to the newest row *after* the model/view have finished
-                // reconciling. Calling positionViewAtEnd() synchronously inside
+                // reconciling. Positioning synchronously inside
                 // onCountChanged during a reset (e.g. switching from a 10-row
                 // room to a 2-row snapshot) made the backing DelegateModel try
                 // to cancel a delegate at a now-out-of-range index
@@ -1279,52 +1426,27 @@ Rectangle {
                     // latest (a deferred re-pin interleaving with a fresh
                     // keyboard/wheel motion could settle it instantly).
                     if (count > 0 && stickToBottom && !wheelAnimating)
-                        positionViewAtEnd()
+                        positionViewAtLatest()
                 }
 
-                // ── v0.5.19/v0.6.0: device-aware wheel scrolling ─────────
-                // Discrete mouse-wheel notches are coalesced by
-                // TimelineScrollController (app.timelineScroll), which in
-                // 0.6.0 also OWNS the motion: a wheel-only C++ engine
-                // integrates contentY toward the coalesced target each frame
-                // with continuous velocity, so movement through one tall
-                // wrapped message is a single smooth glide instead of the
-                // restart-per-notch bursts a fixed-duration animation
-                // produced. Touchpad / high-resolution pixel deltas still
-                // move contentY directly to keep fine movement and native
-                // momentum precise. Programmatic navigation cancels wheel
-                // motion first, so restoration is never animated as if it
-                // were physical input.
+                // TimelineScrollController supplies the configured mouse-
+                // wheel speed and keyboard paging. The reversed model/layout
+                // below removes the unstable prepend-before-visible-rows
+                // operation that previously moved its coordinate frame.
                 property bool wheelAnimating: app.timelineScroll.motionActive
 
                 // ── Scroll-session state ─────────────────────────────────
                 // True while the user's input owns the viewport: a native
-                // drag/flick (moving/dragging), the mouse-wheel motion engine
-                // (wheelAnimating), OR a high-resolution touchpad gesture. The
-                // touchpad path writes contentY programmatically (so
-                // Flickable.moving never turns true) and cancels the wheel
-                // engine, so neither native flag detects it; the settle timer,
-                // restarted on every wheel/pixel delta, is the reliable
-                // "input seen within the last 250ms" signal. Qt's QML WheelEvent
-                // exposes no scroll phase and no device type (and phase
-                // begin/end is macOS-only even in C++), so a restarted quiet
-                // timer — not phases — is the portable gesture-active heuristic
-                // on KDE Wayland. While this is true, Lightning must not write
-                // the timeline position except through the one active input
-                // owner; deferred corrections wait for it to clear.
-                // (`moving` already covers both dragging and flicking.)
+                // drag/flick (moving/dragging), wheel/keyboard animation
+                // (wheelAnimating), or direct touchpad deltas (the settle
+                // timer). While this is true, Lightning must not write an
+                // anchor correction into the input-owned position.
                 readonly property bool userScrollActive:
                     moving || wheelAnimating || scrollSettleTimer.running
 
-                // True only while a gesture Lightning ITSELF drives contentY
-                // for: the wheel glide and the touchpad pixel path both write
-                // contentY programmatically, which is exactly why they leave
-                // Flickable.moving false. During a NATIVE drag or kinetic
-                // flick (`moving`), QQuickFlickable owns contentY and
-                // recomputes it from the recorded press position on every
-                // move — an external write landing between two moves is
-                // discarded by construction — so a growth correction there
-                // must be DEFERRED to settle, never applied-and-lost.
+                // True only while Lightning itself drives contentY. The
+                // distinction is diagnostic only: NO active input path
+                // receives an anchor write.
                 readonly property bool selfDrivenScrollActive:
                     !moving && (wheelAnimating || scrollSettleTimer.running)
 
@@ -1341,8 +1463,8 @@ Rectangle {
                 // v0.7.2: a separate paginationRestores counter used to
                 // live here for the pagination anchor's own restore path. It
                 // is gone because that whole mechanism is gone — a prepend
-                // landing mid-gesture is now counted by growthCorrections,
-                // exactly like any other structural change above the anchor.
+                // landing mid-gesture is now counted by activeDeferrals and
+                // absorbed into a measurement-only re-capture.
                 // Its disappearance IS the evidence the two mechanisms
                 // actually merged rather than one being renamed.
                 // No message content, ids, or URLs are logged.
@@ -1361,17 +1483,17 @@ Rectangle {
                 // gesture owns the view (the userScrollActive block returns
                 // first), so it is no longer a fought-the-input red flag;
                 // read it as "idle restores since the previous line".
-                // diagGrowthCorrections
-                // counts the SEPARATE relative-delta path that DOES run
-                // mid-gesture: how many times content growth above the anchor
-                // (a pooled delegate re-measuring after rebinding, media
-                // hydration, late decryption, a link preview) was compensated
-                // by shifting contentY by exactly that growth. Non-zero during
-                // a media-heavy gesture is EXPECTED — it is the fix for the
-                // "an image pops in while scrolling and the view jumps"
-                // defect, not a regression of it.
+                // diagGrowthCorrections counts the displaced-anchor fallback
+                // that actually wrote contentY after input was already idle.
+                // Active geometry deltas are instead recorded by the
+                // activeDeferred* fields below and never applied.
                 property int diagAnchorCorrections: 0
                 property int diagGrowthCorrections: 0
+                // Rows instantiated in the Column. There is no height cache
+                // to count commits against any more: every row's height IS its
+                // measured height, so the old heightCommits/heightCached/
+                // heightCorr triple has nothing left to report.
+                property int diagRowCount: 0
                 // v0.7.x live report round 2 ("teleporty ... when there is
                 // images ... scrolling up"): a proposed fix to the displaced-
                 // anchor branch (bounding/symmetrizing its correction) was
@@ -1487,6 +1609,9 @@ Rectangle {
                 property int diagUnresolvedIdFallbacks: 0
                 property int diagEvictedNoInsertFallbacks: 0
                 property int diagDragDeferrals: 0
+                property int diagActiveDeferrals: 0
+                property real diagActiveDeferredSum: 0
+                property real diagActiveDeferredMaxAbs: 0
                 property int diagPrependFirings: 0
                 property real diagPrependOriginShiftSum: 0
                 property real diagPrependMaxAbsOriginShift: 0
@@ -1496,6 +1621,15 @@ Rectangle {
                 property real diagStartY: 0
                 property real diagStartHeight: 0
                 property real diagStartOriginY: 0
+                function diagNoteActiveDeferral(delta) {
+                    if (!scrollTrace)
+                        return
+                    diagActiveDeferrals += 1
+                    diagActiveDeferredSum += delta
+                    if (Math.abs(delta)
+                            > Math.abs(diagActiveDeferredMaxAbs))
+                        diagActiveDeferredMaxAbs = delta
+                }
                 function diagNoteEvent(isPixel) {
                     if (!scrollTrace)
                         return
@@ -1526,6 +1660,9 @@ Rectangle {
                         + " pixel=" + diagPixelEvents
                         + " angle=" + diagAngleEvents
                         + " netY=" + Math.round(contentY - diagStartY)
+                        + " netOffset=" + Math.round(
+                            (contentY - originY)
+                            - (diagStartY - diagStartOriginY))
                         + " dContentH=" + Math.round(contentHeight - diagStartHeight)
                         + " originY=" + Math.round(originY)
                         + " dOriginY=" + Math.round(originY - diagStartOriginY)
@@ -1547,12 +1684,17 @@ Rectangle {
                         + " unresolvedId=" + diagUnresolvedIdFallbacks
                         + " evictedNoInsert=" + diagEvictedNoInsertFallbacks
                         + " dragDeferrals=" + diagDragDeferrals
+                        + " activeDeferrals=" + diagActiveDeferrals
+                        + " activeDeferredSum=" + Math.round(diagActiveDeferredSum)
+                        + " activeDeferredMaxAbs=" + Math.round(diagActiveDeferredMaxAbs)
                         + " prependFirings=" + diagPrependFirings
                         + " prependOriginShift=" + Math.round(diagPrependOriginShiftSum)
                         + " prependMaxAbsOriginShift=" + Math.round(diagPrependMaxAbsOriginShift)
                         + " prependMaxAbsOriginShiftRows=" + diagPrependMaxAbsOriginShiftRows
                         + " prependMaxAbsOriginShiftDContentH=" + Math.round(diagPrependMaxAbsOriginShiftContentDelta)
                         + " prependMaxAbsOriginShiftPath=" + diagPrependMaxAbsOriginShiftPath
+                        + " rows=" + count
+                        + " contentH=" + Math.round(contentHeight)
                         + " stick=" + (stickToBottom ? 1 : 0)
                         + " topDist=" + Math.round(distanceFromTop())
                         + " nearTop=" + (distanceFromTop() <= nearTopEnterDistance ? 1 : 0))
@@ -1574,6 +1716,9 @@ Rectangle {
                     diagUnresolvedIdFallbacks = 0
                     diagEvictedNoInsertFallbacks = 0
                     diagDragDeferrals = 0
+                    diagActiveDeferrals = 0
+                    diagActiveDeferredSum = 0
+                    diagActiveDeferredMaxAbs = 0
                     diagPrependFirings = 0
                     diagPrependOriginShiftSum = 0
                     diagPrependMaxAbsOriginShift = 0
@@ -1592,7 +1737,6 @@ Rectangle {
                     var minY = wheelMinY()
                     return maxY < minY ? minY : maxY
                 }
-
                 // Recompute follow-latest and near-top pagination the way the
                 // drag/flick path does. Needed because wheel/pixel motion sets
                 // contentY programmatically, so Flickable.moving stays false.
@@ -1660,8 +1804,15 @@ Rectangle {
                 // thresholds — the ...Distance names are deliberate. The
                 // previous ...Y names invited exactly the frame confusion
                 // described below, which is the whole of this defect.
-                readonly property real nearTopEnterDistance: height * 0.5
-                readonly property real nearTopExitDistance: height * 0.9
+                // Keep multiple viewports of loaded runway ahead of an
+                // aggressive upward wheel gesture. Waiting until half a
+                // viewport remained guaranteed that a fast mouse reached the
+                // old hard bound before one 100ms SDK poll could land. Earlier
+                // prefetch keeps position ownership with the user's live input;
+                // unlike replaying overscroll after a load, it never skips a
+                // page the reader has not seen.
+                readonly property real nearTopEnterDistance: height * 2.5
+                readonly property real nearTopExitDistance: height * 3.25
                 property bool nearTopArmed: true
                 // How far the viewport top sits BELOW the earliest loaded row.
                 // The proximity bands MUST be measured against this and never
@@ -1694,7 +1845,7 @@ Rectangle {
                 // the reported "it keeps loading old messages each time I scroll
                 // up ... and down", and that loading storm is what the lag and
                 // jitter were made of.
-                function distanceFromTop() { return contentY - wheelMinY() }
+                function distanceFromTop() { return wheelMaxY() - contentY }
                 // The CLOSEST distanceFromTop() reached during this visit to the
                 // band — a ratchet, not "the distance at the last dispatch".
                 // The difference is the whole guarantee: with only the dispatch
@@ -1761,12 +1912,13 @@ Rectangle {
                     var lo = wheelMinY()
                     var hi = wheelMaxY()
                     targetY = targetY < lo ? lo : (targetY > hi ? hi : targetY)
-                    app.timelineScroll.animateTo(targetY, contentY, lo, hi)
+                    app.timelineScroll.animateTo(targetY, contentY, lo, hi,
+                                                 height)
                     updateStickAndPaginate()
                     // Any upward intent leaves follow-latest — applied last so
                     // the geometry recompute above (still on the pre-motion
                     // position) cannot re-enable it while scrolling up.
-                    if (targetY < contentY - 0.5)
+                    if (targetY > contentY + 0.5)
                         stickToBottom = false
                     scrollSettleTimer.restart()
                 }
@@ -1779,29 +1931,31 @@ Rectangle {
                 // only while the timeline holds active focus — so a focused
                 // composer, search field, dialog, or menu keeps its keys.
                 function keyboardPage(direction) {   // -1 up, +1 down
-                    beginWheelTo(contentY + direction * height * 0.9)
+                    // The table is rotated: increasing logical contentY moves
+                    // physically upward toward older rows.
+                    beginWheelTo(contentY - direction * height * 0.9)
                 }
                 // Home is programmatic navigation like End: it bypasses the
                 // wheel motion engine and jumps directly, then recomputes
                 // pagination / follow-latest and saves one settled anchor.
                 function goToEarliestLoaded() {
                     cancelWheelMotion()
-                    contentY = wheelMinY()
+                    contentY = wheelMaxY()
                     updateStickAndPaginate()
                     scrollSettleTimer.restart()
                 }
                 function goToLatest() {
                     cancelWheelMotion()
                     stickToBottom = true
-                    // positionViewAtEnd() below can re-seed the position
+                    // positioning row zero below can re-seed the position
                     // frame from an estimate; a surviving anchor baseline
                     // would then measure a delta across two different frames.
                     viewAnchorId = ""
                     viewAnchorLastY = 0
                     app.pagination.saveFollowingLatest(app.currentRoomId)
-                    positionViewAtEnd()
+                    positionViewAtLatest()
                     Qt.callLater(function() {
-                        positionViewAtEnd()
+                        positionViewAtLatest()
                         app.readReceipts.reevaluate()
                     })
                 }
@@ -1832,14 +1986,8 @@ Rectangle {
                     onTapped: timeline.forceActiveFocus()
                 }
 
-                // v0.6.0: the wheel motion engine lives in C++ (one ticker,
-                // active only while motion is in flight — never a per-event
-                // animation queue and never a permanently running timer).
-                // QML's job is to apply each emitted frame to contentY,
-                // re-clamped against LIVE geometry: a pagination prepend or a
-                // delegate height change mid-motion can move the valid range,
-                // and pushing past a bound must end the motion instead of
-                // jittering against it.
+                // TimelineScrollController drives mouse-wheel and keyboard
+                // motion. QML applies each frame against the live bounds.
                 Connections {
                     target: app.timelineScroll
                     function onWheelPositionChanged(y) {
@@ -1896,9 +2044,8 @@ Rectangle {
                             && timeline.distanceFromTop()
                                <= timeline.nearTopEnterDistance)
                             timeline.nearTopArmed = true
-                        // The single gesture-settle point for both the touchpad
-                        // and mouse-engine paths (the engine's settle restarts
-                        // this timer): emit one bounded diagnostic summary.
+                        // The single wheel-gesture settle point: emit one
+                        // bounded diagnostic summary.
                         timeline.diagFlushGesture()
                     }
                 }
@@ -1906,58 +2053,30 @@ Rectangle {
                 WheelHandler {
                     id: timelineWheelHandler
                     objectName: "timelineWheelHandler"
-                    // We move contentY ourselves; the handler must not also
-                    // manipulate a target of its own.
+                    // This handler is the single pointer-wheel owner. The
+                    // reversed proxy plus rotated table ensures loading older
+                    // history extends the far edge instead of moving every
+                    // visible row underneath that owner.
                     target: null
                     acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
                     onWheel: (event) => {
                         var minY = timeline.wheelMinY()
                         var maxY = timeline.wheelMaxY()
                         if (event.pixelDelta.y !== 0) {
-                            // Touchpad / high-resolution: precise and direct,
-                            // no notch multiplier, no competing animation.
                             timeline.cancelWheelMotion()
                             timeline.contentY = app.timelineScroll.pixelTargetY(
-                                event.pixelDelta.y, timeline.contentY, minY, maxY)
+                                -event.pixelDelta.y, timeline.contentY,
+                                minY, maxY)
                             timeline.updateStickAndPaginate()
-                            // Any upward intent immediately establishes user
-                            // ownership and leaves follow-latest — parity with
-                            // the mouse branch below. Without this a touchpad
-                            // up-scroll near the bottom (which cancels the wheel
-                            // engine, so wheelAnimating is false) could not
-                            // disengage bottom-follow, and the next async
-                            // content-height change teleported the view down.
                             if (event.pixelDelta.y > 0)
                                 timeline.stickToBottom = false
-                            // No per-delta anchor RE-CAPTURE: this does not
-                            // re-run a fresh indexAt/itemAtIndex/stableIdAt
-                            // scan on every touchpad delta to find "the row
-                            // currently under the reader" (that full
-                            // re-derivation still happens only once the
-                            // gesture settles, via captureViewAnchor()).
-                            // maintainViewAnchor() DOES still run mid-gesture
-                            // whenever content height changes, but it measures
-                            // against the ALREADY-tracked viewAnchorId via a
-                            // rowForStableId + itemAtIndex lookup
-                            // (rowForStableId is an O(n) scan of the event
-                            // mirror, bounded here by the callLater
-                            // coalescing to once per event-loop turn) and
-                            // applies a RELATIVE delta (see
-                            // maintainViewAnchor()) — never the per-event full
-                            // scan the earlier code ran, which was pure cost
-                            // on the touchpad hot path, worst near the top and
-                            // over tall media rows.
                             timeline.diagNoteEvent(true)
                             scrollSettleTimer.restart()
                         } else if (event.angleDelta.y !== 0) {
-                            // Discrete mouse wheel: the C++ engine coalesces
-                            // the notch into the in-flight motion (or starts
-                            // one) with continuous velocity.
                             app.timelineScroll.wheelNotch(
-                                event.angleDelta.y, timeline.contentY,
+                                -event.angleDelta.y, timeline.contentY,
                                 minY, maxY, timeline.height)
                             timeline.updateStickAndPaginate()
-                            // Any upward intent leaves follow-latest.
                             if (event.angleDelta.y > 0)
                                 timeline.stickToBottom = false
                             timeline.diagNoteEvent(false)
@@ -2046,6 +2165,7 @@ Rectangle {
                 // keep the newest event pinned while following the bottom,
                 // otherwise hold the reader's anchor steady.
                 onContentHeightChanged: {
+                    scheduleVisibleRowRange()
                     maybeFillViewport()
                     recomputePresentationReady()
                     if (stickToBottom) {
@@ -2068,6 +2188,10 @@ Rectangle {
                         maintainViewAnchorCoalesced()
                     }
                 }
+                // NOTE: no onWidthChanged invalidation. Wrapped text heights
+                // used to be cached per row and had to be thrown away when the
+                // wrapping constraint changed. Rows now re-wrap and re-measure
+                // themselves, and the Column re-lays out from the result.
 
                 // v0.5.11 through v0.7: backward-pagination prepend
                 // compensation used to be a SEPARATE capture/restore pair
@@ -2097,18 +2221,34 @@ Rectangle {
 
                 Connections {
                     target: app.pagination
+                    function onPaginationCompleted(insertedCount, reachedStart,
+                                                   willContinue) {
+                        if (insertedCount <= 0 || reachedStart || willContinue)
+                            return
+                        // A productive page relocated the history edge. Start a
+                        // fresh distance ratchet from that new edge so continued
+                        // upward motion can prefetch the following page before
+                        // exhausting the newly loaded runway. No position write.
+                        timeline.nearTopArmed = true
+                        timeline.nearTopRequestDistance =
+                                timeline.distanceFromTop()
+                    }
                     function onTargetLocated(row, pixelOffset, highlight) {
                         // Reply navigation takes control immediately.
                         timeline.cancelWheelMotion()
                         Qt.callLater(function() {
+                            var viewRow = timeline.viewRowForSourceRow(row)
+                            if (viewRow < 0)
+                                return
                             timeline.cancelWheelMotion()
                             timeline.stickToBottom = false
-                            timeline.positionViewAtIndex(
-                                        row, highlight ? ListView.Center
-                                                       : ListView.Beginning)
+                            timeline.positionViewAtViewRow(viewRow, highlight)
                             if (!highlight) {
-                                var item = timeline.itemAtIndex(row)
-                                if (item) timeline.contentY = item.y + pixelOffset
+                                var item = timeline.itemAtViewRow(viewRow)
+                                if (item)
+                                    timeline.contentY =
+                                        timeline.anchorPositionForItem(item)
+                                        + pixelOffset
                             }
                             timeline.saveRoomPosition()
                             timeline.captureViewAnchor()
@@ -2148,13 +2288,15 @@ Rectangle {
                 }
 
                 onContentYChanged: {
-                    // React to a user drag/flick AND to our own wheel/pixel
-                    // motion; ignore programmatic navigation (jump, reply,
-                    // restore) which manages follow-latest itself, and the
-                    // anchor probe's transient materialising move — reading
-                    // stickToBottom or dispatching a near-top request from a
-                    // position the reader was never at would be wrong.
-                    if (!moving && !wheelAnimating) return
+                    // Unconditional: the activation range must track the
+                    // viewport even for programmatic moves.
+                    scheduleVisibleRowRange()
+                    // React to native drag/flick/wheel movement and keyboard
+                    // paging, but ignore unrelated programmatic navigation.
+                    // A native wheel does not need to expose `moving`: the
+                    // passive observer above keeps the settle timer active for
+                    // the duration of its event stream.
+                    if (!userScrollActive) return
                     stickToBottom = atBottomEdge()
                     // Trigger backfill as the user approaches the top
                     // (drag/flick/wheel), edge-latched with hysteresis so it
@@ -2162,6 +2304,7 @@ Rectangle {
                     checkNearTopEdge(true)
                 }
                 onCountChanged: {
+                    scheduleVisibleRowRange()
                     // A new event arrived (or the timeline reset). Follow the
                     // bottom.
                     recomputePresentationReady()
@@ -2269,8 +2412,8 @@ Rectangle {
                 //     page or two if that estimate-churn scenario recurs —
                 //     accepted rather than risking the active path's tested
                 //     invariants for an unconfirmed, narrower edge case.
-                onAtYBeginningChanged: {
-                    if (atYBeginning)
+                onAtYEndChanged: {
+                    if (atYEnd)
                         maybeRequestNearTop(false)
                 }
 

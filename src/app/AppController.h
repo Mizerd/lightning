@@ -39,6 +39,7 @@
 
 class MatrixClient;
 class NotificationManager;
+class ReverseListProxyModel;
 class SecretStore;
 
 class AppController : public QObject
@@ -147,6 +148,7 @@ class AppController : public QObject
     Q_PROPERTY(RoomListModel* roomList READ roomList CONSTANT)
     Q_PROPERTY(QuickSwitcherModel* quickSwitcher READ quickSwitcher CONSTANT)
     Q_PROPERTY(TimelineModel* timeline READ timeline CONSTANT)
+    Q_PROPERTY(QAbstractItemModel* timelineView READ timelineView CONSTANT)
     Q_PROPERTY(MessageComposer* composer READ composer CONSTANT)
     // v0.7 outgoing @-mentions: the current-room member suggestion model
     // shared by the room and thread composer mention popups.
@@ -295,6 +297,7 @@ public:
     RoomListModel *roomList() const;
     QuickSwitcherModel *quickSwitcher() const;
     TimelineModel *timeline() const;
+    QAbstractItemModel *timelineView() const;
     MessageComposer *composer() const;
     MentionSuggestionModel *mentionSuggestions() const
     { return m_mentionSuggestions.get(); }
@@ -663,6 +666,7 @@ private:
     std::unique_ptr<RoomListModel> m_roomList;
     std::unique_ptr<QuickSwitcherModel> m_quickSwitcher;
     std::unique_ptr<TimelineModel> m_timeline;
+    std::unique_ptr<ReverseListProxyModel> m_timelineView;
     std::unique_ptr<MessageComposer> m_composer;
     std::unique_ptr<MentionSuggestionModel> m_mentionSuggestions;
     std::unique_ptr<EmojiCatalog> m_emojiCatalog;

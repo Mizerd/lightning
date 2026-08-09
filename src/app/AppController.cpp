@@ -15,6 +15,7 @@
 #include "models/MessageComposer.h"
 #include "models/EmojiCatalog.h"
 #include "models/RoomListModel.h"
+#include "models/ReverseListProxyModel.h"
 #include "models/TimelineModel.h"
 #include "models/TimelineScrollController.h"
 #include "notifications/NotificationManager.h"
@@ -137,6 +138,8 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_roomList     = std::make_unique<RoomListModel>(this);
     m_quickSwitcher = std::make_unique<QuickSwitcherModel>(this);
     m_timeline     = std::make_unique<TimelineModel>(this);
+    m_timelineView = std::make_unique<ReverseListProxyModel>(this);
+    m_timelineView->setSourceModel(m_timeline.get());
     m_composer     = std::make_unique<MessageComposer>(this);
     m_mentionSuggestions = std::make_unique<MentionSuggestionModel>(this);
     m_emojiCatalog = std::make_unique<EmojiCatalog>(m_settings.get(), this);
@@ -1229,6 +1232,8 @@ RoomListModel *AppController::roomList() const { return m_roomList.get(); }
 QuickSwitcherModel *AppController::quickSwitcher() const
 { return m_quickSwitcher.get(); }
 TimelineModel *AppController::timeline() const { return m_timeline.get(); }
+QAbstractItemModel *AppController::timelineView() const
+{ return m_timelineView.get(); }
 MessageComposer *AppController::composer() const { return m_composer.get(); }
 MediaManager *AppController::media() const { return m_media.get(); }
 CryptoManager *AppController::crypto() const { return m_crypto.get(); }

@@ -219,6 +219,8 @@ set(APP_SOURCES
     src/models/QuickSwitcherModel.cpp
     src/models/TimelineModel.h
     src/models/TimelineModel.cpp
+    src/models/ReverseListProxyModel.h
+    src/models/ReverseListProxyModel.cpp
     src/models/MessageHtml.h
     src/models/MessageHtml.cpp
     src/models/TimelineScrollController.h

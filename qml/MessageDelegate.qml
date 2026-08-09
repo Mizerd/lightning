@@ -5,6 +5,22 @@ import MatrixClient
 
 Item {
     id: root
+    // TableView owns the row rectangle. Nested Loader content must never paint
+    // into an adjacent message while a recycled row is being remeasured.
+    // Clip everywhere except the thread ListView, which keeps its previous
+    // unclipped behaviour. The room timeline's rows are packed edge to edge in
+    // a Column, so a row must not paint over its neighbours.
+    clip: ListView.view === null
+    // The room timeline is a one-column TableView; thread replies still use
+    // ListView. Keep the delegate's interaction contract independent of the
+    // virtualizer while preserving each view's attached reuse lifecycle.
+    // Settable, not readonly: the room timeline instantiates rows in a
+    // Repeater/Column where no attached view exists, so it injects itself.
+    // The thread panel is still a real ListView and keeps the attached
+    // default (including its delegate reuse, which the room timeline no
+    // longer does at all).
+    property var timelineView:
+        TableView.view ? TableView.view : ListView.view
     // v0.5.7: virtual SDK timeline rows (date divider / read marker /
     // timeline start) render as thin separators instead of messages.
     // eventType: 7 = DateDivider, 8 = ReadMarker, 9 = TimelineStart.
@@ -20,13 +36,17 @@ Item {
     // against. The room timeline supplies app.timeline; the thread panel
     // supplies app.thread.model — identical role/invokable surface.
     readonly property var timelineModel:
-        ListView.view && ListView.view.timelineModel
-        ? ListView.view.timelineModel : app.timeline
+        root.timelineView && root.timelineView.timelineModel
+        ? root.timelineView.timelineModel : app.timeline
+    function sourceModelRow(viewRow) {
+        return root.timelineView && root.timelineView.sourceRowForViewRow
+                ? root.timelineView.sourceRowForViewRow(viewRow) : viewRow
+    }
     // v0.6.0: the thread panel pins the root above the reply list; the same
     // row inside the ListView collapses so the root is never duplicated.
     readonly property bool suppressedAsThreadRoot:
-        ListView.view && (ListView.view.suppressRootEventId || "") !== ""
-        && (model.eventId || "") === ListView.view.suppressRootEventId
+        root.timelineView && (root.timelineView.suppressRootEventId || "") !== ""
+        && (model.eventId || "") === root.timelineView.suppressRootEventId
     readonly property var stateActivityEntries: model.stateGroupEntries || []
     readonly property bool showsIdentity: model.showSenderIdentity === true
 
@@ -35,8 +55,8 @@ Item {
     // applies only to direct-message timelines (never ordinary rooms).
     readonly property int timelineLayout:
         inThreadPanel ? 0 : app.settings.messageLayout
-    property bool isDirectRoom: ListView.view
-                                && ListView.view.isDirectRoom === true
+    property bool isDirectRoom: root.timelineView
+                                && root.timelineView.isDirectRoom === true
     readonly property bool bubbleMode: timelineLayout === 1 && isDirectRoom
     readonly property bool compactMode: timelineLayout === 2
     readonly property real bubblePad: bubbleMode ? 10 : 0
@@ -55,10 +75,21 @@ Item {
     // v0.7: shared on-screen check for skeleton shimmer and GIF playback —
     // rows pooled in the cache buffer are `visible` but not on screen, and
     // must not burn animation work.
-    readonly property bool rowOnScreen:
-        ListView.view
-        && (y + height) > ListView.view.contentY
-        && y < (ListView.view.contentY + ListView.view.height)
+    // One geometry test for both hosts. The room timeline instantiates every
+    // loaded row, so "instantiated" no longer implies "on screen" and this
+    // must be a real intersection against the viewport. It is also safe to
+    // read our own y/height now: the previous version had to avoid them
+    // because they fed back into the rowHeightProvider measuring this same
+    // object, and that provider is gone.
+    // Settable for the same reason timelineView is: in the room timeline this
+    // item sits inside a per-row Loader, so its own y is 0 relative to that
+    // Loader and cannot be compared against the viewport. The Loader knows its
+    // content-space position and assigns this. The default binding below still
+    // serves the thread ListView, where the delegate IS the positioned item.
+    property bool rowOnScreen:
+        !!root.timelineView
+        && (y + height) > root.timelineView.contentY
+        && y < (root.timelineView.contentY + root.timelineView.height)
 
     // Once the verified-session bootstrap has given up (the automatic key
     // request timed out, or there is no backup to restore from), stop
@@ -72,10 +103,16 @@ Item {
             || app.cryptoBootstrap.phase
                 === CryptoBootstrapModel.NoBackupAvailable)
     visible: roomActivityVisible && !suppressedAsThreadRoot
-    implicitHeight: (!roomActivityVisible || suppressedAsThreadRoot) ? 0
-                    : isVirtualRow ? virtualRow.implicitHeight
-                    : isStateActivity ? stateActivity.implicitHeight
-                    : layout.implicitHeight + messageTopSpacing
+    readonly property real naturalImplicitHeight:
+        (!roomActivityVisible || suppressedAsThreadRoot) ? 0
+        : isVirtualRow ? virtualRow.implicitHeight
+        : isStateActivity ? stateActivity.implicitHeight
+        : layout.implicitHeight + messageTopSpacing
+    property bool heightSeedActive: false
+    property real heightSeed: 0
+    property string heightSeedIdentity: ""
+    property bool heightMeasurementReady: false
+    implicitHeight: heightSeedActive ? heightSeed : naturalImplicitHeight
 
     // Stable key for the pin-one-toolbar-at-a-time state on the ListView.
     // Prefer the SDK item id; fall back to the event id for backends that
@@ -83,13 +120,102 @@ Item {
     readonly property string actionKey: (model.itemId && model.itemId.length > 0)
                                         ? model.itemId
                                         : (model.eventId || "")
+    function refreshHeightSeed() {
+        heightSeedActive = false
+        heightMeasurementReady = false
+        heightSeedIdentity = actionKey
+        if (!TableView.view || !root.timelineView)
+            return
+        if (actionKey !== "" && root.timelineView.cachedDelegateHeight) {
+            var seed = root.timelineView.cachedDelegateHeight(actionKey)
+            if (isFinite(seed) && seed >= 0) {
+                heightSeed = seed
+                heightSeedActive = true
+            }
+        }
+        // Keep a recycled delegate at its own last known height for one event
+        // turn while the nested Loaders rebind. After that, expose natural
+        // geometry and let TableView measure it. Holding an estimate longer
+        // lets child content paint outside stale row bounds and visibly stack.
+        heightSeedReleaseTimer.restart()
+    }
+    onNaturalImplicitHeightChanged: {
+        // Nested reply/media/preview Loaders can finish after the initial
+        // reuse turn. A custom TableView rowHeightProvider is not guaranteed
+        // to be queried again for that implicit-size change, so explicitly
+        // coalesce a fresh exact measurement. Do not reactivate the seed:
+        // that was what allowed stale row geometry to persist and stack.
+        //
+        // Readiness IS dropped here, deliberately: a nested Loader mid-swap
+        // can expose its previous item's implicit size, and accepting that
+        // live would cache a wrong height and shrink-then-grow the row. Keeping
+        // readiness across in-place changes was tried in the belief that this
+        // line was starving the cache; the real cause was the broken attached
+        // -property guard in heightResolutionTimer below, so the debounce
+        // stands as originally written.
+        if (TableView.view && root.timelineView) {
+            heightMeasurementReady = false
+            heightResolutionTimer.restart()
+        }
+    }
+    Timer {
+        id: heightSeedReleaseTimer
+        interval: 0
+        onTriggered: {
+            if (root.heightSeedIdentity !== root.actionKey) {
+                root.refreshHeightSeed()
+                return
+            }
+            root.heightSeedActive = false
+            heightResolutionTimer.restart()
+        }
+    }
+    Timer {
+        id: heightResolutionTimer
+        // A recycled media/preview Loader can expose its previous item's
+        // implicit size for one or more queued turns. Commit only after the
+        // natural geometry has been quiet for one frame. Every intervening
+        // change restarts this timer through the handler above.
+        interval: 16
+        onTriggered: {
+            if (root.heightSeedIdentity !== root.actionKey) {
+                root.refreshHeightSeed()
+                return
+            }
+            // root.timelineView ONLY. `TableView.view` here would attach to
+            // this Timer, not to the delegate root — the attached `view` is
+            // populated only on the item the TableView instantiated, so it was
+            // permanently null and this guard returned every single time.
+            // That one line disabled the whole exact-height cache: it made
+            // rememberDelegateHeight() unreachable, and because it also
+            // skipped setting heightMeasurementReady, the rowHeightProvider's
+            // own commit path (which waits on that flag) never ran either.
+            // Confirmed live: heightCommits=0 heightCached=0 in every gesture
+            // of a full session, so contentHeight was a sum of pure metadata
+            // estimates while TableView laid the loaded rows out at their real
+            // heights. root.timelineView already resolves the attached view in
+            // the delegate's own scope and covers the ListView case too.
+            if (!root.timelineView)
+                return
+            root.heightMeasurementReady = true
+            if (root.actionKey !== ""
+                    && root.timelineView.rememberDelegateHeight) {
+                root.timelineView.rememberDelegateHeight(
+                            root.actionKey,
+                            Math.max(0, Math.round(
+                                root.naturalImplicitHeight)))
+            }
+            if (root.timelineView.scheduleHeightLayout)
+                root.timelineView.scheduleHeightLayout()
+        }
+    }
     readonly property string previewRoomId: app.currentRoomId || ""
     readonly property string previewOwnerKey:
         previewRoomId.length > 0 && actionKey.length > 0
         ? previewRoomId + "\u001f" + actionKey : ""
-    readonly property bool actionsPinned: ListView.view
-            && ListView.view.pinnedActionsKey !== ""
-            && ListView.view.pinnedActionsKey === actionKey
+    readonly property bool actionsPinned: root.timelineView
+            && root.timelineView.pinnedActionsKey !== ""
+            && root.timelineView.pinnedActionsKey === actionKey
     property string menuEventId: ""
 
     // v0.7: pooled-delegate reuse. The ListView recycles this delegate for a
@@ -109,6 +235,10 @@ Item {
         refreshPreview()
     }
     ListView.onReused: resetForReuse()
+    TableView.onReused: {
+        resetForReuse()
+        refreshHeightSeed()
+    }
 
     function openContextMenu(x, y) {
         var eventId = root.eventIdForActions()
@@ -131,7 +261,7 @@ Item {
     // (a rich reply WITHIN the thread via the SDK path); in the room
     // timeline it targets the main composer as before.
     readonly property bool inThreadPanel:
-        ListView.view && ListView.view.threadContext === true
+        root.timelineView && root.timelineView.threadContext === true
     function beginReply(eventId) {
         var details = root.timelineModel.messageDetails(eventId)
         if (!details.eventId) return
@@ -153,8 +283,8 @@ Item {
         }
     }
     function toggleActionsPin() {
-        if (!ListView.view || actionKey === "") return
-        ListView.view.pinnedActionsKey =
+        if (!root.timelineView || actionKey === "") return
+        root.timelineView.pinnedActionsKey =
             actionsPinned ? "" : actionKey
     }
 
@@ -176,7 +306,7 @@ Item {
     // "requires_action" until the explicit Load action.
     property var preview: ({ state: "none" })
     readonly property bool roomEncrypted:
-        ListView.view ? ListView.view.roomEncrypted === true : false
+        root.timelineView ? root.timelineView.roomEncrypted === true : false
     function refreshPreview() {
         if (isVirtualRow || isStateActivity || model.redacted || model.isImage || model.isFile
             || actionKey === "" || !app.linkPreviews.supported) {
@@ -187,8 +317,14 @@ Item {
                                                    model.body || "",
                                                    roomEncrypted)
     }
-    Component.onCompleted: refreshPreview()
-    onActionKeyChanged: refreshPreview()
+    Component.onCompleted: {
+        refreshHeightSeed()
+        refreshPreview()
+    }
+    onActionKeyChanged: {
+        refreshHeightSeed()
+        refreshPreview()
+    }
     onPreviewRoomIdChanged: {
         preview = ({ state: "none" })
         refreshPreview()
@@ -237,8 +373,8 @@ Item {
             // hosts without a timeline ListView (fixtures, previews) keep
             // it visible.
             readonly property bool suppressedWhilePinned:
-                root.ListView.view
-                && root.ListView.view.stickToBottom === true
+                root.timelineView
+                && root.timelineView.stickToBottom === true
             visible: root.isVirtualRow && model.eventType === 8
                      && !suppressedWhilePinned
             // v0.6.5: reads unreadBadge, not accent — this divider is the
@@ -279,12 +415,12 @@ Item {
         width: parent.width
         groupId: model.stateGroupId || ""
         entries: root.stateActivityEntries
-        expanded: root.ListView.view
-                  ? root.ListView.view.stateGroupExpanded(groupId)
+        expanded: root.timelineView
+                  ? root.timelineView.stateGroupExpanded(groupId)
                   : false
         onToggleRequested: {
-            if (root.ListView.view)
-                root.ListView.view.toggleStateGroup(groupId)
+            if (root.timelineView)
+                root.timelineView.toggleStateGroup(groupId)
         }
     }
 
@@ -783,9 +919,9 @@ Item {
                         // profile. Everything else is a validated http(s) URL.
                         onLinkActivated: function(link) {
                             if (link.indexOf("mention:") === 0) {
-                                if (root.ListView.view
-                                    && root.ListView.view.openSenderProfile) {
-                                    root.ListView.view.openSenderProfile({
+                                if (root.timelineView
+                                    && root.timelineView.openSenderProfile) {
+                                    root.timelineView.openSenderProfile({
                                         userId: link.substring(8),
                                         displayName: "",
                                         avatarUrl: ""
@@ -957,7 +1093,8 @@ Item {
                             MouseArea {
                                 anchors.fill: parent
                                 cursorShape: Qt.PointingHandCursor
-                                onClicked: root.timelineModel.retrySend(index)
+                                onClicked: root.timelineModel.retrySend(
+                                               root.sourceModelRow(index))
                             }
                         }
                         // v0.6.1: Element-style thread summary card on the root
@@ -1025,8 +1162,8 @@ Item {
                         ToolTip.visible: hovered
                         ToolTip.delay: 500
                         onClicked: {
-                            if (root.ListView.view)
-                                root.ListView.view.pinnedActionsKey = root.actionKey
+                            if (root.timelineView)
+                                root.timelineView.pinnedActionsKey = root.actionKey
                             root.openReactionPickerFor(root.eventIdForActions(),
                                                        reactButton)
                         }
@@ -1279,9 +1416,9 @@ Item {
                                          && app.mediaBridge.supported
                                 enabled: visible && root.menuEventId !== ""
                                 onTriggered: {
-                                    if (root.ListView.view
-                                        && root.ListView.view.saveMedia)
-                                        root.ListView.view.saveMedia(
+                                    if (root.timelineView
+                                        && root.timelineView.saveMedia)
+                                        root.timelineView.saveMedia(
                                             model.mediaKey || "",
                                             model.mediaFilename || "download")
                                 }
@@ -1298,14 +1435,14 @@ Item {
                                 iconName: "person"
                                 text: qsTr("View profile")
                                 enabled: root.menuEventId !== ""
-                                         && root.ListView.view
-                                         && !!root.ListView.view.openSenderProfile
+                                         && root.timelineView
+                                         && !!root.timelineView.openSenderProfile
                                 onTriggered: {
                                     var details = root.timelineModel.messageDetails(
                                                       root.menuEventId)
                                     if (!details.senderId)
                                         return
-                                    root.ListView.view.openSenderProfile({
+                                    root.timelineView.openSenderProfile({
                                         userId: details.senderId,
                                         displayName: details.senderName || "",
                                         avatarUrl: model.senderAvatarMxc || ""
@@ -1634,12 +1771,12 @@ Item {
     // and scrolling). The target event id is snapshotted at open, so a
     // recycled delegate can never redirect a reaction.
     function openReactionPickerFor(eventId, anchorItem) {
-        if (!ListView.view || !ListView.view.openReactionPicker
+        if (!root.timelineView || !root.timelineView.openReactionPicker
             || eventId === "")
             return
         var p = anchorItem.mapToItem(Overlay.overlay,
                                      anchorItem.width / 2, anchorItem.height)
-        ListView.view.openReactionPicker(eventId, p)
+        root.timelineView.openReactionPicker(eventId, p)
     }
 
     TextEdit {
@@ -2379,8 +2516,8 @@ Item {
                         imageBox.refreshBridgeSource()
                         return
                     }
-                    if (root.ListView.view && root.ListView.view.openImage)
-                        root.ListView.view.openImage(model.mediaKey || "",
+                    if (root.timelineView && root.timelineView.openImage)
+                        root.timelineView.openImage(model.mediaKey || "",
                                                      model.mediaUrl)
                     else if (model.mediaUrl && model.mediaUrl.toString().length > 0)
                         app.media.openExternal(model.mediaUrl)
@@ -2641,8 +2778,8 @@ Item {
                         stickerBox.refreshBridgeSource()
                         return
                     }
-                    if (root.ListView.view && root.ListView.view.openImage)
-                        root.ListView.view.openImage(model.mediaKey || "",
+                    if (root.timelineView && root.timelineView.openImage)
+                        root.timelineView.openImage(model.mediaKey || "",
                                                      model.mediaUrl)
                 }
             }
@@ -2700,8 +2837,8 @@ Item {
             // starting playback never reflows the timeline. Delegate reuse
             // for another event always drops back to the cover.
             property bool playerActive: false
-            readonly property string playerIdentity: model.mediaKey || ""
-            onPlayerIdentityChanged: playerActive = false
+            readonly property string mediaIdentity:
+                root.actionKey + "\u001f" + (model.mediaKey || "")
             readonly property bool playbackAvailable:
                 model.mediaSourceAvailable === true && app.mediaBridge.supported
 
@@ -2720,7 +2857,23 @@ Item {
                 bridgeSource = app.mediaBridge.mediaSource(model.mediaKey,
                                                            "thumb")
             }
-            Component.onCompleted: refreshBridgeSource()
+            function resetForMedia() {
+                // A pooled Loader keeps this videoBox instance alive while
+                // model roles rebind. Clear the old thumbnail synchronously
+                // so another video's duration can never appear over stale
+                // pixels, then fetch after the role-update turn settles.
+                playerActive = false
+                bridgeSource = ""
+                bridgeFailed = false
+                videoSourceRefresh.restart()
+            }
+            Timer {
+                id: videoSourceRefresh
+                interval: 0
+                onTriggered: videoBox.refreshBridgeSource()
+            }
+            Component.onCompleted: resetForMedia()
+            onMediaIdentityChanged: resetForMedia()
             Connections {
                 target: app.mediaBridge
                 enabled: videoBox.usesBridge
@@ -2819,8 +2972,8 @@ Item {
                 Accessible.name: qsTr("Save %1 as…")
                     .arg(model.mediaFilename || qsTr("video"))
                 onClicked: {
-                    if (root.ListView.view && root.ListView.view.saveMedia)
-                        root.ListView.view.saveMedia(model.mediaKey || "",
+                    if (root.timelineView && root.timelineView.saveMedia)
+                        root.timelineView.saveMedia(model.mediaKey || "",
                                                      model.mediaFilename
                                                      || "video")
                 }
@@ -2879,8 +3032,8 @@ Item {
             canSave: model.mediaSourceAvailable === true
                      && app.mediaBridge.supported
             onSaveRequested: {
-                if (root.ListView.view && root.ListView.view.saveMedia)
-                    root.ListView.view.saveMedia(model.mediaKey || "",
+                if (root.timelineView && root.timelineView.saveMedia)
+                    root.timelineView.saveMedia(model.mediaKey || "",
                                                  model.mediaFilename || "audio")
             }
             onOpenExternalRequested: {
@@ -2906,7 +3059,7 @@ Item {
             // reuse and unrelated downloads can never cross-talk. The view
             // exposes the keys only in the main timeline; thread-panel
             // delegates fall back to stateless presentation.
-            readonly property var tlView: root.ListView.view
+            readonly property var tlView: root.timelineView
             readonly property bool saving:
                 tlView && tlView.saveInFlightKey !== undefined
                 && (model.mediaKey || "") !== ""
@@ -3029,8 +3182,8 @@ Item {
                     ToolTip.visible: hovered
                     ToolTip.delay: 600
                     onClicked: {
-                        if (root.ListView.view && root.ListView.view.saveMedia)
-                            root.ListView.view.saveMedia(model.mediaKey || "",
+                        if (root.timelineView && root.timelineView.saveMedia)
+                            root.timelineView.saveMedia(model.mediaKey || "",
                                                          model.mediaFilename
                                                          || "download")
                     }
