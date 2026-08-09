@@ -37,14 +37,6 @@ TimelineModel::TimelineModel(QObject *parent)
     connect(this, &QAbstractItemModel::modelReset, this, resync);
     connect(this, &QAbstractItemModel::dataChanged, this, resync);
 
-    // One coalesced grouping refresh per event-loop turn (see
-    // scheduleGroupingRefresh). Interval 0 fires as soon as control returns
-    // to the event loop — after the whole poll-drain of prepend diffs has
-    // been applied — so a page of older messages relayouts grouping once.
-    m_groupingRefreshTimer.setSingleShot(true);
-    m_groupingRefreshTimer.setInterval(0);
-    connect(&m_groupingRefreshTimer, &QTimer::timeout, this,
-            [this] { emitPresentationGroupingChanged(); });
 }
 
 QString TimelineModel::senderDisplayName(const TimelineEvent &event) const
@@ -169,6 +161,8 @@ void TimelineModel::setClient(MatrixClient *client)
                 this, &TimelineModel::onEventsPrepended);
         connect(m_client, &MatrixClient::eventInsertedAt,
                 this, &TimelineModel::onEventInsertedAt);
+        connect(m_client, &MatrixClient::eventsInsertedAt,
+                this, &TimelineModel::onEventsInsertedAt);
         connect(m_client, &MatrixClient::eventChangedAt,
                 this, &TimelineModel::onEventChangedAt);
         connect(m_client, &MatrixClient::eventRemovedAt,
@@ -449,12 +443,28 @@ QVariantList TimelineModel::stateGroupEntriesFrom(int leaderRow) const
     return entries;
 }
 
-void TimelineModel::emitPresentationGroupingChanged()
+void TimelineModel::emitPresentationGroupingChanged(int first, int last)
 {
     const int exposed = rowCount();
     if (exposed == 0)
         return;
-    Q_EMIT dataChanged(index(0), index(exposed - 1),
+    first = qBound(0, first, exposed - 1);
+    last = qBound(first, last, exposed - 1);
+
+    // State-activity groups are transparent through virtual SDK rows and can
+    // cross the immediate insertion boundary. Expand only across that run;
+    // visible message/media rows terminate it. This remains proportional to
+    // the affected group rather than to all loaded history.
+    const auto groupingRunRow = [this](int row) {
+        const auto &event = m_events.at(row);
+        return event.type == TimelineEvent::StateChange || event.isVirtual();
+    };
+    while (first > 0 && groupingRunRow(first))
+        --first;
+    while (last + 1 < exposed && groupingRunRow(last))
+        ++last;
+
+    Q_EMIT dataChanged(index(first), index(last),
                        { StateGroupIdRole, StateGroupLeaderRole,
                          StateGroupEntriesRole, SameSenderAsPreviousRole,
                          BeginsSenderGroupRole, ContinuesSenderGroupRole,
@@ -472,20 +482,6 @@ void TimelineModel::rebuildThreadReplyIndex()
         if (!e.threadRootId.isEmpty())
             ++m_threadReplyCounts[e.threadRootId];
     }
-}
-
-void TimelineModel::scheduleGroupingRefresh()
-{
-    if (m_events.isEmpty())
-        return;
-    // Restarting the single-shot 0-timer coalesces every mutation in this
-    // event-loop turn — the whole 20-diff backward-pagination page, or a
-    // burst of live events — into ONE whole-model grouping dataChanged.
-    // Grouping is recomputed live in data(), so newly inserted rows already
-    // render correctly; existing rows only need this one re-read once the
-    // burst has settled. Deferring avoids the per-diff full-model relayout
-    // storm that made scrolling jitter while older messages loaded.
-    m_groupingRefreshTimer.start();
 }
 
 QVariant TimelineModel::data(const QModelIndex &index, int role) const
@@ -881,7 +877,7 @@ void TimelineModel::onEventAppended(const QString &roomId, const TimelineEvent &
     rebuildThreadReplyIndex();
     endInsertRows();
     Q_EMIT countChanged();
-    scheduleGroupingRefresh();
+    emitPresentationGroupingChanged(publicRow - 1, publicRow);
 }
 
 void TimelineModel::onEventReplaced(const QString &roomId,
@@ -899,7 +895,7 @@ void TimelineModel::onEventReplaced(const QString &roomId,
     const auto idx = index(row);
     Q_EMIT dataChanged(idx, idx);
     if (groupingChanged)
-        scheduleGroupingRefresh();
+        emitPresentationGroupingChanged(row - 1, row + 1);
 }
 
 void TimelineModel::onEventStatusChanged(const QString &roomId,
@@ -945,7 +941,7 @@ void TimelineModel::onEventRedacted(const QString &roomId, const QString &eventI
     m_events[row].body.clear();
     const auto idx = index(row);
     Q_EMIT dataChanged(idx, idx, { BodyRole, RedactedRole, ReactionsRole });
-    scheduleGroupingRefresh();
+    emitPresentationGroupingChanged(row - 1, row + 1);
 }
 
 void TimelineModel::onReactionsChanged(const QString &roomId, const QString &eventId)
@@ -976,7 +972,7 @@ void TimelineModel::onEventsPrepended(const QString &roomId,
     rebuildThreadReplyIndex();
     endInsertRows();
     Q_EMIT countChanged();
-    scheduleGroupingRefresh();
+    emitPresentationGroupingChanged(0, events.size());
     // v0.5.11 factual description, corrected: a backward-pagination prepend
     // shifts every existing row down by `count`. This signal has no
     // consumer today — the actual anchor mechanism reacts to the
@@ -1007,7 +1003,27 @@ void TimelineModel::onEventInsertedAt(const QString &roomId, int index,
     rebuildThreadReplyIndex();
     endInsertRows();
     Q_EMIT countChanged();
-    scheduleGroupingRefresh();
+    emitPresentationGroupingChanged(index - 1, index + 1);
+}
+
+void TimelineModel::onEventsInsertedAt(
+    const QString &roomId, int index, const QList<TimelineEvent> &events)
+{
+    if (roomId != m_roomId || events.isEmpty())
+        return;
+    if (index < 0 || index > m_events.size()) {
+        // Never apply a corrupt range — self-heal from the backend copy.
+        reload();
+        return;
+    }
+    beginInsertRows({}, index, index + events.size() - 1);
+    for (int offset = 0; offset < events.size(); ++offset)
+        m_events.insert(index + offset, events.at(offset));
+    rebuildThreadReplyIndex();
+    endInsertRows();
+    Q_EMIT countChanged();
+    emitPresentationGroupingChanged(index - 1,
+                                    index + events.size());
 }
 
 void TimelineModel::onEventChangedAt(const QString &roomId, int index,
@@ -1038,7 +1054,7 @@ void TimelineModel::onEventChangedAt(const QString &roomId, int index,
     const auto idx = this->index(index);
     Q_EMIT dataChanged(idx, idx);
     if (groupingChanged)
-        scheduleGroupingRefresh();
+        emitPresentationGroupingChanged(index - 1, index + 1);
 }
 
 void TimelineModel::onEventRemovedAt(const QString &roomId, int index)
@@ -1054,7 +1070,7 @@ void TimelineModel::onEventRemovedAt(const QString &roomId, int index)
     rebuildThreadReplyIndex();
     endRemoveRows();
     Q_EMIT countChanged();
-    scheduleGroupingRefresh();
+    emitPresentationGroupingChanged(index - 1, index);
 }
 
 void TimelineModel::onEventsTruncatedTo(const QString &roomId, int length)
@@ -1074,12 +1090,11 @@ void TimelineModel::onEventsTruncatedTo(const QString &roomId, int length)
     rebuildThreadReplyIndex();
     endRemoveRows();
     Q_EMIT countChanged();
-    scheduleGroupingRefresh();
+    emitPresentationGroupingChanged(length - 1, length);
 }
 
 void TimelineModel::onLoggedOut()
 {
-    m_groupingRefreshTimer.stop();
     beginResetModel();
     m_events.clear();
     m_threadReplyCounts.clear();
@@ -1220,6 +1235,79 @@ int TimelineModel::rowForStableId(const QString &stableId) const
             return i;
     }
     return -1;
+}
+
+QVariantMap TimelineModel::layoutMetadataAt(int row) const
+{
+    if (row < 0 || row >= m_events.size())
+        return {};
+
+    const auto &e = m_events.at(row);
+    QString mediaKind;
+    QString rowKind = QStringLiteral("text");
+    switch (e.type) {
+    case TimelineEvent::Image:
+        mediaKind = rowKind = QStringLiteral("image");
+        break;
+    case TimelineEvent::Video:
+        mediaKind = rowKind = QStringLiteral("video");
+        break;
+    case TimelineEvent::Sticker:
+        mediaKind = rowKind = QStringLiteral("sticker");
+        break;
+    case TimelineEvent::File: rowKind = QStringLiteral("file"); break;
+    case TimelineEvent::Audio: rowKind = QStringLiteral("audio"); break;
+    case TimelineEvent::Poll: rowKind = QStringLiteral("poll"); break;
+    case TimelineEvent::StateChange: rowKind = QStringLiteral("state"); break;
+    case TimelineEvent::DateDivider:
+    case TimelineEvent::ReadMarker:
+    case TimelineEvent::TimelineStart:
+        rowKind = QStringLiteral("virtual");
+        break;
+    default: break;
+    }
+
+    const QString body = e.body.trimmed();
+    const QString filename = e.mediaFilename.trimmed();
+    const bool isMediaRow = e.type == TimelineEvent::Image
+        || e.type == TimelineEvent::File
+        || e.type == TimelineEvent::Video
+        || e.type == TimelineEvent::Audio
+        || e.type == TimelineEvent::Sticker;
+    const bool hasCaption = !e.redacted && isMediaRow
+        && !body.isEmpty() && !filename.isEmpty()
+        && body.compare(filename, Qt::CaseInsensitive) != 0;
+
+    QVariantMap metadata;
+    metadata.insert(QStringLiteral("rowKind"), rowKind);
+    metadata.insert(QStringLiteral("mediaKind"), mediaKind);
+    metadata.insert(QStringLiteral("mediaWidth"), e.mediaWidth);
+    metadata.insert(QStringLiteral("mediaHeight"), e.mediaHeight);
+    const QString visibleBody = e.redacted
+        ? QStringLiteral("[message deleted]") : e.body;
+    metadata.insert(QStringLiteral("bodyLength"), visibleBody.size());
+    metadata.insert(QStringLiteral("bodyLineCount"), visibleBody.isEmpty()
+                    ? 0 : visibleBody.count(QLatin1Char('\n')) + 1);
+    metadata.insert(QStringLiteral("showSenderIdentity"),
+                    data(index(row), ShowSenderIdentityRole).toBool());
+    metadata.insert(QStringLiteral("isOwn"), e.sender == m_selfUserId);
+    metadata.insert(QStringLiteral("hasReply"),
+                    !e.redacted && !e.replyToEventId.isEmpty());
+    metadata.insert(QStringLiteral("hasCaption"), hasCaption);
+    metadata.insert(QStringLiteral("hasMeta"),
+                    e.edited || (e.sender == m_selfUserId
+                                 && e.status != TimelineEvent::Sent));
+    metadata.insert(QStringLiteral("hasThreadSummary"), e.isThreadRoot);
+    metadata.insert(QStringLiteral("hasReactions"),
+                    !e.redacted && !e.reactions.isEmpty());
+    metadata.insert(QStringLiteral("isRoutineActivity"),
+                    e.type == TimelineEvent::StateChange
+                    && !e.stateKind.isEmpty());
+    metadata.insert(QStringLiteral("stateGroupLeader"),
+                    e.type == TimelineEvent::StateChange
+                    && stateGroupLeaderRow(row) == row);
+    metadata.insert(QStringLiteral("pollAnswerCount"), e.pollAnswers.size());
+    return metadata;
 }
 
 const TimelineEvent *TimelineModel::eventForId(const QString &eventId) const
@@ -1400,11 +1488,6 @@ void TimelineModel::retryDecryption()
 
 void TimelineModel::reload()
 {
-    // A full reset re-reads every role at delegate (re)creation, so any
-    // pending coalesced grouping refresh for the previous contents is moot;
-    // drop it so it cannot fire a spurious whole-model dataChanged against
-    // the freshly reloaded rows.
-    m_groupingRefreshTimer.stop();
     beginResetModel();
     m_events = (m_client && !m_roomId.isEmpty())
                    ? m_client->timeline(m_roomId)

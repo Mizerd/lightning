@@ -6,7 +6,6 @@
 #include <QHash>
 #include <QList>
 #include <QStringList>
-#include <QTimer>
 #include <QVariantList>
 #include <QVariantMap>
 
@@ -191,6 +190,11 @@ public:
     // restoring a room after its live timeline has been reconstructed.
     Q_INVOKABLE QString eventIdAt(int row) const;
     Q_INVOKABLE int rowForStableId(const QString &stableId) const;
+    // Small presentation-safe subset used by TableView while a row is still
+    // unloaded. Reserving media geometry from Matrix `info` metadata avoids
+    // the 112px fallback expanding only when an image/video delegate enters
+    // the viewport. QML remains the owner of all layout arithmetic.
+    Q_INVOKABLE QVariantMap layoutMetadataAt(int row) const;
 
     // Stable-id message action helpers. Each call re-resolves the event in
     // the current room so a recycled QML delegate cannot act on another row.
@@ -278,6 +282,8 @@ private Q_SLOTS:
     // reloading the backend's full timeline instead of corrupting state.
     void onEventInsertedAt(const QString &roomId, int index,
                            const TimelineEvent &event);
+    void onEventsInsertedAt(const QString &roomId, int index,
+                            const QList<TimelineEvent> &events);
     void onEventChangedAt(const QString &roomId, int index,
                           const TimelineEvent &event);
     void onEventRemovedAt(const QString &roomId, int index);
@@ -303,14 +309,12 @@ private:
     // group. See TimelineModel.cpp for the rationale.
     int stateGroupLeaderRow(int row) const;
     QVariantList stateGroupEntriesFrom(int leaderRow) const;
-    void emitPresentationGroupingChanged();
-    // Coalesce presentation-grouping refreshes. Grouping roles are computed
-    // live in data(), so the whole-model grouping dataChanged is only a
-    // "re-read" notification; a page of N single-item prepend diffs (the SDK
-    // delivers backward pagination one push_front at a time) must not fire N
-    // whole-model relayouts. scheduleGroupingRefresh() collapses a burst of
-    // structural mutations in one event-loop turn into a single emit.
-    void scheduleGroupingRefresh();
+    // Re-read grouping roles only around a structural boundary. New rows
+    // already query their correct roles on first bind; only their existing
+    // neighbours (and a state-activity run crossing the boundary) can change.
+    // A whole-model dataChanged here made every pagination page increasingly
+    // expensive as loaded history grew and destabilized TableView geometry.
+    void emitPresentationGroupingChanged(int first, int last);
     QString senderDisplayName(const TimelineEvent &event) const;
     QString senderInitials(const TimelineEvent &event) const;
     bool isVisualMessage(const TimelineEvent &event) const;
@@ -340,13 +344,6 @@ private:
     QHash<QString, int> m_threadReplyCounts;
     void rebuildThreadReplyIndex();
     QString m_typingText;
-
-    // Fires once on the next event-loop turn to emit one coalesced
-    // whole-model grouping dataChanged. Restarting an already-active
-    // single-shot timer collapses a prepend-page burst into one refresh;
-    // model resets stop it so no stale refresh chases a cleared/reloaded
-    // timeline.
-    QTimer m_groupingRefreshTimer;
 
     // v0.6.1 loaded-timeline search (memory-only; never persisted).
     bool m_searchActive = false;

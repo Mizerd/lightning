@@ -12,6 +12,7 @@ PaginationController::PaginationController(QObject *parent)
     : QObject(parent)
 {
     m_autoRetryTimer.setSingleShot(true);
+    m_completionSettleTimer.setSingleShot(true);
     m_highlightTimer.setSingleShot(true);
     m_navigationMessageTimer.setSingleShot(true);
     connect(&m_highlightTimer, &QTimer::timeout, this, [this] {
@@ -33,6 +34,10 @@ PaginationController::PaginationController(QObject *parent)
         }
         request(Reason::AutomaticRetry);
     });
+    connect(&m_completionSettleTimer, &QTimer::timeout, this, [this] {
+        if (m_requestActive && m_completionPending)
+            finishBatch(m_completionReachedStart);
+    });
 }
 
 void PaginationController::setClient(MatrixClient *client)
@@ -50,6 +55,8 @@ void PaginationController::setClient(MatrixClient *client)
                 this, &PaginationController::onEventsPrepended);
         connect(m_client, &MatrixClient::eventInsertedAt,
                 this, &PaginationController::onEventInsertedAt);
+        connect(m_client, &MatrixClient::eventsInsertedAt,
+                this, &PaginationController::onEventsInsertedAt);
         connect(m_client, &MatrixClient::timelineReset,
                 this, &PaginationController::onTimelineReset);
         connect(m_client, &MatrixClient::loggedOut,
@@ -77,6 +84,7 @@ void PaginationController::setRoomId(const QString &roomId)
 void PaginationController::resetPerRoomState()
 {
     m_autoRetryTimer.stop();
+    m_completionSettleTimer.stop();
     ++m_generation;
     m_requestActive = false;
     m_activeReason = Reason::None;
@@ -86,6 +94,7 @@ void PaginationController::resetPerRoomState()
     m_batchStableIds.clear();
     m_deferredFill = false;
     m_completionPending = false;
+    m_completionReachedStart = false;
     m_seenLoading = false;
     m_initialHistoryRequested = false;
     m_initialHistoryHasSucceeded = false;
@@ -342,7 +351,9 @@ void PaginationController::request(Reason reason)
     m_batchInserted = 0;
     m_batchStartRows = m_timelineModel ? m_timelineModel->eventCount() : 0;
     m_batchStableIds.clear();
+    m_completionSettleTimer.stop();
     m_completionPending = false;
+    m_completionReachedStart = false;
     m_seenLoading = false;
     if (reason == Reason::ViewportFill)
         ++m_fillRequests;
@@ -369,22 +380,50 @@ void PaginationController::onEventsPrepended(const QString &roomId,
     if (roomId != m_roomId || !m_requestActive)
         return;
     for (const auto &event : events) {
-        const QString stable = event.eventId;
+        const QString stable = !event.itemId.isEmpty()
+            ? event.itemId : event.eventId;
         if (!stable.isEmpty() && !m_batchStableIds.contains(stable)) {
             m_batchStableIds.insert(stable);
             ++m_batchInserted;
         }
     }
+    if (m_completionPending)
+        m_completionSettleTimer.start(0);
 }
 
 void PaginationController::onEventInsertedAt(const QString &roomId, int index,
                                              const TimelineEvent &event)
 {
-    if (roomId != m_roomId || index != 0 || !m_requestActive
-        || event.eventId.isEmpty() || m_batchStableIds.contains(event.eventId))
+    if (roomId != m_roomId || !m_requestActive)
         return;
-    m_batchStableIds.insert(event.eventId);
-    ++m_batchInserted;
+    const QString stable = !event.itemId.isEmpty()
+        ? event.itemId : event.eventId;
+    if (!stable.isEmpty() && !m_batchStableIds.contains(stable)) {
+        m_batchStableIds.insert(stable);
+        ++m_batchInserted;
+    }
+    if (m_completionPending)
+        m_completionSettleTimer.start(0);
+}
+
+void PaginationController::onEventsInsertedAt(
+    const QString &roomId, int, const QList<TimelineEvent> &events)
+{
+    if (roomId != m_roomId || !m_requestActive)
+        return;
+    for (const auto &event : events) {
+        const QString stable = !event.itemId.isEmpty()
+            ? event.itemId : event.eventId;
+        if (!stable.isEmpty() && !m_batchStableIds.contains(stable)) {
+            m_batchStableIds.insert(stable);
+            ++m_batchInserted;
+        }
+    }
+    // If the backend's idle notification won the race, this is the page it was
+    // waiting for. Finish after the current event-loop drain, when all signals
+    // from this atomic range and the TimelineModel mutation are observable.
+    if (m_completionPending)
+        m_completionSettleTimer.start(0);
 }
 
 void PaginationController::onPaginationStateChanged(const QString &roomId)
@@ -427,6 +466,8 @@ void PaginationController::onPaginationStateChanged(const QString &roomId)
         }
         m_requestActive = false;
         m_activeReason = Reason::None;
+        m_completionSettleTimer.stop();
+        m_completionPending = false;
         m_seenLoading = false;
         if (failedReason == Reason::Navigation) {
             failNavigation();
@@ -448,16 +489,16 @@ void PaginationController::onPaginationStateChanged(const QString &roomId)
     // reset underneath us). Only a batch this controller tracked counts.
     if (m_requestActive && m_seenLoading && !m_completionPending) {
         m_completionPending = true;
-        const quint64 generation = m_generation;
-        const bool hitStart = reachedStart();
-        // SDK pagination completion and prepend diffs are independently
-        // queued. Settle at the next event-loop turn so actual model inserts
-        // are counted before callbacks and anchor restoration.
-        QTimer::singleShot(0, this, [this, generation, hitStart] {
-            if (generation == m_generation && m_requestActive
-                && m_completionPending)
-                finishBatch(hitStart);
-        });
+        m_completionReachedStart = reachedStart();
+        // If rows are already present, one event-loop drain is sufficient. If
+        // idle arrived first, keep the request active across the Rust bridge's
+        // independent 100ms poll lane. The first landed atomic range shortens
+        // this timer to zero in the insertion handlers above.
+        const bool rowsAlreadyLanded = m_batchInserted > 0
+            || batchRowGrowth() > 0;
+        const int settleDelay = rowsAlreadyLanded || !m_timelineModel
+            ? 0 : m_completionSettleDelayMs;
+        m_completionSettleTimer.start(settleDelay);
     }
     Q_EMIT stateChanged();
 }
@@ -471,6 +512,7 @@ int PaginationController::batchRowGrowth() const
 
 void PaginationController::finishBatch(bool hitStart)
 {
+    m_completionSettleTimer.stop();
     const Reason reason = m_activeReason;
     // Signal-counted inserts UNDER-report on the real backend (see
     // batchRowGrowth()); the model is the ground truth for whether the reader
@@ -483,6 +525,7 @@ void PaginationController::finishBatch(bool hitStart)
     m_batchInserted = 0;
     m_batchStableIds.clear();
     m_completionPending = false;
+    m_completionReachedStart = false;
     m_seenLoading = false;
     m_autoRetryAttempts = 0;
     if (reason == Reason::ViewportFill || reason == Reason::AutomaticRetry)

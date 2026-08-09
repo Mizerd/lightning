@@ -173,6 +173,8 @@ private Q_SLOTS:
                            const QList<TimelineEvent> &events);
     void onEventInsertedAt(const QString &roomId, int index,
                            const TimelineEvent &event);
+    void onEventsInsertedAt(const QString &roomId, int index,
+                            const QList<TimelineEvent> &events);
     void onTimelineReset(const QString &roomId);
     void onLoggedOut();
 
@@ -256,10 +258,17 @@ private:
     QSet<QString> m_batchStableIds;
     bool m_deferredFill = false;
     bool m_completionPending = false;
+    bool m_completionReachedStart = false;
     bool m_seenLoading = false;
     bool m_initialHistoryRequested = false;
     bool m_initialHistoryHasSucceeded = false;
     QTimer m_autoRetryTimer;
+    // The Rust SDK reports pagination idle independently from the timeline
+    // diff stream. Keep the request single-flight until either its atomic row
+    // range arrives or this bounded late-delivery window expires; otherwise a
+    // second request can start between `complete` and the first request's rows.
+    QTimer m_completionSettleTimer;
+    int m_completionSettleDelayMs = 250;
     quint64 m_autoRetryGeneration = 0;
     int m_autoRetryAttempts = 0;
     int m_maxAutomaticRetries = 3;

@@ -164,6 +164,7 @@ void RustSdkMatrixClient::setInitialSyncDone(bool done)
 
 void RustSdkMatrixClient::clearLocalState()
 {
+    clearTimelineInsertBatch();
     m_loggedIn = false;
     m_homeserver.clear();
     m_userId.clear();
@@ -299,6 +300,7 @@ bool RustSdkMatrixClient::ensureRustHandleForStorePath(const QString &storePath,
 void RustSdkMatrixClient::releaseRustHandle()
 {
     m_pollTimer.stop();
+    clearTimelineInsertBatch();
     if (!m_rustHandle)
         return;
     if (!m_typingRoom.isEmpty()) {
@@ -2154,6 +2156,7 @@ void RustSdkMatrixClient::pollRustEvents()
         }
     }
 
+    m_coalesceTimelineInserts = true;
     for (int i = 0; i < 64; ++i) {
         const QString raw = takeRustString(mx_rust_poll_event(m_rustHandle));
         if (raw.isEmpty())
@@ -2166,6 +2169,10 @@ void RustSdkMatrixClient::pollRustEvents()
         }
         const QJsonObject event = doc.object();
         const QString type = event.value(QStringLiteral("type")).toString();
+        // Only consecutive room-timeline diffs can share one structural
+        // transaction. Preserve signal ordering across every other callback.
+        if (type != QLatin1String("timeline_diff"))
+            flushTimelineInsertBatch();
         if (m_lifecycle.acceptsActive(eventGeneration)) {
             handleRustEvent(event, eventGeneration);
             continue;
@@ -2173,6 +2180,7 @@ void RustSdkMatrixClient::pollRustEvents()
         if (type == QLatin1String("logged_out")
             && m_lifecycle.acceptsShutdownCompletion(eventGeneration)) {
             handleRustEvent(event, eventGeneration);
+            m_coalesceTimelineInserts = false;
             return; // finishSignOut releases the handle being polled.
         }
 
@@ -2181,6 +2189,8 @@ void RustSdkMatrixClient::pollRustEvents()
                        << "generation=" << eventGeneration
                        << "active_generation=" << m_lifecycle.activeGeneration();
     }
+    flushTimelineInsertBatch();
+    m_coalesceTimelineInserts = false;
 }
 
 void RustSdkMatrixClient::requireLocalReset(
@@ -3215,22 +3225,152 @@ void RustSdkMatrixClient::handleTimelineReset(const QJsonObject &event)
     updateRoomPreviewFrom(roomId, newestFirst);
 }
 
+void RustSdkMatrixClient::clearTimelineInsertBatch()
+{
+    m_timelineInsertBatchRoom.clear();
+    m_timelineInsertBatchGeneration = 0;
+    m_timelineInsertBatchFirst = -1;
+    m_timelineInsertBatchCount = 0;
+    m_timelineInsertBatchChangedIds.clear();
+}
+
+void RustSdkMatrixClient::flushTimelineInsertBatch()
+{
+    if (m_timelineInsertBatchCount <= 0)
+        return;
+
+    const QString roomId = m_timelineInsertBatchRoom;
+    const int first = m_timelineInsertBatchFirst;
+    const int count = m_timelineInsertBatchCount;
+    const auto timelineIt = m_timelines.constFind(roomId);
+    QList<TimelineEvent> items;
+    QList<QPair<int, TimelineEvent>> changedItems;
+    if (timelineIt != m_timelines.cend() && first >= 0
+        && first + count <= timelineIt->size()) {
+        items = timelineIt->mid(first, count);
+        changedItems.reserve(m_timelineInsertBatchChangedIds.size());
+        for (const QString &stableId : std::as_const(
+                 m_timelineInsertBatchChangedIds)) {
+            for (int row = 0; row < timelineIt->size(); ++row) {
+                const TimelineEvent &candidate = timelineIt->at(row);
+                const QString candidateId = !candidate.itemId.isEmpty()
+                    ? candidate.itemId : candidate.eventId;
+                if (candidateId == stableId) {
+                    // A later insertion may have brought this updated item into
+                    // the new range. Its final range payload already contains
+                    // the update, so a second dataChanged would be redundant.
+                    if (row < first || row >= first + count)
+                        changedItems.append({row, candidate});
+                    break;
+                }
+            }
+        }
+    }
+
+    // Clear before emitting: a synchronous model observer may switch rooms or
+    // otherwise re-enter the client, and must never see this batch as active.
+    clearTimelineInsertBatch();
+    if (items.size() != count) {
+        qCWarning(lcRust) << "timeline insert batch lost mirror range"
+                          << "first=" << first << "count=" << count;
+        Q_EMIT timelineReset(roomId);
+        return;
+    }
+
+    if (first == 0)
+        Q_EMIT eventsPrepended(roomId, items);
+    else
+        Q_EMIT eventsInsertedAt(roomId, first, items);
+    for (const auto &changed : std::as_const(changedItems))
+        Q_EMIT eventChangedAt(roomId, changed.first, changed.second);
+}
+
 void RustSdkMatrixClient::handleTimelineDiff(const QJsonObject &event)
 {
     const QString roomId = event.value(QStringLiteral("room_id")).toString();
     const auto generation = static_cast<quint64>(
         event.value(QStringLiteral("room_generation")).toDouble(0));
     if (!m_timelineTracker.accepts(roomId, generation)) {
+        flushTimelineInsertBatch();
         qCInfo(lcRust) << "timeline stale diff ignored"
                        << "generation=" << generation
                        << "adopted=" << m_timelineTracker.generation();
         return;
     }
 
+    const QString op = event.value(QStringLiteral("op")).toString();
+    const int insertionIndex = op == QLatin1String("push_front")
+        ? 0 : (op == QLatin1String("insert")
+                   ? event.value(QStringLiteral("index")).toInt(-1) : -1);
+    const bool sameBatch = m_timelineInsertBatchCount > 0
+        && m_timelineInsertBatchRoom == roomId
+        && m_timelineInsertBatchGeneration == generation;
+    // A page starts at index 0 (plain push_front) or 1 (the SDK keeps a
+    // TimelineStart sentinel at index 0). Later inserts may land anywhere
+    // inside or immediately after the newly inserted range, for example when
+    // matrix-sdk-ui adds a date divider. In every such case the net mutation
+    // is still one contiguous range and can be published atomically.
+    const bool startsPaginationRange = m_timelineInsertBatchCount == 0
+        && (insertionIndex == 0 || insertionIndex == 1);
+    const bool extendsPaginationRange = sameBatch
+        && insertionIndex >= m_timelineInsertBatchFirst
+        && insertionIndex <= m_timelineInsertBatchFirst
+                             + m_timelineInsertBatchCount;
+    const bool canBatchInsertion = m_coalesceTimelineInserts
+        && insertionIndex >= 0
+        && (startsPaginationRange || extendsPaginationRange);
+    // matrix-sdk-ui interleaves `set` diffs while constructing a page (date
+    // separators, receipts, profile/decryption refreshes). Flushing on every
+    // such update turned one 20-row page into as many as eleven independent Qt
+    // insertion transactions. Keep valid sets inside the assembly window: a
+    // set inside the inserted range is folded into the final range payload;
+    // one outside it is replayed by stable id after the insertion signal.
+    const bool canDeferSet = m_coalesceTimelineInserts && sameBatch
+        && op == QLatin1String("set");
+    if (m_timelineInsertBatchCount > 0
+        && !canBatchInsertion && !canDeferSet)
+        flushTimelineInsertBatch();
+
     using matrix::rust_timeline::DiffOutcome;
     auto &mirror = m_timelines[roomId];
     const DiffOutcome outcome =
         matrix::rust_timeline::applyTimelineDiff(mirror, event, roomId);
+
+    if (canBatchInsertion
+        && (outcome.kind == DiffOutcome::Prepended
+            || outcome.kind == DiffOutcome::Inserted)) {
+        if (m_timelineInsertBatchCount == 0) {
+            m_timelineInsertBatchRoom = roomId;
+            m_timelineInsertBatchGeneration = generation;
+            m_timelineInsertBatchFirst = insertionIndex;
+        }
+        ++m_timelineInsertBatchCount;
+        return;
+    }
+
+    if (canDeferSet && outcome.kind == DiffOutcome::Changed) {
+        if (outcome.index >= m_timelineInsertBatchFirst
+            && outcome.index < m_timelineInsertBatchFirst
+                               + m_timelineInsertBatchCount) {
+            return;
+        }
+        const TimelineEvent &changed = outcome.items.first();
+        const QString stableId = !changed.itemId.isEmpty()
+            ? changed.itemId : changed.eventId;
+        if (!stableId.isEmpty()) {
+            if (!m_timelineInsertBatchChangedIds.contains(stableId))
+                m_timelineInsertBatchChangedIds.append(stableId);
+            return;
+        }
+        // An identity-less virtual item cannot safely be found again after
+        // later insertions shift its row. Publish the assembled page first,
+        // then let the ordinary Changed path below update its current index.
+    }
+
+    // A syntactically insert-like event can still fail validation. Any older
+    // valid batch must reach observers before the recovery reset below.
+    if (m_timelineInsertBatchCount > 0)
+        flushTimelineInsertBatch();
 
     switch (outcome.kind) {
     case DiffOutcome::Appended:

@@ -8,6 +8,7 @@
 
 #include <QHash>
 #include <QPair>
+#include <QStringList>
 #include <QTimer>
 #include <QVariantList>
 
@@ -523,6 +524,8 @@ private:
     void handleTimelineReset(const QJsonObject &event);
     void handleTimelineDiff(const QJsonObject &event);
     void handleTimelinePagination(const QJsonObject &event);
+    void flushTimelineInsertBatch();
+    void clearTimelineInsertBatch();
     // v0.6.0: thread-timeline event handlers (same envelopes as the room
     // handlers, addressed by the composite thread timeline id).
     void handleThreadReset(const QJsonObject &event);
@@ -590,6 +593,21 @@ private:
     QHash<QString, QString> m_lastReceiptSent;
     QString m_typingRoom;
     QHash<QString, QList<TimelineEvent>> m_timelines;
+    // One Rust poll normally contains a whole backward-pagination page, but
+    // matrix-sdk-ui describes it as many one-item inserts after the leading
+    // timeline-start sentinel. Keep the mirror exact for every diff while
+    // publishing one contiguous Qt model transaction at the drain boundary.
+    bool m_coalesceTimelineInserts = false;
+    QString m_timelineInsertBatchRoom;
+    quint64 m_timelineInsertBatchGeneration = 0;
+    int m_timelineInsertBatchFirst = -1;
+    int m_timelineInsertBatchCount = 0;
+    // `set` diffs are commonly interleaved with the insert diffs that build a
+    // pagination page. Updates to rows inside the new range are already folded
+    // into the final range payload; updates to existing rows are published
+    // after the atomic insertion, resolved by stable identity because their
+    // numeric indices move while the page is assembled.
+    QStringList m_timelineInsertBatchChangedIds;
     QHash<QString, PendingSend> m_pendingSends;
     QHash<QString, PendingProbe> m_pendingProbes;
     quint64 m_txnCounter = 0;

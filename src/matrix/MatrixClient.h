@@ -529,6 +529,12 @@ Q_SIGNALS:
     // its copy.
     void eventInsertedAt(const QString &roomId, int index,
                          const TimelineEvent &event);
+    // A contiguous run of SDK inserts applied as one model transaction. The
+    // Rust SDK commonly emits backward pagination as many one-item `Insert`
+    // diffs (immediately after its timeline-start sentinel); exposing the
+    // final contiguous range prevents the UI from laying out once per item.
+    void eventsInsertedAt(const QString &roomId, int index,
+                          const QList<TimelineEvent> &events);
     void eventChangedAt(const QString &roomId, int index,
                         const TimelineEvent &event);
     void eventRemovedAt(const QString &roomId, int index);
