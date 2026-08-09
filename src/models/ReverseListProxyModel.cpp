@@ -66,6 +66,18 @@ void ReverseListProxyModel::scheduleReveal()
         m_revealTimer.start();
 }
 
+void ReverseListProxyModel::releaseAll()
+{
+    const int total = sourceRowTotal();
+    if (m_revealedRows >= total)
+        return;
+    m_revealTimer.stop();
+    m_revealTimer.setInterval(kRevealMinIntervalMs);
+    beginInsertRows({}, m_revealedRows, total - 1);
+    m_revealedRows = total;
+    endInsertRows();
+}
+
 void ReverseListProxyModel::revealNextChunk()
 {
     if (m_revealedRows >= sourceRowTotal()) {

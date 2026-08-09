@@ -142,6 +142,10 @@ Rectangle {
     function scrollToSearchMatch() {
         var eventId = app.timeline.searchCurrentEventId
         if (eventId === "") return
+        // The match may be an older row the proxy is still pacing out. Take
+        // the whole backlog before resolving it, or the jump resolves to
+        // "no such row" and the search silently does nothing.
+        timeline.releasePendingRows()
         var row = timeline.viewRowForStableId(eventId)
         if (row < 0) return
         timeline.cancelWheelMotion()
@@ -645,7 +649,16 @@ Rectangle {
                 // before it is reached rather than popping in at the edge.
                 property int visibleFirstRow: 0
                 property int visibleLastRow: -1
-                property bool visibleRowRangeScheduled: false
+                // A child Timer rather than Qt.callLater: the timer dies with
+                // the pane, whereas a queued callLater still fires after the
+                // object has been torn down (room switch, logout) and throws
+                // because its QML methods are already gone. restart()
+                // coalesces repeat requests for free.
+                Timer {
+                    id: visibleRowRangeTimer
+                    interval: 0
+                    onTriggered: timeline.updateVisibleRowRange()
+                }
                 function updateVisibleRowRange() {
                     if (count <= 0) {
                         visibleFirstRow = 0
@@ -658,13 +671,7 @@ Rectangle {
                     visibleLastRow = last < 0 ? count - 1 : last
                 }
                 function scheduleVisibleRowRange() {
-                    if (visibleRowRangeScheduled)
-                        return
-                    visibleRowRangeScheduled = true
-                    Qt.callLater(function() {
-                        visibleRowRangeScheduled = false
-                        updateVisibleRowRange()
-                    })
+                    visibleRowRangeTimer.restart()
                 }
 
                 Column {
@@ -675,8 +682,16 @@ Rectangle {
                     // horizontally. (The 180° rotation swaps left and right,
                     // which is harmless while the two are equal.)
                     x: timeline.leftMargin
-                    width: Math.max(0, timeline.width - timeline.leftMargin
-                                    - timeline.rightMargin)
+                    // Rows can be built before the pane has its final width. A
+                    // non-positive width makes a long wrapped body measure as
+                    // one character wide, producing an enormous transient
+                    // height. Fall back to a normal message column until the
+                    // real viewport width is positive.
+                    width: {
+                        var available = timeline.width - timeline.leftMargin
+                                      - timeline.rightMargin
+                        return available > 0 ? available : 640
+                    }
                     // Delegates own sender-group spacing: group leaders
                     // receive a compact break while continuations stay
                     // visually glued together. A global gap made every
@@ -767,8 +782,18 @@ Rectangle {
                 // monotonic per room generation: once presented, later diffs
                 // apply normally with anchor preservation.
                 property bool presentationReady: app.currentRoomId === ""
+                // Set while a room reset is in flight. Rows are built into the
+                // Column synchronously now, so contentHeight moves DURING the
+                // reset and onContentHeightChanged would recompute the gate
+                // right then — reading the outgoing room's settled state and
+                // opening on a one-item partial snapshot, which is the exact
+                // defect the gate exists to prevent. Under the previous
+                // virtualized view contentHeight was application-owned and only
+                // updated a turn later, so the deferred recompute was enough on
+                // its own. It no longer is.
+                property bool presentationResetPending: false
                 function recomputePresentationReady() {
-                    if (presentationReady)
+                    if (presentationReady || presentationResetPending)
                         return
                     if (app.currentRoomId === "") {
                         presentationReady = true
@@ -1208,6 +1233,13 @@ Rectangle {
                 // resolves stable-id actions against app.timeline and never
                 // suppresses a row as a pinned thread root.
                 property var timelineModel: app.timeline
+                // Hand over the proxy's paced backlog immediately. Any path
+                // that must address a specific event by row calls this first;
+                // see ReverseListProxyModel::releaseAll().
+                function releasePendingRows() {
+                    if (app.timelineView && app.timelineView.releaseAll)
+                        app.timelineView.releaseAll()
+                }
                 // View row <-> source row. The reversal is anchored on the
                 // SOURCE total, never on `count`: the proxy paces newly
                 // paginated history out over a few frames, so it can briefly
@@ -2237,6 +2269,10 @@ Rectangle {
                         // Reply navigation takes control immediately.
                         timeline.cancelWheelMotion()
                         Qt.callLater(function() {
+                            // The target can be older than what the proxy has
+                            // paced out so far; without this the jump resolves
+                            // to -1 and nothing happens at all.
+                            timeline.releasePendingRows()
                             var viewRow = timeline.viewRowForSourceRow(row)
                             if (viewRow < 0)
                                 return
@@ -2358,12 +2394,16 @@ Rectangle {
                         // cache that already fills the viewport re-opens the
                         // gate on the same deferred turn (sub-frame).
                         timeline.presentationReady = false
+                        timeline.presentationResetPending = true
                         presentationGuard.restart()
                         Qt.callLater(function() {
                             app.pagination.restoreScrollAnchor(app.currentRoomId)
                         })
                         Qt.callLater(timeline.maybeFillViewport)
-                        Qt.callLater(timeline.recomputePresentationReady)
+                        Qt.callLater(function() {
+                            timeline.presentationResetPending = false
+                            timeline.recomputePresentationReady()
+                        })
                     }
                 }
 

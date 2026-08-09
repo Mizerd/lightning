@@ -32,6 +32,20 @@ class ReverseListProxyModel final : public QAbstractProxyModel
 public:
     explicit ReverseListProxyModel(QObject *parent = nullptr);
 
+    // Release the whole paced backlog now, in one batch.
+    //
+    // Pacing is a delivery schedule for rows the reader has not reached yet,
+    // and it is only ever correct while nothing needs to address them. Jumping
+    // to a specific event — a reply target, a search hit, a permalink — does
+    // need to: the row exists in the source model, and a view that has not
+    // been handed it yet would resolve the jump to "no such row" and silently
+    // do nothing. Callers on those paths release first.
+    //
+    // Deliberately synchronous and unpaced: the reader has asked to go
+    // somewhere specific and a brief hitch is the honest cost of arriving,
+    // where a silent no-op is not.
+    Q_INVOKABLE void releaseAll();
+
     void setSourceModel(QAbstractItemModel *sourceModel) override;
 
     QModelIndex mapToSource(const QModelIndex &proxyIndex) const override;
