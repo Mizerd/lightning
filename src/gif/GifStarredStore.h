@@ -34,7 +34,8 @@ class QSettings;
 //     "CLEANUP" section below — this is NOT a side effect of some other
 //     deletion, it is dedicated code that must be kept correct);
 //   - a user-visible way to see and clear what has accumulated (Settings ->
-//     Privacy & security -> "Starred GIFs": count, total size, "kept on
+//     Privacy & security -> "GIFs saved from chats": count, total size,
+//     "kept on
 //     this device only", and a confirmed destructive Clear All);
 //   - hard caps that refuse rather than silently grow forever.
 // This is a conscious, bounded, DOCUMENTED-AND-ENFORCED exception to
@@ -82,7 +83,7 @@ class QSettings;
 // not the above already did) on EVERY MatrixClient::loggedOut, including a
 // plain account SWITCH, which never deletes anything but must not leave a
 // stale open handle showing the outgoing account's rows in the picker's
-// Starred tab while the next account's session is still starting.
+// Saved tab while the next account's session is still starting.
 //
 // PRIVACY: the persisted index (via GifStarredModel/GifStoredModel) carries
 // only provider="local", the content hash, safe dimensions and the byte
@@ -149,16 +150,17 @@ class QSettings;
 // decrypt of a file already sitting on disk. starBytes()'s existing-hash
 // branch then refuses to rewrite the file (see below), so no bytes are
 // duplicated on disk — but it still calls insertLocal(), which re-prepends
-// the row (a visible reorder of the Starred tab for something that was
+// the row (a visible reorder of the Saved tab for something that was
 // already there), and starFinished emits with `category` ==
-// "already_starred" so the UI can say "Already in your starred GIFs."
+// "already_starred" so the UI can say "Already in your saved GIFs."
 // instead of implying a new star happened (see categoryMessage()).
 class GifStarredStore : public QObject
 {
     Q_OBJECT
     Q_PROPERTY(int count READ count NOTIFY countChanged)
     Q_PROPERTY(qint64 totalBytes READ totalBytes NOTIFY countChanged)
-    // GifPicker.qml's Starred tab binds this directly (`gif.starredStore.model`)
+    // GifSavedModel merges this with the provider favorites for the
+    // picker's single Saved tab (`gif.saved`)
     // exactly like GifSearchController exposes `favorites`/`recent` — a plain
     // C++ getter is NOT enough: QML only auto-exposes Q_PROPERTY/Q_INVOKABLE/
     // slots, so calling a bare public method from a binding throws, and a
@@ -183,7 +185,7 @@ public:
     // GifResultModel, exactly like GifFavoritesModel/GifRecentModel). This
     // instance is constructed once and never destroyed/recreated — openFor()
     // repoints its persistence and reloads in place — so the picker's own
-    // Starred tab (GifPicker.qml, bound directly to this pointer) keeps a
+    // Saved tab (GifSavedModel attaches to this pointer) keeps a
     // valid, stable QObject identity across account switches.
     GifStarredModel *model() const { return m_model.get(); }
 
@@ -209,7 +211,7 @@ public:
     // already-stored GIF is a cap-exempt no-op that just refreshes recency —
     // see GifStoredModel::insertFront). `mediaKey` is remembered ONLY in an
     // in-memory, per-session, NEVER-persisted map so the chat message hover
-    // star can render filled/"Remove from starred GIFs" for a row starred
+    // star can render filled/"Remove from saved GIFs" for a row saved
     // earlier in this session — see the class comment on why provenance is
     // not persisted; this is a UI convenience, not a provenance record, and
     // does not survive restart.
@@ -242,7 +244,7 @@ public:
     // the same banner-feedback mechanism starFinished drives.
     Q_INVOKABLE void unstar(const QString &hash);
     // Delete every starred GIF's file and clear the index — the Settings ->
-    // Privacy & security -> "Starred GIFs" -> Clear All action. A no-op
+    // Privacy & security -> "GIFs saved from chats" -> Clear All. A no-op
     // (and no signal) when already empty/closed.
     Q_INVOKABLE void clearAll();
     // Convenience for the chat message hover star, which only knows

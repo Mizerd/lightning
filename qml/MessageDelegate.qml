@@ -2518,7 +2518,7 @@ Item {
                 // openFor()/close() -> GifStoredModel::reopen(), which also
                 // emits only countChanged. Without this handler a starred
                 // tile that Clear All just deleted from disk kept rendering
-                // filled/"Remove from starred GIFs", and activating it would
+                // filled/"Remove from saved GIFs", and activating it would
                 // have called app.starChatGif() and RE-WRITTEN the bytes the
                 // user just explicitly deleted — a real data-at-rest leak,
                 // not just a stale label. countChanged also fires on every
@@ -2690,16 +2690,27 @@ Item {
                             readonly property bool revealed:
                                 gifStarHover.hovered || starHover.hovered
                                 || gifStarButton.activeFocus
-                            // v0.6.6 fix: a starred GIF stays visibly starred
-                            // at rest (not just on hover/focus) — the picker
-                            // tile already does this (GifPicker.qml's star
-                            // glyph is opacity-independent of hover).
-                            opacity: (revealed || imageBox.starred) ? 1 : 0
+                            // v0.6.7 (maintainer request): the star appears on
+                            // hover/focus ONLY — never parked on the media at
+                            // rest. v0.6.6 had kept a saved GIF's star
+                            // permanently visible so its state could be read
+                            // without hovering; in practice that left a
+                            // yellow badge sitting on every saved GIF in the
+                            // timeline. The state is still legible the moment
+                            // the pointer arrives, and the picker's Saved tab
+                            // is the authoritative list. GifPicker.qml's tile
+                            // star follows the same rule, so the one star
+                            // behaves identically in both places.
+                            opacity: revealed ? 1 : 0
                             Behavior on opacity { NumberAnimation { duration: 100 } }
 
                             Accessible.role: Accessible.Button
+                            // v0.6.7: one verb everywhere. This button and the
+                            // picker's tile star now do the same thing, say
+                            // the same thing, and land in the same place — the
+                            // picker's Saved tab. See GifPicker.qml's header.
                             Accessible.name: imageBox.starred
-                                ? qsTr("Remove from starred GIFs") : qsTr("Star GIF")
+                                ? qsTr("Remove from saved GIFs") : qsTr("Save GIF")
                             Accessible.onPressAction: gifStarButton.activate()
 
                             function activate() {
@@ -2717,17 +2728,23 @@ Item {
                                     app.starChatGif(key)
                             }
 
+                            // v0.6.7: saved state is a FILL, matching the
+                            // picker tile exactly — the bundled Material
+                            // Symbols subset is a static FILL=0 instance, so
+                            // there is no filled star glyph and colour alone
+                            // had to carry the whole state.
                             Rectangle {
                                 anchors.fill: parent
                                 radius: 13
-                                color: AppTheme.overlayScrim
+                                color: imageBox.starred ? AppTheme.bolt
+                                                        : AppTheme.overlayScrim
                             }
                             Icon {
                                 anchors.centerIn: parent
                                 name: "star"
                                 size: 15
                                 color: imageBox.starred
-                                       ? AppTheme.presenceAway : AppTheme.scrimInk
+                                       ? AppTheme.boltInk : AppTheme.scrimInk
                             }
                             Rectangle {
                                 anchors.fill: parent
@@ -2749,16 +2766,16 @@ Item {
                             // corner silently star/unstar without the user
                             // ever seeing the button.
                             //
-                            // v0.6.6 review (L2, follow-up): ALSO gated on
-                            // `imageBox.starred` — once a starred GIF is
-                            // visible AT REST (opacity fix above), the
-                            // invisible-target hazard this guard exists for
-                            // no longer applies to it: the button is fully
-                            // opaque and exactly where it looks like it is,
-                            // so a touch tap with no hover must still work
-                            // on it.
+                            // v0.6.7: the `|| imageBox.starred` relaxation
+                            // added in v0.6.6 is REMOVED along with the
+                            // at-rest visibility that justified it. A saved
+                            // GIF's star is now invisible at rest again, so
+                            // allowing a tap on it would restore exactly the
+                            // hazard above — an unseen corner that
+                            // saves/unsaves on touch. The gate must track the
+                            // opacity, not the saved state.
                             TapHandler {
-                                enabled: gifStarButton.revealed || imageBox.starred
+                                enabled: gifStarButton.revealed
                                 onTapped: gifStarButton.activate()
                             }
                             // v0.6.6 review (L2): ignore key-repeat — held

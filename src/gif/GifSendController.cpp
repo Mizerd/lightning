@@ -207,7 +207,7 @@ void GifSendController::startLocal(Pending pending)
     // would let a hint of one account's starred content leak into another
     // account's picker after switching on the same machine (the bytes stay
     // unreachable, but the reference itself should not cross accounts).
-    // The item is already visible in Favorites, which the local-starred
+    // The item is already visible in the Saved tab, which the local-saved
     // store keeps account-scoped.
     Q_EMIT sendSucceeded(pending.isThread);
 }

@@ -41,7 +41,7 @@ receipts), `21d5fb8` (per-room notification modes promoted to server push
 rules), `6fa6378` (QR device verification alongside SAS; the only dependency
 change since the release), `225c7b3` (scroll staging/freeze — **later removed
 entirely**), `3afc2d0` (receipt-chip placement), `44c29aa` + `52cf6ca` +
-`e39439a` (local starred GIFs: store, hover star + Starred tab, durable
+`e39439a` (locally-saved GIFs: store, hover star + its own tab, durable
 state), `2fe5cb0` (per-branch scroll-trace attribution), `30ee39b`
 (receipt-avatar context-lookup fix), `263268b` (runaway prefetch chain and
 the staging mechanism removed, −1463 net). Every one of these went through
@@ -434,12 +434,32 @@ Existing GIF attachment/direct-media playback remains separate and implemented.
 Live Element interoperability of provider GIF sends should still be tested
 honestly rather than assumed.
 
-**Locally starred GIFs** are implemented (`44c29aa`, `52cf6ca`, `e39439a`).
-A star appears on hover over a timeline GIF and copies the bytes into an
-account-scoped, content-addressed store bounded at 200 items / 64 MiB
-(refusal, never eviction — a full store must not silently discard what the
-user asked to keep). They get their own **Starred** picker tab beside GIPHY
-and KLIPY, with no provider traffic, and send from local bytes.
+**Saving GIFs** is implemented. A star appears on hover over a timeline GIF
+and copies the bytes into an account-scoped, content-addressed store bounded
+at 200 items / 64 MiB (refusal, never eviction — a full store must not
+silently discard what the user asked to keep), and those send from local
+bytes.
+
+A star means exactly one thing everywhere — "save this GIF" — with one
+destination: the picker's **Saved** tab. That tab renders `GifSavedModel`, a
+presentation-only `QConcatenateTablesProxyModel` merge of the local byte store
+and the provider favorites; the two **stores stay separate**, because only one
+of them holds decrypted media. The picker's navigation is one row of peers:
+the provider sources (GIPHY, KLIPY) and the two lists that were always
+cross-provider (Saved, Recent). Each tile carries its own source tag
+(GIPHY/KLIPY/LOCAL).
+
+Saved and Recent issue **no provider API request** — no search, trending,
+pagination, or category call is reachable from either. They are not offline,
+though: a saved *provider bookmark* is a link, so its tile still loads its
+preview from that provider's CDN, exactly as the Favorites list always did.
+Only the locally-saved rows are pure device-local content. Do not describe the
+Saved tab as having "no provider traffic".
+
+Never read `GifResultModel::FavoriteRole` from a `GifStoredModel` as a
+"is this saved" oracle: that role is a constant `true` for every stored
+collection, which is honest for favorites and local-saved rows and a lie for
+Recents. Ask the collection (`GifFavoritesModel::isFavorite`).
 
 This is a deliberate, documented exception to the section 6 rule against
 persisting decrypted media, on explicit-export semantics: the user is
@@ -810,7 +830,7 @@ order a successor should pick them up:
   `30ee39b`, not observed failing.
 - Live validation still outstanding for everything the post-release rounds
   added: read receipts, server push-rule notification modes, QR verification
-  against Element / Element X, and local starred GIFs. All **NOT TESTED**.
+  against Element / Element X, and saving GIFs. All **NOT TESTED**.
 
 "Recovering never-backed-up Megolm keys" is **refused, not deferred**: a key
 that was never backed up and never shared exists nowhere, every legitimate

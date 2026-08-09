@@ -132,9 +132,101 @@ private Q_SLOTS:
         // Two distinct empty states.
         QVERIFY(picker.contains(QStringLiteral("No recently used emoji")));
         QVERIFY(picker.contains(QStringLiteral("No emoji found")));
-        // anchorPoint + placeInsideWindow clamping.
-        QVERIFY(picker.contains(QStringLiteral("function placeInsideWindow()")));
-        QVERIFY(picker.contains(QStringLiteral("property point anchorPoint")));
+        // v0.6.7: anchorPoint + the placeInsideWindow clamp moved into the
+        // shared AnchoredPopup base, which BOTH overlay pickers now root on,
+        // so a window resize re-anchors instead of leaving the popup behind.
+        // Each picker must therefore no longer carry its own copy — a
+        // leftover local placeInsideWindow()/anchorPoint would shadow the
+        // base's and silently restore the place-once behaviour.
+        QVERIFY(picker.contains(QStringLiteral("AnchoredPopup {")));
+        QVERIFY(!picker.contains(QStringLiteral("function placeInsideWindow()")));
+        QVERIFY(!picker.contains(QStringLiteral("property point anchorPoint")));
+        QVERIFY(!picker.contains(QStringLiteral("parent: Overlay.overlay")));
+    }
+
+    // The shared base is where the actual fix lives, so pin the two things
+    // that make it work at all.
+    void anchoredPopupReanchorsOnEveryReflow()
+    {
+        const QString base = read(QStringLiteral(QML_DIR "/AnchoredPopup.qml"));
+        QVERIFY(!base.isEmpty());
+        QVERIFY(base.contains(QStringLiteral("property Item anchorItem")));
+        QVERIFY(base.contains(QStringLiteral("function reanchor()")));
+        QVERIFY(base.contains(QStringLiteral(
+            "anchorPoint = anchorItem.mapToItem(parent, anchorItem.width / 2, 0)")));
+
+        // (1) Every trigger is a Connections object, so the base's placement
+        // runs AFTER a subclass's own about-to-show handler (GifPicker.qml
+        // sets `tab` there, and placement must read the resulting geometry)
+        // and cannot be displaced by a subclass assigning the same property.
+        //
+        // v0.6.7 review (L1): an earlier version of this case justified the
+        // rule with "a derived handler OVERRIDES the base's, so an inline
+        // handler would never run". That premise is false on Qt 6.11.1 — both
+        // run, base-inline then derived-inline then base-Connections — so
+        // this is an ORDERING pin, not a correctness one, and it no longer
+        // forbids the inline form on a claim that does not hold.
+        QVERIFY(base.contains(QStringLiteral("function onAboutToShow() { root.reanchor() }")));
+
+        // (2) Reflow triggers are deferred/coalesced: a resize moves the
+        // overlay before the layouts underneath have repositioned the anchor,
+        // so an inline recompute would read the anchor's PREVIOUS position.
+        QVERIFY(base.contains(QStringLiteral("Qt.callLater(root.reflow)")));
+        QVERIFY(base.contains(QStringLiteral(
+            "target: root.visible ? root.parent : null")));
+        QVERIFY(base.contains(QStringLiteral(
+            "target: root.visible ? root.anchorItem : null")));
+
+        // (3) v0.6.7 review (L4): a deferred call can land after the popup
+        // closed, so visibility is re-checked at CALL time, not only when the
+        // call was scheduled.
+        QVERIFY(base.contains(QStringLiteral(
+            "function reanchor() {\n"
+            "        if (!visible || !parent)")));
+        QVERIFY(base.contains(QStringLiteral(
+            "function reflow() {\n"
+            "        if (!visible || !parent)")));
+
+        // (4) v0.6.7 review (L6): a popup with NO anchor item is only
+        // re-clamped into bounds on a reflow, never fully re-placed — a
+        // reaction popover pinned to a message row must not slide back toward
+        // a stale point when the window grows.
+        const int reflowAt = base.indexOf(QStringLiteral("function reflow()"));
+        QVERIFY(reflowAt >= 0);
+        const int scheduleAt =
+            base.indexOf(QStringLiteral("function scheduleReflow()"), reflowAt);
+        QVERIFY(scheduleAt > reflowAt);
+        const QString body = base.mid(reflowAt, scheduleAt - reflowAt);
+        QVERIFY(body.contains(QStringLiteral("if (anchorItem) {")));
+        QVERIFY(body.contains(QStringLiteral("Math.min(x, parent.width - width")));
+        QVERIFY(body.contains(QStringLiteral("Math.min(y, parent.height - height")));
+    }
+
+    // Both overlay pickers are opened from a real button, so both must hand
+    // over the ITEM. Handing over a snapshotted point is exactly the bug.
+    void callersAnchorToTheItemNotASnapshottedPoint()
+    {
+        const QString composer = read(QStringLiteral(QML_DIR "/MessageComposerBar.qml"));
+        const QString thread = read(QStringLiteral(QML_DIR "/ThreadPanel.qml"));
+        QVERIFY(!composer.isEmpty() && !thread.isEmpty());
+        QVERIFY(composer.contains(QStringLiteral("emojiPicker.anchorItem = emojiButton")));
+        QVERIFY(composer.contains(QStringLiteral("gifPicker.anchorItem = gifButton")));
+        QVERIFY(thread.contains(QStringLiteral(
+            "threadGifPicker.anchorItem = threadGifButton")));
+        // The thread emoji button additionally had a coordinate-space bug: it
+        // mapped into `panel` while the anchor is interpreted in OVERLAY
+        // coordinates, placing the picker as far left of the button as the
+        // 340px thread panel is inset from the window's left edge.
+        QVERIFY(thread.contains(QStringLiteral(
+            "threadEmojiPicker.anchorItem = threadEmojiButton")));
+        QVERIFY(!thread.contains(QStringLiteral("threadEmojiPicker.anchorPoint")));
+        // None of the four button-opened pickers may snapshot a point any
+        // more. (The reaction pickers legitimately still do: they open at a
+        // point inside a scrolling message row, with no stable item to hold
+        // — they get the clamp re-applied on resize, nothing more.)
+        QVERIFY(!composer.contains(QStringLiteral("gifPicker.anchorPoint")));
+        QVERIFY(!composer.contains(QStringLiteral("emojiPicker.anchorPoint")));
+        QVERIFY(!thread.contains(QStringLiteral("threadGifPicker.anchorPoint")));
     }
 };
 QTEST_MAIN(EmojiPickerContractTest)

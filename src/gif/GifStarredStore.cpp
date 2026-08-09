@@ -59,28 +59,33 @@ QString GifStarredStore::categoryMessage(const QString &category) const
         return tr("That file is not a GIF.");
     if (category == QLatin1String("invalid_media"))
         return tr("That GIF could not be read.");
+    // v0.6.7: these are the sentences the timeline banner shows verbatim, so
+    // they speak the one user-facing vocabulary the star now has everywhere —
+    // "saved", never "starred". The category TOKENS are unchanged (they are a
+    // stable programmatic contract, asserted by GifStarredStoreTest and
+    // branched on by TimelinePane.qml); only the prose moved.
     if (category == QLatin1String("too_large"))
-        return tr("That GIF is too large to star.");
+        return tr("That GIF is too large to save.");
     if (category == QLatin1String("cap_items")) {
-        return tr("Starred GIFs is full (%1 items) — unstar something first.")
+        return tr("Saved GIFs is full (%1 items) — remove one first.")
             .arg(m_maxItems);
     }
     if (category == QLatin1String("cap_bytes")) {
         const qint64 mib = m_maxTotalBytes / (1024 * 1024);
-        return tr("Starred GIFs is full (%1 MiB) — unstar something first.")
+        return tr("Saved GIFs is full (%1 MiB) — remove one first.")
             .arg(mib);
     }
     if (category == QLatin1String("write_failed"))
         return tr("Lightning could not save that GIF to this device.");
     if (category == QLatin1String("not_open"))
-        return tr("Starred GIFs is unavailable right now.");
+        return tr("Saved GIFs is unavailable right now.");
     if (category == QLatin1String("unavailable"))
         return tr("The GIF could not be fetched.");
     if (category == QLatin1String("timeout"))
         return tr("Fetching the GIF timed out.");
     if (category == QLatin1String("already_starred"))
-        return tr("Already in your starred GIFs.");
-    return tr("The GIF could not be starred.");
+        return tr("Already in your saved GIFs.");
+    return tr("The GIF could not be saved.");
 }
 
 void GifStarredStore::openFor(const QString &accountDir)

@@ -206,6 +206,46 @@ ApplicationWindow {
 }
 )QML";
 
+// v0.6.7 anchoring regression scene. The anchor sits at a position DERIVED
+// from the window size, exactly like the composer's GIF button, which moves
+// whenever the window is resized. The old code snapshotted the anchor as a
+// plain point in onAboutToShow and never recomputed it, so the popup kept its
+// absolute x/y while the button slid out from under it — the reported bug
+// ("when gif window is opened and window is resized the gif window stays in
+// the same spot, ending up in the middle of the window").
+//
+// The proportions are chosen so neither placement is clamped at either window
+// size (the clamp would mask a missing re-anchor by pinning both runs to the
+// same edge value) and so the popup hangs BELOW the anchor in both.
+const char *kAnchoredPickerScene = R"QML(
+import QtQuick
+import QtQuick.Controls
+import MatrixClient
+
+ApplicationWindow {
+    id: win
+    width: 900
+    height: 700
+    visible: true
+
+    Item {
+        id: anchorButton
+        objectName: "anchorButton"
+        width: 40
+        height: 30
+        x: win.width * 0.5
+        y: win.height * 0.1
+    }
+
+    GifPicker {
+        id: picker
+        objectName: "picker"
+        target: "room"
+        anchorItem: anchorButton
+    }
+}
+)QML";
+
 } // namespace
 
 class GifPickerSelectionQmlTest : public QObject
@@ -226,15 +266,20 @@ private Q_SLOTS:
         settings.sync();
     }
 
-    void favoriteClickChoosesExactFavoriteNotTrending()
+    // v0.6.7: the Favorites section became the Saved tab, and the visible
+    // model is the merged GifSavedModel rather than GifFavoritesModel
+    // directly. The invariant under test is unchanged and is the whole reason
+    // choose() resolves against activeModel: a row must be resolved against
+    // the model the user is LOOKING AT, never the browse grid.
+    void savedClickChoosesExactSavedRowNotTrending()
     {
         AppController controller(AppController::MockBackend);
         auto *gif = controller.gif();
         QVERIFY(gif != nullptr);
 
-        // Two favorites from different providers, deliberately NOT present
-        // in the browse results model (which stays empty — the live bug
-        // substituted its first row).
+        // Two saved provider GIFs from different providers, deliberately NOT
+        // present in the browse results model (which stays empty — the live
+        // bug substituted its first row).
         QVERIFY(gif->toggleFavorite(
             favoriteFixture(QStringLiteral("giphy"), QStringLiteral("aaa1"))));
         QVERIFY(gif->toggleFavorite(
@@ -269,16 +314,17 @@ private Q_SLOTS:
         QCoreApplication::processEvents();
 
         QSignalSpy chosen(picker, SIGNAL(gifChosen(QVariant)));
-        QQmlProperty::write(picker, QStringLiteral("section"),
-                            QStringLiteral("favorites"));
-        QCOMPARE(QQmlProperty::read(picker, QStringLiteral("section"))
-                     .toString(),
-                 QStringLiteral("favorites"));
+        QQmlProperty::write(picker, QStringLiteral("tab"),
+                            QStringLiteral("saved"));
+        QCOMPARE(QQmlProperty::read(picker, QStringLiteral("tab")).toString(),
+                 QStringLiteral("saved"));
 
-        // Click row 1 of the VISIBLE favorites grid (the klipy favorite —
-        // favorites prepend newest first, so verify by identity, not
-        // position assumptions).
-        const QVariantMap expected = gif->favorites()->get(1);
+        // Click row 1 of the VISIBLE saved grid — read through the merged
+        // model the picker is actually bound to, not through the favorites
+        // store behind it (with no local rows the two agree, but resolving
+        // against the visible model is exactly the invariant here). Saved
+        // rows prepend newest first, so verify by identity, never position.
+        const QVariantMap expected = gif->saved()->get(1);
         QVERIFY(!expected.value(QStringLiteral("gifId")).toString().isEmpty());
         QVERIFY(QMetaObject::invokeMethod(picker, "choose",
                                           Q_ARG(QVariant, 1)));
@@ -510,29 +556,36 @@ private Q_SLOTS:
         QCOMPARE(warnings, QStringList{});
     }
 
-    // v0.6.6 live-bug fix: `gif.starredStore.model()` in GifPicker.qml's
-    // activeModel binding called a plain, non-Q_INVOKABLE C++ method — QML
-    // cannot call that, the binding throws a TypeError, Qt's
-    // QQmlBinding::update catches it and (silently) leaves activeModel at
-    // its PREVIOUS value. Since activeModel starts out (starredTabActive
-    // false) bound to gif.results, selecting the Starred tab left the grid
-    // still showing trending GIPHY results — while the tab's header/footer/
+    // v0.6.6 live-bug fix, still guarded after the v0.6.7 rework:
+    // `gif.starredStore.model()` in GifPicker.qml's activeModel binding called
+    // a plain, non-Q_INVOKABLE C++ method — QML cannot call that, the binding
+    // throws a TypeError, Qt's QQmlBinding::update catches it and (silently)
+    // leaves activeModel at its PREVIOUS value. Since activeModel starts out
+    // bound to gif.results, selecting the local tab left the grid still
+    // showing trending GIPHY results — while the tab's header/footer/
     // search-field visibility all correctly switched, because those bind on
-    // starredTabActive directly, never through the throwing expression.
-    // Every previous guard on this (QmlBindingContractTest,
-    // GifPickerRedesignContractTest) only text-scanned the QML source for
-    // the call; neither ever set starredTabActive on a real, running picker,
-    // so the throwing branch was never actually evaluated. This test drives
-    // the real engine, the real GifStarredStore, and asserts both the model
-    // identity AND that no QML warning (i.e. no caught binding exception)
-    // was ever emitted — a text scan can never prove that on its own.
-    void starredTabBindsTheStarredModelNotResults()
+    // the tab state directly, never through the throwing expression.
+    // Text-scanning contract tests can only see the call form; only a real
+    // engine evaluates the branch. This test drives the real engine, the real
+    // GifStarredStore and the real merged model, and asserts both the model
+    // identity AND that no QML warning (i.e. no caught binding exception) was
+    // ever emitted — a text scan can never prove that on its own.
+    void savedTabBindsTheMergedModelNotResults()
     {
         QTemporaryDir starredDir;
         QVERIFY(starredDir.isValid());
         GifSearchController gif;
+        // v0.6.7: provider favorites persist to the shared QSettings store,
+        // so a controller constructed here loads whatever an EARLIER case in
+        // this binary saved. That did not matter while the local tab rendered
+        // GifStarredModel alone; now that the Saved tab is the merged list,
+        // leftover favorites would land in the very count asserted below.
+        // Start from an empty provider group so the merged list is exactly
+        // the local group.
+        gif.favorites()->clearAll();
         gif.openStarredStoreFor(starredDir.path());
         QVERIFY(gif.starredStore()->isOpen());
+        QCOMPARE(gif.saved()->count(), 0);
 
         // A minimal real GIF: magic + logical-screen-descriptor width/height
         // — the smallest shape gif::validateGifBytes accepts (mirrors
@@ -586,38 +639,225 @@ private Q_SLOTS:
         window.show();
         QCoreApplication::processEvents();
 
-        // Select the Starred tab exactly like the provider
-        // SegmentedControl's onActivated("starred") branch does.
-        QQmlProperty::write(picker, QStringLiteral("starredTabActive"), true);
+        // Select the Saved tab exactly like the nav strip's onActivated does.
+        QQmlProperty::write(picker, QStringLiteral("tab"),
+                            QStringLiteral("saved"));
         QCoreApplication::processEvents();
-        QVERIFY(QQmlProperty::read(picker, QStringLiteral("starredTabActive"))
+        QCOMPARE(QQmlProperty::read(picker, QStringLiteral("tab")).toString(),
+                 QStringLiteral("saved"));
+        QVERIFY(!QQmlProperty::read(picker, QStringLiteral("providerTab"))
                      .toBool());
 
         auto *gridObj =
             picker->findChild<QObject *>(QStringLiteral("gifResultGrid"));
         QVERIFY(gridObj != nullptr);
 
-        // activeModel (and the grid bound to it) must be the STARRED model
-        // — never gif.results (trending).
+        // activeModel (and the grid bound to it) must be the merged SAVED
+        // model — never gif.results (trending).
         QObject *activeModel =
             QQmlProperty::read(picker, QStringLiteral("activeModel"))
                 .value<QObject *>();
-        QCOMPARE(activeModel, static_cast<QObject *>(gif.starredStore()->model()));
+        QCOMPARE(activeModel, static_cast<QObject *>(gif.saved()));
         QVERIFY(activeModel != static_cast<QObject *>(gif.results()));
 
         QObject *gridModel =
             QQmlProperty::read(gridObj, QStringLiteral("model")).value<QObject *>();
-        QCOMPARE(gridModel, static_cast<QObject *>(gif.starredStore()->model()));
+        QCOMPARE(gridModel, static_cast<QObject *>(gif.saved()));
 
-        // The grid actually renders the ONE starred row, not the TWO
+        // The grid actually renders the ONE locally-saved row, not the TWO
         // trending rows the bug left it showing — a count assertion that
         // discriminates on its own, not only alongside the identity checks.
+        // No provider favorites exist here, so the merged list is exactly the
+        // local group.
         QCOMPARE(QQmlProperty::read(gridObj, QStringLiteral("count")).toInt(), 1);
 
         // No caught binding exception anywhere in this sequence — the
         // regression's actual failure mode (a swallowed TypeError) would
         // otherwise show up here even if some other code path happened to
         // still produce the right model.
+        QCOMPARE(warnings, QStringList{});
+    }
+
+    // v0.6.7 regression (reported live): an open picker must stay attached to
+    // the control it was opened from when the window is resized. Drives a real
+    // ApplicationWindow so Overlay.overlay is real, opens the picker, resizes,
+    // and asserts the placement against the anchor's ACTUAL post-resize
+    // position rather than against hardcoded coordinates.
+    //
+    // This fails on the unfixed tree: placement ran once from onAboutToShow
+    // against a snapshotted point, so x/y were still the pre-resize values.
+    void openPickerFollowsItsAnchorAcrossAWindowResize()
+    {
+        QQmlApplicationEngine engine;
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this,
+                [&warnings](const QList<QQmlError> &errors) {
+                    for (const auto &e : errors)
+                        warnings << e.toString();
+                });
+        GifSearchController gif;
+        FakeGifApp fakeApp(&gif);
+        engine.rootContext()->setContextProperty("app", &fakeApp);
+
+        QQmlComponent component(&engine);
+        component.setData(QByteArray(kAnchoredPickerScene),
+                          QUrl(QStringLiteral("anchoredpickerscene.qml")));
+        QObject *root = component.create();
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root);
+        QVERIFY(window != nullptr);
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        QCoreApplication::processEvents();
+
+        auto *picker = root->findChild<QObject *>(QStringLiteral("picker"));
+        QVERIFY(picker != nullptr);
+        auto *anchor = root->findChild<QQuickItem *>(QStringLiteral("anchorButton"));
+        QVERIFY(anchor != nullptr);
+
+        QVERIFY(QMetaObject::invokeMethod(picker, "open"));
+        QTRY_VERIFY(picker->property("opened").toBool());
+
+        auto *overlay = picker->property("parent").value<QQuickItem *>();
+        QVERIFY(overlay != nullptr);
+
+        // Where the picker SHOULD sit: horizontally centred on the anchor,
+        // hanging just below it. Recomputed from live geometry each time.
+        const auto expectedX = [&] {
+            const QPointF p = anchor->mapToItem(
+                overlay, QPointF(anchor->width() / 2.0, 0));
+            return p.x() - picker->property("width").toReal() / 2.0;
+        };
+        const qreal beforeX = picker->property("x").toReal();
+        const qreal beforeY = picker->property("y").toReal();
+        QVERIFY2(qAbs(beforeX - expectedX()) < 1.5,
+                 qPrintable(QStringLiteral("initial x %1 vs expected %2")
+                                .arg(beforeX).arg(expectedX())));
+        // It hangs below the anchor, not above it, at this window size.
+        QVERIFY(beforeY > anchor->mapToItem(overlay, QPointF(0, 0)).y());
+
+        window->resize(1300, 900);
+        // Establish the premise before asserting the conclusion: the window,
+        // the overlay the popup is parented to, and the anchor itself all
+        // actually moved. Without these, a platform that silently ignored the
+        // resize would make the final assertion vacuous.
+        QTRY_COMPARE(int(window->width()), 1300);
+        QTRY_COMPARE(int(overlay->width()), 1300);
+        QTRY_VERIFY2(anchor->x() > 600,
+                     qPrintable(QStringLiteral("anchor did not move: x=%1")
+                                    .arg(anchor->x())));
+        // The re-anchor is deferred through Qt.callLater (a resize moves the
+        // overlay before the layouts underneath have repositioned the anchor),
+        // so settle the event loop rather than reading straight after resize.
+        QTRY_VERIFY2(qAbs(picker->property("x").toReal() - expectedX()) < 1.5,
+                     qPrintable(QStringLiteral("picker x %1 vs expected %2")
+                                    .arg(picker->property("x").toReal())
+                                    .arg(expectedX())));
+
+        const qreal afterX = picker->property("x").toReal();
+        const qreal afterY = picker->property("y").toReal();
+        // The anchor genuinely moved in BOTH axes, so a picker that had not
+        // re-anchored would now be visibly detached in both.
+        QVERIFY2(qAbs(afterX - beforeX) > 50,
+                 qPrintable(QStringLiteral("x did not follow: %1 -> %2")
+                                .arg(beforeX).arg(afterX)));
+        QVERIFY2(qAbs(afterY - beforeY) > 10,
+                 qPrintable(QStringLiteral("y did not follow: %1 -> %2")
+                                .arg(beforeY).arg(afterY)));
+        // And it still hangs just below the anchor's top edge.
+        const qreal anchorTop = anchor->mapToItem(overlay, QPointF(0, 0)).y();
+        QVERIFY(afterY > anchorTop);
+        QVERIFY(afterY - anchorTop < 20);
+
+        delete root;
+        QCOMPARE(warnings, QStringList{});
+    }
+
+    // v0.6.7 review (H1/N9): the behavioural guard for the Recent-tab star.
+    //
+    // GifStoredModel answers FavoriteRole with a constant `true` — "stored ==
+    // favorited" — and GifRecentModel does not override it. The picker read
+    // that role to drive its star, so every Recent tile rendered as saved,
+    // announced "Remove from saved GIFs", and then called toggleFavorite()
+    // which INSERTS: the control said Remove and did Save. The source-scan
+    // pin in GifPickerRedesignContractTest catches the shape; this drives a
+    // real picker with a real controller and reads the rendered delegate's
+    // own `saved` property, which is what the user actually sees.
+    //
+    // It fails on the unfixed tree: `saved` was
+    // `tile.provider === "local" || tile.favorite`, and tile.favorite is
+    // unconditionally true for a recents row, so the first assertion below
+    // would read true.
+    void recentTileIsNotSavedMerelyBecauseItWasSent()
+    {
+        GifSearchController gif;
+        // Recents and favorites share the process QSettings, so start from a
+        // known-empty provider group (see savedTabBindsTheMergedModelNot-
+        // Results for the same isolation note).
+        gif.favorites()->clearAll();
+        gif.recent()->clearAll();
+
+        const QVariantMap sent =
+            favoriteFixture(QStringLiteral("giphy"), QStringLiteral("sent1"));
+        gif.recordSent(sent);
+        QCOMPARE(gif.recent()->rowCount(), 1);
+        QCOMPARE(gif.favorites()->rowCount(), 0);
+
+        FakeGifApp fakeApp(&gif);
+        QQmlApplicationEngine engine;
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this,
+                [&warnings](const QList<QQmlError> &errors) {
+                    for (const auto &e : errors)
+                        warnings << e.toString();
+                });
+        engine.rootContext()->setContextProperty("app", &fakeApp);
+
+        // A real ApplicationWindow so Overlay.overlay resolves and the opened
+        // popup gets real geometry — a GridView with no height creates no
+        // delegates, and this test has to read one.
+        QQmlComponent component(&engine);
+        component.setData(QByteArray(kAnchoredPickerScene),
+                          QUrl(QStringLiteral("anchoredpickerscene.qml")));
+        QObject *root = component.create();
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root);
+        QVERIFY(window != nullptr);
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+
+        auto *picker = root->findChild<QObject *>(QStringLiteral("picker"));
+        QVERIFY(picker != nullptr);
+        QVERIFY(QMetaObject::invokeMethod(picker, "open"));
+        QTRY_VERIFY(picker->property("opened").toBool());
+
+        QQmlProperty::write(picker, QStringLiteral("tab"),
+                            QStringLiteral("recent"));
+        auto *gridObj =
+            picker->findChild<QQuickItem *>(QStringLiteral("gifResultGrid"));
+        QVERIFY(gridObj != nullptr);
+        QTRY_COMPARE(QQmlProperty::read(gridObj, QStringLiteral("count")).toInt(), 1);
+
+        QQuickItem *tile = nullptr;
+        QTRY_VERIFY(QMetaObject::invokeMethod(
+                        gridObj, "itemAtIndex", Q_RETURN_ARG(QQuickItem *, tile),
+                        Q_ARG(int, 0))
+                    && tile != nullptr);
+
+        // A GIF that was merely SENT is not saved.
+        QVERIFY2(!QQmlProperty::read(tile, QStringLiteral("saved")).toBool(),
+                 "a recents row reported itself as saved");
+
+        // Saving it flips the SAME tile live — which also proves the revision
+        // counter actually re-evaluates the binding, since isSaved() is a
+        // plain call that establishes no dependency of its own.
+        QVERIFY(gif.toggleFavorite(sent));
+        QTRY_VERIFY2(QQmlProperty::read(tile, QStringLiteral("saved")).toBool(),
+                     "tile did not pick up the new saved state");
+
+        // And unsaving flips it back.
+        QVERIFY(!gif.toggleFavorite(sent));
+        QTRY_VERIFY(!QQmlProperty::read(tile, QStringLiteral("saved")).toBool());
+
+        delete root;
         QCOMPARE(warnings, QStringList{});
     }
 
@@ -633,18 +873,18 @@ private Q_SLOTS:
     //
     // Uses the same minimal harness as staleCurrentIndexAfterModelResetCan-
     // notSendWrongItem/searchFieldEnterWithPendingDebounceSendsNothing above
-    // (a raw GifSearchController + FakeGifApp, default "browse" section,
-    // results injected directly) rather than the two-picker
+    // (a raw GifSearchController + FakeGifApp, default provider tab, results
+    // injected directly) rather than the two-picker
     // ApplicationWindow/kTwoPickerScene harness openingOnePickerClosesThe-
     // Other uses: that combination — a real Popup open()/close()/reopen
-    // cycle together with a "favorites" section switch — segfaulted deep in
+    // cycle together with a switch to the saved list — segfaulted deep in
     // Qt's own event-posting machinery
     // (QCoreApplicationPrivate::lockThreadPostEventList) in a way that
     // survived waiting for the close transition to finish before reopening,
     // and is not a combination any OTHER test in this file exercises. The
     // guard itself only needs choose() to be called twice in a row with no
     // event-loop turn between them — reachable without a real popup
-    // lifecycle or the favorites section at all.
+    // lifecycle or the saved list at all.
     void secondActivationBeforeCloseCompletesSendsExactlyOne()
     {
         GifSearchController gif;
@@ -703,8 +943,9 @@ private Q_SLOTS:
     //
     // Reproduction: drive a two-picker scene matching production
     // (MessageComposerBar.qml and ThreadPanel.qml each instantiate one
-    // GifPicker), then open() -> section = "favorites" -> choose() ->
-    // close() -> reopen(). That crashes in
+    // GifPicker), then open() -> tab = "saved" (the "favorites" section,
+    // before the v0.6.7 rework) -> choose() -> close() -> reopen(). That
+    // crashes in
     // QCoreApplicationPrivate::lockThreadPostEventList, and waiting for the
     // close transition to finish first does not avoid it.
     //
@@ -712,7 +953,7 @@ private Q_SLOTS:
     // with origin/main's qml/GifPicker.qml swapped in, the same sequence
     // still segfaults, while secondActivationBeforeCloseCompletes... fails
     // as expected without the guard. So the crash is a pre-existing
-    // fragility in GifPicker.qml's real Popup/favorites lifecycle, reachable
+    // fragility in GifPicker.qml's real Popup/saved-list lifecycle, reachable
     // by an ordinary user sequence, and it survived this long only because
     // nothing had ever driven that sequence.
     //

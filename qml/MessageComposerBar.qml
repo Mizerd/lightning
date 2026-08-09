@@ -53,9 +53,10 @@ Item {
         emojiSelectionStart = input.selectionStart
         emojiSelectionEnd = input.selectionEnd
         emojiCursorPosition = input.cursorPosition
-        var p = emojiButton.mapToItem(Overlay.overlay,
-                                      emojiButton.width / 2, 0)
-        emojiPicker.anchorPoint = p
+        // anchorItem, not a snapshotted point: AnchoredPopup re-derives the
+        // point from the button on every reflow, so a window resize (or the
+        // composer growing) keeps the picker attached to it.
+        emojiPicker.anchorItem = emojiButton
         emojiPicker.open()
     }
 
@@ -189,8 +190,7 @@ Item {
 
     function openGifPicker() {
         emojiPicker.close()
-        var p = gifButton.mapToItem(Overlay.overlay, gifButton.width / 2, 0)
-        gifPicker.anchorPoint = p
+        gifPicker.anchorItem = gifButton
         gifPicker.open()
     }
 

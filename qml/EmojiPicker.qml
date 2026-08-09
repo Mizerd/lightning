@@ -18,10 +18,14 @@ import MatrixClient
 // Storm skin (SPEC-storm-language §4/2e): stormPanel chrome, storm search
 // field, bolt-underlined active category, stormSelection hover cells, bolt
 // mono footer preview. Colors/fonts only — structure and behavior unchanged.
-Popup {
+// v0.6.7: the root is AnchoredPopup, not a bare Popup — anchorPoint and
+// placeInsideWindow() moved there, and the popup now re-anchors on a window
+// resize instead of being placed once and left behind. Callers that open it
+// from a button set `anchorItem`; the reaction-picker entry points still pass
+// a bare `anchorPoint` (there is no stable item under a message-row point).
+AnchoredPopup {
     id: picker
     property string mode: "composer"
-    property point anchorPoint: Qt.point(0, 0)
     property bool closeAfterSelection: true
     signal emojiChosen(string emoji)
 
@@ -59,7 +63,6 @@ Popup {
         : app.emojiCatalog.category === "Recently Used" ? qsTr("Recently used")
         : app.emojiCatalog.category
 
-    parent: Overlay.overlay
     width: Math.min(324, parent ? parent.width - AppTheme.spacingM * 2 : 324)
     height: Math.min(480, parent ? parent.height - AppTheme.spacingM * 2 : 480)
     padding: 0
@@ -90,18 +93,9 @@ Popup {
         tonePopup.open()
     }
 
-    function placeInsideWindow() {
-        if (!parent) return
-        var below = anchorPoint.y + AppTheme.spacingXS
-        x = Math.max(AppTheme.spacingS,
-                     Math.min(anchorPoint.x - width / 2, parent.width - width - AppTheme.spacingS))
-        y = below + height <= parent.height - AppTheme.spacingS
-            ? below
-            : Math.max(AppTheme.spacingS, anchorPoint.y - height - AppTheme.spacingXS)
-    }
-
+    // placeInsideWindow()/reanchor() are AnchoredPopup's, and AnchoredPopup's
+    // own onAboutToShow already performs the initial placement.
     onAboutToShow: {
-        placeInsideWindow()
         search.text = ""
         app.emojiCatalog.searchText = ""
         previewEmoji = ""

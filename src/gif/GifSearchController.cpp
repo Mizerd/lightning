@@ -4,13 +4,25 @@
 #include "gif/GifKeyConfig.h"
 #include "gif/GifTransport.h"
 
+// v0.6.7 review (N4): the initialiser list is ordered to match the member
+// DECLARATION order in the header, which is the order the compiler actually
+// runs it in — m_provider is declared last, so it is initialised last here
+// too. It was previously written first, which was harmless (m_activeProviderId
+// has a default member initialiser and is declared before m_provider, so it
+// was already set) but read as if the list order meant something, and would
+// warn under -Wreorder.
 GifSearchController::GifSearchController(QObject *parent)
     : QObject(parent)
-    , m_provider(gif::makeGifProvider(m_activeProviderId))
     , m_settings(std::make_unique<QSettings>())
     , m_favorites(std::make_unique<GifFavoritesModel>(m_settings.get(), this))
     , m_recent(std::make_unique<GifRecentModel>(m_settings.get(), this))
     , m_starred(std::make_unique<GifStarredStore>(this))
+    // Presentation-only merge of the two saved collections — constructed
+    // AFTER both sources exist. See GifSavedModel's header for why the
+    // stores themselves stay separate.
+    , m_saved(std::make_unique<GifSavedModel>(m_starred->model(),
+                                              m_favorites.get(), this))
+    , m_provider(gif::makeGifProvider(m_activeProviderId))
 {
     // Resolve provider keys through the shared source of truth (process
     // environment > local env file > compiled build key > unconfigured).

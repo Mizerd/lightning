@@ -1068,6 +1068,7 @@ Rectangle {
                             }
                         }
                         IconButton {
+                            id: threadEmojiButton
                             objectName: "threadEmojiButton"
                             implicitWidth: 24; implicitHeight: 24
                             radius: 6
@@ -1076,8 +1077,15 @@ Rectangle {
                             enabled: app.thread.state === ThreadController.Ready
                             Accessible.name: qsTr("Insert emoji")
                             onClicked: {
-                                var p = mapToItem(panel, 0, 0)
-                                threadEmojiPicker.anchorPoint = Qt.point(p.x, p.y)
+                                // v0.6.7 fix: this mapped into `panel`, but
+                                // the anchor point is interpreted in OVERLAY
+                                // coordinates — so the picker was placed as
+                                // far left of the button as the thread panel
+                                // is inset from the window's left edge (340px
+                                // of right-hand panel, i.e. most of the
+                                // window). anchorItem does the mapping in the
+                                // right space, and re-does it on resize.
+                                threadEmojiPicker.anchorItem = threadEmojiButton
                                 threadEmojiPicker.open()
                             }
                         }
@@ -1131,10 +1139,7 @@ Rectangle {
                             }
                             onClicked: {
                                 threadEmojiPicker.close()
-                                var p = threadGifButton.mapToItem(
-                                    Overlay.overlay,
-                                    threadGifButton.width / 2, 0)
-                                threadGifPicker.anchorPoint = p
+                                threadGifPicker.anchorItem = threadGifButton
                                 threadGifPicker.open()
                             }
                         }

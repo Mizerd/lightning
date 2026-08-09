@@ -6,9 +6,11 @@
 #include "gif/GifFavoritesModel.h"
 #include "gif/GifRecentModel.h"
 #include "gif/GifResultModel.h"
+#include "gif/GifSavedModel.h"
 #include "gif/GifStarredModel.h"
 
 #include <QSettings>
+#include <QTemporaryDir>
 #include <QtTest/QtTest>
 
 namespace {
@@ -64,13 +66,23 @@ class GifCollectionsTest : public QObject
 {
     Q_OBJECT
 
+    // v0.6.7 review (N6): a per-run QTemporaryDir, not a fixed /tmp path. The
+    // hard-coded name collided if two CTest runs ever overlapped (the trees
+    // are built and tested separately, so that is reachable), and a collision
+    // here looks like a data bug rather than a harness one.
+    QTemporaryDir tempDir;
     QSettings *store = nullptr;
 
+    QString storePath(const QString &name) const
+    { return tempDir.filePath(name + QStringLiteral(".ini")); }
+
 private Q_SLOTS:
+    void initTestCase() { QVERIFY(tempDir.isValid()); }
+
     void init()
     {
-        // A fresh in-memory-ish store per test (INI temp file).
-        store = new QSettings(QStringLiteral("/tmp/lightning-gif-collections-test.ini"),
+        // A fresh store per test (INI file under this run's temp dir).
+        store = new QSettings(storePath(QStringLiteral("collections")),
                               QSettings::IniFormat);
         store->clear();
     }
@@ -100,6 +112,15 @@ private Q_SLOTS:
     void starredTotalBytesSumsRows();
     void starredNoSensitiveFieldsPersisted();
     void reopenReplacesRowsAndCanGoStorageless();
+
+    // v0.6.7: GifSavedModel — the single user-visible "Saved" list, a
+    // presentation merge over the two stores that stay separate underneath.
+    void savedListsLocalRowsFirstThenProviderRows();
+    void savedGetIsBoundsCheckedAcrossTheGroupBoundary();
+    void savedTracksBothSourcesLive();
+    void savedForwardsRolesCorrectlyForBothGroups();
+    void savedSurvivesASourceReopen();
+    void favoriteRoleIsAConstantAndNotASavedStateOracle();
 };
 
 void GifCollectionsTest::favoriteToggleAndDedup()
@@ -314,7 +335,7 @@ void GifCollectionsTest::reopenReplacesRowsAndCanGoStorageless()
 
     // Re-point at a DIFFERENT settings object (a different account
     // directory) and load whatever it holds.
-    QSettings other(QStringLiteral("/tmp/lightning-gif-collections-test-b.ini"),
+    QSettings other(storePath(QStringLiteral("account-b")),
                     QSettings::IniFormat);
     other.clear();
     starred.reopen(&other);
@@ -331,6 +352,203 @@ void GifCollectionsTest::reopenReplacesRowsAndCanGoStorageless()
     QCOMPARE(original.get(0).value(QStringLiteral("gifId")).toString(),
              QString(64, QLatin1Char('f')));
     other.clear();
+}
+
+// ── v0.6.7: the merged Saved list ───────────────────────────────────────
+
+void GifCollectionsTest::savedListsLocalRowsFirstThenProviderRows()
+{
+    GifStarredModel local(store);
+    GifFavoritesModel provider(store);
+    GifSavedModel saved(&local, &provider);
+    QCOMPARE(saved.count(), 0);
+
+    QVERIFY(provider.toggle(toMap(make("giphy", "p1"))));
+    QVERIFY(provider.toggle(toMap(make("klipy", "p2"))));
+    const QString h1 = QString(64, QLatin1Char('1'));
+    const QString h2 = QString(64, QLatin1Char('2'));
+    local.insertLocal(makeLocal(h1));
+    local.insertLocal(makeLocal(h2));
+
+    // Grouped by kind, each group newest-first: locals first, then provider
+    // bookmarks. NOT a chronological interleave — gif::GifResult carries no
+    // saved-at timestamp, so claiming one would be fiction.
+    QCOMPARE(saved.count(), 4);
+    QCOMPARE(saved.get(0).value(QStringLiteral("gifId")).toString(), h2);
+    QCOMPARE(saved.get(1).value(QStringLiteral("gifId")).toString(), h1);
+    QCOMPARE(saved.get(2).value(QStringLiteral("gifId")).toString(),
+             QStringLiteral("p2"));
+    QCOMPARE(saved.get(3).value(QStringLiteral("gifId")).toString(),
+             QStringLiteral("p1"));
+    // Provider identity survives the merge — it is what routes a star press
+    // back to the right store, and what the tile's source tag displays.
+    QCOMPARE(saved.get(0).value(QStringLiteral("provider")).toString(),
+             QStringLiteral("local"));
+    QCOMPARE(saved.get(2).value(QStringLiteral("provider")).toString(),
+             QStringLiteral("klipy"));
+}
+
+void GifCollectionsTest::savedGetIsBoundsCheckedAcrossTheGroupBoundary()
+{
+    GifStarredModel local(store);
+    GifFavoritesModel provider(store);
+    GifSavedModel saved(&local, &provider);
+    local.insertLocal(makeLocal(QString(64, QLatin1Char('3'))));
+    QVERIFY(provider.toggle(toMap(make("giphy", "p1"))));
+    QCOMPARE(saved.count(), 2);
+
+    // An out-of-range row must answer an EMPTY map, never a neighbouring row.
+    // GifPicker.qml's choose() drops a result with no provider/gifId, so an
+    // empty map is what makes a stale keyboard row send nothing rather than
+    // send the wrong GIF — the whole reason the offset arithmetic here is
+    // bounds-checked on the provider side too, not only on the local side.
+    QVERIFY(saved.get(2).isEmpty());
+    QVERIFY(saved.get(99).isEmpty());
+    QVERIFY(saved.get(-1).isEmpty());
+}
+
+void GifCollectionsTest::savedTracksBothSourcesLive()
+{
+    GifStarredModel local(store);
+    GifFavoritesModel provider(store);
+    GifSavedModel saved(&local, &provider);
+    QSignalSpy counted(&saved, &GifSavedModel::countChanged);
+
+    QVERIFY(provider.toggle(toMap(make("giphy", "p1"))));
+    QCOMPARE(saved.count(), 1);
+    const QString h = QString(64, QLatin1Char('4'));
+    local.insertLocal(makeLocal(h));
+    QCOMPARE(saved.count(), 2);
+    QVERIFY(counted.count() >= 2);
+
+    // Unsaving through EITHER store drops the row from the one visible list.
+    local.unstar(h);
+    QCOMPARE(saved.count(), 1);
+    QCOMPARE(saved.get(0).value(QStringLiteral("gifId")).toString(),
+             QStringLiteral("p1"));
+    provider.unfavorite(QStringLiteral("giphy"), QStringLiteral("p1"));
+    QCOMPARE(saved.count(), 0);
+}
+
+void GifCollectionsTest::savedForwardsRolesCorrectlyForBothGroups()
+{
+    GifStarredModel local(store);
+    GifFavoritesModel provider(store);
+    GifSavedModel saved(&local, &provider);
+    local.insertLocal(makeLocal(QString(64, QLatin1Char('5')), 4242));
+    QVERIFY(provider.toggle(toMap(make("giphy", "p1"))));
+    QCOMPARE(saved.rowCount(), 2);
+
+    // QConcatenateTablesProxyModel forwards the numeric role AS GIVEN to
+    // whichever source a row maps to, with no per-source remapping by name.
+    // That is only correct because both sources answer the IDENTICAL
+    // GifResultModel role table — assert that directly rather than trusting
+    // it, because two sources with similarly-named but differently-numbered
+    // roles would silently cross-wire fields with no visible error.
+    QCOMPARE(local.roleNames(), provider.roleNames());
+    // The proxy's own table is a SUPERSET — QConcatenateTablesProxyModel adds
+    // Qt's default item roles (display/decoration/edit/...) on top. What has
+    // to hold is that every GIF role keeps its exact number->name pairing
+    // through the merge, which is what makes the un-remapped forwarding above
+    // correct.
+    // Both hashes held by value: roleNames() returns a temporary, and
+    // iterating from one temporary's begin() to another's end() is undefined.
+    const QHash<int, QByteArray> proxyRoles = saved.roleNames();
+    const QHash<int, QByteArray> sourceRoles = local.roleNames();
+    for (auto it = sourceRoles.cbegin(); it != sourceRoles.cend(); ++it) {
+        QVERIFY2(proxyRoles.value(it.key()) == it.value(),
+                 qPrintable(QStringLiteral("role %1 (%2) changed meaning")
+                                .arg(it.key())
+                                .arg(QString::fromUtf8(it.value()))));
+    }
+
+    const int providerRole = GifResultModel::ProviderRole;
+    const int bytesRole = GifResultModel::BytesRole;
+    QCOMPARE(saved.data(saved.index(0, 0), providerRole).toString(),
+             QStringLiteral("local"));
+    QCOMPARE(saved.data(saved.index(0, 0), bytesRole).toLongLong(),
+             qint64(4242));
+    QCOMPARE(saved.data(saved.index(1, 0), providerRole).toString(),
+             QStringLiteral("giphy"));
+}
+
+// v0.6.7 review (M2): the merged view's riskiest path had no coverage —
+// GifStarredStore::openFor()/close() repoint the SAME long-lived
+// GifStarredModel at a different account's file through reopen(), which emits
+// two back-to-back reset pairs. If the proxy did not relay those, the Saved
+// tab would keep rendering the PREVIOUS account's rows after a switch.
+void GifCollectionsTest::savedSurvivesASourceReopen()
+{
+    GifStarredModel local(store);
+    GifFavoritesModel provider(store);
+    GifSavedModel saved(&local, &provider);
+
+    local.insertLocal(makeLocal(QString(64, QLatin1Char('7'))));
+    QVERIFY(provider.toggle(toMap(make("giphy", "p1"))));
+    QCOMPARE(saved.count(), 2);
+    QCOMPARE(saved.get(0).value(QStringLiteral("provider")).toString(),
+             QStringLiteral("local"));
+
+    QSignalSpy reset(&saved, &QAbstractItemModel::modelReset);
+    QSignalSpy counted(&saved, &GifSavedModel::countChanged);
+
+    // Sign-out / account close: the local group goes storageless. The proxy
+    // must drop exactly that group and keep the provider group.
+    local.reopen(nullptr);
+    QVERIFY(reset.count() >= 1);
+    QVERIFY(counted.count() >= 1);
+    QCOMPARE(saved.count(), 1);
+    QCOMPARE(saved.get(0).value(QStringLiteral("provider")).toString(),
+             QStringLiteral("giphy"));
+    QCOMPARE(saved.get(0).value(QStringLiteral("gifId")).toString(),
+             QStringLiteral("p1"));
+    QVERIFY(saved.get(1).isEmpty());
+
+    // Switching to another account's directory: its rows appear, ahead of the
+    // provider group again, and none of the previous account's survive.
+    QSettings other(storePath(QStringLiteral("account-c")),
+                    QSettings::IniFormat);
+    other.clear();
+    local.reopen(&other);
+    const QString h = QString(64, QLatin1Char('8'));
+    local.insertLocal(makeLocal(h));
+    QCOMPARE(saved.count(), 2);
+    QCOMPARE(saved.get(0).value(QStringLiteral("gifId")).toString(), h);
+    QCOMPARE(saved.get(1).value(QStringLiteral("gifId")).toString(),
+             QStringLiteral("p1"));
+    other.clear();
+}
+
+// v0.6.7 review (H1): GifStoredModel answers FavoriteRole with a constant
+// `true` — "stored == favorited". That is honest for favorites and for
+// locally-saved rows, and a LIE for recents, whose rows are merely recently
+// sent. The picker read that role to drive its star, so every Recent tile
+// rendered as saved, announced "Remove from saved GIFs", and then INSERTED on
+// activation. This pins the trap itself so the next reader cannot mistake the
+// role for a saved-state oracle, and pins the store lookup that replaced it.
+void GifCollectionsTest::favoriteRoleIsAConstantAndNotASavedStateOracle()
+{
+    GifRecentModel recent(store);
+    GifFavoritesModel favorites(store);
+
+    recent.recordSent(make("giphy", "sent1"));
+    QCOMPARE(recent.count(), 1);
+    // The role claims "favorite" for a GIF that was only ever SENT.
+    QCOMPARE(recent.data(recent.index(0, 0),
+                         GifResultModel::FavoriteRole).toBool(),
+             true);
+    // The collection tells the truth, which is why GifPicker.qml's isSaved()
+    // asks it instead.
+    QVERIFY(!favorites.isFavorite(QStringLiteral("giphy"),
+                                  QStringLiteral("sent1")));
+
+    // And it answers honestly once the GIF really is saved.
+    QVERIFY(favorites.toggle(toMap(make("giphy", "sent1"))));
+    QVERIFY(favorites.isFavorite(QStringLiteral("giphy"),
+                                 QStringLiteral("sent1")));
+    favorites.unfavorite(QStringLiteral("giphy"), QStringLiteral("sent1"));
+    QVERIFY(!favorites.isFavorite(QStringLiteral("giphy"),
+                                  QStringLiteral("sent1")));
 }
 
 QTEST_MAIN(GifCollectionsTest)

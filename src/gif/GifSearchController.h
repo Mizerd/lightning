@@ -4,6 +4,7 @@
 #include "gif/GifResultModel.h"
 #include "gif/GifFavoritesModel.h"
 #include "gif/GifRecentModel.h"
+#include "gif/GifSavedModel.h"
 #include "gif/GifStarredStore.h"
 
 #include <QHash>
@@ -39,10 +40,14 @@ class GifSearchController : public QObject
     Q_PROPERTY(GifResultModel *results READ results CONSTANT)
     Q_PROPERTY(GifFavoritesModel *favorites READ favorites CONSTANT)
     Q_PROPERTY(GifRecentModel *recent READ recent CONSTANT)
-    // v0.6.6: client-local starred chat GIFs (see GifStarredStore). The
-    // picker's own "Starred" tab binds directly to starredStore's `model`
-    // Q_PROPERTY — see GifPicker.qml — never merged with provider favorites.
+    // v0.6.7: client-local saved chat GIFs (see GifStarredStore) — the byte
+    // store, its caps, account scoping and deletion guarantees.
     Q_PROPERTY(GifStarredStore *starredStore READ starredStore CONSTANT)
+    // v0.6.7: the picker's single user-visible "Saved" list — a presentation
+    // merge of the two collections above (see GifSavedModel). The stores stay
+    // separate; only the view is unified, because a star now means exactly one
+    // thing everywhere.
+    Q_PROPERTY(GifSavedModel *saved READ saved CONSTANT)
     Q_PROPERTY(bool available READ available NOTIFY availableChanged)
     Q_PROPERTY(QStringList providerIds READ providerIds CONSTANT)
     Q_PROPERTY(QString providerId READ providerId NOTIFY providerChanged)
@@ -88,6 +93,7 @@ public:
     GifFavoritesModel *favorites() { return m_favorites.get(); }
     GifRecentModel *recent() { return m_recent.get(); }
     GifStarredStore *starredStore() const { return m_starred.get(); }
+    GifSavedModel *saved() const { return m_saved.get(); }
 
     // Account-scoped open/close for the local-starred store, called by
     // AppController on login/switch/logout. `accountDir` is already
@@ -172,6 +178,10 @@ private:
     std::unique_ptr<GifFavoritesModel> m_favorites;
     std::unique_ptr<GifRecentModel> m_recent;
     std::unique_ptr<GifStarredStore> m_starred;
+    // Declared after both of its sources: it attaches to m_starred's model and
+    // to m_favorites, so member DESTRUCTION order must tear it down first (and
+    // the constructor's init list must build it last).
+    std::unique_ptr<GifSavedModel> m_saved;
     GifTransport *m_transport = nullptr;
 
     QString m_activeProviderId = QStringLiteral("giphy");

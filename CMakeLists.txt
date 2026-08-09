@@ -269,6 +269,8 @@ set(APP_SOURCES
     src/gif/GifRecentModel.cpp
     src/gif/GifStarredModel.h
     src/gif/GifStarredModel.cpp
+    src/gif/GifSavedModel.h
+    src/gif/GifSavedModel.cpp
     src/gif/GifStarredStore.h
     src/gif/GifStarredStore.cpp
     src/gif/GifTransport.h
@@ -357,6 +359,7 @@ set(APP_QML_FILES
     qml/RoomActivityDelegate.qml
     qml/MessageComposerBar.qml
     qml/MentionPopup.qml
+    qml/AnchoredPopup.qml
     qml/EmojiPicker.qml
     qml/CreatePollDialog.qml
     qml/VideoPlayerCard.qml
@@ -782,6 +785,8 @@ if(BUILD_TESTING)
         src/gif/GifRecentModel.cpp
         src/gif/GifStarredModel.h
         src/gif/GifStarredModel.cpp
+        src/gif/GifSavedModel.h
+        src/gif/GifSavedModel.cpp
         src/gif/GifStarredStore.h
         src/gif/GifStarredStore.cpp
         src/gif/GifTransport.h
@@ -931,6 +936,8 @@ if(BUILD_TESTING)
         src/gif/GifRecentModel.cpp
         src/gif/GifStarredModel.h
         src/gif/GifStarredModel.cpp
+        src/gif/GifSavedModel.h
+        src/gif/GifSavedModel.cpp
     )
     target_include_directories(gif-collections-test PRIVATE src)
     target_link_libraries(gif-collections-test PRIVATE Qt6::Core Qt6::Test)

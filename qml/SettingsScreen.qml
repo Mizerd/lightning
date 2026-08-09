@@ -346,13 +346,16 @@ Item {
         }
     }
 
-    // Confirmation before clearing local GIF collections (Favorites are the
-    // destructive one; Recents too for parity).
+    // Confirmation before clearing local GIF collections. `kind` keeps the
+    // store-accurate token ("favorites" is app.gif.favorites, the provider
+    // bookmarks); only the prose speaks the v0.6.7 "saved" vocabulary. The two
+    // halves of the picker's Saved tab clear separately here because only one
+    // of them holds real bytes — see the starred-GIF block further down.
     Dialog {
         id: gifClearConfirm
         property string kind: ""
         function open(k) { kind = k; title = k === "favorites"
-            ? qsTr("Clear GIF favorites?") : qsTr("Clear recent GIFs?"); visible = true }
+            ? qsTr("Clear saved provider GIFs?") : qsTr("Clear recent GIFs?"); visible = true }
         anchors.centerIn: parent
         modal: true
         standardButtons: Dialog.Yes | Dialog.Cancel
@@ -360,7 +363,8 @@ Item {
             width: 280
             wrapMode: Text.WordWrap
             text: gifClearConfirm.kind === "favorites"
-                ? qsTr("Remove all saved GIF favorites from this device? This "
+                ? qsTr("Remove every provider GIF you've saved on this device? "
+                       + "GIFs you saved out of chats are unaffected. This "
                        + "cannot be undone.")
                 : qsTr("Clear the list of recently used GIFs on this device?")
         }
@@ -378,7 +382,7 @@ Item {
     Dialog {
         id: starredGifsClearConfirm
         objectName: "starredGifsClearConfirm"
-        title: qsTr("Clear starred GIFs?")
+        title: qsTr("Clear GIFs saved on this device?")
         anchors.centerIn: parent
         modal: true
         standardButtons: Dialog.Yes | Dialog.Cancel
@@ -390,8 +394,9 @@ Item {
         Label {
             width: 280
             wrapMode: Text.WordWrap
-            text: qsTr("Delete every GIF you've starred from this device? "
-                       + "This cannot be undone.")
+            text: qsTr("Delete every GIF you saved out of a chat from this "
+                       + "device? Saved provider GIFs are unaffected — they "
+                       + "are only links. This cannot be undone.")
         }
         onAccepted: app.gif.starredStore.clearAll()
     }
@@ -1715,7 +1720,7 @@ Item {
                                     color: AppTheme.stormTextMuted
                                     font.pixelSize: AppTheme.fontCaption
                                     text: qsTr("GIF searches are sent directly to the "
-                                               + "selected provider. Favorites and recent "
+                                               + "selected provider. Saved and recent "
                                                + "GIFs are stored locally on this device "
                                                + "and are not synchronized; search terms "
                                                + "are not saved.")
@@ -1734,7 +1739,7 @@ Item {
                                     AppButton {
                                         storm: true
                                         kind: "danger"
-                                        text: qsTr("Clear GIF favorites")
+                                        text: qsTr("Clear saved provider GIFs")
                                         enabled: app.gif.favorites.count > 0
                                         onClicked: gifClearConfirm.open("favorites")
                                     }
@@ -1754,7 +1759,7 @@ Item {
                                 // own visible count/size and confirmed
                                 // Clear All, not folded into the row above.
                                 Label {
-                                    text: qsTr("Starred GIFs")
+                                    text: qsTr("GIFs saved from chats")
                                     color: AppTheme.stormText
                                     font.pixelSize: AppTheme.fontBody
                                     font.weight: Font.DemiBold
@@ -1778,7 +1783,7 @@ Item {
                                     objectName: "clearStarredGifsButton"
                                     storm: true
                                     kind: "danger"
-                                    text: qsTr("Clear all starred GIFs")
+                                    text: qsTr("Clear all GIFs saved from chats")
                                     enabled: app.gif.starredStore.count > 0
                                     onClicked: starredGifsClearConfirm.open()
                                 }

@@ -98,7 +98,16 @@ QVariant GifStoredModel::data(const QModelIndex &index, int role) const
         return (w > 0 && h > 0) ? static_cast<double>(w) / h : 1.0;
     }
     case GifResultModel::RatingRole:        return r.rating;
-    case GifResultModel::FavoriteRole:      return true; // stored == favorited
+    // A CONSTANT, not a lookup. It is honest for GifFavoritesModel (every row
+    // in it IS a favorite) and for GifStarredModel (every row IS saved
+    // locally), but it is a LIE for GifRecentModel, whose rows are merely
+    // recently sent. Do NOT use this role as a "is this saved" oracle for a
+    // stored model — ask the collection itself (GifFavoritesModel::isFavorite).
+    // v0.6.7 review (H1): reading it drove the picker's star state, so every
+    // tile on the Recent tab rendered as saved, announced "Remove from saved
+    // GIFs", and then INSERTED on activation. GifPicker.qml's isSaved() now
+    // queries the store instead.
+    case GifResultModel::FavoriteRole:      return true;
     case GifResultModel::BytesRole:         return r.gifBytes;
     default:                                return {};
     }

@@ -319,7 +319,7 @@ Rectangle {
             timeline.noteSaveFinished(ok, mediaKey)
         }
     }
-    // v0.6.6: "Star GIF" / "Unstar GIF" feedback — the same auto-clearing
+    // v0.6.6: save/unsave GIF feedback — the same auto-clearing
     // banner Save As already uses (an explicit-export action of the same
     // class; see GifStarredStore's header). Honest failures only: no silent
     // drop. `message` is ALREADY a translated, ready-to-display sentence
@@ -334,13 +334,15 @@ Rectangle {
             // `message` says so honestly instead of implying one just
             // happened.
             saveResult.text = ok
-                ? (category === "already_starred" ? message : qsTr("Starred."))
+                ? (category === "already_starred"
+                   ? message
+                   : qsTr("Saved to your GIFs."))
                 : message
             saveResultTimer.restart()
         }
         function onUnstarFinished(hash) {
             saveResult.ok = true
-            saveResult.text = qsTr("Removed from starred GIFs.")
+            saveResult.text = qsTr("Removed from saved GIFs.")
             saveResultTimer.restart()
         }
     }

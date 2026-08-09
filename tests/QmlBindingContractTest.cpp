@@ -206,27 +206,31 @@ private Q_SLOTS:
         QVERIFY(picker.contains(QStringLiteral("gif.setQueryText(text)")));
         QVERIFY(picker.contains(QStringLiteral("gif.openCategory(modelData)")));
         QVERIFY(picker.contains(QStringLiteral("picker.gif.loadMore()")));
-        // Grid binds to the active section model (results / favorites / recent).
+        // Grid binds to the active tab's model (results / saved / recent).
         QVERIFY(picker.contains(QStringLiteral("model: picker.activeModel")));
-        QVERIFY(picker.contains(QStringLiteral("gif.favorites")));
+        QVERIFY(picker.contains(QStringLiteral("gif.saved")));
         QVERIFY(picker.contains(QStringLiteral("gif.recent")));
-        // v0.6.6 UX rework: Starred is a third tab next to GIPHY/KLIPY
-        // (never merged into Favorites — see GifPickerRedesignContractTest
-        // for the full tab-wiring pin), bound directly to GifStarredStore's
-        // own model.
-        // v0.6.6 live-bug fix: `gif.starredStore.model()` — calling a plain
-        // C++ method (not Q_INVOKABLE/a property) from a QML binding —
-        // THROWS. Qt catches the exception in QQmlBinding::update and
-        // leaves activeModel at its previous value, so the Starred tab
-        // silently kept rendering whatever activeModel was bound to before
-        // (GIPHY trending), with every other tab element (header, footer,
-        // hidden search) correctly switched. GifStarredStore::model is now a
-        // real Q_PROPERTY (see GifStarredStore.h), read as a property, never
-        // called as a function. A pure text scan cannot prove the binding
-        // does not throw at runtime — see
-        // GifPickerSelectionQmlTest::starredTabBindsTheStarredModelNotResults
+        // v0.6.7 UX rework: ONE star, ONE saved list. The Saved tab binds the
+        // merged GifSavedModel (provider bookmarks + locally-saved chat GIFs
+        // in one view; the two STORES stay separate — see GifSavedModel.h),
+        // and Saved/Recent are peers of the provider tabs rather than chips
+        // underneath one. See GifPickerRedesignContractTest for the full
+        // nav/star wiring pin.
+        //
+        // v0.6.6 live-bug fix, still guarded: `gif.starredStore.model()` —
+        // calling a plain C++ method (not Q_INVOKABLE/a property) from a QML
+        // binding — THROWS. Qt catches the exception in QQmlBinding::update
+        // and leaves activeModel at its previous value, so the tab silently
+        // kept rendering whatever activeModel was bound to before (GIPHY
+        // trending), with every other tab element (header, footer, hidden
+        // search) correctly switched. Every model reached from a binding here
+        // is a real Q_PROPERTY, read as a property, never called as a
+        // function. A pure text scan cannot prove the binding does not throw
+        // at runtime — see
+        // GifPickerSelectionQmlTest::savedTabBindsTheMergedModelNotResults
         // for the real-engine assertion that actually exercises this path.
-        QVERIFY(picker.contains(QStringLiteral("gif.starredStore.model")));
+        QVERIFY(!picker.contains(QStringLiteral("gif.saved()")));
+        QVERIFY(!picker.contains(QStringLiteral("gif.recent()")));
         QVERIFY(!picker.contains(QStringLiteral("gif.starredStore.model()")));
         QVERIFY(!picker.contains(QStringLiteral("favoritesAndStarred")));
         // v0.7 regression (live bug): SENDING must resolve the clicked row
@@ -248,7 +252,7 @@ private Q_SLOTS:
         {
             // (1) The keyboard path still resolves a row against
             // activeModel — never gif.results directly, so a numeric
-            // activation can never cross into the wrong section's model.
+            // activation can never cross into the wrong tab's model.
             const int chooseStart =
                 picker.indexOf(QStringLiteral("function choose(resultOrRow)"));
             const int chooseEnd = picker.indexOf(
@@ -318,8 +322,8 @@ private Q_SLOTS:
         QVERIFY(picker.contains(QStringLiteral("playing: picker.visible")));
         // Tiles use the PREVIEW variant, never the sendable original gifUrl.
         {
-            // v0.6.6: a local-starred tile (provider === "local", rendered
-            // on the picker's own Starred tab — see GifStarredStore) has no
+            // v0.6.6: a locally-saved tile (provider === "local", rendered
+            // in the picker's Saved tab — see GifStarredStore) has no
             // provider previewUrl/stillUrl, so both the static Image and
             // the AnimatedImage branch on tile.provider now — the non-local
             // fallback is still exactly tile.stillUrl / tile.previewUrl,

@@ -43,7 +43,7 @@ public:
     // life and this is never called; GifStarredStore uses it to repoint one
     // long-lived model instance at a fresh account-scoped file on login/
     // switch/logout WITHOUT destroying and recreating the QObject — a
-    // stable QObject identity the picker's Starred tab (GifPicker.qml,
+    // stable QObject identity the picker's Saved tab (via GifSavedModel,
     // bound to GifStarredStore's `model` Q_PROPERTY directly) depends on
     // across account switches. A null `settings` clears every row (never
     // leaves the previous account's rows visible) without attempting to

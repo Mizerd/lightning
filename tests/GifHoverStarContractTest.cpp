@@ -199,11 +199,17 @@ private Q_SLOTS:
     // be hit-testable in that state, or a touch tap (no synthetic
     // hover-before-tap the way a mouse gets one) on the invisible corner
     // would silently star/unstar a GIF the user never saw a button on.
-    // v0.6.6 review (L2 follow-up): the TapHandler's hit-testability must
-    // match whatever is actually VISIBLE, not stay pinned to `revealed`
-    // alone once the opacity fix (below) made a starred star visible at
-    // rest too — otherwise a touch tap (no hover) on a filled, fully
-    // opaque, meaningful-looking star would silently do nothing.
+    // The TapHandler's hit-testability must match whatever is actually
+    // VISIBLE. The Item stays hit-testable at opacity 0 so Tab can reach it,
+    // and on a TOUCH input (no synthetic hover-before-tap the way a mouse gets
+    // one) a tap on the invisible corner would otherwise silently save/unsave
+    // a GIF the user never saw a button on.
+    //
+    // v0.6.7: v0.6.6 had relaxed this to `|| imageBox.starred`, which was only
+    // sound while a saved GIF's star was also VISIBLE at rest. The at-rest
+    // visibility is gone (see hoverOnlyNeverParkedOnTheMedia below), so the
+    // relaxation had to go with it — the two must not drift apart, which is
+    // exactly what this case exists to catch.
     void tapHandlerIsGatedOnTheSameVisibilityStateAsOpacity()
     {
         const QString delegate = read(QStringLiteral("MessageDelegate.qml"));
@@ -215,22 +221,31 @@ private Q_SLOTS:
             "                                || gifStarButton.activeFocus")));
         QVERIFY(block.contains(QStringLiteral(
             "TapHandler {\n"
-            "                                enabled: gifStarButton.revealed || imageBox.starred")));
+            "                                enabled: gifStarButton.revealed\n")));
+        QVERIFY(!block.contains(QStringLiteral(
+            "enabled: gifStarButton.revealed || imageBox.starred")));
     }
 
-    // v0.6.6 fix: a starred GIF must stay visible at rest, not only on
-    // hover/focus — GifPicker.qml's tile star already does this
-    // (opacity: tile.favorite || tileHover.hovered ? 1 : 0). Before this fix
-    // the timeline hover star had no such term, so restoring a starred state
-    // from a fresh session gave the user zero visible signal without a
-    // hover.
-    void opacityShowsAtRestWhenStarred()
+    // v0.6.7 (maintainer request): the star appears on hover/focus ONLY. It
+    // is never parked on the media at rest — v0.6.6 had kept a saved GIF's
+    // star permanently visible so its state could be read without hovering,
+    // which in practice left a yellow badge sitting on every saved GIF.
+    void hoverOnlyNeverParkedOnTheMedia()
     {
         const QString delegate = read(QStringLiteral("MessageDelegate.qml"));
         const QString block = starBlock(delegate);
         QVERIFY(!block.isEmpty());
-        QVERIFY(block.contains(QStringLiteral(
+        QVERIFY(block.contains(QStringLiteral("opacity: revealed ? 1 : 0")));
+        QVERIFY(!block.contains(QStringLiteral(
             "opacity: (revealed || imageBox.starred) ? 1 : 0")));
+        // The one star behaves identically in both places it exists.
+        const QString picker = read(QStringLiteral("GifPicker.qml"));
+        QVERIFY(!picker.isEmpty());
+        QVERIFY(picker.contains(QStringLiteral(
+            "opacity: tileHover.hovered || tile.current\n"
+            "                                 || saveButton.visualFocus ? 1 : 0")));
+        QVERIFY(!picker.contains(QStringLiteral(
+            "opacity: tile.saved || tileHover.hovered ? 1 : 0")));
     }
 
     void activationResolvesByMediaKeyNeverAnIndex()
@@ -263,8 +278,32 @@ private Q_SLOTS:
         QVERIFY(block.contains(QStringLiteral("Accessible.role: Accessible.Button")));
         QVERIFY(block.contains(QStringLiteral(
             "Accessible.name: imageBox.starred")));
-        QVERIFY(block.contains(QStringLiteral("qsTr(\"Remove from starred GIFs\")")));
-        QVERIFY(block.contains(QStringLiteral("qsTr(\"Star GIF\")")));
+        // v0.6.7: one verb everywhere. This button and the picker's tile star
+        // say the same thing and land in the same place (the Saved tab), so
+        // the two-destination "Star"/"Favorite" vocabulary is gone.
+        QVERIFY(block.contains(QStringLiteral("qsTr(\"Remove from saved GIFs\")")));
+        QVERIFY(block.contains(QStringLiteral("qsTr(\"Save GIF\")")));
+        QVERIFY(!block.contains(QStringLiteral("Star GIF")));
+        QVERIFY(!block.contains(QStringLiteral("starred GIFs")));
+    }
+
+    // v0.6.7: the bundled Material Symbols subset is a static FILL=0 instance
+    // — there is no filled star glyph, so colour alone carried the entire
+    // saved/not-saved distinction on a busy GIF. Saved is now a bolt FILL with
+    // boltInk ink, exactly matching the picker tile (GifPicker.qml's
+    // gifTileSaveButton) so the same state reads identically in both places.
+    void savedStateIsAFillNotOnlyATint()
+    {
+        const QString delegate = read(QStringLiteral("MessageDelegate.qml"));
+        const QString block = starBlock(delegate);
+        QVERIFY(!block.isEmpty());
+        QVERIFY(block.contains(QStringLiteral(
+            "color: imageBox.starred ? AppTheme.bolt")));
+        QVERIFY(block.contains(QStringLiteral(
+            "color: imageBox.starred\n"
+            "                                       ? AppTheme.boltInk : AppTheme.scrimInk")));
+        // The old amber-tint-only treatment must not survive.
+        QVERIFY(!block.contains(QStringLiteral("AppTheme.presenceAway")));
     }
 
     // v0.6.6 review (M2): bottom-right, never top-right — a top-right star
