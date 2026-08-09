@@ -63,8 +63,14 @@ AnchoredPopup {
         : app.emojiCatalog.category === "Recently Used" ? qsTr("Recently used")
         : app.emojiCatalog.category
 
-    width: Math.min(324, parent ? parent.width - AppTheme.spacingM * 2 : 324)
-    height: Math.min(480, parent ? parent.height - AppTheme.spacingM * 2 : 480)
+    // v0.6.7: the 324×480 design size is the DEFAULT — AnchoredPopup clamps it
+    // to the window and the corner grip can override it, remembered under this
+    // key. The minimum keeps the 8-column grid and the category rail usable.
+    defaultWidth: 324
+    defaultHeight: 480
+    minWidth: 300
+    minHeight: 320
+    sizeSettingsKey: "emoji"
     padding: 0
     modal: false
     focus: true
@@ -110,7 +116,13 @@ AnchoredPopup {
         radius: AppTheme.menuRadius
     }
 
-    contentItem: ColumnLayout {
+    // v0.6.7: the column is wrapped in a plain Item so the resize grip can be
+    // anchored over its bottom-right corner — a direct child of the
+    // ColumnLayout would be laid out as another row instead.
+    contentItem: Item {
+
+    ColumnLayout {
+        anchors.fill: parent
         spacing: 0
 
         // ── Row 1: search only — no skin-tone swatch (see file header) ──
@@ -405,6 +417,15 @@ AnchoredPopup {
             }
         }
     }
+
+    // Drag the corner to resize, like a window.
+    PopupResizeGrip {
+        popup: picker
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+    }
+
+    } // contentItem Item
 
     Popup {
         id: tonePopup

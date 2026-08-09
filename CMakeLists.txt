@@ -360,6 +360,7 @@ set(APP_QML_FILES
     qml/MessageComposerBar.qml
     qml/MentionPopup.qml
     qml/AnchoredPopup.qml
+    qml/PopupResizeGrip.qml
     qml/EmojiPicker.qml
     qml/CreatePollDialog.qml
     qml/VideoPlayerCard.qml

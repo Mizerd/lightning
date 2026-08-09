@@ -37,7 +37,14 @@ private Q_SLOTS:
     {
         const QString picker = read(QStringLiteral(QML_DIR "/GifPicker.qml"));
         QVERIFY(!picker.isEmpty());
-        QVERIFY(picker.contains(QStringLiteral("width: Math.min(330,")));
+        // v0.6.7: 330 is now the DEFAULT width — AnchoredPopup clamps it to
+        // the window and the corner grip can override it — not a hard size.
+        QVERIFY(picker.contains(QStringLiteral("defaultWidth: 330")));
+        QVERIFY(picker.contains(QStringLiteral("defaultHeight: 520")));
+        QVERIFY(picker.contains(QStringLiteral("sizeSettingsKey: \"gif\"")));
+        QVERIFY(!picker.contains(QStringLiteral("width: Math.min(330,")));
+        // A minimum that still fits three grid columns and the footer.
+        QVERIFY(picker.contains(QStringLiteral("minWidth: 300")));
         // No more fixed 132px cell tied to the old 460px width.
         QVERIFY(!picker.contains(QStringLiteral("readonly property int cell: 132")));
         QVERIFY(picker.contains(QStringLiteral("cellWidth: Math.floor(width / 3)")));
@@ -192,7 +199,7 @@ private Q_SLOTS:
         // hardcoded brand string, which is how a wrong brand gets shown.
         const int start = picker.indexOf(QStringLiteral("function sourceLabel(provider)"));
         QVERIFY(start >= 0);
-        const int end = picker.indexOf(QStringLiteral("width: Math.min(330,"), start);
+        const int end = picker.indexOf(QStringLiteral("defaultWidth: 330"), start);
         QVERIFY(end > start);
         const QString body = picker.mid(start, end - start);
         QVERIFY(body.contains(QStringLiteral("if (provider === \"local\")")));

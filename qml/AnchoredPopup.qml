@@ -2,31 +2,55 @@ import QtQuick
 import QtQuick.Controls
 import MatrixClient
 
-// v0.6.7: an overlay Popup that stays attached to the control that opened it.
+// v0.6.7: an overlay Popup that stays attached to the control that opened it,
+// and that the user can resize by its corner grip.
 //
-// Every one of these pickers is parented to Overlay.overlay and positioned
-// imperatively, because a Popup's own x/y are plain numbers and the clamping
-// ("hang below the button unless that would run off the bottom, then hang
-// above") is not expressible as a binding. The bug that motivated extracting
-// this: the placement ran ONCE, from onAboutToShow, against a `anchorPoint`
-// the caller had snapshotted with mapToItem() a moment earlier. mapToItem()
-// establishes no binding dependency on the ancestor geometry it walks, so
-// nothing re-ran when the window was resized — the popup kept its absolute
-// x/y while the button it belonged to moved out from under it, and a picker
-// opened from the composer ended up floating in the middle of the window.
+// ── Placement ───────────────────────────────────────────────────────────
 //
-// The fix is `anchorItem`: hold the ITEM, not a point, and recompute the point
-// on every reflow. Callers that genuinely have no item to anchor to (a
-// reaction picker opened at a point inside a scrolling message row) may still
-// set `anchorPoint` alone — they simply get the clamp re-applied on resize
-// instead of full re-anchoring, which is still strictly better than drifting
-// outside the window.
+// x/y are BINDINGS, not assignments. Two earlier versions got this wrong in
+// different ways:
 //
-// Re-anchoring is deferred through Qt.callLater rather than run inline: a
-// resize changes the overlay's size before the layouts underneath have
-// repositioned the anchor item, so an inline recompute would read the button's
-// PREVIOUS position. Qt.callLater also coalesces the width- and height-change
-// pair a single resize produces into one placement pass.
+//   1. Placement ran once, from onAboutToShow, against a point the caller had
+//      snapshotted with mapToItem(). mapToItem() walks ancestor geometry
+//      without establishing any dependency on it, so nothing re-ran on a
+//      window resize — the popup kept its absolute x/y while the button it
+//      belonged to moved out from under it, and a picker opened from the
+//      composer ended up floating mid-window.
+//
+//   2. Re-placing from a deferred call on every reflow. That fixed the drift
+//      but introduced two visible defects, both reported: it costs a full
+//      event-loop turn, which reads as the popup LAGGING behind the window
+//      edge, and it runs exactly ONCE per trigger — so when the anchor's own
+//      layout settled after that call, the popup was left a few pixels off
+//      with nothing left to correct it.
+//
+// A binding has neither problem: it re-evaluates on every dependency change,
+// in the same frame, however many times it takes to settle. `anchorX`/
+// `anchorY` below therefore read the dependencies EXPLICITLY (the overlay's
+// size, the anchor's own geometry) before calling mapToItem, because the call
+// alone would register none of them.
+//
+// Bindings alone are NOT sufficient, though, and the third mistake was
+// believing they were. They cover an anchor that moves within its own parent;
+// they do not cover an anchor whose overlay position changed because an
+// ANCESTOR moved, since none of the named dependencies change and
+// `parent.width` is already final by then. That is a production shape, not a
+// hypothetical — the thread panel is a fixed-width item at the end of a
+// RowLayout, so a window resize slides the whole panel while
+// threadEmojiButton.x never moves; measured at ~200px of permanent error. The
+// deferred `settle()` pass below closes it WITHOUT restoring the lag, because
+// the binding still does the visible work in the same frame and the bump only
+// re-reads afterwards. See
+// GifPickerSelectionQmlTest::openPickerFollowsAnAnchorMovedByItsAncestor.
+//
+// ── Resizing ────────────────────────────────────────────────────────────
+//
+// A PopupResizeGrip drives userWidth/userHeight. While a drag is in progress
+// the popup is `detached`, which disengages the x/y bindings so the top-left
+// stays pinned and the dragged corner tracks the pointer exactly — the
+// behaviour of a window, which is what was asked for. It stays detached after
+// the drag (still clamped inside the window on a resize), and re-attaches to
+// its anchor on the next open(), keeping the new size.
 Popup {
     id: root
 
@@ -34,118 +58,219 @@ Popup {
     // toolbar keycap, etc. Anchoring uses its top-centre, so the popup hangs
     // below it (or flips above when there is no room). Optional.
     property Item anchorItem: null
-    // Explicit anchor in `parent` (overlay) coordinates. Recomputed from
-    // anchorItem whenever one is set; otherwise used exactly as given.
+    // Explicit anchor in `parent` (overlay) coordinates, used when there is no
+    // anchorItem (a reaction picker opened at a point inside a message row).
     property point anchorPoint: Qt.point(0, 0)
+
+    // Size. `defaultWidth`/`defaultHeight` are the component's own design
+    // size; userWidth/userHeight (0 = never resized) win when set, and both
+    // are always clamped to what the window can actually show.
+    property real defaultWidth: 320
+    property real defaultHeight: 480
+    property real minWidth: 260
+    property real minHeight: 280
+    property real userWidth: 0
+    property real userHeight: 0
+    // Short id under which the dragged size is remembered across restarts
+    // (SettingsManager::pickerWidth/pickerHeight, whitelisted there). Empty
+    // means "do not persist".
+    property string sizeSettingsKey: ""
+
+    // True from the moment a resize starts until the next open(). While it is
+    // set, the popup keeps the position it has instead of tracking its anchor.
+    property bool detached: false
 
     parent: Overlay.overlay
 
-    // Clamp the popup fully inside the overlay: horizontally centred on the
-    // anchor, vertically below it when it fits and above it when it does not.
-    function placeInsideWindow() {
+    width: {
+        var desired = userWidth > 0 ? userWidth : defaultWidth
+        var avail = parent ? parent.width - AppTheme.spacingM * 2 : desired
+        return Math.min(avail, Math.max(minWidth, desired))
+    }
+    height: {
+        var desired = userHeight > 0 ? userHeight : defaultHeight
+        var avail = parent ? parent.height - AppTheme.spacingM * 2 : desired
+        return Math.min(avail, Math.max(minHeight, desired))
+    }
+
+    // Bumped whenever the anchor may have moved for a reason the property
+    // reads below cannot see. Chiefly: the scene graph only becomes valid as
+    // the popup is shown, and mapToItem() answers 0 before the items are in a
+    // scene together. Without this kick the placement binding would evaluate
+    // once at component completion (getting 0, i.e. clamped hard to the left
+    // edge) and never re-run, because none of its named dependencies change
+    // afterwards — the geometry was already at its final value.
+    property int placementRevision: 0
+
+    // Anchor position in overlay coordinates. The `deps` reads are load-
+    // bearing: mapToItem() establishes no dependency on the geometry it walks,
+    // so without naming them this binding would never re-evaluate.
+    readonly property real anchorX: {
+        var rev = placementRevision
         if (!parent)
-            return
-        x = Math.max(AppTheme.spacingS,
-                     Math.min(anchorPoint.x - width / 2,
-                              parent.width - width - AppTheme.spacingS))
-        var below = anchorPoint.y + AppTheme.spacingXS
-        y = below + height <= parent.height - AppTheme.spacingS
+            return 0
+        if (!anchorItem)
+            return anchorPoint.x
+        var deps = parent.width + anchorItem.x + anchorItem.width
+        return anchorItem.mapToItem(parent, anchorItem.width / 2, 0).x
+    }
+    readonly property real anchorY: {
+        var rev = placementRevision
+        if (!parent)
+            return 0
+        if (!anchorItem)
+            return anchorPoint.y
+        var deps = parent.height + anchorItem.y + anchorItem.height
+        return anchorItem.mapToItem(parent, 0, 0).y
+    }
+
+    // Clamped fully inside the overlay: horizontally centred on the anchor,
+    // vertically below it when it fits and above it when it does not.
+    readonly property real placedX:
+        parent ? Math.max(AppTheme.spacingS,
+                          Math.min(anchorX - width / 2,
+                                   parent.width - width - AppTheme.spacingS))
+               : 0
+    readonly property real placedY: {
+        if (!parent)
+            return 0
+        var below = anchorY + AppTheme.spacingXS
+        return below + height <= parent.height - AppTheme.spacingS
             ? below
             : Math.max(AppTheme.spacingS,
-                       anchorPoint.y - height - AppTheme.spacingXS)
+                       anchorY - height - AppTheme.spacingXS)
     }
 
-    // Full placement: re-derive the anchor point from anchorItem (when there
-    // is one) and re-clamp. Used for the initial placement and for every
-    // reflow of an item-anchored popup.
+    // Engaged only while attached to an ANCHOR ITEM. RestoreNone so that
+    // detaching (a resize) leaves x/y exactly where they were rather than
+    // snapping back to some earlier value.
     //
-    // v0.6.7 review (L4): re-checks `visible` at CALL time, not only at
-    // schedule time — a deferred call can land after the popup has closed.
-    function reanchor() {
-        if (!visible || !parent)
-            return
-        if (anchorItem)
-            anchorPoint = anchorItem.mapToItem(parent, anchorItem.width / 2, 0)
-        placeInsideWindow()
+    // v0.6.7 review (L1): the anchorItem test is deliberate. A popup opened at
+    // a bare point (the reaction pickers, which have no stable item inside a
+    // scrolling message row) must NOT be re-placed on a window resize: its
+    // point is already stale, so re-placing against it slides an edge-clamped
+    // popover back toward nothing in particular, and can flip one that had
+    // opened above its anchor to below. Those get an initial placement at show
+    // and a clamp afterwards — nothing more.
+    Binding {
+        target: root
+        property: "x"
+        value: root.placedX
+        when: !root.detached && root.anchorItem !== null
+        restoreMode: Binding.RestoreNone
+    }
+    Binding {
+        target: root
+        property: "y"
+        value: root.placedY
+        when: !root.detached && root.anchorItem !== null
+        restoreMode: Binding.RestoreNone
     }
 
-    // What a reflow does. With an anchorItem it is a full re-placement. WITHOUT
-    // one it is a clamp only.
-    //
-    // v0.6.7 review (L6): re-running the full placement for a popup that has
-    // no anchor item would MOVE a popup that is still correctly positioned —
-    // the reaction pickers open at a point inside a message row, and on a
-    // window GROWING a previously edge-clamped popup would slide back toward
-    // its stale point, or one that had flipped above its anchor would flip
-    // below. Correcting a popup the resize pushed out of bounds is the part
-    // that is unambiguously an improvement; keep only that part.
-    function reflow() {
+    // For a popup the placement bindings are not driving — one the user has
+    // resized, or one with no anchor item — keep it inside a shrinking window
+    // without moving it otherwise. Clamp only, never a re-place, which would
+    // undo the position the user chose or the point the caller captured.
+    function clampInsideWindow() {
         if (!visible || !parent)
             return
-        if (anchorItem) {
-            reanchor()
-            return
-        }
+        if (anchorItem && !detached)
+            return  // the bindings own this one
         x = Math.max(AppTheme.spacingS,
                      Math.min(x, parent.width - width - AppTheme.spacingS))
         y = Math.max(AppTheme.spacingS,
                      Math.min(y, parent.height - height - AppTheme.spacingS))
     }
 
-    // Deferred/coalesced variant used by every reflow trigger below.
-    function scheduleReflow() {
-        if (visible)
-            Qt.callLater(root.reflow)
-    }
-
-    // Every trigger below goes through Connections rather than an inline
-    // handler property.
+    // v0.6.7 review (H1): a deferred SETTLE pass, and it is load-bearing.
     //
-    // v0.6.7 review (L1): an earlier version of this comment claimed a
-    // derived component's inline handler OVERRIDES the base's assignment to
-    // the same handler property, so an inline handler here "would never run".
-    // That is false, and was disproved by probe on Qt 6.11.1: both run, in
-    // the order base-inline -> derived-inline -> base-Connections. The real
-    // reason to use Connections is ordering and robustness — the base gets an
-    // independent connection that runs AFTER a subclass's own handler (so
-    // GifPicker.qml's onAboutToShow has already set `tab` before placement
-    // reads the resulting geometry) and that no subclass can displace by
-    // assigning the same property.
-    Connections {
-        target: root
-        // Placement must be right on the FIRST frame — inline, not deferred.
-        function onAboutToShow() { root.reanchor() }
-        // Subclasses size themselves against the overlay, so a window resize
-        // changes the popup's own dimensions too, and the clamp depends on
-        // them.
-        function onWidthChanged() { root.scheduleReflow() }
-        function onHeightChanged() { root.scheduleReflow() }
+    // anchorX/anchorY name `anchorItem.x` and `parent.width` as dependencies,
+    // which covers an anchor that moves within its own parent. It does NOT
+    // cover an anchor whose overlay position changed because an ANCESTOR
+    // moved — and that is a live configuration, not a hypothetical: the thread
+    // panel is a fixed 340px item at the end of a RowLayout, so on a window
+    // resize the whole panel slides by the full delta while its internal
+    // layout does not reflow at all and threadEmojiButton.x never changes. The
+    // binding then re-evaluates exactly once, synchronously, possibly before
+    // the ancestor has been repositioned, and nothing re-triggers it. Measured
+    // at 200px off, permanently.
+    //
+    // So: the binding still moves the popup in the SAME FRAME as the window
+    // edge (this is what killed the reported lag), and this bump re-reads
+    // afterwards, once layouts have settled. When the first reading was
+    // already right it changes nothing.
+    function settle() {
+        if (visible)
+            placementRevision++
     }
-
-    // The window resized (the overlay always tracks the window), so both the
-    // clamp bounds and the anchor item's position have moved. This is the
-    // trigger that fixes the reported bug, and the one the regression test
-    // (GifPickerSelectionQmlTest::openPickerFollowsItsAnchorAcrossAWindowResize)
-    // exercises.
     Connections {
         target: root.visible ? root.parent : null
-        function onWidthChanged() { root.scheduleReflow() }
-        function onHeightChanged() { root.scheduleReflow() }
+        function onWidthChanged() {
+            root.clampInsideWindow()
+            Qt.callLater(root.settle)
+        }
+        function onHeightChanged() {
+            root.clampInsideWindow()
+            Qt.callLater(root.settle)
+        }
     }
-    // The anchor's OWN geometry changed within its parent.
+
+    // ── Resize, driven by PopupResizeGrip ───────────────────────────────
+    function beginResize() { detached = true }
+
+    // Clamped so a drag can never push the popup past the window edge it is
+    // growing toward, and never below the component's usable minimum.
+    function resizeTo(w, h) {
+        if (!parent)
+            return
+        var maxW = parent.width - x - AppTheme.spacingS
+        var maxH = parent.height - y - AppTheme.spacingS
+        userWidth = Math.max(minWidth, Math.min(w, maxW))
+        userHeight = Math.max(minHeight, Math.min(h, maxH))
+    }
+
+    // v0.6.7 review (L3): persists the user's INTENT (userWidth/userHeight),
+    // not the clamped effective width. Storing the clamped value meant that
+    // resizing inside a very narrow window wrote a pair below the store's
+    // sanity floor, which is treated as "forget it" and erased a size the user
+    // had chosen earlier on a bigger window. The read path and the `width`
+    // binding both clamp to the live window anyway, so intent is the right
+    // thing to keep.
+    function endResize() {
+        if (sizeSettingsKey.length > 0)
+            app.settings.setPickerSize(sizeSettingsKey,
+                                       Math.round(userWidth),
+                                       Math.round(userHeight))
+    }
+
+    // Re-attach to the anchor on every open, carrying the remembered size.
+    // Reading the stored value here (rather than binding it) keeps this the
+    // one point where a persisted size can enter, so a mid-session drag is
+    // never fighting the store.
     //
-    // v0.6.7 review (L5): this deliberately does not claim to cover every way
-    // a button can move. Anything that shifts an ANCESTOR without changing the
-    // anchor's own x/y inside its immediate parent — a side panel opening, the
-    // room list collapsing — is not observed here, because mapToItem() walks
-    // that chain without establishing a dependency on it. The window-resize
-    // case above covers the reported bug; these cover a composer growing a
-    // line and similar local reflows.
+    // A Connections object rather than an inline handler: both derived
+    // pickers assign their own onAboutToShow, and a Connections gives this an
+    // independent connection that runs after theirs and that no subclass can
+    // displace. (Both DO run either way — Qt 6.11.1 chains base-inline,
+    // derived-inline, base-Connections — so this is about ordering, not about
+    // whether it runs at all.)
     Connections {
-        target: root.visible ? root.anchorItem : null
-        function onXChanged() { root.scheduleReflow() }
-        function onYChanged() { root.scheduleReflow() }
-        function onWidthChanged() { root.scheduleReflow() }
-        function onHeightChanged() { root.scheduleReflow() }
+        target: root
+        function onAboutToShow() {
+            root.detached = false
+            if (root.sizeSettingsKey.length > 0) {
+                root.userWidth = app.settings.pickerWidth(root.sizeSettingsKey)
+                root.userHeight = app.settings.pickerHeight(root.sizeSettingsKey)
+            }
+            // The scene is valid from here on, so force the placement binding
+            // to re-read the anchor's real position. See placementRevision.
+            root.placementRevision++
+            // A popup with no anchor item is not driven by the bindings above,
+            // so it takes its one placement here (and is only clamped after).
+            if (!root.anchorItem) {
+                root.x = root.placedX
+                root.y = root.placedY
+            }
+        }
     }
 }

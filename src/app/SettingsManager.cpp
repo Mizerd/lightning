@@ -826,6 +826,64 @@ int SettingsManager::roomNotificationMode(const QString &roomId) const
     return (mode < 0 || mode > 2) ? 0 : mode;
 }
 
+namespace {
+// v0.6.7: the only picker ids that may reach the settings store. A whitelist,
+// not a sanitizer — a rejected id writes and reads nothing at all, so no QML
+// caller can compose a settings key out of user-controlled text.
+bool isKnownPickerId(const QString &id)
+{
+    return id == QLatin1String("gif") || id == QLatin1String("emoji");
+}
+
+QString pickerSizeKey(const QString &id, const char *dimension)
+{
+    return QStringLiteral("pickers/%1/%2").arg(id, QLatin1String(dimension));
+}
+
+// A remembered size outside this range is treated as absent. Guards against a
+// hand-edited or corrupted store producing a picker that is unusably small or
+// larger than any real screen; the QML side clamps to the live window on top
+// of this.
+constexpr int kMinPickerPx = 200;
+constexpr int kMaxPickerPx = 4000;
+
+int readPickerDimension(QSettings *store, const QString &id,
+                        const char *dimension)
+{
+    if (!isKnownPickerId(id))
+        return 0;
+    const int v = store->value(pickerSizeKey(id, dimension), 0).toInt();
+    return (v >= kMinPickerPx && v <= kMaxPickerPx) ? v : 0;
+}
+} // namespace
+
+int SettingsManager::pickerWidth(const QString &id) const
+{
+    return readPickerDimension(m_store.get(), id, "width");
+}
+
+int SettingsManager::pickerHeight(const QString &id) const
+{
+    return readPickerDimension(m_store.get(), id, "height");
+}
+
+void SettingsManager::setPickerSize(const QString &id, int width, int height)
+{
+    if (!isKnownPickerId(id))
+        return;
+    // Out-of-range means "forget it" rather than "store something wrong":
+    // removing the keys restores the component's own default next time.
+    const bool sane = width >= kMinPickerPx && width <= kMaxPickerPx
+                      && height >= kMinPickerPx && height <= kMaxPickerPx;
+    if (!sane) {
+        m_store->remove(pickerSizeKey(id, "width"));
+        m_store->remove(pickerSizeKey(id, "height"));
+        return;
+    }
+    m_store->setValue(pickerSizeKey(id, "width"), width);
+    m_store->setValue(pickerSizeKey(id, "height"), height);
+}
+
 void SettingsManager::setRoomNotificationMode(const QString &roomId, int mode)
 {
     if (roomId.isEmpty())

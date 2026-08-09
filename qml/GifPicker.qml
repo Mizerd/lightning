@@ -100,8 +100,15 @@ AnchoredPopup {
         return name.length > 0 ? name : provider
     }
 
-    width: Math.min(330, parent ? parent.width - AppTheme.spacingM * 2 : 330)
-    height: Math.min(520, parent ? parent.height - AppTheme.spacingM * 2 : 520)
+    // v0.6.7: the 330×520 design size is now the DEFAULT, not the size —
+    // AnchoredPopup clamps it to the window and lets the corner grip override
+    // it, remembering the result under this key. The minimum keeps three grid
+    // columns and the footer legible.
+    defaultWidth: 330
+    defaultHeight: 520
+    minWidth: 300
+    minHeight: 320
+    sizeSettingsKey: "gif"
     padding: AppTheme.spacingS
     modal: false
     focus: true
@@ -940,6 +947,14 @@ AnchoredPopup {
             font.family: AppTheme.monoFont
             font.pixelSize: AppTheme.fontMicro
         }
+    }
+
+    // Drag the corner to resize, like a window. Sits over the footer's right
+    // end, past the "send" hint.
+    PopupResizeGrip {
+        popup: picker
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
     }
 
     } // contentItem Item

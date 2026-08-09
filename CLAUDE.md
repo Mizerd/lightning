@@ -1,8 +1,9 @@
 # Lightning development guide
 
 This is the authoritative operating guide for Claude Code, Codex, and other
-coding agents working in this repository. Inspect the repository before every
-task: source and current Git history override stale comments or assumptions.
+coding agents working in this repository. Before changing the repository,
+inspect its current state; consult relevant source and path-scoped history as
+needed because they override stale comments or assumptions.
 
 ## 1. Project identity
 
@@ -10,7 +11,8 @@ Lightning is an actively developed native desktop Matrix client. It is Linux
 and NixOS first and uses Qt 6, QML, C++20, CMake, a Nix development
 environment, and the official Rust Matrix SDK backend.
 
-- Repository: `/home/roksme/git/lightning`
+- Project working tree: `/home/roksme/git/lightning`
+- Obsidian vault: `/home/roksme/Documents/LLM`
 - Remote: `https://gitlab.smetonis.net/Mizerd/lightning.git`
 - Development branch: `main` only unless Rokas explicitly requests otherwise
 - UI: Qt 6/QML
@@ -177,23 +179,24 @@ committed like any other source file. Everything else under `.claude/` —
 and any runtime team or session state — stays protected and untracked, and
 must never be staged.
 
-Begin every task with this baseline inspection:
+Before a task that may modify the repository, run the minimal local baseline:
 
 ```sh
 cd /home/roksme/git/lightning
-git fetch origin
 git status --short
 git branch --show-current
 git rev-parse --short HEAD
-git rev-parse --short origin/main
-git log -40 --oneline --decorate
-git tag --list --sort=-version:refname | head -30
-glab release list 2>/dev/null || true
-./build-rust/matrix-client --version 2>/dev/null || true
-./build/matrix-client --version 2>/dev/null || true
 ```
 
-If tracked state is clean and local `main` is behind, use only:
+Do not run this baseline for a read-only question unless repository state is
+needed to answer it. Inspect only relevant source and history: prefer a short
+path-scoped log over a repository-wide `git log -40`. Fetch once before work
+that depends on the current remote state, before an authorized push, or when
+Rokas explicitly asks for synchronization. Release lists, tag inventories,
+and binary version checks belong only to release/version tasks.
+
+When remote state is relevant, compare `HEAD` with `origin/main`. If tracked
+state is clean and local `main` is behind, use only:
 
 ```sh
 git pull --ff-only origin main
@@ -686,29 +689,46 @@ decryption requires a live test. Physical scrolling requires physical input.
 Desktop notification display, sound, and click routing require actual desktop
 interaction. Mark any unavailable live test **NOT TESTED**.
 
+Validation is proportional to scope and risk:
+
+- **Focused/local changes:** build the affected target and run the focused
+  tests that cover the changed behavior. Do not build an unaffected backend.
+- **Normal features:** run focused tests first, then the relevant registered
+  subset in the affected build tree. Expand only when the change crosses a
+  boundary or the focused evidence exposes a wider risk.
+- **High-risk and release changes:** run complete applicable Rust tests plus
+  Rust and non-Rust builds/CTest. High risk includes authentication, E2EE,
+  credentials, persistence/deletion, lifecycle/concurrency, Rust/C++ FFI,
+  dependencies, packaging, releases, and broad cross-cutting refactors.
+
+Do not repeat a successful build or suite merely so another agent can run it.
+Record the command and exact result once. Re-run affected validation after a
+code correction; repeat a complete suite only when the correction can affect
+it or the prior evidence is no longer trustworthy.
+
 Completion reports must give exact totals for every executed suite: passed,
 failed, skipped, and total. Do not say merely "tests passed."
 
 ## 13. Checkpoint workflow
 
-Use this sequence for every task:
+Use the smallest workflow that produces trustworthy evidence:
 
-1. Inspect repository state and compare `HEAD` with `origin/main`.
-2. Inspect the current implementation and recent relevant history.
-3. Reproduce or prove the defect or missing capability.
-4. Identify and explain the root cause.
-5. Implement one coherent change without touching concurrent work.
-6. Add focused tests.
-7. Build the affected configurations.
-8. Run focused tests.
-9. Run all relevant suites.
-10. Run `git diff --check`.
-11. Review status, full diff, and security/privacy impact.
-12. Stage exact files only.
-13. Commit one coherent checkpoint.
-14. Push normally to `main`.
-15. Fetch and verify `HEAD` equals `origin/main`.
-16. Continue only from a clean, pushed checkpoint.
+1. For read-only analysis, inspect only what is needed and report the result;
+   do not build, commit, push, or perform release checks.
+2. For a repository change, inspect the minimal baseline, the relevant
+   implementation, and short path-scoped history when history can answer a
+   real question.
+3. Reproduce or prove the defect or missing capability, then identify the
+   root cause. Clearly label anything that remains a hypothesis.
+4. Implement one coherent change without touching concurrent work and add
+   focused tests where they provide meaningful regression coverage.
+5. Run proportional validation from section 12, `git diff --check`, and one
+   complete self-review of the exact diff and its security/privacy impact.
+6. Apply the independent-review gate from section 18 only when its risk
+   triggers are met.
+7. Stage exact files and create a coherent checkpoint only when the task
+   authorizes a commit. Push once after an authorized completed checkpoint or
+   phase, not after every small edit. Verify remote equality after a push.
 
 Split large work into ordered phases and separate commits. Do not create one
 giant mixed commit spanning unrelated behavior, cleanup, dependencies, and
@@ -843,32 +863,35 @@ commitments.
 
 ## 17. Agent completion-report requirements
 
-Every completion report must include:
+Keep normal completion reports concise and evidence-based. Include:
 
-- Starting commit, final commit, branch, and fetched `origin/main`
-- Exact checkpoint commits created and pushed
-- Exact test totals and which configurations ran
-- Dependency/lock-file changes, or explicit confirmation of none
-- Release/tag status
-- Confirmed root cause(s), separate from hypotheses
-- Automated validation performed
-- Live validation with **PASS**, **FAIL**, or **NOT TESTED**
-- Security/privacy review and known limitations
-- Final working-tree status
-- Confirmation that only intended exact files were staged/committed
-- Confirmation that no force-push, amend, reset, clean, stash, or history
-  rewrite occurred
-- Confirmation that protected untracked files and concurrent work were
-  untouched
+- What changed and the confirmed root cause, separate from hypotheses
+- Exact totals for tests actually run and the affected configurations
+- Live validation as **PASS**, **FAIL**, or **NOT TESTED**
+- Security/privacy impact, known limitations, and final working-tree status
+- Commits and pushes only when any were actually authorized and performed
+
+For release work, security/credential/E2EE/persistence changes, destructive
+account-data behavior, dependency changes, multi-commit delivery, or when
+Rokas requests a full audit, additionally include starting/final commits,
+branch and fetched `origin/main`, exact checkpoint commits, dependency and
+lock-file status, release/tag status, staged paths, and confirmation that
+protected concurrent work and history were not altered.
 
 Never imply a test happened when it did not. A concise honest report is more
 valuable than a broad unsupported claim.
 
 ## 18. Multi-agent review protocol
 
-Substantive code changes in this repository go through one independent review
-before they are committed. The reusable role definitions live in
-`.claude/agents/`:
+Independent review is a risk gate, not a default tax on every feature. Require
+one non-author review before committing changes involving authentication,
+E2EE, credentials, persistence or deletion, data-loss risk, lifecycle or
+concurrency isolation, Rust/C++ FFI, dependencies, packaging/releases, broad
+cross-cutting refactors, a regression the harness cannot reproduce, or an
+explicit review request from Rokas. A focused UI or isolated behavior change
+with meaningful focused tests may use the lead's documented self-review.
+
+The reusable role definitions live in `.claude/agents/`:
 
 ```text
 .claude/agents/lightning-session-store-specialist.md
@@ -930,20 +953,24 @@ Rules:
   the same file, serialize them: one agent owns the file, the other supplies
   findings only. Shared integration files (for example `CMakeLists.txt`) are
   owned by the lead.
-- Run the relevant tests **before** review, so the reviewer judges real
-  evidence rather than intentions.
-- Require one **non-author** independent review of the cumulative diff before
-  committing substantive code. The reviewer must be read-only: it may read,
-  grep, inspect Git history, build, and run tests, but it has no `Edit` or
-  `Write` and never authors the code it reviews. Corrections are made by the
-  original author, and the reviewer then rechecks only the affected diff.
+- Run the proportional validation required by section 12 **before** a required
+  review, so the reviewer judges real evidence rather than intentions. Give
+  the reviewer the exact commands and results. The reviewer does not repeat a
+  trustworthy build or suite by default; it builds or tests only to resolve a
+  specific evidentiary gap.
+- When the risk gate applies, require one **non-author** independent review of
+  the cumulative diff. The reviewer must be read-only: it may read, grep,
+  inspect Git history, and run narrowly justified validation, but it has no
+  `Edit` or `Write` and never authors the code it reviews. Corrections are made
+  by the original author, and the reviewer then rechecks only the affected
+  diff and validation invalidated by the correction.
 - The reviewer reports every substantiated finding, grouped by severity, each
   with `file:line`, evidence, impact, and the requested correction. The lead
   classifies each finding as *must fix*, *accepted follow-up*, or *rejected
   with evidence*. All correctness, security, data-loss, interoperability, and
   regression findings are fixed before approval.
-- The review ends with exactly `APPROVED` or `CHANGES_REQUESTED`. No commit or
-  push happens before `APPROVED`.
+- A required review ends with exactly `APPROVED` or `CHANGES_REQUESTED`. When
+  the gate applies, no commit or push happens before `APPROVED`.
 - Stage exact files only — never `git add .` or `git add -A`.
 - Never force-push, amend a pushed commit, rewrite history, `git reset --hard`,
   `git clean`, or stash another agent's work.
@@ -954,3 +981,42 @@ Runtime team state belongs to Claude Code itself and is never committed. Only
 the portable role definitions above and this protocol are tracked; they must
 contain no credentials, tokens, absolute user-specific paths, private
 endpoints, or machine-specific values.
+
+## 19. Autonomous long-running work and continuity
+
+When Rokas asks Claude to work autonomously, finish a task, keep going, or
+leaves the session unattended, continue making safe in-scope progress without
+routine confirmation. Resolve discoverable questions from source, tests, Git
+history, and existing documentation. Make and record reasonable assumptions;
+ask only when a choice would materially change the requested outcome, needs
+new authority, risks unrecoverable loss, or requires unavailable live input.
+
+The Obsidian vault at `/home/roksme/Documents/LLM` is the durable local place
+for long-running task notes and continuation handoffs. Use a clearly named,
+task-specific note when work may span context compaction, a usage window, or
+multiple sessions. Do not overwrite unrelated vault notes or treat the vault
+as authoritative over repository source and Git history.
+
+Treat context exhaustion, compaction, and the five-hour usage limit as an
+interruption, never as completion or a blocker by themselves. Before an
+anticipated interruption, leave a concise continuation record containing:
+
+- Objective, current phase, and decisions already made
+- Project path, branch, `HEAD`, working-tree state, and exact files being used
+- Implemented changes and remaining work
+- Commands and tests already run with exact results
+- Any active process, reproducible failure, real blocker, and the next command
+
+Use the existing local Claude Code scheduling/session-resume automation; do
+not create or reconfigure automation unless Rokas explicitly asks. If a usage
+limit stops work, do not busy-loop, repeatedly start sessions, or attempt to
+bypass the limit. Let the existing automation resume the same task after the
+allowance resets. On resume, read the continuation note, inspect current Git
+state and any recorded process, then continue from the next unfinished action
+instead of restarting the investigation.
+
+If interruption occurs before a handoff can be written, reconstruct state on
+resume from the existing task note, `git status`, the exact diff, recent
+relevant history, and test artifacts. Do not discard or overwrite ambiguous
+concurrent work. Continue until the requested outcome is achieved and verified
+or a genuine blocker requiring Rokas is reached.

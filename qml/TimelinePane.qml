@@ -326,23 +326,25 @@ Rectangle {
     // (see GifStarredStore::categoryMessage) — never a raw category token.
     Connections {
         target: app.gif.starredStore
+        // v0.6.7: FAILURES ONLY. A successful save or unsave says nothing —
+        // the star itself fills or empties, which is feedback in the place the
+        // user is already looking, and the banner is one more thing appearing
+        // and disappearing at the bottom of the timeline. Honest failures are
+        // unaffected: `message` is already a translated, ready-to-display
+        // sentence (GifStarredStore::categoryMessage), never a raw category
+        // token, and nothing is silently dropped.
+        //
+        // "already_starred" is reported as ok, so it is silent too. The star
+        // was showing UNfilled when the user pressed (that is why the durable
+        // check took the star branch at all), but MessageDelegate.qml's own
+        // onStarFinished calls refreshStarredState() regardless of `ok`, so
+        // the star fills on completion either way — that fill is the feedback,
+        // and it is more accurate than a banner would be.
         function onStarFinished(mediaKey, ok, category, message) {
-            saveResult.ok = ok
-            // v0.6.6 fix (review M1): "already_starred" is still `ok`, but
-            // it is NOT a new star — the durable check was unknown when the
-            // user activated it (see GifStarredStore's class comment), so
-            // `message` says so honestly instead of implying one just
-            // happened.
-            saveResult.text = ok
-                ? (category === "already_starred"
-                   ? message
-                   : qsTr("Saved to your GIFs."))
-                : message
-            saveResultTimer.restart()
-        }
-        function onUnstarFinished(hash) {
-            saveResult.ok = true
-            saveResult.text = qsTr("Removed from saved GIFs.")
+            if (ok)
+                return
+            saveResult.ok = false
+            saveResult.text = message
             saveResultTimer.restart()
         }
     }
@@ -745,7 +747,13 @@ Rectangle {
                 boundsBehavior: Flickable.StopAtBounds
                 topMargin: AppTheme.spacingM
                 bottomMargin: AppTheme.spacingM
-                leftMargin: AppTheme.spacingM
+                // v0.6.7: 20 rather than 12 on the left. The pane begins
+                // immediately after the SplitView's 1px handle, so at 12 the
+                // avatar column read as glued to the divider. Purely a
+                // horizontal content inset (the rows are positioned at
+                // `x: timeline.leftMargin`) — it does not participate in any
+                // of the vertical scroll/anchoring machinery.
+                leftMargin: AppTheme.spacing20
                 rightMargin: AppTheme.spacingM
 
                 // Auto-scroll to end on new events when already near the bottom.
@@ -2714,10 +2722,23 @@ Rectangle {
         }
 
         // v0.5.9: Save As result feedback (auto-clears).
-        Rectangle {
+        //
+        // v0.6.7: it reserves NO layout height. It used to be an ordinary
+        // row, so every appearance pushed the whole timeline up and every
+        // auto-clear dropped it back down — a visible jump on something as
+        // routine as saving a GIF. The wrapper is a zero-height layout item
+        // and the banner is anchored to its bottom, overflowing upward over
+        // the timeline instead of displacing it.
+        Item {
             Layout.fillWidth: true
+            Layout.preferredHeight: 0
+            z: 5
+            Rectangle {
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
             visible: saveResult.text.length > 0
-            implicitHeight: saveResult.implicitHeight + 6
+            height: saveResult.implicitHeight + 6
             color: AppTheme.background
             Label {
                 id: saveResult
@@ -2732,6 +2753,7 @@ Rectangle {
                     interval: 5000
                     onTriggered: saveResult.text = ""
                 }
+            }
             }
         }
 

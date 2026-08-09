@@ -166,6 +166,20 @@ public:
     // explicit server rule lives in the account's push rules, never here.
     Q_INVOKABLE int roomNotificationMode(const QString &roomId) const;
     Q_INVOKABLE void setRoomNotificationMode(const QString &roomId, int mode);
+
+    // v0.6.7: remembered size of a user-resizable overlay picker (the GIF and
+    // emoji pickers, which carry a drag grip). `id` is checked against a
+    // two-entry WHITELIST — literally "gif" or "emoji", not a character-class
+    // filter — before any key is composed, so a QML caller can never reach an
+    // arbitrary settings key; an unknown id reads 0 and writes nothing at
+    // all. 0 means "never resized — use the component's default", which is
+    // also what an out-of-range stored value degrades to: a corrupted or
+    // hand-edited store must not be able to produce a degenerate or
+    // off-screen picker. These are plain local UI preferences and carry no
+    // account, room or Matrix data.
+    Q_INVOKABLE int pickerWidth(const QString &id) const;
+    Q_INVOKABLE int pickerHeight(const QString &id) const;
+    Q_INVOKABLE void setPickerSize(const QString &id, int width, int height);
     void setNotificationsEnabled(bool v);
 
     // v0.5.11: link-preview policy (see Q_PROPERTY block).

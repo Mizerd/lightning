@@ -30,7 +30,12 @@ private Q_SLOTS:
     {
         const QString picker = read(QStringLiteral(QML_DIR "/EmojiPicker.qml"));
         QVERIFY(!picker.isEmpty());
-        QVERIFY(picker.contains(QStringLiteral("width: Math.min(324,")));
+        // v0.6.7: 324 is now the DEFAULT width — AnchoredPopup clamps it to
+        // the window and the corner grip can override it — not a hard size.
+        QVERIFY(picker.contains(QStringLiteral("defaultWidth: 324")));
+        QVERIFY(picker.contains(QStringLiteral("defaultHeight: 480")));
+        QVERIFY(picker.contains(QStringLiteral("sizeSettingsKey: \"emoji\"")));
+        QVERIFY(!picker.contains(QStringLiteral("width: Math.min(324,")));
         QVERIFY(picker.contains(QStringLiteral("padding: 0")));
     }
 
@@ -132,74 +137,147 @@ private Q_SLOTS:
         // Two distinct empty states.
         QVERIFY(picker.contains(QStringLiteral("No recently used emoji")));
         QVERIFY(picker.contains(QStringLiteral("No emoji found")));
-        // v0.6.7: anchorPoint + the placeInsideWindow clamp moved into the
-        // shared AnchoredPopup base, which BOTH overlay pickers now root on,
-        // so a window resize re-anchors instead of leaving the popup behind.
-        // Each picker must therefore no longer carry its own copy — a
-        // leftover local placeInsideWindow()/anchorPoint would shadow the
-        // base's and silently restore the place-once behaviour.
+        // v0.6.7: anchorPoint and the placement clamp moved into the shared
+        // AnchoredPopup base, which BOTH overlay pickers now root on, so a
+        // window resize re-anchors instead of leaving the popup behind. Each
+        // picker must therefore no longer carry its own copy — a leftover
+        // local placeInsideWindow()/anchorPoint would shadow the base's
+        // bindings and silently restore the place-once behaviour.
         QVERIFY(picker.contains(QStringLiteral("AnchoredPopup {")));
         QVERIFY(!picker.contains(QStringLiteral("function placeInsideWindow()")));
         QVERIFY(!picker.contains(QStringLiteral("property point anchorPoint")));
         QVERIFY(!picker.contains(QStringLiteral("parent: Overlay.overlay")));
     }
 
-    // The shared base is where the actual fix lives, so pin the two things
-    // that make it work at all.
-    void anchoredPopupReanchorsOnEveryReflow()
+    // The shared base is where the actual fix lives, so pin what makes it work.
+    void anchoredPopupTracksItsAnchorThroughBindings()
     {
         const QString base = read(QStringLiteral(QML_DIR "/AnchoredPopup.qml"));
         QVERIFY(!base.isEmpty());
         QVERIFY(base.contains(QStringLiteral("property Item anchorItem")));
-        QVERIFY(base.contains(QStringLiteral("function reanchor()")));
-        QVERIFY(base.contains(QStringLiteral(
-            "anchorPoint = anchorItem.mapToItem(parent, anchorItem.width / 2, 0)")));
 
-        // (1) Every trigger is a Connections object, so the base's placement
-        // runs AFTER a subclass's own about-to-show handler (GifPicker.qml
-        // sets `tab` there, and placement must read the resulting geometry)
-        // and cannot be displaced by a subclass assigning the same property.
+        // (1) v0.6.7 (reported): placement is a BINDING, never an assignment
+        // scheduled through Qt.callLater. The deferred version lagged a full
+        // event-loop turn behind the window edge AND fired only once per
+        // trigger, so an anchor whose own layout settled afterwards left the
+        // popup a few pixels off with nothing left to correct it. A binding
+        // re-evaluates on every dependency change, in the same frame.
+        // Placement itself is never DEFERRED — x/y are never assigned from a
+        // callLater, which is what made the popup lag a frame behind the
+        // window edge and then stop correcting.
+        QVERIFY(!base.contains(QStringLiteral("Qt.callLater(root.reanchor)")));
+        QVERIFY(!base.contains(QStringLiteral("Qt.callLater(root.reflow)")));
+        // What IS deferred is a revision bump that makes the binding re-read.
         //
-        // v0.6.7 review (L1): an earlier version of this case justified the
-        // rule with "a derived handler OVERRIDES the base's, so an inline
-        // handler would never run". That premise is false on Qt 6.11.1 — both
-        // run, base-inline then derived-inline then base-Connections — so
-        // this is an ORDERING pin, not a correctness one, and it no longer
-        // forbids the inline form on a claim that does not hold.
-        QVERIFY(base.contains(QStringLiteral("function onAboutToShow() { root.reanchor() }")));
+        // v0.6.7 review (H1): this is load-bearing, not belt-and-braces.
+        // anchorX names anchorItem.x and parent.width, which misses an anchor
+        // whose overlay position moved because an ANCESTOR moved — the thread
+        // panel is a fixed-width item at the end of a RowLayout, so on a
+        // window resize it slides by the full delta while threadEmojiButton.x
+        // never changes. The binding then evaluates once, possibly before the
+        // ancestor was repositioned, and nothing re-triggers it (measured 200px
+        // off, permanently). The bump re-reads after layouts settle.
+        QVERIFY(base.contains(QStringLiteral("Qt.callLater(root.settle)")));
+        QVERIFY(base.contains(QStringLiteral("function settle()")));
+        // The scene graph is also only valid from aboutToShow — mapToItem()
+        // answers 0 before the items share a scene — so the same counter is
+        // bumped there, or the binding would evaluate once at component
+        // completion and never re-run.
+        QVERIFY(base.contains(QStringLiteral("property int placementRevision: 0")));
+        QVERIFY(base.contains(QStringLiteral("root.placementRevision++")));
+        QVERIFY(base.contains(QStringLiteral("var rev = placementRevision")));
+        QVERIFY(base.contains(QStringLiteral("readonly property real placedX")));
+        QVERIFY(base.contains(QStringLiteral("readonly property real placedY")));
+        QVERIFY(base.contains(QStringLiteral("value: root.placedX")));
+        QVERIFY(base.contains(QStringLiteral("value: root.placedY")));
 
-        // (2) Reflow triggers are deferred/coalesced: a resize moves the
-        // overlay before the layouts underneath have repositioned the anchor,
-        // so an inline recompute would read the anchor's PREVIOUS position.
-        QVERIFY(base.contains(QStringLiteral("Qt.callLater(root.reflow)")));
+        // (2) mapToItem() registers no dependency on the geometry it walks, so
+        // the anchor bindings must read those dependencies by name or they
+        // would never re-evaluate — which is exactly the original bug.
         QVERIFY(base.contains(QStringLiteral(
-            "target: root.visible ? root.parent : null")));
+            "var deps = parent.width + anchorItem.x + anchorItem.width")));
         QVERIFY(base.contains(QStringLiteral(
-            "target: root.visible ? root.anchorItem : null")));
+            "var deps = parent.height + anchorItem.y + anchorItem.height")));
+        QVERIFY(base.contains(QStringLiteral(
+            "anchorItem.mapToItem(parent, anchorItem.width / 2, 0).x")));
 
-        // (3) v0.6.7 review (L4): a deferred call can land after the popup
-        // closed, so visibility is re-checked at CALL time, not only when the
-        // call was scheduled.
-        QVERIFY(base.contains(QStringLiteral(
-            "function reanchor() {\n"
-            "        if (!visible || !parent)")));
-        QVERIFY(base.contains(QStringLiteral(
-            "function reflow() {\n"
-            "        if (!visible || !parent)")));
+        // (3) The placement bindings disengage while detached (a user resize),
+        // with RestoreNone so detaching leaves x/y where they are rather than
+        // snapping back to an earlier value.
+        QVERIFY(base.contains(QStringLiteral("when: !root.detached")));
+        QVERIFY(base.contains(QStringLiteral("restoreMode: Binding.RestoreNone")));
 
-        // (4) v0.6.7 review (L6): a popup with NO anchor item is only
-        // re-clamped into bounds on a reflow, never fully re-placed — a
-        // reaction popover pinned to a message row must not slide back toward
-        // a stale point when the window grows.
-        const int reflowAt = base.indexOf(QStringLiteral("function reflow()"));
-        QVERIFY(reflowAt >= 0);
-        const int scheduleAt =
-            base.indexOf(QStringLiteral("function scheduleReflow()"), reflowAt);
-        QVERIFY(scheduleAt > reflowAt);
-        const QString body = base.mid(reflowAt, scheduleAt - reflowAt);
-        QVERIFY(body.contains(QStringLiteral("if (anchorItem) {")));
+        // (4) A popup the bindings are NOT driving — user-resized, or opened at
+        // a bare point — still gets clamped back inside a shrinking window,
+        // but is never re-placed, which would undo the position the user chose
+        // or slide it toward a point that is already stale.
+        //
+        // v0.6.7 review (L1): the anchorItem test in the Binding `when` above
+        // is what keeps the bare-point pickers (the reaction popovers) out of
+        // the re-placement path; they take one placement at show instead.
+        QVERIFY(base.contains(QStringLiteral(
+            "when: !root.detached && root.anchorItem !== null")));
+        QVERIFY(base.contains(QStringLiteral("if (!root.anchorItem) {")));
+        const int clampAt = base.indexOf(QStringLiteral("function clampInsideWindow()"));
+        QVERIFY(clampAt >= 0);
+        const int endAt = base.indexOf(QStringLiteral("function settle()"), clampAt);
+        QVERIFY(endAt > clampAt);
+        const QString body = base.mid(clampAt, endAt - clampAt);
+        QVERIFY(body.contains(QStringLiteral("if (anchorItem && !detached)")));
         QVERIFY(body.contains(QStringLiteral("Math.min(x, parent.width - width")));
         QVERIFY(body.contains(QStringLiteral("Math.min(y, parent.height - height")));
+        QVERIFY(base.contains(QStringLiteral(
+            "target: root.visible ? root.parent : null")));
+    }
+
+    // v0.6.7: both overlay pickers are user-resizable by a corner grip, and
+    // the size survives a restart.
+    void pickersAreResizableAndRememberTheirSize()
+    {
+        const QString base = read(QStringLiteral(QML_DIR "/AnchoredPopup.qml"));
+        const QString grip = read(QStringLiteral(QML_DIR "/PopupResizeGrip.qml"));
+        const QString emoji = read(QStringLiteral(QML_DIR "/EmojiPicker.qml"));
+        const QString gif = read(QStringLiteral(QML_DIR "/GifPicker.qml"));
+        QVERIFY(!base.isEmpty() && !grip.isEmpty());
+
+        // A drag pins the top-left (detach) so the dragged corner tracks the
+        // pointer, instead of the popup growing symmetrically about its anchor.
+        QVERIFY(base.contains(QStringLiteral("function beginResize() { detached = true }")));
+        QVERIFY(base.contains(QStringLiteral("function resizeTo(w, h)")));
+        QVERIFY(base.contains(QStringLiteral("function endResize()")));
+        // Never past the window edge it is growing toward, never below the
+        // component's own minimum.
+        QVERIFY(base.contains(QStringLiteral(
+            "var maxW = parent.width - x - AppTheme.spacingS")));
+        QVERIFY(base.contains(QStringLiteral(
+            "userWidth = Math.max(minWidth, Math.min(w, maxW))")));
+        // Persisted through the whitelisted settings pair, and re-read on each
+        // open so a mid-session drag never fights the store.
+        // v0.6.7 review (L3): persists the user's INTENT, not the clamped
+        // effective size — resizing inside a very narrow window otherwise
+        // wrote a pair below the store's sanity floor, which is treated as
+        // "forget it" and erased a size chosen earlier on a bigger window.
+        QVERIFY(base.contains(QStringLiteral(
+            "Math.round(userWidth),\n"
+            "                                       Math.round(userHeight))")));
+        QVERIFY(base.contains(QStringLiteral("app.settings.setPickerSize(sizeSettingsKey")));
+        QVERIFY(base.contains(QStringLiteral("app.settings.pickerWidth(root.sizeSettingsKey)")));
+        QVERIFY(base.contains(QStringLiteral("root.detached = false")));
+
+        // The grip is a DragHandler with target:null — never a MouseArea,
+        // which could steal the wheel/drag gestures the content needs — and it
+        // resolves every frame against the size at PRESS, so a dropped frame
+        // cannot accumulate drift.
+        QVERIFY(grip.contains(QStringLiteral("DragHandler {")));
+        QVERIFY(grip.contains(QStringLiteral("target: null")));
+        QVERIFY(!grip.contains(QStringLiteral("MouseArea")));
+        QVERIFY(grip.contains(QStringLiteral(
+            "grip.popup.resizeTo(grip.pressWidth + activeTranslation.x,")));
+        QVERIFY(grip.contains(QStringLiteral("cursorShape: Qt.SizeFDiagCursor")));
+
+        // Both pickers actually mount one.
+        QVERIFY(emoji.contains(QStringLiteral("PopupResizeGrip {")));
+        QVERIFY(gif.contains(QStringLiteral("PopupResizeGrip {")));
     }
 
     // Both overlay pickers are opened from a real button, so both must hand
