@@ -53,10 +53,12 @@ Item {
         emojiSelectionStart = input.selectionStart
         emojiSelectionEnd = input.selectionEnd
         emojiCursorPosition = input.cursorPosition
-        // anchorItem, not a snapshotted point: AnchoredPopup re-derives the
-        // point from the button on every reflow, so a window resize (or the
-        // composer growing) keeps the picker attached to it.
-        emojiPicker.anchorItem = emojiButton
+        // The COMPOSER CARD, not the button: the picker sits directly on
+        // top of the card with a hairline gap and its right edge lined up
+        // with the card's. AnchoredPopup makes the card the popup's parent,
+        // so Qt keeps the two rigid — the picker cannot lag or drift on a
+        // window resize because it never moves relative to the card at all.
+        emojiPicker.anchorItem = composerCard
         emojiPicker.open()
     }
 
@@ -190,7 +192,7 @@ Item {
 
     function openGifPicker() {
         emojiPicker.close()
-        gifPicker.anchorItem = gifButton
+        gifPicker.anchorItem = composerCard
         gifPicker.open()
     }
 

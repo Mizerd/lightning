@@ -317,6 +317,7 @@ AnchoredPopup {
                 objectName: "gifListTitle"
                 visible: !picker.providerTab
                 Layout.fillWidth: true
+                Layout.leftMargin: 14
                 text: picker.tab === "saved" ? qsTr("Saved GIFs")
                                              : qsTr("Recently sent")
                 color: AppTheme.stormText
@@ -330,6 +331,8 @@ AnchoredPopup {
                 objectName: "gifSearchField"
                 visible: picker.providerTab
                 Layout.fillWidth: true
+                // Clear of the top-left resize grip.
+                Layout.leftMargin: 14
                 searchIcon: true
                 clearButton: true
                 storm: true
@@ -949,12 +952,12 @@ AnchoredPopup {
         }
     }
 
-    // Drag the corner to resize, like a window. Sits over the footer's right
-    // end, past the "send" hint.
+    // Drag the TOP-LEFT corner to resize: the bottom-right is pinned to the
+    // composer, so that is the only corner that can move.
     PopupResizeGrip {
         popup: picker
-        anchors.right: parent.right
-        anchors.bottom: parent.bottom
+        anchors.left: parent.left
+        anchors.top: parent.top
     }
 
     } // contentItem Item

@@ -747,14 +747,28 @@ Rectangle {
                 boundsBehavior: Flickable.StopAtBounds
                 topMargin: AppTheme.spacingM
                 bottomMargin: AppTheme.spacingM
-                // v0.6.7: 20 rather than 12 on the left. The pane begins
-                // immediately after the SplitView's 1px handle, so at 12 the
-                // avatar column read as glued to the divider. Purely a
-                // horizontal content inset (the rows are positioned at
-                // `x: timeline.leftMargin`) — it does not participate in any
-                // of the vertical scroll/anchoring machinery.
-                leftMargin: AppTheme.spacing20
-                rightMargin: AppTheme.spacingM
+                // v0.6.7, corrected: the avatar gutter is `rightMargin`, NOT
+                // `leftMargin`. Two effects compound here and the first
+                // attempt at this missed both:
+                //
+                //   1. `rotation: 180` above swaps left and right, so the
+                //      LOGICAL right margin is the VISUAL left inset;
+                //   2. at its left bound a Flickable parks contentX at
+                //      -leftMargin, which offsets the content item by
+                //      +leftMargin on top of rowColumn's own
+                //      `x: timeline.leftMargin`.
+                //
+                // Net: visual left inset == rightMargin - leftMargin. With
+                // both at 12 that was 0, which is why the avatars read as
+                // glued to the SplitView handle. Raising leftMargin to 20
+                // made it -8 and pushed the avatar column out over the
+                // divider — the reported regression. The gutter has to come
+                // from the far side.
+                //
+                // Visual right inset is 2 * leftMargin (24), unchanged.
+                readonly property real avatarGutter: 20
+                leftMargin: AppTheme.spacingM
+                rightMargin: AppTheme.spacingM + avatarGutter
 
                 // Auto-scroll to end on new events when already near the bottom.
                 property bool stickToBottom: true

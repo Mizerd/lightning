@@ -224,17 +224,15 @@ ApplicationWindow {
 }
 )QML";
 
-// v0.6.7 anchoring regression scene. The anchor sits at a position DERIVED
-// from the window size, exactly like the composer's GIF button, which moves
-// whenever the window is resized. The old code snapshotted the anchor as a
-// plain point in onAboutToShow and never recomputed it, so the popup kept its
-// absolute x/y while the button slid out from under it — the reported bug
-// ("when gif window is opened and window is resized the gif window stays in
-// the same spot, ending up in the middle of the window").
+// v0.6.7 anchoring scene: a composer-shaped anchor — a wide bar pinned to the
+// bottom of the window, exactly what MessageComposerBar's card is. The picker
+// is parented to it and pinned by its bottom-right corner, so the contract
+// under test is expressed purely in the ANCHOR's coordinates: the picker's
+// right edge meets the anchor's right edge and its bottom sits one gap above
+// the anchor's top, at every window size.
 //
-// The proportions are chosen so neither placement is clamped at either window
-// size (the clamp would mask a missing re-anchor by pinning both runs to the
-// same edge value) and so the popup hangs BELOW the anchor in both.
+// A 40px button will not do here: the picker is clamped to never exceed its
+// anchor's width ("on the right go no further than the text box").
 const char *kAnchoredPickerScene = R"QML(
 import QtQuick
 import QtQuick.Controls
@@ -246,34 +244,34 @@ ApplicationWindow {
     height: 700
     visible: true
 
-    Item {
-        id: anchorButton
-        objectName: "anchorButton"
-        width: 40
-        height: 30
-        x: win.width * 0.5
-        y: win.height * 0.1
+    Rectangle {
+        id: composerBar
+        objectName: "composerBar"
+        color: "#202030"
+        height: 60
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        anchors.margins: 12
     }
 
     GifPicker {
         id: picker
         objectName: "picker"
         target: "room"
-        anchorItem: anchorButton
+        anchorItem: composerBar
     }
 }
 )QML";
 
 // v0.6.7 review (H1): the scene that catches an anchor moving because an
-// ANCESTOR moved, which kAnchoredPickerScene above cannot — its anchor is
-// bound to `win.width * 0.5`, so the anchor's OWN x changes and the placement
-// binding's named dependencies fire. Here the anchor's local x is CONSTANT and
-// only its container slides, which is the production shape: ThreadPanel is a
-// fixed 340px item at the end of a RowLayout, so on a window resize the whole
-// panel moves by the full delta while threadEmojiButton.x never changes.
+// ANCESTOR moved. The anchor bar lives inside a fixed-width trailing panel, so
+// a window resize slides the whole panel while the bar's own x within it never
+// changes — the ThreadPanel shape (a fixed 340px item at the end of a
+// RowLayout).
 //
-// Measured at 200px of permanent error before the deferred settle pass was
-// added back.
+// Three successive placement schemes got this wrong before the popup was
+// simply parented to its anchor and left to Qt's own positioner.
 const char *kAncestorMoveScene = R"QML(
 import QtQuick
 import QtQuick.Controls
@@ -296,21 +294,21 @@ ApplicationWindow {
             Layout.fillHeight: true
         }
 
-        // The fixed-width trailing panel. Its x moves with the window; its
-        // contents do not reflow.
         Item {
             id: sidePanel
             objectName: "sidePanel"
             Layout.preferredWidth: 340
             Layout.fillHeight: true
 
-            Item {
-                id: anchorButton
-                objectName: "anchorButton"
-                width: 40
-                height: 30
-                x: 20
-                y: 60
+            Rectangle {
+                id: panelComposer
+                objectName: "panelComposer"
+                color: "#202030"
+                height: 50
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                anchors.margins: 8
             }
         }
     }
@@ -319,7 +317,7 @@ ApplicationWindow {
         id: picker
         objectName: "picker"
         target: "room"
-        anchorItem: anchorButton
+        anchorItem: panelComposer
     }
 }
 )QML";
@@ -783,16 +781,18 @@ private Q_SLOTS:
         QCOMPARE(warnings, QStringList{});
     }
 
-    // v0.6.7 regression (reported live): an open picker must stay attached to
-    // the control it was opened from when the window is resized. Drives a real
-    // ApplicationWindow so Overlay.overlay is real, opens the picker, resizes,
-    // and asserts the placement against the anchor's ACTUAL post-resize
-    // position rather than against hardcoded coordinates.
+    // v0.6.7: the picker is PARENTED to its anchor, so its position is
+    // expressed in the anchor's own coordinates and Qt's popup positioner
+    // keeps the two rigid through any ancestor movement. The contract is
+    // therefore a geometric relationship that must hold at EVERY window size:
+    // right edges flush, bottom one gap above the anchor's top.
     //
-    // This fails on the unfixed tree: placement ran once from onAboutToShow
-    // against a snapshotted point, so x/y were still the pre-resize values.
-    void openPickerFollowsItsAnchorAcrossAWindowResize()
+    // Three earlier schemes computed an absolute overlay position instead and
+    // each broke a different case — drift, lag, then a 400px ancestor error.
+    void pickerIsPinnedToItsAnchorAtEveryWindowSize()
     {
+        GifSearchController gif;
+        FakeGifApp fakeApp(&gif);
         QQmlApplicationEngine engine;
         QStringList warnings;
         connect(&engine, &QQmlEngine::warnings, this,
@@ -800,8 +800,6 @@ private Q_SLOTS:
                     for (const auto &e : errors)
                         warnings << e.toString();
                 });
-        GifSearchController gif;
-        FakeGifApp fakeApp(&gif);
         engine.rootContext()->setContextProperty("app", &fakeApp);
 
         QQmlComponent component(&engine);
@@ -812,80 +810,66 @@ private Q_SLOTS:
         auto *window = qobject_cast<QQuickWindow *>(root);
         QVERIFY(window != nullptr);
         QVERIFY(QTest::qWaitForWindowExposed(window));
-        QCoreApplication::processEvents();
 
         auto *picker = root->findChild<QObject *>(QStringLiteral("picker"));
-        QVERIFY(picker != nullptr);
-        auto *anchor = root->findChild<QQuickItem *>(QStringLiteral("anchorButton"));
-        QVERIFY(anchor != nullptr);
+        auto *bar = root->findChild<QQuickItem *>(QStringLiteral("composerBar"));
+        QVERIFY(picker != nullptr && bar != nullptr);
 
         QVERIFY(QMetaObject::invokeMethod(picker, "open"));
         QTRY_VERIFY(picker->property("opened").toBool());
 
-        auto *overlay = picker->property("parent").value<QQuickItem *>();
-        QVERIFY(overlay != nullptr);
+        // The anchor IS the parent — that is the whole mechanism.
+        QCOMPARE(picker->property("parent").value<QQuickItem *>(), bar);
 
-        // Where the picker SHOULD sit: horizontally centred on the anchor,
-        // hanging just below it. Recomputed from live geometry each time.
-        const auto expectedX = [&] {
-            const QPointF p = anchor->mapToItem(
-                overlay, QPointF(anchor->width() / 2.0, 0));
-            return p.x() - picker->property("width").toReal() / 2.0;
+        const qreal gap = picker->property("anchorGap").toReal();
+        const auto pinned = [&](const char *whenLabel) {
+            const qreal x = picker->property("x").toReal();
+            const qreal y = picker->property("y").toReal();
+            const qreal w = picker->property("width").toReal();
+            const qreal h = picker->property("height").toReal();
+            // Right edges flush, and never past the anchor.
+            QVERIFY2(qAbs((x + w) - bar->width()) < 1.5,
+                     qPrintable(QStringLiteral("%1: right edge %2 vs anchor %3")
+                                    .arg(QString::fromUtf8(whenLabel))
+                                    .arg(x + w).arg(bar->width())));
+            QVERIFY2(x + w <= bar->width() + 0.5,
+                     qPrintable(QStringLiteral("%1: overhangs the anchor")
+                                    .arg(QString::fromUtf8(whenLabel))));
+            // Sits on top of the anchor with exactly the hairline gap.
+            QVERIFY2(qAbs((y + h) + gap) < 1.5,
+                     qPrintable(QStringLiteral("%1: bottom %2, expected %3")
+                                    .arg(QString::fromUtf8(whenLabel))
+                                    .arg(y + h).arg(-gap)));
         };
-        const qreal beforeX = picker->property("x").toReal();
-        const qreal beforeY = picker->property("y").toReal();
-        QVERIFY2(qAbs(beforeX - expectedX()) < 1.5,
-                 qPrintable(QStringLiteral("initial x %1 vs expected %2")
-                                .arg(beforeX).arg(expectedX())));
-        // It hangs below the anchor, not above it, at this window size.
-        QVERIFY(beforeY > anchor->mapToItem(overlay, QPointF(0, 0)).y());
+
+        pinned("initial");
+        const qreal barWidthBefore = bar->width();
 
         window->resize(1300, 900);
-        // Establish the premise before asserting the conclusion: the window,
-        // the overlay the popup is parented to, and the anchor itself all
-        // actually moved. Without these, a platform that silently ignored the
-        // resize would make the final assertion vacuous.
         QTRY_COMPARE(int(window->width()), 1300);
-        QTRY_COMPARE(int(overlay->width()), 1300);
-        QTRY_VERIFY2(anchor->x() > 600,
-                     qPrintable(QStringLiteral("anchor did not move: x=%1")
-                                    .arg(anchor->x())));
-        // The re-anchor is deferred through Qt.callLater (a resize moves the
-        // overlay before the layouts underneath have repositioned the anchor),
-        // so settle the event loop rather than reading straight after resize.
-        QTRY_VERIFY2(qAbs(picker->property("x").toReal() - expectedX()) < 1.5,
-                     qPrintable(QStringLiteral("picker x %1 vs expected %2")
-                                    .arg(picker->property("x").toReal())
-                                    .arg(expectedX())));
+        QTRY_VERIFY2(bar->width() > barWidthBefore + 300,
+                     "anchor did not grow: scene no longer exercises a resize");
+        pinned("after grow");
 
-        const qreal afterX = picker->property("x").toReal();
-        const qreal afterY = picker->property("y").toReal();
-        // The anchor genuinely moved in BOTH axes, so a picker that had not
-        // re-anchored would now be visibly detached in both.
-        QVERIFY2(qAbs(afterX - beforeX) > 50,
-                 qPrintable(QStringLiteral("x did not follow: %1 -> %2")
-                                .arg(beforeX).arg(afterX)));
-        QVERIFY2(qAbs(afterY - beforeY) > 10,
-                 qPrintable(QStringLiteral("y did not follow: %1 -> %2")
-                                .arg(beforeY).arg(afterY)));
-        // And it still hangs just below the anchor's top edge.
-        const qreal anchorTop = anchor->mapToItem(overlay, QPointF(0, 0)).y();
-        QVERIFY(afterY > anchorTop);
-        QVERIFY(afterY - anchorTop < 20);
+        window->resize(620, 520);
+        QTRY_COMPARE(int(window->width()), 620);
+        QTRY_VERIFY(bar->width() < barWidthBefore);
+        pinned("after shrink");
+        // Shrinking below the picker's own default forces the width clamp —
+        // the picker must follow the anchor down rather than overhang it.
+        QVERIFY(picker->property("width").toReal() <= bar->width() + 0.5);
 
         delete root;
         QCOMPARE(warnings, QStringList{});
     }
 
     // v0.6.7 review (H1): the anchor moves because its CONTAINER moved, not
-    // because its own x changed. The placement binding names anchorItem.x and
-    // parent.width as dependencies; neither fires here, and parent.width is
-    // already final by the time the ancestor is repositioned, so a
-    // binding-only placement evaluates once against a stale reading and never
-    // corrects. The deferred settle pass exists for exactly this.
-    //
-    // Fails on a binding-only AnchoredPopup, by ~200px, permanently.
-    void openPickerFollowsAnAnchorMovedByItsAncestor()
+    // because its own x changed. Every scheme that computed an absolute
+    // position from mapToItem() missed this — the named dependencies never
+    // fire — and it is the production ThreadPanel shape. Parenting the popup
+    // to the anchor makes it structurally impossible: the popup's coordinates
+    // are the anchor's, so it cannot be left behind by an ancestor at all.
+    void pickerFollowsAnAnchorMovedByItsAncestor()
     {
         GifSearchController gif;
         FakeGifApp fakeApp(&gif);
@@ -906,46 +890,41 @@ private Q_SLOTS:
         auto *window = qobject_cast<QQuickWindow *>(root);
         QVERIFY(window != nullptr);
         QVERIFY(QTest::qWaitForWindowExposed(window));
-        QCoreApplication::processEvents();
 
         auto *picker = root->findChild<QObject *>(QStringLiteral("picker"));
-        auto *anchor = root->findChild<QQuickItem *>(QStringLiteral("anchorButton"));
+        auto *bar = root->findChild<QQuickItem *>(QStringLiteral("panelComposer"));
         auto *sidePanel = root->findChild<QQuickItem *>(QStringLiteral("sidePanel"));
-        QVERIFY(picker != nullptr && anchor != nullptr && sidePanel != nullptr);
+        QVERIFY(picker != nullptr && bar != nullptr && sidePanel != nullptr);
+        auto *overlayForScene = window->contentItem();
+        QVERIFY(overlayForScene != nullptr);
 
         QVERIFY(QMetaObject::invokeMethod(picker, "open"));
         QTRY_VERIFY(picker->property("opened").toBool());
 
-        auto *overlay = picker->property("parent").value<QQuickItem *>();
-        QVERIFY(overlay != nullptr);
-        const auto expectedX = [&] {
-            const QPointF p = anchor->mapToItem(
-                overlay, QPointF(anchor->width() / 2.0, 0));
-            return p.x() - picker->property("width").toReal() / 2.0;
-        };
-
-        const qreal anchorLocalXBefore = anchor->x();
         const qreal panelXBefore = sidePanel->x();
-        QTRY_VERIFY(qAbs(picker->property("x").toReal() - expectedX()) < 1.5);
-        const qreal beforeX = picker->property("x").toReal();
+        const qreal barLocalXBefore = bar->x();
+        const qreal barSceneXBefore =
+            bar->mapToItem(overlayForScene, QPointF(0, 0)).x();
+        const qreal pickerXBefore = picker->property("x").toReal();
 
         window->resize(1300, 900);
         QTRY_COMPARE(int(window->width()), 1300);
-        QTRY_COMPARE(int(overlay->width()), 1300);
-        // The premise of the whole case: the panel moved, the anchor did NOT
-        // move within it. If this ever stops holding the scene has drifted and
-        // the test no longer covers what it claims to.
+        // Premise: the panel slid by the full delta and the bar did NOT move
+        // inside it. If this stops holding the scene has drifted and the case
+        // no longer covers what it claims.
         QTRY_VERIFY2(sidePanel->x() > panelXBefore + 300,
                      qPrintable(QStringLiteral("panel did not slide: %1 -> %2")
                                     .arg(panelXBefore).arg(sidePanel->x())));
-        QCOMPARE(anchor->x(), anchorLocalXBefore);
+        QCOMPARE(bar->x(), barLocalXBefore);
+        QVERIFY(bar->mapToItem(overlayForScene, QPointF(0, 0)).x()
+                > barSceneXBefore + 300);
 
-        QTRY_VERIFY2(qAbs(picker->property("x").toReal() - expectedX()) < 1.5,
-                     qPrintable(QStringLiteral("picker x %1 vs expected %2")
-                                    .arg(picker->property("x").toReal())
-                                    .arg(expectedX())));
-        QVERIFY2(qAbs(picker->property("x").toReal() - beforeX) > 50,
-                 "picker did not follow its ancestor-moved anchor");
+        // The picker's coordinates are the anchor's, so they did not need to
+        // change at all — and the relationship still holds exactly.
+        QCOMPARE(picker->property("x").toReal(), pickerXBefore);
+        const qreal x = picker->property("x").toReal();
+        const qreal w = picker->property("width").toReal();
+        QVERIFY(qAbs((x + w) - bar->width()) < 1.5);
 
         delete root;
         QCOMPARE(warnings, QStringList{});
@@ -1020,9 +999,14 @@ private Q_SLOTS:
     }
 
     // v0.6.7: the resize cycle end to end, without a synthetic pointer — the
-    // grip's only uncovered part is then the two-line
-    // `pressWidth + activeTranslation.x` arithmetic.
-    void resizeDetachesClampsPersistsAndReattachesOnReopen()
+    // grip's only uncovered part is then the two-line inverted arithmetic.
+    //
+    // There is no "detach" any more: the placement bindings pin the
+    // bottom-right corner to the anchor, so a bigger size grows the popup up
+    // and to the LEFT on its own. That is why the grip moved to the top-left
+    // corner, and it is what "snapped in place" means — the picker cannot
+    // drift away from the composer even while being resized.
+    void resizeGrowsFromThePinnedCornerAndPersists()
     {
         GifSearchController gif;
         FakeGifApp fakeApp(&gif);
@@ -1045,42 +1029,44 @@ private Q_SLOTS:
         QVERIFY(QTest::qWaitForWindowExposed(window));
 
         auto *picker = root->findChild<QObject *>(QStringLiteral("picker"));
-        QVERIFY(picker != nullptr);
+        auto *bar = root->findChild<QQuickItem *>(QStringLiteral("composerBar"));
+        QVERIFY(picker != nullptr && bar != nullptr);
         QVERIFY(QMetaObject::invokeMethod(picker, "open"));
         QTRY_VERIFY(picker->property("opened").toBool());
 
-        QCOMPARE(picker->property("detached").toBool(), false);
-        const qreal anchoredX = picker->property("x").toReal();
         QCOMPARE(picker->property("width").toReal(), 330.0);
+        const qreal gap = picker->property("anchorGap").toReal();
+        const qreal rightEdgeBefore = picker->property("x").toReal()
+                                      + picker->property("width").toReal();
 
-        // A drag begins: the popup detaches so its top-left pins and the
-        // dragged corner can track the pointer.
-        QVERIFY(QMetaObject::invokeMethod(picker, "beginResize"));
-        QCOMPARE(picker->property("detached").toBool(), true);
-
+        // Grow. The right edge and the bottom must not budge — only the top
+        // and the left move outward.
         QVERIFY(QMetaObject::invokeMethod(picker, "resizeTo",
                                           Q_ARG(QVariant, 460),
                                           Q_ARG(QVariant, 600)));
         QTRY_COMPARE(picker->property("width").toReal(), 460.0);
         QCOMPARE(picker->property("height").toReal(), 600.0);
-        // Growing must NOT move the popup — that is what "the corner follows
-        // the pointer" means.
-        QCOMPARE(picker->property("x").toReal(), anchoredX);
+        QCOMPARE(picker->property("x").toReal()
+                     + picker->property("width").toReal(), rightEdgeBefore);
+        QVERIFY(qAbs((picker->property("y").toReal()
+                      + picker->property("height").toReal()) + gap) < 1.5);
 
-        // Below the component minimum is refused (GifPicker pins minWidth 300).
+        // Below the component minimum is refused (GifPicker pins 300 x 320).
         QVERIFY(QMetaObject::invokeMethod(picker, "resizeTo",
                                           Q_ARG(QVariant, 50),
                                           Q_ARG(QVariant, 50)));
         QCOMPARE(picker->property("width").toReal(), 300.0);
         QCOMPARE(picker->property("height").toReal(), 320.0);
 
-        // Past the window edge it is growing toward is refused too.
+        // Wider than the anchor is refused — "no further than the text box".
         QVERIFY(QMetaObject::invokeMethod(picker, "resizeTo",
                                           Q_ARG(QVariant, 99999),
                                           Q_ARG(QVariant, 99999)));
-        const qreal maxedW = picker->property("width").toReal();
-        QVERIFY2(anchoredX + maxedW <= window->width(),
-                 "resize pushed the popup past the window edge");
+        QCOMPARE(picker->property("width").toReal(), bar->width());
+        QCOMPARE(picker->property("x").toReal(), 0.0);
+        // And never taller than the room above the anchor.
+        QVERIFY(picker->property("height").toReal()
+                <= window->height() - bar->height());
 
         // Settle on a real size and end the drag: it is remembered.
         QVERIFY(QMetaObject::invokeMethod(picker, "resizeTo",
@@ -1096,15 +1082,13 @@ private Q_SLOTS:
                                           Q_ARG(QString, QStringLiteral("gif"))));
         QCOMPARE(storedW, 420);
 
-        // Reopening re-attaches to the anchor and keeps the new size.
+        // Reopening keeps the remembered size and stays pinned.
         QVERIFY(QMetaObject::invokeMethod(picker, "close"));
         QTRY_VERIFY(!picker->property("opened").toBool());
         QVERIFY(QMetaObject::invokeMethod(picker, "open"));
         QTRY_VERIFY(picker->property("opened").toBool());
-        QCOMPARE(picker->property("detached").toBool(), false);
         QCOMPARE(picker->property("width").toReal(), 420.0);
-        QTRY_COMPARE(picker->property("x").toReal(),
-                     picker->property("placedX").toReal());
+        QVERIFY(qAbs((picker->property("x").toReal() + 420.0) - bar->width()) < 1.5);
 
         delete root;
         QCOMPARE(warnings, QStringList{});

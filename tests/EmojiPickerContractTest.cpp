@@ -149,85 +149,57 @@ private Q_SLOTS:
         QVERIFY(!picker.contains(QStringLiteral("parent: Overlay.overlay")));
     }
 
-    // The shared base is where the actual fix lives, so pin what makes it work.
-    void anchoredPopupTracksItsAnchorThroughBindings()
+    // The shared base is where the placement lives. v0.6.7, final form: it
+    // does NOT compute an absolute overlay position at all. The popup is
+    // PARENTED to its anchor and expressed in the anchor's coordinates, so
+    // Qt's own popup positioner — which already listens to the parent and
+    // every ancestor — keeps the two rigid. Three earlier schemes each broke a
+    // different case (drift on resize, a frame of lag, then a ~400px error for
+    // an anchor moved by an ancestor).
+    void anchoredPopupIsParentedToItsAnchorNotPositionedOverIt()
     {
         const QString base = read(QStringLiteral(QML_DIR "/AnchoredPopup.qml"));
         QVERIFY(!base.isEmpty());
         QVERIFY(base.contains(QStringLiteral("property Item anchorItem")));
-
-        // (1) v0.6.7 (reported): placement is a BINDING, never an assignment
-        // scheduled through Qt.callLater. The deferred version lagged a full
-        // event-loop turn behind the window edge AND fired only once per
-        // trigger, so an anchor whose own layout settled afterwards left the
-        // popup a few pixels off with nothing left to correct it. A binding
-        // re-evaluates on every dependency change, in the same frame.
-        // Placement itself is never DEFERRED — x/y are never assigned from a
-        // callLater, which is what made the popup lag a frame behind the
-        // window edge and then stop correcting.
-        QVERIFY(!base.contains(QStringLiteral("Qt.callLater(root.reanchor)")));
-        QVERIFY(!base.contains(QStringLiteral("Qt.callLater(root.reflow)")));
-        // What IS deferred is a revision bump that makes the binding re-read.
-        //
-        // v0.6.7 review (H1): this is load-bearing, not belt-and-braces.
-        // anchorX names anchorItem.x and parent.width, which misses an anchor
-        // whose overlay position moved because an ANCESTOR moved — the thread
-        // panel is a fixed-width item at the end of a RowLayout, so on a
-        // window resize it slides by the full delta while threadEmojiButton.x
-        // never changes. The binding then evaluates once, possibly before the
-        // ancestor was repositioned, and nothing re-triggers it (measured 200px
-        // off, permanently). The bump re-reads after layouts settle.
-        QVERIFY(base.contains(QStringLiteral("Qt.callLater(root.settle)")));
-        QVERIFY(base.contains(QStringLiteral("function settle()")));
-        // The scene graph is also only valid from aboutToShow — mapToItem()
-        // answers 0 before the items share a scene — so the same counter is
-        // bumped there, or the binding would evaluate once at component
-        // completion and never re-run.
-        QVERIFY(base.contains(QStringLiteral("property int placementRevision: 0")));
-        QVERIFY(base.contains(QStringLiteral("root.placementRevision++")));
-        QVERIFY(base.contains(QStringLiteral("var rev = placementRevision")));
-        QVERIFY(base.contains(QStringLiteral("readonly property real placedX")));
-        QVERIFY(base.contains(QStringLiteral("readonly property real placedY")));
-        QVERIFY(base.contains(QStringLiteral("value: root.placedX")));
-        QVERIFY(base.contains(QStringLiteral("value: root.placedY")));
-
-        // (2) mapToItem() registers no dependency on the geometry it walks, so
-        // the anchor bindings must read those dependencies by name or they
-        // would never re-evaluate — which is exactly the original bug.
         QVERIFY(base.contains(QStringLiteral(
-            "var deps = parent.width + anchorItem.x + anchorItem.width")));
-        QVERIFY(base.contains(QStringLiteral(
-            "var deps = parent.height + anchorItem.y + anchorItem.height")));
-        QVERIFY(base.contains(QStringLiteral(
-            "anchorItem.mapToItem(parent, anchorItem.width / 2, 0).x")));
+            "parent: anchorItem ? anchorItem : overlayItem")));
 
-        // (3) The placement bindings disengage while detached (a user resize),
-        // with RestoreNone so detaching leaves x/y where they are rather than
-        // snapping back to an earlier value.
-        QVERIFY(base.contains(QStringLiteral("when: !root.detached")));
-        QVERIFY(base.contains(QStringLiteral("restoreMode: Binding.RestoreNone")));
+        // The whole class of bug is gone because the mechanism is gone: no
+        // coordinate mapping, no revision counter, no deferred correction.
+        QVERIFY(!base.contains(QStringLiteral("mapToItem")));
+        QVERIFY(!base.contains(QStringLiteral("Qt.callLater")));
+        QVERIFY(!base.contains(QStringLiteral("placementRevision")));
 
-        // (4) A popup the bindings are NOT driving — user-resized, or opened at
-        // a bare point — still gets clamped back inside a shrinking window,
-        // but is never re-placed, which would undo the position the user chose
-        // or slide it toward a point that is already stale.
-        //
-        // v0.6.7 review (L1): the anchorItem test in the Binding `when` above
-        // is what keeps the bare-point pickers (the reaction popovers) out of
-        // the re-placement path; they take one placement at show instead.
+        // Bottom-right pinned: right edges flush with the anchor, bottom one
+        // hairline gap above it.
         QVERIFY(base.contains(QStringLiteral(
-            "when: !root.detached && root.anchorItem !== null")));
-        QVERIFY(base.contains(QStringLiteral("if (!root.anchorItem) {")));
+            "readonly property real anchoredX: anchorItem "
+            "? Math.max(0, anchorItem.width - width) : 0")));
+        QVERIFY(base.contains(QStringLiteral(
+            "readonly property real anchoredY: -height - anchorGap")));
+        QVERIFY(base.contains(QStringLiteral("value: root.anchoredX")));
+        QVERIFY(base.contains(QStringLiteral("value: root.anchoredY")));
+        QVERIFY(base.contains(QStringLiteral("when: root.anchorItem !== null")));
+
+        // Never wider than the anchor — "on the right go no further than the
+        // text box" — and never taller than the room above it.
+        QVERIFY(base.contains(QStringLiteral("return anchorItem.width")));
+        QVERIFY(base.contains(QStringLiteral("room -= anchorItem.height + anchorGap")));
+        QVERIFY(base.contains(QStringLiteral("width: Math.min(maxWidth")));
+        QVERIFY(base.contains(QStringLiteral("height: Math.min(maxHeight")));
+
+        // A caller with no anchor item is placed once from its point and only
+        // clamped afterwards — never re-placed toward a point that is stale by
+        // then.
         const int clampAt = base.indexOf(QStringLiteral("function clampInsideWindow()"));
         QVERIFY(clampAt >= 0);
-        const int endAt = base.indexOf(QStringLiteral("function settle()"), clampAt);
+        const int endAt = base.indexOf(QStringLiteral("Connections {"), clampAt);
         QVERIFY(endAt > clampAt);
         const QString body = base.mid(clampAt, endAt - clampAt);
-        QVERIFY(body.contains(QStringLiteral("if (anchorItem && !detached)")));
-        QVERIFY(body.contains(QStringLiteral("Math.min(x, parent.width - width")));
-        QVERIFY(body.contains(QStringLiteral("Math.min(y, parent.height - height")));
-        QVERIFY(base.contains(QStringLiteral(
-            "target: root.visible ? root.parent : null")));
+        QVERIFY(body.contains(QStringLiteral("if (!visible || !overlayItem || anchorItem)")));
+        QVERIFY(body.contains(QStringLiteral("Math.min(x, overlayItem.width - width")));
+        QVERIFY(base.contains(QStringLiteral("function placeAtPoint()")));
+        QVERIFY(base.contains(QStringLiteral("if (!root.anchorItem)\n                root.placeAtPoint()")));
     }
 
     // v0.6.7: both overlay pickers are user-resizable by a corner grip, and
@@ -240,44 +212,49 @@ private Q_SLOTS:
         const QString gif = read(QStringLiteral(QML_DIR "/GifPicker.qml"));
         QVERIFY(!base.isEmpty() && !grip.isEmpty());
 
-        // A drag pins the top-left (detach) so the dragged corner tracks the
-        // pointer, instead of the popup growing symmetrically about its anchor.
-        QVERIFY(base.contains(QStringLiteral("function beginResize() { detached = true }")));
+        // No detach: the bindings pin the bottom-right corner, so a bigger
+        // size grows the popup up and to the left by itself. That is what
+        // keeps it snapped to the composer even mid-drag.
+        QVERIFY(!base.contains(QStringLiteral("detached")));
         QVERIFY(base.contains(QStringLiteral("function resizeTo(w, h)")));
         QVERIFY(base.contains(QStringLiteral("function endResize()")));
-        // Never past the window edge it is growing toward, never below the
-        // component's own minimum.
         QVERIFY(base.contains(QStringLiteral(
-            "var maxW = parent.width - x - AppTheme.spacingS")));
-        QVERIFY(base.contains(QStringLiteral(
-            "userWidth = Math.max(minWidth, Math.min(w, maxW))")));
-        // Persisted through the whitelisted settings pair, and re-read on each
-        // open so a mid-session drag never fights the store.
-        // v0.6.7 review (L3): persists the user's INTENT, not the clamped
-        // effective size — resizing inside a very narrow window otherwise
-        // wrote a pair below the store's sanity floor, which is treated as
-        // "forget it" and erased a size chosen earlier on a bigger window.
+            "userWidth = Math.max(minWidth, Math.min(w, maxWidth))")));
+        // Persists the user's INTENT, not the clamped effective size —
+        // resizing in a small window otherwise wrote a pair below the store's
+        // sanity floor, which is treated as "forget it" and erased a size
+        // chosen earlier on a bigger window.
         QVERIFY(base.contains(QStringLiteral(
             "Math.round(userWidth),\n"
             "                                       Math.round(userHeight))")));
         QVERIFY(base.contains(QStringLiteral("app.settings.setPickerSize(sizeSettingsKey")));
         QVERIFY(base.contains(QStringLiteral("app.settings.pickerWidth(root.sizeSettingsKey)")));
-        QVERIFY(base.contains(QStringLiteral("root.detached = false")));
 
-        // The grip is a DragHandler with target:null — never a MouseArea,
-        // which could steal the wheel/drag gestures the content needs — and it
-        // resolves every frame against the size at PRESS, so a dropped frame
-        // cannot accumulate drift.
+        // The grip sits at the TOP-LEFT — the only corner that can move — and
+        // its arithmetic is inverted accordingly: dragging away from the
+        // anchor grows the popup.
         QVERIFY(grip.contains(QStringLiteral("DragHandler {")));
         QVERIFY(grip.contains(QStringLiteral("target: null")));
         QVERIFY(!grip.contains(QStringLiteral("MouseArea")));
         QVERIFY(grip.contains(QStringLiteral(
-            "grip.popup.resizeTo(grip.pressWidth + activeTranslation.x,")));
+            "grip.popup.resizeTo(grip.pressWidth - activeTranslation.x,")));
+        QVERIFY(grip.contains(QStringLiteral(
+            "grip.pressHeight - activeTranslation.y)")));
         QVERIFY(grip.contains(QStringLiteral("cursorShape: Qt.SizeFDiagCursor")));
+        // Visible at rest: the first version faded to 45% and the maintainer
+        // could not find it at all.
+        QVERIFY(grip.contains(QStringLiteral(
+            "opacity: gripHover.hovered || dragHandler.active ? 1 : 0.75")));
 
-        // Both pickers actually mount one.
-        QVERIFY(emoji.contains(QStringLiteral("PopupResizeGrip {")));
-        QVERIFY(gif.contains(QStringLiteral("PopupResizeGrip {")));
+        // Both pickers mount one, anchored to their own top-left corner.
+        for (const QString &picker : { emoji, gif }) {
+            const int at = picker.indexOf(QStringLiteral("PopupResizeGrip {"));
+            QVERIFY(at >= 0);
+            const QString block = picker.mid(at, 160);
+            QVERIFY(block.contains(QStringLiteral("anchors.left: parent.left")));
+            QVERIFY(block.contains(QStringLiteral("anchors.top: parent.top")));
+            QVERIFY(!block.contains(QStringLiteral("anchors.bottom")));
+        }
     }
 
     // Both overlay pickers are opened from a real button, so both must hand
@@ -287,16 +264,19 @@ private Q_SLOTS:
         const QString composer = read(QStringLiteral(QML_DIR "/MessageComposerBar.qml"));
         const QString thread = read(QStringLiteral(QML_DIR "/ThreadPanel.qml"));
         QVERIFY(!composer.isEmpty() && !thread.isEmpty());
-        QVERIFY(composer.contains(QStringLiteral("emojiPicker.anchorItem = emojiButton")));
-        QVERIFY(composer.contains(QStringLiteral("gifPicker.anchorItem = gifButton")));
+        // v0.6.7: the COMPOSER CARD, not the button. The picker sits on top
+        // of the card with a hairline gap, right edges flush, and being
+        // parented to the card is what makes it rigid with respect to it.
+        QVERIFY(composer.contains(QStringLiteral("emojiPicker.anchorItem = composerCard")));
+        QVERIFY(composer.contains(QStringLiteral("gifPicker.anchorItem = composerCard")));
         QVERIFY(thread.contains(QStringLiteral(
-            "threadGifPicker.anchorItem = threadGifButton")));
+            "threadGifPicker.anchorItem = threadMiniComposer")));
         // The thread emoji button additionally had a coordinate-space bug: it
         // mapped into `panel` while the anchor is interpreted in OVERLAY
         // coordinates, placing the picker as far left of the button as the
         // 340px thread panel is inset from the window's left edge.
         QVERIFY(thread.contains(QStringLiteral(
-            "threadEmojiPicker.anchorItem = threadEmojiButton")));
+            "threadEmojiPicker.anchorItem = threadMiniComposer")));
         QVERIFY(!thread.contains(QStringLiteral("threadEmojiPicker.anchorPoint")));
         // None of the four button-opened pickers may snapshot a point any
         // more. (The reaction pickers legitimately still do: they open at a

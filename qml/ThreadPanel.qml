@@ -944,6 +944,7 @@ Rectangle {
                 }
 
                 Rectangle {
+                    id: threadMiniComposer
                     objectName: "threadMiniComposer"
                     Layout.fillWidth: true
                     implicitHeight: composerRow.implicitHeight
@@ -1085,7 +1086,7 @@ Rectangle {
                                 // of right-hand panel, i.e. most of the
                                 // window). anchorItem does the mapping in the
                                 // right space, and re-does it on resize.
-                                threadEmojiPicker.anchorItem = threadEmojiButton
+                                threadEmojiPicker.anchorItem = threadMiniComposer
                                 threadEmojiPicker.open()
                             }
                         }
@@ -1139,7 +1140,7 @@ Rectangle {
                             }
                             onClicked: {
                                 threadEmojiPicker.close()
-                                threadGifPicker.anchorItem = threadGifButton
+                                threadGifPicker.anchorItem = threadMiniComposer
                                 threadGifPicker.open()
                             }
                         }

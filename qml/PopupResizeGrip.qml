@@ -1,41 +1,43 @@
 import QtQuick
 import MatrixClient
 
-// v0.6.7: the bottom-right resize corner for an AnchoredPopup, so the GIF and
-// emoji pickers can be dragged bigger like a window.
+// v0.6.7: the resize corner for an AnchoredPopup.
 //
-// The drag pins the popup's top-left (AnchoredPopup.beginResize() detaches the
-// placement bindings) so the corner tracks the pointer exactly instead of the
-// popup growing symmetrically around its anchor.
+// TOP-LEFT, not bottom-right. The popup is pinned by its bottom-right corner
+// to the composer it sits on, so that corner cannot move — the top-left is the
+// only free one, and dragging it away from the anchor is what makes the popup
+// bigger. Hence the inverted arithmetic below: moving left/up is positive size.
+//
+// The markings are deliberately visible AT REST. The first version faded to
+// 45% and the maintainer could not find it at all ("i dont see anyway to
+// resize it"), so the affordance now reads as a real control: three stepped
+// diagonal ticks plus a corner bracket, at full strength on hover.
 //
 // POINTER AND TOUCH ONLY. DragHandler accepts touch, so a tap-drag works, but
 // there is deliberately no keyboard path: resizing is a convenience, the
 // default size is always usable, and a key-driven resize would need its own
-// focus stop inside a popup whose Tab order already ends at the content. Said
-// plainly here rather than implied by an Accessible.Grip role that suggests
-// otherwise.
+// focus stop inside a popup whose Tab order already ends at the content.
 //
-// A DragHandler with `target: null` — never a pointer-grabbing mouse area. The
-// handler reports the translation accumulated since the press and moves
-// nothing itself, so the
-// size is always computed from the size at press plus the total drag, never
-// accumulated frame by frame (which drifts). It also cannot steal the wheel
-// or the scroll gestures the grid underneath needs.
+// A DragHandler with `target: null` — never a pointer-grabbing mouse area,
+// which could steal the wheel or the drag gestures the grid underneath needs.
+// It reports the translation accumulated since the press and moves nothing
+// itself, so the size is always computed from the size at press plus the total
+// drag, never accumulated frame by frame (which drifts).
 Item {
     id: grip
 
     // The AnchoredPopup this grip resizes.
     property var popup
 
-    // Size at the moment the drag started; the whole drag is resolved against
+    // Size at the moment the drag started; the whole drag resolves against
     // this, so a dropped frame cannot accumulate error.
     property real pressWidth: 0
     property real pressHeight: 0
 
     objectName: "popupResizeGrip"
-    width: 16
-    height: 16
-    z: 10
+    width: 18
+    height: 18
+    z: 20
     Accessible.role: Accessible.Grip
     Accessible.name: qsTr("Resize")
 
@@ -53,42 +55,52 @@ Item {
             if (active) {
                 grip.pressWidth = grip.popup.width
                 grip.pressHeight = grip.popup.height
-                grip.popup.beginResize()
             } else {
                 grip.popup.endResize()
             }
         }
-        // The notify signal is translationChanged; the property to read is
-        // `activeTranslation` (a QVector2D of the drag since the press).
-        // Qt 6 exposes no plain `translation` property to QML — only a C++
-        // accessor — so reading `translation` here would be undefined.
+        // Inverted: dragging the TOP-LEFT corner up and to the left (negative
+        // translation) has to make the popup bigger.
         onTranslationChanged: {
             if (!active || !grip.popup)
                 return
-            grip.popup.resizeTo(grip.pressWidth + activeTranslation.x,
-                                grip.pressHeight + activeTranslation.y)
+            grip.popup.resizeTo(grip.pressWidth - activeTranslation.x,
+                                grip.pressHeight - activeTranslation.y)
         }
     }
 
-    // Three diagonal ticks, the conventional grip shape. Faint at rest so it
-    // does not compete with the content, and it firms up on hover/drag.
+    // Corner bracket + three stepped ticks, pointing up-left along the drag
+    // direction.
     Item {
         anchors.fill: parent
-        opacity: gripHover.hovered || dragHandler.active ? 1 : 0.45
+        opacity: gripHover.hovered || dragHandler.active ? 1 : 0.75
         Behavior on opacity { NumberAnimation { duration: 90 } }
+
+        // The bracket: two short strokes meeting at the corner.
+        Rectangle {
+            x: 2; y: 2
+            width: 9; height: 1.5
+            radius: 0.75
+            color: AppTheme.stormTextMuted
+        }
+        Rectangle {
+            x: 2; y: 2
+            width: 1.5; height: 9
+            radius: 0.75
+            color: AppTheme.stormTextMuted
+        }
+
+        // Diagonal ticks stepping away from the corner.
         Repeater {
             model: 3
             Rectangle {
                 required property int index
                 width: 2
-                height: 3 + index * 4
+                height: 2
                 radius: 1
                 color: AppTheme.stormTextMuted
-                anchors.bottom: parent.bottom
-                anchors.bottomMargin: 3
-                anchors.right: parent.right
-                anchors.rightMargin: 3 + index * 4
-                transformOrigin: Item.Bottom
+                x: 5 + index * 3
+                y: 5 + index * 3
             }
         }
     }
