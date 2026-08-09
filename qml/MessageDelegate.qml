@@ -120,6 +120,99 @@ Item {
     readonly property string actionKey: (model.itemId && model.itemId.length > 0)
                                         ? model.itemId
                                         : (model.eventId || "")
+    // ── Find-in-timeline highlighting ────────────────────────────────────
+    // The active query, or "" when the reader is not searching. Reads the
+    // delegate's OWN model, so a thread panel search never lights up the room
+    // timeline behind it.
+    readonly property string searchHighlight:
+        root.timelineModel && root.timelineModel.searchActive === true
+        ? (root.timelineModel.searchQuery || "") : ""
+    // Whether this row is the match the find bar is currently sitting on, so
+    // it can be distinguished from the other matches on screen.
+    readonly property bool isCurrentSearchHit:
+        root.searchHighlight !== ""
+        && root.timelineModel
+        && (model.eventId || "") !== ""
+        && (model.eventId || "") === root.timelineModel.searchCurrentEventId
+
+    // Wrap every occurrence of `needle` in a highlight span.
+    //
+    // The body is RichText — either sanitized HTML from a formatted message or
+    // linkified plain text — so a naive string replace would happily rewrite
+    // the inside of a tag or an entity and corrupt the markup. This walks the
+    // string instead, copying tags through untouched and only ever
+    // substituting within text runs. Entities are treated as atomic for the
+    // same reason: searching "amp" must not split "&amp;" down the middle.
+    function highlightSearchMatches(html, needle, current) {
+        if (!needle || needle.length === 0 || !html || html.length === 0)
+            return html
+        // Cheap reject first. Every loaded row re-evaluates this on each
+        // query change, and in this timeline every loaded row is live.
+        if (html.toLowerCase().indexOf(needle.toLowerCase()) < 0)
+            return html
+
+        var open = current ? "<span style=\"background-color:"
+                             + AppTheme.accent + "; color:"
+                             + AppTheme.accentText + ";\">"
+                           : "<span style=\"background-color:"
+                             + AppTheme.accentSoft + ";\">"
+        var close = "</span>"
+
+        function highlightRun(run) {
+            var lowerRun = run.toLowerCase()
+            var lowerNeedle = needle.toLowerCase()
+            // Entity spans are no-go zones for a match.
+            var blocked = []
+            var entity = /&(#[0-9]+|#x[0-9a-fA-F]+|[a-zA-Z]+);/g
+            var found
+            while ((found = entity.exec(run)) !== null)
+                blocked.push([found.index, found.index + found[0].length])
+            var out = ""
+            var pos = 0
+            while (pos <= lowerRun.length) {
+                var hit = lowerRun.indexOf(lowerNeedle, pos)
+                if (hit < 0)
+                    break
+                var end = hit + needle.length
+                var clash = false
+                for (var b = 0; b < blocked.length; ++b) {
+                    if (hit < blocked[b][1] && end > blocked[b][0]) {
+                        clash = true
+                        break
+                    }
+                }
+                if (clash) {
+                    pos = hit + 1
+                    continue
+                }
+                out += run.substring(pos, hit) + open
+                       + run.substring(hit, end) + close
+                pos = end
+            }
+            return out + run.substring(pos)
+        }
+
+        var result = ""
+        var i = 0
+        while (i < html.length) {
+            var tagStart = html.indexOf("<", i)
+            if (tagStart < 0) {
+                result += highlightRun(html.substring(i))
+                break
+            }
+            result += highlightRun(html.substring(i, tagStart))
+            var tagEnd = html.indexOf(">", tagStart)
+            if (tagEnd < 0) {
+                // Malformed tail: copy it through rather than guess.
+                result += html.substring(tagStart)
+                break
+            }
+            result += html.substring(tagStart, tagEnd + 1)
+            i = tagEnd + 1
+        }
+        return result
+    }
+
     function refreshHeightSeed() {
         heightSeedActive = false
         heightMeasurementReady = false
@@ -883,8 +976,15 @@ Item {
                             // safe RichText subset from MessageHtml::sanitize,
                             // so it must NOT be re-escaped through linkifiedBody.
                             if (model.formattedBody && model.formattedBody.length > 0)
-                                return model.formattedBody
-                            return app.linkPreviews.linkifiedBody(model.body || "")
+                                return root.highlightSearchMatches(
+                                            model.formattedBody,
+                                            root.searchHighlight,
+                                            root.isCurrentSearchHit)
+                            return root.highlightSearchMatches(
+                                        app.linkPreviews.linkifiedBody(
+                                            model.body || ""),
+                                        root.searchHighlight,
+                                        root.isCurrentSearchHit)
                         }
                         color: model.undecryptable === true
                                ? AppTheme.muted
