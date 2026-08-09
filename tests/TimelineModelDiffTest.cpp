@@ -882,11 +882,15 @@ void TimelineModelDiffTest::groupingRefreshCoalescesAcrossPrependBurst()
 {
     // A backward-pagination page is delivered by the SDK as many single-item
     // push_front diffs (PAGINATION_BATCH=20), each arriving as its own
-    // eventsPrepended inside ONE poll-drain turn (drain cap 64 >= 20). The
-    // whole-model grouping dataChanged that keeps sender/state grouping
-    // correct must fire ONCE for the whole burst, not once per event —
-    // otherwise every page triggers N full-model relayouts and scrolling
-    // jitters while older history loads.
+    // eventsPrepended inside ONE poll-drain turn (drain cap 64 >= 20).
+    //
+    // The guarantee is that a page costs O(boundary), never O(loaded rows).
+    // It used to be met by coalescing ONE whole-model grouping dataChanged
+    // onto the next turn; at 600-900 rows that still rebound and remeasured
+    // all of loaded history once per page, and the lag grew the further back
+    // the reader went. Grouping is now refreshed synchronously but only
+    // AROUND THE MUTATION BOUNDARY, so a refresh may fire per diff as long as
+    // each one stays bounded and none spans the model.
     const QDateTime base = QDateTime::fromMSecsSinceEpoch(1700000000000);
     auto isGroupingChange = [](const QList<QVariant> &args) {
         const auto roles = args.at(2).value<QList<int>>();
@@ -913,35 +917,43 @@ void TimelineModelDiffTest::groupingRefreshCoalescesAcrossPrependBurst()
     }
     QCOMPARE(m_model->rowCount(), 2 + kPage);
 
-    // Synchronously the rows are all in, but NOT ONE whole-model grouping
-    // dataChanged has fired — it is coalesced onto the next event-loop turn.
-    QCOMPARE(countGrouping(), 0);
-    // Grouping still reads correctly from data() (computed live, uncached).
+    // Grouping reads correctly from data() (computed live, uncached).
     QCOMPARE(m_model->data(m_model->index(0), TimelineModel::EventIdRole)
                  .toString(),
              QStringLiteral("$old0"));
 
-    // One turn later: exactly ONE coalesced whole-model grouping refresh
-    // spanning every row, however many prepend diffs arrived.
-    QTRY_COMPARE(countGrouping(), 1);
-    QModelIndex tl, br;
+    // The load-bearing property: no grouping refresh may span the model, and
+    // each stays within a small neighbourhood of its own boundary. A refresh
+    // covering every row is the regression this test exists to catch, whether
+    // it fires once or N times.
+    QVERIFY(countGrouping() > 0);
+    const int rows = m_model->rowCount();
     for (const auto &sig : changed) {
-        if (isGroupingChange(sig)) {
-            tl = sig.at(0).toModelIndex();
-            br = sig.at(1).toModelIndex();
-        }
+        if (!isGroupingChange(sig))
+            continue;
+        const int first = sig.at(0).toModelIndex().row();
+        const int last = sig.at(1).toModelIndex().row();
+        QVERIFY(first >= 0);
+        QVERIFY(last < rows);
+        QVERIFY2(last - first + 1 <= 4,
+                 "grouping refresh must stay local to its boundary");
     }
-    QCOMPARE(tl.row(), 0);
-    QCOMPARE(br.row(), m_model->rowCount() - 1);
 
-    // The coalescer re-arms: a later mutation still refreshes grouping once.
+    // A later mutation still refreshes grouping, equally bounded.
     changed.clear();
     auto live = makeEvent(QStringLiteral("$live"), QStringLiteral("live"));
     live.timestamp = base.addSecs(120);
     m_client->mirror.append(live);
     Q_EMIT m_client->eventAppended(kRoom, live);
-    QCOMPARE(countGrouping(), 0);
-    QTRY_COMPARE(countGrouping(), 1);
+    QVERIFY(countGrouping() > 0);
+    for (const auto &sig : changed) {
+        if (!isGroupingChange(sig))
+            continue;
+        const int first = sig.at(0).toModelIndex().row();
+        const int last = sig.at(1).toModelIndex().row();
+        QVERIFY2(last - first + 1 <= 4,
+                 "grouping refresh must stay local to its boundary");
+    }
 }
 
 void TimelineModelDiffTest::memberProfileUpdateEmitsIdentityRoles()

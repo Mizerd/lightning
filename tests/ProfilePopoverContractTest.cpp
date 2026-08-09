@@ -76,7 +76,7 @@ private Q_SLOTS:
     {
         const QString delegate = read(qmlPath(QStringLiteral("MessageDelegate.qml")));
         QVERIFY(!delegate.isEmpty());
-        QVERIFY(delegate.contains(QStringLiteral("root.ListView.view.openSenderProfile")));
+        QVERIFY(delegate.contains(QStringLiteral("root.timelineView.openSenderProfile")));
         QVERIFY(!delegate.contains(QStringLiteral("MemberProfilePopover {")));
     }
 

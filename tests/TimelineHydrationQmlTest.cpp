@@ -108,21 +108,40 @@ private:
         return timeline->property(prop).toReal();
     }
 
-    static qreal bottomDistance(QQuickItem *timeline)
+    // Call a QML-declared function. QML methods return through QVariant, not
+    // a typed C++ return, so Q_RETURN_ARG must name QVariant.
+    static QVariant callQml(QQuickItem *o, const char *fn,
+                            QVariant a = {}, QVariant b = {})
     {
-        return timelineReal(timeline, "contentHeight")
-            - (timelineReal(timeline, "contentY")
-               + timelineReal(timeline, "height"));
+        QVariant out;
+        if (b.isValid())
+            QMetaObject::invokeMethod(o, fn, Q_RETURN_ARG(QVariant, out),
+                                      Q_ARG(QVariant, a), Q_ARG(QVariant, b));
+        else if (a.isValid())
+            QMetaObject::invokeMethod(o, fn, Q_RETURN_ARG(QVariant, out),
+                                      Q_ARG(QVariant, a));
+        else
+            QMetaObject::invokeMethod(o, fn, Q_RETURN_ARG(QVariant, out));
+        return out;
     }
 
-    // The y position of the row's delegate inside the viewport, or NaN when
-    // the delegate is not instantiated.
+    // How far the view sits from the newest message. The timeline is rotated
+    // so that proxy row 0 — the newest — is at the physical bottom, which puts
+    // it at the LOW end of the scroll range; following the latest therefore
+    // means contentY resting on wheelMinY(), not on contentHeight.
+    static qreal bottomDistance(QQuickItem *timeline)
+    {
+        return timelineReal(timeline, "contentY")
+            - callQml(timeline, "wheelMinY").toReal();
+    }
+
+    // The y position of the row inside the viewport, or NaN when that row is
+    // not currently held by the view (the proxy paces newly paginated history
+    // out over several frames).
     static qreal viewportYForRow(QQuickItem *timeline, int row)
     {
-        QQuickItem *quickItem = nullptr;
-        QMetaObject::invokeMethod(timeline, "itemAtIndex",
-                                  Q_RETURN_ARG(QQuickItem *, quickItem),
-                                  Q_ARG(int, row));
+        auto *quickItem = callQml(timeline, "itemAtViewRow", row)
+                              .value<QQuickItem *>();
         if (!quickItem)
             return qQNaN();
         return quickItem->y() - timelineReal(timeline, "contentY");
@@ -250,9 +269,12 @@ private Q_SLOTS:
         // navigation does, then let the pane capture its reading anchor.
         const int anchorRow = 15;
         pane.timeline->setProperty("stickToBottom", false);
-        QMetaObject::invokeMethod(pane.timeline, "positionViewAtIndex",
-                                  Q_ARG(int, anchorRow),
-                                  Q_ARG(int, 0 /*ListView.Beginning*/));
+        // Release the paced backlog first: a jump must be able to address any
+        // loaded row, which is exactly why the navigation paths do the same.
+        QMetaObject::invokeMethod(pane.timeline, "releasePendingRows");
+        QMetaObject::invokeMethod(pane.timeline, "positionViewAtViewRow",
+                                  Q_ARG(QVariant, anchorRow),
+                                  Q_ARG(QVariant, false));
         QMetaObject::invokeMethod(pane.timeline, "captureViewAnchor");
         QTRY_VERIFY_WITH_TIMEOUT(
             !pane.timeline->property("viewAnchorId").toString().isEmpty(),
@@ -336,20 +358,29 @@ private Q_SLOTS:
                              TimelineModel::SenderDisplayNameRole).toString(),
                  QStringLiteral("Resolved Name"));
 
-        // A grouping-relevant change (new sender) still refreshes the
-        // neighbourhood presentation roles — but the whole-model grouping
-        // dataChanged is now coalesced onto the next event-loop turn, so a
-        // 20-diff pagination page fires it once instead of per row. The
-        // row-scoped change itself still lands synchronously.
+        // A grouping-relevant change (new sender) also refreshes the
+        // neighbourhood presentation roles. That refresh is now emitted
+        // synchronously and scoped to the mutation boundary, rather than
+        // coalesced onto the next turn as one whole-model span: at 600-900
+        // rows the whole-model form rebound all of loaded history once per
+        // page. The row-scoped change still lands, and every span stays local.
         changed.clear();
         TimelineEvent senderChange = updated;
         senderChange.sender = QStringLiteral("@carol:mock.local");
         mock->changeEventAtForTest(kRoom, 3, senderChange);
-        QCOMPARE(changed.count(), 1);
-        QCOMPARE(changed.at(0).at(0).toModelIndex().row(), 3);
-        QCOMPARE(changed.at(0).at(1).toModelIndex().row(), 3);
-        // The coalesced grouping refresh follows one turn later.
-        QTRY_VERIFY(changed.count() >= 2);
+        QVERIFY(changed.count() >= 1);
+        bool sawRowScoped = false;
+        const int rowCount = model->rowCount();
+        for (const auto &sig : changed) {
+            const int first = sig.at(0).toModelIndex().row();
+            const int last = sig.at(1).toModelIndex().row();
+            if (first == 3 && last == 3)
+                sawRowScoped = true;
+            QVERIFY2(last - first + 1 <= 4,
+                     "presentation refresh must stay local to its boundary");
+            QVERIFY(last < rowCount);
+        }
+        QVERIFY(sawRowScoped);
     }
 
     // The visible sender label never falls back to the complete Matrix ID

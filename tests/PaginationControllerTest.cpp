@@ -1035,7 +1035,12 @@ private Q_SLOTS:
         controller.jumpToEvent(QStringLiteral("$missing:example.org"));
         client.beginLoading(kRoomA);
         client.completeBatch(kRoomA, 0, true);
-        QVERIFY(!controller.navigationMessage().isEmpty());
+        // A request now stays logically active briefly after the backend
+        // reports idle, because SDK idle and timeline diffs arrive on
+        // independent polling lanes and a page is not observable until the
+        // rows land. The outcome is therefore reached on a later turn.
+        QTRY_VERIFY_WITH_TIMEOUT(!controller.navigationMessage().isEmpty(),
+                                 2000);
     }
 
     void unavailableReplySearchHasFixedBatchBudget()
@@ -1050,13 +1055,19 @@ private Q_SLOTS:
         controller.setRoomId(kRoomA);
 
         controller.jumpToEvent(QStringLiteral("$missing:example.org"));
+        // Wait for each request to actually be issued before completing it:
+        // the post-idle settling window means back-to-back synchronous
+        // completions would all fold into the first request and the batch
+        // budget would never be spent.
         for (int batch = 0; batch < 8; ++batch) {
+            QTRY_COMPARE_WITH_TIMEOUT(client.loadOlderCalls, batch + 1, 2000);
             client.beginLoading(kRoomA);
             client.completeBatch(kRoomA, 0, false);
         }
+        QTRY_VERIFY_WITH_TIMEOUT(!controller.navigationMessage().isEmpty(),
+                                 2000);
+        QTRY_VERIFY_WITH_TIMEOUT(!controller.busy(), 2000);
         QCOMPARE(client.loadOlderCalls, 8);
-        QVERIFY(!controller.navigationMessage().isEmpty());
-        QVERIFY(!controller.busy());
     }
 
     void roomSwitchCancelsReplySearch()

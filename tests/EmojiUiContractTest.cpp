@@ -36,7 +36,7 @@ private Q_SLOTS:
         QVERIFY(delegate.contains(
             "root.openReactionPickerFor(root.eventIdForActions()"));
         QVERIFY(delegate.contains(
-            "ListView.view.openReactionPicker(eventId, p)"));
+            "root.timelineView.openReactionPicker(eventId, p)"));
         QCOMPARE(pane.count("app.composer.reactTo(targetEventId, emoji)"), 1);
         QCOMPARE(thread.count("app.composer.reactTo(targetEventId, emoji)"), 1);
         QVERIFY(pane.contains("sharedReactionPicker.targetEventId = eventId"));

@@ -75,7 +75,7 @@ private Q_SLOTS:
         QVERIFY(pane.contains(QStringLiteral("anchors.top: parent.top")));
         QVERIFY(pane.contains(QStringLiteral("restoreScrollAnchor(app.currentRoomId)")));
         QVERIFY(pane.contains(QStringLiteral("saveScrollAnchor(")));
-        QVERIFY(pane.contains(QStringLiteral("eventIdAt(row)")));
+        QVERIFY(pane.contains(QStringLiteral("eventIdAtViewRow(row)")));
 
         const QString delegate = read(QStringLiteral("MessageDelegate.qml"));
         QVERIFY(delegate.contains(QStringLiteral("jumpToEvent(model.replyToEventId")));
@@ -109,8 +109,11 @@ private Q_SLOTS:
         // scan is the mechanism-level guard — the comparison sites themselves —
         // and no choice of fixture geometry can make it vacuous.
         QVERIFY(pane.contains(QStringLiteral("function distanceFromTop()")));
+        // The rotation moved the top of history to the HIGH bound, so the
+        // distance is measured from wheelMaxY(). The property under test is
+        // unchanged: a distance against a bound, never raw contentY.
         QVERIFY(pane.contains(QStringLiteral(
-            "return contentY - wheelMinY()")));
+            "return wheelMaxY() - contentY")));
         // The bands are DISTANCES now, and are named so. The old ...Y names
         // invited exactly the frame confusion above; forbid their return.
         QVERIFY(pane.contains(QStringLiteral("nearTopEnterDistance")));
@@ -475,14 +478,17 @@ private Q_SLOTS:
         const QString delegate = read(QStringLiteral("MessageDelegate.qml"));
         const QString block = stateActivityBlock(delegate);
         QVERIFY(!block.isEmpty());
-        const int qualifiedCount = block.count(QStringLiteral("root.ListView.view"));
-        const int totalCount = block.count(QStringLiteral("ListView.view"));
-        QVERIFY(qualifiedCount > 0);
-        // A bare, unqualified "ListView.view" inside a nested child would
-        // silently resolve to that child's own (never populated) attached
-        // object instead of the delegate root's — every reference in this
-        // block must be root-qualified.
-        QCOMPARE(totalCount, qualifiedCount);
+        // The delegate now reaches its host through root.timelineView,
+        // which resolves the attached view ONCE in the delegate root's own
+        // scope. The hazard this test exists for is unchanged and was
+        // confirmed live: an attached property referenced from a nested
+        // object attaches to THAT object, where the view is never populated,
+        // and fails silently. One such reference (inside a Timer) disabled
+        // the whole exact-height cache. So no nested block may name an
+        // attached view at all.
+        QVERIFY(block.count(QStringLiteral("root.timelineView")) > 0);
+        QCOMPARE(block.count(QStringLiteral("ListView.view")), 0);
+        QCOMPARE(block.count(QStringLiteral("TableView.view")), 0);
     }
 
     void roomActivitySettingIsPresentationOnly()
@@ -494,8 +500,9 @@ private Q_SLOTS:
         // v0.6.0: the zero-height presentation filter also covers the
         // thread panel's pinned-root suppression — same mechanism, still
         // presentation-only.
+        QVERIFY(delegate.contains(QStringLiteral("naturalImplicitHeight")));
         QVERIFY(delegate.contains(QStringLiteral(
-            "implicitHeight: (!roomActivityVisible || suppressedAsThreadRoot) ? 0")));
+            "(!roomActivityVisible || suppressedAsThreadRoot) ? 0")));
         QVERIFY(settings.contains(QStringLiteral("Show room activity")));
         QVERIFY(settings.contains(QStringLiteral(
             "onToggled: app.settings.showRoomActivity = checked")));
@@ -562,7 +569,7 @@ private Q_SLOTS:
         // who scrolls up is never re-pinned by proximity), replacing the wide
         // 40px window that snapped the view back to the newest message.
         QVERIFY(pane.contains(QStringLiteral("function atBottomEdge()")));
-        QVERIFY(pane.contains(QStringLiteral("contentHeight - bottomFollowSlack")));
+        QVERIFY(pane.contains(QStringLiteral("wheelMinY() + bottomFollowSlack")));
         QVERIFY(!pane.contains(QStringLiteral("contentHeight - 40")));
         QVERIFY(!pane.contains(QStringLiteral("contentY + height === contentHeight")));
     }
@@ -637,14 +644,20 @@ private Q_SLOTS:
         QVERIFY(maintainEnd > guardStart);
         const QString maintainGuard =
             pane.mid(guardStart, maintainEnd - guardStart);
-        // The mid-gesture path applies a relative delta and carries an
-        // in-flight glide with it, never an absolute write.
-        QVERIFY(maintainGuard.contains(
-            QStringLiteral("contentY += delta")));
-        QVERIFY(maintainGuard.contains(
-            QStringLiteral("translateActiveMotion(delta)")));
-        // The absolute restore must stay OUT of the mid-gesture branch.
-        QVERIFY(!maintainGuard.contains(QStringLiteral("contentY = desired")));
+        // The mid-gesture path writes NOTHING. Applying the anchor delta
+        // while input owns the viewport was tried twice and rejected twice by
+        // physical testing — the second time with real measured heights and
+        // with translateActiveMotion() carrying the wheel target along, so
+        // neither "the quantity was noise" nor "the engine drove it back out"
+        // explains it. anchorY moves both when rows resize under the reader
+        // and when the view re-anchors its own loaded rows, and the raw delta
+        // cannot tell those apart; feeding it into contentY pulled the reader
+        // up and down, including with nothing loading at all.
+        // The two contentY scans carry the whole contract; a scan for
+        // translateActiveMotion would only match the comment in that branch
+        // recording why the write was removed, which is worth keeping.
+        QVERIFY(!maintainGuard.contains(QStringLiteral("contentY +=")));
+        QVERIFY(!maintainGuard.contains(QStringLiteral("contentY =")));
 
         // userScrollActive covers the touchpad path via the settle timer, since
         // moving/wheelAnimating are both false there.
