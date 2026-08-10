@@ -98,6 +98,13 @@ void GifSearchController::setApiKey(const QString &providerId, const QString &ke
 
 bool GifSearchController::available() const
 {
+#ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO
+    // A seeded demo catalogue IS the result set — there is no transport to
+    // ask, and reporting unavailable would put the picker's "GIFs are
+    // unavailable on this backend" overlay over it.
+    if (m_demoCatalogue)
+        return true;
+#endif
     return m_transport && m_transport->available();
 }
 
@@ -108,6 +115,12 @@ QString GifSearchController::apiKeyFor(const QString &providerId) const
 
 bool GifSearchController::providerConfigured(const QString &providerId) const
 {
+#ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO
+    // Demo mode has no key and never issues a request; both provider tabs are
+    // browsable so the tab strip photographs as it does in a real session.
+    if (m_demoCatalogue)
+        return gif::knownGifProviderIds().contains(providerId);
+#endif
     return !apiKeyFor(providerId).isEmpty();
 }
 
@@ -236,6 +249,18 @@ void GifSearchController::loadMore()
 void GifSearchController::runRequest(bool trending, const QString &query,
                                      int page, bool appending)
 {
+#ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO
+    // Screenshot-demo mode issues NO request, ever. The seeded catalogue is
+    // the answer to trending, search and category alike, so the grid stays
+    // populated however the user drives the picker while photographing it.
+    if (m_demoCatalogue) {
+        m_activeOp = 0;
+        m_hasMore = false;
+        m_results.reset(m_demoRows);
+        setState(RequestState::Ready);
+        return;
+    }
+#endif
     if (!m_provider)
         return;
     if (!available()) {
@@ -331,7 +356,31 @@ void GifSearchController::reset()
     setMode(Trending);
     setState(RequestState::Idle);
     Q_EMIT queryChanged();
+#ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO
+    // The picker calls this on every close. Without re-seeding, the second
+    // open of the session would photograph an empty grid.
+    if (m_demoCatalogue) {
+        m_results.reset(m_demoRows);
+        setState(RequestState::Ready);
+    }
+#endif
 }
+
+#ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO
+void GifSearchController::seedDemoCatalogue(const QList<gif::GifResult> &rows)
+{
+    m_demoRows = rows;
+    m_demoCatalogue = !rows.isEmpty();
+    m_results.reset(m_demoRows);
+    m_hasMore = false;
+    setState(m_demoRows.isEmpty() ? RequestState::NoResults
+                                  : RequestState::Ready);
+    // available()/providerConfigured() answer differently now.
+    Q_EMIT availableChanged();
+    Q_EMIT providerConfigurationChanged();
+    Q_EMIT providerChanged();
+}
+#endif
 
 void GifSearchController::notifyPickerOpening(const QString &target)
 {

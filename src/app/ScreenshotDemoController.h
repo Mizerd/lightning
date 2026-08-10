@@ -167,6 +167,11 @@ private:
     // are idempotent — safe to call on every activation/reset.
     void seedDemoEmojiRecents();
     void seedDemoGifFavorite();
+    // v0.6.7: a browsable local catalogue for the picker's provider tabs, and
+    // a real locally-saved GIF for its Saved tab. See the .cpp for why the
+    // previous *.example seed could only ever render a broken thumbnail.
+    void seedDemoGifCatalogue();
+    void seedDemoSavedGif();
     void applyLaunchNow();
     void rememberSelectedRoom();
     void restoreSelectedRoom();

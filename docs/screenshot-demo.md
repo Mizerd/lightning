@@ -107,34 +107,34 @@ selector or with `--scenario <id>`.
 
 | id | Account | Opens | Recommended |
 |---|---|---|---|
-| `home-overview` | Alex | Design Lounge | Indigo Night · 1440×900 |
-| `main-chat` | Alex | Design Lounge (reply, reactions, mention, edit, image) | Midnight · 1440×900 |
-| `direct-message` | Alex | Maya Chen (encrypted DM) | Midnight · 1280×800 |
-| `development` | Alex | Lightning Development (code, file, thread root) | Indigo Night · 1440×900 |
-| `media-gallery` | Alex | Photography (landscape/portrait/square/artwork, video poster, GIF, audio, file) | Indigo Night · 1440×900 |
-| `thread-view` | Alex | Lightning Development + open thread panel | Purple Dusk · 1600×1000 |
-| `poll` | Alex | Product Feedback (real poll widget) | Indigo Night · 1280×800 |
+| `home-overview` | Alex | Design Lounge | Storm · 1440×900 |
+| `main-chat` | Alex | Design Lounge (reply, reactions, mention, edit, image) | Storm · 1440×900 |
+| `direct-message` | Alex | Maya Chen (encrypted DM) | Storm · 1280×800 |
+| `development` | Alex | Lightning Development (code, file, thread root) | Storm · 1440×900 |
+| `media-gallery` | Alex | Photography (landscape/portrait/square/artwork, video poster, GIF, audio, file) | Storm · 1440×900 |
+| `thread-view` | Alex | Lightning Development + open thread panel | Storm · 1600×1000 |
+| `poll` | Alex | Product Feedback (real poll widget) | Storm · 1280×800 |
 | `settings-themes` | Alex | Settings → Appearance (real page) | Indigo Night · 1280×800 |
-| `account-switching` | Alex | Real account switcher popover | Indigo Night · 1280×800 |
-| `security` | Alex | Settings → Privacy & security (real page) | Indigo Night · 1280×800 |
-| `invite` | Alex | Founders Lounge invite (real invite UI) | Indigo Night · 1280×800 |
-| `work-overview` | Taylor | Project Aurora | Moss Light · 1440×900 |
-| `community-overview` | Nova | General | Indigo Night · 1440×900 |
-| `responsive-chat` | Alex | Maya Chen at narrow width | Indigo Night · narrow (760×900) |
-| `menu-message` | Alex | Design Lounge + message context menu | Indigo Night · 1440×900 |
-| `menu-room` | Alex | Design Lounge + room context menu | Indigo Night · 1440×900 |
-| `find-in-room` | Alex | Design Lounge + the floating find-in-room card, pre-filled (`layout`) | Indigo Night · 1440×900 |
-| `quick-switcher` | Alex | Design Lounge + quick switcher (plain mode) | Indigo Night · 1280×800 |
+| `account-switching` | Alex | Real account switcher popover | Storm · 1280×800 |
+| `security` | Alex | Settings → Privacy & security (real page) | Storm · 1280×800 |
+| `invite` | Alex | Founders Lounge invite (real invite UI) | Storm · 1280×800 |
+| `work-overview` | Taylor | Project Aurora | Storm · 1440×900 |
+| `community-overview` | Nova | General | Storm · 1440×900 |
+| `responsive-chat` | Alex | Maya Chen at narrow width | Storm · narrow (760×900) |
+| `menu-message` | Alex | Design Lounge + message context menu | Storm · 1440×900 |
+| `menu-room` | Alex | Design Lounge + room context menu | Storm · 1440×900 |
+| `find-in-room` | Alex | Design Lounge + the floating find-in-room card, pre-filled (`layout`) | Storm · 1440×900 |
+| `quick-switcher` | Alex | Design Lounge + quick switcher (plain mode) | Storm · 1280×800 |
 | `quick-switcher-command` | Alex | Design Lounge + quick switcher (command mode, `>theme`) | Deep Teal · 1280×800 |
-| `emoji-picker` | Alex | Design Lounge + emoji picker (seeded recents) | Indigo Night · 1280×800 |
-| `gif-picker` | Alex | Weekend Plans + GIF picker (seeded favorite) | Moss Light · 1280×800 |
-| `member-profile` | Alex | Design Lounge + member profile popover | Indigo Night · 1280×800 |
-| `mention-popup` | Alex | Design Lounge + mention popup (`ma` → Maya Chen) | Deep Teal · 1280×800 |
-| `trust-card` | Alex | Settings → Sessions (own-account trust card) | Indigo Night · 1280×800 |
-| `new-conversation` | Alex | Design Lounge + New conversation dialog | Graphite · 1280×800 |
-| `settings-search` | Alex | Settings + search focused (`security`) | Indigo Night · 1280×800 |
-| `invite-people` | Alex | Design Lounge + Invite people dialog | Indigo Night · 1280×800 |
-| `create-poll` | Alex | Design Lounge + Create poll dialog | Moss Light · 1280×800 |
+| `emoji-picker` | Alex | Design Lounge + emoji picker (seeded recents) | Storm · 1280×800 |
+| `gif-picker` | Alex | Weekend Plans + GIF picker (local catalogue) | Storm · 1280×800 |
+| `member-profile` | Alex | Design Lounge + member profile popover | Storm · 1280×800 |
+| `mention-popup` | Alex | Design Lounge + mention popup (`ma` → Maya Chen) | Storm · 1280×800 |
+| `trust-card` | Alex | Settings → Sessions (own-account trust card) | Storm · 1280×800 |
+| `new-conversation` | Alex | Design Lounge + New conversation dialog | Storm · 1280×800 |
+| `settings-search` | Alex | Settings + search focused (`security`) | Storm · 1280×800 |
+| `invite-people` | Alex | Design Lounge + Invite people dialog | Storm · 1280×800 |
+| `create-poll` | Alex | Design Lounge + Create poll dialog | Storm · 1280×800 |
 
 The `trust-card` row's theme is Indigo Night for the surrounding Settings
 chrome only — the TrustCard itself is a brand-fixed design (its palette does
@@ -160,7 +160,7 @@ into QML to pick which delegate/row/instance to target.
 | `demoOpenFindBar(query)` | `find-in-room` | The in-room find card, pre-filled with `query` |
 | `demoOpenQuickSwitcher(query)` | `quick-switcher`, `quick-switcher-command` | The quick switcher, pre-filled with `query` (`""` = plain mode, a leading `>` = command mode) |
 | `demoOpenEmojiPicker()` | `emoji-picker` | The emoji picker (recents pre-seeded — see below) |
-| `demoOpenGifPicker()` | `gif-picker` | The GIF picker (one favorite pre-seeded — see below) |
+| `demoOpenGifPicker()` | `gif-picker` | The GIF picker (local catalogue pre-seeded — see below) |
 | `demoOpenMemberProfile()` | `member-profile` | The member profile popover |
 | `demoOpenMentionPopup(prefix)` | `mention-popup` | The mention popup, pre-filled with `prefix` |
 | `demoOpenTrustCard()` | `trust-card` | (Settings → Sessions; a hook for scrolling/highlighting the card once embedded) |
@@ -174,11 +174,28 @@ recents / the local GIF favorites store — both are ordinary application-local
 persistence, never real Matrix or provider data):
 
 - `emoji-picker` records a fixed, deterministic set of five recent emoji.
-- `gif-picker` favorites one fictional GIF (`giphy` / `demo-favorite-loop`, a
-  `media.giphy.example` URL that never resolves). The demo is fully offline,
-  so this favorite's thumbnail will not actually load bytes — that broken/
-  empty-image state is accepted as-is; the picker's own empty/error states are
-  themselves part of the design and are legitimate to capture.
+- `gif-picker` seeds a **browsable local catalogue** and one locally-saved GIF.
+
+  Until v0.6.7 this was the one surface the demo could not photograph: with no
+  network, no provider key and a mock transport reporting `available() ==
+  false`, the picker could only ever render "GIFs are unavailable on this
+  backend", and the single seeded favourite pointed at a `media.giphy.example`
+  URL that never resolves. That broken-thumbnail state used to be documented
+  here as accepted.
+
+  Now `GifSearchController::seedDemoCatalogue()` (compiled only under
+  `LIGHTNING_ENABLE_SCREENSHOT_DEMO`) hands the picker a fixed set of rows
+  pointing at bundled animated fixtures, and reports the provider as ready and
+  configured so no overlay covers the grid. Both provider tabs are browsable,
+  every tile renders a real moving picture with a true source tag and byte
+  size, and the Saved tab gets a real locally-saved GIF written through the
+  normal `starBytes()` path into the isolated demo profile.
+
+  **No request is ever issued** and no validation is relaxed: the rows live in
+  the in-memory browse model only, and the persisted collections still accept
+  `https` exclusively. Regenerate the fixtures with
+  `scripts/generate-demo-gifs.sh` — they are derived from the stills already in
+  `resources/screenshot-demo/`, so no new third-party asset enters the tree.
 
 ## Control panel
 

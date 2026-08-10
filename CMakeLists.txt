@@ -440,6 +440,17 @@ if(LIGHTNING_ENABLE_SCREENSHOT_DEMO)
         resources/screenshot-demo/palette.png
         resources/screenshot-demo/timelapse.png
         resources/screenshot-demo/loop.gif
+        # v0.6.7: animated fixtures for the GIF picker's grid, derived from the
+        # stills above by scripts/generate-demo-gifs.sh (same license, same
+        # provenance). Demo mode has no network and no provider key, so the
+        # picker can only be photographed against bundled frames.
+        resources/screenshot-demo/gif-coast.gif
+        resources/screenshot-demo/gif-city.gif
+        resources/screenshot-demo/gif-artwork.gif
+        resources/screenshot-demo/gif-portrait.gif
+        resources/screenshot-demo/gif-interface.gif
+        resources/screenshot-demo/gif-square.gif
+        resources/screenshot-demo/gif-palette.gif
         resources/screenshot-demo/release-notes.txt
     )
 endif()
@@ -656,6 +667,17 @@ endif()
 # above rejects combining it with LIGHTNING_RUST_ONLY).
 if(LIGHTNING_ENABLE_SCREENSHOT_DEMO)
     target_compile_definitions(matrix-client PRIVATE LIGHTNING_ENABLE_SCREENSHOT_DEMO=1)
+    # v0.6.7: also define it TREE-WIDE in this configuration. Demo sources are
+    # gated by being added to the source list at all, but they are then
+    # compiled into every Qt-executable target here (the qml-app targets each
+    # rebuild the app sources), while this define reached only matrix-client.
+    # Any demo-only API guarded by the macro therefore existed in one target
+    # and not the others, and a caller in a shared source failed to compile —
+    # which is exactly what the GIF demo catalogue hit.
+    #
+    # This is still development-only: the option defaults OFF and is rejected
+    # outright for a Rust-only release build, so no release artifact sees it.
+    add_compile_definitions(LIGHTNING_ENABLE_SCREENSHOT_DEMO=1)
 endif()
 
 # On Windows the production binary is a GUI-subsystem PE so a normal

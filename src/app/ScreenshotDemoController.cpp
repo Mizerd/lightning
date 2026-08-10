@@ -5,11 +5,15 @@
 #include "auth/AccountManager.h"
 #include "gif/GifFavoritesModel.h"
 #include "gif/GifSearchController.h"
+#include "gif/GifStarredStore.h"
 #include "matrix/MockMatrixClient.h"
 #include "spaces/SpaceManager.h"
 #include "threads/ThreadController.h"
 
+#include <QFile>
 #include <QTimer>
+
+#include <iterator>
 
 // One deterministic screenshot scenario: which account/room/space, which real
 // page or panel to open, and the recommended theme/appearance/window/typing/
@@ -57,12 +61,21 @@ const SizePreset kSizes[] = {
 };
 
 struct ThemeEntry { int id; const char *name; };
+// v0.6.7: Storm (11) leads — it is the 0.6.5 brand theme and the demo's
+// default, so a release gallery is coherent unless a shot deliberately asks
+// for something else. It was missing from this table entirely, which is why
+// the panel could not select it.
 const ThemeEntry kThemes[] = {
+    { 11, "Storm" },
     { 0,  "System" },        { 1,  "Lightning Light" }, { 2,  "Lightning Dark" },
     { 3,  "Graphite" },      { 4,  "Midnight" },        { 5,  "Nordic" },
     { 6,  "Purple Dusk" },   { 7,  "Warm" },            { 8,  "Moss Light" },
     { 9,  "Indigo Night" },  { 10, "Deep Teal" },
 };
+
+// The demo's default theme. Every scenario uses it unless it exists to show a
+// different one off.
+constexpr int kStormTheme = 11;
 } // namespace
 
 const QList<ScreenshotDemoController::Scenario> &
@@ -71,37 +84,37 @@ ScreenshotDemoController::catalogue()
     static const QList<Scenario> c = {
         { QStringLiteral("home-overview"), kAlex,
           QStringLiteral("!design-lounge:lightning.example"), QString(),
-          QString(), false, 9, true, QStringLiteral("1440x900"), true,
+          QString(), false, kStormTheme, true, QStringLiteral("1440x900"), true,
           QStringLiteral("Home overview") },
         { QStringLiteral("main-chat"), kAlex,
           QStringLiteral("!design-lounge:lightning.example"),
           QStringLiteral("!space-studio:lightning.example"),
-          QString(), false, 4, true, QStringLiteral("1440x900"), true,
+          QString(), false, kStormTheme, true, QStringLiteral("1440x900"), true,
           QStringLiteral("Main chat — Design Lounge") },
         { QStringLiteral("direct-message"), kAlex,
           QStringLiteral("!dm-maya:lightning.example"),
           QStringLiteral("!space-friends:lightning.example"),
-          QString(), false, 4, false, QStringLiteral("1280x800"), true,
+          QString(), false, kStormTheme, false, QStringLiteral("1280x800"), true,
           QStringLiteral("Direct message — Maya Chen") },
         { QStringLiteral("development"), kAlex,
           QStringLiteral("!dev:lightning.example"),
           QStringLiteral("!space-community:lightning.example"),
-          QString(), false, 9, false, QStringLiteral("1440x900"), true,
+          QString(), false, kStormTheme, false, QStringLiteral("1440x900"), true,
           QStringLiteral("Development — code & files") },
         { QStringLiteral("media-gallery"), kAlex,
           QStringLiteral("!photography:lightning.example"),
           QStringLiteral("!space-studio:lightning.example"),
-          QString(), false, 9, false, QStringLiteral("1440x900"), true,
+          QString(), false, kStormTheme, false, QStringLiteral("1440x900"), true,
           QStringLiteral("Media gallery — Photography") },
         { QStringLiteral("thread-view"), kAlex,
           QStringLiteral("!dev:lightning.example"),
           QStringLiteral("!space-community:lightning.example"),
-          QString(), true, 6, false, QStringLiteral("1600x1000"), true,
+          QString(), true, kStormTheme, false, QStringLiteral("1600x1000"), true,
           QStringLiteral("Thread view") },
         { QStringLiteral("poll"), kAlex,
           QStringLiteral("!feedback:lightning.example"),
           QStringLiteral("!space-community:lightning.example"),
-          QString(), false, 9, false, QStringLiteral("1280x800"), true,
+          QString(), false, kStormTheme, false, QStringLiteral("1280x800"), true,
           QStringLiteral("Poll — Product Feedback") },
         { QStringLiteral("settings-themes"), kAlex,
           QStringLiteral("!design-lounge:lightning.example"), QString(),
@@ -120,20 +133,20 @@ ScreenshotDemoController::catalogue()
           QStringLiteral("Security & privacy") },
         { QStringLiteral("invite"), kAlex,
           QStringLiteral("!invite-founders:lightning.example"), QString(),
-          QString(), false, 9, false, QStringLiteral("1280x800"), true,
+          QString(), false, kStormTheme, false, QStringLiteral("1280x800"), true,
           QStringLiteral("Invite") },
         { QStringLiteral("work-overview"), kTaylor,
           QStringLiteral("!aurora:workplace.example"), QString(),
-          QString(), false, 8, true, QStringLiteral("1440x900"), true,
+          QString(), false, kStormTheme, true, QStringLiteral("1440x900"), true,
           QStringLiteral("Work overview — Project Aurora") },
         { QStringLiteral("community-overview"), kNova,
           QStringLiteral("!general:community.example"), QString(),
-          QString(), false, 9, true, QStringLiteral("1440x900"), true,
+          QString(), false, kStormTheme, true, QStringLiteral("1440x900"), true,
           QStringLiteral("Community overview — General") },
         { QStringLiteral("responsive-chat"), kAlex,
           QStringLiteral("!dm-maya:lightning.example"),
           QStringLiteral("!space-friends:lightning.example"),
-          QString(), false, 9, false, QStringLiteral("narrow"), true,
+          QString(), false, kStormTheme, false, QStringLiteral("narrow"), true,
           QStringLiteral("Responsive chat (narrow)") },
 
         // ── v0.6.5 (Wave 2): menu/popup/dialog surface scenarios ─────────
@@ -143,19 +156,19 @@ ScreenshotDemoController::catalogue()
         { QStringLiteral("menu-message"), kAlex,
           QStringLiteral("!design-lounge:lightning.example"),
           QStringLiteral("!space-studio:lightning.example"),
-          QString(), false, 9, false, QStringLiteral("1440x900"), true,
+          QString(), false, kStormTheme, false, QStringLiteral("1440x900"), true,
           QStringLiteral("Message context menu"),
           QStringLiteral("message-menu"), QString() },
         { QStringLiteral("menu-room"), kAlex,
           QStringLiteral("!design-lounge:lightning.example"),
           QStringLiteral("!space-studio:lightning.example"),
-          QString(), false, 9, false, QStringLiteral("1440x900"), true,
+          QString(), false, kStormTheme, false, QStringLiteral("1440x900"), true,
           QStringLiteral("Room context menu"),
           QStringLiteral("room-menu"), QString() },
         { QStringLiteral("find-in-room"), kAlex,
           QStringLiteral("!design-lounge:lightning.example"),
           QStringLiteral("!space-studio:lightning.example"),
-          QString(), false, 9, false, QStringLiteral("1440x900"), true,
+          QString(), false, kStormTheme, false, QStringLiteral("1440x900"), true,
           // 0.6.5 (C7): the floating composer-family find card, pre-filled
           // so the match counter and prev/next controls are live in the
           // capture ("layout" matches the seeded Design Lounge messages).
@@ -164,7 +177,7 @@ ScreenshotDemoController::catalogue()
         { QStringLiteral("quick-switcher"), kAlex,
           QStringLiteral("!design-lounge:lightning.example"),
           QStringLiteral("!space-studio:lightning.example"),
-          QString(), false, 9, false, QStringLiteral("1280x800"), true,
+          QString(), false, kStormTheme, false, QStringLiteral("1280x800"), true,
           QStringLiteral("Quick switcher"),
           // "de" matches Design Lounge/Development/… (Rooms) and Design
           // Lounge members whose name contains "de" if any (People) — a
@@ -179,25 +192,25 @@ ScreenshotDemoController::catalogue()
         { QStringLiteral("emoji-picker"), kAlex,
           QStringLiteral("!design-lounge:lightning.example"),
           QStringLiteral("!space-studio:lightning.example"),
-          QString(), false, 9, false, QStringLiteral("1280x800"), true,
+          QString(), false, kStormTheme, false, QStringLiteral("1280x800"), true,
           QStringLiteral("Emoji picker"),
           QStringLiteral("emoji-picker"), QString() },
         { QStringLiteral("gif-picker"), kAlex,
           QStringLiteral("!weekend:lightning.example"),
           QStringLiteral("!space-friends:lightning.example"),
-          QString(), false, 8, false, QStringLiteral("1280x800"), true,
+          QString(), false, kStormTheme, false, QStringLiteral("1280x800"), true,
           QStringLiteral("GIF picker"),
           QStringLiteral("gif-picker"), QString() },
         { QStringLiteral("member-profile"), kAlex,
           QStringLiteral("!design-lounge:lightning.example"),
           QStringLiteral("!space-studio:lightning.example"),
-          QString(), false, 9, false, QStringLiteral("1280x800"), true,
+          QString(), false, kStormTheme, false, QStringLiteral("1280x800"), true,
           QStringLiteral("Member profile popover"),
           QStringLiteral("member-profile"), QString() },
         { QStringLiteral("mention-popup"), kAlex,
           QStringLiteral("!design-lounge:lightning.example"),
           QStringLiteral("!space-studio:lightning.example"),
-          QString(), false, 10, false, QStringLiteral("1280x800"), true,
+          QString(), false, kStormTheme, false, QStringLiteral("1280x800"), true,
           QStringLiteral("Mention popup"),
           QStringLiteral("mention-popup"), QStringLiteral("ma") },
         { QStringLiteral("trust-card"), kAlex,
@@ -209,7 +222,7 @@ ScreenshotDemoController::catalogue()
         { QStringLiteral("new-conversation"), kAlex,
           QStringLiteral("!design-lounge:lightning.example"),
           QStringLiteral("!space-studio:lightning.example"),
-          QString(), false, 3, false, QStringLiteral("1280x800"), true,
+          QString(), false, kStormTheme, false, QStringLiteral("1280x800"), true,
           QStringLiteral("New conversation"),
           QStringLiteral("new-conversation"), QString() },
         { QStringLiteral("settings-search"), kAlex,
@@ -221,13 +234,13 @@ ScreenshotDemoController::catalogue()
         { QStringLiteral("invite-people"), kAlex,
           QStringLiteral("!design-lounge:lightning.example"),
           QStringLiteral("!space-studio:lightning.example"),
-          QString(), false, 9, false, QStringLiteral("1280x800"), true,
+          QString(), false, kStormTheme, false, QStringLiteral("1280x800"), true,
           QStringLiteral("Invite people"),
           QStringLiteral("invite-people"), QString() },
         { QStringLiteral("create-poll"), kAlex,
           QStringLiteral("!design-lounge:lightning.example"),
           QStringLiteral("!space-studio:lightning.example"),
-          QString(), false, 8, false, QStringLiteral("1280x800"), true,
+          QString(), false, kStormTheme, false, QStringLiteral("1280x800"), true,
           QStringLiteral("Create poll"),
           QStringLiteral("create-poll"), QString() },
     };
@@ -656,35 +669,94 @@ void ScreenshotDemoController::seedDemoEmojiRecents()
 
 void ScreenshotDemoController::seedDemoGifFavorite()
 {
-    if (!m_app || !m_app->gif() || !m_app->gif()->favorites())
+    seedDemoGifCatalogue();
+    seedDemoSavedGif();
+}
+
+// v0.6.7: give the picker a real, browsable catalogue.
+//
+// Until now the demo could not photograph the GIF picker at all: there is no
+// network, no provider key and the mock transport answers available() ==
+// false, so the only thing that ever rendered was "GIFs are unavailable on
+// this backend". The previous seed put ONE favourite in, pointing at a
+// fictional *.example CDN that cannot resolve, and docs/screenshot-demo.md
+// recorded the resulting broken thumbnail as an accepted limitation.
+//
+// These rows point at the bundled, license-clear demo fixtures instead, so
+// every tile renders a real picture. Nothing is persisted and no validation
+// is relaxed: GifResultModel is the in-memory browse grid, while the stored
+// collections still accept https only.
+void ScreenshotDemoController::seedDemoGifCatalogue()
+{
+    if (!m_app || !m_app->gif())
         return;
-    GifFavoritesModel *favorites = m_app->gif()->favorites();
-    const QString provider = QStringLiteral("giphy");
-    const QString gifId = QStringLiteral("demo-favorite-loop");
-    // toggle() flips state, so guard with isFavorite() — otherwise a second
-    // activation (panel re-click, resetScenario) would delete the seed it
-    // just added instead of leaving it in place.
-    if (favorites->isFavorite(provider, gifId))
+
+    struct Fixture { const char *file; const char *title; int w; int h;
+                     qint64 bytes; const char *provider; };
+    // Deliberately mixed across both providers so the tab strip, the per-tile
+    // source tags and the size badges all photograph with real variety.
+    static const Fixture kFixtures[] = {
+        { "loop.gif",          "Retro dance loop",     480, 480, 66172, "giphy" },
+        { "gif-coast.gif",     "Coast at golden hour", 220, 138, 98929, "klipy" },
+        { "gif-artwork.gif",   "Studio artwork",       220, 220, 139749, "giphy" },
+        { "gif-city.gif",      "City timelapse",       220, 124, 86896, "giphy" },
+        { "gif-portrait.gif",  "Portrait study",       147, 220, 130827, "klipy" },
+        { "gif-square.gif",    "Album spin",           220, 220, 118734, "giphy" },
+        { "gif-palette.gif",   "Palette cycle",        220, 220, 37519, "klipy" },
+        { "gif-interface.gif", "Interface capture",    220, 138, 63245, "giphy" },
+    };
+
+
+    QList<gif::GifResult> rows;
+    rows.reserve(int(std::size(kFixtures)));
+    int n = 0;
+    for (const Fixture &f : kFixtures) {
+        const QString url =
+            QStringLiteral("qrc:/qt/qml/MatrixClient/resources/screenshot-demo/")
+            + QLatin1String(f.file);
+        gif::GifResult r;
+        r.provider = QLatin1String(f.provider);
+        r.id = QStringLiteral("demo-%1").arg(++n);
+        r.title = QLatin1String(f.title);
+        r.rating = QStringLiteral("g");
+        r.previewUrl = url;
+        r.stillUrl = url;
+        r.gifUrl = url;
+        r.gifWidth = f.w;
+        r.gifHeight = f.h;
+        r.previewWidth = f.w;
+        r.previewHeight = f.h;
+        r.gifBytes = f.bytes;
+        rows.append(r);
+    }
+    // A second pass with rotated titles fills the grid past one screenful so
+    // scrolling and the bottom row photograph properly too.
+    const int firstPass = rows.size();
+    for (int i = 0; i < firstPass; ++i) {
+        gif::GifResult r = rows.at(i);
+        r.id = QStringLiteral("demo-%1").arg(++n);
+        rows.append(r);
+    }
+    m_app->gif()->seedDemoCatalogue(rows);
+}
+
+// The Saved tab renders the merged GifSavedModel — locally-saved chat GIFs
+// first, then provider bookmarks. Writing real bytes through the normal
+// starBytes() path is what makes those local rows render: they are resolved
+// by content hash from the account-scoped store, never from a persisted URL.
+// The store lives under the isolated demo profile, so --reset removes it.
+void ScreenshotDemoController::seedDemoSavedGif()
+{
+    if (!m_app || !m_app->gif() || !m_app->gif()->starredStore())
         return;
-    QVariantMap result;
-    result.insert(QStringLiteral("provider"), provider);
-    result.insert(QStringLiteral("gifId"), gifId);
-    result.insert(QStringLiteral("title"), QStringLiteral("Retro dance loop"));
-    result.insert(QStringLiteral("rating"), QStringLiteral("g"));
-    // Fictional, non-resolving *.example CDN domain — no network in demo
-    // mode ever fetches these; the offline broken-thumbnail state is an
-    // accepted, deliberate limitation (see docs/screenshot-demo.md).
-    result.insert(QStringLiteral("previewUrl"),
-                  QStringLiteral("https://media.giphy.example/demo-favorite-loop/preview.gif"));
-    result.insert(QStringLiteral("stillUrl"),
-                  QStringLiteral("https://media.giphy.example/demo-favorite-loop/still.jpg"));
-    result.insert(QStringLiteral("gifUrl"),
-                  QStringLiteral("https://media.giphy.example/demo-favorite-loop/original.gif"));
-    result.insert(QStringLiteral("gifWidth"), 480);
-    result.insert(QStringLiteral("gifHeight"), 480);
-    result.insert(QStringLiteral("previewWidth"), 240);
-    result.insert(QStringLiteral("previewHeight"), 240);
-    favorites->toggle(result);
+    GifStarredStore *store = m_app->gif()->starredStore();
+    if (!store->isOpen() || store->count() > 0)
+        return;
+    QFile f(QStringLiteral(
+        ":/qt/qml/MatrixClient/resources/screenshot-demo/loop.gif"));
+    if (!f.open(QIODevice::ReadOnly))
+        return;
+    store->starBytes(QStringLiteral("demo-saved-loop"), f.readAll());
 }
 
 // ── Panel actions ───────────────────────────────────────────────────────
@@ -733,7 +805,11 @@ void ScreenshotDemoController::setAppearance(const QString &mode)
     else if (m == QLatin1String("light"))
         setTheme(8);   // Moss Light
     else if (m == QLatin1String("dark"))
-        setTheme(9);   // Indigo Night
+        // v0.6.7: Storm, not Indigo Night. This now matches what the real
+        // application does — System (0) resolves to Moss Light / Storm — so
+        // "--appearance dark" in the demo shows the same theme a user with a
+        // dark desktop actually gets.
+        setTheme(kStormTheme);
 }
 
 void ScreenshotDemoController::setWindowSize(const QString &preset)

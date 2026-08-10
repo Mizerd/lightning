@@ -138,6 +138,27 @@ public:
     // so only one picker ever mutates the shared browse state at a time.
     Q_INVOKABLE void notifyPickerOpening(const QString &target);
 
+#ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO
+    // Development-only: hand the picker a fixed catalogue of locally-bundled
+    // rows and report it as a ready, configured provider result.
+    //
+    // Screenshot-demo mode has no network, no provider key and a mock
+    // transport that answers available() == false, so the picker could only
+    // ever render "GIFs are unavailable on this backend" — the one surface in
+    // the app that could not be photographed. This seeds `results` directly
+    // and pins the reported state, so the real picker UI (tabs, tiles, source
+    // tags, size badges, save stars) renders against real local images.
+    //
+    // It cannot exist in a shipped binary: the whole member and every caller
+    // sit behind the same compile guard as ScreenshotDemoController, and
+    // matrix-client --build-info reports screenshot_demo_compiled: false for a
+    // release build. Nothing here relaxes a validation rule — the rows never
+    // reach the persisted collections (GifStoredModel still accepts https
+    // only), and no request is ever issued.
+    void seedDemoCatalogue(const QList<gif::GifResult> &rows);
+    bool demoCatalogueActive() const { return m_demoCatalogue; }
+#endif
+
     // Favorite the search/favorites/recent result described by `resultMap`
     // (a GifResultModel role map). Returns the new favorite state. Refreshes
     // the grids so the star updates without a rebuild.
@@ -202,4 +223,11 @@ private:
     QTimer m_debounce;
     int m_debounceMs = 300;
     QString m_pendingQuery;
+
+#ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO
+    // Screenshot-demo only: the picker reports Ready/configured/available off
+    // a seeded local catalogue instead of a provider it can never reach.
+    bool m_demoCatalogue = false;
+    QList<gif::GifResult> m_demoRows;
+#endif
 };

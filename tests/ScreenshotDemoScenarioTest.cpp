@@ -12,6 +12,7 @@
 #include "app/SettingsManager.h"
 #include "auth/AccountManager.h"
 #include "gif/GifFavoritesModel.h"
+#include "gif/GifResultModel.h"
 #include "gif/GifSearchController.h"
 #include "matrix/MockMatrixClient.h"
 #include "models/EmojiCatalog.h"
@@ -95,16 +96,21 @@ private Q_SLOTS:
         QVERIFY(d);
 
         struct Case { const char *id; const char *room; const char *account; int theme; int w; int h; };
+        // v0.6.7: Storm (11) is the demo default — the 0.6.5 brand theme — so
+        // a release gallery is coherent. Only the two scenarios that exist to
+        // show a DIFFERENT theme keep their own (settings-themes 9,
+        // quick-switcher-command 10).
         const Case cases[] = {
-            { "main-chat", "!design-lounge:lightning.example", "@alex:lightning.example", 4, 1440, 900 },
-            { "direct-message", "!dm-maya:lightning.example", "@alex:lightning.example", 4, 1280, 800 },
-            { "development", "!dev:lightning.example", "@alex:lightning.example", 9, 1440, 900 },
-            { "media-gallery", "!photography:lightning.example", "@alex:lightning.example", 9, 1440, 900 },
-            { "poll", "!feedback:lightning.example", "@alex:lightning.example", 9, 1280, 800 },
-            { "work-overview", "!aurora:workplace.example", "@taylor:workplace.example", 8, 1440, 900 },
-            { "community-overview", "!general:community.example", "@nova:community.example", 9, 1440, 900 },
-            { "responsive-chat", "!dm-maya:lightning.example", "@alex:lightning.example", 9, 760, 900 },
+            { "main-chat", "!design-lounge:lightning.example", "@alex:lightning.example", 11, 1440, 900 },
+            { "direct-message", "!dm-maya:lightning.example", "@alex:lightning.example", 11, 1280, 800 },
+            { "development", "!dev:lightning.example", "@alex:lightning.example", 11, 1440, 900 },
+            { "media-gallery", "!photography:lightning.example", "@alex:lightning.example", 11, 1440, 900 },
+            { "poll", "!feedback:lightning.example", "@alex:lightning.example", 11, 1280, 800 },
+            { "work-overview", "!aurora:workplace.example", "@taylor:workplace.example", 11, 1440, 900 },
+            { "community-overview", "!general:community.example", "@nova:community.example", 11, 1440, 900 },
+            { "responsive-chat", "!dm-maya:lightning.example", "@alex:lightning.example", 11, 760, 900 },
         };
+
         for (const Case &c : cases) {
             d->activateScenario(QString::fromLatin1(c.id));
             QTRY_COMPARE(app.accounts()->activeUserId(),
@@ -168,7 +174,7 @@ private Q_SLOTS:
         QSignalSpy messageSpy(d, &ScreenshotDemoController::demoOpenMessageContextMenu);
         d->activateScenario(QStringLiteral("menu-message"));
         QTRY_COMPARE(app.currentRoomId(), QStringLiteral("!design-lounge:lightning.example"));
-        QCOMPARE(int(app.settings()->theme()), 9);
+        QCOMPARE(int(app.settings()->theme()), 11);
         QTRY_VERIFY(messageSpy.count() >= 1);
 
         QSignalSpy roomSpy(d, &ScreenshotDemoController::demoOpenRoomContextMenu);
@@ -191,7 +197,7 @@ private Q_SLOTS:
         d->activateScenario(QStringLiteral("quick-switcher"));
         QTRY_VERIFY(spy.count() >= 1);
         QCOMPARE(spy.last().at(0).toString(), QStringLiteral("de"));
-        QCOMPARE(int(app.settings()->theme()), 9);
+        QCOMPARE(int(app.settings()->theme()), 11);
 
         spy.clear();
         d->activateScenario(QStringLiteral("quick-switcher-command"));
@@ -239,40 +245,72 @@ private Q_SLOTS:
         QCOMPARE(app.emojiCatalog()->recentEmoji(), expected);
     }
 
-    void gifPickerScenarioSeedsOneFavoriteIdempotentlyAndEmits()
+    // v0.6.7: the picker used to be the one surface the demo could not
+    // photograph — no network, no key, and a mock transport reporting
+    // available() == false meant it could only ever render "GIFs are
+    // unavailable on this backend". The seed is now a browsable catalogue of
+    // BUNDLED animated fixtures plus a real locally-saved GIF for the Saved
+    // tab, so every tile renders a real moving picture.
+    void gifPickerScenarioSeedsABrowsableLocalCatalogue()
     {
         AppController app(AppController::MockBackend, true);
         app.beginScreenshotDemo();
         QTRY_COMPARE(app.currentScreen(), AppController::MainScreen);
         auto *d = demo(app);
         QVERIFY(app.gif());
-        QVERIFY(app.gif()->favorites());
 
         QSignalSpy spy(d, &ScreenshotDemoController::demoOpenGifPicker);
         d->activateScenario(QStringLiteral("gif-picker"));
         QTRY_VERIFY(spy.count() >= 1);
         QTRY_COMPARE(app.currentRoomId(), QStringLiteral("!weekend:lightning.example"));
-        QCOMPARE(int(app.settings()->theme()), 8);
+        QCOMPARE(int(app.settings()->theme()), 11);
 
-        auto *favorites = app.gif()->favorites();
-        QVERIFY(favorites->isFavorite(QStringLiteral("giphy"),
-                                      QStringLiteral("demo-favorite-loop")));
-        const int count = favorites->count();
-        QVERIFY(count >= 1);
+        // The picker must report itself usable, or its overlay covers the grid.
+        QVERIFY(app.gif()->demoCatalogueActive());
+        QVERIFY(app.gif()->available());
+        QVERIFY(app.gif()->providerConfigured(QStringLiteral("giphy")));
+        QVERIFY(app.gif()->providerConfigured(QStringLiteral("klipy")));
+        QCOMPARE(app.gif()->state(), int(GifSearchController::Ready));
 
-        // Re-activation must not flip the seeded favorite back off (toggle()
-        // is guarded by an isFavorite() check in seedDemoGifFavorite()).
-        d->activateScenario(QStringLiteral("gif-picker"));
-        QVERIFY(favorites->isFavorite(QStringLiteral("giphy"),
-                                      QStringLiteral("demo-favorite-loop")));
-        QCOMPARE(favorites->count(), count);
+        auto *results = app.gif()->results();
+        QVERIFY(results != nullptr);
+        const int count = results->count();
+        QVERIFY2(count >= 12, "catalogue must overfill one screenful so the "
+                              "bottom grid row photographs too");
 
-        // Only fictional, non-resolving URLs — no real provider CDN.
-        const QVariantMap entry = favorites->get(0);
-        for (const char *key : { "previewUrl", "stillUrl", "gifUrl" }) {
-            const QString url = entry.value(QString::fromLatin1(key)).toString();
-            QVERIFY(url.isEmpty() || url.contains(QStringLiteral(".example")));
+        // Every tile points at a BUNDLED resource — never a provider CDN, and
+        // never the fictional *.example host whose broken thumbnail this
+        // replaces. Both providers appear so the tab strip and the per-tile
+        // source tags photograph with real variety.
+        bool sawGiphy = false, sawKlipy = false;
+        for (int i = 0; i < count; ++i) {
+            const QVariantMap row = results->get(i);
+            for (const char *key : { "previewUrl", "stillUrl", "gifUrl" }) {
+                const QString url = row.value(QString::fromLatin1(key)).toString();
+                QVERIFY2(url.startsWith(QStringLiteral("qrc:/")),
+                         qPrintable(QStringLiteral("non-bundled url: %1").arg(url)));
+                QVERIFY(!url.contains(QStringLiteral(".example")));
+            }
+            const QString provider = row.value(QStringLiteral("provider")).toString();
+            sawGiphy = sawGiphy || provider == QStringLiteral("giphy");
+            sawKlipy = sawKlipy || provider == QStringLiteral("klipy");
+            // A real byte size, so the tile's size badge is not blank.
+            QVERIFY(row.value(QStringLiteral("gifBytes")).toLongLong() > 0);
         }
+        QVERIFY(sawGiphy);
+        QVERIFY(sawKlipy);
+
+        // Re-activating a scenario must be idempotent — the panel re-clicks it
+        // and resetScenario runs it again.
+        d->activateScenario(QStringLiteral("gif-picker"));
+        QCOMPARE(results->count(), count);
+        QVERIFY(app.gif()->demoCatalogueActive());
+
+        // Closing the picker calls reset(); the grid must not be left empty for
+        // the next open.
+        app.gif()->reset();
+        QCOMPARE(results->count(), count);
+        QCOMPARE(app.gif()->state(), int(GifSearchController::Ready));
     }
 
     void memberProfileAndMentionPopupScenariosEmit()

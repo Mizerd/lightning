@@ -1439,7 +1439,21 @@ MockMatrixClient::DemoAccount MockMatrixClient::buildDemoAccountAlex()
         e8.mediaFilename = QStringLiteral("shot-timeline-dark.png");
         e8.mediaMxcUrl = QStringLiteral("mxc://lightning.example/shot-timeline");
         e8.mediaWidth = 1280; e8.mediaHeight = 800; e8.mediaSize = 284000;
-        acct.timelines[design.id] = { e1, e2, e3, e4, e5, e6, e7, e8 };
+        auto e9 = text(design.id, sam, QStringLiteral(
+            "That crop is perfect. The composer being visible really sells the density."), 3);
+        e9.replyToEventId = e8.eventId;
+        e9.replyToSender = maya.name;
+        e9.replyToPreview = QStringLiteral("shot-timeline-dark.png");
+        auto e10 = text(design.id, jordan, QStringLiteral(
+            "One nit — can we get a shot with the thread panel open too? "
+            "It is the feature people ask about most."), 3);
+        auto e11 = text(design.id, maya, QStringLiteral("Already queued 👍"), 2);
+        e11.reactions = {
+            { QStringLiteral("🎉"), 4, true, eid() },
+            { QStringLiteral("👏"), 2, false, QString() },
+        };
+        acct.timelines[design.id] = { e1, e2, e3, e4, e5, e6, e7, e8,
+                                      e9, e10, e11 };
     }
     acct.paginationRemaining[design.id] = 2;
 
@@ -1459,8 +1473,42 @@ MockMatrixClient::DemoAccount MockMatrixClient::buildDemoAccountAlex()
         auto w2 = text(weekend.id, aisha, QStringLiteral(
             "Coast — the light is perfect for photos in the morning."), 132);
         w2.reactions = { { QStringLiteral("📸"), 2, true, eid() } };
-        auto w3 = text(weekend.id, alex, QStringLiteral("The coast trail it is 🥾"), 96);
-        acct.timelines[weekend.id] = { w1, w2, w3 };
+        auto w3 = text(weekend.id, jordan, QStringLiteral(
+            "How early are we talking? I need to know how much coffee to make."), 128);
+        w3.replyToEventId = w2.eventId;
+        w3.replyToSender = aisha.name;
+        w3.replyToPreview = QStringLiteral("Coast — the light is perfect…");
+        auto w4 = text(weekend.id, aisha, QStringLiteral("Sunrise is 06:12. Leave at 5?"), 126);
+        auto w5 = text(weekend.id, jordan, QStringLiteral("😴"), 125);
+        w5.reactions = {
+            { QStringLiteral("😂"), 3, true, eid() },
+            { QStringLiteral("💯"), 1, false, QString() },
+        };
+        auto w6 = text(weekend.id, alex, QStringLiteral(
+            "I can drive — there is room for four plus camera bags."), 118);
+        auto w7 = text(weekend.id, aisha, QStringLiteral(
+            "Perfect. I will bring the wide lens and the tripod."), 114);
+        auto w8 = text(weekend.id, jordan, QStringLiteral("loop.gif"), 108);
+        w8.type = TimelineEvent::Image;
+        w8.body = QStringLiteral("loop.gif");
+        w8.mediaMimetype = QStringLiteral("image/gif");
+        w8.mediaFilename = QStringLiteral("loop.gif");
+        w8.mediaMxcUrl = QStringLiteral("mxc://lightning.example/loop");
+        w8.mediaWidth = 480; w8.mediaHeight = 480; w8.mediaSize = 66172;
+        w8.reactions = { { QStringLiteral("🔥"), 4, true, eid() } };
+        auto w9 = text(weekend.id, aisha, QStringLiteral(
+            "That is exactly the energy I need at five in the morning."), 104);
+        auto w10 = text(weekend.id, alex, QStringLiteral(
+            "Packing list: water, snacks, rain shell. Anything else?"), 100);
+        auto w11 = text(weekend.id, jordan, QStringLiteral("Bug spray. Learned that one the hard way."), 98);
+        w11.edited = true;
+        auto w12 = text(weekend.id, alex, QStringLiteral("The coast trail it is 🥾"), 96);
+        w12.reactions = {
+            { QStringLiteral("🥾"), 3, true, eid() },
+            { QStringLiteral("🌊"), 2, false, QString() },
+        };
+        acct.timelines[weekend.id] = { w1, w2, w3, w4, w5, w6, w7,
+                                       w8, w9, w10, w11, w12 };
     }
     acct.paginationRemaining[weekend.id] = 0;
 
@@ -1496,7 +1544,13 @@ MockMatrixClient::DemoAccount MockMatrixClient::buildDemoAccountAlex()
         d4.replyToPreview = QStringLiteral("palette.png");
         d4.reactions = { { QStringLiteral("❤️"), 1, false, QString() } };
         auto d5 = text(dmMaya.id, maya, QStringLiteral("Perfect, thank you! 🙌"), 40);
-        acct.timelines[dmMaya.id] = { d1, d2, d3, d4, d5 };
+        auto d6 = text(dmMaya.id, maya, QStringLiteral(
+            "Also — did you see the saved GIFs tab? Way easier to find things now."), 6);
+        auto d7 = text(dmMaya.id, alex, QStringLiteral(
+            "Yes! One star, one place. I stopped losing them."), 5);
+        d7.reactions = { { QStringLiteral("⭐"), 1, false, QString() } };
+        auto d8 = text(dmMaya.id, maya, QStringLiteral("Ship it 🚀"), 4);
+        acct.timelines[dmMaya.id] = { d1, d2, d3, d4, d5, d6, d7, d8 };
     }
     acct.paginationRemaining[dmMaya.id] = 0;
 
