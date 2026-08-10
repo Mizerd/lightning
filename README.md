@@ -5,7 +5,7 @@
 **A fast, native Matrix desktop client — Qt 6 on top of the official Rust Matrix SDK.**
 
 [![Licence: GPL-3.0-or-later](https://img.shields.io/badge/licence-GPL--3.0--or--later-blue.svg)](LICENSE)
-[![Latest release](https://img.shields.io/badge/release-v0.6.5-2f6be0.svg)](https://gitlab.smetonis.net/Mizerd/lightning/-/releases)
+[![Latest release](https://img.shields.io/badge/release-v0.6.6-2f6be0.svg)](https://gitlab.smetonis.net/Mizerd/lightning/-/releases)
 [![Platform: Linux | Windows](https://img.shields.io/badge/platform-Linux%20%7C%20Windows-4c8fdc.svg)](#installation)
 [![Qt 6](https://img.shields.io/badge/Qt-6.5%2B-41CD52.svg)](https://www.qt.io/)
 [![matrix-rust-sdk](https://img.shields.io/badge/matrix--rust--sdk-0.18-000000.svg)](https://github.com/matrix-org/matrix-rust-sdk)
@@ -80,12 +80,15 @@ still developing, some workflows remain experimental.
 - Room creation, member lists and roles, room-profile editing, and invites
 - Keyboard quick switcher (Ctrl-K) with a **navigate mode** across rooms, DMs,
   Spaces, and invites and a **command mode** (`>`) with scope chips, plus
-  search across the currently loaded timeline
+  find-in-timeline (Ctrl-F) across the currently loaded timeline, which
+  highlights every match and fills the one you are stepping through
 
 ### Messaging and timelines
 
-- Live timelines with replies, edits, reactions, redactions, mentions, typing
-  indicators, and read receipts
+- Live timelines with replies, edits, reactions, redactions, mentions, and
+  typing indicators
+- **Read receipts** as Element-style avatar chips on each message, with a "+N"
+  overflow pill and a "Read by …" summary for the tooltip and screen readers
 - **MSC3381 polls** — vote, change your vote, and see live tallies
 - Unread and mention states, marked-unread, first-unread and jump-to-latest
   navigation, and backward pagination
@@ -151,8 +154,10 @@ still developing, some workflows remain experimental.
   Trust card embedded in Sessions
 - Bundled Manrope, JetBrains Mono, and Space Grotesk (brand) fonts, and five
   selectable UI fonts
-- Native freedesktop notifications with mentions, per-room modes, active-room
-  suppression, privacy modes, and sounds
+- Native freedesktop notifications with mentions, active-room suppression,
+  privacy modes, and sounds. **Per-room modes** (All messages / Mentions &
+  keywords / Mute) are written to your account's server push rules by the SDK,
+  so a muted room stays muted on your other clients
 - **Resizable pickers** — the GIF and emoji pickers sit on the composer and
   scale with the window. Drag the corner to resize either one; both share a
   single remembered size, stored as a proportion so it stays sensible across
@@ -202,7 +207,7 @@ published to its GitLab Package Registry.
 - **macOS** is not currently supported.
 
 The authoritative per-release list of artifacts is the release notes — for
-example [`docs/releases/v0.6.5.md`](docs/releases/v0.6.5.md) — and the Releases
+example [`docs/releases/v0.6.6.md`](docs/releases/v0.6.6.md) — and the Releases
 page itself. Packaging, cross-platform builds, publishing, and verification are
 maintained in a separate automation project,
 [**lightning-deploy**](https://gitlab.smetonis.net/Mizerd/lightning-deploy); this
