@@ -11,10 +11,6 @@
 [![matrix-rust-sdk](https://img.shields.io/badge/matrix--rust--sdk-0.18-000000.svg)](https://github.com/matrix-org/matrix-rust-sdk)
 ![Status: active development](https://img.shields.io/badge/status-active%20development-orange.svg)
 
-<img src="docs/screenshots/lightning-main-chat.png"
-     alt="Lightning: a room timeline with replies, reactions, an image and the GIF picker open over the composer"
-     width="960">
-
 </div>
 
 Lightning is a desktop [Matrix](https://matrix.org/) client for **Linux and
@@ -36,13 +32,6 @@ Lightning implements no Matrix cryptography of its own.
 > formally audited or certified — expect rough edges and occasional
 > regressions. Linux is the primary development and support target; Windows
 > (x86-64) packages ship alongside every release from v0.6.3 onward.
-
-> **About the screenshots.** Every screenshot here comes from Lightning's development-only
-> [screenshot-demo mode](#screenshot-demo-mode): fictional `*.example` accounts
-> and locally generated media, never real conversations. The Storm-theme shots
-> are current; the account switcher, media gallery, settings and responsive
-> shots predate the 0.6.5 Storm refresh and are kept for the surfaces they
-> show rather than for their exact styling.
 
 ## Contents
 
@@ -176,32 +165,29 @@ still developing, some workflows remain experimental.
 <table>
   <tr>
     <td width="50%">
-      <img src="docs/screenshots/lightning-emoji-picker.png" alt="An encrypted direct message with the emoji picker open over the composer"><br>
-      <sub><b>Emoji picker</b> — categories, search, and a live preview, pinned to the composer.</sub>
+      <img src="docs/screenshots/lightning-main-chat.png" alt="A room timeline with replies, reactions, an image and the GIF picker open over the composer"><br>
+      <sub><b>Rooms and GIFs</b> — the timeline, and the GIF picker pinned to the composer.</sub>
     </td>
     <td width="50%">
       <img src="docs/screenshots/lightning-thread-view.png" alt="A thread panel open beside the main timeline"><br>
-      <sub><b>Threads</b> — a dedicated thread panel beside the room.</sub>
+      <sub><b>Threads</b> — a dedicated panel beside the room, with summary cards inline.</sub>
     </td>
   </tr>
   <tr>
     <td width="50%">
-      <img src="docs/screenshots/lightning-poll.png" alt="A poll with four options and live vote counts in a room timeline"><br>
-      <sub><b>Polls</b> — create and vote inline, with live counts.</sub>
+      <img src="docs/screenshots/lightning-emoji-picker.png" alt="An encrypted direct message with the emoji picker open over the composer"><br>
+      <sub><b>Emoji</b> — categories, search and a live preview, in an encrypted DM.</sub>
     </td>
     <td width="50%">
-      <img src="docs/screenshots/lightning-media-gallery.png" alt="Media room with images, a video poster, an audio clip and a file attachment"><br>
-      <sub><b>Media</b> — images, video posters, audio and files render inline.</sub>
+      <img src="docs/screenshots/lightning-poll.png" alt="A poll with four options and live vote counts in a room timeline"><br>
+      <sub><b>Polls</b> — create and vote inline, with live counts.</sub>
     </td>
   </tr>
 </table>
 
-<p align="center">
-  <img src="docs/screenshots/lightning-responsive.png"
-       alt="Lightning at a narrow window width, showing the responsive layout"
-       width="380"><br>
-  <sub><b>Responsive</b> — the layout adapts down to narrow desktop windows.</sub>
-</p>
+> Every screenshot comes from Lightning's development-only
+> [screenshot-demo mode](#screenshot-demo-mode): fictional `*.example` accounts
+> and locally generated media, never real conversations.
 
 ## Installation
 
