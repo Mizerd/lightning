@@ -595,61 +595,66 @@ void SettingsSessionTest::freshProfileDefaultsToMatrixOrg()
                  .contains(QStringLiteral("smetonis")));
 }
 
-// v0.6.7: the remembered size of a user-resizable overlay picker. This is the
-// whole QML-reachable surface of that feature, so it is pinned directly rather
-// than only through the picker's own QML.
+// v0.6.7: the remembered size of a user-resizable overlay picker, stored as a
+// SHARE of the space available to it rather than as pixels — which is what
+// makes the picker track the window, keeps a size sensible across displays,
+// and lets both pickers remember ONE value under the shared "picker" id.
+// This is the whole QML-reachable surface of that feature.
 void SettingsSessionTest::pickerSizeIsWhitelistedBoundedAndForgettable()
 {
     SettingsManager s;
 
-    // Never resized: 0 means "use the component's default".
-    QCOMPARE(s.pickerWidth(QStringLiteral("gif")), 0);
-    QCOMPARE(s.pickerHeight(QStringLiteral("emoji")), 0);
+    // Never resized: 0 means "use the component's default share".
+    QCOMPARE(s.pickerWidthShare(QStringLiteral("picker")), 0);
+    QCOMPARE(s.pickerHeightShare(QStringLiteral("picker")), 0);
 
-    // A normal round trip for each known picker, kept independent.
-    s.setPickerSize(QStringLiteral("gif"), 420, 640);
-    s.setPickerSize(QStringLiteral("emoji"), 380, 520);
-    QCOMPARE(s.pickerWidth(QStringLiteral("gif")), 420);
-    QCOMPARE(s.pickerHeight(QStringLiteral("gif")), 640);
-    QCOMPARE(s.pickerWidth(QStringLiteral("emoji")), 380);
-    QCOMPARE(s.pickerHeight(QStringLiteral("emoji")), 520);
+    // A normal round trip. Both pickers pass the same id, so this IS the
+    // sync between them — there is no second value to keep in step.
+    s.setPickerShare(QStringLiteral("picker"), 420, 640);
+    QCOMPARE(s.pickerWidthShare(QStringLiteral("picker")), 420);
+    QCOMPARE(s.pickerHeightShare(QStringLiteral("picker")), 640);
+
+    // Per-picker ids stay accepted and independent, so a future surface can
+    // opt out of the shared value.
+    s.setPickerShare(QStringLiteral("gif"), 300, 500);
+    QCOMPARE(s.pickerWidthShare(QStringLiteral("gif")), 300);
+    QCOMPARE(s.pickerWidthShare(QStringLiteral("picker")), 420);
 
     // The id is a WHITELIST, not a sanitizer: an unknown id reads 0 and
     // writes nothing at all, so a QML caller cannot compose a settings key
     // out of text it controls.
-    s.setPickerSize(QStringLiteral("../../secret"), 500, 500);
-    s.setPickerSize(QStringLiteral("gif/../emoji"), 500, 500);
-    s.setPickerSize(QStringLiteral("GIF"), 500, 500);
-    s.setPickerSize(QString(), 500, 500);
-    QCOMPARE(s.pickerWidth(QStringLiteral("../../secret")), 0);
-    QCOMPARE(s.pickerWidth(QStringLiteral("GIF")), 0);
-    QCOMPARE(s.pickerWidth(QString()), 0);
+    s.setPickerShare(QStringLiteral("../../secret"), 500, 500);
+    s.setPickerShare(QStringLiteral("picker/../gif"), 500, 500);
+    s.setPickerShare(QStringLiteral("PICKER"), 500, 500);
+    s.setPickerShare(QString(), 500, 500);
+    QCOMPARE(s.pickerWidthShare(QStringLiteral("../../secret")), 0);
+    QCOMPARE(s.pickerWidthShare(QStringLiteral("PICKER")), 0);
+    QCOMPARE(s.pickerWidthShare(QString()), 0);
     // ...and none of those disturbed a real entry.
-    QCOMPARE(s.pickerWidth(QStringLiteral("gif")), 420);
-    QCOMPARE(s.pickerHeight(QStringLiteral("emoji")), 520);
+    QCOMPARE(s.pickerWidthShare(QStringLiteral("picker")), 420);
 
-    // Out of range is FORGOTTEN, never stored: a degenerate or absurd pair
-    // must not be able to produce an unusable picker on the next launch, and
-    // "forget" restores the component default rather than clamping to
+    // Out of range is FORGOTTEN, never stored: a share below the floor would
+    // be unusable and one above 1000 would exceed the room the picker has.
+    // "Forget" restores the component default rather than clamping to
     // something the user never chose.
-    s.setPickerSize(QStringLiteral("gif"), 199, 640);
-    QCOMPARE(s.pickerWidth(QStringLiteral("gif")), 0);
-    QCOMPARE(s.pickerHeight(QStringLiteral("gif")), 0);
-    s.setPickerSize(QStringLiteral("gif"), 420, 4001);
-    QCOMPARE(s.pickerWidth(QStringLiteral("gif")), 0);
-    // The other picker is untouched by its neighbour being forgotten.
-    QCOMPARE(s.pickerWidth(QStringLiteral("emoji")), 380);
+    s.setPickerShare(QStringLiteral("picker"), 49, 640);
+    QCOMPARE(s.pickerWidthShare(QStringLiteral("picker")), 0);
+    QCOMPARE(s.pickerHeightShare(QStringLiteral("picker")), 0);
+    s.setPickerShare(QStringLiteral("picker"), 420, 1001);
+    QCOMPARE(s.pickerWidthShare(QStringLiteral("picker")), 0);
+    // The other id is untouched by its neighbour being forgotten.
+    QCOMPARE(s.pickerWidthShare(QStringLiteral("gif")), 300);
 
     // Exact bounds are accepted.
-    s.setPickerSize(QStringLiteral("gif"), 200, 4000);
-    QCOMPARE(s.pickerWidth(QStringLiteral("gif")), 200);
-    QCOMPARE(s.pickerHeight(QStringLiteral("gif")), 4000);
+    s.setPickerShare(QStringLiteral("picker"), 50, 1000);
+    QCOMPARE(s.pickerWidthShare(QStringLiteral("picker")), 50);
+    QCOMPARE(s.pickerHeightShare(QStringLiteral("picker")), 1000);
 
-    // And it survives a restart.
+    // And it survives a restart — the "saved for later sessions" guarantee.
     {
         SettingsManager reloaded;
-        QCOMPARE(reloaded.pickerWidth(QStringLiteral("gif")), 200);
-        QCOMPARE(reloaded.pickerHeight(QStringLiteral("emoji")), 520);
+        QCOMPARE(reloaded.pickerWidthShare(QStringLiteral("picker")), 50);
+        QCOMPARE(reloaded.pickerHeightShare(QStringLiteral("picker")), 1000);
     }
 }
 

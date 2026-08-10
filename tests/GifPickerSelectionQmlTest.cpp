@@ -161,14 +161,14 @@ public:
     // must behave like SettingsManager's (0 = never resized), or the popup's
     // onAboutToShow would raise a TypeError — which the warning assertions in
     // this suite would then catch as a failure.
-    Q_INVOKABLE int pickerWidth(const QString &id) const
+    Q_INVOKABLE int pickerWidthShare(const QString &id) const
     { return m_sizes.value(id + QStringLiteral("/w"), 0); }
-    Q_INVOKABLE int pickerHeight(const QString &id) const
+    Q_INVOKABLE int pickerHeightShare(const QString &id) const
     { return m_sizes.value(id + QStringLiteral("/h"), 0); }
-    Q_INVOKABLE void setPickerSize(const QString &id, int width, int height)
+    Q_INVOKABLE void setPickerShare(const QString &id, int w, int h)
     {
-        m_sizes.insert(id + QStringLiteral("/w"), width);
-        m_sizes.insert(id + QStringLiteral("/h"), height);
+        m_sizes.insert(id + QStringLiteral("/w"), w);
+        m_sizes.insert(id + QStringLiteral("/h"), h);
     }
 
 private:
@@ -1034,7 +1034,15 @@ private Q_SLOTS:
         QVERIFY(QMetaObject::invokeMethod(picker, "open"));
         QTRY_VERIFY(picker->property("opened").toBool());
 
-        QCOMPARE(picker->property("width").toReal(), 330.0);
+        // Sized as a SHARE of the anchor, so the expected width is derived
+        // from the live anchor rather than hardcoded — that is the behaviour
+        // under test, not an incidental number.
+        const qreal fraction = picker->property("widthFraction").toReal();
+        QVERIFY2(qAbs(picker->property("width").toReal()
+                      - bar->width() * fraction) < 1.5,
+                 qPrintable(QStringLiteral("auto width %1 vs share %2")
+                                .arg(picker->property("width").toReal())
+                                .arg(bar->width() * fraction)));
         const qreal gap = picker->property("anchorGap").toReal();
         const qreal rightEdgeBefore = picker->property("x").toReal()
                                       + picker->property("width").toReal();
@@ -1068,7 +1076,9 @@ private Q_SLOTS:
         QVERIFY(picker->property("height").toReal()
                 <= window->height() - bar->height());
 
-        // Settle on a real size and end the drag: it is remembered.
+        // Settle on a real size and end the drag. What is remembered is a
+        // SHARE (per mille of the anchor), not a pixel count — which is what
+        // lets it scale with the window and transfer to the emoji picker.
         QVERIFY(QMetaObject::invokeMethod(picker, "resizeTo",
                                           Q_ARG(QVariant, 420),
                                           Q_ARG(QVariant, 560)));
@@ -1076,19 +1086,31 @@ private Q_SLOTS:
 
         auto *settings = fakeApp.property("settings").value<QObject *>();
         QVERIFY(settings != nullptr);
-        int storedW = 0;
-        QVERIFY(QMetaObject::invokeMethod(settings, "pickerWidth",
-                                          Q_RETURN_ARG(int, storedW),
-                                          Q_ARG(QString, QStringLiteral("gif"))));
-        QCOMPARE(storedW, 420);
+        int storedShare = 0;
+        // Both pickers persist under the SAME id, which is the sync between
+        // them: there is no second value to keep in step.
+        QVERIFY(QMetaObject::invokeMethod(settings, "pickerWidthShare",
+                                          Q_RETURN_ARG(int, storedShare),
+                                          Q_ARG(QString, QStringLiteral("picker"))));
+        const int expectedShare = qRound(420.0 / bar->width() * 1000);
+        QCOMPARE(storedShare, expectedShare);
 
-        // Reopening keeps the remembered size and stays pinned.
+        // Reopening restores that share and stays pinned.
         QVERIFY(QMetaObject::invokeMethod(picker, "close"));
         QTRY_VERIFY(!picker->property("opened").toBool());
         QVERIFY(QMetaObject::invokeMethod(picker, "open"));
         QTRY_VERIFY(picker->property("opened").toBool());
-        QCOMPARE(picker->property("width").toReal(), 420.0);
-        QVERIFY(qAbs((picker->property("x").toReal() + 420.0) - bar->width()) < 1.5);
+        const qreal restored = picker->property("width").toReal();
+        QVERIFY2(qAbs(restored - 420.0) < 2.0,
+                 qPrintable(QStringLiteral("restored width %1").arg(restored)));
+        QVERIFY(qAbs((picker->property("x").toReal() + restored) - bar->width()) < 1.5);
+
+        // And the share tracks the window: a wider anchor gives a wider
+        // picker without the user touching anything.
+        window->resize(1500, 900);
+        QTRY_VERIFY(bar->width() > 1200);
+        QTRY_VERIFY2(picker->property("width").toReal() > restored + 100,
+                     "picker did not scale up with the window");
 
         delete root;
         QCOMPARE(warnings, QStringList{});

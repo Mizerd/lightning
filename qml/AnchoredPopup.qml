@@ -55,18 +55,14 @@ Popup {
     // Hairline separation between the popup's bottom and the anchor's top.
     property real anchorGap: 2
 
-    // Size. defaultWidth/defaultHeight are the component's design size;
-    // userWidth/userHeight (0 = never resized) win when set. Both are always
-    // clamped to what the anchor and the window can actually show.
-    property real defaultWidth: 320
-    property real defaultHeight: 480
+    // Smallest usable size for the component; the share-based sizing below
+    // never goes under it unless the window itself is smaller.
     property real minWidth: 260
     property real minHeight: 280
-    property real userWidth: 0
-    property real userHeight: 0
-    // Short id under which the dragged size is remembered across restarts
-    // (SettingsManager::pickerWidth/pickerHeight, whitelisted there). Empty
-    // means "do not persist".
+    // Id under which the dragged share is remembered across restarts
+    // (SettingsManager::pickerWidthShare, whitelisted there). BOTH pickers use
+    // the same id on purpose: resizing one resizes the other. Empty means "do
+    // not persist".
     property string sizeSettingsKey: ""
 
     readonly property Item overlayItem: Overlay.overlay
@@ -79,24 +75,61 @@ Popup {
         if (anchorItem)
             return anchorItem.width
         return overlayItem ? overlayItem.width - AppTheme.spacingM * 2
-                           : defaultWidth
+                           : minWidth
     }
     // Never taller than the room above the anchor. The anchor sits at the
     // bottom of the window, so reserving its own height plus the margins is
     // the bound, and it needs no coordinate mapping.
     readonly property real maxHeight: {
         if (!overlayItem)
-            return defaultHeight
+            return minHeight
         var room = overlayItem.height - AppTheme.spacingM * 2
         if (anchorItem)
             room -= anchorItem.height + anchorGap
         return room
     }
 
-    width: Math.min(maxWidth, Math.max(minWidth,
-                                       userWidth > 0 ? userWidth : defaultWidth))
-    height: Math.min(maxHeight, Math.max(minHeight,
-                                         userHeight > 0 ? userHeight : defaultHeight))
+    // v0.6.7: the picker is sized as a SHARE of the space available to it,
+    // never as a pixel count. That single decision covers three separate
+    // reports at once:
+    //
+    //   * resizing the window scales the picker continuously, instead of it
+    //     sitting at one fixed size until the window got too small to hold it;
+    //   * a size dragged on one screen still makes sense on another;
+    //   * and because a share is unitless, the GIF and emoji pickers can share
+    //     one remembered value even though their design sizes differ.
+    //
+    // widthFraction/heightFraction are the defaults; userWidthFraction /
+    // userHeightFraction (0 = never resized) override them and are what gets
+    // persisted. maxAutoWidth/maxAutoHeight bound only the DEFAULT share, so an
+    // untouched picker never becomes absurd on a very large display — a share
+    // the user chose by hand is honoured to the full available space.
+    property real widthFraction: 0.38
+    property real heightFraction: 0.62
+    property real maxAutoWidth: 560
+    property real maxAutoHeight: 760
+    property real userWidthFraction: 0
+    property real userHeightFraction: 0
+
+    readonly property real effectiveWidthFraction:
+        userWidthFraction > 0 ? userWidthFraction : widthFraction
+    readonly property real effectiveHeightFraction:
+        userHeightFraction > 0 ? userHeightFraction : heightFraction
+
+    width: {
+        var cap = userWidthFraction > 0 ? maxWidth
+                                        : Math.min(maxWidth, maxAutoWidth)
+        var want = maxWidth * effectiveWidthFraction
+        // The floor itself is capped: in a window too narrow for minWidth the
+        // available space wins, or the picker would overhang its anchor.
+        return Math.max(Math.min(want, cap), Math.min(minWidth, cap))
+    }
+    height: {
+        var cap = userHeightFraction > 0 ? maxHeight
+                                         : Math.min(maxHeight, maxAutoHeight)
+        var want = maxHeight * effectiveHeightFraction
+        return Math.max(Math.min(want, cap), Math.min(minHeight, cap))
+    }
 
     // ── Anchored placement: pure bindings in the ANCHOR's coordinates ────
     // Bottom-right pinned. No coordinate mapping, no revision counter, no
@@ -162,19 +195,21 @@ Popup {
     // the TOP-LEFT — it is the only free corner — and why dragging it away
     // from the anchor is what makes the popup bigger.
     function resizeTo(w, h) {
-        userWidth = Math.max(minWidth, Math.min(w, maxWidth))
-        userHeight = Math.max(minHeight, Math.min(h, maxHeight))
+        if (maxWidth > 0)
+            userWidthFraction = Math.max(0.08, Math.min(1, w / maxWidth))
+        if (maxHeight > 0)
+            userHeightFraction = Math.max(0.08, Math.min(1, h / maxHeight))
     }
 
-    // Persists the user's INTENT, not the clamped effective size: storing the
-    // clamped value meant resizing inside a small window wrote a pair below
-    // the store's sanity floor, which is treated as "forget it" and erased a
-    // size chosen earlier on a bigger window.
+    // Persisted as per-mille of the available space, under a key BOTH pickers
+    // share — resizing either one resizes the other, which is what was asked
+    // for and is only coherent because the stored value is a share rather than
+    // a pixel size.
     function endResize() {
         if (sizeSettingsKey.length > 0)
-            app.settings.setPickerSize(sizeSettingsKey,
-                                       Math.round(userWidth),
-                                       Math.round(userHeight))
+            app.settings.setPickerShare(sizeSettingsKey,
+                                        Math.round(userWidthFraction * 1000),
+                                        Math.round(userHeightFraction * 1000))
     }
 
     // Carry the remembered size in on every open. Reading it here rather than
@@ -188,8 +223,10 @@ Popup {
         target: root
         function onAboutToShow() {
             if (root.sizeSettingsKey.length > 0) {
-                root.userWidth = app.settings.pickerWidth(root.sizeSettingsKey)
-                root.userHeight = app.settings.pickerHeight(root.sizeSettingsKey)
+                root.userWidthFraction =
+                    app.settings.pickerWidthShare(root.sizeSettingsKey) / 1000
+                root.userHeightFraction =
+                    app.settings.pickerHeightShare(root.sizeSettingsKey) / 1000
             }
             if (!root.anchorItem)
                 root.placeAtPoint()

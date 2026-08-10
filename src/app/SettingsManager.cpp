@@ -830,58 +830,65 @@ namespace {
 // v0.6.7: the only picker ids that may reach the settings store. A whitelist,
 // not a sanitizer — a rejected id writes and reads nothing at all, so no QML
 // caller can compose a settings key out of user-controlled text.
+//
+// "picker" is the shared id both overlay pickers pass, which is what makes
+// resizing one resize the other; the per-picker ids remain accepted so a
+// future surface can opt out of the shared value without touching this gate.
 bool isKnownPickerId(const QString &id)
 {
-    return id == QLatin1String("gif") || id == QLatin1String("emoji");
+    return id == QLatin1String("picker") || id == QLatin1String("gif")
+        || id == QLatin1String("emoji");
 }
 
-QString pickerSizeKey(const QString &id, const char *dimension)
+QString pickerShareKey(const QString &id, const char *dimension)
 {
-    return QStringLiteral("pickers/%1/%2").arg(id, QLatin1String(dimension));
+    return QStringLiteral("pickers/%1/%2Share").arg(id, QLatin1String(dimension));
 }
 
-// A remembered size outside this range is treated as absent. Guards against a
-// hand-edited or corrupted store producing a picker that is unusably small or
-// larger than any real screen; the QML side clamps to the live window on top
-// of this.
-constexpr int kMinPickerPx = 200;
-constexpr int kMaxPickerPx = 4000;
+// Per mille of the space available to the picker. A share outside this range
+// is treated as absent: below the floor the picker would be unusable, and
+// above 1000 it would exceed the room it has. Guards a hand-edited or
+// corrupted store; the QML side clamps to the live window on top of this.
+constexpr int kMinPickerShare = 50;
+constexpr int kMaxPickerShare = 1000;
 
-int readPickerDimension(QSettings *store, const QString &id,
-                        const char *dimension)
+int readPickerShare(QSettings *store, const QString &id, const char *dimension)
 {
     if (!isKnownPickerId(id))
         return 0;
-    const int v = store->value(pickerSizeKey(id, dimension), 0).toInt();
-    return (v >= kMinPickerPx && v <= kMaxPickerPx) ? v : 0;
+    const int v = store->value(pickerShareKey(id, dimension), 0).toInt();
+    return (v >= kMinPickerShare && v <= kMaxPickerShare) ? v : 0;
 }
 } // namespace
 
-int SettingsManager::pickerWidth(const QString &id) const
+int SettingsManager::pickerWidthShare(const QString &id) const
 {
-    return readPickerDimension(m_store.get(), id, "width");
+    return readPickerShare(m_store.get(), id, "width");
 }
 
-int SettingsManager::pickerHeight(const QString &id) const
+int SettingsManager::pickerHeightShare(const QString &id) const
 {
-    return readPickerDimension(m_store.get(), id, "height");
+    return readPickerShare(m_store.get(), id, "height");
 }
 
-void SettingsManager::setPickerSize(const QString &id, int width, int height)
+void SettingsManager::setPickerShare(const QString &id, int widthPerMille,
+                                     int heightPerMille)
 {
     if (!isKnownPickerId(id))
         return;
     // Out-of-range means "forget it" rather than "store something wrong":
-    // removing the keys restores the component's own default next time.
-    const bool sane = width >= kMinPickerPx && width <= kMaxPickerPx
-                      && height >= kMinPickerPx && height <= kMaxPickerPx;
+    // removing the keys restores the component's own default share next time.
+    const bool sane = widthPerMille >= kMinPickerShare
+                      && widthPerMille <= kMaxPickerShare
+                      && heightPerMille >= kMinPickerShare
+                      && heightPerMille <= kMaxPickerShare;
     if (!sane) {
-        m_store->remove(pickerSizeKey(id, "width"));
-        m_store->remove(pickerSizeKey(id, "height"));
+        m_store->remove(pickerShareKey(id, "width"));
+        m_store->remove(pickerShareKey(id, "height"));
         return;
     }
-    m_store->setValue(pickerSizeKey(id, "width"), width);
-    m_store->setValue(pickerSizeKey(id, "height"), height);
+    m_store->setValue(pickerShareKey(id, "width"), widthPerMille);
+    m_store->setValue(pickerShareKey(id, "height"), heightPerMille);
 }
 
 void SettingsManager::setRoomNotificationMode(const QString &roomId, int mode)

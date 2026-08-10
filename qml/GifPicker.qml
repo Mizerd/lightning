@@ -100,15 +100,18 @@ AnchoredPopup {
         return name.length > 0 ? name : provider
     }
 
-    // v0.6.7: the 330×520 design size is now the DEFAULT, not the size —
-    // AnchoredPopup clamps it to the window and lets the corner grip override
-    // it, remembering the result under this key. The minimum keeps three grid
-    // columns and the footer legible.
-    defaultWidth: 330
-    defaultHeight: 520
+    // v0.6.7: sized as a SHARE of the composer's width and the room above it,
+    // so it tracks the window instead of sitting at one fixed size. The
+    // minimum keeps three grid columns and the footer legible.
+    //
+    // `sizeSettingsKey` is deliberately the SAME as the emoji picker's:
+    // resizing either one resizes both, and the remembered value is a share,
+    // so it transfers between them despite their different proportions.
+    widthFraction: 0.38
+    heightFraction: 0.64
     minWidth: 300
     minHeight: 320
-    sizeSettingsKey: "gif"
+    sizeSettingsKey: "picker"
     padding: AppTheme.spacingS
     modal: false
     focus: true
@@ -287,11 +290,14 @@ AnchoredPopup {
         gif.toggleFavorite(result)
     }
 
+    // v0.6.7: a heavier frame and a wider corner. The resize ornament is
+    // concentric with this radius, so the corner has to be big enough to carry
+    // it — at radiusLg (12) with a hairline border the arcs had nowhere to sit.
     background: Rectangle {
         color: AppTheme.stormPanel
         border.color: AppTheme.stormBorder
-        border.width: 1
-        radius: AppTheme.radiusLg
+        border.width: 2
+        radius: AppTheme.radiusLg + 6
     }
 
     contentItem: Item {
@@ -317,7 +323,6 @@ AnchoredPopup {
                 objectName: "gifListTitle"
                 visible: !picker.providerTab
                 Layout.fillWidth: true
-                Layout.leftMargin: 14
                 text: picker.tab === "saved" ? qsTr("Saved GIFs")
                                              : qsTr("Recently sent")
                 color: AppTheme.stormText
@@ -331,8 +336,6 @@ AnchoredPopup {
                 objectName: "gifSearchField"
                 visible: picker.providerTab
                 Layout.fillWidth: true
-                // Clear of the top-left resize grip.
-                Layout.leftMargin: 14
                 searchIcon: true
                 clearButton: true
                 storm: true
@@ -952,12 +955,18 @@ AnchoredPopup {
         }
     }
 
-    // Drag the TOP-LEFT corner to resize: the bottom-right is pinned to the
-    // composer, so that is the only corner that can move.
+    // The corner ornament that resizes the picker. Seated on the panel's own
+    // corner via negative margins, so it displaces nothing in the header.
     PopupResizeGrip {
         popup: picker
+        // Concentric with the panel's corner: its centre is the corner-radius
+        // centre, measured from this item's own origin at the panel corner.
+        arcCentre: AppTheme.radiusLg + 6
+        outerRadius: AppTheme.radiusLg + 2
         anchors.left: parent.left
         anchors.top: parent.top
+        anchors.leftMargin: -picker.padding
+        anchors.topMargin: -picker.padding
     }
 
     } // contentItem Item

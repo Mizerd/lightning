@@ -63,14 +63,14 @@ AnchoredPopup {
         : app.emojiCatalog.category === "Recently Used" ? qsTr("Recently used")
         : app.emojiCatalog.category
 
-    // v0.6.7: the 324×480 design size is the DEFAULT — AnchoredPopup clamps it
-    // to the window and the corner grip can override it, remembered under this
-    // key. The minimum keeps the 8-column grid and the category rail usable.
-    defaultWidth: 324
-    defaultHeight: 480
+    // v0.6.7: sized as a SHARE of the available space (see AnchoredPopup), and
+    // sharing the GIF picker's remembered value — resizing either resizes
+    // both. The minimum keeps the 8-column grid and the category rail usable.
+    widthFraction: 0.36
+    heightFraction: 0.58
     minWidth: 300
     minHeight: 320
-    sizeSettingsKey: "emoji"
+    sizeSettingsKey: "picker"
     padding: 0
     modal: false
     focus: true
@@ -112,8 +112,8 @@ AnchoredPopup {
     background: Rectangle {
         color: AppTheme.stormPanel
         border.color: AppTheme.stormBorder
-        border.width: 1
-        radius: AppTheme.menuRadius
+        border.width: 2
+        radius: AppTheme.menuRadius + 6
     }
 
     // v0.6.7: the column is wrapped in a plain Item so the resize grip can be
@@ -418,10 +418,11 @@ AnchoredPopup {
         }
     }
 
-    // Drag the TOP-LEFT corner to resize: the bottom-right is pinned to the
-    // composer, so that is the only corner that can move.
+    // The corner ornament that resizes the picker.
     PopupResizeGrip {
         popup: picker
+        arcCentre: AppTheme.menuRadius + 6
+        outerRadius: AppTheme.menuRadius + 2
         anchors.left: parent.left
         anchors.top: parent.top
     }
