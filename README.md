@@ -1,37 +1,52 @@
-# Lightning
+<div align="center">
 
-**A fast, native Matrix desktop client built with Qt and the official Rust Matrix SDK.**
+# ⚡ Lightning
 
-Lightning is a Linux-first desktop [Matrix](https://matrix.org/) client. The
-interface is written in Qt 6 / QML with C++ for the application layer, and the
-official [`matrix-rust-sdk`](https://github.com/matrix-org/matrix-rust-sdk)
-provides synchronisation, timelines, end-to-end encryption, threads, and media.
-
-> **Status:** under active development (0.6.x). It is usable day-to-day but not
-> formally audited or certified — expect rough edges and occasional regressions.
+**A fast, native Matrix desktop client — Qt 6 on top of the official Rust Matrix SDK.**
 
 [![Licence: GPL-3.0-or-later](https://img.shields.io/badge/licence-GPL--3.0--or--later-blue.svg)](LICENSE)
 [![Latest release](https://img.shields.io/badge/release-v0.6.5-2f6be0.svg)](https://gitlab.smetonis.net/Mizerd/lightning/-/releases)
+[![Platform: Linux | Windows](https://img.shields.io/badge/platform-Linux%20%7C%20Windows-4c8fdc.svg)](#installation)
 [![Qt 6](https://img.shields.io/badge/Qt-6.5%2B-41CD52.svg)](https://www.qt.io/)
 [![matrix-rust-sdk](https://img.shields.io/badge/matrix--rust--sdk-0.18-000000.svg)](https://github.com/matrix-org/matrix-rust-sdk)
-[![Platform: Linux](https://img.shields.io/badge/platform-Linux-FCC624.svg)](https://www.kernel.org/)
 ![Status: active development](https://img.shields.io/badge/status-active%20development-orange.svg)
 
-<p align="center">
-  <img src="docs/screenshots/lightning-main-chat.png"
-       alt="Lightning main chat: a room timeline with replies, reactions, a mention, an edited message, an image, and a typing indicator"
-       width="900">
-</p>
+<img src="docs/screenshots/lightning-main-chat.png"
+     alt="Lightning: a room timeline with replies, reactions, an image and the GIF picker open over the composer"
+     width="960">
 
-> The screenshots on this page are taken from Lightning's development-only
-> [screenshot-demo mode](#screenshot-demo-mode) and show fictional `*.example`
-> accounts and locally generated media — not real conversations. They were
-> captured before the 0.6.5 Storm design refresh, so current builds look
-> somewhat different.
+</div>
+
+Lightning is a desktop [Matrix](https://matrix.org/) client for **Linux and
+Windows**. The interface is Qt 6 / QML with C++ for the application layer, and
+the official [`matrix-rust-sdk`](https://github.com/matrix-org/matrix-rust-sdk)
+owns synchronisation, timelines, end-to-end encryption, threads, and media —
+Lightning implements no Matrix cryptography of its own.
+
+|  |  |
+|---|---|
+| **Native, not a web view** | Qt 6 / QML shell with a four-pane layout and eleven WCAG-AA themes |
+| **Real E2EE** | SDK-owned Olm/Megolm, cross-signing, SAS **and** QR verification, key backup |
+| **Threads that work** | SDK thread timelines, a dedicated panel, summary cards, threaded receipts |
+| **Multi-account** | Several homeservers at once, isolated stores, in-place switching |
+| **Rich composer** | Markdown, mentions, polls, GIFs, emoji, attachments — in rooms and threads |
+| **Open source** | GPL-3.0-or-later, packaged for both platforms |
+
+> **Status:** under active development (0.6.x). Usable day to day, but not
+> formally audited or certified — expect rough edges and occasional
+> regressions. Linux is the primary development and support target; Windows
+> (x86-64) packages ship alongside every release from v0.6.3 onward.
+
+> **About the screenshots.** Every screenshot here comes from Lightning's development-only
+> [screenshot-demo mode](#screenshot-demo-mode): fictional `*.example` accounts
+> and locally generated media, never real conversations. The Storm-theme shots
+> are current; the account switcher, media gallery, settings and responsive
+> shots predate the 0.6.5 Storm refresh and are kept for the surfaces they
+> show rather than for their exact styling.
 
 ## Contents
 
-- [Overview](#overview)
+- [Quick start](#quick-start)
 - [Features](#features)
 - [Screenshots](#screenshots)
 - [Installation](#installation)
@@ -45,17 +60,20 @@ provides synchronisation, timelines, end-to-end encryption, threads, and media.
 - [Packaging and releases](#packaging-and-releases)
 - [Licence](#licence)
 
-## Overview
+## Quick start
 
-Lightning aims to be a responsive, native desktop Matrix experience rather than
-a web view: a four-pane shell (Spaces rail, room list, timeline, side panel)
-with a cohesive design language (Storm, as of 0.6.5), SDK-backed encryption,
-modern room and thread workflows, efficient timeline navigation, and native
-desktop integration — all under an open-source licence.
+```sh
+# Prebuilt packages: https://gitlab.smetonis.net/Mizerd/lightning/-/releases
+# Or build and run from source (Nix dev shell):
+git clone https://gitlab.smetonis.net/Mizerd/lightning.git
+cd lightning
+nix develop -c cmake -S . -B build-rust -G Ninja -DENABLE_RUST_SDK_BACKEND=ON
+nix develop -c cmake --build build-rust -j"$(nproc)"
+nix develop -c ./build-rust/matrix-client --backend=rust
+```
 
-Matrix behaviour (login, sync, timelines, E2EE, media) is owned entirely by the
-official Rust Matrix SDK; Lightning does not implement its own Matrix
-cryptography.
+See [Installation](#installation) for packages and
+[Building from source](#building-from-source) for the full workflow.
 
 ## Features
 
@@ -103,8 +121,14 @@ still developing, some workflows remain experimental.
 - Images, files, and clipboard images, including encrypted attachments
 - Inline **video and audio playback** with posters, duration, and waveforms
 - Animated GIF attachments and a multi-provider GIF browser (GIPHY and KLIPY):
-  trending, search, categories, favourites, recents, safe-search, and autoplay
-  policy, sending as real Matrix media into rooms and threads
+  trending, search, categories, recents, safe-search, and autoplay policy,
+  sending as real Matrix media into rooms and threads
+- **Saved GIFs** — one star, one meaning, one place. Star a GIF anywhere (a
+  provider tile or a GIF in a chat) and it lands in the picker's **Saved** tab.
+  Provider GIFs are saved as links; a GIF saved out of a chat is copied to your
+  device, in an account-scoped store bounded at 200 items / 64 MiB that is
+  deleted on sign-out and disclosed in Settings. Each tile is tagged with where
+  it came from (GIPHY / KLIPY / Local)
 - Client-side link previews with encrypted-room privacy controls
 - Image viewer with save, and validated inline rendering of direct raster links
 
@@ -140,6 +164,10 @@ still developing, some workflows remain experimental.
   selectable UI fonts
 - Native freedesktop notifications with mentions, per-room modes, active-room
   suppression, privacy modes, and sounds
+- **Resizable pickers** — the GIF and emoji pickers sit on the composer and
+  scale with the window. Drag the corner to resize either one; both share a
+  single remembered size, stored as a proportion so it stays sensible across
+  window sizes and displays, and it persists between sessions
 - Responsive layouts from narrow to wide, a local Unicode emoji picker, an
   installed application icon and desktop entry, and accessible keyboard navigation
 
@@ -148,8 +176,8 @@ still developing, some workflows remain experimental.
 <table>
   <tr>
     <td width="50%">
-      <img src="docs/screenshots/lightning-media-gallery.png" alt="Media room with images, a video poster, an audio clip and a file attachment"><br>
-      <sub><b>Media</b> — images, video posters, audio and files render inline.</sub>
+      <img src="docs/screenshots/lightning-emoji-picker.png" alt="An encrypted direct message with the emoji picker open over the composer"><br>
+      <sub><b>Emoji picker</b> — categories, search, and a live preview, pinned to the composer.</sub>
     </td>
     <td width="50%">
       <img src="docs/screenshots/lightning-thread-view.png" alt="A thread panel open beside the main timeline"><br>
@@ -158,12 +186,12 @@ still developing, some workflows remain experimental.
   </tr>
   <tr>
     <td width="50%">
-      <img src="docs/screenshots/lightning-account-switcher.png" alt="Account switcher popover listing three signed-in accounts"><br>
-      <sub><b>Multi-account</b> — switch signed-in accounts in place.</sub>
+      <img src="docs/screenshots/lightning-poll.png" alt="A poll with four options and live vote counts in a room timeline"><br>
+      <sub><b>Polls</b> — create and vote inline, with live counts.</sub>
     </td>
     <td width="50%">
-      <img src="docs/screenshots/lightning-settings.png" alt="Settings Appearance page with theme cards and layout options"><br>
-      <sub><b>Settings</b> — themes, message layout, and text size.</sub>
+      <img src="docs/screenshots/lightning-media-gallery.png" alt="Media room with images, a video poster, an audio clip and a file attachment"><br>
+      <sub><b>Media</b> — images, video posters, audio and files render inline.</sub>
     </td>
   </tr>
 </table>
@@ -236,9 +264,12 @@ no network, no Matrix credentials, no real stores. It is how the screenshots on
 this page were produced, and it is impossible to reach in a shipped binary.
 
 ```sh
-scripts/run-screenshot-demo.sh --scenario main-chat --theme midnight \
-  --size 1440x900 --hide-controls
+scripts/run-screenshot-demo.sh --scenario main-chat --hide-controls
 ```
+
+Scenarios default to the Storm theme, and the GIF picker is browsable there —
+it is seeded with bundled animated fixtures rather than reaching a provider, so
+the picker photographs like a real session without a network or an API key.
 
 See [`docs/screenshot-demo.md`](docs/screenshot-demo.md) for accounts, scenarios,
 window presets, and the full option list.
