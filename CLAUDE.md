@@ -26,30 +26,38 @@ frontend.
 
 ## 2. Current release and development state
 
-Release facts, verified on 2026-08-04:
+Release facts, verified on 2026-08-10:
 
-- Latest published release: **Lightning 0.6.5** (`v0.6.5` -> `4cdace3`)
-- Previous releases: `v0.6.4` -> `e719bbe`, `v0.6.3` -> `97f10b7`,
-  `v0.6.2` -> `fe3b85f`, `v0.6.1` -> `86d30b4`, `v0.6.0` -> `2157194`
-  (all immutable, unchanged)
-- Application version: **0.6.5** in `CMakeLists.txt`, `rust/Cargo.toml`, and
+- Latest published release: **Lightning 0.6.6** (`v0.6.6` -> `f35bc8c`)
+- Previous releases: `v0.6.5` -> `4cdace3`, `v0.6.4` -> `e719bbe`,
+  `v0.6.3` -> `97f10b7`, `v0.6.2` -> `fe3b85f`, `v0.6.1` -> `86d30b4`,
+  `v0.6.0` -> `2157194` (all immutable, unchanged)
+- Application version: **0.6.6** in `CMakeLists.txt`, `rust/Cargo.toml`, and
   the Rust/HTTP user agent
 
-Post-release work since the tag, verified on 2026-08-08: `main` is
-**thirteen commits past `v0.6.5`**, CTest **87/87 on both trees**, with **no
-version bump pending** — none of it is released. In order: `326adff` (release
-facts), `329a65c` (scroll regression guard), `c060ef5` (Element-style read
-receipts), `21d5fb8` (per-room notification modes promoted to server push
-rules), `6fa6378` (QR device verification alongside SAS; the only dependency
-change since the release), `225c7b3` (scroll staging/freeze — **later removed
-entirely**), `3afc2d0` (receipt-chip placement), `44c29aa` + `52cf6ca` +
-`e39439a` (locally-saved GIFs: store, hover star + its own tab, durable
-state), `2fe5cb0` (per-branch scroll-trace attribution), `30ee39b`
-(receipt-avatar context-lookup fix), `263268b` (runaway prefetch chain and
-the staging mechanism removed, −1463 net). Every one of these went through
-independent review to `APPROVED`. Section 16 carries what is still open.
+0.6.6 released the thirty commits that had accumulated since `v0.6.5`:
+Element-style read receipts (`c060ef5`, `3afc2d0`, `30ee39b`), per-room
+notification modes promoted to server push rules (`21d5fb8`), QR device
+verification alongside SAS (`6fa6378`; the only dependency change in the
+release), locally-saved GIFs reworked to one star with one destination
+(`44c29aa`, `52cf6ca`, `e39439a`, `9531684`), pickers pinned to the composer
+and made resizable (`dbbd484`, `467a391`, `e48fe8d`), find-in-timeline match
+highlighting (`97cef4f`), and the room timeline rebuilt without height
+virtualization (`1e50f6a`, `080c186`, `5dad0fd`, `e3a7d7a`, `8f84d18`,
+`263268b`) after the staging/freeze mechanism from `225c7b3` was removed
+entirely. `60f2c54` restored the README screenshots to native resolution.
 
-Run `git log --oneline v0.6.5..HEAD` rather than trusting this list; it will
+**Carried into the release, and still open:** CTest is **85/87 on both
+trees**, not 87/87. `timeline-pane-qml` (36 passed / 27 failed) and
+`timeline-hydration-qml` (5 passed / 2 failed) have failed continuously since
+the timeline was rebuilt in `1e50f6a`; `8f84d18` ported seven other suites to
+the solid-timeline contract and recorded these two as explicitly not
+addressed. They are stale assertions against the previous virtualized
+contract rather than separately observed defects, but the regression net for
+the timeline is incomplete and porting them is the highest-value open work.
+This is disclosed in `docs/releases/v0.6.6.md`.
+
+Run `git log --oneline v0.6.6..HEAD` rather than trusting this list; it will
 go stale the same way the narrative below did.
 
 The narrative below describes the 0.6.2-era checkpoints and has not been
@@ -740,8 +748,8 @@ Published tags and GitLab Releases are immutable. Never move, recreate, or
 replace them. Do not bump a version, tag, or create a release unless Rokas
 explicitly requests release work.
 
-Version 0.6.5 is released and the synchronized CMake, Rust, and user-agent
-version report 0.6.5. Any future version bump is a release checkpoint alone and
+Version 0.6.6 is released and the synchronized CMake, Rust, and user-agent
+version report 0.6.6. Any future version bump is a release checkpoint alone and
 updates those same synchronized locations. Before release, run complete Rust
 tests plus Rust and non-Rust builds/CTest, and report unavailable live
 validation honestly.
@@ -776,10 +784,19 @@ For an existing release that is missing packages, use
 links to the existing release without altering its tag, notes, or source
 archives). This was used to backfill `v0.6.1`.
 
-The latest published release is `v0.6.5` (`4cdace3`), cut from its release
-commit on `main` by the project 7 pipeline in `RELEASE_ACTION=create` mode.
-All earlier releases and tags (`v0.6.4` and older) remain immutable and
-unchanged.
+The latest published release is `v0.6.6` (`f35bc8c`), cut from its release
+commit on `main` by project 7 pipeline **83** in `RELEASE_ACTION=create` mode
+(all 16 jobs green; 9 assets published and hash-verified). All earlier
+releases and tags (`v0.6.5` and older) remain immutable and unchanged.
+
+One trigger note worth keeping: the pipeline's variables must be posted as a
+**JSON body** (`glab api --method POST projects/7/pipeline --input file.json`
+with a `variables` array). Passing them as form fields
+(`-f "variables[0][key]=..."`) is silently ignored — GitLab accepts the
+request, creates a pipeline with **zero** variables, and it runs as a
+non-publishing snapshot build that reports success while publishing nothing.
+Pipeline 82 was lost to exactly that. Always confirm with
+`glab api projects/7/pipelines/<id>/variables` before trusting a release run.
 
 ## 15. Licensing and public repository state
 
