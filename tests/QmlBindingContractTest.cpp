@@ -26,21 +26,22 @@ class QmlBindingContractTest : public QObject
     }
 
 private Q_SLOTS:
-    // Live feedback (2026-08-11): a full-screen image closes on a single
-    // click ANYWHERE — the image included, not only the scrim or the X —
-    // while double-click keeps the fit/actual-size toggle. The old handler
-    // deliberately consumed single taps over the image.
-    void imageViewerClosesOnSingleClickAnywhere()
+    // Live feedback (2026-08-11, twice): a full-screen image closes on a
+    // click ANYWHERE — the image included — and INSTANTLY. The first fix
+    // used an exclusive single/double-tap split to keep double-click zoom,
+    // which made every close wait out the ~400ms double-click interval;
+    // the tap now closes directly and zoom stays on wheel/buttons/keys.
+    void imageViewerClosesInstantlyOnClickAnywhere()
     {
         const QString viewer = read(QStringLiteral("ImageViewerOverlay.qml"));
         QVERIFY(!viewer.isEmpty());
-        QVERIFY(viewer.contains(QStringLiteral(
-            "onSingleTapped: viewer.close()")));
-        QVERIFY(viewer.contains(QStringLiteral("onDoubleTapped:")));
-        QVERIFY(viewer.contains(QStringLiteral(
-            "exclusiveSignals: TapHandler.SingleTap")));
-        // The scrim close stays too.
-        QVERIFY(viewer.contains(QStringLiteral("onTapped: viewer.close()")));
+        // Both the image tap and the scrim tap close, undelayed.
+        QCOMPARE(viewer.count(QStringLiteral("onTapped: viewer.close()")), 2);
+        QVERIFY(!viewer.contains(QStringLiteral("exclusiveSignals")));
+        QVERIFY(!viewer.contains(QStringLiteral("onDoubleTapped")));
+        // Zoom survives through the non-conflicting inputs.
+        QVERIFY(viewer.contains(QStringLiteral("WheelHandler")));
+        QVERIFY(viewer.contains(QStringLiteral("zoomStep(1.2)")));
     }
 
     // Live feedback (2026-08-11): dropping files anywhere over the CHAT

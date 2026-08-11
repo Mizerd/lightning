@@ -278,40 +278,19 @@ Popup {
                     width: Math.max(flick.width, viewer.baseWidth * viewer.zoom)
                     height: Math.max(flick.height, viewer.baseHeight * viewer.zoom)
 
-                    // A single click ANYWHERE — image included — closes the
-                    // viewer (live feedback: closing must never require the
-                    // X button); double-click still toggles fit/actual size
-                    // centered at the click point. Exclusive signals mean a
-                    // double-click never first fires the single-tap close —
-                    // the deliberate cost is that a single click waits out
-                    // the platform double-click interval (~400ms) before
-                    // closing. While zoomed, the Flickable steals drags for
-                    // panning; on a fitted image a within-bounds
-                    // press-drag-release also counts as a tap and closes,
-                    // which is acceptable — there is nothing to pan.
+                    // A click ANYWHERE — image included — closes the viewer
+                    // IMMEDIATELY (live feedback twice over: closing must
+                    // never require the X button, and must never wait out
+                    // the platform's ~400ms double-click interval, which an
+                    // exclusive single/double-tap split forces). Double-
+                    // click zoom was dropped for that instant close: the
+                    // wheel, the +/- toolbar buttons, and the +/-/0/F keys
+                    // all still zoom. While zoomed, the Flickable steals
+                    // drags for panning before they can count as taps.
                     TapHandler {
                         id: imageTap
                         gesturePolicy: TapHandler.WithinBounds
-                        exclusiveSignals: TapHandler.SingleTap
-                                          | TapHandler.DoubleTap
-                        onSingleTapped: viewer.close()
-                        onDoubleTapped: {
-                            chrome.wake()
-                            var p = imageTap.point.position
-                            var vp = imageHolder.mapToItem(
-                                flick.contentItem, p.x, p.y)
-                            var viewport = Qt.point(vp.x - flick.contentX,
-                                                    vp.y - flick.contentY)
-                            if (Math.abs(viewer.zoom - 1.0) < 0.01) {
-                                // Fit → actual size (or a useful 2x when
-                                // the image is smaller than the viewport).
-                                viewer.zoomAt(viewport,
-                                    viewer.actualSizeZoom > 1.01
-                                        ? viewer.actualSizeZoom : 2.0)
-                            } else {
-                                viewer.fitView()
-                            }
-                        }
+                        onTapped: viewer.close()
                     }
                     // Grab cursors while pannable.
                     HoverHandler {
