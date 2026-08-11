@@ -496,6 +496,8 @@ set(APP_SOURCES
     src/matrix/MockMatrixClient.cpp
     src/matrix/CppHttpMatrixClient.h
     src/matrix/CppHttpMatrixClient.cpp
+    src/matrix/BridgeNetwork.h
+    src/matrix/BridgeNetwork.cpp
     src/matrix/MediaHelpers.h
     src/matrix/MediaHelpers.cpp
     src/matrix/EventPreview.h
@@ -2509,6 +2511,8 @@ if(BUILD_TESTING)
         src/models/RoomDirectorySearchModel.cpp
         src/models/RoomListModel.h
         src/models/RoomListModel.cpp
+        src/matrix/BridgeNetwork.h
+        src/matrix/BridgeNetwork.cpp
         src/models/DirectAvatarResolver.h
         src/models/DirectAvatarResolver.cpp
         src/spaces/SpaceManager.h
@@ -2554,6 +2558,8 @@ if(BUILD_TESTING)
         tests/MarkRoomReadTest.cpp
         src/models/RoomListModel.h
         src/models/RoomListModel.cpp
+        src/matrix/BridgeNetwork.h
+        src/matrix/BridgeNetwork.cpp
         src/models/DirectAvatarResolver.h
         src/models/DirectAvatarResolver.cpp
         src/spaces/SpaceManager.h
@@ -3441,6 +3447,8 @@ if(BUILD_TESTING)
         src/models/RoomListModel.cpp
         src/models/DirectAvatarResolver.h
         src/models/DirectAvatarResolver.cpp
+        src/matrix/BridgeNetwork.h
+        src/matrix/BridgeNetwork.cpp
         src/spaces/SpaceManager.h
         src/spaces/SpaceManager.cpp
         src/matrix/MatrixClient.h
@@ -3462,6 +3470,8 @@ if(BUILD_TESTING)
         src/models/RoomListModel.cpp
         src/models/DirectAvatarResolver.h
         src/models/DirectAvatarResolver.cpp
+        src/matrix/BridgeNetwork.h
+        src/matrix/BridgeNetwork.cpp
         src/spaces/SpaceManager.h
         src/spaces/SpaceManager.cpp
         src/matrix/MatrixClient.h
@@ -3470,6 +3480,19 @@ if(BUILD_TESTING)
     target_include_directories(room-permalink-test PRIVATE src)
     target_link_libraries(room-permalink-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME room-permalink COMMAND room-permalink-test)
+
+    # Unified inbox: recognising which bridged network a conversation belongs
+    # to from a ghost user id or a portal alias. The negatives carry the
+    # weight — mislabelling an ordinary contact with an underscore in their
+    # localpart is worse than showing no badge.
+    qt_add_executable(bridge-network-test
+        tests/BridgeNetworkTest.cpp
+        src/matrix/BridgeNetwork.h
+        src/matrix/BridgeNetwork.cpp
+    )
+    target_include_directories(bridge-network-test PRIVATE src)
+    target_link_libraries(bridge-network-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME bridge-network COMMAND bridge-network-test)
 
     # v0.6.1: quick switcher result model — matching, categories, bounded
     # results, routing payload, logout clearing.

@@ -2,6 +2,7 @@
 
 #include "models/ConversationOrder.h"
 
+#include "matrix/BridgeNetwork.h"
 #include "matrix/MatrixClient.h"
 #include "spaces/SpaceManager.h"
 
@@ -160,6 +161,13 @@ QVariant RoomListModel::data(const QModelIndex &index, int role) const
     case SuccessorRoomIdRole:    return r.successorRoomId;
     case SupersededByAccessibleSuccessorRole:
         return m_supersededRoomIds.contains(r.id);
+    case NetworkRole:
+        return matrix::bridge::networkIdForRoom(r.directUserId,
+                                                r.canonicalAlias);
+    case NetworkLabelRole:
+        return matrix::bridge::labelForNetworkId(
+            matrix::bridge::networkIdForRoom(r.directUserId,
+                                             r.canonicalAlias));
     default:                     return {};
     }
 }
@@ -193,6 +201,8 @@ QHash<int, QByteArray> RoomListModel::roleNames() const
         { SuccessorRoomIdRole,    "successorRoomId" },
         { SupersededByAccessibleSuccessorRole,
           "supersededByAccessibleSuccessor" },
+        { NetworkRole,            "network" },
+        { NetworkLabelRole,       "networkLabel" },
     };
 }
 
