@@ -76,6 +76,11 @@ Item {
     EmojiPicker {
         id: emojiPicker
         mode: "composer"
+        // Composing often means several emoji in a row — the picker stays
+        // open after each insert (close with Escape, the toggle button, or
+        // by clicking outside). Reaction pickers keep the close-on-pick
+        // default: a reaction is a single choice.
+        closeAfterSelection: false
         onEmojiChosen: (emoji) => root.insertEmoji(emoji)
         onClosed: Qt.callLater(input.forceActiveFocus)
     }

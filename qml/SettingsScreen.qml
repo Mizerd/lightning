@@ -775,10 +775,17 @@ Item {
             Rectangle { Layout.fillHeight: true; implicitWidth: 1; color: AppTheme.stormBorder }
 
             // ── Right content pane ───────────────────────────────────────
-            Flickable {
-                id: contentFlick
+            // Wrapped in a plain Item so the About page's Storm Band can
+            // overlay the pane's BOTTOM edge (the reference mounts the band
+            // absolutely against the host pane) while the Flickable keeps
+            // its exact geometry. QML ignores indentation — the Flickable
+            // body below is unchanged.
+            Item {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
+            Flickable {
+                id: contentFlick
+                anchors.fill: parent
                 contentHeight: contentColumn.implicitHeight + AppTheme.spacing24 * 2
                 clip: true
                 ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
@@ -3820,21 +3827,26 @@ Item {
                             }
                         }
 
-                        // Storm Band: the procedurally generated pixel-art
-                        // storm landscape closing the About page. Decorative
-                        // only — no pointer interaction, animations stop
-                        // under reduced motion and when the page is hidden.
-                        // backdropColor MUST stay stormDeep (the page color
-                        // this file paints at its root): ThemeTokensTest
-                        // bans the raw themed background token in this file.
-                        StormBand {
-                            objectName: "aboutStormBand"
-                            Layout.fillWidth: true
-                            Layout.topMargin: AppTheme.spacing12
-                            backdropColor: AppTheme.stormDeep
-                        }
                     }
                 }
+            }
+
+            // Storm Band — pinned to the very BOTTOM of the content pane,
+            // exactly as the reference mounts it (absolute against the host
+            // pane, dissolving upward through its alpha mask into whatever
+            // is behind it). Input-transparent; About page only.
+            // backdropColor MUST stay stormDeep (the page color this file
+            // paints at its root): ThemeTokensTest bans the raw themed
+            // background token in this file.
+            StormBand {
+                objectName: "aboutStormBand"
+                visible: root.section === "about"
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                height: 190
+                backdropColor: AppTheme.stormDeep
+            }
             }
         }
     }

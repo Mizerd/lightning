@@ -1010,19 +1010,17 @@ Item {
                         // TextEdit does not inherit the Controls font; the
                         // message body must follow the selected UI family.
                         font.family: AppTheme.uiFont
-                        // Big-emoji sizes tier by count (1 > 2 > 3) and
-                        // shrink in compact/thread presentation; everything
-                        // else keeps the ordinary body sizing. All sizes go
-                        // through AppTheme.scaled so the text-size setting
-                        // applies to large emoji too.
+                        // Big-emoji: one uniform size for every 1-3-emoji
+                        // message, 1.25x Element web's 48px bigEmoji per
+                        // the maintainer's preference, slightly reduced in
+                        // compact/thread presentation. All sizes go through
+                        // AppTheme.scaled so the text-size setting applies
+                        // to large emoji too.
                         font.pixelSize: {
                             if (bodyLabel.bigEmoji) {
-                                var size = bodyLabel.emojiOnlyCount === 1 ? 40
-                                         : bodyLabel.emojiOnlyCount === 2 ? 33
-                                         : 27
-                                if (root.compactMode || root.inThreadPanel)
-                                    size = Math.round(size * 0.8)
-                                return AppTheme.scaled(size)
+                                return AppTheme.scaled(
+                                    root.compactMode || root.inThreadPanel
+                                    ? 48 : 60)
                             }
                             return AppTheme.scaled(
                                 bodyLabel.isMediaCaption ? 12
