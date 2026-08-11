@@ -58,6 +58,13 @@ Item {
         + "&accent=" + hex2(accentColor.r) + hex2(accentColor.g)
         + hex2(accentColor.b)
     function tileUrl(layer) {
+        // review M2: a hidden band generates NOTHING — the component is
+        // instantiated for every Settings section, and a theme switch on
+        // the Appearance page must not regenerate ~20 tiles for a band the
+        // user cannot see. root.visible is read here so every source
+        // binding re-evaluates when the About page shows.
+        if (!root.visible)
+            return ""
         return "image://storm-band/" + layer + root.themeQuery
     }
 

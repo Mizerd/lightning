@@ -3477,4 +3477,64 @@ Rectangle {
             }
         }
     }
+
+    // Files dragged anywhere over the CHAT — not only over the composer —
+    // queue as attachments in the composer's tray (live feedback). DropArea
+    // only consumes drag events, so scrolling and clicks are untouched.
+    DropArea {
+        id: chatDropArea
+        // review H1: never cover the thread surface — ThreadPanel carries
+        // its own DropArea routing to app.thread.addAttachment, and a
+        // pane-wide acceptor here would hijack those drops into the ROOM
+        // composer (CLAUDE.md section 8: thread attachments must use the
+        // thread send path). Side-by-side layouts stop 340px short of the
+        // right edge; the full-width thread layout (<660) collapses this
+        // area to zero and the thread's own DropArea owns every drop.
+        anchors.left: parent.left
+        anchors.top: parent.top
+        anchors.bottom: parent.bottom
+        width: root.threadSurfaceOpen
+               ? (root.width >= 660 ? root.width - 340 : 0)
+               : root.width
+        z: 400
+        enabled: app.composer.attachmentsSupported
+                 && app.currentRoomId.length > 0
+        keys: ["text/uri-list"]
+        onDropped: (drop) => {
+            if (!drop.hasUrls) return
+            for (var i = 0; i < drop.urls.length; ++i)
+                app.composer.addAttachment(drop.urls[i])
+            drop.accept(Qt.CopyAction)
+        }
+    }
+    Rectangle {
+        // The hint mirrors the drop area's thread-excluding geometry.
+        anchors.left: parent.left
+        anchors.top: parent.top
+        anchors.bottom: parent.bottom
+        width: chatDropArea.width
+        visible: chatDropArea.containsDrag
+        z: 400
+        color: "transparent"
+        border.color: AppTheme.focusRing
+        border.width: 2
+        radius: AppTheme.radiusSm
+        Rectangle {
+            anchors.centerIn: parent
+            radius: AppTheme.radiusMd
+            color: AppTheme.surfaceElevated
+            border.color: AppTheme.border
+            border.width: 1
+            width: dropHint.implicitWidth + AppTheme.spacing24
+            height: dropHint.implicitHeight + AppTheme.spacing16
+            Label {
+                id: dropHint
+                anchors.centerIn: parent
+                text: qsTr("Drop files to attach")
+                color: AppTheme.textPrimary
+                font.pixelSize: 13
+                font.weight: Font.DemiBold
+            }
+        }
+    }
 }

@@ -26,6 +26,58 @@ class QmlBindingContractTest : public QObject
     }
 
 private Q_SLOTS:
+    // Live feedback (2026-08-11): a full-screen image closes on a single
+    // click ANYWHERE — the image included, not only the scrim or the X —
+    // while double-click keeps the fit/actual-size toggle. The old handler
+    // deliberately consumed single taps over the image.
+    void imageViewerClosesOnSingleClickAnywhere()
+    {
+        const QString viewer = read(QStringLiteral("ImageViewerOverlay.qml"));
+        QVERIFY(!viewer.isEmpty());
+        QVERIFY(viewer.contains(QStringLiteral(
+            "onSingleTapped: viewer.close()")));
+        QVERIFY(viewer.contains(QStringLiteral("onDoubleTapped:")));
+        QVERIFY(viewer.contains(QStringLiteral(
+            "exclusiveSignals: TapHandler.SingleTap")));
+        // The scrim close stays too.
+        QVERIFY(viewer.contains(QStringLiteral("onTapped: viewer.close()")));
+    }
+
+    // Live feedback (2026-08-11): dropping files anywhere over the CHAT
+    // queues them as composer attachments (the composer's own DropArea only
+    // covered the composer bar), and the tray previews are real: static
+    // thumbnail for images, animated for GIFs, first-frame player poster
+    // for videos, with the remove button preserved.
+    void chatWideDropQueuesAttachmentsWithRichPreviews()
+    {
+        const QString pane = read(QStringLiteral("TimelinePane.qml"));
+        QVERIFY(!pane.isEmpty());
+        QVERIFY(pane.contains(QStringLiteral("id: chatDropArea")));
+        QVERIFY(pane.contains(QStringLiteral(
+            "app.composer.addAttachment(drop.urls[i])")));
+        QVERIFY(pane.contains(QStringLiteral("keys: [\"text/uri-list\"]")));
+        // review H1: the chat-wide area must never cover the thread
+        // surface — ThreadPanel owns its drops (thread send path). The
+        // geometry stops short of the side-by-side panel and collapses to
+        // zero under the full-width thread layout.
+        QVERIFY(pane.contains(QStringLiteral(
+            "width: root.threadSurfaceOpen")));
+        QVERIFY(pane.contains(QStringLiteral(
+            "? (root.width >= 660 ? root.width - 340 : 0)")));
+        QVERIFY(!pane.contains(QStringLiteral(
+            "chatDropArea\n        anchors.fill: parent")));
+
+        const QString composer = read(QStringLiteral("MessageComposerBar.qml"));
+        QVERIFY(!composer.isEmpty());
+        QVERIFY(composer.contains(QStringLiteral("isGifChip")));
+        QVERIFY(composer.contains(QStringLiteral("isVideoChip")));
+        QVERIFY(composer.contains(QStringLiteral(
+            "onClicked: app.composer.attachments.removeAt(index)")));
+        // The video poster player renders exactly the first frame.
+        QVERIFY(composer.contains(QStringLiteral(
+            "MediaPlayer.LoadedMedia")));
+    }
+
     void dialogsHaveIndependentBoundedWidths()
     {
         const QString roomInfo = read(QStringLiteral("RoomInfoPanel.qml"));

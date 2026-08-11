@@ -1196,6 +1196,11 @@ Rectangle {
     EmojiPicker {
         id: threadEmojiPicker
         mode: "composer"
+        // review L4: same sticky behaviour as the room composer — several
+        // emoji per open; close with Escape / the button / clicking
+        // outside. The handler never steals focus, so the picker keeps its
+        // keyboard path across picks.
+        closeAfterSelection: false
         onEmojiChosen: (emoji) => {
             threadComposerInput.insert(threadComposerInput.cursorPosition,
                                        emoji)

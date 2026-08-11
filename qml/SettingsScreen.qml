@@ -3827,6 +3827,14 @@ Item {
                             }
                         }
 
+                        // review L5: reserve the Storm Band's height at the
+                        // end of the About column so the content can always
+                        // scroll clear of the overlay's opaque lower part
+                        // on short windows.
+                        Item {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: 190
+                        }
                     }
                 }
             }

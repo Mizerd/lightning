@@ -278,16 +278,25 @@ Popup {
                     width: Math.max(flick.width, viewer.baseWidth * viewer.zoom)
                     height: Math.max(flick.height, viewer.baseHeight * viewer.zoom)
 
-                    // Consume single taps over the image so only scrim
-                    // clicks close; double-click toggles fit/actual size
-                    // centered at the click point.
+                    // A single click ANYWHERE — image included — closes the
+                    // viewer (live feedback: closing must never require the
+                    // X button); double-click still toggles fit/actual size
+                    // centered at the click point. Exclusive signals mean a
+                    // double-click never first fires the single-tap close —
+                    // the deliberate cost is that a single click waits out
+                    // the platform double-click interval (~400ms) before
+                    // closing. While zoomed, the Flickable steals drags for
+                    // panning; on a fitted image a within-bounds
+                    // press-drag-release also counts as a tap and closes,
+                    // which is acceptable — there is nothing to pan.
                     TapHandler {
                         id: imageTap
                         gesturePolicy: TapHandler.WithinBounds
-                        onTapped: {
+                        exclusiveSignals: TapHandler.SingleTap
+                                          | TapHandler.DoubleTap
+                        onSingleTapped: viewer.close()
+                        onDoubleTapped: {
                             chrome.wake()
-                            if (imageTap.tapCount !== 2)
-                                return
                             var p = imageTap.point.position
                             var vp = imageHolder.mapToItem(
                                 flick.contentItem, p.x, p.y)

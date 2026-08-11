@@ -3,6 +3,7 @@ import QtQuick.Controls
 import QtQuick.Dialogs
 import QtQuick.Effects
 import QtQuick.Layouts
+import QtMultimedia
 import MatrixClient
 
 // The main message composer (SPEC-composer-settings-buttons §2): ONE card at
@@ -70,7 +71,13 @@ Item {
         input.insert(start, emoji)
         input.cursorPosition = start + emoji.length
         app.composer.text = input.text
-        input.forceActiveFocus()
+        // review M1: while the sticky picker stays open, focus STAYS with
+        // it — stealing focus back here killed keyboard multi-pick (the
+        // grid's Return/Space path needs the grid focused) and routed
+        // Escape to the composer's cancel-edit handler instead of closing
+        // the picker. The picker's onClosed already restores input focus.
+        if (!emojiPicker.opened || emojiPicker.closeAfterSelection)
+            input.forceActiveFocus()
     }
 
     EmojiPicker {
@@ -378,18 +385,111 @@ Item {
                         anchors.centerIn: parent
                         spacing: AppTheme.spacingXS
 
-                        // Local image preview for picked files; icon otherwise.
-                        Image {
-                            visible: model.isImage && model.localUrl.toString().length > 0
-                            source: visible ? model.localUrl : ""
-                            sourceSize.width: 40
-                            sourceSize.height: 40
-                            fillMode: Image.PreserveAspectCrop
-                            width: 32; height: 32
-                            asynchronous: true
+                        readonly property bool hasLocalFile:
+                            model.localUrl.toString().length > 0
+                        // review L2: guarded — model roles can resolve
+                        // undefined during delegate teardown.
+                        readonly property bool isGifChip:
+                            (model.mime || "") === "image/gif"
+                        readonly property bool isVideoChip:
+                            (model.mime || "").indexOf("video/") === 0
+
+                        // Preview tile (live feedback): images get a real
+                        // thumbnail, GIFs animate, and videos show their
+                        // first frame through a muted, paused, per-chip
+                        // player — bounded by the tray size and destroyed
+                        // with the chip on remove/send.
+                        Rectangle {
+                            visible: chipLayout.hasLocalFile
+                                     && (model.isImage || chipLayout.isVideoChip)
+                            width: 64; height: 48
+                            radius: AppTheme.radiusSm
+                            color: AppTheme.surface
+                            clip: true
+
+                            Image {
+                                anchors.fill: parent
+                                visible: model.isImage && !chipLayout.isGifChip
+                                source: visible ? model.localUrl : ""
+                                sourceSize.width: 128
+                                fillMode: Image.PreserveAspectCrop
+                                asynchronous: true
+                            }
+                            AnimatedImage {
+                                anchors.fill: parent
+                                visible: chipLayout.isGifChip
+                                source: visible ? model.localUrl : ""
+                                fillMode: Image.PreserveAspectCrop
+                                asynchronous: true
+                                playing: visible
+                            }
+                            Loader {
+                                id: chipVideoLoader
+                                anchors.fill: parent
+                                // review M3: BOUNDED decoders — only the
+                                // first few video chips instantiate a
+                                // poster player; a 30-video drop must not
+                                // open 30 demuxers at once. Later chips
+                                // keep the styled tile + play glyph.
+                                active: chipLayout.isVideoChip
+                                        && chipLayout.hasLocalFile
+                                        && index < 4
+                                property bool posterFailed: false
+                                sourceComponent: Item {
+                                    VideoOutput {
+                                        id: chipVideoOut
+                                        anchors.fill: parent
+                                        fillMode: VideoOutput.PreserveAspectCrop
+                                    }
+                                    MediaPlayer {
+                                        property bool posterDone: false
+                                        source: model.localUrl
+                                        videoOutput: chipVideoOut
+                                        // No audioOutput: sound discarded.
+                                        onMediaStatusChanged: {
+                                            // Render exactly the first
+                                            // frame, then hold (one-shot —
+                                            // review L3).
+                                            if (mediaStatus
+                                                    === MediaPlayer.LoadedMedia
+                                                && !posterDone) {
+                                                posterDone = true
+                                                play()
+                                                pause()
+                                                position = 0
+                                            }
+                                        }
+                                        onErrorOccurred:
+                                            chipVideoLoader.posterFailed = true
+                                    }
+                                }
+                            }
+                            Icon {
+                                // Video chips without a live poster player
+                                // (beyond the decoder cap, or the file did
+                                // not decode — review L3) still identify
+                                // themselves.
+                                anchors.centerIn: parent
+                                visible: chipLayout.isVideoChip
+                                         && (!chipVideoLoader.active
+                                             || chipVideoLoader.posterFailed)
+                                name: "videocam"
+                                size: 18
+                                color: AppTheme.textMuted
+                            }
+                            Icon {
+                                anchors.centerIn: parent
+                                visible: chipLayout.isVideoChip
+                                         && chipVideoLoader.active
+                                         && !chipVideoLoader.posterFailed
+                                name: "play_arrow"
+                                size: 18
+                                color: AppTheme.scrimInk
+                            }
                         }
                         Icon {
-                            visible: !model.isImage || model.localUrl.toString().length === 0
+                            visible: !chipLayout.hasLocalFile
+                                     || (!model.isImage && !chipLayout.isVideoChip)
                             name: model.isImage ? "image" : "attach_file"
                             size: 16
                         }

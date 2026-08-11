@@ -93,7 +93,15 @@ QImage imageForId(const QString &id);
 class StormBandImageProvider : public QQuickImageProvider
 {
 public:
-    StormBandImageProvider() : QQuickImageProvider(QQuickImageProvider::Image) {}
+    // review M2: force asynchronous loading for every consumer — tile
+    // generation is real pixel work (the exact-port painters), and without
+    // this flag a plain Image without asynchronous:true generates on the
+    // GUI thread, stalling the very Appearance page a theme switch happens
+    // on.
+    StormBandImageProvider()
+        : QQuickImageProvider(QQuickImageProvider::Image,
+                              QQmlImageProviderBase::ForceAsynchronousImageLoading)
+    {}
     QImage requestImage(const QString &id, QSize *size,
                         const QSize &requestedSize) override;
 };
