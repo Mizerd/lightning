@@ -130,10 +130,11 @@ public:
         // Element-style read-receipt chips: OTHER users whose read receipt
         // points at this event, newest first, as a list of
         // {userId, displayName, avatarMxc, tsMs}. Excluded (Element
-        // convention): the local user, and the row's SENDER — the SDK
-        // synthesizes an implicit receipt for every event's sender, which
-        // would otherwise pin a permanent "read by the author" chip to
-        // their latest message. Names/avatars resolve live through the
+        // convention): ONLY the local user. A user's marker renders even
+        // on their own message (the SDK's implicit sender receipt) — that
+        // is how a DM says "they have read up to here"; hiding it made
+        // receipts vanish the moment the other side sent (live two-device
+        // report, 2026-08-11). Names/avatars resolve live through the
         // same member lookup as every other identity. Thread timelines
         // always answer an empty list: their builders deliberately leave
         // SDK receipt tracking Disabled (the SDK's receipt handling is not
@@ -141,11 +142,11 @@ public:
         // thread rows).
         ReadReceiptsRole,
         // Companion count for the "+N" overflow chip: total OTHER readers
-        // (uncapped server-side count minus the exclusions above), >= the
-        // list size ReadReceiptsRole answers. The FFI window is capped at
-        // 16 newest receipts, so exclusions hiding beyond the window can
-        // overcount by at most 2 in >16-reader rooms — conservative, never
-        // an undercount of what is visibly shown.
+        // (uncapped server-side count minus the self exclusion above), >=
+        // the list size ReadReceiptsRole answers. The FFI window is capped
+        // at 16 newest receipts, so a self-receipt hiding beyond the
+        // window can overcount by at most 1 in >16-reader rooms —
+        // conservative, never an undercount of what is visibly shown.
         ReadReceiptsTotalRole,
     };
 

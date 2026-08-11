@@ -337,20 +337,23 @@ QVariantList TimelineModel::pollAnswersVariant(const TimelineEvent &e) const
 
 QVariantList TimelineModel::readReceiptsVariant(const TimelineEvent &e) const
 {
-    // Element convention: the user's own receipt is never shown, and
-    // neither is the row SENDER's — the SDK synthesizes an implicit
-    // receipt for every event's sender, so without this a sender's latest
-    // message would permanently carry a "read by its author" chip even
-    // when nobody else read it. The exclusions live HERE (one presentation
-    // rule for every backend), not in the FFI mirror. Newest readers first
-    // so the bounded chip stack and its "+N" overflow always show the most
-    // recent readers. Identity resolution mirrors senderDisplayName():
-    // member lookup first, then the LOCALPART — the complete MXID is never
-    // the visible label.
+    // Element convention: ONLY the user's own receipt is hidden. Every
+    // other user's marker renders wherever it points — INCLUDING on that
+    // user's own message (the SDK's implicit sender receipt): that is
+    // precisely how a DM says "they have read up to here", and their chip
+    // rides their latest message until they read something newer. The old
+    // extra sender-exclusion made receipts vanish asymmetrically the
+    // moment someone sent (live two-device report, 2026-08-11: one side
+    // showed the read bubble, the other showed nothing). The exclusion
+    // lives HERE (one presentation rule for every backend), not in the
+    // FFI mirror. Newest readers first so the bounded chip stack and its
+    // "+N" overflow always show the most recent readers. Identity
+    // resolution mirrors senderDisplayName(): member lookup first, then
+    // the LOCALPART — the complete MXID is never the visible label.
     QList<ReadReceipt> receipts;
     receipts.reserve(e.readBy.size());
     for (const auto &r : e.readBy) {
-        if (r.userId != m_selfUserId && r.userId != e.sender)
+        if (r.userId != m_selfUserId)
             receipts.append(r);
     }
     std::stable_sort(receipts.begin(), receipts.end(),
@@ -574,13 +577,13 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
     case ReadReceiptsRole:       return readReceiptsVariant(e);
     case ReadReceiptsTotalRole: {
         // Total OTHER readers for the "+N" chip: the uncapped server-side
-        // count minus the presentation exclusions (self, sender) found in
-        // the delivered window. Exclusions hiding beyond the capped window
-        // cannot be detected — bounded overcount of at most 2, only in
-        // >16-reader rooms; never an undercount of what is shown.
+        // count minus the single presentation exclusion (self) when found
+        // in the delivered window. A self-receipt hiding beyond the capped
+        // window cannot be detected — bounded overcount of at most 1, only
+        // in >16-reader rooms; never an undercount of what is shown.
         int excluded = 0;
         for (const auto &r : e.readBy) {
-            if (r.userId == m_selfUserId || r.userId == e.sender)
+            if (r.userId == m_selfUserId)
                 ++excluded;
         }
         const int reported =

@@ -508,11 +508,13 @@ void TimelineModelDiffTest::readReceiptsRoleResolvesExcludesSelfAndSortsNewestFi
     m_client->avatarMxc.insert(QStringLiteral("@carol:example.org"),
                                QStringLiteral("mxc://example.org/carol"));
 
-    // Sender is @alice (makeEvent). Own receipt first (excluded), then the
-    // SENDER's implicit receipt (excluded — the SDK synthesizes one for
-    // every event's author, which must never render a permanent "read by
-    // its author" chip), then two genuine other readers with Carol's
-    // receipt OLDER than the unknown member's.
+    // Sender is @alice (makeEvent). Own receipt first (the ONLY
+    // exclusion), then the SENDER's implicit receipt — SHOWN, exactly
+    // like Element: a user's marker rides their own latest message until
+    // they read something newer (the 2026-08-11 two-device report was the
+    // old sender-exclusion making receipts vanish the moment the other
+    // side sent). Then two genuine other readers with Carol's receipt
+    // OLDER than the unknown member's.
     TimelineEvent read = makeEvent(QStringLiteral("$read"),
                                    QStringLiteral("seen by others"));
     read.readBy = {
@@ -527,28 +529,30 @@ void TimelineModelDiffTest::readReceiptsRoleResolvesExcludesSelfAndSortsNewestFi
     const auto idx = m_model->index(2);
     const QVariantList receipts =
         m_model->data(idx, TimelineModel::ReadReceiptsRole).toList();
-    // Neither the local user nor the sender is ever shown.
-    QCOMPARE(receipts.size(), 2);
-    // Newest reader first.
-    const QVariantMap newest = receipts.at(0).toMap();
-    QCOMPARE(newest.value(QStringLiteral("userId")).toString(),
+    // Only the local user is hidden — the sender's own marker renders.
+    QCOMPARE(receipts.size(), 3);
+    // Newest reader first: the sender's implicit receipt is newest here.
+    QCOMPARE(receipts.at(0).toMap().value(QStringLiteral("userId")).toString(),
+             QStringLiteral("@alice:example.org"));
+    const QVariantMap unknown = receipts.at(1).toMap();
+    QCOMPARE(unknown.value(QStringLiteral("userId")).toString(),
              QStringLiteral("@unknown:example.org"));
-    QCOMPARE(newest.value(QStringLiteral("tsMs")).toLongLong(),
+    QCOMPARE(unknown.value(QStringLiteral("tsMs")).toLongLong(),
              Q_INT64_C(1700000003000));
     // Unresolved member: LOCALPART fallback, never the bare MXID.
-    QCOMPARE(newest.value(QStringLiteral("displayName")).toString(),
+    QCOMPARE(unknown.value(QStringLiteral("displayName")).toString(),
              QStringLiteral("unknown"));
-    QVERIFY(newest.value(QStringLiteral("avatarMxc")).toString().isEmpty());
-    const QVariantMap carol = receipts.at(1).toMap();
+    QVERIFY(unknown.value(QStringLiteral("avatarMxc")).toString().isEmpty());
+    const QVariantMap carol = receipts.at(2).toMap();
     QCOMPARE(carol.value(QStringLiteral("displayName")).toString(),
              QStringLiteral("Carol"));
     QCOMPARE(carol.value(QStringLiteral("avatarMxc")).toString(),
              QStringLiteral("mxc://example.org/carol"));
 
     // Companion total: no explicit readByTotal → the delivered list (4)
-    // minus the two exclusions found in it.
+    // minus the one exclusion (self) found in it.
     QCOMPARE(m_model->data(idx, TimelineModel::ReadReceiptsTotalRole).toInt(),
-             2);
+             3);
 
     // A DIFFERENT user's receipt on the sender's own message still shows:
     // exclusion keys on the receipt's user, never on the row having an

@@ -1725,8 +1725,9 @@ Item {
 
         // Element-style read-receipt chips: a small stack of the OTHER
         // users whose read receipt points at this message (the model
-        // already excludes the local user AND the sender's implicit
-        // receipt, and sorts newest first). Bounded to 4 avatars + a "+N"
+        // excludes ONLY the local user and sorts newest first — a user's
+        // marker renders even on their own message, which is how a DM
+        // says "read up to here"). Bounded to 4 avatars + a "+N"
         // overflow chip fed by the uncapped readReceiptsTotal. Invisible
         // when the list is empty — a ColumnLayout skips invisible children
         // entirely, so an unread message keeps exactly its previous

@@ -31,17 +31,22 @@ across pagination inserts and member hydration),
 A receipt move is `Set(old row)` then `Set(new row)` — the SDK associates
 each user's receipt with the newest visible item at or before their read
 position, so advancing legitimately REMOVES the chip from the older row.
-Two consequences are by design (and match Element):
+One consequence is by design (and matches Element):
 
-1. **Sending hides your receipt.** The SDK synthesizes an implicit receipt
-   for every event's sender; the model excludes the row sender's own
-   receipt. When user U sends a message, U's receipt moves onto U's own
-   message and is therefore not rendered anywhere until U reads someone
-   else's newer message. In a two-person room this looks exactly like "the
-   chips swap between us".
-2. **The 16-receipt window.** Rust serializes the newest 16 receipts per
-   row plus an uncapped total; on a crowded row a specific person can be
-   legitimately absent from the chips while counted in "+N".
+- **The 16-receipt window.** Rust serializes the newest 16 receipts per
+  row plus an uncapped total; on a crowded row a specific person can be
+  legitimately absent from the chips while counted in "+N".
+
+**Fixed 2026-08-12 — the sender-exclusion defect.** Until then the model
+ALSO hid a user's receipt whenever it sat on that user's own message (the
+SDK's implicit sender receipt), under the mistaken belief this matched
+Element. It does not: Element renders the other user's marker on their own
+last message — that is how a DM says "they have read up to here". The
+exclusion made receipts vanish asymmetrically the moment one side sent (a
+live two-device Lightning-vs-Lightning capture showed one device with a
+read bubble and the other with none). The model now excludes ONLY the
+local user; a sender's marker rides their own latest message until they
+read something newer.
 
 ## Lightning-side mitigation landed this round
 

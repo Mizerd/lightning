@@ -355,10 +355,13 @@ backend capability checks and honest live-test status.
 - Text, rich replies, edits, reactions, redactions, typing indicators, read
   receipts, mentions, and room-state activity rows
 - Element-style read-receipt chips on live-room rows (newest 16 receipts
-  cross the bridge with a truthful uncapped total; the row's own sender and
-  the local user are excluded because the SDK synthesizes an implicit sender
-  receipt). Thread timeline builders deliberately keep receipt tracking
-  Disabled — SDK receipts are not thread-aware
+  cross the bridge with a truthful uncapped total; ONLY the local user is
+  excluded — since 2026-08-12 a user's marker renders even on their own
+  message, matching real Element behavior; the earlier extra
+  sender-exclusion made receipts vanish asymmetrically when the other side
+  sent, see docs/receipt-semantics.md). Thread timeline builders
+  deliberately keep receipt tracking Disabled — SDK receipts are not
+  thread-aware
 - Images, files, clipboard images, encrypted attachments, media viewing/saving,
   animated GIF attachments, and validated direct-raster inline previews
 - Backward pagination and retry, stable navigation, loaded-timeline search,
