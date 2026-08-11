@@ -350,8 +350,15 @@ windows-package-test:
     when: always
     access: developer
     expire_in: 7 days
+    # Only the finished installers + validation reports. The raw Lightning/
+    # staging tree is already inside the portable zip, and archiving it
+    # again pushed the artifact past the instance's 1 GiB cap — the job
+    # then "succeeded" with no archive stored at all (pipeline 84).
     paths:
-      - dist/windows/
+      - dist/windows/*-portable.zip
+      - dist/windows/*.msi
+      - dist/windows/*-setup.exe
+      - dist/windows/reports/
 
 # Windows is a first-class release target since 0.6.3. In a publishing pipeline
 # this builds AND validates the portable/MSI/setup artifacts (build-windows.sh
