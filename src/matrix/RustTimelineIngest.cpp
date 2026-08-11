@@ -4,7 +4,14 @@
 
 #include <QCoreApplication>
 #include <QDateTime>
+#include <QLoggingCategory>
 #include <QTimeZone>
+
+// Bounded, sanitized receipt-movement diagnostics (off by default). A live
+// "receipts disappeared" report needs to distinguish a Set that legitimately
+// moved a receipt from one the SDK never delivered; this logs COUNTS only —
+// never user ids, bodies, or event content.
+Q_LOGGING_CATEGORY(lcReceiptDiag, "matrix.receipts", QtWarningMsg)
 
 namespace matrix::rust_timeline {
 
@@ -313,6 +320,17 @@ DiffOutcome applyTimelineDiff(QList<TimelineEvent> &mirror,
             || !diff.contains(QStringLiteral("item")))
             return out;
         out.items.append(singleItem());
+        if (Q_UNLIKELY(lcReceiptDiag().isDebugEnabled())) {
+            const int before = mirror.at(index).readBy.size();
+            const int after = out.items.first().readBy.size();
+            if (before != after) {
+                qCDebug(lcReceiptDiag)
+                    << "set moved receipts index=" << index
+                    << "before=" << before << "after=" << after
+                    << "totalBefore=" << mirror.at(index).readByTotal
+                    << "totalAfter=" << out.items.first().readByTotal;
+            }
+        }
         mirror[index] = out.items.first();
         out.kind = DiffOutcome::Changed;
         out.index = index;

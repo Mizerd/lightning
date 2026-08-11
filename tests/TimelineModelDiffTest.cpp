@@ -138,6 +138,11 @@ private Q_SLOTS:
     void readReceiptsUpdateViaSetDiffAndMemberHydration();
     void receiptOnlySetKeepsThreadIndexWithoutRebuild();
     void readMarkerRowsStayReceiptFreeWithoutIndexDrift();
+    // The live "receipts disappear / swap between users" report: two remote
+    // readers advancing independently through the exact adjacent Set pairs
+    // the SDK emits, across pagination inserts and member hydration —
+    // each reader's latest position must stay represented throughout.
+    void twoReadersAdvanceIndependentlyWithoutLoss();
     // v0.6.1 loaded-timeline search.
     void searchFindsMatchesAndNavigatesWithWrap();
     void searchUpdatesOnPaginationInsert();
@@ -677,6 +682,91 @@ void TimelineModelDiffTest::receiptOnlySetKeepsThreadIndexWithoutRebuild()
     QVERIFY(!m_model->data(rootIdx, TimelineModel::IsThreadRootRole).toBool());
     QCOMPARE(m_model->data(rootIdx,
                            TimelineModel::ThreadReplyCountRole).toInt(), 0);
+}
+
+void TimelineModelDiffTest::twoReadersAdvanceIndependentlyWithoutLoss()
+{
+    // Helper: the OTHER-reader user ids a row currently represents.
+    const auto readersOf = [this](int row) {
+        QStringList ids;
+        const QVariantList receipts =
+            m_model->data(m_model->index(row),
+                          TimelineModel::ReadReceiptsRole).toList();
+        for (const QVariant &r : receipts)
+            ids.append(r.toMap().value(QStringLiteral("userId")).toString());
+        return ids;
+    };
+    const QString anna = QStringLiteral("@anna:example.org");
+    const QString ben = QStringLiteral("@ben:example.org");
+
+    // Rows: index 0 = $e0, 1 = $e1 (from init). Both readers start with a
+    // known position on $e1.
+    TimelineEvent m1 = makeEvent(QStringLiteral("$e1"), QStringLiteral("m1"));
+    m1.readBy = { { anna, Q_INT64_C(1700000001000) },
+                  { ben, Q_INT64_C(1700000002000) } };
+    m_client->mirror[1] = m1;
+    Q_EMIT m_client->eventChangedAt(kRoom, 1, m1);
+    QCOMPARE(readersOf(1), QStringList({ ben, anna })); // newest first
+
+    // A new message arrives, then ANNA advances to it. matrix-sdk-ui emits
+    // the adjacent pair Set(old row without anna) then Set(new row with
+    // anna) — apply exactly that. Ben must remain represented at his
+    // previous latest-read position.
+    TimelineEvent m2 = makeEvent(QStringLiteral("$e2"), QStringLiteral("m2"));
+    m_client->mirror.append(m2);
+    Q_EMIT m_client->eventAppended(kRoom, m2);
+    TimelineEvent m1OnlyBen = m1;
+    m1OnlyBen.readBy = { { ben, Q_INT64_C(1700000002000) } };
+    m_client->mirror[1] = m1OnlyBen;
+    Q_EMIT m_client->eventChangedAt(kRoom, 1, m1OnlyBen);
+    TimelineEvent m2Anna = m2;
+    m2Anna.readBy = { { anna, Q_INT64_C(1700000003000) } };
+    m_client->mirror[2] = m2Anna;
+    Q_EMIT m_client->eventChangedAt(kRoom, 2, m2Anna);
+    QCOMPARE(readersOf(1), QStringList({ ben }));
+    QCOMPARE(readersOf(2), QStringList({ anna }));
+
+    // BEN advances too: the pair empties $e1 and joins him to $e2. Anna
+    // must remain represented at her latest position.
+    TimelineEvent m1Empty = m1OnlyBen;
+    m1Empty.readBy.clear();
+    m_client->mirror[1] = m1Empty;
+    Q_EMIT m_client->eventChangedAt(kRoom, 1, m1Empty);
+    TimelineEvent m2Both = m2Anna;
+    m2Both.readBy = { { anna, Q_INT64_C(1700000003000) },
+                      { ben, Q_INT64_C(1700000004000) } };
+    m_client->mirror[2] = m2Both;
+    Q_EMIT m_client->eventChangedAt(kRoom, 2, m2Both);
+    QVERIFY(readersOf(1).isEmpty());
+    QCOMPARE(readersOf(2), QStringList({ ben, anna }));
+
+    // Pagination inserts an older page at the top: indexes shift, receipts
+    // stay attached to their events.
+    TimelineEvent older = makeEvent(QStringLiteral("$older"),
+                                    QStringLiteral("history"));
+    m_client->mirror.insert(0, older);
+    Q_EMIT m_client->eventInsertedAt(kRoom, 0, older);
+    QCOMPARE(m_model->data(m_model->index(3),
+                           TimelineModel::EventIdRole).toString(),
+             QStringLiteral("$e2"));
+    QCOMPARE(readersOf(3), QStringList({ ben, anna }));
+    QVERIFY(readersOf(0).isEmpty());
+
+    // Member hydration re-announces receipt roles without dropping anyone,
+    // and resolves display names in place.
+    m_client->displayNames.insert(anna, QStringLiteral("Anna"));
+    m_client->displayNames.insert(ben, QStringLiteral("Ben"));
+    Q_EMIT m_client->membersChanged(kRoom);
+    QCOMPARE(readersOf(3), QStringList({ ben, anna }));
+    const QVariantList hydrated =
+        m_model->data(m_model->index(3),
+                      TimelineModel::ReadReceiptsRole).toList();
+    QCOMPARE(hydrated.at(0).toMap()
+                 .value(QStringLiteral("displayName")).toString(),
+             QStringLiteral("Ben"));
+    QCOMPARE(hydrated.at(1).toMap()
+                 .value(QStringLiteral("displayName")).toString(),
+             QStringLiteral("Anna"));
 }
 
 void TimelineModelDiffTest::readMarkerRowsStayReceiptFreeWithoutIndexDrift()

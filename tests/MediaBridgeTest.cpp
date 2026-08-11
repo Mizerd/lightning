@@ -1141,6 +1141,193 @@ private Q_SLOTS:
                  QString::fromLatin1(QCryptographicHash::hash(
                      second, QCryptographicHash::Sha256).toHex()));
     }
+
+    // v0.7 media round: request priority. The old single FIFO dispatched
+    // strictly in arrival order, so a pressed-play track waited behind a
+    // page of speculative full-GIF prefetches.
+    void playbackClassJumpsQueueAheadOfSpeculative()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        for (int i = 0; i < 8; ++i)
+            bridge.mediaSource(QStringLiteral("$m%1").arg(i),
+                               QStringLiteral("thumb"));
+        QCOMPARE(client.fetches.size(), 8);
+        bridge.animatedSource(QStringLiteral("$gif1"));
+        bridge.animatedSource(QStringLiteral("$gif2"));
+        bridge.playableSource(QStringLiteral("$song"));
+        QCOMPARE(bridge.queuedCountForTest(), 3);
+        client.succeed(client.fetches.at(0).opId, QByteArray("img"));
+        QCOMPARE(client.fetches.size(), 9);
+        QCOMPARE(client.fetches.last().key, QStringLiteral("$song"));
+        QCOMPARE(client.fetches.last().timeoutClass, 1);
+    }
+
+    // Heavy classes (full static media, speculative prefetch) never occupy
+    // every slot: interactive chrome keeps reserved headroom, so eight
+    // multi-megabyte GIF prefetches cannot make the room's avatars wait.
+    void heavySlotsLeaveHeadroomForInteractive()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        for (int i = 0; i < 8; ++i)
+            bridge.animatedSource(QStringLiteral("$gif%1").arg(i));
+        QCOMPARE(client.fetches.size(), 6); // heavy cap
+        QCOMPARE(bridge.queuedCountForTest(), 2);
+        bridge.avatarSource(kMxc, 48);
+        QCOMPARE(client.fetches.size(), 7); // reserved slot, no queueing
+        QCOMPARE(client.fetches.last().key, kMxc);
+        // A finished heavy fetch pumps the queued heavy work back in.
+        client.succeed(client.fetches.at(0).opId,
+                       QByteArray("GIF89a") + QByteArray(16, 'g'),
+                       QStringLiteral("image/gif"));
+        QCOMPARE(client.fetches.size(), 8);
+    }
+
+    // Bounded starvation: strict priority yields to the oldest entry once
+    // it has waited past the guard, so speculative work is delayed, never
+    // parked forever.
+    void starvedSpeculativeEventuallyDispatches()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        bridge.setStarvationMsForTest(0);
+        for (int i = 0; i < 8; ++i)
+            bridge.mediaSource(QStringLiteral("$m%1").arg(i),
+                               QStringLiteral("thumb"));
+        bridge.animatedSource(QStringLiteral("$gif"));
+        bridge.mediaSource(QStringLiteral("$late"), QStringLiteral("thumb"));
+        QCOMPARE(bridge.queuedCountForTest(), 2);
+        client.succeed(client.fetches.at(0).opId, QByteArray("img"));
+        // With the guard at 0 the OLDEST queued entry wins even though the
+        // newer thumbnail has the higher priority.
+        QCOMPARE(client.fetches.last().key, QStringLiteral("$gif"));
+    }
+
+    // A live player's materialized file is never deleted under it: pinned
+    // entries are skipped by the LRU and become evictable again on unpin.
+    void pinnedPlayableSurvivesEviction()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        bridge.setPlayableCapsForTest(2, 64 * 1024 * 1024);
+        // Above kLargeCacheSkipBytes so the payload lives ONLY as the
+        // materialized file — a small payload would silently re-materialize
+        // from the RAM cache and hide the eviction under test.
+        const auto flac = [](char fill) {
+            return QByteArray("fLaC") + QByteArray(9 * 1024 * 1024, fill);
+        };
+        bridge.playableSource(QStringLiteral("$a"));
+        client.succeed(client.fetches.at(0).opId, flac('a'),
+                       QStringLiteral("audio/flac"));
+        const QString urlA = bridge.playableSource(QStringLiteral("$a"));
+        QVERIFY(urlA.startsWith(QLatin1String("file://")));
+        bridge.pinPlayable(QStringLiteral("$a"));
+
+        bridge.playableSource(QStringLiteral("$b"));
+        client.succeed(client.fetches.at(1).opId, flac('b'),
+                       QStringLiteral("audio/flac"));
+        bridge.playableSource(QStringLiteral("$c"));
+        client.succeed(client.fetches.at(2).opId, flac('c'),
+                       QStringLiteral("audio/flac"));
+
+        // Cap 2 with three files: the unpinned $b was the victim, the
+        // pinned $a survives on disk.
+        QVERIFY(QFileInfo::exists(QUrl(urlA).toLocalFile()));
+        QVERIFY(!bridge.playableSource(QStringLiteral("$a")).isEmpty());
+        const int fetchesBefore = client.fetches.size();
+        QVERIFY(bridge.playableSource(QStringLiteral("$b")).isEmpty());
+        QCOMPARE(client.fetches.size(), fetchesBefore + 1); // re-dispatch
+
+        // review L1: pins are REFCOUNTED — a second card pinning the same
+        // event keeps the file protected after the first card resets.
+        bridge.pinPlayable(QStringLiteral("$a"));   // second holder
+        bridge.unpinPlayable(QStringLiteral("$a")); // first releases
+        bridge.playableSource(QStringLiteral("$x1"));
+        client.succeed(client.fetches.last().opId, flac('x'),
+                       QStringLiteral("audio/flac"));
+        bridge.playableSource(QStringLiteral("$x2"));
+        client.succeed(client.fetches.last().opId, flac('y'),
+                       QStringLiteral("audio/flac"));
+        QVERIFY(QFileInfo::exists(QUrl(urlA).toLocalFile()));
+
+        // Unpinned by the LAST holder, $a becomes an ordinary victim again
+        // — further inserts walk the LRU past it.
+        bridge.unpinPlayable(QStringLiteral("$a"));
+        bridge.playableSource(QStringLiteral("$d"));
+        client.succeed(client.fetches.last().opId, flac('d'),
+                       QStringLiteral("audio/flac"));
+        bridge.playableSource(QStringLiteral("$e"));
+        client.succeed(client.fetches.last().opId, flac('e'),
+                       QStringLiteral("audio/flac"));
+        QVERIFY(!QFileInfo::exists(QUrl(urlA).toLocalFile()));
+    }
+
+    // The observed live failure: a "thumb" result can arrive labelled with
+    // the parent video's MIME — and a homeserver that cannot thumbnail may
+    // even answer with the original A/V payload. The bytes decide: A/V
+    // containers never enter the image path; genuine image bytes pass
+    // regardless of the mislabeled MIME; full-media fetches are untouched.
+    void thumbPayloadSniffingRejectsAvContainers()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        QSignalSpy failed(&bridge, &MediaBridge::mediaFetchFailed);
+        QSignalSpy cached(&bridge, &MediaBridge::mediaCached);
+
+        bridge.mediaSource(QStringLiteral("$vid"), QStringLiteral("thumb"));
+        QByteArray mp4 = QByteArray("\x00\x00\x00\x18", 4)
+            + QByteArray("ftypisom") + QByteArray(16, '\0');
+        client.succeed(client.fetches.at(0).opId, mp4,
+                       QStringLiteral("video/mp4"));
+        QCOMPARE(failed.count(), 1);
+        QCOMPARE(failed.at(0).at(1).toString(), QStringLiteral("rejected"));
+        QCOMPARE(cached.count(), 0);
+        QVERIFY(bridge.cachedBytes(QStringLiteral("thumb:$vid")).isEmpty());
+
+        bridge.retry(QStringLiteral("thumb:$vid"));
+        bridge.mediaSource(QStringLiteral("$vid"), QStringLiteral("thumb"));
+        QByteArray jpeg;
+        jpeg.append('\xff');
+        jpeg.append('\xd8');
+        jpeg.append('\xff');
+        jpeg.append(QByteArray(16, 'j'));
+        client.succeed(client.fetches.at(1).opId, jpeg,
+                       QStringLiteral("video/mp4"));
+        QCOMPARE(cached.count(), 1);
+        QVERIFY(!bridge.cachedBytes(QStringLiteral("thumb:$vid")).isEmpty());
+
+        bridge.mediaSource(QStringLiteral("$file"), QStringLiteral("full"));
+        client.succeed(client.fetches.at(2).opId, mp4,
+                       QStringLiteral("video/mp4"));
+        QCOMPARE(cached.count(), 2);
+    }
+
+    // Room switch drops QUEUED speculative prefetches (their delegates are
+    // gone); queued interactive work and in-flight ops are untouched.
+    void droppedSpeculativeQueueEntriesNeverDispatch()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        for (int i = 0; i < 8; ++i)
+            bridge.mediaSource(QStringLiteral("$m%1").arg(i),
+                               QStringLiteral("thumb"));
+        bridge.animatedSource(QStringLiteral("$gif"));
+        bridge.mediaSource(QStringLiteral("$keep"), QStringLiteral("thumb"));
+        QCOMPARE(bridge.queuedCountForTest(), 2);
+        bridge.dropQueuedSpeculative();
+        QCOMPARE(bridge.queuedCountForTest(), 1);
+        client.succeed(client.fetches.at(0).opId, QByteArray("img"));
+        QCOMPARE(client.fetches.last().key, QStringLiteral("$keep"));
+        client.succeed(client.fetches.at(1).opId, QByteArray("img"));
+        QCOMPARE(client.fetches.size(), 9); // 8 + $keep; the GIF never ran
+    }
 };
 
 QTEST_GUILESS_MAIN(MediaBridgeTest)

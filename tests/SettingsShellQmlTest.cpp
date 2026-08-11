@@ -647,7 +647,7 @@ private slots:
         QVERIFY(summary);
         QVERIFY(clearButton);
         QCOMPARE(summary->property("text").toString(),
-                 QStringLiteral("0 GIF(s), 0 B — kept on this device only and removed when you sign out of this account."));
+                 QStringLiteral("0 image(s), 0 B — kept on this device only and removed when you sign out of this account."));
         QVERIFY(!clearButton->property("enabled").toBool());
 
         auto *store = m_controller->gif()->starredStore();
@@ -658,7 +658,7 @@ private slots:
         // The row is a live binding off the store's own count/totalBytes
         // properties — no manual refresh needed.
         QCOMPARE(summary->property("text").toString(),
-                 QStringLiteral("1 GIF(s), 10 B — kept on this device only and removed when you sign out of this account."));
+                 QStringLiteral("1 image(s), 10 B — kept on this device only and removed when you sign out of this account."));
         QVERIFY(clearButton->property("enabled").toBool());
 
         clickItem(clearButton);
@@ -675,7 +675,7 @@ private slots:
 
         QCOMPARE(store->count(), 0);
         QCOMPARE(summary->property("text").toString(),
-                 QStringLiteral("0 GIF(s), 0 B — kept on this device only and removed when you sign out of this account."));
+                 QStringLiteral("0 image(s), 0 B — kept on this device only and removed when you sign out of this account."));
         QVERIFY(!clearButton->property("enabled").toBool());
     }
 

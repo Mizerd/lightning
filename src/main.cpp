@@ -7,7 +7,9 @@
 #include "crypto/QrImageProvider.h"
 #include "gif/GifBuildKeys.h"
 #include "gif/GifProviderSelfTest.h"
+#include "app/StormBandPainter.h"
 #include "media/MediaImageProvider.h"
+#include "media/VaapiLogGate.h"
 #include "storage/AppDataPaths.h"
 
 #ifdef ENABLE_RUST_SDK_BACKEND
@@ -520,6 +522,35 @@ PreflightResult preflightParse(int argc, char *argv[])
     return r;
 }
 
+// Chained message handler bounding the VAAPI texture-export warning storm
+// (see VaapiLogGate). Qt calls message handlers from arbitrary threads; the
+// gate's counter is atomic and the previous handler does its own locking.
+QtMessageHandler g_previousMessageHandler = nullptr;
+VaapiLogGate g_vaapiLogGate;
+
+void vaapiGatedMessageHandler(QtMsgType type, const QMessageLogContext &ctx,
+                              const QString &msg)
+{
+    switch (g_vaapiLogGate.classify(msg)) {
+    case VaapiLogGate::Action::Drop:
+        return;
+    case VaapiLogGate::Action::Summary:
+        if (g_previousMessageHandler)
+            g_previousMessageHandler(QtWarningMsg, ctx,
+                                     g_vaapiLogGate.summaryLine());
+        return;
+    case VaapiLogGate::Action::Print:
+        break;
+    }
+    if (g_previousMessageHandler)
+        g_previousMessageHandler(type, ctx, msg);
+}
+
+void installVaapiLogGate()
+{
+    g_previousMessageHandler = qInstallMessageHandler(vaapiGatedMessageHandler);
+}
+
 } // namespace
 
 int main(int argc, char *argv[])
@@ -551,6 +582,14 @@ int main(int argc, char *argv[])
         if (headless)
             qputenv("QT_FORCE_STDERR_LOGGING", "1");
     }
+
+    // Bound the per-frame VAAPI texture-export warning spam from Qt's
+    // FFmpeg video backend (thousands of identical lines per minute on
+    // hardware whose driver cannot export decoded surfaces — see
+    // VaapiLogGate). Everything else chains to the previous handler
+    // untouched. Installed before QGuiApplication so the earliest decoder
+    // warnings are already gated.
+    installVaapiLogGate();
 
     if (pf.action == PreflightResult::ExitSuccess) {
         QTextStream(stdout) << pf.stdoutMsg;
@@ -796,6 +835,11 @@ int main(int argc, char *argv[])
     // module grid reaches this side at all.
     engine.addImageProvider(QStringLiteral("lightning-qr"),
                             new QrImageProvider(controller.qrCodeStore()));
+    // Storm Band: the About page's procedurally generated pixel-art storm
+    // landscape. Stateless — colors and layer identity travel in the image
+    // id, so a plain parameterless provider suffices.
+    engine.addImageProvider(QStringLiteral("storm-band"),
+                            new StormBandImageProvider());
 
     QObject::connect(
         &engine, &QQmlApplicationEngine::objectCreationFailed,

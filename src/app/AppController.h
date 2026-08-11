@@ -50,6 +50,12 @@ class AppController : public QObject
     Q_PROPERTY(QString currentRoomId READ currentRoomId WRITE setCurrentRoomId NOTIFY currentRoomIdChanged)
     Q_PROPERTY(bool loggedIn READ loggedIn NOTIFY loggedInChanged)
     Q_PROPERTY(QString appVersion READ appVersion CONSTANT)
+    // Current application icon for in-app branding surfaces (About, the
+    // Appearance preview). Either the embedded default logo resource or a
+    // file: URL to the normalized custom icon with a cache-busting revision.
+    // The window/taskbar icon is applied separately via
+    // QGuiApplication::setWindowIcon from the same state.
+    Q_PROPERTY(QString appIconSource READ appIconSource NOTIFY appIconChanged)
     // Development-only screenshot/demo mode indicator (see beginScreenshotDemo).
     // Always present so QML bindings resolve in every build; only ever true in a
     // build compiled with LIGHTNING_ENABLE_SCREENSHOT_DEMO and launched with
@@ -246,6 +252,22 @@ public:
     QString currentRoomId() const { return m_currentRoomId; }
     bool loggedIn() const;
     QString appVersion() const { return QStringLiteral(APP_VERSION); }
+
+    // Custom application icon (Settings -> Appearance). The picked file's
+    // bytes are validated and normalized by appicon::normalizeIconBytes
+    // (byte-sniffed raster only, SVG refused, circular 512px PNG) and the
+    // normalized copy is stored under app data — never a live reference to
+    // the arbitrary external path. Returns an empty string on success or a
+    // short translated failure sentence for the settings UI. Honest desktop
+    // limitation: the runtime icon reaches the window, X11 task
+    // switchers/docks, and Wayland compositors that honor xdg-toplevel-icon;
+    // launchers and pinned entries resolve the hicolor theme icon from the
+    // installed desktop entry and keep the packaged default.
+    Q_INVOKABLE QString setCustomAppIconFromFile(const QUrl &fileUrl);
+    // Removes the normalized copy, disables the setting, and restores the
+    // packaged default icon immediately.
+    Q_INVOKABLE void resetCustomAppIcon();
+    QString appIconSource() const;
     bool screenshotDemoActive() const { return m_screenshotDemoActive; }
     // Development-only: enter screenshot/demo mode. Enriches the mock scene,
     // marks screenshotDemoActive, and auto-logs-in the deterministic demo
@@ -544,6 +566,7 @@ public Q_SLOTS:
 
 Q_SIGNALS:
     void currentScreenChanged();
+    void appIconChanged();
     void initialSyncDoneChanged();
     void accountSwitchingChanged();
     void currentRoomIdChanged();
@@ -595,6 +618,10 @@ Q_SIGNALS:
 private:
     void setCurrentScreen(Screen s);
     void setConnectionStatus(const QString &s);
+    // Applies the persisted icon choice to QGuiApplication::setWindowIcon —
+    // the normalized custom file when enabled and readable, else the packaged
+    // default (theme icon with the embedded 256px fallback).
+    void applyAppIcon();
     void onLoginSucceeded();
     void onLoggedOut();
     void setLocalRustResetRequired(bool required);
@@ -613,6 +640,9 @@ private:
                                                     QObject *parent);
 
     Backend m_backend;
+    // Cache-busting revision for appIconSource: bumped every time the
+    // normalized custom-icon file is rewritten so QML's image cache reloads.
+    int m_appIconRevision = 0;
     // Injected at construction (never discovered later): true only in a
     // LIGHTNING_ENABLE_SCREENSHOT_DEMO build launched with --screenshot-demo.
     // Gates the in-memory SecretStore and the skipped startup restore.

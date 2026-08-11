@@ -382,7 +382,7 @@ Item {
     Dialog {
         id: starredGifsClearConfirm
         objectName: "starredGifsClearConfirm"
-        title: qsTr("Clear GIFs saved on this device?")
+        title: qsTr("Clear images saved on this device?")
         anchors.centerIn: parent
         modal: true
         standardButtons: Dialog.Yes | Dialog.Cancel
@@ -394,7 +394,7 @@ Item {
         Label {
             width: 280
             wrapMode: Text.WordWrap
-            text: qsTr("Delete every GIF you saved out of a chat from this "
+            text: qsTr("Delete every image you saved out of a chat from this "
                        + "device? Saved provider GIFs are unaffected — they "
                        + "are only links. This cannot be undone.")
         }
@@ -1521,6 +1521,89 @@ Item {
                                 }
                             }
                         }
+
+                        // Custom application icon: validated raster input,
+                        // normalized to the circular presentation, applied to
+                        // the running window immediately and restored at
+                        // startup. Device-global (not per-account).
+                        SettingsCard {
+                            ColumnLayout {
+                                width: parent.width
+                                spacing: AppTheme.spacing8
+                                Label {
+                                    text: qsTr("Application icon")
+                                    color: AppTheme.stormTextSecondary
+                                    font.pixelSize: AppTheme.fontSecondary
+                                    font.weight: Font.DemiBold
+                                }
+                                RowLayout {
+                                    spacing: AppTheme.spacing12
+                                    Image {
+                                        objectName: "appIconPreview"
+                                        source: app.appIconSource
+                                        sourceSize.width: 48
+                                        sourceSize.height: 48
+                                        Layout.preferredWidth: 48
+                                        Layout.preferredHeight: 48
+                                        fillMode: Image.PreserveAspectFit
+                                        Accessible.role: Accessible.Graphic
+                                        Accessible.name:
+                                            qsTr("Current application icon")
+                                    }
+                                    Label {
+                                        Layout.fillWidth: true
+                                        wrapMode: Text.WordWrap
+                                        color: AppTheme.stormTextMuted
+                                        font.pixelSize: AppTheme.fontCaption
+                                        text: qsTr("Applies to the window and to task "
+                                                   + "switchers that follow the running "
+                                                   + "window. The desktop launcher keeps "
+                                                   + "the packaged Lightning icon.")
+                                    }
+                                }
+                                Label {
+                                    id: customAppIconError
+                                    objectName: "customAppIconError"
+                                    property string message: ""
+                                    visible: message.length > 0
+                                    Layout.fillWidth: true
+                                    wrapMode: Text.WordWrap
+                                    color: AppTheme.stormDanger
+                                    font.pixelSize: AppTheme.fontCaption
+                                    text: message
+                                }
+                                RowLayout {
+                                    spacing: AppTheme.spacing8
+                                    AppButton {
+                                        objectName: "chooseAppIconButton"
+                                        storm: true
+                                        text: qsTr("Choose image…")
+                                        onClicked: appIconDialog.open()
+                                    }
+                                    AppButton {
+                                        objectName: "resetAppIconButton"
+                                        storm: true
+                                        visible: app.settings.customAppIconEnabled
+                                        text: qsTr("Reset to Lightning default")
+                                        onClicked: {
+                                            customAppIconError.message = ""
+                                            app.resetCustomAppIcon()
+                                        }
+                                    }
+                                }
+                                FileDialog {
+                                    id: appIconDialog
+                                    title: qsTr("Choose an application icon image")
+                                    fileMode: FileDialog.OpenFile
+                                    nameFilters: [
+                                        qsTr("Images (*.png *.jpg *.jpeg *.webp *.bmp *.gif)"),
+                                        qsTr("All files (*)")
+                                    ]
+                                    onAccepted: customAppIconError.message =
+                                        app.setCustomAppIconFromFile(selectedFile)
+                                }
+                            }
+                        }
                     }
 
                     // ════════════ Appearance (continued: language) ════════════
@@ -1759,7 +1842,7 @@ Item {
                                 // own visible count/size and confirmed
                                 // Clear All, not folded into the row above.
                                 Label {
-                                    text: qsTr("GIFs saved from chats")
+                                    text: qsTr("Images saved from chats")
                                     color: AppTheme.stormText
                                     font.pixelSize: AppTheme.fontBody
                                     font.weight: Font.DemiBold
@@ -1771,7 +1854,7 @@ Item {
                                     wrapMode: Text.WordWrap
                                     color: AppTheme.stormTextSecondary
                                     font.pixelSize: AppTheme.fontCaption
-                                    text: qsTr("%1 GIF(s), %2 — kept on this "
+                                    text: qsTr("%1 image(s), %2 — kept on this "
                                                + "device only and removed "
                                                + "when you sign out of this "
                                                + "account.")
@@ -1783,7 +1866,7 @@ Item {
                                     objectName: "clearStarredGifsButton"
                                     storm: true
                                     kind: "danger"
-                                    text: qsTr("Clear all GIFs saved from chats")
+                                    text: qsTr("Clear all images saved from chats")
                                     enabled: app.gif.starredStore.count > 0
                                     onClicked: starredGifsClearConfirm.open()
                                 }
@@ -3684,18 +3767,39 @@ Item {
                             ColumnLayout {
                                 width: parent.width
                                 spacing: AppTheme.spacing8
-                                Label {
-                                    text: qsTr("Lightning %1").arg(app.appVersion)
-                                    color: AppTheme.stormText
-                                    font.pixelSize: AppTheme.fontBody
-                                    font.weight: Font.DemiBold
-                                }
-                                Label {
-                                    Layout.fillWidth: true
-                                    wrapMode: Text.WordWrap
-                                    color: AppTheme.stormTextMuted
-                                    text: qsTr("A native C++/Qt Matrix desktop client. "
-                                               + "No Electron, no web view.")
+                                RowLayout {
+                                    spacing: AppTheme.spacing12
+                                    // The application logo (the custom icon
+                                    // when one is set — About is an in-app
+                                    // branding surface).
+                                    Image {
+                                        objectName: "aboutAppLogo"
+                                        source: app.appIconSource
+                                        sourceSize.width: 56
+                                        sourceSize.height: 56
+                                        Layout.preferredWidth: 56
+                                        Layout.preferredHeight: 56
+                                        fillMode: Image.PreserveAspectFit
+                                        Accessible.role: Accessible.Graphic
+                                        Accessible.name: qsTr("Lightning logo")
+                                    }
+                                    ColumnLayout {
+                                        Layout.fillWidth: true
+                                        spacing: 2
+                                        Label {
+                                            text: qsTr("Lightning %1").arg(app.appVersion)
+                                            color: AppTheme.stormText
+                                            font.pixelSize: AppTheme.fontBody
+                                            font.weight: Font.DemiBold
+                                        }
+                                        Label {
+                                            Layout.fillWidth: true
+                                            wrapMode: Text.WordWrap
+                                            color: AppTheme.stormTextMuted
+                                            text: qsTr("A native C++/Qt Matrix desktop client. "
+                                                       + "No Electron, no web view.")
+                                        }
+                                    }
                                 }
                                 Label {
                                     visible: app.backendName === "rust"
@@ -3714,6 +3818,20 @@ Item {
                                     text: qsTr("License: GPL-3.0-or-later")
                                 }
                             }
+                        }
+
+                        // Storm Band: the procedurally generated pixel-art
+                        // storm landscape closing the About page. Decorative
+                        // only — no pointer interaction, animations stop
+                        // under reduced motion and when the page is hidden.
+                        // backdropColor MUST stay stormDeep (the page color
+                        // this file paints at its root): ThemeTokensTest
+                        // bans the raw themed background token in this file.
+                        StormBand {
+                            objectName: "aboutStormBand"
+                            Layout.fillWidth: true
+                            Layout.topMargin: AppTheme.spacing12
+                            backdropColor: AppTheme.stormDeep
                         }
                     }
                 }

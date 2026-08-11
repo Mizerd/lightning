@@ -21,10 +21,15 @@ Item {
     property string ownerKey: ""
     property string filename: ""
     property bool rowOnScreen: true
-    // Voice/audio never autoplay with sound; video starts muted unless the
-    // user raises the volume — this satisfies the no-autoplay-with-sound
-    // rule while still starting on the user's explicit Play press.
+    // The card only exists because the user pressed Play on the cover, so
+    // inline video starts AUDIBLE at a moderate volume — this is play-on-
+    // explicit-intent, not autoplay. Callers that want a silent start (none
+    // today) can set startMuted.
     property bool startMuted: false
+    // The media key whose materialized file this card has PINNED against
+    // LRU eviction; recorded at pin time so delegate reuse unpins the
+    // right key (mediaKey changes before resetPlayback runs).
+    property string pinnedKey: ""
 
     signal closeRequested()
 
@@ -51,11 +56,27 @@ Item {
         if (url.length > 0) {
             fetchState = "idle"
             player.source = url
+            pinFile()
             app.playback.acquire(root.ownerKey)
             player.play()
         } else {
             fetchState = "fetching"
         }
+    }
+    function pinFile() {
+        // The player holds the materialized temp file open; the LRU must
+        // not delete it underneath (seek or overlay reopen would fail).
+        if (pinnedKey === mediaKey)
+            return
+        unpinFile()
+        app.mediaBridge.pinPlayable(mediaKey)
+        pinnedKey = mediaKey
+    }
+    function unpinFile() {
+        if (pinnedKey.length === 0)
+            return
+        app.mediaBridge.unpinPlayable(pinnedKey)
+        pinnedKey = ""
     }
     // Explicit user retry must clear the (possibly permanent) failure mark
     // first — playableSource is otherwise blocked by it and the card would
@@ -72,6 +93,7 @@ Item {
             videoOverlay.close()
         player.stop()
         player.source = ""
+        unpinFile()
         fetchState = "idle"
         app.playback.release(root.ownerKey)
     }
@@ -83,7 +105,29 @@ Item {
             player.pause()
     }
     Component.onCompleted: start()
-    Component.onDestruction: app.playback.release(root.ownerKey)
+    Component.onDestruction: {
+        unpinFile()
+        app.playback.release(root.ownerKey)
+    }
+    // Offscreen resource release: a video paused by scrolling away used to
+    // keep its QMediaPlayer, decoder, GPU surfaces and open temp-file
+    // handle alive for the rest of the room session — N started videos
+    // meant N live decoders. After a grace period the card closes itself
+    // exactly like the control bar's close button; the cover (poster +
+    // play) returns and a fresh Play reuses the still-materialized file.
+    Timer {
+        interval: 90000
+        // review L2: never while the expanded overlay is open — the
+        // underlying ROW can leave the viewport (bottom-pinned appends)
+        // while the user is watching full-screen, and reclaiming then
+        // would close the overlay under them.
+        running: !root.rowOnScreen && !videoOverlay.opened
+                 && player.playbackState !== MediaPlayer.PlayingState
+        onTriggered: {
+            root.resetPlayback()
+            root.closeRequested()
+        }
+    }
 
     Connections {
         target: app.mediaBridge

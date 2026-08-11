@@ -337,9 +337,15 @@ private Q_SLOTS:
             QVERIFY(tileBlock.contains(QStringLiteral(
                 "source: tile.provider === \"local\"\n"
                 "                                ? tile.localSource : tile.stillUrl")));
+            // review L7: a local STILL (png/jpg/webp) never feeds the
+            // movie backend — the local branch narrows to GIF-or-legacy
+            // rows; the non-local fallback stays exactly tile.previewUrl.
             QVERIFY(tileBlock.contains(QStringLiteral(
                 "source: tile.provider === \"local\"\n"
-                "                                ? tile.localSource : tile.previewUrl")));
+                "                                ? (tile.localExt.length === 0\n"
+                "                                   || tile.localExt === \"gif\"\n"
+                "                                   ? tile.localSource : \"\")\n"
+                "                                : tile.previewUrl")));
             // tile.gifUrl DOES legitimately appear once, in snapshot()'s
             // "gifUrl: tile.gifUrl," field capture (send-time identity, not
             // a rendered source) — scoped to an actual `source:` binding.

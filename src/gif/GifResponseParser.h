@@ -40,6 +40,15 @@ struct GifResult {
     int gifHeight = 0;
     qint64 gifBytes = 0;   // 0 = unknown
     QString mp4Url;        // optional preview video — NEVER sent as a gif
+    // 2026-08 media round: canonical suffix ("gif"/"png"/"jpg"/"webp") for a client-local
+    // saved row (provider == "local" — see GifStarredStore). ALWAYS empty
+    // for a provider (giphy/klipy) row. Empty on a local row means either a
+    // legacy entry persisted before raster generalization (treat as "gif" —
+    // the only format that existed then) or "not yet validated"; callers
+    // that need the true on-disk format re-derive it from the store rather
+    // than trusting this field as the sole source, exactly like every other
+    // GifStarredStore lookup re-validates against disk.
+    QString localExt;
 };
 
 // Safe-search ceiling, most-permissive last.
@@ -105,5 +114,34 @@ struct GifByteValidation {
     int height = 0;
 };
 GifByteValidation validateGifBytes(const QByteArray &bytes);
+
+// 2026-08 media round: byte-level validation for ANY of the raster formats Lightning
+// accepts for a locally-saved chat image (GIF/PNG/JPEG/WebP) — the general
+// form of validateGifBytes above, used by GifStarredStore's "save this
+// image" path and GifSendController's local-send path. The bytes decide the
+// real format; a claimed extension or Content-Type is NEVER trusted (a PNG
+// renamed ".gif", an SVG, an HTML error page, or any other unsupported
+// content is rejected). Mirrors validateGifBytes's own caps
+// (kMaxGifDimension, kMaxGifBytes) for every format, so a PNG/JPEG/WebP is
+// held to the identical bar as a GIF — and never transcoded: the stored
+// bytes are always exactly what was validated.
+struct RasterByteValidation {
+    bool ok = false;
+    // "invalid_media" | "too_large" | "unsupported_format" | "" when ok.
+    // Never "not_a_gif" — that is validateGifBytes' own magic-mismatch
+    // category, and this function only enters the GIF branch after already
+    // confirming the GIF magic bytes itself.
+    QString category;
+    // Canonical suffix for the validated bytes — "gif" | "png" | "jpg" |
+    // "webp" — decided by the magic bytes, never a filename or claimed
+    // type. Empty when !ok.
+    QString ext;
+    // The truthful MIME for what the bytes actually are: "image/gif" |
+    // "image/png" | "image/jpeg" | "image/webp". Empty when !ok.
+    QString mime;
+    int width = 0;
+    int height = 0;
+};
+RasterByteValidation validateRasterBytes(const QByteArray &bytes);
 
 } // namespace gif

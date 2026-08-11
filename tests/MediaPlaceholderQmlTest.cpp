@@ -226,6 +226,41 @@ private Q_SLOTS:
         QCOMPARE(d.warnings, QStringList{});
     }
 
+    // v0.7 media round: a video with NO usable Matrix thumbnail must show a
+    // stable styled placeholder (surface tone, type icon, filename) under
+    // the play affordance — never an empty transparent box. The old
+    // delegate had no such element at all.
+    void videoWithoutThumbnailShowsStyledPlaceholder()
+    {
+        AppController controller(AppController::MockBackend);
+        QVariantMap fixture = baseFixture(controller);
+        fixture.insert(QStringLiteral("isVideo"), true);
+        fixture.insert(QStringLiteral("mediaWidth"), 1280);
+        fixture.insert(QStringLiteral("mediaHeight"), 720);
+        fixture.insert(QStringLiteral("mediaFilename"),
+                       QStringLiteral("clip.mp4"));
+        fixture.insert(QStringLiteral("body"), QStringLiteral("clip.mp4"));
+
+        Delegate d;
+        QVERIFY(createDelegate(controller, fixture, d));
+        auto *video = d.root->findChild<QQuickItem *>(
+            QStringLiteral("videoMedia"));
+        QVERIFY(video != nullptr);
+        auto *placeholder = video->findChild<QQuickItem *>(
+            QStringLiteral("videoNoThumbPlaceholder"));
+        QVERIFY(placeholder != nullptr);
+        QVERIFY(placeholder->isVisible());
+        bool foundName = false;
+        const auto children = placeholder->findChildren<QQuickItem *>();
+        for (auto *child : children) {
+            if (child->property("text").toString()
+                == QStringLiteral("clip.mp4"))
+                foundName = true;
+        }
+        QVERIFY(foundName);
+        QCOMPARE(d.warnings, QStringList{});
+    }
+
     // Portrait video must never render as an unusably narrow strip, and
     // every player control — seek, expand, close — must be reachable at the
     // minimum card width (the live regression: a fixed 324px control row

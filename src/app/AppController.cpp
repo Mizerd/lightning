@@ -2,6 +2,7 @@
 
 #include <algorithm>
 
+#include "app/CustomAppIcon.h"
 #include "app/SessionDiagnostics.h"
 #include "app/SettingsManager.h"
 #include "auth/AccountManager.h"
@@ -40,7 +41,10 @@
 
 #include <QClipboard>
 #include <QDir>
+#include <QFileInfo>
 #include <QGuiApplication>
+#include <QIcon>
+#include <QSaveFile>
 #include <QSysInfo>
 #include <QPalette>
 #include <QStyleHints>
@@ -423,6 +427,9 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             connect(hints, &QStyleHints::colorSchemeChanged, this,
                     [this](Qt::ColorScheme) { Q_EMIT systemDarkModeChanged(); });
         }
+        // Apply the persisted custom application icon (if any) over the
+        // packaged default main.cpp installed before construction.
+        applyAppIcon();
     }
 
     // v0.5.9: a created (or reused) conversation opens once the room is
@@ -1319,6 +1326,11 @@ void AppController::setCurrentRoomId(const QString &roomId)
     m_thread->handleCurrentRoomChanged(roomId);
     // v0.7: inline media playback never survives a room switch either.
     m_playback->stopAll();
+    // Queued speculative fetches (full-GIF autoplay prefetch) belong to the
+    // delegates that just got destroyed with the room switch; dropping them
+    // stops a heavy GIF room from starving the next room's media. In-flight
+    // work is untouched and a revisit re-requests naturally.
+    m_mediaBridge->dropQueuedSpeculative();
     m_timeline->setRoomId(roomId);
     m_composer->setRoomId(roomId);
     m_pagination->setRoomId(roomId);
@@ -1399,6 +1411,105 @@ QString AppController::takeRequestedSettingsSection()
     const QString section = m_requestedSettingsSection;
     m_requestedSettingsSection.clear();
     return section;
+}
+
+namespace {
+// The embedded default logo, identical to main.cpp's startup fallback.
+const auto kDefaultIconResource =
+    ":/qt/qml/MatrixClient/data/icons/hicolor/256x256/apps/lightning.png";
+}
+
+QString AppController::appIconSource() const
+{
+    if (m_settings && m_settings->customAppIconEnabled()) {
+        const QString file = matrix::app_data::customAppIconFile();
+        if (!file.isEmpty() && QFileInfo::exists(file)) {
+            return QUrl::fromLocalFile(file).toString()
+                   + QStringLiteral("?v=")
+                   + QString::number(m_appIconRevision);
+        }
+    }
+    return QLatin1String("qrc") + QLatin1String(kDefaultIconResource);
+}
+
+void AppController::applyAppIcon()
+{
+    if (m_settings && m_settings->customAppIconEnabled()) {
+        const QString file = matrix::app_data::customAppIconFile();
+        if (!file.isEmpty() && QFileInfo::exists(file)) {
+            const QIcon icon(file);
+            if (!icon.isNull()) {
+                QGuiApplication::setWindowIcon(icon);
+                return;
+            }
+        }
+        // Enabled but the normalized copy is unreadable (deleted app data,
+        // disk corruption): fall back visually without silently rewriting
+        // the user's stored preference.
+        qCWarning(lcApp) << "custom app icon enabled but unreadable;"
+                         << "showing the default icon";
+    }
+    QGuiApplication::setWindowIcon(QIcon::fromTheme(
+        QStringLiteral("lightning"),
+        QIcon(QLatin1String(kDefaultIconResource))));
+}
+
+QString AppController::setCustomAppIconFromFile(const QUrl &fileUrl)
+{
+    if (!m_settings || !fileUrl.isLocalFile())
+        return tr("Choose a local image file.");
+    QFile in(fileUrl.toLocalFile());
+    if (!in.open(QIODevice::ReadOnly))
+        return tr("The image could not be read.");
+    if (in.size() > appicon::kMaxInputBytes)
+        return tr("The image is too large — 32 MiB at most.");
+    // Bounded read even when size() lies (a FIFO reports 0): one byte past
+    // the cap proves the overrun without an unbounded readAll().
+    const QByteArray bytes = in.read(appicon::kMaxInputBytes + 1);
+    if (bytes.size() > appicon::kMaxInputBytes)
+        return tr("The image is too large — 32 MiB at most.");
+    const appicon::NormalizeResult normalized = appicon::normalizeIconBytes(bytes);
+    if (!normalized.ok) {
+        if (normalized.category == QLatin1String("too_large_bytes"))
+            return tr("The image is too large — 32 MiB at most.");
+        if (normalized.category == QLatin1String("too_large_dimensions"))
+            return tr("The image is too large — 8192×8192 at most.");
+        if (normalized.category == QLatin1String("too_small"))
+            return tr("The image is too small — 16×16 at least.");
+        // svg_rejected / unsupported_format / decode_failed / empty
+        return tr("Choose a PNG, JPEG, WebP, BMP or GIF image.");
+    }
+    const QString target = matrix::app_data::customAppIconFile();
+    if (target.isEmpty())
+        return tr("Application data storage is unavailable.");
+    if (!QDir().mkpath(QFileInfo(target).absolutePath()))
+        return tr("The icon could not be saved.");
+    QSaveFile out(target);
+    if (!out.open(QIODevice::WriteOnly))
+        return tr("The icon could not be saved.");
+    if (!normalized.image.save(&out, "PNG") || !out.commit())
+        return tr("The icon could not be saved.");
+    QFile::setPermissions(target,
+                          QFileDevice::ReadOwner | QFileDevice::WriteOwner);
+    ++m_appIconRevision;
+    m_settings->setCustomAppIconEnabled(true);
+    applyAppIcon();
+    Q_EMIT appIconChanged();
+    qCInfo(lcApp) << "custom app icon set";
+    return {};
+}
+
+void AppController::resetCustomAppIcon()
+{
+    const QString target = matrix::app_data::customAppIconFile();
+    if (!target.isEmpty() && QFileInfo::exists(target))
+        QFile::remove(target);
+    if (m_settings)
+        m_settings->setCustomAppIconEnabled(false);
+    ++m_appIconRevision;
+    applyAppIcon();
+    Q_EMIT appIconChanged();
+    qCInfo(lcApp) << "custom app icon reset to default";
 }
 
 void AppController::applyControlPalette(const QVariantMap &roles)

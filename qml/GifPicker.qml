@@ -100,6 +100,18 @@ AnchoredPopup {
         return name.length > 0 ? name : provider
     }
 
+    // 2026-08 media round: the compact uppercase format tag for a locally-saved tile —
+    // shown next to the source badge so a merged Saved list still says
+    // exactly what kind of file each local row is, never guessed from a
+    // filename (`ext` always comes from GifStarredStore::sourceExt(), which
+    // is itself byte-validated at save time — see gif::validateRasterBytes).
+    function formatTag(ext) {
+        if (ext === "png") return "PNG"
+        if (ext === "jpg") return "JPEG"
+        if (ext === "webp") return "WEBP"
+        return "GIF"
+    }
+
     // v0.6.7: sized as a SHARE of the composer's width and the room above it,
     // so it tracks the window instead of sitting at one fixed size. The
     // minimum keeps three grid columns and the footer legible.
@@ -651,6 +663,14 @@ AnchoredPopup {
                 readonly property string localSource:
                     tile.provider === "local"
                         ? picker.gif.starredStore.source(tile.gifId) : ""
+                // 2026-08 media round: the row's real on-disk format ("gif"/"png"/"jpg"/
+                // "webp") for a locally-saved tile — re-derived fresh
+                // exactly like localSource above, never trusted from
+                // anywhere else. "" for a provider tile (always a GIF,
+                // already said by its own source badge).
+                readonly property string localExt:
+                    tile.provider === "local"
+                        ? picker.gif.starredStore.sourceExt(tile.gifId) : ""
 
                 // The exact record this delegate is rendering right now,
                 // captured from its OWN bound properties rather than
@@ -686,6 +706,18 @@ AnchoredPopup {
 
                     // Still fallback shows immediately; the animation plays on
                     // top once decoded, and only while the picker is visible.
+                    //
+                    // 2026-08 media round: a locally-saved PNG/JPEG/WebP tile has no
+                    // animated rendition to decode — AnimatedImage below
+                    // never reports Ready for one (its movie backend cannot
+                    // play a non-animatable format), so this static Image
+                    // stays the one and only renderer for it, exactly as
+                    // "AnimatedImage only for GIF local rows" requires,
+                    // without needing its own explicit format branch on the
+                    // `source:`/`visible:` bindings (unchanged, still pinned
+                    // by GifPickerRedesignContractTest::
+                    // nineInvariantsSurviveTheRedesign, which this file's
+                    // owner cannot edit).
                     Image {
                         anchors.fill: parent
                         source: tile.provider === "local"
@@ -694,12 +726,38 @@ AnchoredPopup {
                         asynchronous: true
                         cache: true
                         visible: anim.status !== AnimatedImage.Ready
+                        Accessible.role: Accessible.Button
+                        // Only a local, non-GIF tile ever actually renders
+                        // through this Image with a meaningful name of its
+                        // own — AnimatedImage's Accessible.name below covers
+                        // every other case (a provider GIF, or a local GIF,
+                        // once decoded).
+                        // review L7: never an unlabeled accessible button —
+                        // local stills announce their real format, every
+                        // other tile that renders through this still image
+                        // announces as the GIF it is.
+                        Accessible.name:
+                            (tile.provider === "local" && tile.localExt.length > 0
+                             && tile.localExt !== "gif")
+                            ? (tile.title.length > 0
+                               ? qsTr("%1: %2").arg(picker.formatTag(tile.localExt))
+                                                .arg(tile.title)
+                               : picker.formatTag(tile.localExt))
+                            : (tile.title.length > 0
+                               ? qsTr("GIF: %1").arg(tile.title) : qsTr("GIF"))
                     }
                     AnimatedImage {
                         id: anim
                         anchors.fill: parent
+                        // review L7: a locally-saved still (PNG/JPEG/WebP)
+                        // never feeds the movie backend at all — an empty
+                        // source instead of asking QMovie to decode a still
+                        // and warn per tile. Legacy rows (empty ext) are GIF.
                         source: tile.provider === "local"
-                                ? tile.localSource : tile.previewUrl
+                                ? (tile.localExt.length === 0
+                                   || tile.localExt === "gif"
+                                   ? tile.localSource : "")
+                                : tile.previewUrl
                         fillMode: Image.PreserveAspectCrop
                         asynchronous: true
                         cache: true
@@ -742,6 +800,7 @@ AnchoredPopup {
                     // keeps provider credit attached to the exact tiles it
                     // belongs to.
                     Rectangle {
+                        id: sourceBadge
                         objectName: "gifTileSourceBadge"
                         anchors.top: parent.top
                         anchors.left: parent.left
@@ -758,6 +817,31 @@ AnchoredPopup {
                             font.pixelSize: AppTheme.fontMicro
                             font.weight: Font.Bold
                             font.capitalization: Font.AllUppercase
+                            color: AppTheme.scrimInk
+                        }
+                    }
+
+                    // 2026-08 media round: format tag, right next to the source badge —
+                    // local tiles only (a provider tile is always a GIF, and
+                    // its provider badge already says so).
+                    Rectangle {
+                        objectName: "gifTileFormatBadge"
+                        visible: tile.provider === "local" && tile.localExt.length > 0
+                        anchors.top: parent.top
+                        anchors.left: sourceBadge.right
+                        anchors.topMargin: 4
+                        anchors.leftMargin: 4
+                        radius: AppTheme.radiusSm
+                        color: AppTheme.overlayScrim
+                        implicitWidth: formatBadgeLabel.implicitWidth + AppTheme.spacing6
+                        implicitHeight: formatBadgeLabel.implicitHeight + AppTheme.spacing2
+                        Label {
+                            id: formatBadgeLabel
+                            anchors.centerIn: parent
+                            text: picker.formatTag(tile.localExt)
+                            font.family: AppTheme.monoFont
+                            font.pixelSize: AppTheme.fontMicro
+                            font.weight: Font.Bold
                             color: AppTheme.scrimInk
                         }
                     }

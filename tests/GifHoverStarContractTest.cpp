@@ -89,19 +89,37 @@ private Q_SLOTS:
         QVERIFY(!delegate.contains(QStringLiteral("starGifMenuItem")));
     }
 
+    // 2026-08 media round: the gate generalized from GIF-only to any of the four raster
+    // formats GifStarredStore can now validate/store (GIF/PNG/JPEG/WebP —
+    // see gif::validateRasterBytes), so it now reads imageBox.isRasterImage
+    // rather than imageBox.isGif directly. isGif itself is UNCHANGED — it
+    // still exists, and still drives GIF-only animated playback — this test
+    // asserts that too, so a regression narrowing isGif back down would
+    // still be caught here even though it no longer gates the star.
     void eligibilityGatingMatchesTheRemovedMenuItemForImageRows()
     {
         const QString delegate = read(QStringLiteral("MessageDelegate.qml"));
         const QString block = stateBlock(delegate);
         QVERIFY(!block.isEmpty());
-        QVERIFY(block.contains(QStringLiteral("imageBox.isGif")));
+        QVERIFY(block.contains(QStringLiteral("imageBox.isRasterImage")));
         QVERIFY(block.contains(QStringLiteral("model.mediaSourceAvailable === true")));
         QVERIFY(block.contains(QStringLiteral("app.mediaBridge.supported")));
         // isGif itself is the same confirmed-mimetype check the removed
-        // menu row used directly.
+        // menu row used directly, and still exists (GIF-only animation
+        // gating), even though the star's own eligibility now reads
+        // isRasterImage instead.
         QVERIFY(delegate.contains(QStringLiteral(
             "readonly property bool isGif:\n"
             "                (model.mediaMimetype || \"\").toLowerCase() === \"image/gif\"")));
+        // isRasterImage accepts exactly the four validated formats — never
+        // silently widened to "every image/* mimetype" (which would also
+        // match e.g. image/svg+xml, explicitly unsupported/refused by
+        // gif::validateRasterBytes).
+        QVERIFY(delegate.contains(QStringLiteral(
+            "readonly property bool isRasterImage: {\n"
+            "                var m = (model.mediaMimetype || \"\").toLowerCase()\n"
+            "                return m === \"image/gif\" || m === \"image/png\"\n"
+            "                    || m === \"image/jpeg\" || m === \"image/webp\"")));
     }
 
     // v0.6.6 review (L1): the removed menu row's gate was mimetype-only, so
@@ -281,10 +299,14 @@ private Q_SLOTS:
         // v0.6.7: one verb everywhere. This button and the picker's tile star
         // say the same thing and land in the same place (the Saved tab), so
         // the two-destination "Star"/"Favorite" vocabulary is gone.
-        QVERIFY(block.contains(QStringLiteral("qsTr(\"Remove from saved GIFs\")")));
-        QVERIFY(block.contains(QStringLiteral("qsTr(\"Save GIF\")")));
+        // 2026-08 media round: format-neutral wording — the button now saves
+        // GIF/PNG/JPEG/WebP alike, so it no longer names "GIF" specifically.
+        QVERIFY(block.contains(QStringLiteral("qsTr(\"Remove from saved\")")));
+        QVERIFY(block.contains(QStringLiteral("qsTr(\"Save image\")")));
         QVERIFY(!block.contains(QStringLiteral("Star GIF")));
         QVERIFY(!block.contains(QStringLiteral("starred GIFs")));
+        QVERIFY(!block.contains(QStringLiteral("qsTr(\"Save GIF\")")));
+        QVERIFY(!block.contains(QStringLiteral("qsTr(\"Remove from saved GIFs\")")));
     }
 
     // v0.6.7: the bundled Material Symbols subset is a static FILL=0 instance

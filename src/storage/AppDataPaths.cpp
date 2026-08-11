@@ -292,6 +292,14 @@ QString starredGifsDir(const QString &userId)
     return account + QLatin1String("/starred-gifs");
 }
 
+QString customAppIconFile()
+{
+    const QString root = primaryRoot();
+    if (root.isEmpty())
+        return {};
+    return root + QLatin1String("/branding/custom-app-icon.png");
+}
+
 DirRemoval removeAppDataDir(const QString &dir)
 {
     if (dir.trimmed().isEmpty())

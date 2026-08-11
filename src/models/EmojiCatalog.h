@@ -2,6 +2,7 @@
 
 #include <QAbstractListModel>
 #include <QHash>
+#include <QSet>
 #include <QStringList>
 #include <QVariantList>
 
@@ -59,6 +60,14 @@ public:
     Q_INVOKABLE void clearRecent();
     Q_INVOKABLE bool contains(const QString &emoji) const;
     Q_INVOKABLE int catalogueCount() const { return m_entries.size(); }
+    // Big-emoji support: the number of user-perceived emoji sequences when
+    // the text consists ONLY of catalogue emoji and whitespace, else 0.
+    // One grapheme cluster (ZWJ family, flag, keycap, tone variant,
+    // VS16-qualified form) counts as one emoji. The count saturates at 4 —
+    // callers only distinguish 1..3 ("render large") from everything else,
+    // so 4 means "four or more". O(text length) with O(1) hash lookups
+    // against the catalogue loaded at startup; never a catalogue scan.
+    Q_INVOKABLE int emojiOnlySequenceCount(const QString &text) const;
 
 Q_SIGNALS:
     void searchTextChanged();
@@ -82,10 +91,15 @@ private:
     void load();
     void rebuild();
     int indexOf(const QString &emoji) const;
+    bool isKnownEmojiCluster(const QString &cluster) const;
 
     SettingsManager *m_settings = nullptr;
     QList<Entry> m_entries;
     QHash<QString, int> m_byEmoji;
+    // VS16-stripped forms of every catalogue sequence, built once at load.
+    // Clients disagree about emitting U+FE0F presentation selectors; a
+    // cluster missing (or carrying extra) VS16 still matches its sequence.
+    QSet<QString> m_sequencesNoVs16;
     // v0.7: base-emoji indices per category, built once at load so a
     // category switch is a bucket swap, never a full-catalogue rescan.
     QHash<QString, QList<int>> m_categoryBuckets;

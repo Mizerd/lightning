@@ -20,6 +20,18 @@ private Q_SLOTS:
         QVERIFY(picker.contains("variantsFor"));
         QVERIFY(!picker.contains("http://") && !picker.contains("https://"));
     }
+    // Big-emoji contract: a message whose body is only 1-3 user-perceived
+    // emoji sequences renders large. The delegate must ask the C++
+    // catalogue for the count (grapheme-cluster + catalogue lookup — never
+    // a QML regex or code-point count) and tier the size by that count.
+    void bigEmojiContract()
+    {
+        const QString delegate = read(QStringLiteral(QML_DIR "/MessageDelegate.qml"));
+        QVERIFY(delegate.contains("app.emojiCatalog.emojiOnlySequenceCount("));
+        QVERIFY(delegate.contains("emojiOnlyCount"));
+        QVERIFY(delegate.contains("bigEmoji"));
+    }
+
     void integrationContract()
     {
         const QString delegate = read(QStringLiteral(QML_DIR "/MessageDelegate.qml"));

@@ -43,6 +43,14 @@ Rectangle {
     property string fetchState: "idle" // idle / fetching / failed
     // Stable failure identity: MediaBridge marks/signals by this cache key.
     readonly property string fetchCacheKey: "full:" + mediaKey
+    // The media key whose materialized file this card has PINNED against
+    // LRU eviction (a live player holds the file open). Recorded at pin
+    // time so delegate reuse — which changes mediaKey before resetPlayback
+    // runs — still unpins the right key.
+    property string pinnedKey: ""
+    // Playback position preserved across an offscreen engine unload; the
+    // next Play resumes here instead of restarting the track.
+    property real resumePositionMs: 0
 
     function formatMs(ms) {
         if (!ms || ms < 0) ms = 0
@@ -77,11 +85,27 @@ Rectangle {
         if (url.length > 0) {
             fetchState = "idle"
             player.source = url
+            pinFile()
             app.playback.acquire(root.ownerKey)
             player.play()
         } else {
             fetchState = "fetching"
         }
+    }
+    function pinFile() {
+        // The player now holds the materialized temp file open; the LRU
+        // must not delete it underneath (seek/replay would fail).
+        if (pinnedKey === mediaKey)
+            return
+        unpinFile()
+        app.mediaBridge.pinPlayable(mediaKey)
+        pinnedKey = mediaKey
+    }
+    function unpinFile() {
+        if (pinnedKey.length === 0)
+            return
+        app.mediaBridge.unpinPlayable(pinnedKey)
+        pinnedKey = ""
     }
     function resetPlayback() {
         if (player) {
@@ -89,12 +113,32 @@ Rectangle {
             player.source = ""
         }
         engaged = false // unload the backend and its temp-file handle
+        unpinFile()
         fetchState = "idle"
         app.playback.release(root.ownerKey)
     }
-    onMediaKeyChanged: resetPlayback() // delegate reuse safety
+    onMediaKeyChanged: {
+        resumePositionMs = 0 // a different track never inherits a position
+        resetPlayback()      // delegate reuse safety
+    }
     onRowOnScreenChanged: if (!rowOnScreen && playing) player.pause()
-    Component.onDestruction: app.playback.release(root.ownerKey)
+    Component.onDestruction: {
+        unpinFile()
+        app.playback.release(root.ownerKey)
+    }
+    // Offscreen resource release: a paused, scrolled-away card frees its
+    // decoder and audio backend after a grace period instead of holding a
+    // QMediaPlayer (and an open PulseAudio/PipeWire stream) for the rest of
+    // the room session. The position survives; the next Play resumes it
+    // from the still-materialized (reused) temp file.
+    Timer {
+        interval: 45000
+        running: root.engaged && !root.rowOnScreen && !root.playing
+        onTriggered: {
+            root.resumePositionMs = root.player ? root.player.position : 0
+            root.resetPlayback()
+        }
+    }
     // A forced stop (room/account switch, sign-out) drops the source and
     // unloads the engine — the decrypted temp file is about to be wiped.
     readonly property int stopGen: app.playback.stopGeneration
@@ -112,6 +156,7 @@ Rectangle {
             if (url.length === 0 || !root.player) return
             root.fetchState = "idle"
             root.player.source = url
+            root.pinFile()
             app.playback.acquire(root.ownerKey)
             root.player.play()
         }
@@ -137,6 +182,16 @@ Rectangle {
                 muted: muteButton.mutedState
             }
             onErrorOccurred: root.fetchState = "failed"
+            // Resume after an offscreen engine unload: seek once the media
+            // is actually loaded — a seek issued straight after setting the
+            // source would be dropped.
+            onMediaStatusChanged: {
+                if (mediaStatus === MediaPlayer.LoadedMedia
+                    && root.resumePositionMs > 0) {
+                    position = root.resumePositionMs
+                    root.resumePositionMs = 0
+                }
+            }
         }
     }
 

@@ -121,6 +121,13 @@ private Q_SLOTS:
     void savedForwardsRolesCorrectlyForBothGroups();
     void savedSurvivesASourceReopen();
     void favoriteRoleIsAConstantAndNotASavedStateOracle();
+
+    // 2026-08 media round: the persisted "ext" field (gif::GifResult::localExt) — a
+    // local-saved row's own format, written only when non-empty so a
+    // favorites/recents entry (which never sets it) round-trips unchanged.
+    void localExtRoundTripsThroughJsonWhenSet();
+    void missingExtFieldDefaultsToEmptyNeverCrashes();
+    void favoritesEntryNeverGainsAnExtKey();
 };
 
 void GifCollectionsTest::favoriteToggleAndDedup()
@@ -549,6 +556,61 @@ void GifCollectionsTest::favoriteRoleIsAConstantAndNotASavedStateOracle()
     favorites.unfavorite(QStringLiteral("giphy"), QStringLiteral("sent1"));
     QVERIFY(!favorites.isFavorite(QStringLiteral("giphy"),
                                   QStringLiteral("sent1")));
+}
+
+// 2026-08 media round: a local row's format survives a reload — GifStarredStore is what
+// actually sets localExt (see GifStarredStoreTest.cpp for the store-level
+// coverage); this proves the JSON round-trip GifStoredModel itself owns.
+void GifCollectionsTest::localExtRoundTripsThroughJsonWhenSet()
+{
+    const QString h = QString(64, QLatin1Char('1'));
+    {
+        GifStarredModel starred(store);
+        gif::GifResult r = makeLocal(h, 2000);
+        r.localExt = QStringLiteral("png");
+        starred.insertLocal(r);
+        QCOMPARE(starred.count(), 1);
+    }
+    store->sync();
+    const QString raw = store->value(QStringLiteral("gif/starred")).toString();
+    QVERIFY(raw.contains(QStringLiteral("\"ext\":\"png\"")));
+
+    GifStarredModel reloaded(store);
+    QCOMPARE(reloaded.count(), 1);
+    QCOMPARE(reloaded.resultAt(0).localExt, QStringLiteral("png"));
+}
+
+// A row persisted with NO "ext" key (every row before the 2026-08 media round, or a
+// favorites/recents row, which never sets localExt at all) must load with
+// localExt simply empty — never crash, never invent "gif" itself. Turning
+// "empty" into "gif" is GifStarredStore's own convention (see its class
+// comment), applied at the point the store actually needs a filesystem
+// suffix — not baked into the model/JSON layer, which stays a faithful,
+// format-agnostic round trip.
+void GifCollectionsTest::missingExtFieldDefaultsToEmptyNeverCrashes()
+{
+    const QString h = QString(64, QLatin1Char('2'));
+    store->setValue(QStringLiteral("gif/starred"),
+                    QStringLiteral("[{\"provider\":\"local\",\"id\":\"%1\","
+                                   "\"w\":10,\"h\":10,\"bytes\":10}]")
+                        .arg(h));
+    store->sync();
+    GifStarredModel starred(store); // must not crash
+    QCOMPARE(starred.count(), 1);
+    QCOMPARE(starred.resultAt(0).localExt, QString());
+}
+
+// A favorites (provider) row never sets localExt, so toJson() must never
+// write an "ext" key for it — the exact "written only when non-empty"
+// contract the design relies on to keep a provider entry's persisted shape
+// unchanged by this generalization.
+void GifCollectionsTest::favoritesEntryNeverGainsAnExtKey()
+{
+    GifFavoritesModel fav(store);
+    fav.toggle(toMap(make("giphy", "a")));
+    store->sync();
+    const QString raw = store->value(QStringLiteral("gif/favorites")).toString();
+    QVERIFY(!raw.contains(QStringLiteral("\"ext\"")));
 }
 
 QTEST_MAIN(GifCollectionsTest)

@@ -25,7 +25,7 @@ void GifSendController::setClient(MatrixClient *client)
     }
 }
 
-QString GifSendController::safeFilename(const gif::GifResult &r)
+QString GifSendController::safeFilename(const gif::GifResult &r, const QString &ext)
 {
     QString id;
     for (const QChar c : r.id) {
@@ -36,8 +36,10 @@ QString GifSendController::safeFilename(const gif::GifResult &r)
     }
     const QString provider = r.provider.isEmpty() ? QStringLiteral("gif")
                                                   : r.provider;
-    return id.isEmpty() ? QStringLiteral("animated.gif")
-                        : provider + QLatin1Char('-') + id + QStringLiteral(".gif");
+    const QString suffix = ext.isEmpty() ? QStringLiteral("gif") : ext;
+    return id.isEmpty()
+        ? QStringLiteral("animated.") + suffix
+        : provider + QLatin1Char('-') + id + QLatin1Char('.') + suffix;
 }
 
 void GifSendController::sendToRoom(const QString &roomId,
@@ -176,7 +178,14 @@ void GifSendController::startLocal(Pending pending)
     // caps refuse rather than evict, so the store never removes a file on
     // its own — but the user can have unstarred it since choosing it.
     const QByteArray bytes = m_localGifReader(pending.result.id);
-    const gif::GifByteValidation v = gif::validateGifBytes(bytes);
+    // 2026-08 media round: the general raster validator, not the GIF-only one — a saved
+    // chat image can be GIF/PNG/JPEG/WebP now. `v.mime`/`v.ext` are the
+    // TRUTH the bytes decided, never a guess or whatever the snapshot
+    // claimed; a GIF still gets exactly its existing image/gif + animation
+    // handling (Rust re-sniffs and only marks a payload animated for
+    // image/gif — see rust/src/rooms.rs), and nothing here re-encodes the
+    // bytes in any way.
+    const gif::RasterByteValidation v = gif::validateRasterBytes(bytes);
     if (!v.ok) {
         Q_EMIT sendFailed(bytes.isEmpty() ? QStringLiteral("unavailable")
                                           : v.category,
@@ -189,13 +198,13 @@ void GifSendController::startLocal(Pending pending)
         Q_EMIT sendFailed(QStringLiteral("unavailable"), pending.isThread);
         return;
     }
-    const QString filename = safeFilename(pending.result);
+    const QString filename = safeFilename(pending.result, v.ext);
     const quint64 sendOp = pending.isThread
         ? m_client->sendThreadAttachmentBytes(
               pending.roomId, pending.rootId, bytes, filename,
-              QStringLiteral("image/gif"), v.width, v.height)
+              v.mime, v.width, v.height)
         : m_client->sendAttachmentBytes(
-              pending.roomId, bytes, filename, QStringLiteral("image/gif"),
+              pending.roomId, bytes, filename, v.mime,
               v.width, v.height);
     if (sendOp == 0) {
         Q_EMIT sendFailed(QStringLiteral("send_failed"), pending.isThread);

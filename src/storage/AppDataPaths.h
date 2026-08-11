@@ -115,6 +115,15 @@ QString rustSdkStorePath(const QString &userId);
 // slug — GifStarredStore never opens or deletes anywhere else.
 QString starredGifsDir(const QString &userId);
 
+// <primaryRoot()>/branding/custom-app-icon.png — the normalized copy of the
+// user-selected custom application icon (Settings -> Appearance). Device-
+// global, deliberately NOT account-scoped: the window icon is process-wide
+// state that applies before any account is restored. The file is always a
+// normalized 512x512 circular PNG produced by appicon::normalizeIconBytes —
+// never a reference to the arbitrary external file the user picked (which
+// may be renamed or deleted later).
+QString customAppIconFile();
+
 // Outcome of removing ONE already-resolved app-data directory (currently
 // only starredGifsDir()). A simpler tri-state than RemovalSummary (which
 // tallies several files/dirs at once): this always concerns exactly one

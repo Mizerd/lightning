@@ -46,6 +46,15 @@
             # default FFmpeg backend (ffmpeg-full linked via RPATH — no
             # plugin-path setup needed) and the GStreamer backend.
             qt.qtmultimedia
+            # v0.7 media round: Qt Multimedia dlopens libpipewire-0.3 at
+            # runtime for native PipeWire audio; when it cannot be resolved
+            # (the live capture showed exactly that warning on every launch)
+            # Qt falls back to the PulseAudio client library, and the
+            # captured FLAC-playback crash aborted inside that fallback
+            # (pa_context_get_state assertion). The host desktop runs
+            # PipeWire, so making the library resolvable lets Qt use the
+            # native path. See the LD_LIBRARY_PATH export below.
+            pipewire
             libsecret
             glib
             xkeyboard_config
@@ -85,6 +94,12 @@
             # QML-plugin configs (silences the harmless "quickmultimediaplugin
             # ... will not be linked" configure warning; loading stays dynamic).
             export QT_ADDITIONAL_PACKAGES_PREFIX_PATH="${qt.qtmultimedia}"
+            # Qt Multimedia resolves libpipewire-0.3 by dlopen at runtime;
+            # nix develop does not put buildInputs on the loader path, so
+            # scope exactly one directory onto it. Without this Qt falls
+            # back to the PulseAudio client (see the pipewire buildInputs
+            # comment; the captured FLAC crash aborted in that fallback).
+            export LD_LIBRARY_PATH="${pkgs.pipewire}/lib''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 
             echo "matrix-client dev shell — Qt ${qt.qtbase.version}"
             echo "Configure (mock/http):  cmake -S . -B build -G Ninja"

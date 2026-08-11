@@ -47,15 +47,28 @@ virtualization (`1e50f6a`, `080c186`, `5dad0fd`, `e3a7d7a`, `8f84d18`,
 `263268b`) after the staging/freeze mechanism from `225c7b3` was removed
 entirely. `60f2c54` restored the README screenshots to native resolution.
 
-**Carried into the release, and still open:** CTest is **85/87 on both
-trees**, not 87/87. `timeline-pane-qml` (36 passed / 27 failed) and
-`timeline-hydration-qml` (5 passed / 2 failed) have failed continuously since
-the timeline was rebuilt in `1e50f6a`; `8f84d18` ported seven other suites to
-the solid-timeline contract and recorded these two as explicitly not
-addressed. They are stale assertions against the previous virtualized
-contract rather than separately observed defects, but the regression net for
-the timeline is incomplete and porting them is the highest-value open work.
-This is disclosed in `docs/releases/v0.6.6.md`.
+**Carried into the release, and still open:** CTest was **85/87 on both
+trees** at release time, not 87/87. `timeline-pane-qml` (36 passed / 27
+failed) and `timeline-hydration-qml` (5 passed / 2 failed at release; 4/3 in
+the current desktop environment — the extra case fails identically with the
+release-era binaries, i.e. environment drift, not a code regression) have
+failed continuously since the timeline was rebuilt in `1e50f6a`; `8f84d18`
+ported seven other suites to the solid-timeline contract and recorded these
+two as explicitly not addressed. They are stale assertions against the
+previous virtualized contract rather than separately observed defects, but
+the regression net for the timeline is incomplete and porting them is the
+highest-value open work. This is disclosed in `docs/releases/v0.6.6.md`.
+
+As of the 2026-08-11 media/UX round the registered count is **91 per tree**
+(four suites added: custom-app-icon, vaapi-log-gate, storm-band-painter,
+storm-band-qml) and the current environment shows **86/91 on both trees**:
+the two timeline suites above plus `settings-shell-qml`,
+`design-acceptance` and `verification-qr-qml`, all five failing IDENTICALLY
+with the untouched release-era binaries (offscreen pixel-sampling drift, 40
+environmental "qmlRegisterType requires absolute URLs" warnings, and a host
+KDE style leak — also present with `LD_LIBRARY_PATH` cleared, excluding the
+round's pipewire dev-shell change). Run the suites yourself rather than
+trusting these numbers; they describe one desktop environment on one day.
 
 Run `git log --oneline v0.6.6..HEAD` rather than trusting this list; it will
 go stale the same way the narrative below did.
@@ -445,11 +458,16 @@ Existing GIF attachment/direct-media playback remains separate and implemented.
 Live Element interoperability of provider GIF sends should still be tested
 honestly rather than assumed.
 
-**Saving GIFs** is implemented. A star appears on hover over a timeline GIF
-and copies the bytes into an account-scoped, content-addressed store bounded
-at 200 items / 64 MiB (refusal, never eviction — a full store must not
-silently discard what the user asked to keep), and those send from local
-bytes.
+**Saving GIFs** is implemented — and since the 2026-08-11 media/UX round the
+star accepts every safe static raster the timeline shows: GIF, PNG, JPEG and
+WebP. Bytes are validated by magic sniffing (never a claimed MIME or file
+name; SVG and everything else refused), stored in their ORIGINAL format as
+`<sha256>.<ext>` (no transcoding), and re-sent with a truthful MIME and
+dimensions. Legacy index entries without a format field load as GIF —
+existing saved GIFs survive with no migration pass. The store stays
+account-scoped and content-addressed, bounded at 200 items / 64 MiB
+(refusal, never eviction — a full store must not silently discard what the
+user asked to keep), and sends go from local bytes.
 
 A star means exactly one thing everywhere — "save this GIF" — with one
 destination: the picker's **Saved** tab. That tab renders `GifSavedModel`, a
@@ -868,6 +886,36 @@ order a successor should pick them up:
 - Live validation still outstanding for everything the post-release rounds
   added: read receipts, server push-rule notification modes, QR verification
   against Element / Element X, and saving GIFs. All **NOT TESTED**.
+
+The 2026-08-11 media/UX round (single commit on `main`) landed: big-emoji
+rendering for 1-3 emoji-only messages (EmojiCatalog::emojiOnlySequenceCount,
+grapheme-cluster + catalogue lookup; the loader also recovered the #️⃣
+keycap a comment-prefix check silently dropped, so the catalogue is 3944
+sequences now); MediaBridge request priorities (0 explicit playback/save,
+1 avatars/thumbnails, 2 full static, 3 speculative GIF prefetch) with two
+slots reserved for interactive classes, a 15s starvation bound, playable
+temp-file pinning while a QMediaPlayer holds the file, queued-speculative
+dropping on room switch, and byte-sniff rejection of A/V containers on
+thumbnail-class results; offscreen player reclamation (audio engine unload
++ resume position after 45s, video card auto-close after 90s); the
+VaapiLogGate bounding Qt's per-frame vaExportSurfaceHandle warning storm;
+libpipewire made resolvable in the dev shell so Qt Multimedia uses native
+PipeWire instead of the PulseAudio fallback that the captured FLAC crash
+aborted in; a styled no-thumbnail video placeholder; the read-receipt
+poll-drain fix (an SDK receipt move arrives as adjacent Set diffs; the
+drain no longer splits the pair across 100 ms ticks) plus bounded
+count-only receipt diagnostics under `matrix.receipts`; the new circular
+default logo (scripts/generate-logo-source.sh -> lightning-source.png ->
+generate-icons.sh); the user-selectable custom app icon
+(Settings -> Appearance; appicon::normalizeIconBytes validates and
+normalizes to the circular 512px presentation; window/task-switcher
+surfaces only — launchers keep the packaged hicolor icon); the saved-media
+generalization described in section 7; and the native QML Storm Band on
+the About page (StormBandPainter tiles generated once per theme, reduced
+motion honored). Known SDK-internal receipt-loss mechanisms that Lightning
+cannot fix without patching matrix-sdk-ui 0.18 are documented in
+`docs/receipt-semantics.md`. Live validation of all of the above:
+**NOT TESTED** (see the round's completion report).
 
 "Recovering never-backed-up Megolm keys" is **refused, not deferred**: a key
 that was never backed up and never shared exists nowhere, every legitimate

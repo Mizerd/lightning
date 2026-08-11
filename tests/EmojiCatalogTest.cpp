@@ -137,6 +137,54 @@ private Q_SLOTS:
         QCOMPARE(catalog.preferredTone(), QStringLiteral("medium"));
     }
 
+    // Big-emoji detection: one user-perceived sequence counts once, any
+    // non-whitespace text disables it, the count saturates at 4. The old
+    // catalogue had no emojiOnlySequenceCount at all (messages of 1-3 emoji
+    // rendered at ordinary body size), so this suite is the regression net
+    // for the large-emoji feature.
+    void emojiOnlySequenceCount_data()
+    {
+        QTest::addColumn<QString>("text");
+        QTest::addColumn<int>("expected");
+        QTest::newRow("one") << QStringLiteral("😀") << 1;
+        QTest::newRow("two") << QStringLiteral("😀😀") << 2;
+        QTest::newRow("three") << QStringLiteral("😀😀😀") << 3;
+        QTest::newRow("four") << QStringLiteral("😀😀😀😀") << 4;
+        QTest::newRow("five-saturates") << QStringLiteral("😀😀😀😀😀") << 4;
+        QTest::newRow("zwj-family") << QStringLiteral("👨‍👩‍👧‍👦") << 1;
+        QTest::newRow("zwj-with-vs16-inside") << QStringLiteral("❤️‍🔥") << 1;
+        QTest::newRow("skin-tone") << QStringLiteral("👍🏽") << 1;
+        QTest::newRow("flag") << QStringLiteral("🇱🇹") << 1;
+        QTest::newRow("keycap") << QStringLiteral("1️⃣") << 1;
+        QTest::newRow("hash-keycap") << QStringLiteral("#️⃣") << 1;
+        QTest::newRow("vs16-heart") << QStringLiteral("❤️") << 1;
+        QTest::newRow("bare-heart-no-vs16") << QStringLiteral("❤") << 1;
+        QTest::newRow("profession") << QStringLiteral("👨‍💻") << 1;
+        QTest::newRow("three-mixed-kinds")
+            << QStringLiteral("👨‍👩‍👧‍👦👍🏽🇱🇹") << 3;
+        QTest::newRow("whitespace-around") << QStringLiteral("  😀 ") << 1;
+        QTest::newRow("whitespace-between") << QStringLiteral("😀 😀") << 2;
+        QTest::newRow("newline-between") << QStringLiteral("😀\n😀") << 2;
+        QTest::newRow("text-then-emoji") << QStringLiteral("text 😀") << 0;
+        QTest::newRow("emoji-then-text") << QStringLiteral("😀 ok") << 0;
+        QTest::newRow("emoji-glued-to-digit") << QStringLiteral("😀4") << 0;
+        QTest::newRow("plain-text") << QStringLiteral("hello") << 0;
+        QTest::newRow("bare-digit") << QStringLiteral("1") << 0;
+        QTest::newRow("bare-hash") << QStringLiteral("#") << 0;
+        QTest::newRow("ascii-emoticon") << QStringLiteral(":)") << 0;
+        QTest::newRow("empty") << QString() << 0;
+        QTest::newRow("only-whitespace") << QStringLiteral("  \n ") << 0;
+    }
+
+    void emojiOnlySequenceCount()
+    {
+        QFETCH(QString, text);
+        QFETCH(int, expected);
+        SettingsManager settings;
+        EmojiCatalog catalog(&settings);
+        QCOMPARE(catalog.emojiOnlySequenceCount(text), expected);
+    }
+
     void recentPersistenceAndBound()
     {
         SettingsManager settings;

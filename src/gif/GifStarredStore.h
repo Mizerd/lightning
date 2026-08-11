@@ -46,13 +46,27 @@ class QSettings;
 // explicitly starred are ever written; nothing else about the message
 // (body, other media, room state, sender) is touched or persisted.
 //
-// STORAGE: bytes live at <accountDir>/<sha256-hex>.gif — content-addressed,
-// so starring the same GIF twice (even via two different messages) never
+// STORAGE: bytes live at <accountDir>/<sha256-hex>.<ext> — content-addressed,
+// so starring the same image twice (even via two different messages) never
 // duplicates storage. `accountDir` is supplied by the caller
 // (AppController, via matrix::app_data::starredGifsDir(userId) — always the
 // CANONICAL account root, never a recorded/divergent store slug); this
 // class never derives or trusts a path itself, and never invents a fallback
 // location when accountDir is empty (the feature is simply inert/closed).
+//
+// 2026-08 media round FORMAT GENERALIZATION: the star now saves GIF/PNG/JPEG/WebP chat
+// images, never just GIF — but the on-disk name always keeps the file's
+// REAL, byte-validated suffix (gif::validateRasterBytes decides; a claimed
+// extension or Content-Type is never trusted), and the bytes are stored
+// exactly as received. NEVER transcoded, never re-encoded, never forced
+// into a different container — an original PNG stays a PNG on disk and is
+// re-sent as image/png, byte for byte. `ext` (the persisted, informational
+// field on the index row — see GifStoredModel's toJson/fromJson) says which
+// suffix a row's file uses; a row with no `ext` at all is a LEGACY entry
+// persisted before this generalization and always means "gif", the only
+// format that could have been saved then — no migration/rewrite pass is
+// needed or run, and an old <hash>.gif file from before this change keeps
+// loading and sending exactly as it always did.
 //
 // CLEANUP (the actual mechanism — read this before trusting any comment
 // elsewhere that merely gestures at "account removal already deletes it"):
@@ -216,8 +230,8 @@ public:
     // not persisted; this is a UI convenience, not a provenance record, and
     // does not survive restart.
     // Emits starFinished(mediaKey, ok, category, message). `category` is the
-    // stable, machine-readable token ("not_a_gif", "invalid_media",
-    // "too_large" — gif::validateGifBytes; "cap_items", "cap_bytes" — bounded
+    // stable, machine-readable token ("invalid_media", "too_large",
+    // "unsupported_format" — gif::validateRasterBytes; "cap_items", "cap_bytes" — bounded
     // store, refused rather than silently evicting a GIF the user chose to
     // keep; "write_failed"; "not_open" — no account directory is currently
     // open; "unavailable"/"timeout" — relayed fetch failures) that tests
@@ -274,16 +288,25 @@ public:
 
     // Bytes for a previously starred hash, read fresh from disk every call
     // (never trusted from a cached copy) — used by GifSendController to
-    // send the EXACT stored file. Empty when unknown, missing, or the store
-    // is closed.
+    // send the EXACT stored file, unchanged/untranscoded. Empty when
+    // unknown, missing, or the store is closed.
     QByteArray readBytes(const QString &hash) const;
 
     // Safe, re-validated (hash format + on-disk existence, checked fresh
     // every call) local playback source for the picker's tiles — "" when
-    // unavailable. Never trusts a path from the persisted index; the only
-    // input is the hash, and the location is always <dir>/<hash>.gif under
-    // whichever account directory is currently open.
+    // unavailable. Never trusts a path from the persisted index: the hash
+    // is shape-checked (isSafeHashHex) and the suffix is whitelisted to
+    // {gif,png,jpg,webp} at index READ time (GifStoredModel's fromJson —
+    // review M1: a hostile/corrupted "ext" collapses to legacy-GIF
+    // semantics before it can ever reach filePath()), so the location is
+    // always <dir>/<hash>.<ext> under whichever account directory is
+    // currently open (missing/legacy value means "gif").
     Q_INVOKABLE QString source(const QString &hash) const;
+    // The row's own format suffix ("gif"/"png"/"jpg"/"webp") — "" when the
+    // hash is unknown/unstarred. Purely informational (the picker's tile
+    // format badge); source()/readBytes() resolve the real path themselves
+    // and never trust a caller-supplied ext.
+    Q_INVOKABLE QString sourceExt(const QString &hash) const;
 
     qint64 totalBytes() const { return m_model->totalBytes(); }
     int count() const { return m_model->count(); }
@@ -304,7 +327,15 @@ Q_SIGNALS:
     void countChanged();
 
 private:
-    QString filePath(const QString &hash) const;
+    // `ext` defaults to "gif" when empty — the legacy-entry convention
+    // documented on the class comment.
+    QString filePath(const QString &hash, const QString &ext = QString()) const;
+    // The persisted format for a hash CURRENTLY in the model ("" if the
+    // hash is not a known row) — "gif" is substituted for an empty/legacy
+    // value. Read-only lookup; never trusted as a guarantee the file itself
+    // still exists (every caller still QFileInfo::exists()-checks the
+    // resulting filePath() before using it).
+    QString extForHash(const QString &hash) const;
     static bool isSafeHashHex(const QString &hash);
     // Creates the store directory (0700) on first real write — deferred out
     // of openFor()/every login so an account that never stars anything

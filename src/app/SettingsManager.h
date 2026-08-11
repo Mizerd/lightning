@@ -39,6 +39,13 @@ class SettingsManager : public QObject
                    NOTIFY uiFontChanged)
     Q_PROPERTY(QString language READ language WRITE setLanguage NOTIFY languageChanged)
     Q_PROPERTY(bool startMinimized READ startMinimized WRITE setStartMinimized NOTIFY startMinimizedChanged)
+    // Custom application icon (Settings -> Appearance). Device-global like
+    // language/startMinimized — the window icon is process-wide and applies
+    // before any account restores. The normalized image itself lives at
+    // matrix::app_data::customAppIconFile(); this flag only records that the
+    // user enabled it. AppController owns validation/application.
+    Q_PROPERTY(bool customAppIconEnabled READ customAppIconEnabled
+                   WRITE setCustomAppIconEnabled NOTIFY customAppIconEnabledChanged)
     Q_PROPERTY(bool notificationsEnabled READ notificationsEnabled WRITE setNotificationsEnabled NOTIFY notificationsEnabledChanged)
     // v0.6.0 checkpoint 11: notification privacy. 0 = sender and message,
     // 1 = sender only (default), 2 = private ("New Matrix notification").
@@ -145,6 +152,8 @@ public:
     void setLanguage(const QString &lang);
 
     bool startMinimized() const;
+    bool customAppIconEnabled() const;
+    void setCustomAppIconEnabled(bool enabled);
     void setStartMinimized(bool v);
 
     bool notificationsEnabled() const;
@@ -372,6 +381,7 @@ Q_SIGNALS:
     void uiFontChanged();
     void languageChanged();
     void startMinimizedChanged();
+    void customAppIconEnabledChanged();
     void notificationsEnabledChanged();
     void notificationPreviewChanged();
     void notificationSoundChanged();

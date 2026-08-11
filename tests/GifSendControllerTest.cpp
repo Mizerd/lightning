@@ -8,8 +8,10 @@
 #include "gif/GifRecentModel.h"
 #include "matrix/MockMatrixClient.h"
 
+#include <QBuffer>
 #include <QCoreApplication>
 #include <QHash>
+#include <QImage>
 #include <QSettings>
 #include <QSignalSpy>
 #include <QStandardPaths>
@@ -71,6 +73,22 @@ public:
 };
 
 QByteArray realGif() { return QByteArray("GIF89a\x10\x00\x10\x00", 10); }
+
+// 2026-08 media round: a REAL, Qt-encoded PNG (this test target links Qt6::Gui — see
+// CMakeLists.txt — unlike gif-starred-store-test, which hand-builds a
+// minimal header instead). Proves gif::validateRasterBytes' PNG parser
+// against actual encoder output, not only a synthetic fixture.
+QByteArray realPng(int w, int h)
+{
+    QImage img(w, h, QImage::Format_RGB32);
+    img.fill(Qt::red);
+    QByteArray bytes;
+    QBuffer buf(&bytes);
+    buf.open(QIODevice::WriteOnly);
+    img.save(&buf, "PNG");
+    buf.close();
+    return bytes;
+}
 
 QVariantMap gifMap(const QString &provider, const QString &id,
                    const QString &host)
@@ -151,6 +169,13 @@ private Q_SLOTS:
     void localFavoriteCorruptedBytesRefused();
     void localFavoriteNotRecordedIntoRecents();
     void localFavoriteThreadSendWithEmptyRootIdReportsUnavailable();
+
+    // 2026-08 media round: a saved chat image can be PNG/JPEG/WebP now, not only GIF —
+    // the local send path must carry the TRUE mime/extension/dimensions the
+    // bytes decided (gif::validateRasterBytes), never a hardcoded
+    // "image/gif" — while an actual GIF keeps sending exactly as before.
+    void localFavoritePngSendCarriesTruthfulMimeAndFilename();
+    void localFavoriteGifSendStillCarriesImageGifMime();
 };
 
 namespace {
@@ -393,6 +418,41 @@ void GifSendControllerTest::localFavoriteThreadSendWithEmptyRootIdReportsUnavail
     QCOMPARE(fail.count(), 1);
     QCOMPARE(fail.first().at(0).toString(), QStringLiteral("unavailable"));
     QVERIFY(client->sends.isEmpty());
+}
+
+void GifSendControllerTest::localFavoritePngSendCarriesTruthfulMimeAndFilename()
+{
+    setup();
+    const QString hash = QString(64, QLatin1Char('9'));
+    const QByteArray png = realPng(48, 32);
+    localFiles.insert(hash, png);
+    QSignalSpy ok(send, &GifSendController::sendSucceeded);
+
+    send->sendToRoom(QStringLiteral("!room:hs"), localGifMap(hash));
+
+    QCOMPARE(client->sends.size(), 1);
+    QCOMPARE(client->sends.first().mime, QStringLiteral("image/png"));
+    QVERIFY(client->sends.first().filename.endsWith(QStringLiteral(".png")));
+    QVERIFY(!client->sends.first().filename.endsWith(QStringLiteral(".gif")));
+    QCOMPARE(client->sends.first().bytes, png); // exact bytes, never transcoded
+    QCOMPARE(client->sends.first().w, 48);
+    QCOMPARE(client->sends.first().h, 32);
+    QCOMPARE(ok.count(), 1);
+}
+
+void GifSendControllerTest::localFavoriteGifSendStillCarriesImageGifMime()
+{
+    // Belt-and-suspenders alongside localFavoriteSendsStoredBytesWithoutDownloading:
+    // the generalized validator must not have changed GIF's own outcome.
+    setup();
+    const QString hash = QString(64, QLatin1Char('8'));
+    localFiles.insert(hash, realGif());
+
+    send->sendToRoom(QStringLiteral("!room:hs"), localGifMap(hash));
+
+    QCOMPARE(client->sends.size(), 1);
+    QCOMPARE(client->sends.first().mime, QStringLiteral("image/gif"));
+    QVERIFY(client->sends.first().filename.endsWith(QStringLiteral(".gif")));
 }
 
 QTEST_MAIN(GifSendControllerTest)

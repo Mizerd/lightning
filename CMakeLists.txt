@@ -170,6 +170,10 @@ set(APP_SOURCES
     src/app/AppController.cpp
     src/app/ConversationController.h
     src/app/ConversationController.cpp
+    src/app/CustomAppIcon.h
+    src/app/CustomAppIcon.cpp
+    src/app/StormBandPainter.h
+    src/app/StormBandPainter.cpp
     src/app/RoomInfoController.h
     src/app/RoomInfoController.cpp
     src/app/SessionDiagnostics.h
@@ -389,6 +393,7 @@ set(APP_QML_FILES
     qml/QuickReactionStrip.qml
     qml/IdentityCard.qml
     qml/TrustCard.qml
+    qml/StormBand.qml
     qml/StormNode.qml
     qml/TrustMeter.qml
     qml/AppTheme.qml
@@ -748,6 +753,59 @@ if(BUILD_TESTING)
     target_include_directories(emoji-catalog-test PRIVATE src)
     target_link_libraries(emoji-catalog-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME emoji-catalog COMMAND emoji-catalog-test)
+
+    # Custom application icon: byte-sniffed raster whitelist, SVG refusal,
+    # bounded decode, circular 512px normalization, persisted enable flag,
+    # and the device-global app-data path.
+    qt_add_executable(custom-app-icon-test
+        tests/CustomAppIconTest.cpp
+        src/app/CustomAppIcon.h
+        src/app/CustomAppIcon.cpp
+        src/app/SettingsManager.h
+        src/app/SettingsManager.cpp
+        src/storage/SecretStore.h
+        src/storage/AppDataPaths.cpp
+    )
+    target_include_directories(custom-app-icon-test PRIVATE src)
+    target_link_libraries(custom-app-icon-test PRIVATE
+        Qt6::Core Qt6::Gui Qt6::Test)
+    add_test(NAME custom-app-icon COMMAND custom-app-icon-test)
+
+    # The VAAPI texture-export warning gate: pass-through window, storm
+    # suppression, periodic summaries, unrelated messages untouched.
+    qt_add_executable(vaapi-log-gate-test tests/VaapiLogGateTest.cpp)
+    target_include_directories(vaapi-log-gate-test PRIVATE src)
+    target_link_libraries(vaapi-log-gate-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME vaapi-log-gate COMMAND vaapi-log-gate-test)
+
+    # Storm Band tile painter: deterministic procedural pixel-art layers,
+    # palette derivation from theme inputs, defensive id parsing.
+    qt_add_executable(storm-band-painter-test
+        tests/StormBandPainterTest.cpp
+        src/app/StormBandPainter.h
+        src/app/StormBandPainter.cpp
+    )
+    target_include_directories(storm-band-painter-test PRIVATE src)
+    target_link_libraries(storm-band-painter-test PRIVATE
+        Qt6::Core Qt6::Gui Qt6::Quick Qt6::Test)
+    add_test(NAME storm-band-painter COMMAND storm-band-painter-test)
+    set_tests_properties(storm-band-painter PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    # Storm Band QML contract: loads the real component offscreen, pins the
+    # reduced-motion stop, pointer transparency, fixed height, and the
+    # no-WebView constraint.
+    qt_add_executable(storm-band-qml-test
+        tests/StormBandQmlTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_app(storm-band-qml-test)
+    target_compile_definitions(storm-band-qml-test PRIVATE
+        QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
+    target_link_libraries(storm-band-qml-test PRIVATE Qt6::Test)
+    add_test(NAME storm-band-qml COMMAND storm-band-qml-test)
+    set_tests_properties(storm-band-qml PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     # v0.6.5: the recentEmoji QStringList property feeding the quick-react
     # strip — MRU order, validity filtering, change signals.

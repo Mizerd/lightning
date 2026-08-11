@@ -2157,7 +2157,22 @@ void RustSdkMatrixClient::pollRustEvents()
     }
 
     m_coalesceTimelineInserts = true;
-    for (int i = 0; i < 64; ++i) {
+    // Soft fairness cap per 100 ms tick, with a bounded extension for
+    // timeline diffs: one structural SDK transaction arrives as ADJACENT
+    // diffs (a receipt move is Set(old row) then Set(new row)), and cutting
+    // the drain between them paints the removal a full tick before the
+    // addition — a visible receipt flicker indistinguishable in a live
+    // capture from a real loss. Past the soft cap the drain continues only
+    // while timeline diffs keep coming; the first other event ends the tick.
+    // This is a bounded MITIGATION, not an elimination: a pair straddling
+    // the hard cap is still split (a >256-event tick means a hydration-
+    // scale burst, where a one-tick receipt flicker is invisible anyway),
+    // and the worst-case synchronous per-tick work is 4x the old cap —
+    // accepted, since diff application is mirror-index bookkeeping and the
+    // heavy model updates were already batched by the insert coalescing.
+    constexpr int kSoftDrainCap = 64;
+    constexpr int kHardDrainCap = 256;
+    for (int i = 0; i < kHardDrainCap; ++i) {
         const QString raw = takeRustString(mx_rust_poll_event(m_rustHandle));
         if (raw.isEmpty())
             break;
@@ -2175,19 +2190,20 @@ void RustSdkMatrixClient::pollRustEvents()
             flushTimelineInsertBatch();
         if (m_lifecycle.acceptsActive(eventGeneration)) {
             handleRustEvent(event, eventGeneration);
-            continue;
-        }
-        if (type == QLatin1String("logged_out")
-            && m_lifecycle.acceptsShutdownCompletion(eventGeneration)) {
+        } else if (type == QLatin1String("logged_out")
+                   && m_lifecycle.acceptsShutdownCompletion(eventGeneration)) {
             handleRustEvent(event, eventGeneration);
             m_coalesceTimelineInserts = false;
             return; // finishSignOut releases the handle being polled.
+        } else {
+            qCInfo(lcRust) << "ignored stale callback"
+                           << "type=" << type
+                           << "generation=" << eventGeneration
+                           << "active_generation="
+                           << m_lifecycle.activeGeneration();
         }
-
-        qCInfo(lcRust) << "ignored stale callback"
-                       << "type=" << type
-                       << "generation=" << eventGeneration
-                       << "active_generation=" << m_lifecycle.activeGeneration();
+        if (i >= kSoftDrainCap - 1 && type != QLatin1String("timeline_diff"))
+            break;
     }
     flushTimelineInsertBatch();
     m_coalesceTimelineInserts = false;

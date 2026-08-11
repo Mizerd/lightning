@@ -18,6 +18,7 @@ constexpr auto kTextScale           = "ui/textScale";
 constexpr auto kUiFont              = "ui/uiFont";
 constexpr auto kLanguage            = "ui/language";
 constexpr auto kStartMinimized      = "ui/startMinimized";
+constexpr auto kCustomAppIcon       = "ui/customAppIconEnabled";
 constexpr auto kNotifications       = "notifications/enabled";
 constexpr auto kRecentEmoji         = "emoji/recent";
 constexpr auto kPreferredEmojiTone  = "emoji/preferredTone";
@@ -743,6 +744,19 @@ void SettingsManager::setStartMinimized(bool v)
         return;
     m_store->setValue(kStartMinimized, v);
     Q_EMIT startMinimizedChanged();
+}
+
+bool SettingsManager::customAppIconEnabled() const
+{
+    return m_store->value(kCustomAppIcon, false).toBool();
+}
+
+void SettingsManager::setCustomAppIconEnabled(bool enabled)
+{
+    if (customAppIconEnabled() == enabled)
+        return;
+    m_store->setValue(kCustomAppIcon, enabled);
+    Q_EMIT customAppIconEnabledChanged();
 }
 
 int SettingsManager::notificationPreview() const

@@ -125,6 +125,34 @@ public:
     // zero and the queue fully drains under saturation.
     int inflightCountForTest() const { return m_inflight.size(); }
     int queuedCountForTest() const { return m_queue.size(); }
+    void setStarvationMsForTest(qint64 ms) { m_starvationMs = ms; }
+    void setPlayableCapsForTest(int entries, qint64 bytes)
+    {
+        m_playableMaxEntries = entries;
+        m_playableMaxBytes = bytes;
+    }
+
+    // v0.7 media round: playable-file pinning. A QMediaPlayer holds its
+    // materialized temp file open for the whole playback session; the LRU
+    // evicting that file under it deletes what the decoder is reading
+    // (survivable on Linux through the open fd, a hard failure on any
+    // re-open or seek-after-source-reset). Cards pin on start and unpin on
+    // reset/destruction; eviction skips pinned victims, temporarily
+    // exceeding the cap when everything is pinned (bounded by the number of
+    // live players). clear() drops all pins with the files.
+    Q_INVOKABLE void pinPlayable(const QString &mediaKey);
+    Q_INVOKABLE void unpinPlayable(const QString &mediaKey);
+
+    // v0.7 media round: drops QUEUED speculative work (full-GIF autoplay
+    // prefetch) that became irrelevant — called on room switch, where the
+    // requesting delegates are destroyed. In-flight ops are untouched (the
+    // backend has no cancellation; the watchdog and stale-drop already
+    // bound them), and a revisit re-requests naturally. Entries a
+    // playableSource() caller coalesced onto are kept (review L3). NOTE the
+    // call-site ordering dependency: AppController calls this AFTER
+    // stopAll() and BEFORE the new room's model attaches, all synchronously
+    // — no consumer of a dropped entry survives to observe the silence.
+    Q_INVOKABLE void dropQueuedSpeculative();
 
     // Explicit Save As: fetches the full payload (cache or network) and
     // writes it atomically to the user-chosen destination. Never executes
@@ -214,6 +242,17 @@ private:
         // C++ watchdog deadline, so Rust normally emits the terminal event
         // and the watchdog stays last-resort.
         int timeoutClass = 0;
+        // v0.7 media round: request priority. Lower dispatches first.
+        //   0 explicit user intent (press-play playable, Save As, star)
+        //   1 interactive chrome (avatars, timeline thumbnails, mxc images)
+        //   2 full static media (viewer, images without thumbnails)
+        //   3 speculative (full-GIF prefetch for autoplay)
+        // The old single FIFO let eight multi-megabyte GIF prefetches pin
+        // every slot while the pressed-play FLAC and the room's avatars
+        // waited behind them.
+        int priority = 2;
+        // Monotonic enqueue time for the starvation bound (see pump()).
+        qint64 enqueuedAtMs = 0;
         // Monotonic dispatch time (m_failureClock ms) for resolution timing
         // in the logs; 0 until dispatched.
         qint64 dispatchedAtMs = 0;
@@ -235,6 +274,20 @@ private:
     void dispatch(const Pending &request);
     void pump();
     bool alreadyPending(const QString &cacheKey) const;
+    // review L4: when a caller coalesces onto an already-QUEUED entry,
+    // raise that entry to the caller's class (lower priority value, wider
+    // timeout class) in place.
+    void promoteQueuedRequest(const QString &cacheKey, int priority,
+                              int timeoutClass);
+    // Heavy = priority >= 2 (full static media and speculative prefetch).
+    // Bounded below kMaxConcurrent so interactive classes always have
+    // reserved headroom.
+    int heavyInflightCount() const;
+    // Payload sniff for thumbnail-class results: a homeserver that cannot
+    // thumbnail may return the ORIGINAL media, and the Rust bridge labels
+    // thumbnail results with the parent's mimetype anyway — so the bytes,
+    // not the label, decide whether the payload may enter the image path.
+    static bool looksLikeAvContainer(const QByteArray &bytes);
     static QString sanitizedFileName(const QString &name);
     void writeSaveFile(const QUrl &destination, const QByteArray &bytes,
                        const QString &mediaKey);
@@ -331,11 +384,30 @@ private:
     QHash<QString, qint64> m_playableSizes;
     QList<QString> m_playableLru;
     QSet<QString> m_playableWanted;
+    // Cache keys whose materialized file a live player currently holds
+    // open, REFCOUNTED (review L1): the same media event can be rendered by
+    // two cards at once (main timeline + thread panel), and one card's
+    // reset must not unpin the file the other still holds. Never chosen as
+    // an eviction victim while the count is positive.
+    QHash<QString, int> m_pinnedPlayables;
     QString m_playableNameSalt;
+    // Playable LRU caps as members so tests can shrink them; initialized
+    // from the class constants below.
+    int m_playableMaxEntries;
+    qint64 m_playableMaxBytes;
+    // Bounded-starvation guard for the priority queue: an entry older than
+    // this dispatches ahead of higher-priority newcomers.
+    qint64 m_starvationMs = 15 * 1000;
     // v0.7: raised from 4 — a cold room list fetches its visible avatars in
     // one or two bursts instead of a long 4-at-a-time trickle. Still a hard
     // bound; excess requests queue and pump as fetches complete.
     static constexpr int kMaxConcurrent = 8;
+    // Heavy work (priority >= 2: full static media, speculative prefetch)
+    // may hold at most this many slots, so explicit playback and visible
+    // chrome always find headroom immediately — eight multi-megabyte GIF
+    // prefetches can no longer starve the room's avatars or a pressed-play
+    // track.
+    static constexpr int kMaxHeavyConcurrent = 6;
     static constexpr int kMaxFailureMarks = 512;
     // One server-side thumbnail edge for every avatar surface (largest
     // consumer is the 96px popover at 2x DPR = 192; 224 covers it with

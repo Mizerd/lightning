@@ -82,6 +82,8 @@ bool previewBytesMatchMime(const QByteArray &bytes, const QString &mimetype)
 
 MediaBridge::MediaBridge(QObject *parent)
     : QObject(parent)
+    , m_playableMaxEntries(kPlayableCacheEntries)
+    , m_playableMaxBytes(kPlayableCacheBytes)
 {
     m_failureClock.start();
     m_animatedDir = std::make_unique<QTemporaryDir>(
@@ -124,6 +126,42 @@ bool MediaBridge::supported() const
 bool MediaBridge::isAvatarClassKey(const QString &cacheKey)
 {
     return cacheKey.startsWith(QLatin1String("mxc:"));
+}
+
+bool MediaBridge::looksLikeAvContainer(const QByteArray &bytes)
+{
+    if (bytes.size() < 12)
+        return false;
+    const auto u8 = [&bytes](qsizetype i) {
+        return static_cast<unsigned char>(bytes.at(i));
+    };
+    if (bytes.mid(4, 4) == QByteArrayLiteral("ftyp")) {
+        // ISO BMFF — but HEIC/AVIF IMAGES share the container. Qt decodes
+        // neither by default today; excluding their brands keeps this
+        // honest if an image plugin ever appears.
+        const QByteArray brand = bytes.mid(8, 4);
+        if (brand == QByteArrayLiteral("avif")
+            || brand == QByteArrayLiteral("avis")
+            || brand == QByteArrayLiteral("heic")
+            || brand == QByteArrayLiteral("heix")
+            || brand == QByteArrayLiteral("mif1"))
+            return false;
+        return true; // MP4/M4A/MOV
+    }
+    if (u8(0) == 0x1A && u8(1) == 0x45 && u8(2) == 0xDF && u8(3) == 0xA3)
+        return true; // Matroska/WebM
+    if (bytes.startsWith("OggS"))
+        return true;
+    if (bytes.startsWith("RIFF")) {
+        const QByteArray form = bytes.mid(8, 4);
+        // RIFF/WEBP is an image and stays acceptable.
+        if (form == QByteArrayLiteral("AVI ")
+            || form == QByteArrayLiteral("WAVE"))
+            return true;
+    }
+    if (bytes.startsWith("fLaC") || bytes.startsWith("ID3"))
+        return true;
+    return false;
 }
 
 QString MediaBridge::cachedSource(const QString &cacheKey) const
@@ -318,9 +356,14 @@ QString MediaBridge::mediaSource(const QString &mediaKey, const QString &kind)
         request.cacheKey = cacheKey;
         request.mediaKey = mediaKey;
         request.kind = kindValue;
+        // Thumbnails are visible chrome; a full static payload is heavier
+        // and can wait behind them.
+        request.priority = kindValue == 1 ? 1 : 2;
         qCDebug(lcMedia, "media %s cache=miss dispatching",
                 qUtf8Printable(keyTag(cacheKey)));
         dispatch(request);
+    } else {
+        promoteQueuedRequest(cacheKey, kindValue == 1 ? 1 : 2, 0);
     }
     return {};
 }
@@ -351,6 +394,9 @@ QString MediaBridge::animatedSource(const QString &mediaKey)
         request.cacheKey = cacheKey;
         request.mediaKey = mediaKey;
         request.kind = 0;
+        // Speculative: the full-GIF prefetch for autoplay. Never allowed to
+        // starve visible chrome or explicit playback.
+        request.priority = 3;
         dispatch(request);
     }
     return {};
@@ -385,7 +431,12 @@ QString MediaBridge::playableSource(const QString &mediaKey)
         request.mediaKey = mediaKey;
         request.kind = 0;
         request.timeoutClass = 1; // playable class (90s Rust / 100s watchdog)
+        request.priority = 0;     // the user pressed Play
         dispatch(request);
+    } else {
+        // A speculative prefetch may already hold this key in the queue;
+        // the pressed-play caller must not inherit its class.
+        promoteQueuedRequest(cacheKey, 0, 1);
     }
     return {};
 }
@@ -512,10 +563,12 @@ QString MediaBridge::avatarSource(const QString &mxcUri, int size)
         request.mediaKey = mxcUri;
         request.kind = 2;
         request.size = edge;
+        request.priority = 1; // interactive chrome
         qCDebug(lcMedia, "avatar %s edge=%d cache=miss dispatching",
                 qUtf8Printable(keyTag(cacheKey)), edge);
         dispatch(request);
     } else {
+        promoteQueuedRequest(cacheKey, 1, 0);
         qCDebug(lcMedia, "avatar %s edge=%d cache=miss already-pending",
                 qUtf8Printable(keyTag(cacheKey)), edge);
     }
@@ -549,17 +602,37 @@ QString MediaBridge::mxcImageSource(const QString &mxcUri, int edge)
         request.mediaKey = mxcUri;
         request.kind = 2;
         request.size = edge;
+        request.priority = 1; // interactive chrome
         dispatch(request);
+    } else {
+        promoteQueuedRequest(cacheKey, 1, 0);
     }
     return {};
 }
 
+int MediaBridge::heavyInflightCount() const
+{
+    int heavy = 0;
+    for (const Pending &p : m_inflight) {
+        if (p.priority >= 2)
+            ++heavy;
+    }
+    return heavy;
+}
+
 void MediaBridge::dispatch(const Pending &request)
 {
-    if (m_inflight.size() >= kMaxConcurrent) {
-        m_queue.enqueue(request);
-        qCDebug(lcMedia, "queue %s (inflight=%lld queued=%lld)",
-                qUtf8Printable(keyTag(request.cacheKey)),
+    // Heavy work (full static media, speculative prefetch) never takes the
+    // last two slots: explicit playback and visible chrome must always find
+    // immediate headroom.
+    const bool heavyBlocked =
+        request.priority >= 2 && heavyInflightCount() >= kMaxHeavyConcurrent;
+    if (m_inflight.size() >= kMaxConcurrent || heavyBlocked) {
+        Pending queued = request;
+        queued.enqueuedAtMs = m_failureClock.elapsed();
+        m_queue.enqueue(queued);
+        qCDebug(lcMedia, "queue %s prio=%d (inflight=%lld queued=%lld)",
+                qUtf8Printable(keyTag(request.cacheKey)), request.priority,
                 static_cast<long long>(m_inflight.size()),
                 static_cast<long long>(m_queue.size()));
         return;
@@ -612,8 +685,34 @@ void MediaBridge::dispatch(const Pending &request)
 
 void MediaBridge::pump()
 {
-    while (!m_queue.isEmpty() && m_inflight.size() < kMaxConcurrent)
-        dispatch(m_queue.dequeue());
+    while (!m_queue.isEmpty() && m_inflight.size() < kMaxConcurrent) {
+        const qint64 now = m_failureClock.elapsed();
+        const int heavy = heavyInflightCount();
+        // Best eligible entry: lowest priority value, FIFO within a class.
+        // Heavy entries are ineligible while the heavy slots are full.
+        int chosen = -1;
+        int oldest = -1;
+        for (int i = 0; i < m_queue.size(); ++i) {
+            const Pending &p = m_queue.at(i);
+            if (p.priority >= 2 && heavy >= kMaxHeavyConcurrent)
+                continue;
+            if (oldest < 0
+                || p.enqueuedAtMs < m_queue.at(oldest).enqueuedAtMs)
+                oldest = i;
+            if (chosen < 0 || p.priority < m_queue.at(chosen).priority)
+                chosen = i;
+        }
+        // Bounded starvation: an entry that has waited past the guard
+        // dispatches ahead of higher-priority newcomers, so a constant
+        // stream of chrome fetches can delay speculative work but never
+        // park it forever.
+        if (oldest >= 0
+            && now - m_queue.at(oldest).enqueuedAtMs >= m_starvationMs)
+            chosen = oldest;
+        if (chosen < 0)
+            break; // only heavy-blocked work remains queued
+        dispatch(m_queue.takeAt(chosen));
+    }
 }
 
 void MediaBridge::checkInflightTimeouts()
@@ -731,6 +830,25 @@ void MediaBridge::onMediaReady(quint64 opId, const QString &mediaKey, int kind,
         Q_EMIT mediaBytesForStar(request.mediaKey, true, bytes, QString());
         return;
     }
+    // Thumbnail-class results must be images. A homeserver that cannot
+    // thumbnail may return the ORIGINAL payload (and the Rust bridge labels
+    // thumbnail results with the parent's mimetype regardless — a video's
+    // "thumb" arrives tagged video/mp4), so the BYTES decide: a payload
+    // that sniffs as an A/V container never enters the image cache or the
+    // image-decode path. Permanent category — the server will keep
+    // answering the same way.
+    if ((request.kind == 1 || request.kind == 2)
+        && looksLikeAvContainer(bytes)) {
+        ++m_statFailed;
+        qCWarning(lcMedia,
+                  "ready %s rejected: thumbnail payload sniffs as A/V "
+                  "container (%lld bytes)",
+                  qUtf8Printable(keyTag(request.cacheKey)),
+                  static_cast<long long>(bytes.size()));
+        markFailed(request, QStringLiteral("rejected"));
+        Q_EMIT mediaFetchFailed(request.cacheKey, QStringLiteral("rejected"));
+        return;
+    }
     ++m_statCompleted;
     m_failed.remove(request.cacheKey);
     // v0.7: large playable payloads live on disk for the in-process player;
@@ -765,7 +883,7 @@ QString MediaBridge::writePlayableFile(const QString &cacheKey,
                                        const QByteArray &bytes,
                                        const QString &mimetype)
 {
-    if (bytes.isEmpty() || bytes.size() > kPlayableCacheBytes
+    if (bytes.isEmpty() || bytes.size() > m_playableMaxBytes
         || !m_animatedDir || !m_animatedDir->isValid())
         return {};
     const QString extension = playableExtensionFor(bytes, mimetype);
@@ -794,14 +912,98 @@ QString MediaBridge::writePlayableFile(const QString &cacheKey,
     qint64 total = 0;
     for (qint64 size : std::as_const(m_playableSizes))
         total += size;
-    while ((total > kPlayableCacheBytes
-            || m_playableFiles.size() > kPlayableCacheEntries)
+    while ((total > m_playableMaxBytes
+            || m_playableFiles.size() > m_playableMaxEntries)
            && m_playableLru.size() > 1) {
-        const QString victim = m_playableLru.takeLast();
+        // Least-recent UNPINNED victim: a live player's open file is never
+        // deleted under it. When everything else is pinned the cap is
+        // temporarily exceeded — bounded by the number of live players.
+        int victimIndex = -1;
+        for (int i = m_playableLru.size() - 1; i >= 1; --i) {
+            if (!m_pinnedPlayables.contains(m_playableLru.at(i))) {
+                victimIndex = i;
+                break;
+            }
+        }
+        if (victimIndex < 1) {
+            qCInfo(lcMedia,
+                   "playable cache over budget with every entry pinned "
+                   "(%lld files, %lld bytes)",
+                   static_cast<long long>(m_playableFiles.size()), total);
+            break;
+        }
+        const QString victim = m_playableLru.takeAt(victimIndex);
         total -= m_playableSizes.take(victim);
         QFile::remove(m_playableFiles.take(victim));
     }
     return path;
+}
+
+void MediaBridge::pinPlayable(const QString &mediaKey)
+{
+    if (mediaKey.isEmpty())
+        return;
+    // Refcounted (review L1): two cards can pin the same event's file.
+    ++m_pinnedPlayables[mediaCacheKey(mediaKey, 0)];
+}
+
+void MediaBridge::unpinPlayable(const QString &mediaKey)
+{
+    if (mediaKey.isEmpty())
+        return;
+    const QString cacheKey = mediaCacheKey(mediaKey, 0);
+    const auto it = m_pinnedPlayables.find(cacheKey);
+    if (it == m_pinnedPlayables.end())
+        return; // unbalanced unpin — floored, never negative
+    if (--it.value() <= 0)
+        m_pinnedPlayables.erase(it);
+}
+
+void MediaBridge::dropQueuedSpeculative()
+{
+    if (m_queue.isEmpty())
+        return;
+    int dropped = 0;
+    for (int i = m_queue.size() - 1; i >= 0; --i) {
+        const Pending &p = m_queue.at(i);
+        // review L3: a playableSource() caller may have coalesced onto this
+        // queued entry ("full:<key>" is shared by the animated and playable
+        // paths) — dropping it then would strand that caller with no fetch,
+        // no terminal signal. Such an entry is no longer purely speculative;
+        // keep it.
+        if (p.priority == 3 && !p.saveRequest && !p.starRequest
+            && !m_playableWanted.contains(p.cacheKey)) {
+            m_animatedWanted.remove(p.cacheKey);
+            m_queue.removeAt(i);
+            ++dropped;
+        }
+    }
+    if (dropped > 0) {
+        qCDebug(lcMedia, "dropped %d queued speculative fetches (room left)",
+                dropped);
+    }
+}
+
+void MediaBridge::promoteQueuedRequest(const QString &cacheKey, int priority,
+                                       int timeoutClass)
+{
+    // review L4: alreadyPending() suppresses a second request for the same
+    // key outright, so an explicit/interactive caller landing on an entry
+    // queued by a speculative one would otherwise inherit the speculative
+    // class and wait behind chrome. Lower the queued entry's priority in
+    // place (its enqueuedAtMs — and so its starvation age — is preserved)
+    // and widen its timeout class upward so a playable caller's longer
+    // Rust/watchdog budget applies.
+    for (int i = 0; i < m_queue.size(); ++i) {
+        Pending &p = m_queue[i];
+        if (p.cacheKey != cacheKey || p.saveRequest || p.starRequest)
+            continue;
+        if (priority < p.priority)
+            p.priority = priority;
+        if (timeoutClass > p.timeoutClass)
+            p.timeoutClass = timeoutClass;
+        return;
+    }
 }
 
 QString MediaBridge::writeAnimatedFile(const QString &cacheKey,
@@ -910,6 +1112,7 @@ void MediaBridge::saveAs(const QString &mediaKey, const QUrl &destination)
     request.saveRequest = true;
     request.saveDestination = destination;
     request.timeoutClass = 2; // save class (270s Rust / 5min watchdog)
+    request.priority = 0;     // explicit user intent
     dispatch(request);
 }
 
@@ -946,6 +1149,7 @@ void MediaBridge::fetchFullForStar(const QString &mediaKey)
     request.kind = 0;
     request.starRequest = true;
     request.timeoutClass = 2; // save class — an explicit user export
+    request.priority = 0;     // explicit user intent
     dispatch(request);
 }
 
@@ -1052,6 +1256,7 @@ void MediaBridge::clear()
     m_playableSizes.clear();
     m_playableLru.clear();
     m_playableWanted.clear();
+    m_pinnedPlayables.clear(); // the files the pins protected are gone too
     m_playableNameSalt.clear(); // next session gets fresh unguessable names
     m_animatedDir.reset(); // recursively removes decrypted temporary files
     m_animatedDir = std::make_unique<QTemporaryDir>(

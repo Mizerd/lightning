@@ -31,6 +31,17 @@ QJsonObject toJson(const gif::GifResult &r)
     // qint64 -> QJsonValue(double) is exact here: gifBytes is bounded by
     // gif::kMaxGifBytes (25 MiB), far inside double's 2^53 exact-integer range.
     o.insert(QStringLiteral("bytes"), static_cast<double>(r.gifBytes));
+    // 2026-08 media round: only ever set for a local-saved row (see GifResult::localExt),
+    // and only WRITTEN when non-empty — a favorites/recents entry (always
+    // empty) round-trips through this exact same toJson()/fromJson() pair
+    // unchanged, gaining no new key. A row saved before this field existed
+    // simply has no "ext" key; fromJson() below leaves localExt "" for that
+    // case, and GifStarredStore is what interprets an empty local-row
+    // localExt as "gif" (the only format that could ever have been saved
+    // before this generalization) — kept as a store-level convention, not
+    // baked into this format-agnostic model/JSON layer.
+    if (!r.localExt.isEmpty())
+        o.insert(QStringLiteral("ext"), r.localExt);
     return o;
 }
 
@@ -49,6 +60,22 @@ gif::GifResult fromJson(const QJsonObject &o)
     r.previewWidth = o.value(QStringLiteral("pw")).toInt();
     r.previewHeight = o.value(QStringLiteral("ph")).toInt();
     r.gifBytes = static_cast<qint64>(o.value(QStringLiteral("bytes")).toDouble());
+    // Missing/absent -> "" — GifStarredStore treats an empty localExt on a
+    // local row as "gif" (see the class comment); a provider row never has
+    // this key at all, so it stays "" there too, which is simply unused.
+    //
+    // review M1: the persisted value participates in FILE PATH construction
+    // downstream (GifStarredStore::filePath -> unstar()'s QFile::remove,
+    // readBytes(), source()'s file:// URL), so it is held to the same
+    // hostile-index posture as the URL fields above: only the closed set of
+    // suffixes the store can ever have written is accepted, and anything
+    // else — including a traversal-shaped "png/../../x" from a corrupted or
+    // hand-edited index.ini — collapses to "" (legacy-GIF semantics; the
+    // stale-prune in openFor() then drops the row if no <hash>.gif exists).
+    const QString ext = o.value(QStringLiteral("ext")).toString();
+    if (ext == QLatin1String("gif") || ext == QLatin1String("png")
+        || ext == QLatin1String("jpg") || ext == QLatin1String("webp"))
+        r.localExt = ext;
     return r;
 }
 

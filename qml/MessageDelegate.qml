@@ -960,6 +960,22 @@ Item {
                             return body.length > 0 && name.length > 0
                                    && body.toLowerCase() !== name.toLowerCase()
                         }
+                        // Big-emoji: a body of exactly 1-3 user-perceived
+                        // emoji sequences (and nothing but whitespace) renders
+                        // large, Element-style. The count comes from the C++
+                        // Unicode Emoji 17 catalogue — one ZWJ family, flag,
+                        // keycap or tone variant counts once — so QML never
+                        // scans the catalogue or guesses with a regex. Media
+                        // captions, polls, redacted and undecryptable rows
+                        // keep ordinary sizing.
+                        readonly property int emojiOnlyCount:
+                            (model.redacted || model.isPoll === true
+                             || model.undecryptable === true || isMediaRow)
+                            ? 0
+                            : app.emojiCatalog.emojiOnlySequenceCount(
+                                  model.body || "")
+                        readonly property bool bigEmoji:
+                            emojiOnlyCount >= 1 && emojiOnlyCount <= 3
                         text: {
                             if (model.redacted) return qsTr("[message deleted]")
                             // The poll card presents the question; the body
@@ -994,10 +1010,25 @@ Item {
                         // TextEdit does not inherit the Controls font; the
                         // message body must follow the selected UI family.
                         font.family: AppTheme.uiFont
-                        font.pixelSize: AppTheme.scaled(
-                            bodyLabel.isMediaCaption ? 12
-                            : root.compactMode || root.inThreadPanel
-                            ? 13 : AppTheme.fontSizeM)
+                        // Big-emoji sizes tier by count (1 > 2 > 3) and
+                        // shrink in compact/thread presentation; everything
+                        // else keeps the ordinary body sizing. All sizes go
+                        // through AppTheme.scaled so the text-size setting
+                        // applies to large emoji too.
+                        font.pixelSize: {
+                            if (bodyLabel.bigEmoji) {
+                                var size = bodyLabel.emojiOnlyCount === 1 ? 40
+                                         : bodyLabel.emojiOnlyCount === 2 ? 33
+                                         : 27
+                                if (root.compactMode || root.inThreadPanel)
+                                    size = Math.round(size * 0.8)
+                                return AppTheme.scaled(size)
+                            }
+                            return AppTheme.scaled(
+                                bodyLabel.isMediaCaption ? 12
+                                : root.compactMode || root.inThreadPanel
+                                ? 13 : AppTheme.fontSizeM)
+                        }
                         font.italic: model.redacted || model.undecryptable === true
                         wrapMode: Text.Wrap
                         readOnly: true
@@ -2348,6 +2379,16 @@ Item {
 
             readonly property bool isGif:
                 (model.mediaMimetype || "").toLowerCase() === "image/gif"
+            // 2026-08 media round: the hover star's eligibility gate generalized from
+            // "GIF only" to any of the four raster formats Lightning can
+            // validate/store byte-for-byte (see gif::validateRasterBytes) —
+            // isGif itself is UNCHANGED and still drives GIF-only animation
+            // playback above/below.
+            readonly property bool isRasterImage: {
+                var m = (model.mediaMimetype || "").toLowerCase()
+                return m === "image/gif" || m === "image/png"
+                    || m === "image/jpeg" || m === "image/webp"
+            }
             readonly property bool pendingMedia:
                 (model.eventId || "").startsWith("local:")
                 || (model.mediaUrl ? model.mediaUrl.toString()
@@ -2436,8 +2477,13 @@ Item {
             // once the echo is replaced by the real event (its mediaKey
             // changes) — the hover star simply does not exist yet for a row
             // that has not finished sending.
+            // 2026-08 media round: generalized from GIF-only to any saveable raster
+            // format — see isRasterImage above. Still excludes a sticker
+            // (this gate only exists inside imageComponent, never
+            // stickerComponent — see the DELIBERATE NARROWING note above)
+            // and a pending local echo.
             readonly property bool starEligible:
-                imageBox.isGif && model.mediaSourceAvailable === true
+                imageBox.isRasterImage && model.mediaSourceAvailable === true
                 && app.mediaBridge.supported && !imageBox.pendingMedia
             property bool starred: false
             function refreshStarredState() {
@@ -2481,7 +2527,13 @@ Item {
                     // calls into at most one deferred refreshStarredState()
                     // per event-loop turn, rather than running the check
                     // twice back to back.
-                    if (imageBox.isGif && cacheKey === "full:" + (model.mediaKey || ""))
+                    // 2026-08 media round: was `imageBox.isGif` — generalized to
+                    // starEligible so a saved-eligible PNG/JPEG/WebP row
+                    // also re-checks once its full bytes land (a static
+                    // image never fetches an "animatedSource", so this is
+                    // its only trigger to learn the durable answer besides
+                    // the store's own signals below).
+                    if (imageBox.starEligible && cacheKey === "full:" + (model.mediaKey || ""))
                         Qt.callLater(imageBox.refreshStarredState)
                 }
                 function onAnimatedMediaReady(cacheKey) {
@@ -2709,8 +2761,11 @@ Item {
                             // picker's tile star now do the same thing, say
                             // the same thing, and land in the same place — the
                             // picker's Saved tab. See GifPicker.qml's header.
+                            // 2026-08 media round: format-neutral wording — this button now
+                            // saves GIF/PNG/JPEG/WebP alike, so it no longer
+                            // names "GIF" specifically.
                             Accessible.name: imageBox.starred
-                                ? qsTr("Remove from saved GIFs") : qsTr("Save GIF")
+                                ? qsTr("Remove from saved") : qsTr("Save image")
                             Accessible.onPressAction: gifStarButton.activate()
 
                             function activate() {
@@ -3013,10 +3068,43 @@ Item {
                 return m + ":" + (s < 10 ? "0" : "") + s
             }
 
+            // No Matrix thumbnail (or its fetch failed): a stable styled
+            // placeholder instead of an empty transparent box — surface
+            // tone, type icon, filename. The play affordance and duration
+            // chip overlay it exactly as they would a real poster, so the
+            // card never looks broken while (or because) no poster exists.
+            Rectangle {
+                objectName: "videoNoThumbPlaceholder"
+                anchors.fill: parent
+                radius: AppTheme.radiusSm
+                color: AppTheme.surfaceElevated
+                border.color: AppTheme.border
+                border.width: 1
+                visible: !videoBox.usesBridge || videoBox.bridgeFailed
+                ColumnLayout {
+                    anchors.centerIn: parent
+                    spacing: AppTheme.spacing8
+                    Icon {
+                        name: "videocam"
+                        size: 28
+                        color: AppTheme.textMuted
+                        Layout.alignment: Qt.AlignHCenter
+                    }
+                    Label {
+                        text: model.mediaFilename || model.body || qsTr("Video")
+                        color: AppTheme.textMuted
+                        font.pixelSize: 11
+                        elide: Label.ElideMiddle
+                        Layout.maximumWidth: videoBox.dispW - 48
+                        Layout.alignment: Qt.AlignHCenter
+                    }
+                }
+            }
             Skeleton {
                 anchors.fill: parent
                 radius: AppTheme.radiusSm
                 visible: thumbImg.status !== Image.Ready
+                        && !(!videoBox.usesBridge || videoBox.bridgeFailed)
                 active: root.rowOnScreen && videoBox.usesBridge
                         && !videoBox.bridgeFailed
             }

@@ -181,6 +181,172 @@ GifByteValidation validateGifBytes(const QByteArray &bytes)
     return out;
 }
 
+namespace {
+
+// PNG: 8-byte signature, then the mandatory first chunk (length[4] + "IHDR"
+// + width[4] + height[4], all big-endian) per the PNG spec — width/height
+// are always the IHDR chunk's first two fields.
+bool pngDims(const QByteArray &bytes, int &width, int &height)
+{
+    static const char kSig[8] = {
+        char(0x89), 'P', 'N', 'G', '\r', '\n', char(0x1a), '\n' };
+    if (bytes.size() < 24 || bytes.left(8) != QByteArray(kSig, 8))
+        return false;
+    if (bytes.mid(12, 4) != QByteArrayLiteral("IHDR"))
+        return false;
+    const auto *d = reinterpret_cast<const unsigned char *>(bytes.constData());
+    width = (d[16] << 24) | (d[17] << 16) | (d[18] << 8) | d[19];
+    height = (d[20] << 24) | (d[21] << 16) | (d[22] << 8) | d[23];
+    return width > 0 && height > 0;
+}
+
+// JPEG: walk the marker segments after SOI (FFD8) looking for a Start-Of-
+// Frame marker (C0-CF, excluding DHT/JPG/DAC at C4/C8/CC — those are not
+// SOF markers despite being in the same byte range). A SOF segment's
+// payload is precision[1] + height[2] + width[2], big-endian. Bounded
+// iteration count guards against a crafted file with a marker loop.
+bool jpegDims(const QByteArray &bytes, int &width, int &height)
+{
+    const auto *d = reinterpret_cast<const unsigned char *>(bytes.constData());
+    const int n = bytes.size();
+    if (n < 4 || d[0] != 0xFF || d[1] != 0xD8)
+        return false;
+    int pos = 2;
+    for (int guard = 0; guard < 2000 && pos + 2 <= n; ++guard) {
+        if (d[pos] != 0xFF) { ++pos; continue; } // resync past fill bytes
+        const unsigned char marker = d[pos + 1];
+        pos += 2;
+        if (marker == 0xD8 || marker == 0xD9 || marker == 0x01
+            || (marker >= 0xD0 && marker <= 0xD7))
+            continue; // no length field on these markers
+        if (pos + 2 > n)
+            break;
+        const int segLen = (d[pos] << 8) | d[pos + 1];
+        if (segLen < 2)
+            break;
+        const bool isSof = marker >= 0xC0 && marker <= 0xCF
+            && marker != 0xC4 && marker != 0xC8 && marker != 0xCC;
+        if (isSof) {
+            if (pos + 7 > n)
+                break;
+            height = (d[pos + 3] << 8) | d[pos + 4];
+            width = (d[pos + 5] << 8) | d[pos + 6];
+            return width > 0 && height > 0;
+        }
+        if (marker == 0xDA) // start of scan — entropy data, no more markers
+            break;
+        pos += segLen;
+    }
+    return false;
+}
+
+// WebP: 12-byte "RIFF"+size+"WEBP" container, then the first chunk's FourCC
+// decides the dimension encoding: VP8X (extended header, 24-bit LE
+// width-1/height-1), VP8L (lossless, packed 14-bit fields), or "VP8 "
+// (lossy, 14-bit fields after the 3-byte start code 9D 01 2A).
+bool webpDims(const QByteArray &bytes, int &width, int &height)
+{
+    if (bytes.size() < 20 || bytes.left(4) != QByteArrayLiteral("RIFF")
+        || bytes.mid(8, 4) != QByteArrayLiteral("WEBP"))
+        return false;
+    const QByteArray fourCc = bytes.mid(12, 4);
+    const auto *d = reinterpret_cast<const unsigned char *>(bytes.constData());
+    const int c = 20; // first chunk's data starts after FourCC[4]+size[4]
+    if (fourCc == QByteArrayLiteral("VP8X")) {
+        if (bytes.size() < c + 10)
+            return false;
+        width = (d[c + 4] | (d[c + 5] << 8) | (d[c + 6] << 16)) + 1;
+        height = (d[c + 7] | (d[c + 8] << 8) | (d[c + 9] << 16)) + 1;
+        return width > 0 && height > 0;
+    }
+    if (fourCc == QByteArrayLiteral("VP8L")) {
+        if (bytes.size() < c + 5 || d[c] != 0x2F)
+            return false;
+        const quint32 v = static_cast<quint32>(d[c + 1])
+            | (static_cast<quint32>(d[c + 2]) << 8)
+            | (static_cast<quint32>(d[c + 3]) << 16)
+            | (static_cast<quint32>(d[c + 4]) << 24);
+        width = static_cast<int>(v & 0x3FFF) + 1;
+        height = static_cast<int>((v >> 14) & 0x3FFF) + 1;
+        return true;
+    }
+    if (fourCc == QByteArrayLiteral("VP8 ")) {
+        if (bytes.size() < c + 10 || d[c + 3] != 0x9D || d[c + 4] != 0x01
+            || d[c + 5] != 0x2A)
+            return false;
+        width = (d[c + 6] | (d[c + 7] << 8)) & 0x3FFF;
+        height = (d[c + 8] | (d[c + 9] << 8)) & 0x3FFF;
+        return width > 0 && height > 0;
+    }
+    return false; // unrecognized first chunk — not a decodable still image
+}
+
+} // namespace
+
+RasterByteValidation validateRasterBytes(const QByteArray &bytes)
+{
+    RasterByteValidation out;
+
+    if (bytes.startsWith("GIF87a") || bytes.startsWith("GIF89a")) {
+        const GifByteValidation v = validateGifBytes(bytes);
+        out.ok = v.ok;
+        out.category = v.category;
+        out.width = v.width;
+        out.height = v.height;
+        if (v.ok) {
+            out.ext = QStringLiteral("gif");
+            out.mime = QStringLiteral("image/gif");
+        }
+        return out;
+    }
+
+    int w = 0, h = 0;
+    QString ext, mime;
+    if (bytes.startsWith(QByteArrayLiteral("\x89PNG\r\n\x1a\n"))) {
+        if (!pngDims(bytes, w, h)) {
+            out.category = QStringLiteral("invalid_media");
+            return out;
+        }
+        ext = QStringLiteral("png");
+        mime = QStringLiteral("image/png");
+    } else if (bytes.size() >= 3
+               && static_cast<unsigned char>(bytes[0]) == 0xFF
+               && static_cast<unsigned char>(bytes[1]) == 0xD8
+               && static_cast<unsigned char>(bytes[2]) == 0xFF) {
+        if (!jpegDims(bytes, w, h)) {
+            out.category = QStringLiteral("invalid_media");
+            return out;
+        }
+        ext = QStringLiteral("jpg");
+        mime = QStringLiteral("image/jpeg");
+    } else if (bytes.startsWith(QByteArrayLiteral("RIFF"))
+               && bytes.mid(8, 4) == QByteArrayLiteral("WEBP")) {
+        if (!webpDims(bytes, w, h)) {
+            out.category = QStringLiteral("invalid_media");
+            return out;
+        }
+        ext = QStringLiteral("webp");
+        mime = QStringLiteral("image/webp");
+    } else {
+        // Not one of the four supported magics — explicitly including SVG
+        // (text, no binary magic), HTML error pages, BMP, TIFF, AVIF, and
+        // everything else. Rejected, never guessed at.
+        out.category = QStringLiteral("unsupported_format");
+        return out;
+    }
+
+    if (w > kMaxGifDimension || h > kMaxGifDimension || bytes.size() > kMaxGifBytes) {
+        out.category = QStringLiteral("too_large");
+        return out;
+    }
+    out.ok = true;
+    out.ext = ext;
+    out.mime = mime;
+    out.width = w;
+    out.height = h;
+    return out;
+}
+
 ParseOutcome parseGiphy(const QByteArray &json, Rating maxRating,
                         int requestOffset)
 {

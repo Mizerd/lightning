@@ -96,7 +96,13 @@ private:
     void onGifDownloadFinished(quint64 opId, bool ok, const QByteArray &bytes,
                                const QString &mime, int width, int height,
                                qint64 size, const QString &category);
-    static QString safeFilename(const gif::GifResult &r);
+    // `ext` defaults to "gif" (the provider path's only supported format —
+    // Rust re-validates GIF magic bytes on that path, so it stays GIF-only).
+    // The local-favorite path (startLocal) passes the byte-validated
+    // suffix, never a guessed or claimed one, so a saved PNG/JPEG/WebP
+    // round-trips with its real extension instead of a lying ".gif".
+    static QString safeFilename(const gif::GifResult &r,
+                                const QString &ext = QStringLiteral("gif"));
 
     MatrixClient *m_client = nullptr;
     GifRecentModel *m_recent = nullptr;

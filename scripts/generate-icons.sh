@@ -3,13 +3,14 @@
 #
 # Usage: scripts/generate-icons.sh
 #
-# The source of truth is data/icons/lightning-source.png (the exact artwork
-# supplied by the maintainer, 1254×1254). Standard hicolor sizes plus 256/512
-# for high-DPI displays (taskbars, window switchers, the Windows .ico) are
-# produced with deterministic Lanczos downscaling — every size is a real
-# downscale of the high-resolution source, so nothing is upscaled or pixelated.
-# The generated files are committed so builds and packages never need
-# ImageMagick.
+# The source of truth is data/icons/lightning-source.png — the maintainer's
+# square artwork processed once by scripts/generate-logo-source.sh into the
+# canonical circular presentation (1254×1254 RGBA, transparent outside the
+# full-bleed circle). Standard hicolor sizes plus 256/512 for high-DPI
+# displays (taskbars, window switchers, the Windows .ico) are produced with
+# deterministic Lanczos downscaling — every size is a real downscale of the
+# high-resolution source, so nothing is upscaled or pixelated. The generated
+# files are committed so builds and packages never need ImageMagick.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."

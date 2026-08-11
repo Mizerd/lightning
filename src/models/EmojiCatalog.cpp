@@ -5,6 +5,7 @@
 #include <QFile>
 #include <QLoggingCategory>
 #include <QSet>
+#include <QTextBoundaryFinder>
 
 Q_LOGGING_CATEGORY(lcEmoji, "matrix.emoji")
 
@@ -43,7 +44,10 @@ void EmojiCatalog::load()
         QString line = QString::fromUtf8(file.readLine());
         while (line.endsWith(QLatin1Char('\n')) || line.endsWith(QLatin1Char('\r')))
             line.chop(1);
-        if (line.isEmpty() || line.startsWith(QLatin1Char('#')))
+        // Comments are "# " lines. A bare '#' prefix is NOT a comment: the
+        // keycap sequence #️⃣ ('#' U+FE0F U+20E3) is a data row, and the
+        // old prefix test silently dropped it from the catalogue.
+        if (line.isEmpty() || line.startsWith(QLatin1String("# ")))
             continue;
         const QStringList fields = line.split(QLatin1Char('\t'), Qt::KeepEmptyParts);
         if (fields.size() != 6 || fields[0].isEmpty() || fields[1].isEmpty()
@@ -77,6 +81,15 @@ void EmojiCatalog::load()
         const Entry &entry = m_entries.at(i);
         if (entry.emoji == entry.baseEmoji)
             m_categoryBuckets[entry.category].append(i);
+    }
+    // Presentation-selector-tolerant lookup set for emojiOnlySequenceCount,
+    // built exactly once: senders disagree about U+FE0F, so a received
+    // cluster is matched against the VS16-stripped catalogue form.
+    for (const Entry &entry : std::as_const(m_entries)) {
+        QString stripped = entry.emoji;
+        stripped.remove(QChar(0xFE0F));
+        if (!stripped.isEmpty())
+            m_sequencesNoVs16.insert(stripped);
     }
     qCInfo(lcEmoji) << "loaded local" << dataVersion() << "catalogue:"
                     << m_entries.size() << "sequences; duplicates ignored:"
@@ -177,6 +190,55 @@ int EmojiCatalog::indexOf(const QString &emoji) const
 {
     const auto it = m_byEmoji.constFind(emoji);
     return it == m_byEmoji.cend() ? -1 : it.value();
+}
+
+bool EmojiCatalog::isKnownEmojiCluster(const QString &cluster) const
+{
+    if (m_byEmoji.contains(cluster))
+        return true;
+    QString stripped = cluster;
+    stripped.remove(QChar(0xFE0F));
+    return !stripped.isEmpty() && m_sequencesNoVs16.contains(stripped);
+}
+
+int EmojiCatalog::emojiOnlySequenceCount(const QString &text) const
+{
+    if (text.isEmpty() || m_entries.isEmpty())
+        return 0;
+    // Cheap length gate: QTextBoundaryFinder pays O(n) up front for the
+    // whole string, and this runs in a per-delegate binding. Three emoji
+    // sequences fit well inside this bound even with generous whitespace;
+    // a longer body cannot be a 1-3-emoji message worth enlarging.
+    if (text.size() > 256)
+        return 0;
+    int count = 0;
+    QTextBoundaryFinder finder(QTextBoundaryFinder::Grapheme, text);
+    const int size = text.size();
+    int start = 0;
+    while (start < size) {
+        finder.setPosition(start);
+        int end = int(finder.toNextBoundary());
+        if (end <= start)
+            end = size;
+        const QString cluster = text.mid(start, end - start);
+        start = end;
+        bool whitespace = true;
+        for (const QChar &c : cluster) {
+            if (!c.isSpace()) {
+                whitespace = false;
+                break;
+            }
+        }
+        if (whitespace)
+            continue;
+        // Any non-whitespace cluster that is not a catalogue emoji makes
+        // the whole message ordinary text — even after three emoji.
+        if (!isKnownEmojiCluster(cluster))
+            return 0;
+        if (count < 4)
+            ++count;
+    }
+    return count;
 }
 
 bool EmojiCatalog::contains(const QString &emoji) const { return indexOf(emoji) >= 0; }
