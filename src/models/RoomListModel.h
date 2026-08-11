@@ -75,6 +75,12 @@ public:
         // ACTUALLY reach — the row is de-emphasized only on the latter.
         SuccessorRoomIdRole,
         SupersededByAccessibleSuccessorRole,
+        // Unified-inbox metadata: which bridged network this conversation
+        // belongs to, derived from the DM partner's ghost id or the room's
+        // alias. Empty for a native Matrix room, which is what the UI
+        // renders as no badge. Presentation only — never routing.
+        NetworkRole,
+        NetworkLabelRole,
     };
 
     explicit RoomListModel(QObject *parent = nullptr);

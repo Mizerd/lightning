@@ -284,6 +284,26 @@ Item {
                     elide: Label.ElideRight
                     Layout.fillWidth: true
                 }
+                // Unified inbox: which bridged network this conversation
+                // arrives over. The model returns an empty label for a
+                // native Matrix room, so nothing renders and the row is
+                // exactly as it was — a badge appears only where it says
+                // something the room name does not.
+                Label {
+                    objectName: "roomNetworkTag"
+                    visible: (model.networkLabel || "") !== ""
+                    text: model.networkLabel || ""
+                    color: selected ? AppTheme.selectedText : AppTheme.textMuted
+                    font.pixelSize: AppTheme.fontCaption
+                    font.weight: Font.DemiBold
+                    leftPadding: 5; rightPadding: 5
+                    background: Rectangle {
+                        color: AppTheme.hover
+                        border.color: AppTheme.border
+                        border.width: 1
+                        radius: AppTheme.radiusSm
+                    }
+                }
                 Icon {
                     visible: model.encrypted === true
                     name: "lock"
