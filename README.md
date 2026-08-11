@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="data/icons/lightning-source.png" width="140" alt="Lightning logo"/>
+
 # ⚡ Lightning
 
 **A fast, native Matrix desktop client — Qt 6 on top of the official Rust Matrix SDK.**
