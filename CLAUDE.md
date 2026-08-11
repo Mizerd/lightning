@@ -163,6 +163,20 @@ The user and maintainer is Rokas Smetonis.
 
 ## 4. Git and repository safety
 
+**2026-08-11 history rewrite (one-time, maintainer-authorized):** every
+commit SHA in this repository changed on 2026-08-11 when Rokas directed a
+full message-only history rewrite (git filter-repo) stripping AI
+co-author/session trailers so the GitHub mirror credits only him. Trees,
+authors, dates and messages are otherwise identical; all 13 release tags
+were recreated at the rewritten commits and the GitLab releases and GitHub
+mirror follow them. Consequences: every commit SHA quoted in this file,
+docs/, and release notes that predates the rewrite is a PRE-REWRITE
+identifier (kept deliberately — they match the historical record); any old
+clone must be re-cloned, never pulled; a full pre-rewrite backup bundle is
+at /home/roksme/lightning-pre-rewrite-backup.bundle. This was a singular
+exception — the rules below (never force-push, never rewrite, immutable
+tags) remain in full force.
+
 Work on `main`. As of 2026-08-01 Rokas has directed that development happens
 on `main` and that **no new branches be created** — the 0.6.5 design/scroll
 work was fast-forward merged into `main` (`1692e02..188a1bb`, 25 commits, no
