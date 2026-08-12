@@ -591,6 +591,17 @@ int main(int argc, char *argv[])
     // export-attempt-then-CPU-fallback path, bounded by VaapiLogGate,
     // actually plays; users on stacks where the variable helps can still
     // set it in their environment.
+    //
+    // Software video decoding IS defaulted, with live evidence: a rotated
+    // (display-matrix) H.264 video hard-deadlocked the render pipeline
+    // through VAAPI twice on the maintainer's desktop — audio running,
+    // frames black, the main thread unresponsive to SIGINT — and the same
+    // video plays correctly with software decoding. Chat-sized clips do
+    // not need hardware decode, and a deadlock is strictly worse than a
+    // few percent CPU. An explicitly set value (including "" to restore
+    // Qt's own default probing) always wins.
+    if (!qEnvironmentVariableIsSet("QT_FFMPEG_DECODING_HW_DEVICE_TYPES"))
+        qputenv("QT_FFMPEG_DECODING_HW_DEVICE_TYPES", "none");
 
     // Bound the per-frame VAAPI texture-export warning spam from Qt's
     // FFmpeg video backend (thousands of identical lines per minute on
