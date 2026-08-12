@@ -108,6 +108,7 @@ void VideoPosterExtractor::startNext()
     const QString jobTag = m_activeTag;
     m_skippedFrames = 0;
     m_fallbackFrame = QImage();
+    m_bestFrame = QImage();
     connect(m_sink.get(), &QVideoSink::videoFrameChanged, this,
             [this, jobTag](const QVideoFrame &frame) {
                 if (!m_active || m_activeTag != jobTag || m_frameSeen
@@ -116,17 +117,33 @@ void VideoPosterExtractor::startNext()
                 const QImage image = frame.toImage();
                 if (image.isNull())
                     return; // wait for a decodable frame
-                // Skip a fade-in's black lead-in (bounded): keep the last
-                // rejected frame so an all-black video still posters.
-                if (frameLooksBlack(image)
-                    && m_skippedFrames < kMaxSkippedFrames) {
-                    ++m_skippedFrames;
-                    m_fallbackFrame = image;
-                    return;
+                // Sample INTO the clip instead of freezing the first
+                // non-black frame: fade-ins postered as a half-drawn frame
+                // (maintainer screenshot — one fragment of a logo). Black
+                // lead-in frames are skipped (bounded, last kept as the
+                // all-black fallback); non-black frames keep updating the
+                // candidate until the target timestamp — ~40% of the clip,
+                // capped at 2s — whose frame becomes the poster.
+                ++m_skippedFrames;
+                if (frameLooksBlack(image)) {
+                    if (m_bestFrame.isNull())
+                        m_fallbackFrame = image;
+                } else {
+                    m_bestFrame = image;
                 }
+                const qint64 durationMs =
+                    m_player ? m_player->duration() : 0;
+                const qint64 targetUs = 1000
+                    * std::min<qint64>(2000, durationMs > 0
+                                                 ? durationMs * 2 / 5 : 800);
+                const bool reached = frame.startTime() >= 0
+                    ? frame.startTime() >= targetUs
+                    : m_skippedFrames >= kMaxSkippedFrames;
+                if (!reached || m_bestFrame.isNull())
+                    return;
                 m_frameSeen = true;
                 const QByteArray jpeg =
-                    encodePoster(image, kMaxEdge, kJpegQuality);
+                    encodePoster(m_bestFrame, kMaxEdge, kJpegQuality);
                 // Queued: never tear the player down from inside its own
                 // frame callback.
                 QMetaObject::invokeMethod(
@@ -171,8 +188,13 @@ void VideoPosterExtractor::startNext()
 
 void VideoPosterExtractor::finishWithBestAvailable()
 {
-    // The last skipped lead-in frame is better than no poster: an
-    // all-black video honestly gets a black poster.
+    // Best non-black candidate first (a clip that ended before the target
+    // timestamp), then the last lead-in frame (an all-black video honestly
+    // gets a black poster), then nothing.
+    if (!m_bestFrame.isNull()) {
+        finishActive(encodePoster(m_bestFrame, kMaxEdge, kJpegQuality));
+        return;
+    }
     if (!m_fallbackFrame.isNull()) {
         finishActive(encodePoster(m_fallbackFrame, kMaxEdge, kJpegQuality));
         return;

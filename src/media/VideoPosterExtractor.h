@@ -68,6 +68,9 @@ private:
     // fallback poster.
     int m_skippedFrames = 0;
     QImage m_fallbackFrame;
+    // Latest non-black frame seen before the target timestamp — the
+    // poster candidate (a fade-in keeps improving until fully faded in).
+    QImage m_bestFrame;
     std::unique_ptr<QMediaPlayer> m_player;
     std::unique_ptr<QVideoSink> m_sink;
     QTimer m_timeout;

@@ -217,15 +217,29 @@ Item {
             // portrait video in a metadata-less 16:9 card) keep the honest
             // fit + black letterbox rather than amputating real content.
             // The expanded overlay always shows the uncropped frame.
+            // ROTATION-TOLERANT: sourceRect reports the CODED frame size,
+            // not the displayed one — a phone video encoded 1280x720 with a
+            // 90-degree display matrix reports landscape while rendering
+            // portrait (measured live on the maintainer's timeline), which
+            // made the plain ratio comparison letterbox a video that
+            // actually matched its card. The card's shape always comes from
+            // display-truthful sources (Matrix thumbnail, extracted poster,
+            // declared dimensions), so accept EITHER orientation of the
+            // coded ratio; a genuine cross-shape still exceeds the bound in
+            // both orientations and letterboxes honestly.
             readonly property real videoRatio:
                 sourceRect.height > 0 && sourceRect.width > 0
                 ? sourceRect.width / sourceRect.height : 0
             readonly property real cardRatio:
                 height > 0 ? width / height : 0
+            function ratioMismatch(a, b) {
+                return a > 0 && b > 0
+                       ? Math.max(a, b) / Math.min(a, b) : 999
+            }
             readonly property real mismatch:
-                videoRatio > 0 && cardRatio > 0
-                ? Math.max(videoRatio, cardRatio)
-                  / Math.min(videoRatio, cardRatio) : 999
+                Math.min(ratioMismatch(videoRatio, cardRatio),
+                         ratioMismatch(videoRatio > 0 ? 1 / videoRatio : 0,
+                                       cardRatio))
             fillMode: mismatch <= 1.2 ? VideoOutput.PreserveAspectCrop
                                       : VideoOutput.PreserveAspectFit
         }
