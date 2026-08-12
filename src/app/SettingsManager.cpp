@@ -941,7 +941,13 @@ bool SettingsManager::notificationsEnabled() const
 
 bool SettingsManager::autoLoadLinkPreviews() const
 {
-    return m_store->value(kPreviewsUnencrypted, true).toBool();
+    // Privacy default (2026-08-12): OFF. A preview is fetched by this client,
+    // directly from the linked site — not through the homeserver's preview
+    // proxy — so automatic loading would hand the user's IP address and read
+    // timing to any host a sender chooses to link. Previews stay a deliberate
+    // action: either the user turns this on, or they use a message's
+    // "Load link preview". An account that already stored a value keeps it.
+    return m_store->value(kPreviewsUnencrypted, false).toBool();
 }
 
 void SettingsManager::setAutoLoadLinkPreviews(bool v)
@@ -954,8 +960,9 @@ void SettingsManager::setAutoLoadLinkPreviews(bool v)
 
 bool SettingsManager::loadPreviewsInEncryptedRooms() const
 {
-    // Privacy default: never reveal encrypted-room URLs to the homeserver
-    // automatically.
+    // Privacy default: never contact a site linked from an encrypted room
+    // automatically. (The fetch is client-side, so the exposure is to the
+    // linked site, not to the homeserver.)
     return m_store->value(kPreviewsEncrypted, false).toBool();
 }
 

@@ -284,7 +284,7 @@ async fn safe_get(url: &url::Url, limit: usize, accept: &str)
     // Pin the validated DNS answer so a second lookup cannot rebind the host.
     let client = reqwest::Client::builder().redirect(reqwest::redirect::Policy::none())
         .connect_timeout(CONNECT_TIMEOUT).timeout(REQUEST_TIMEOUT)
-        .user_agent("Lightning/0.6.6").resolve(host, addresses[0]).build()
+        .user_agent(crate::USER_AGENT).resolve(host, addresses[0]).build()
         .map_err(|_| "request_failure")?;
     let response = client.get(url.clone())
         .header(reqwest::header::ACCEPT, accept)

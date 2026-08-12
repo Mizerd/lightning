@@ -701,6 +701,17 @@ endif()
 if(BUILD_TESTING)
     find_package(Qt6 6.5 REQUIRED COMPONENTS Test)
 
+    # SignPath Foundation OSS code-signing prerequisites that live in this
+    # repository: the Code signing policy document and its required attribution
+    # and roles, the privacy policy, both being linked from the project home
+    # page, one canonical release version across CMake/Cargo/user agent, the
+    # honest "unsigned" disclosure, and no committed SignPath secrets. Needs no
+    # compiler, so it runs in both build trees.
+    add_test(NAME signpath-compliance
+        COMMAND "${CMAKE_COMMAND}"
+            "-DSOURCE_ROOT=${CMAKE_CURRENT_SOURCE_DIR}"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/SignPathComplianceTest.cmake")
+
     qt_add_executable(app-data-paths-test
         tests/AppDataPathsTest.cpp
         src/storage/AppDataPaths.cpp

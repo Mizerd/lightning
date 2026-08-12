@@ -299,9 +299,11 @@ void SettingsSessionTest::themeChangeEmitsSignal()
 void SettingsSessionTest::previewDefaultsAndEncryptedOff()
 {
     SettingsManager settings;
-    // Privacy default: encrypted-room previews OFF; the other two ON.
+    // Privacy default: BOTH link-preview switches OFF (the fetch is
+    // client-side and would expose the reader's IP to a sender-chosen host);
+    // GIF animation of already-received media stays ON.
     QCOMPARE(settings.loadPreviewsInEncryptedRooms(), false);
-    QCOMPARE(settings.autoLoadLinkPreviews(), true);
+    QCOMPARE(settings.autoLoadLinkPreviews(), false);
     QCOMPARE(settings.animateGifPreviews(), true);
 
     QSignalSpy spy(&settings,

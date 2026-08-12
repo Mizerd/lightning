@@ -120,7 +120,10 @@ private:
     QVariantMap stateFor(const ItemEntry &item) const;
 
     MatrixClient *m_client = nullptr;
-    bool m_autoLoadUnencrypted = true;
+    // Fail closed. A preview fetch is client-side and exposes the reader's IP
+    // to a sender-chosen host, so a controller that was never given a policy
+    // must not load one. AppController pushes the real user setting.
+    bool m_autoLoadUnencrypted = false;
     bool m_allowEncrypted = false; // privacy default; see SettingsManager
 
     QHash<QString, ItemEntry> m_items;    // by timeline item key

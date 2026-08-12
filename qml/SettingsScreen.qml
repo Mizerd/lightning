@@ -1711,11 +1711,13 @@ Item {
                                         color: AppTheme.stormTextSecondary
                                         font.pixelSize: AppTheme.fontCaption
                                         text: qsTr("Loading a preview contacts the linked website "
-                                                   + "directly and may reveal your IP address and "
-                                                   + "request timing. No JavaScript is executed. "
-                                                   + "Encrypted-room previews are off by "
-                                                   + "default; otherwise use each message's "
-                                                   + "“Load link preview” action.")
+                                                   + "directly — not through your homeserver — and "
+                                                   + "may reveal your IP address and request "
+                                                   + "timing to a site the sender chose. No "
+                                                   + "JavaScript is executed. Both switches are "
+                                                   + "off by default; leave them off and use each "
+                                                   + "message's “Load link preview” action to "
+                                                   + "decide one at a time.")
                                     }
                                 }
 

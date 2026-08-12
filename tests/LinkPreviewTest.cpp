@@ -269,6 +269,7 @@ private Q_SLOTS:
     {
         FakeClient client;
         LinkPreviewController controller;
+        controller.setAutoLoadUnencrypted(true); // explicit: default is off
         controller.setClient(&client);
 
         const QVariantMap state = controller.previewFor(
@@ -288,10 +289,28 @@ private Q_SLOTS:
                  QStringLiteral("Example"));
     }
 
+    // A controller that was never handed a policy must not contact anything.
+    // The preview fetch is client-side, so a fail-open default would leak the
+    // reader's IP address to a host the sender chose.
+    void controllerDefaultsToNoAutomaticFetch()
+    {
+        FakeClient client;
+        LinkPreviewController controller;
+        controller.setClient(&client);
+
+        const QVariantMap state = controller.previewFor(
+            QStringLiteral("$1"), QStringLiteral("https://example.org/a"),
+            /*roomEncrypted=*/false);
+        QCOMPARE(state.value(QStringLiteral("state")).toString(),
+                 QStringLiteral("requires_action"));
+        QCOMPARE(client.requestedUrls.size(), 0);
+    }
+
     void unencryptedAutoLoadSettingIsRespected()
     {
         FakeClient client;
         LinkPreviewController controller;
+        controller.setAutoLoadUnencrypted(true); // explicit: default is off
         controller.setClient(&client);
         controller.setAutoLoadUnencrypted(false);
 
@@ -306,6 +325,7 @@ private Q_SLOTS:
     {
         FakeClient client;
         LinkPreviewController controller;
+        controller.setAutoLoadUnencrypted(true); // explicit: default is off
         controller.setClient(&client);
 
         const QVariantMap state = controller.previewFor(
@@ -324,6 +344,7 @@ private Q_SLOTS:
     {
         FakeClient client;
         LinkPreviewController controller;
+        controller.setAutoLoadUnencrypted(true); // explicit: default is off
         controller.setClient(&client);
 
         controller.previewFor(QStringLiteral("$1"),
@@ -336,6 +357,7 @@ private Q_SLOTS:
     {
         FakeClient client;
         LinkPreviewController controller;
+        controller.setAutoLoadUnencrypted(true); // explicit: default is off
         controller.setClient(&client);
         controller.setAllowEncrypted(true);
 
@@ -348,6 +370,7 @@ private Q_SLOTS:
     {
         FakeClient client;
         LinkPreviewController controller;
+        controller.setAutoLoadUnencrypted(true); // explicit: default is off
         controller.setClient(&client);
         QSignalSpy changed(&controller, &LinkPreviewController::previewChanged);
 
@@ -367,6 +390,7 @@ private Q_SLOTS:
     {
         FakeClient client;
         LinkPreviewController controller;
+        controller.setAutoLoadUnencrypted(true); // explicit: default is off
         controller.setClient(&client);
 
         controller.previewFor(QStringLiteral("$1"),
@@ -387,6 +411,7 @@ private Q_SLOTS:
     {
         FakeClient client;
         LinkPreviewController controller;
+        controller.setAutoLoadUnencrypted(true); // explicit: default is off
         controller.setClient(&client);
         controller.previewFor(QStringLiteral("$1"),
                               QStringLiteral("https://example.org/direct.svg"), false);
@@ -402,6 +427,7 @@ private Q_SLOTS:
     {
         FakeClient client;
         LinkPreviewController controller;
+        controller.setAutoLoadUnencrypted(true); // explicit: default is off
         controller.setClient(&client);
         controller.previewFor(QStringLiteral("$1"),
                               QStringLiteral("https://example.org/a"), false);
@@ -419,6 +445,7 @@ private Q_SLOTS:
     {
         FakeClient client;
         LinkPreviewController controller;
+        controller.setAutoLoadUnencrypted(true); // explicit: default is off
         controller.setClient(&client);
         QSignalSpy changed(&controller, &LinkPreviewController::previewChanged);
 
@@ -437,6 +464,7 @@ private Q_SLOTS:
     {
         FakeClient client;
         LinkPreviewController controller;
+        controller.setAutoLoadUnencrypted(true); // explicit: default is off
         controller.setClient(&client);
 
         const QString roomA = QStringLiteral("!a:example.org");
@@ -469,6 +497,7 @@ private Q_SLOTS:
     {
         FakeClient client;
         LinkPreviewController controller;
+        controller.setAutoLoadUnencrypted(true); // explicit: default is off
         controller.setClient(&client);
         controller.previewForEvent(QStringLiteral("!a:example.org"),
                                    QStringLiteral("sdk-1"),
@@ -498,6 +527,7 @@ private Q_SLOTS:
     {
         FakeClient client;
         LinkPreviewController controller;
+        controller.setAutoLoadUnencrypted(true); // explicit: default is off
         controller.setClient(&client);
         controller.setUrlCacheLimit(2);
 
@@ -514,6 +544,7 @@ private Q_SLOTS:
     {
         FakeClient client;
         LinkPreviewController controller;
+        controller.setAutoLoadUnencrypted(true); // explicit: default is off
         controller.setClient(&client);
 
         const QVariantMap state = controller.previewFor(
@@ -527,6 +558,7 @@ private Q_SLOTS:
     {
         FakeClient client;
         LinkPreviewController controller;
+        controller.setAutoLoadUnencrypted(true); // explicit: default is off
         controller.setClient(&client);
 
         controller.previewFor(QStringLiteral("$1"),
@@ -553,6 +585,7 @@ private Q_SLOTS:
     {
         FakeClient client;
         LinkPreviewController controller;
+        controller.setAutoLoadUnencrypted(true); // explicit: default is off
         controller.setClient(&client);
 
         controller.previewForEvent(QStringLiteral("!room:example.org"),
@@ -582,6 +615,7 @@ private Q_SLOTS:
     {
         FakeClient client;
         LinkPreviewController controller;
+        controller.setAutoLoadUnencrypted(true); // explicit: default is off
         controller.setClient(&client);
         controller.previewFor(QStringLiteral("$html"),
                               QStringLiteral("https://news.example/article"), false);
@@ -603,6 +637,7 @@ private Q_SLOTS:
     {
         FakeClient client;
         LinkPreviewController controller;
+        controller.setAutoLoadUnencrypted(true); // explicit: default is off
         controller.setClient(&client);
 
         controller.previewFor(QStringLiteral("$1"),
@@ -634,8 +669,10 @@ private Q_SLOTS:
         fresh.sync();
         SettingsManager settings;
 
-        QCOMPARE(settings.autoLoadLinkPreviews(), true);
-        // Privacy default: encrypted-room previews are OFF.
+        // Privacy default: BOTH preview switches are OFF. The preview fetch is
+        // client-side, so an automatic one would expose the reader's IP address
+        // to any host a sender links.
+        QCOMPARE(settings.autoLoadLinkPreviews(), false);
         QCOMPARE(settings.loadPreviewsInEncryptedRooms(), false);
         QCOMPARE(settings.animateGifPreviews(), true);
 

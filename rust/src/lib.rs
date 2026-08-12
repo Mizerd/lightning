@@ -65,6 +65,13 @@ mod gifs;
 mod rooms;
 mod timeline;
 
+/// The single HTTP user agent Lightning presents, to the homeserver and to any
+/// user-invoked third-party request alike. Derived from `rust/Cargo.toml` so
+/// the released version can never disagree with what the binary sends; the
+/// CMake project version is checked against Cargo's by the `signpath-compliance`
+/// test, which makes this one canonical release version end to end.
+pub(crate) const USER_AGENT: &str = concat!("Lightning/", env!("CARGO_PKG_VERSION"));
+
 /// Shared alias for the FFI event queue reference (used by `rooms.rs`).
 pub(crate) type EventQueueRef = Arc<Mutex<VecDeque<String>>>;
 
@@ -5592,7 +5599,7 @@ async fn build_client(homeserver: &str, store_path: &Path) -> Result<Client, Str
     let client = Client::builder()
         .homeserver_url(homeserver)
         .sqlite_store(store_path, None)
-        .user_agent("Lightning/0.6.6")
+        .user_agent(USER_AGENT)
         .with_encryption_settings(encryption_settings)
         .with_threading_support(ThreadingSupport::Enabled { with_subscriptions: false })
         .build()
@@ -6691,6 +6698,26 @@ fn classify_import_error(message: &str) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::classify_import_error;
+
+    // The HTTP user agent is the one string third parties see. It must be a
+    // well-formed `Lightning/X.Y.Z` derived from the crate version, never a
+    // hand-maintained literal that can drift from the released version.
+    #[test]
+    fn user_agent_is_derived_from_the_crate_version() {
+        let ua = super::USER_AGENT;
+        let version = ua
+            .strip_prefix("Lightning/")
+            .expect("user agent must be Lightning/<version>");
+        assert_eq!(version, env!("CARGO_PKG_VERSION"));
+        let fields: Vec<&str> = version.split('.').collect();
+        assert_eq!(fields.len(), 3, "version must be X.Y.Z: {version}");
+        for field in fields {
+            assert!(
+                !field.is_empty() && field.chars().all(|c| c.is_ascii_digit()),
+                "version field is not numeric: {version}"
+            );
+        }
+    }
 
     // Server-synchronized per-room notification modes: the FFI integers are
     // a stable contract with C++ (SettingsManager cache values and

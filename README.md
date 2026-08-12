@@ -203,10 +203,36 @@ Prebuilt packages are attached to the project's
 published to its GitLab Package Registry.
 
 - **Linux** (primary platform): `.deb`, `.rpm`, Flatpak, AppImage, and Snap.
-- **Windows** (x86-64, available since v0.6.3): a portable `.zip`, an `.msi`
-  installer, and a `-setup.exe` installer. These packages are currently
-  **unsigned**, so Windows may show an "unknown publisher" / SmartScreen warning.
+- **Windows** (x86-64 only; Windows 10 or later): a portable `.zip`, an `.msi`
+  installer, and a `-setup.exe` installer, available since v0.6.3. There is no
+  32-bit or ARM64 build.
 - **macOS** is not currently supported.
+
+**Windows artifacts are currently unsigned**, so Windows will show an "unknown
+publisher" / SmartScreen warning. Code signing through
+[SignPath Foundation](https://signpath.org/) is *planned* — it has not been
+applied for, granted, or activated, and no Lightning release is signed today. See
+the [**Code signing policy**](docs/code-signing-policy.md) for how signing will
+work, and [`docs/windows-signing-inventory.md`](docs/windows-signing-inventory.md)
+for exactly which files would be signed. Verify a download against the published
+`SHA256SUMS` in the meantime.
+
+**Installing and removing on Windows**
+
+- *Portable ZIP* — extract anywhere and run `Lightning.exe`. Nothing is
+  installed, no registry keys are written; delete the folder to remove it.
+- *MSI* — installs per-user under `%LOCALAPPDATA%\Programs\Lightning` with a
+  Start-menu shortcut. Remove it from **Settings → Apps → Installed apps**, or
+  with `msiexec /x`.
+- *Setup EXE* — installs per-user to the same location and registers a normal
+  uninstall entry. Remove it from **Settings → Apps → Installed apps**, or with
+  the **Uninstall Lightning** Start-menu shortcut.
+- Neither installer requires administrator rights, and neither modifies `PATH`,
+  file associations, URL protocols, services, scheduled tasks, firewall rules, or
+  autostart. Uninstalling removes the application and its shortcuts, and
+  deliberately leaves your Matrix session, settings, and message stores alone —
+  those live in your user profile, outside the install directory, and are removed
+  by signing out of the account inside the app.
 
 The authoritative per-release list of artifacts is the release notes — for
 example [`docs/releases/v0.6.6.md`](docs/releases/v0.6.6.md) — and the Releases
@@ -301,11 +327,30 @@ matrix-rust-sdk  ──  login/sync, timelines, threads, event cache, media,
 - The screenshot-demo mode never touches real accounts, stores, libsecret, or the
   network, and cannot exist in a release binary.
 
+Lightning collects nothing: there is no analytics, telemetry, crash reporting, or
+update check, and the project operates no server. Apart from the homeserver you
+sign in to, the only third parties Lightning can contact are the GIF providers,
+and only while you are using the GIF picker. Automatic link-preview fetching is
+**off by default**, because Lightning fetches previews itself rather than through
+your homeserver, which would expose your IP address to a site the sender chose.
+
+- **[Privacy policy](docs/privacy.md)** — every network path, derived from the
+  source, with what is sent and how to disable it.
+- **[Code signing policy](docs/code-signing-policy.md)** — signing roles,
+  approval, and current (unsigned) status.
+- **[Third-party notices](docs/third-party-notices.md)** — what is shipped
+  inside a release and under which licence.
+
 Lightning has **not** been formally security audited. Security-sensitive changes —
 especially anything touching E2EE — require careful review, explicit reasoning,
 and tests. See [`docs/threat-model.md`](docs/threat-model.md).
 
 ## Project status
+
+Lightning is listed in the official [Matrix.org client
+directory](https://matrix.org/ecosystem/clients/) as an **Alpha** Matrix client
+for Windows and Linux, under GPL-3.0-or-later. That is a directory listing, not
+an endorsement, certification, or approval by the Matrix.org Foundation.
 
 Lightning is under active development. Linux is the primary development and
 support target; official Windows (x86-64) packages are published as of v0.6.3.
@@ -358,6 +403,30 @@ Registry and attached to its
 `lightning-deploy` holds only the pipeline and automation logic. Releases are
 package-first: the tag and GitLab Release are created only after the packages are
 built, validated on a clean system, published, and verified.
+
+Every package is built by CI from one exact, immutable source commit — never
+from a developer's machine. See
+[`docs/signpath-build-provenance.md`](docs/signpath-build-provenance.md).
+
+### Code signing policy
+
+Windows artifacts are **not signed yet**. The
+[**Code signing policy**](docs/code-signing-policy.md) documents the signing
+roles (authors/committers, reviewers, approvers), the manual per-release approval
+step, and precisely which binaries would be signed
+([signing inventory](docs/windows-signing-inventory.md)). It will be updated to
+say releases are signed only once a signed release actually ships.
+
+### Source repositories
+
+The canonical repository — the only one that accepts changes, runs releases, and
+is authoritative for provenance — is
+<https://gitlab.smetonis.net/Mizerd/lightning>.
+[github.com/Mizerd/lightning](https://github.com/Mizerd/lightning) is an
+**automatically synchronised, read-only mirror**, provided for discoverability
+only. It is never a build source, never a release source, and merge requests
+opened there are not seen; please use the GitLab project or contact the
+maintainer.
 
 ## Licence
 
