@@ -4,6 +4,7 @@
 
 #include <QObject>
 #include <QSettings>
+#include <QSize>
 #include <QString>
 #include <memory>
 
@@ -175,6 +176,19 @@ public:
     // explicit server rule lives in the account's push rules, never here.
     Q_INVOKABLE int roomNotificationMode(const QString &roomId) const;
     Q_INVOKABLE void setRoomNotificationMode(const QString &roomId, int mode);
+
+    // v0.7: learned video dimensions for events whose Matrix metadata
+    // declares none (every Lightning-sent video before the send-metadata
+    // fix). Recorded when the poster extractor sees the real frame, so the
+    // timeline card takes its true shape from the FIRST render on every
+    // later visit instead of guessing 16:9 and resizing when the poster
+    // lands. Account-scoped, keyed by a hash of the media key (raw event
+    // ids never become settings keys), bounded by an LRU index — only
+    // dimensions are stored, never content. Returns an empty size when
+    // nothing is recorded.
+    Q_INVOKABLE QSize knownVideoDimensions(const QString &mediaKey) const;
+    void setKnownVideoDimensions(const QString &mediaKey, int width,
+                                 int height);
 
     // v0.6.7: remembered size of a user-resizable overlay picker (the GIF and
     // emoji pickers, which carry a drag grip), stored as a SHARE of the space

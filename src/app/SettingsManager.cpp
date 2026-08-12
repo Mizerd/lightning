@@ -3,6 +3,7 @@
 #include "storage/SecretStore.h"
 #include "storage/AppDataPaths.h"
 
+#include <QCryptographicHash>
 #include <QDateTime>
 #include <QLoggingCategory>
 
@@ -838,6 +839,62 @@ int SettingsManager::roomNotificationMode(const QString &roomId) const
         : roomNotificationModeGlobalKey(roomId);
     const int mode = m_store->value(readKey, 0).toInt();
     return (mode < 0 || mode > 2) ? 0 : mode;
+}
+
+namespace {
+// Learned video dimensions: hashed key (a raw event id never becomes a
+// settings key) under the active account, with a bounded LRU index so the
+// store cannot grow with the timeline.
+QString videoDimsHash(const QString &mediaKey)
+{
+    return QString::fromLatin1(
+        QCryptographicHash::hash(mediaKey.toUtf8(),
+                                 QCryptographicHash::Sha256)
+            .toHex()
+            .left(16));
+}
+constexpr int kVideoDimsCap = 512;
+} // namespace
+
+QSize SettingsManager::knownVideoDimensions(const QString &mediaKey) const
+{
+    if (mediaKey.isEmpty())
+        return {};
+    const QString slug = activeAccountSlugCached();
+    if (slug.isEmpty())
+        return {};
+    const QString key = QLatin1String(kAccountsGroup) + QLatin1Char('/')
+        + slug + QLatin1String("/media/video-dims/")
+        + videoDimsHash(mediaKey);
+    const QSize size = m_store->value(key).toSize();
+    return size.isValid() && size.width() > 0 && size.height() > 0 ? size
+                                                                   : QSize{};
+}
+
+void SettingsManager::setKnownVideoDimensions(const QString &mediaKey,
+                                              int width, int height)
+{
+    // Only remote events: a local-echo key is transient and its remote id
+    // records the same payload again once reconciled.
+    if (!mediaKey.startsWith(QLatin1Char('$')) || width <= 0 || height <= 0)
+        return;
+    const QString slug = activeAccountSlugCached();
+    if (slug.isEmpty())
+        return;
+    const QString prefix = QLatin1String(kAccountsGroup) + QLatin1Char('/')
+        + slug + QLatin1String("/media/video-dims/");
+    const QString hash = videoDimsHash(mediaKey);
+    const QString indexKey = QLatin1String(kAccountsGroup) + QLatin1Char('/')
+        + slug + QLatin1String("/media/video-dims-index");
+    QStringList index = m_store->value(indexKey).toStringList();
+    index.removeOne(hash);
+    index.append(hash);
+    while (index.size() > kVideoDimsCap) {
+        const QString victim = index.takeFirst();
+        m_store->remove(prefix + victim);
+    }
+    m_store->setValue(prefix + hash, QSize(width, height));
+    m_store->setValue(indexKey, index);
 }
 
 namespace {

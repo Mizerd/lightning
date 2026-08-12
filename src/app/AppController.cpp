@@ -184,6 +184,15 @@ AppController::AppController(Backend backend, bool screenshotDemo,
         else
             m_gif->starredStore()->reportFetchFailed(mediaKey, category);
     });
+    // v0.7: dimensions learned by the poster extractor persist per account,
+    // so a metadata-less video's card takes its true shape from the first
+    // render on every later visit (only the first-ever encounter can still
+    // start on the 16:9 guess). Dimensions only — never content.
+    connect(m_mediaBridge.get(), &MediaBridge::videoDimensionsLearned, this,
+            [this](const QString &mediaKey, int width, int height) {
+        if (m_settings)
+            m_settings->setKnownVideoDimensions(mediaKey, width, height);
+    });
 
     // GIF policy follows the persisted settings live.
     m_gif->setRating(m_settings->gifSafeSearch());

@@ -3068,8 +3068,19 @@ Item {
                 var cap = Math.min(560, Math.max(280, bubble.width * 0.72))
                 return Math.max(1, Math.min(cap, bubble.width))
             }
-            readonly property real natW: model.mediaWidth > 0 ? model.mediaWidth : 0
-            readonly property real natH: model.mediaHeight > 0 ? model.mediaHeight : 0
+            // Dimensions learned from a previous poster extraction (persisted
+            // per account) size the card correctly from the FIRST render —
+            // without them a metadata-less video started 16:9 and visibly
+            // resized when its poster landed (maintainer screenshots).
+            readonly property size learnedDims:
+                model.mediaWidth > 0 ? Qt.size(0, 0)
+                : app.settings.knownVideoDimensions(model.mediaKey || "")
+            readonly property real natW: model.mediaWidth > 0
+                ? model.mediaWidth
+                : (learnedDims.width > 0 ? learnedDims.width : 0)
+            readonly property real natH: model.mediaHeight > 0
+                ? model.mediaHeight
+                : (learnedDims.height > 0 ? learnedDims.height : 0)
             // Metadata-less events (every Lightning-sent video before the
             // send-metadata fix) used to default the card to 16:9, which
             // letterboxed square/portrait videos massively during playback

@@ -249,6 +249,13 @@ Q_SIGNALS:
     // here — that is GifStarredStore's job (see AppController::starChatGif).
     void mediaBytesForStar(const QString &mediaKey, bool ok,
                            const QByteArray &bytes, const QString &category);
+    // v0.7: the poster extractor saw the video's real (display-oriented)
+    // frame — its dimensions let the timeline card take the true shape on
+    // every later render for events whose metadata declares none.
+    // AppController persists them via SettingsManager. Dimensions only;
+    // no pixels cross this signal.
+    void videoDimensionsLearned(const QString &mediaKey, int width,
+                                int height);
 
 private Q_SLOTS:
     void onMediaReady(quint64 opId, const QString &mediaKey, int kind,

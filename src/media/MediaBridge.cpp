@@ -3,10 +3,12 @@
 #include "matrix/MatrixClient.h"
 #include "media/VideoPosterExtractor.h"
 
+#include <QBuffer>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QCryptographicHash>
+#include <QImageReader>
 #include <QLoggingCategory>
 #include <QMutexLocker>
 #include <QSaveFile>
@@ -615,6 +617,20 @@ void MediaBridge::onPosterReady(const QString &mediaKey,
     qCDebug(lcMedia, "poster %s bytes=%lld",
             qUtf8Printable(keyTag(posterKey)),
             static_cast<long long>(jpeg.size()));
+    // Header-only decode: the poster's dimensions carry the video's true
+    // display shape (the extractor works on rendered frames, so rotation
+    // is already applied). The scaled size is fine — the card consumes
+    // the RATIO and caps the magnitude anyway.
+    {
+        QBuffer buffer;
+        buffer.setData(jpeg);
+        buffer.open(QIODevice::ReadOnly);
+        QImageReader reader(&buffer);
+        const QSize size = reader.size();
+        if (size.isValid() && size.width() > 0 && size.height() > 0)
+            Q_EMIT videoDimensionsLearned(mediaKey, size.width(),
+                                          size.height());
+    }
     Q_EMIT mediaCached(posterKey);
 }
 
