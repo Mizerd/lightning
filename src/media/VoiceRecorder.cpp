@@ -184,7 +184,15 @@ bool VoiceRecorder::start()
     QMediaFormat format(profile->container);
     format.setAudioCodec(profile->codec);
     m_recorder->setMediaFormat(format);
-    m_recorder->setQuality(QMediaRecorder::HighQuality);
+    // Voice, not music: mono at a speech bitrate. Without these the
+    // recorder inherits the capture device's channel layout (a 4-channel
+    // mic array produced QUAD Opus at a defaulted 192 kbps — 126 KB for
+    // six seconds of speech). 32 kbps mono Opus at 48 kHz is the
+    // conventional voice-message profile and ~6x smaller.
+    m_recorder->setAudioChannelCount(1);
+    m_recorder->setAudioSampleRate(48000);
+    m_recorder->setAudioBitRate(32000);
+    m_recorder->setEncodingMode(QMediaRecorder::AverageBitRateEncoding);
     m_activeMime = QString::fromLatin1(profile->mime);
     m_activeFile = m_dir->filePath(
         QStringLiteral("voice-%1.%2")
