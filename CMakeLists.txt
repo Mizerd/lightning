@@ -2219,3 +2219,9 @@ foreach(_icon_size 16 32 48 64 128 192 256 512)
         DESTINATION
         "${CMAKE_INSTALL_DATADIR}/icons/hicolor/${_icon_size}x${_icon_size}/apps")
 endforeach()
+# The scalable slot: launchers and docks that support SVG prefer it over
+# any raster size, so the mark stays crisp at every zoom/DPI. Same "thick"
+# artwork the raster sizes are generated from.
+install(FILES data/icons/lightning.svg
+    DESTINATION "${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps"
+    RENAME lightning.svg)

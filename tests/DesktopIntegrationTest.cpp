@@ -59,6 +59,13 @@ private Q_SLOTS:
         // The exact supplied artwork stays tracked as the generation source.
         QVERIFY(QFile::exists(
             QStringLiteral(SOURCE_DIR "/data/icons/lightning-source.png")));
+        // The scalable vector of the same mark (launchers prefer it; the
+        // README renders it). A real inline SVG, never an embedded raster.
+        QFile svg(QStringLiteral(SOURCE_DIR "/data/icons/lightning.svg"));
+        QVERIFY(svg.open(QIODevice::ReadOnly));
+        const QByteArray svgBytes = svg.readAll();
+        QVERIFY(svgBytes.contains("<svg"));
+        QVERIFY(!svgBytes.contains("base64"));
     }
 
     void installRulesShipDesktopFileAndIcons()
@@ -74,6 +81,9 @@ private Q_SLOTS:
         // source run gets it without an installed icon theme.
         QVERIFY(cmake.contains(QStringLiteral(
             "data/icons/hicolor/256x256/apps/lightning.png")));
+        // The scalable SVG installs beside the raster sizes.
+        QVERIFY(cmake.contains(QStringLiteral(
+            "icons/hicolor/scalable/apps")));
     }
 
     void qtIdentityIsWired()

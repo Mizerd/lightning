@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="data/icons/lightning-source.png" width="140" alt="Lightning logo"/>
+<img src="data/icons/lightning.svg" width="140" alt="Lightning logo"/>
 
 # ⚡ Lightning
 
