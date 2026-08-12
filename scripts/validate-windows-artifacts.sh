@@ -127,7 +127,12 @@ for table in Property Feature Component File Directory Shortcut Upgrade Registry
 done
 grep -Fq $'ProductName\tLightning' "$REPORTS/msi-Property.idt" || die "MSI ProductName mismatch"
 grep -Fq $'ProductVersion\t'"$version" "$REPORTS/msi-Property.idt" || die "MSI ProductVersion mismatch"
-grep -Fq $'Manufacturer\tMizerd' "$REPORTS/msi-Property.idt" || die "MSI manufacturer mismatch"
+# The publisher is generated once in build-windows.sh and recorded in
+# msi-identity.json; assert the MSI actually carries that value rather than a
+# literal duplicated here, so the two can never drift apart.
+msi_manufacturer="$(jq -er '.manufacturer' "$REPORTS/msi-identity.json")"
+grep -Fq $'Manufacturer\t'"$msi_manufacturer" "$REPORTS/msi-Property.idt" || \
+    die "MSI manufacturer is not the declared publisher: $msi_manufacturer"
 grep -Eq 'x64|Intel64' "$REPORTS/msi-summary.txt" || die "MSI summary does not declare x64"
 grep -Fq 'Lightning.exe' "$REPORTS/msi-File.idt" || die "MSI does not contain Lightning.exe"
 grep -Fq 'StartMenuShortcut' "$REPORTS/msi-Shortcut.idt" || die "MSI shortcut is missing"
@@ -144,6 +149,22 @@ grep -Fq 'Lightning/Lightning.exe' "$REPORTS/portable-contents.txt" || \
     die "portable ZIP does not contain Lightning.exe"
 grep -Fq 'Lightning/plugins/platforms/qwindows.dll' "$REPORTS/portable-contents.txt" || \
     die "portable ZIP does not contain qwindows.dll"
+
+# The SignPath artifact boundary: the unsigned Lightning-owned payload must
+# exist on its own, with a checksum, so a future signing job has a deterministic
+# single file to submit as a GitLab pipeline artifact.
+signing_payload="$DIST/signing-payload"
+[[ -f "$signing_payload/Lightning.exe" ]] || \
+    die "signing payload is missing: signing-payload/Lightning.exe"
+[[ -f "$signing_payload/Lightning.exe.sha256" ]] || \
+    die "signing payload checksum is missing"
+( cd "$signing_payload" && sha256sum -c Lightning.exe.sha256 >/dev/null ) || \
+    die "signing payload checksum does not verify"
+[[ -f "$REPORTS/windows-signing-inventory.json" ]] || \
+    die "windows signing inventory report is missing"
+jq -e '.lightning_owned == ["Lightning.exe"]' \
+    "$REPORTS/windows-signing-inventory.json" >/dev/null || \
+    die "signing inventory does not list exactly the Lightning-owned executable"
 
 ( cd "$DIST" && sha256sum "$(basename "$msi")" "$(basename "$setup")" \
     "$(basename "$portable")" >SHA256SUMS-windows.txt )

@@ -26,6 +26,10 @@ registry_base="${CANONICAL_API_ROOT}/packages/generic/${PACKAGE_NAME}/${PACKAGE_
 # resolved release commit.
 short_sha="${SOURCE_SHA:0:7}"
 
+# Published asset names state the signing status, from the one shared switch in
+# lib.sh — so a release page can never advertise a signature that is not there.
+WINDOWS_SUFFIX="$(windows_unsigned_suffix)"
+
 # Declared package files for this release. Append future formats here only.
 declare -a formats=(deb rpm flatpak appimage snap windows-portable windows-msi windows-setup)
 declare -A file_of arch_of name_of
@@ -46,13 +50,13 @@ arch_of[snap]="amd64"
 name_of[snap]="Lightning ${PACKAGE_VERSION} — Snap amd64"
 file_of[windows-portable]="$ROOT/dist/windows/Lightning-${PACKAGE_VERSION}-${short_sha}-windows-x86_64-portable.zip"
 arch_of[windows-portable]="x86_64"
-name_of[windows-portable]="Lightning ${PACKAGE_VERSION} — Windows x86_64 portable (unsigned)"
+name_of[windows-portable]="Lightning ${PACKAGE_VERSION} — Windows x86_64 portable${WINDOWS_SUFFIX}"
 file_of[windows-msi]="$ROOT/dist/windows/Lightning-${PACKAGE_VERSION}-${short_sha}-windows-x86_64.msi"
 arch_of[windows-msi]="x86_64"
-name_of[windows-msi]="Lightning ${PACKAGE_VERSION} — Windows x86_64 MSI installer (unsigned)"
+name_of[windows-msi]="Lightning ${PACKAGE_VERSION} — Windows x86_64 MSI installer${WINDOWS_SUFFIX}"
 file_of[windows-setup]="$ROOT/dist/windows/Lightning-${PACKAGE_VERSION}-${short_sha}-windows-x86_64-setup.exe"
 arch_of[windows-setup]="x86_64"
-name_of[windows-setup]="Lightning ${PACKAGE_VERSION} — Windows x86_64 setup EXE (unsigned)"
+name_of[windows-setup]="Lightning ${PACKAGE_VERSION} — Windows x86_64 setup EXE${WINDOWS_SUFFIX}"
 
 entries="[]"
 sums_file="$ROOT/dist/SHA256SUMS"

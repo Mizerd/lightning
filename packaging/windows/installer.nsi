@@ -17,6 +17,15 @@ SetCompressor /SOLID lzma
 !ifndef OUTPUT_FILE
   !error "OUTPUT_FILE is required"
 !endif
+!ifndef PUBLISHER
+  !error "PUBLISHER is required"
+!endif
+!ifndef SIGNING_STATE
+  !error "SIGNING_STATE is required"
+!endif
+!ifndef COPYRIGHT
+  !error "COPYRIGHT is required"
+!endif
 
 Name "Lightning ${PRODUCT_VERSION}"
 OutFile "${OUTPUT_FILE}"
@@ -24,16 +33,16 @@ InstallDir "$LOCALAPPDATA\Programs\Lightning"
 InstallDirRegKey HKCU "Software\Mizerd\Lightning" "InstallDir"
 Icon "${STAGE_DIR}/Lightning.ico"
 UninstallIcon "${STAGE_DIR}/Lightning.ico"
-BrandingText "Lightning — unsigned package"
+BrandingText "Lightning ${PRODUCT_VERSION}"
 
 VIProductVersion "${PRODUCT_VERSION}.0"
 VIAddVersionKey /LANG=1033 "ProductName" "Lightning"
 VIAddVersionKey /LANG=1033 "ProductVersion" "${PRODUCT_VERSION}"
 VIAddVersionKey /LANG=1033 "FileVersion" "${PRODUCT_VERSION}"
-VIAddVersionKey /LANG=1033 "CompanyName" "Mizerd"
-VIAddVersionKey /LANG=1033 "FileDescription" "Lightning unsigned Windows installer"
-VIAddVersionKey /LANG=1033 "LegalCopyright" "Copyright Lightning contributors"
-VIAddVersionKey /LANG=1033 "Comments" "Source ${SOURCE_SHORT_SHA}; unsigned"
+VIAddVersionKey /LANG=1033 "CompanyName" "${PUBLISHER}"
+VIAddVersionKey /LANG=1033 "FileDescription" "Lightning Windows installer"
+VIAddVersionKey /LANG=1033 "LegalCopyright" "${COPYRIGHT}"
+VIAddVersionKey /LANG=1033 "Comments" "Built from Lightning source ${SOURCE_SHORT_SHA} (${SIGNING_STATE})"
 
 !define MUI_ABORTWARNING
 !define MUI_ICON "${STAGE_DIR}/Lightning.ico"
@@ -57,9 +66,11 @@ Section "Lightning application (required)" SEC_APP
   WriteRegStr HKCU "Software\Mizerd\Lightning" "InstallDir" "$INSTDIR"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Lightning" "DisplayName" "Lightning"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Lightning" "DisplayVersion" "${PRODUCT_VERSION}"
-  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Lightning" "Publisher" "Mizerd"
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Lightning" "Publisher" "${PUBLISHER}"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Lightning" "DisplayIcon" "$INSTDIR\Lightning.exe"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Lightning" "UninstallString" '"$INSTDIR\Uninstall.exe"'
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Lightning" "InstallLocation" "$INSTDIR"
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Lightning" "URLInfoAbout" "https://gitlab.smetonis.net/Mizerd/lightning"
   WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Lightning" "NoModify" 1
   WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Lightning" "NoRepair" 1
   CreateDirectory "$SMPROGRAMS\Lightning"

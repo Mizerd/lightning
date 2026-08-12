@@ -74,6 +74,32 @@ for size in 16 32 48 64 128 192; do
 done
 magick "${icon_inputs[@]}" "$BUILD_DIR/Lightning.ico"
 
+# Product metadata for the ONE Lightning-owned PE. SignPath enforces file
+# metadata restrictions on signed artifacts, so these values are generated from
+# the single canonical release version and verified after staging by
+# verify-windows-metadata.py — they cannot drift from the release or from each
+# other. The publisher is the maintainer by name: there is no company called
+# "Mizerd" (that is a GitLab namespace), and a publisher field a user reads must
+# be factual. The internal registry path keeps its historical
+# Software\Mizerd\Lightning location on purpose — changing it would orphan the
+# uninstall registration of already-installed copies.
+WIN_PUBLISHER="Rokas Smetonis"
+WIN_COPYRIGHT="Copyright (C) 2026 Rokas Smetonis. GPL-3.0-or-later."
+WIN_SIGNING_STATE="$(windows_signing_state)"
+
+# The label and the reality must not diverge. Declaring a build "signed" while
+# no signing mechanism exists would stamp that claim into the PE metadata, the
+# MSI, the asset names, and the release page — a false statement about a
+# security property, which is worse than being plainly unsigned. The opposite
+# direction (signing configured, label still unsigned) only understates, so it
+# warns.
+if windows_signed; then
+    [[ -n "${WINDOWS_SIGNING_PFX_B64:-}" || "${LIGHTNING_SIGNING_METHOD:-}" == signpath ]] || \
+        die "LIGHTNING_WINDOWS_SIGNED=true but no signing mechanism is configured"
+elif [[ -n "${WINDOWS_SIGNING_PFX_B64:-}" ]]; then
+    printf 'warning: a signing credential is configured but LIGHTNING_WINDOWS_SIGNED is false; artifacts will be labelled unsigned\n' >&2
+fi
+
 IFS=. read -r version_major version_minor version_patch <<<"$BASE_VERSION"
 cat >"$BUILD_DIR/lightning-version.rc" <<EOF
 1 ICON "Lightning.ico"
@@ -87,14 +113,15 @@ BEGIN
   BEGIN
     BLOCK "040904E4"
     BEGIN
-      VALUE "CompanyName", "Mizerd"
+      VALUE "CompanyName", "${WIN_PUBLISHER}"
       VALUE "FileDescription", "Lightning Matrix client"
       VALUE "FileVersion", "${BASE_VERSION}"
       VALUE "InternalName", "Lightning"
+      VALUE "LegalCopyright", "${WIN_COPYRIGHT}"
       VALUE "OriginalFilename", "Lightning.exe"
       VALUE "ProductName", "Lightning"
       VALUE "ProductVersion", "${BASE_VERSION}"
-      VALUE "Comments", "Unsigned build from ${SOURCE_SHA:0:7}"
+      VALUE "Comments", "Built from Lightning source ${SOURCE_SHA:0:7} (${WIN_SIGNING_STATE})"
     END
   END
   BLOCK "VarFileInfo"
@@ -180,13 +207,37 @@ jq -n \
     --arg timestamp "$(date -u -d "@$SOURCE_DATE_EPOCH" +%Y-%m-%dT%H:%M:%SZ)" \
     --argjson gif_keys_embedded "$gif_keys_embedded" \
     --arg build_kind "$WIN_ARTIFACT_KIND" \
+    --argjson signed "$(windows_signed && echo true || echo false)" \
     '{version:$version, source_commit:$source_commit,
       packaging_commit:$packaging_commit, target:"x86_64-pc-windows-gnu",
-      build_kind:$build_kind, runner_kind:"linux-cross", signed:false,
+      build_kind:$build_kind, runner_kind:"linux-cross", signed:$signed,
       qt_version:"6.11.1", rust_version:"1.95.0", build_timestamp:$timestamp,
       gif_keys_embedded:$gif_keys_embedded, native_windows_tested:false}' \
     >"$STAGE_DIR/build-info.json"
 cp /usr/local/share/lightning-windows-rpms.txt "$REPORT_DIR/builder-rpms.txt"
+
+# Product-metadata gate. Runs on the staged tree BEFORE anything is packaged or
+# signed, so a Lightning-owned binary that disagrees with the release version or
+# product name — or an upstream DLL that claims to be Lightning — fails the
+# build instead of reaching a signing request. Also emits the signing inventory
+# that says which PE files are ours and which are upstream.
+python3 "$SCRIPT_DIR/verify-windows-metadata.py" \
+    --stage "$STAGE_DIR" \
+    --inventory "$ROOT/packaging/windows/signing-inventory.json" \
+    --version "$BASE_VERSION" \
+    --publisher "$WIN_PUBLISHER" \
+    --report "$REPORT_DIR/windows-signing-inventory.json"
+
+# The deterministic signing payload boundary (SignPath needs the artifact to
+# exist as a pipeline artifact, by itself, before a signing request). This
+# directory holds exactly the Lightning-owned PE and its checksum — no Qt
+# runtime, no installers, no logs. A future signing job submits this path and
+# writes the signed binary back over the staged copy before packaging.
+SIGNING_DIR="$WINDOWS_DIST/signing-payload"
+mkdir -p "$SIGNING_DIR"
+cp "$STAGE_DIR/Lightning.exe" "$SIGNING_DIR/Lightning.exe"
+cp "$STAGE_DIR/build-info.json" "$SIGNING_DIR/build-info.json"
+( cd "$SIGNING_DIR" && sha256sum Lightning.exe >Lightning.exe.sha256 )
 
 # Sign the staged executable BEFORE it is captured into the portable ZIP / MSI /
 # NSIS payloads, so a signed build signs the app itself, not just the installers.
@@ -201,6 +252,7 @@ portable="$WINDOWS_DIST/${artifact_base}-portable.zip"
 wxs="$BUILD_DIR/Lightning.wxs"
 python3 "$SCRIPT_DIR/generate-windows-wix.py" \
     --stage "$STAGE_DIR" --version "$BASE_VERSION" --source-sha "$SOURCE_SHA" \
+    --manufacturer "$WIN_PUBLISHER" --signing-state "$WIN_SIGNING_STATE" \
     --output "$wxs" --metadata "$REPORT_DIR/msi-identity.json"
 msi="$WINDOWS_DIST/${artifact_base}.msi"
 wixl --arch x64 --output "$msi" "$wxs" 2>&1 | tee "$REPORT_DIR/wixl.log"
@@ -210,6 +262,9 @@ setup="$WINDOWS_DIST/${artifact_base}-setup.exe"
 makensis '-XTarget amd64-unicode' \
     "-DPRODUCT_VERSION=$BASE_VERSION" \
     "-DSOURCE_SHORT_SHA=$short_sha" \
+    "-DPUBLISHER=$WIN_PUBLISHER" \
+    "-DSIGNING_STATE=$WIN_SIGNING_STATE" \
+    "-DCOPYRIGHT=$WIN_COPYRIGHT" \
     "-DSTAGE_DIR=$STAGE_DIR" \
     "-DOUTPUT_FILE=$setup" \
     "$ROOT/packaging/windows/installer.nsi" \

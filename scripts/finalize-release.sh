@@ -81,6 +81,52 @@ resolve_notes() {
         die "release notes are required for RELEASE_ACTION=create (set RELEASE_NOTES_B64 or add docs/releases/${RELEASE_TAG}.md)"
     fi
     [[ -s "$out" ]] || die "resolved release notes are empty"
+    append_policy_footer "$out"
+}
+
+# SignPath Foundation requires the term "Code signing policy" on the project's
+# download/release pages. Appending it here means every future release carries
+# it automatically, from whichever notes source was used — no per-release
+# editing, and no way to forget. Links are pinned to this release's tag so they
+# resolve to the exact reviewed text that shipped with it.
+#
+# Deliberately NOT applied by attach-existing: that action must not rewrite an
+# already-published release's description. Releases published before this
+# landed keep their original notes; adding the link to them is a manual,
+# maintainer-side edit.
+POLICY_HEADING="Code signing policy"
+append_policy_footer() {
+    local out="$1"
+    if grep -Fq "$POLICY_HEADING" "$out"; then
+        printf 'Release notes already carry the %s section\n' "$POLICY_HEADING"
+        return 0
+    fi
+    local base="https://gitlab.smetonis.net/Mizerd/lightning/-/blob/${RELEASE_TAG}"
+    local signing_sentence
+    if windows_signed; then
+        signing_sentence='The Windows artifacts in this release are Authenticode-signed. Verify your
+download against the published `SHA256SUMS` asset.'
+    else
+        signing_sentence='**The Windows artifacts in this release are not signed.** Windows will show an
+"unknown publisher" / SmartScreen warning. Verify your download against the
+published `SHA256SUMS` asset.'
+    fi
+    cat >>"$out" <<EOF
+
+---
+
+## ${POLICY_HEADING}
+
+Lightning's [${POLICY_HEADING}](${base}/docs/code-signing-policy.md) documents
+who may commit, review, and approve a release, and exactly which binaries are
+signed.
+
+${signing_sentence}
+
+See also the [privacy policy](${base}/docs/privacy.md) and the
+[third-party notices](${base}/docs/third-party-notices.md).
+EOF
+    printf 'Appended the %s section to the release description\n' "$POLICY_HEADING"
 }
 
 create_release() {

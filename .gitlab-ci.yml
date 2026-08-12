@@ -121,6 +121,8 @@ config-tests:
     - ./tests/test-publication.sh
     - ./tests/test-gif-key-injection.sh
     - python3 ./tests/test-pipeline-config.py
+    - python3 ./tests/test-windows-metadata.py
+    - python3 ./tests/test-release-notes-policy.py
 
 resolve-source:
   extends: .trusted-pipeline
@@ -359,6 +361,12 @@ windows-package-test:
       - dist/windows/*.msi
       - dist/windows/*-setup.exe
       - dist/windows/reports/
+      # Checksum only, not the payload itself: the unsigned executable is
+      # already inside the portable zip here, and re-archiving it is what
+      # pushed this job past the instance artifact cap once before. A real
+      # SignPath-bound pipeline publishes dist/windows/signing-payload/ as its
+      # own artifact — see docs/signpath-integration.md.
+      - dist/windows/signing-payload/*.sha256
 
 # Windows is a first-class release target since 0.6.3. In a publishing pipeline
 # this builds AND validates the portable/MSI/setup artifacts (build-windows.sh

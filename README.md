@@ -483,8 +483,30 @@ or source archives.
   logged), using synthetic canary values only.
 - `tests/test-pipeline-config.py` — required stages/jobs, publish/verify/release
   gating for both actions, and dependency wiring.
+- `tests/test-windows-metadata.py` — the Windows product-metadata gate, against
+  synthetic PE files with real version resources: correct metadata passes, and a
+  version mismatch, a wrong product name, a missing copyright, a wrong
+  publisher, a missing Lightning-owned binary, and an upstream DLL claiming
+  `ProductName=Lightning` each fail.
+- `tests/test-release-notes-policy.py` — every created release description
+  carries a **Code signing policy** link, idempotently, with the correct
+  signed/unsigned wording.
 
-`config-tests` runs all four on every pipeline.
+`config-tests` runs all six on every pipeline.
+
+## Code signing
+
+Windows artifacts are **not signed**. The preparation for SignPath Foundation
+signing — what is already in place, what is blocked on SignPath onboarding for
+this self-managed GitLab instance, and where the signing pipeline must run for
+its provenance to be verifiable — is documented in
+[`docs/signpath-integration.md`](docs/signpath-integration.md).
+
+One switch decides the signed/unsigned story everywhere: `windows_signed` in
+`scripts/lib.sh`, driven by `LIGHTNING_WINDOWS_SIGNED` (default `false`). It
+governs PE and MSI metadata, published asset names, and the release description,
+so none of them can claim a signature that does not exist. Flip it only in the
+change that actually signs.
 
 ## Release ordering (authoritative)
 

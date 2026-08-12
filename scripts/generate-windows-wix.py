@@ -37,6 +37,12 @@ def main() -> None:
     parser.add_argument("--source-sha", required=True)
     parser.add_argument("--output", type=pathlib.Path, required=True)
     parser.add_argument("--metadata", type=pathlib.Path, required=True)
+    # The publisher a user sees in Programs and Features, and whether this
+    # build is signed, are decided once in build-windows.sh and passed in, so
+    # the MSI can never disagree with the executable it installs.
+    parser.add_argument("--manufacturer", required=True)
+    parser.add_argument("--signing-state", required=True,
+                        choices=("signed", "unsigned"))
     args = parser.parse_args()
     if not re.fullmatch(r"\d+\.\d+\.\d+", args.version):
         raise SystemExit("MSI version must be three numeric fields")
@@ -49,14 +55,14 @@ def main() -> None:
     wix = ET.Element(tag("Wix"))
     product = ET.SubElement(wix, tag("Product"), {
         "Id": guid(product_code), "Name": "Lightning", "Language": "1033",
-        "Version": args.version, "Manufacturer": "Mizerd",
+        "Version": args.version, "Manufacturer": args.manufacturer,
         "UpgradeCode": guid(UPGRADE_CODE),
     })
     ET.SubElement(product, tag("Package"), {
         "InstallerVersion": "500", "Compressed": "yes",
         "InstallScope": "perUser",
-        "Description": "Lightning unsigned Windows package",
-        "Manufacturer": "Mizerd",
+        "Description": f"Lightning {args.version} ({args.signing_state})",
+        "Manufacturer": args.manufacturer,
     })
     ET.SubElement(product, tag("MajorUpgrade"), {
         "DowngradeErrorMessage": "A newer version of Lightning is already installed.",
@@ -133,7 +139,8 @@ def main() -> None:
     args.output.parent.mkdir(parents=True, exist_ok=True)
     ET.ElementTree(wix).write(args.output, encoding="utf-8", xml_declaration=True)
     args.metadata.write_text(json.dumps({
-        "manufacturer": "Mizerd", "product_name": "Lightning",
+        "manufacturer": args.manufacturer, "product_name": "Lightning",
+        "signing_state": args.signing_state,
         "product_version": args.version, "product_code": guid(product_code),
         "upgrade_code": guid(UPGRADE_CODE), "platform": "x64",
         "component_guid_strategy": "UUIDv5 of lowercase staged relative path",
