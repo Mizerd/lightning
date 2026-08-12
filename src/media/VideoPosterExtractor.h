@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QByteArray>
+#include <QImage>
 #include <QList>
 #include <QObject>
 #include <QString>
@@ -49,6 +50,9 @@ private:
     void startNext();
     // Terminal per job; queued (never re-entered from a sink callback).
     void finishActive(const QByteArray &jpeg);
+    // Terminal via the fallback frame when no presentable frame arrived
+    // (timeout, or a short clip that ended inside its black lead-in).
+    void finishWithBestAvailable();
     void teardownPlayer();
 
     struct Job {
@@ -59,6 +63,11 @@ private:
     bool m_active = false;
     QString m_activeTag;
     bool m_frameSeen = false;
+    // Black-lead-in skipping (fade-ins postered as solid black cards):
+    // frames rejected as lead-in are counted and the LAST one kept as the
+    // fallback poster.
+    int m_skippedFrames = 0;
+    QImage m_fallbackFrame;
     std::unique_ptr<QMediaPlayer> m_player;
     std::unique_ptr<QVideoSink> m_sink;
     QTimer m_timeout;

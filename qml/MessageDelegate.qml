@@ -3070,8 +3070,20 @@ Item {
             }
             readonly property real natW: model.mediaWidth > 0 ? model.mediaWidth : 0
             readonly property real natH: model.mediaHeight > 0 ? model.mediaHeight : 0
+            // Metadata-less events (every Lightning-sent video before the
+            // send-metadata fix) used to default the card to 16:9, which
+            // letterboxed square/portrait videos massively during playback
+            // (maintainer screenshots, 2026-08-12). The extracted poster
+            // carries the video's REAL shape — use it whenever the event
+            // itself declares none; 16:9 remains only the last-resort
+            // guess before any poster exists.
+            readonly property real posterRatio:
+                thumbImg.status === Image.Ready && thumbImg.implicitWidth > 0
+                ? thumbImg.implicitHeight / thumbImg.implicitWidth : 0
             readonly property real ratio: (natW > 0 && natH > 0)
-                                          ? (natH / natW) : 0.5625
+                                          ? (natH / natW)
+                                          : (posterRatio > 0 ? posterRatio
+                                                             : 0.5625)
             readonly property real maxH: ratio > 1 ? 440 : 400
             readonly property real minControlW: Math.min(260, bubble.width)
             readonly property real dispW: {
