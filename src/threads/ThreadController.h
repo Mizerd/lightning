@@ -200,6 +200,8 @@ private:
     // Send every queued attachment through the SDK thread path. Each becomes
     // its own local echo in the thread timeline.
     void dispatchAttachments();
+    // One entry, once it is dispatchable (a video waits for its poster).
+    void dispatchAttachment(int row);
     void clearAttachments();
 
     MatrixClient *m_client = nullptr;

@@ -4136,6 +4136,92 @@ quint64 RustSdkMatrixClient::sendAttachment(const QString &roomId,
     return opId;
 }
 
+// v0.7 video round: the poster crosses the FFI as raw bytes; Rust copies it
+// into its own memory before this returns and re-validates it by magic
+// sniffing. An absent or rejected poster never fails the video send.
+quint64 RustSdkMatrixClient::sendVideo(const QString &roomId,
+                                       const QString &localPath,
+                                       const QString &mime,
+                                       const QString &caption,
+                                       int width, int height,
+                                       qint64 durationMs,
+                                       const QByteArray &thumbnail,
+                                       int thumbnailWidth,
+                                       int thumbnailHeight)
+{
+    if (!m_rustHandle || roomId.isEmpty() || localPath.isEmpty() || mime.isEmpty())
+        return 0;
+    if (!timelineActiveFor(roomId)) {
+        qCWarning(lcRust) << "video send requires the open room timeline";
+        return 0;
+    }
+    const bool hasPoster = !thumbnail.isEmpty() && thumbnailWidth > 0
+        && thumbnailHeight > 0;
+    const quint64 opId = nextOpId();
+    const QByteArray room = roomId.toUtf8();
+    const QByteArray path = localPath.toUtf8();
+    const QByteArray mimeBytes = mime.toUtf8();
+    const QByteArray captionBytes = caption.toUtf8();
+    const QString result = takeRustString(mx_rust_timeline_send_video(
+        m_rustHandle, room.constData(), path.constData(),
+        mimeBytes.constData(), captionBytes.constData(),
+        static_cast<unsigned long long>(qMax(0, width)),
+        static_cast<unsigned long long>(qMax(0, height)),
+        static_cast<unsigned long long>(qMax<qint64>(0, durationMs)),
+        hasPoster ? reinterpret_cast<const unsigned char *>(thumbnail.constData())
+                  : nullptr,
+        hasPoster ? static_cast<size_t>(thumbnail.size()) : 0,
+        static_cast<unsigned long long>(hasPoster ? thumbnailWidth : 0),
+        static_cast<unsigned long long>(hasPoster ? thumbnailHeight : 0),
+        opId));
+    if (!result.isEmpty()) {
+        qCWarning(lcRust) << "video send rejected";
+        return 0;
+    }
+    return opId;
+}
+
+quint64 RustSdkMatrixClient::sendThreadVideo(const QString &roomId,
+                                             const QString &rootEventId,
+                                             const QString &localPath,
+                                             const QString &mime,
+                                             const QString &caption,
+                                             int width, int height,
+                                             qint64 durationMs,
+                                             const QByteArray &thumbnail,
+                                             int thumbnailWidth,
+                                             int thumbnailHeight)
+{
+    if (!m_loggedIn || !m_rustHandle || roomId.isEmpty()
+        || rootEventId.isEmpty() || localPath.isEmpty() || mime.isEmpty())
+        return 0;
+    const bool hasPoster = !thumbnail.isEmpty() && thumbnailWidth > 0
+        && thumbnailHeight > 0;
+    const quint64 opId = nextOpId();
+    const QByteArray room = roomId.toUtf8();
+    const QByteArray root = rootEventId.toUtf8();
+    const QByteArray path = localPath.toUtf8();
+    const QByteArray mimeBytes = mime.toUtf8();
+    const QByteArray captionBytes = caption.toUtf8();
+    const QString result = takeRustString(mx_rust_thread_send_video(
+        m_rustHandle, room.constData(), root.constData(), path.constData(),
+        mimeBytes.constData(), captionBytes.constData(),
+        static_cast<unsigned long long>(qMax(0, width)),
+        static_cast<unsigned long long>(qMax(0, height)),
+        static_cast<unsigned long long>(qMax<qint64>(0, durationMs)),
+        hasPoster ? reinterpret_cast<const unsigned char *>(thumbnail.constData())
+                  : nullptr,
+        hasPoster ? static_cast<size_t>(thumbnail.size()) : 0,
+        static_cast<unsigned long long>(hasPoster ? thumbnailWidth : 0),
+        static_cast<unsigned long long>(hasPoster ? thumbnailHeight : 0),
+        opId));
+    if (!result.isEmpty()) {
+        qCWarning(lcRust) << "thread video send rejected";
+        return 0;
+    }
+    return opId;
+}
+
 quint64 RustSdkMatrixClient::sendVoiceMessage(const QString &roomId,
                                               const QString &localPath,
                                               const QString &mime,

@@ -40,7 +40,12 @@ bool frameLooksBlack(const QImage &image)
     return maxLuma < kBlackMaxLuma;
 }
 
-QByteArray encodePoster(const QImage &image, int maxEdge, int quality)
+// Encodes and reports the encoded image's OWN geometry: the send path
+// declares thumbnail w/h on the Matrix event, and a receiver that trusts a
+// mismatched declaration lays the poster out wrong. Scaling keeps the
+// aspect ratio, so the poster's shape always matches the source frame's.
+QByteArray encodePoster(const QImage &image, int maxEdge, int quality,
+                        QSize *encodedSize = nullptr)
 {
     QImage scaled = image;
     if (scaled.width() > maxEdge || scaled.height() > maxEdge)
@@ -51,6 +56,8 @@ QByteArray encodePoster(const QImage &image, int maxEdge, int quality)
     buffer.open(QIODevice::WriteOnly);
     if (!scaled.save(&buffer, "JPG", quality))
         jpeg.clear();
+    if (encodedSize)
+        *encodedSize = jpeg.isEmpty() ? QSize() : scaled.size();
     return jpeg;
 }
 } // namespace
@@ -109,6 +116,12 @@ void VideoPosterExtractor::startNext()
     m_skippedFrames = 0;
     m_fallbackFrame = QImage();
     m_bestFrame = QImage();
+    m_durationMs = 0;
+    connect(m_player.get(), &QMediaPlayer::durationChanged, this,
+            [this, jobTag](qint64 durationMs) {
+                if (m_active && m_activeTag == jobTag && durationMs > 0)
+                    m_durationMs = durationMs;
+            });
     connect(m_sink.get(), &QVideoSink::videoFrameChanged, this,
             [this, jobTag](const QVideoFrame &frame) {
                 if (!m_active || m_activeTag != jobTag || m_frameSeen
@@ -142,15 +155,18 @@ void VideoPosterExtractor::startNext()
                 if (!reached || m_bestFrame.isNull())
                     return;
                 m_frameSeen = true;
-                const QByteArray jpeg =
-                    encodePoster(m_bestFrame, kMaxEdge, kJpegQuality);
+                QSize posterSize;
+                const QByteArray jpeg = encodePoster(m_bestFrame, kMaxEdge,
+                                                     kJpegQuality, &posterSize);
+                const QSize sourceSize = m_bestFrame.size();
                 // Queued: never tear the player down from inside its own
                 // frame callback.
                 QMetaObject::invokeMethod(
                     this,
-                    [this, jobTag, jpeg] {
+                    [this, jobTag, jpeg, posterSize, sourceSize] {
                         if (m_active && m_activeTag == jobTag)
-                            finishActive(jpeg);
+                            finishActive(jpeg, posterSize, sourceSize,
+                                         m_durationMs);
                     },
                     Qt::QueuedConnection);
             });
@@ -176,7 +192,7 @@ void VideoPosterExtractor::startNext()
                     this,
                     [this, jobTag] {
                         if (m_active && m_activeTag == jobTag)
-                            finishActive({});
+                            finishActive({}, {}, {}, 0);
                     },
                     Qt::QueuedConnection);
             });
@@ -191,18 +207,21 @@ void VideoPosterExtractor::finishWithBestAvailable()
     // Best non-black candidate first (a clip that ended before the target
     // timestamp), then the last lead-in frame (an all-black video honestly
     // gets a black poster), then nothing.
-    if (!m_bestFrame.isNull()) {
-        finishActive(encodePoster(m_bestFrame, kMaxEdge, kJpegQuality));
+    const QImage &frame = !m_bestFrame.isNull() ? m_bestFrame : m_fallbackFrame;
+    if (frame.isNull()) {
+        finishActive({}, {}, {}, 0);
         return;
     }
-    if (!m_fallbackFrame.isNull()) {
-        finishActive(encodePoster(m_fallbackFrame, kMaxEdge, kJpegQuality));
-        return;
-    }
-    finishActive({});
+    QSize posterSize;
+    const QByteArray jpeg =
+        encodePoster(frame, kMaxEdge, kJpegQuality, &posterSize);
+    finishActive(jpeg, posterSize, frame.size(), m_durationMs);
 }
 
-void VideoPosterExtractor::finishActive(const QByteArray &jpeg)
+void VideoPosterExtractor::finishActive(const QByteArray &jpeg,
+                                        const QSize &posterSize,
+                                        const QSize &sourceSize,
+                                        qint64 durationMs)
 {
     if (!m_active)
         return;
@@ -210,8 +229,12 @@ void VideoPosterExtractor::finishActive(const QByteArray &jpeg)
     const QString tag = m_activeTag;
     m_active = false;
     m_activeTag.clear();
+    m_durationMs = 0;
     teardownPlayer();
-    Q_EMIT posterReady(tag, jpeg);
+    if (jpeg.isEmpty())
+        Q_EMIT posterReady(tag, {}, {}, {}, 0);
+    else
+        Q_EMIT posterReady(tag, jpeg, posterSize, sourceSize, durationMs);
     startNext();
 }
 

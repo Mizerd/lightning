@@ -177,6 +177,8 @@ private:
     void refreshTypingState();
     void stopTyping();
     void dispatchAttachments();
+    // One entry, once it is dispatchable (a video waits for its poster).
+    void dispatchAttachment(int row);
 
     MatrixClient *m_client = nullptr;
     AttachmentQueueModel *m_attachments = nullptr;

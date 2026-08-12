@@ -443,6 +443,26 @@ public:
         Q_UNUSED(animated);
         return 0;
     }
+    // v0.7: video send WITH a poster thumbnail Lightning extracted from the
+    // outgoing file. `thumbnail` may be empty (extraction failed or is
+    // unsupported) — that is not an error, the video simply goes out
+    // without a poster. The SDK uploads and, in encrypted rooms, encrypts
+    // the poster itself; nothing here builds thumbnail content by hand.
+    // The default degrades to the plain attachment send, so a backend with
+    // no thumbnail support keeps sending videos exactly as it did.
+    virtual quint64 sendVideo(const QString &roomId,
+                              const QString &localPath,
+                              const QString &mime,
+                              const QString &caption,
+                              int width, int height, qint64 durationMs,
+                              const QByteArray &thumbnail,
+                              int thumbnailWidth, int thumbnailHeight)
+    {
+        Q_UNUSED(durationMs); Q_UNUSED(thumbnail);
+        Q_UNUSED(thumbnailWidth); Q_UNUSED(thumbnailHeight);
+        return sendAttachment(roomId, localPath, mime, caption, width, height,
+                              false);
+    }
     // Clipboard images: bytes transfer directly, no temporary file.
     virtual quint64 sendAttachmentBytes(const QString &roomId,
                                         const QByteArray &bytes,
@@ -485,6 +505,22 @@ public:
         Q_UNUSED(mime); Q_UNUSED(caption); Q_UNUSED(width);
         Q_UNUSED(height); Q_UNUSED(animated);
         return 0;
+    }
+    // v0.7: the thread twin of sendVideo. Same degradation rule — a backend
+    // without poster support falls back to the plain thread attachment.
+    virtual quint64 sendThreadVideo(const QString &roomId,
+                                    const QString &rootEventId,
+                                    const QString &localPath,
+                                    const QString &mime,
+                                    const QString &caption,
+                                    int width, int height, qint64 durationMs,
+                                    const QByteArray &thumbnail,
+                                    int thumbnailWidth, int thumbnailHeight)
+    {
+        Q_UNUSED(durationMs); Q_UNUSED(thumbnail);
+        Q_UNUSED(thumbnailWidth); Q_UNUSED(thumbnailHeight);
+        return sendThreadAttachment(roomId, rootEventId, localPath, mime,
+                                    caption, width, height, false);
     }
     virtual quint64 sendThreadAttachmentBytes(const QString &roomId,
                                               const QString &rootEventId,

@@ -521,6 +521,27 @@ char *mx_rust_timeline_send_attachment(void *client,
                                        unsigned long long height,
                                        int animated,
                                        unsigned long long op_id);
+/* v0.7: send a video WITH a poster thumbnail Lightning extracted from the
+ * outgoing file itself. thumb_data/thumb_len may be NULL/0 — the video then
+ * sends with no poster, exactly like the plain attachment path. The bytes
+ * are re-validated by magic sniffing on the Rust side; a poster that fails
+ * validation is dropped and the video still sends. The SDK uploads the
+ * poster as its own media request and encrypts it alongside the payload in
+ * an encrypted room, then fills thumbnail_url / thumbnail_file and
+ * thumbnail_info on the outgoing m.video event. duration_ms may be 0. */
+char *mx_rust_timeline_send_video(void *client,
+                                  const char *room_id,
+                                  const char *local_path,
+                                  const char *mime,
+                                  const char *caption,
+                                  unsigned long long width,
+                                  unsigned long long height,
+                                  unsigned long long duration_ms,
+                                  const unsigned char *thumb_data,
+                                  size_t thumb_len,
+                                  unsigned long long thumb_width,
+                                  unsigned long long thumb_height,
+                                  unsigned long long op_id);
 /* v0.7: MSC3245 voice message. waveform: 0..=100 amplitudes (may be NULL /
  * empty; at most 1024 entries). The SDK adds the voice marker + duration/
  * waveform block and sends via the normal (encrypting) attachment path. */
@@ -557,6 +578,22 @@ char *mx_rust_thread_send_attachment(void *client,
                                      unsigned long long height,
                                      int animated,
                                      unsigned long long op_id);
+/* v0.7: the thread twin of mx_rust_timeline_send_video — same poster
+ * handling, routed through the SDK's thread-focused timeline. */
+char *mx_rust_thread_send_video(void *client,
+                                const char *room_id,
+                                const char *root_event_id,
+                                const char *local_path,
+                                const char *mime,
+                                const char *caption,
+                                unsigned long long width,
+                                unsigned long long height,
+                                unsigned long long duration_ms,
+                                const unsigned char *thumb_data,
+                                size_t thumb_len,
+                                unsigned long long thumb_width,
+                                unsigned long long thumb_height,
+                                unsigned long long op_id);
 char *mx_rust_thread_send_attachment_bytes(void *client,
                                            const char *room_id,
                                            const char *root_event_id,

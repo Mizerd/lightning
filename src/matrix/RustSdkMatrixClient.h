@@ -314,6 +314,11 @@ public:
     quint64 sendAttachment(const QString &roomId, const QString &localPath,
                            const QString &mime, const QString &caption,
                            int width, int height, bool animated) override;
+    quint64 sendVideo(const QString &roomId, const QString &localPath,
+                      const QString &mime, const QString &caption,
+                      int width, int height, qint64 durationMs,
+                      const QByteArray &thumbnail, int thumbnailWidth,
+                      int thumbnailHeight) override;
     quint64 sendVoiceMessage(const QString &roomId, const QString &localPath,
                              const QString &mime, qint64 durationMs,
                              const QList<int> &waveform) override;
@@ -325,6 +330,11 @@ public:
                                  const QString &localPath, const QString &mime,
                                  const QString &caption, int width, int height,
                                  bool animated) override;
+    quint64 sendThreadVideo(const QString &roomId, const QString &rootEventId,
+                            const QString &localPath, const QString &mime,
+                            const QString &caption, int width, int height,
+                            qint64 durationMs, const QByteArray &thumbnail,
+                            int thumbnailWidth, int thumbnailHeight) override;
     quint64 sendThreadAttachmentBytes(const QString &roomId,
                                       const QString &rootEventId,
                                       const QByteArray &bytes,

@@ -1366,11 +1366,16 @@ if(BUILD_TESTING)
         src/models/MarkdownFormat.cpp
         src/models/AttachmentQueueModel.h
         src/models/AttachmentQueueModel.cpp
+        # v0.7: the queue owns send-side video poster extraction. The suite
+        # installs the poster hook, so no QMediaPlayer is ever constructed.
+        src/media/VideoPosterExtractor.h
+        src/media/VideoPosterExtractor.cpp
         src/matrix/MatrixClient.h
         src/matrix/MatrixClient.cpp
     )
     target_include_directories(attachment-queue-test PRIVATE src)
-    target_link_libraries(attachment-queue-test PRIVATE Qt6::Core Qt6::Gui Qt6::Test)
+    target_link_libraries(attachment-queue-test PRIVATE
+        Qt6::Core Qt6::Gui Qt6::Multimedia Qt6::Test)
     add_test(NAME attachment-queue COMMAND attachment-queue-test)
 
     # v0.5.9: user search + DM/room-creation/invite flows (debounce,
@@ -1408,6 +1413,10 @@ if(BUILD_TESTING)
         src/models/UserLookup.cpp
         src/models/AttachmentQueueModel.h
         src/models/AttachmentQueueModel.cpp
+        # v0.7: see attachment-queue-test — the poster hook keeps this
+        # suite free of any real media backend.
+        src/media/VideoPosterExtractor.h
+        src/media/VideoPosterExtractor.cpp
         src/matrix/MatrixClient.h
         src/matrix/MatrixClient.cpp
         src/matrix/MockMatrixClient.h
@@ -1420,7 +1429,7 @@ if(BUILD_TESTING)
     )
     target_include_directories(thread-controller-test PRIVATE src)
     target_link_libraries(thread-controller-test PRIVATE
-        Qt6::Core Qt6::Gui Qt6::Qml Qt6::Test)
+        Qt6::Core Qt6::Gui Qt6::Multimedia Qt6::Qml Qt6::Test)
     add_test(NAME thread-controller COMMAND thread-controller-test)
 
     # v0.6.0 checkpoint 7: read-only E2EE health model — readiness states,

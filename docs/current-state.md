@@ -1020,6 +1020,16 @@ was delivered in the following v0.5.10 release.
   local echo through the existing diff stream, transparent E2EE for
   encrypted rooms, retry via the existing unwedge path. The bytes variant
   exists so clipboard images never touch a temporary file.
+- Send (video, v0.7): `mx_rust_timeline_send_video` /
+  `mx_rust_thread_send_video` take the same file plus a locally extracted
+  poster and set `AttachmentConfig::thumbnail`. The SDK send queue uploads
+  the poster as its own media request, encrypts it alongside the payload in
+  an encrypted room, and fills `thumbnail_url` / `thumbnail_file` +
+  `thumbnail_info` on the outgoing `m.video` event; the video's `info` also
+  carries the real width/height/duration the decode reported. The poster is
+  re-validated in Rust by magic sniffing (`rooms::PosterBytes`, ≤ 2 MiB,
+  non-raster refused) — a refusal drops the thumbnail and still sends the
+  video. No thumbnail content or encryption is ever assembled in C++.
 - Composer: unified bar (attach `＋`, expanding multiline editor capped at
   ~6 lines, Send; Enter sends, Shift+Enter newline). The attachment tray
   (`AttachmentQueueModel`) holds prepared files with name/size/thumbnail,
@@ -1029,7 +1039,13 @@ was delivered in the following v0.5.10 release.
   *content* (`QMimeDatabase::MatchContent` — a mislabelled extension cannot
   pick the send path); size gated against the server's `m.upload.size`
   (fetched once per session; conservative 100 MB fallback). Image
-  dimensions come from a header-only `QImageReader` probe.
+  dimensions come from a header-only `QImageReader` probe. A queued **video**
+  additionally starts a `VideoPosterExtractor` job on add (the same
+  offscreen decoder the receive side uses for posterless videos); that
+  entry's dispatch — and only that entry's — waits for the poster to
+  resolve, and the decoded frame supplies the video's own dimensions and
+  duration. Extraction failure is not send failure: the video goes out with
+  no poster.
 - Drag-and-drop (`text/uri-list` only) highlights the composer; clipboard
   paste intercepts Ctrl+V — images become bounded in-memory PNG attachments
   (scaled ≤ 4096 px, sent via the bytes FFI, no temp file), file-manager

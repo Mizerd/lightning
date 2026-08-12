@@ -15,7 +15,7 @@
 use std::sync::Arc;
 
 use matrix_sdk::{
-    attachment::{self, AttachmentInfo, BaseImageInfo},
+    attachment::{self, AttachmentInfo, BaseImageInfo, Thumbnail},
     media::{MediaFormat, MediaRequestParameters, MediaThumbnailSettings},
     ruma::{
         api::client::{
@@ -1353,6 +1353,69 @@ pub(crate) fn attachment_info(
     }))
 }
 
+/// v0.7 video round: the send-side poster handed over by C++.
+///
+/// The bytes come from a frame Lightning decoded itself out of the file the
+/// user picked (VideoPosterExtractor). They are re-validated here by MAGIC
+/// SNIFFING, never by the caller's label: `into_thumbnail` refuses anything
+/// that is not a supported raster, is unreasonably large, or declares
+/// nonsense dimensions, and a refusal degrades to "no thumbnail" rather
+/// than failing the video send. No mime crosses the FFI at all: the
+/// content type on the event is the SNIFFED one, so the thumbnail can
+/// never advertise a type its bytes are not.
+pub(crate) struct PosterBytes {
+    pub data: Vec<u8>,
+    pub width: u64,
+    pub height: u64,
+}
+
+/// A poster is a small timeline cover (VideoPosterExtractor emits a 640px
+/// JPEG). Anything beyond this is not a poster; refuse rather than upload a
+/// second full-size image alongside the video.
+const MAX_POSTER_BYTES: usize = 2 * 1024 * 1024;
+
+impl PosterBytes {
+    fn into_thumbnail(self) -> Option<Thumbnail> {
+        if self.data.is_empty() || self.data.len() > MAX_POSTER_BYTES {
+            return None;
+        }
+        if self.width == 0 || self.height == 0 {
+            return None;
+        }
+        // The bytes decide the type — SVG and every non-raster is refused
+        // here exactly as it is on the saved-media path.
+        let sniffed = sniff_image_mime(&self.data)?;
+        let content_type: mime::Mime = sniffed.parse().ok()?;
+        let size = UInt::new(self.data.len() as u64)?;
+        Some(Thumbnail {
+            data: self.data,
+            content_type,
+            width: UInt::new(self.width)?,
+            height: UInt::new(self.height)?,
+            size,
+        })
+    }
+}
+
+/// Video metadata for an outgoing video event. Same shape as the generic
+/// `attachment_info` video arm, plus the duration Lightning learned while
+/// decoding the poster frame. Unknown values are omitted, never fabricated.
+fn video_info(
+    width: u64,
+    height: u64,
+    size: u64,
+    duration_ms: u64,
+) -> AttachmentInfo {
+    AttachmentInfo::Video(attachment::BaseVideoInfo {
+        duration: (duration_ms > 0)
+            .then(|| std::time::Duration::from_millis(duration_ms)),
+        height: UInt::new(height).filter(|v| u64::from(*v) > 0),
+        width: UInt::new(width).filter(|v| u64::from(*v) > 0),
+        size: UInt::new(size),
+        blurhash: None,
+    })
+}
+
 /// MSC3245 voice-message metadata. The SDK converts AttachmentInfo::Voice
 /// into the `org.matrix.msc3245.voice` marker plus the
 /// `org.matrix.msc1767.audio` block (duration + waveform normalized to
@@ -1416,6 +1479,98 @@ pub(crate) fn send_voice_path(
         mime,
         None,
         info,
+        None,
+        op_id,
+    )
+}
+
+/// v0.7 video round: send a video WITH a poster thumbnail.
+///
+/// Identical validation and routing to `send_attachment_path`; the only
+/// differences are the richer video info (duration) and the `Thumbnail`
+/// handed to the SDK. The SDK owns everything after this point: it uploads
+/// the poster as its own media request, encrypts it with the payload in an
+/// encrypted room, and fills `info.thumbnail_url` / `info.thumbnail_file`
+/// plus `info.thumbnail_info` on the outgoing `m.video` event. A poster
+/// that fails validation is DROPPED — the video still sends, exactly as it
+/// did before this path existed.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn send_video_path(
+    bridge: &RustClient,
+    room_id: String,
+    path: String,
+    mime: String,
+    caption: String,
+    width: u64,
+    height: u64,
+    duration_ms: u64,
+    poster: Option<PosterBytes>,
+    op_id: u64,
+) -> Result<(), String> {
+    let metadata = std::fs::metadata(&path)
+        .map_err(|_| "attachment file is not readable".to_owned())?;
+    if !metadata.is_file() {
+        return Err("attachment path is not a regular file".to_owned());
+    }
+    if metadata.len() == 0 {
+        return Err("attachment file is empty".to_owned());
+    }
+    let info = Some(video_info(width, height, metadata.len(), duration_ms));
+    let thumbnail = poster.and_then(PosterBytes::into_thumbnail);
+    let caption = if caption.trim().is_empty() { None } else { Some(caption) };
+    bridge.timelines.send_attachment(
+        &bridge.runtime,
+        room_id,
+        AttachmentSource::File(std::path::PathBuf::from(path)),
+        mime,
+        caption,
+        info,
+        thumbnail,
+        op_id,
+    )
+}
+
+/// v0.7 video round: the thread twin of `send_video_path`. Routed through
+/// the thread-focused SDK timeline so the m.thread relation and encryption
+/// stay SDK-owned; the poster rides the same AttachmentConfig.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn send_thread_video_path(
+    bridge: &RustClient,
+    room_id: String,
+    root_event_id: String,
+    path: String,
+    mime: String,
+    caption: String,
+    width: u64,
+    height: u64,
+    duration_ms: u64,
+    poster: Option<PosterBytes>,
+    op_id: u64,
+) -> Result<(), String> {
+    let metadata = std::fs::metadata(&path)
+        .map_err(|_| "attachment file is not readable".to_owned())?;
+    if !metadata.is_file() {
+        return Err("attachment path is not a regular file".to_owned());
+    }
+    if metadata.len() == 0 {
+        return Err("attachment file is empty".to_owned());
+    }
+    let info = Some(video_info(width, height, metadata.len(), duration_ms));
+    let thumbnail = poster.and_then(PosterBytes::into_thumbnail);
+    let caption = if caption.trim().is_empty() { None } else { Some(caption) };
+    let Some(client) = bridge.client.lock().ok().and_then(|g| g.clone()) else {
+        return Err("Rust SDK session is not logged in.".to_owned());
+    };
+    bridge.timelines.send_thread_attachment(
+        &bridge.runtime,
+        client,
+        room_id,
+        root_event_id,
+        AttachmentSource::File(std::path::PathBuf::from(path)),
+        mime,
+        caption,
+        info,
+        thumbnail,
         op_id,
     )
 }
@@ -1452,6 +1607,7 @@ pub(crate) fn send_attachment_path(
         mime,
         caption,
         info,
+        None,
         op_id,
     )
 }
@@ -1485,6 +1641,7 @@ pub(crate) fn send_attachment_bytes(
         mime,
         None,
         info,
+        None,
         op_id,
     )
 }
@@ -1530,6 +1687,7 @@ pub(crate) fn send_thread_attachment_path(
         mime,
         caption,
         info,
+        None,
         op_id,
     )
 }
@@ -1568,6 +1726,7 @@ pub(crate) fn send_thread_attachment_bytes(
         mime,
         None,
         info,
+        None,
         op_id,
     )
 }
@@ -1916,6 +2075,85 @@ mod tests {
             }
             other => panic!("expected image info, got {other:?}"),
         }
+    }
+
+    // v0.7 video round: an outgoing video declares its duration alongside
+    // the geometry and size, and omits a duration it does not know rather
+    // than sending zero.
+    #[test]
+    fn video_info_carries_duration_and_geometry() {
+        match video_info(1920, 1080, 5000, 4200) {
+            AttachmentInfo::Video(info) => {
+                assert_eq!(info.width, UInt::new(1920));
+                assert_eq!(info.height, UInt::new(1080));
+                assert_eq!(info.size, UInt::new(5000));
+                assert_eq!(
+                    info.duration,
+                    Some(std::time::Duration::from_millis(4200))
+                );
+            }
+            other => panic!("expected video info, got {other:?}"),
+        }
+        match video_info(0, 0, 5000, 0) {
+            AttachmentInfo::Video(info) => {
+                assert!(info.width.is_none());
+                assert!(info.height.is_none());
+                assert!(info.duration.is_none());
+                assert_eq!(info.size, UInt::new(5000));
+            }
+            other => panic!("expected video info, got {other:?}"),
+        }
+    }
+
+    fn poster(data: Vec<u8>, width: u64, height: u64) -> PosterBytes {
+        PosterBytes { data, width, height }
+    }
+
+    fn jpeg_bytes(len: usize) -> Vec<u8> {
+        let mut bytes = vec![0xFF, 0xD8, 0xFF, 0xE0];
+        bytes.resize(len.max(12), 0);
+        bytes
+    }
+
+    // The poster's TYPE comes from its bytes, never from the caller. The
+    // send path hands over what Lightning decoded itself, but the same
+    // magic check that guards saved media guards this: anything that is not
+    // a supported raster is refused, and a refusal means "no thumbnail",
+    // never a video event advertising a type its bytes are not.
+    #[test]
+    fn poster_is_validated_by_magic_not_by_claim() {
+        let thumb = poster(jpeg_bytes(64), 320, 180)
+            .into_thumbnail()
+            .expect("a real JPEG is accepted");
+        assert_eq!(thumb.content_type.to_string(), "image/jpeg");
+        assert_eq!(thumb.width, UInt::new(320).unwrap());
+        assert_eq!(thumb.height, UInt::new(180).unwrap());
+        assert_eq!(thumb.size, UInt::new(64).unwrap());
+
+        // Not a raster at all (an SVG document, plain text, truncated).
+        assert!(poster(b"<svg xmlns=\"http://www.w3.org/2000/svg\"/>".to_vec(),
+                       320, 180)
+            .into_thumbnail()
+            .is_none());
+        assert!(poster(b"not an image at all".to_vec(), 320, 180)
+            .into_thumbnail()
+            .is_none());
+        assert!(poster(vec![0xFF, 0xD8], 320, 180).into_thumbnail().is_none());
+    }
+
+    // Bounds and nonsense geometry degrade to "no thumbnail"; the caller
+    // still sends the video.
+    #[test]
+    fn poster_bounds_and_geometry_are_enforced() {
+        assert!(poster(Vec::new(), 320, 180).into_thumbnail().is_none());
+        assert!(poster(jpeg_bytes(64), 0, 180).into_thumbnail().is_none());
+        assert!(poster(jpeg_bytes(64), 320, 0).into_thumbnail().is_none());
+        assert!(poster(jpeg_bytes(MAX_POSTER_BYTES + 1), 320, 180)
+            .into_thumbnail()
+            .is_none());
+        assert!(poster(jpeg_bytes(MAX_POSTER_BYTES), 320, 180)
+            .into_thumbnail()
+            .is_some());
     }
 
     // The timeout wrapper emits exactly one outcome: a never-completing

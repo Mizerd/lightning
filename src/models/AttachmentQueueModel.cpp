@@ -1,10 +1,12 @@
 #include "models/AttachmentQueueModel.h"
 
 #include "matrix/MatrixClient.h"
+#include "media/VideoPosterExtractor.h"
 
 #include <QFileInfo>
 #include <QImageReader>
 #include <QMimeDatabase>
+#include <QSize>
 
 namespace {
 // Conservative documented fallback when the server has not reported its
@@ -77,6 +79,7 @@ QString AttachmentQueueModel::addFile(const QUrl &fileUrl)
         entry.mime = QStringLiteral("application/octet-stream");
     entry.isImage = entry.mime.startsWith(QLatin1String("image/"));
     entry.animated = entry.mime == QLatin1String("image/gif");
+    entry.isVideo = entry.mime.startsWith(QLatin1String("video/"));
     if (entry.isImage) {
         // Header-only read; never decodes the full image here.
         QImageReader reader(path);
@@ -86,12 +89,83 @@ QString AttachmentQueueModel::addFile(const QUrl &fileUrl)
             entry.height = size.height();
         }
     }
+    if (entry.isVideo) {
+        entry.posterPending = true;
+        entry.posterTag = QStringLiteral("send:%1").arg(m_nextPosterTag++);
+    }
 
-    beginInsertRows({}, m_entries.size(), m_entries.size());
+    const int row = static_cast<int>(m_entries.size());
+    beginInsertRows({}, row, row);
     m_entries.append(entry);
     endInsertRows();
     Q_EMIT countChanged();
+    // Started only AFTER the row exists: a poster outcome may come back
+    // synchronously (the test hook, or an extractor that fails on the
+    // spot), and applyPoster() has to find the entry it belongs to.
+    if (m_entries.at(row).posterPending)
+        startPosterJob(row);
     return {};
+}
+
+void AttachmentQueueModel::setPosterRequestHook(PosterRequestHook hook)
+{
+    m_posterHook = std::move(hook);
+}
+
+void AttachmentQueueModel::startPosterJob(int row)
+{
+    if (row < 0 || row >= m_entries.size())
+        return;
+    const Entry &entry = m_entries.at(row);
+    if (m_posterHook) {
+        m_posterHook(entry.posterTag, entry.localPath);
+        return;
+    }
+    if (!m_posterExtractor) {
+        m_posterExtractor = new VideoPosterExtractor(this);
+        connect(m_posterExtractor, &VideoPosterExtractor::posterReady,
+                this, &AttachmentQueueModel::applyPoster);
+    }
+    m_posterExtractor->requestPoster(entry.posterTag, entry.localPath);
+}
+
+int AttachmentQueueModel::rowForPosterTag(const QString &tag) const
+{
+    for (int row = 0; row < m_entries.size(); ++row) {
+        if (m_entries.at(row).posterTag == tag)
+            return row;
+    }
+    return -1;
+}
+
+void AttachmentQueueModel::applyPoster(const QString &tag,
+                                       const QByteArray &jpeg,
+                                       const QSize &posterSize,
+                                       const QSize &sourceSize,
+                                       qint64 durationMs)
+{
+    const int row = rowForPosterTag(tag);
+    if (row < 0)
+        return; // the entry was removed while decoding
+    Entry &entry = m_entries[row];
+    if (!entry.posterPending)
+        return; // already resolved; a second callback must not re-dispatch
+    entry.posterPending = false;
+    if (!jpeg.isEmpty() && posterSize.isValid() && !posterSize.isEmpty()) {
+        entry.poster = jpeg;
+        entry.posterWidth = posterSize.width();
+        entry.posterHeight = posterSize.height();
+    }
+    // The decoded frame is the only honest source of the video's own
+    // dimensions on the send side; QMimeDatabase cannot supply them and
+    // fabricating them would make every receiver lay the video out wrong.
+    if (sourceSize.isValid() && !sourceSize.isEmpty()) {
+        entry.width = sourceSize.width();
+        entry.height = sourceSize.height();
+    }
+    if (durationMs > 0)
+        entry.durationMs = durationMs;
+    Q_EMIT entryPrepared(row);
 }
 
 QString AttachmentQueueModel::addImageData(const QByteArray &bytes,
@@ -153,6 +227,9 @@ void AttachmentQueueModel::retryAt(int row)
     entry.state = QStringLiteral("queued");
     entry.error.clear();
     entry.opId = 0;
+    // A retry is a fresh send decision: the entry waits for the user to
+    // press send again rather than dispatching off a stale request.
+    entry.sendRequested = false;
     updateEntry(row);
 }
 

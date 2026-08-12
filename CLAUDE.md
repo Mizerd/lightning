@@ -59,16 +59,17 @@ previous virtualized contract rather than separately observed defects, but
 the regression net for the timeline is incomplete and porting them is the
 highest-value open work. This is disclosed in `docs/releases/v0.6.6.md`.
 
-As of the 2026-08-11 media/UX round the registered count is **91 per tree**
-(four suites added: custom-app-icon, vaapi-log-gate, storm-band-painter,
-storm-band-qml) and the current environment shows **86/91 on both trees**:
-the two timeline suites above plus `settings-shell-qml`,
-`design-acceptance` and `verification-qr-qml`, all five failing IDENTICALLY
-with the untouched release-era binaries (offscreen pixel-sampling drift, 40
-environmental "qmlRegisterType requires absolute URLs" warnings, and a host
-KDE style leak — also present with `LD_LIBRARY_PATH` cleared, excluding the
-round's pipewire dev-shell change). Run the suites yourself rather than
-trusting these numbers; they describe one desktop environment on one day.
+As of the 2026-08-12 video-thumbnail round the registered count is **93 per
+tree** and the environment shows **91/93 on both trees** — ONLY the two
+timeline suites above, at exactly their release-era sub-test totals
+(`timeline-pane-qml` 36 passed / 27 failed, `timeline-hydration-qml` 5
+passed / 2 failed). The three suites the 2026-08-11 round recorded as also
+failing here — `settings-shell-qml`, `design-acceptance` and
+`verification-qr-qml` — now PASS; that was environmental drift (offscreen
+pixel sampling, a host KDE style leak) and it has cleared on its own, which
+is exactly why those numbers were flagged as describing one desktop on one
+day. Run the suites yourself rather than trusting these; the same caveat
+still applies to this paragraph.
 
 Run `git log --oneline v0.6.6..HEAD` rather than trusting this list; it will
 go stale the same way the narrative below did.
@@ -376,6 +377,23 @@ backend capability checks and honest live-test status.
   aborts the download task), and the SDK media store runs a real retention
   policy (max_file_size 24 MiB) so large payloads no longer enter — or
   stall — matrix-sdk-media.sqlite3
+- **Outgoing videos carry a real poster thumbnail** (2026-08-12). A video
+  queued in the room or thread composer is postered the moment it is added:
+  `AttachmentQueueModel` drives the SAME `VideoPosterExtractor` the receive
+  side uses (offscreen `QMediaPlayer` + `QVideoSink`, black-lead-in skipping,
+  640px JPEG, hard timeout, one job at a time), and the decoded frame is also
+  the only honest source of the video's own width/height and duration on the
+  send side. Dispatch of THAT entry waits for the poster and nothing else;
+  extraction failure is not send failure — the video goes out without a
+  poster, exactly as before. The bytes cross `mx_rust_timeline_send_video` /
+  `mx_rust_thread_send_video`, are re-validated by magic sniffing
+  (`rooms::PosterBytes`, ≤ 2 MiB, SVG and every non-raster refused; a refusal
+  degrades to no thumbnail), and become `AttachmentConfig::thumbnail`. **The
+  SDK owns everything after that**: it uploads the poster as its own media
+  request, encrypts it alongside the payload in an encrypted room, and fills
+  `thumbnail_url`/`thumbnail_file` + `thumbnail_info` on the `m.video` event.
+  Nothing in C++ builds thumbnail content or encrypts anything. Live Element
+  interoperability of the sent posters is NOT TESTED
 - Backward pagination and retry, stable navigation, loaded-timeline search,
   message links/permalinks, message details, context menus, and sender profiles
 - Link previews with encrypted-room privacy controls and security validation
@@ -389,7 +407,10 @@ backend capability checks and honest live-test status.
   follow/unfollow where MSC4306 is supported, threaded read receipts, and
   pagination
 - Thread image/file/clipboard attachments through the SDK, including encrypted
-  rooms, with local echoes, send state, and retry/failure handling
+  rooms, with local echoes, send state, and retry/failure handling. Thread
+  video sends carry the same locally extracted poster as the room path
+  (`mx_rust_thread_send_video`), still routed through the thread-focused SDK
+  timeline so the `m.thread` relation and encryption stay SDK-owned
 - Element-style root summary cards with server reply counts, latest metadata,
   live updates, and conservative unread indication
 - True thread-reply filtering from the live main timeline, cold-cache initial
@@ -898,19 +919,43 @@ Keep this list grounded in source and recent history:
 Open items carried by the post-0.6.5 rounds (`4cdace3..e39439a`), in the
 order a successor should pick them up:
 
-- **Timeline scroll teleport during pagination — OPEN, precisely located.**
-  A live `LIGHTNING_SCROLL_TRACE=1` capture shows a real 20-row page landing
-  while the content-height *estimate* reports a shrink
-  (`displacedMaxAbsGrew=-3582 Rows=20 applied=0`), so `maintainViewAnchor()`'s
-  positive-only guard skips the correction and the reader is moved. Do NOT
-  simply apply negatives: the same trace shows ±17000 px estimate swings with
-  no model change at all. Three attempts have failed — two withdrawn in
-  review on disproved premises, one (the staging/freeze window, `225c7b3`)
-  shipped and made it worse before being removed wholesale in `263268b`.
-  **This subsystem cannot be diagnosed from the mock harness.** Land
-  instrumentation, obtain a capture, then fix what the capture names. The
-  next unverified candidate is deriving displacement from `originY` rather
-  than `contentHeight` — measure before implementing.
+- **Timeline scroll teleport during pagination — DID NOT REPRODUCE on
+  2026-08-12; no longer a confirmed open defect.** A fresh physical
+  `LIGHTNING_SCROLL_TRACE=1` capture (maintainer's real account, two rooms,
+  11 gestures, ~28 real backward-pagination batches of 1–24 rows each, mixed
+  text / images / GIFs to 10 MB / videos / voice, poster extraction running
+  mid-scroll) shows **every** anchor outcome at zero on **every** line:
+  `prependFirings=0 displacedFirings=0 displacedApplied=0
+  displacedMaxAbsGrew=0 anchorCorrections=0 growthCorrections=0
+  unresolvedId=0 evictedNoInsert=0`, with `materializedFirings` NON-zero and
+  `materializedMaxAbsDelta=0` / `activeDeferredMaxAbs=0` — i.e. the
+  mechanism engaged, measured, and found the anchor row's own y unmoved,
+  which is the M2 "ran and had nothing to correct" reading, not "never ran".
+  `originY=0` and `dOriginY=0` throughout.
+
+  The reason is structural, not luck. The room timeline is a **rotated
+  `Flickable` + `Column`** (`qml/TimelinePane.qml:619`), not a ListView:
+  there is no delegate-height estimation left, so `contentHeight` is the
+  exact sum of real rows and `originY` can never move. View row 0 is the
+  NEWEST message at content y 0 (`sourceRowForViewRow = count-1-row`), so
+  backward pagination lands at HIGHER view rows and HIGHER content y —
+  *past* the reader. A prepend therefore does not change the anchor row's
+  index or its y, `row > viewAnchorRow` is false, and the displaced branch
+  is not reached at all. The `-3582` phantom shrink and the ±17000 px swings
+  quoted by the previous version of this entry were artifacts of the
+  pre-`1e50f6a` virtualized ListView and no longer exist.
+
+  Consequence: **do not "fix" the positive-only guard.** In the current
+  architecture the only insertion that displaces a scrolled-up reader is a
+  LIVE message arriving at view row 0, which pushes every row down — a
+  genuinely POSITIVE `grew` that the existing guard already applies
+  correctly. Three past attempts failed here (two withdrawn in review, one —
+  the staging/freeze window `225c7b3` — shipped, regressed, and was removed
+  in `263268b`); a fourth needs a capture that actually names a failure.
+  Keep the trace facility: it is what retired this entry. If a teleport is
+  reported again, get a `LIGHTNING_SCROLL_TRACE=1` capture FIRST — a line
+  with a non-zero `displacedApplied`, `anchorCorrections`, or
+  `materializedMaxAbsDelta` is the evidence; all-zero lines are not.
 - **GIF-favorite reopen crash** — still only `1502e6b`'s commit message as
   evidence; seven headless scenario families including an ASan build found
   nothing. Needs a real `coredumpctl`/`gdb` backtrace.

@@ -24,6 +24,10 @@ ThreadController::ThreadController(QObject *parent)
 {
     connect(m_attachments, &AttachmentQueueModel::countChanged, this,
             [this] { Q_EMIT attachmentsChanged(); });
+    // A video queued before its poster finished decoding dispatches here,
+    // the moment the poster resolves (or definitively fails).
+    connect(m_attachments, &AttachmentQueueModel::entryPrepared,
+            this, &ThreadController::dispatchAttachment);
 }
 
 void ThreadController::setClient(MatrixClient *client)
@@ -355,28 +359,52 @@ void ThreadController::dispatchAttachments()
         return;
     auto &entries = m_attachments->entries();
     for (int row = 0; row < entries.size(); ++row) {
-        auto &entry = entries[row];
-        if (entry.state != QLatin1String("queued"))
+        if (entries[row].state != QLatin1String("queued"))
             continue;
-        quint64 opId = 0;
-        if (!entry.localPath.isEmpty()) {
-            opId = m_client->sendThreadAttachment(
-                m_roomId, m_rootEventId, entry.localPath, entry.mime, QString(),
-                entry.width, entry.height, entry.animated);
-        } else {
-            opId = m_client->sendThreadAttachmentBytes(
-                m_roomId, m_rootEventId, entry.data, entry.fileName, entry.mime,
-                entry.width, entry.height);
-        }
-        if (opId == 0) {
-            entry.state = QStringLiteral("failed");
-            entry.error = tr("The attachment could not be queued.");
-        } else {
-            entry.state = QStringLiteral("dispatching");
-            entry.opId = opId;
-        }
-        m_attachments->updateEntry(row);
+        entries[row].sendRequested = true;
+        dispatchAttachment(row);
     }
+}
+
+// v0.7 video round: see MessageComposer::dispatchAttachment — a queued
+// video waits for its locally extracted poster, then sends through the
+// SDK's thread-focused path so the m.thread relation and encryption stay
+// SDK-owned exactly as for every other thread attachment.
+void ThreadController::dispatchAttachment(int row)
+{
+    if (!m_client || m_state != Ready || m_roomId.isEmpty()
+        || m_rootEventId.isEmpty())
+        return;
+    auto &entries = m_attachments->entries();
+    if (row < 0 || row >= entries.size())
+        return;
+    auto &entry = entries[row];
+    if (entry.state != QLatin1String("queued") || !entry.sendRequested
+        || entry.posterPending)
+        return;
+    quint64 opId = 0;
+    if (entry.localPath.isEmpty()) {
+        opId = m_client->sendThreadAttachmentBytes(
+            m_roomId, m_rootEventId, entry.data, entry.fileName, entry.mime,
+            entry.width, entry.height);
+    } else if (entry.isVideo) {
+        opId = m_client->sendThreadVideo(
+            m_roomId, m_rootEventId, entry.localPath, entry.mime, QString(),
+            entry.width, entry.height, entry.durationMs, entry.poster,
+            entry.posterWidth, entry.posterHeight);
+    } else {
+        opId = m_client->sendThreadAttachment(
+            m_roomId, m_rootEventId, entry.localPath, entry.mime, QString(),
+            entry.width, entry.height, entry.animated);
+    }
+    if (opId == 0) {
+        entry.state = QStringLiteral("failed");
+        entry.error = tr("The attachment could not be queued.");
+    } else {
+        entry.state = QStringLiteral("dispatching");
+        entry.opId = opId;
+    }
+    m_attachments->updateEntry(row);
 }
 
 void ThreadController::onAttachmentQueueFinished(quint64 opId,

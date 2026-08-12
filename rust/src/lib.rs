@@ -5303,6 +5303,81 @@ pub unsafe extern "C" fn mx_rust_timeline_send_attachment(
     })
 }
 
+/// v0.7 video round: send a video with a locally extracted poster frame.
+///
+/// `thumb_*` is optional (null/zero-length data sends the video with no
+/// poster, exactly as the plain attachment path always did). The bytes are
+/// bounded here so a hostile length can never allocate unbounded memory,
+/// and re-validated by magic sniffing in `rooms::PosterBytes` — a poster
+/// that does not validate is dropped and the video still sends. The SDK
+/// uploads and (in encrypted rooms) encrypts the poster itself.
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn mx_rust_timeline_send_video(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    local_path: *const c_char,
+    mime: *const c_char,
+    caption: *const c_char,
+    width: u64,
+    height: u64,
+    duration_ms: u64,
+    thumb_data: *const u8,
+    thumb_len: usize,
+    thumb_width: u64,
+    thumb_height: u64,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let local_path = unsafe { cstr_arg(local_path) }?;
+        let mime = unsafe { cstr_arg(mime) }?;
+        let caption = unsafe { cstr_arg(caption) }?;
+        let poster = unsafe { poster_arg(thumb_data, thumb_len, thumb_width, thumb_height) };
+        rooms::send_video_path(
+            bridge, room_id, local_path, mime, caption, width, height,
+            duration_ms, poster, op_id,
+        )
+        .map(|_| String::new())
+    })
+}
+
+/// v0.7 video round: the thread twin of `mx_rust_timeline_send_video`.
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn mx_rust_thread_send_video(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    root_event_id: *const c_char,
+    local_path: *const c_char,
+    mime: *const c_char,
+    caption: *const c_char,
+    width: u64,
+    height: u64,
+    duration_ms: u64,
+    thumb_data: *const u8,
+    thumb_len: usize,
+    thumb_width: u64,
+    thumb_height: u64,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let root = unsafe { cstr_arg(root_event_id) }?;
+        let local_path = unsafe { cstr_arg(local_path) }?;
+        let mime = unsafe { cstr_arg(mime) }?;
+        let caption = unsafe { cstr_arg(caption) }?;
+        let poster = unsafe { poster_arg(thumb_data, thumb_len, thumb_width, thumb_height) };
+        rooms::send_thread_video_path(
+            bridge, room_id, root, local_path, mime, caption, width, height,
+            duration_ms, poster, op_id,
+        )
+        .map(|_| String::new())
+    })
+}
+
 /// v0.7 voice round: MSC3245 voice message. `waveform` is 0..=100
 /// amplitudes (may be null/empty); bounded here so a hostile length can
 /// never allocate unbounded memory. Result echoes on
@@ -6643,6 +6718,35 @@ unsafe fn cstr_arg(ptr: *const c_char) -> Result<String, String> {
         .to_str()
         .map(str::to_owned)
         .map_err(|err| format!("invalid UTF-8 string passed to Rust SDK FFI: {err}"))
+}
+
+/// v0.7 video round: copy an optional send-side poster out of C++ memory.
+///
+/// Absent (null pointer / zero length) and oversized posters both yield
+/// `None` — the video then sends without one rather than failing. The upper
+/// bound is deliberately generous relative to the ~640px JPEG the extractor
+/// produces and exists only so a bad length can never allocate without
+/// limit; `PosterBytes` applies the real (tighter) policy plus magic
+/// validation. C++ frees its buffer as soon as this call returns, so the
+/// copy is mandatory.
+///
+/// # Safety
+/// `data` must either be null or point to at least `len` readable bytes.
+unsafe fn poster_arg(
+    data: *const u8,
+    len: usize,
+    width: u64,
+    height: u64,
+) -> Option<rooms::PosterBytes> {
+    const MAX_FFI_POSTER_BYTES: usize = 8 * 1024 * 1024;
+    if data.is_null() || len == 0 || len > MAX_FFI_POSTER_BYTES {
+        return None;
+    }
+    Some(rooms::PosterBytes {
+        data: unsafe { std::slice::from_raw_parts(data, len) }.to_vec(),
+        width,
+        height,
+    })
 }
 
 fn ffi_string(body: impl FnOnce() -> Result<String, String>) -> *mut c_char {

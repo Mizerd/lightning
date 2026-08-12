@@ -20,7 +20,7 @@ use std::{
 
 use futures_util::StreamExt;
 use matrix_sdk::{
-    attachment::AttachmentInfo,
+    attachment::{AttachmentInfo, Thumbnail},
     room::edit::EditedContent,
     ruma::{
         api::client::receipt::create_receipt::v3::ReceiptType,
@@ -1160,6 +1160,13 @@ impl TimelineRegistry {
     ///
     /// `op_id` identifies the queue attempt for C++; only queueing success/
     /// failure is reported here. Delivery state is item state, not op state.
+    ///
+    /// v0.7 video round: `thumbnail` carries an optional poster image. The
+    /// SDK send queue uploads it as its OWN media request before the event
+    /// is finalized, encrypting it exactly like the payload in an encrypted
+    /// room, and writes the resulting source into `info.thumbnail_source`.
+    /// Nothing about the thumbnail is assembled by hand here.
+    #[allow(clippy::too_many_arguments)]
     pub fn send_attachment(
         self: &Arc<Self>,
         runtime: &tokio::runtime::Runtime,
@@ -1168,6 +1175,7 @@ impl TimelineRegistry {
         mime_str: String,
         caption: Option<String>,
         info: Option<AttachmentInfo>,
+        thumbnail: Option<Thumbnail>,
         op_id: u64,
     ) -> Result<(), String> {
         let Some((timeline, room_gen, lifecycle)) = self.timeline_for(&room_id) else {
@@ -1182,7 +1190,7 @@ impl TimelineRegistry {
             let config = AttachmentConfig {
                 txn_id: None,
                 info,
-                thumbnail: None,
+                thumbnail,
                 caption: caption
                     .filter(|c| !c.is_empty())
                     .map(TextMessageEventContent::plain),
@@ -1277,6 +1285,7 @@ impl TimelineRegistry {
         mime_str: String,
         caption: Option<String>,
         info: Option<AttachmentInfo>,
+        thumbnail: Option<Thumbnail>,
         op_id: u64,
     ) -> Result<(), String> {
         let mime: mime::Mime = mime_str
@@ -1299,7 +1308,7 @@ impl TimelineRegistry {
                 let config = AttachmentConfig {
                     txn_id: None,
                     info,
-                    thumbnail: None,
+                    thumbnail,
                     caption: caption
                         .filter(|c| !c.is_empty())
                         .map(TextMessageEventContent::plain),

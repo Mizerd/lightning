@@ -6,6 +6,8 @@
 #include "matrix/MatrixClient.h"
 #include "models/MessageComposer.h"
 
+#include <QBuffer>
+#include <QImage>
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QtTest/QtTest>
@@ -69,6 +71,34 @@ public:
         lastOpId = nextOp++;
         return lastOpId;
     }
+    // v0.7 video round: records exactly what the send path declared, so a
+    // test can prove the poster and the video geometry reached the client
+    // rather than merely that "a send happened".
+    int videoSends = 0;
+    QByteArray lastThumbnail;
+    int lastThumbWidth = 0;
+    int lastThumbHeight = 0;
+    int lastVideoWidth = 0;
+    int lastVideoHeight = 0;
+    qint64 lastDurationMs = 0;
+    quint64 sendVideo(const QString &, const QString &, const QString &mime,
+                      const QString &, int width, int height,
+                      qint64 durationMs, const QByteArray &thumbnail,
+                      int thumbnailWidth, int thumbnailHeight) override
+    {
+        if (rejectSends)
+            return 0;
+        ++videoSends;
+        lastMime = mime;
+        lastVideoWidth = width;
+        lastVideoHeight = height;
+        lastDurationMs = durationMs;
+        lastThumbnail = thumbnail;
+        lastThumbWidth = thumbnailWidth;
+        lastThumbHeight = thumbnailHeight;
+        lastOpId = nextOp++;
+        return lastOpId;
+    }
     quint64 sendAttachmentBytes(const QString &, const QByteArray &,
                                 const QString &filename, const QString &mime,
                                 int, int) override
@@ -103,6 +133,27 @@ QByteArray tinyPng()
         "0000000d4944415478da63fcff9fa10e0003030101c9fe92ef0000000049454e44"
         "ae426082");
     return png;
+}
+
+// Minimal ISO base-media (MP4) header: an `ftyp` box with the `isom` brand.
+// Enough for MIME detection; deliberately NOT a decodable clip — the poster
+// hook stands in for the decoder in every test here.
+QByteArray tinyMp4Header()
+{
+    return QByteArray::fromHex(
+        "000000206674797069736f6d0000020069736f6d69736f32617663316d703431");
+}
+
+// Minimal valid 2x1 JPEG, standing in for an extracted poster frame.
+QByteArray tinyJpeg()
+{
+    QImage image(2, 1, QImage::Format_RGB32);
+    image.fill(Qt::red);
+    QByteArray bytes;
+    QBuffer buffer(&bytes);
+    buffer.open(QIODevice::WriteOnly);
+    image.save(&buffer, "JPG", 80);
+    return bytes;
 }
 
 } // namespace
@@ -245,6 +296,184 @@ private Q_SLOTS:
         composer.attachments()->retryAt(0);
         composer.send();
         QCOMPARE(client.fileSends, 2);
+    }
+
+    // ── v0.7 video round: send-side posters ──────────────────────────────
+    // A video is postered from the file the user picked before it is
+    // dispatched, and the poster plus the geometry and duration the decoder
+    // reported are what the send path declares on the Matrix event.
+    void videoSendCarriesExtractedPoster()
+    {
+        FakeClient client;
+        MessageComposer composer;
+        composer.setClient(&client);
+        composer.setRoomId(QStringLiteral("!room:example.org"));
+
+        QString capturedTag;
+        composer.attachments()->setPosterRequestHook(
+            [&capturedTag](const QString &tag, const QString &path) {
+                QVERIFY(!path.isEmpty());
+                capturedTag = tag;
+            });
+
+        QTemporaryDir dir;
+        const QString path =
+            writeFile(dir, QStringLiteral("clip.mp4"), tinyMp4Header());
+        composer.addAttachment(QUrl::fromLocalFile(path));
+        QCOMPARE(composer.attachments()->rowCount(), 1);
+        QCOMPARE(composer.attachments()
+                     ->data(composer.attachments()->index(0, 0),
+                            AttachmentQueueModel::MimeRole)
+                     .toString(),
+                 QStringLiteral("video/mp4"));
+        // Extraction started on add, not on send.
+        QVERIFY(!capturedTag.isEmpty());
+
+        // Pressing send while the poster is still decoding must NOT
+        // dispatch — a video without its poster is exactly the event this
+        // round exists to stop sending.
+        composer.send();
+        QCOMPARE(client.videoSends, 0);
+        QCOMPARE(client.fileSends, 0);
+
+        const QByteArray poster = tinyJpeg();
+        QVERIFY(!poster.isEmpty());
+        composer.attachments()->applyPoster(capturedTag, poster, QSize(320, 180),
+                                            QSize(1920, 1080), 4200);
+
+        QCOMPARE(client.videoSends, 1);
+        QCOMPARE(client.fileSends, 0); // never the plain attachment path
+        QCOMPARE(client.lastMime, QStringLiteral("video/mp4"));
+        QCOMPARE(client.lastThumbnail, poster);
+        QCOMPARE(client.lastThumbWidth, 320);
+        QCOMPARE(client.lastThumbHeight, 180);
+        // The decoded frame is the only honest source of the video's own
+        // dimensions on the send side.
+        QCOMPARE(client.lastVideoWidth, 1920);
+        QCOMPARE(client.lastVideoHeight, 1080);
+        QCOMPARE(client.lastDurationMs, 4200);
+        // 16:9 in, 16:9 out — the poster never distorts the frame.
+        QCOMPARE(client.lastThumbWidth * client.lastVideoHeight,
+                 client.lastThumbHeight * client.lastVideoWidth);
+    }
+
+    // Thumbnail extraction failing is not send failure: the video goes out
+    // without a poster rather than being stuck in the tray forever.
+    void videoSendsWithoutPosterWhenExtractionFails()
+    {
+        FakeClient client;
+        MessageComposer composer;
+        composer.setClient(&client);
+        composer.setRoomId(QStringLiteral("!room:example.org"));
+
+        QString capturedTag;
+        composer.attachments()->setPosterRequestHook(
+            [&capturedTag](const QString &tag, const QString &) {
+                capturedTag = tag;
+            });
+
+        QTemporaryDir dir;
+        const QString path =
+            writeFile(dir, QStringLiteral("broken.mp4"), tinyMp4Header());
+        composer.addAttachment(QUrl::fromLocalFile(path));
+        composer.send();
+        QCOMPARE(client.videoSends, 0);
+
+        // The decoder gave up: empty poster, no geometry, no duration.
+        composer.attachments()->applyPoster(capturedTag, {}, {}, {}, 0);
+
+        QCOMPARE(client.videoSends, 1);
+        QVERIFY(client.lastThumbnail.isEmpty());
+        QCOMPARE(client.lastThumbWidth, 0);
+        QCOMPARE(client.lastThumbHeight, 0);
+        QCOMPARE(client.lastVideoWidth, 0);
+        QCOMPARE(client.lastVideoHeight, 0);
+        QCOMPARE(client.lastDurationMs, 0);
+    }
+
+    // A poster arriving with nobody waiting on it must not send anything,
+    // and a second callback for the same job must not send twice.
+    void posterWithoutSendRequestDoesNotDispatch()
+    {
+        FakeClient client;
+        MessageComposer composer;
+        composer.setClient(&client);
+        composer.setRoomId(QStringLiteral("!room:example.org"));
+
+        QString capturedTag;
+        composer.attachments()->setPosterRequestHook(
+            [&capturedTag](const QString &tag, const QString &) {
+                capturedTag = tag;
+            });
+
+        QTemporaryDir dir;
+        const QString path =
+            writeFile(dir, QStringLiteral("clip.mp4"), tinyMp4Header());
+        composer.addAttachment(QUrl::fromLocalFile(path));
+
+        // Poster resolves before the user ever pressed send.
+        composer.attachments()->applyPoster(capturedTag, tinyJpeg(),
+                                            QSize(64, 36), QSize(640, 360), 1000);
+        QCOMPARE(client.videoSends, 0);
+        QCOMPARE(composer.attachments()->rowCount(), 1);
+
+        composer.send();
+        QCOMPARE(client.videoSends, 1);
+
+        // A duplicate callback for a job that already resolved is inert.
+        composer.attachments()->applyPoster(capturedTag, tinyJpeg(),
+                                            QSize(64, 36), QSize(640, 360), 1000);
+        QCOMPARE(client.videoSends, 1);
+    }
+
+    // An unknown tag (the entry was removed while decoding) is ignored.
+    void posterForRemovedEntryIsIgnored()
+    {
+        FakeClient client;
+        MessageComposer composer;
+        composer.setClient(&client);
+        composer.setRoomId(QStringLiteral("!room:example.org"));
+        composer.attachments()->setPosterRequestHook(
+            [](const QString &, const QString &) {});
+
+        QTemporaryDir dir;
+        const QString path =
+            writeFile(dir, QStringLiteral("clip.mp4"), tinyMp4Header());
+        composer.addAttachment(QUrl::fromLocalFile(path));
+        composer.attachments()->removeAt(0);
+        QCOMPARE(composer.attachments()->rowCount(), 0);
+
+        composer.attachments()->applyPoster(QStringLiteral("send:1"), tinyJpeg(),
+                                            QSize(64, 36), QSize(640, 360), 1000);
+        QCOMPARE(client.videoSends, 0);
+    }
+
+    // Non-video attachments are untouched by the poster machinery: no
+    // extraction is requested and they still take the plain send path.
+    void nonVideoAttachmentsNeverRequestAPoster()
+    {
+        FakeClient client;
+        MessageComposer composer;
+        composer.setClient(&client);
+        composer.setRoomId(QStringLiteral("!room:example.org"));
+
+        int posterRequests = 0;
+        composer.attachments()->setPosterRequestHook(
+            [&posterRequests](const QString &, const QString &) {
+                ++posterRequests;
+            });
+
+        QTemporaryDir dir;
+        composer.addAttachment(QUrl::fromLocalFile(
+            writeFile(dir, QStringLiteral("photo.png"), tinyPng())));
+        composer.addAttachment(QUrl::fromLocalFile(
+            writeFile(dir, QStringLiteral("doc.bin"), QByteArray(16, 'a'))));
+        QCOMPARE(posterRequests, 0);
+
+        composer.send();
+        QCOMPARE(posterRequests, 0);
+        QCOMPARE(client.fileSends, 2);
+        QCOMPARE(client.videoSends, 0);
     }
 
     void staleCompletionIsIgnored()

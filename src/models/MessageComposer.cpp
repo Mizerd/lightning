@@ -33,6 +33,10 @@ MessageComposer::MessageComposer(QObject *parent)
         Q_EMIT attachmentsChanged();
         updateCanSend();
     });
+    // A video queued before its poster finished decoding dispatches here,
+    // the moment the poster resolves (or definitively fails).
+    connect(m_attachments, &AttachmentQueueModel::entryPrepared,
+            this, &MessageComposer::dispatchAttachment);
 }
 
 void MessageComposer::setClient(MatrixClient *client)
@@ -127,28 +131,51 @@ void MessageComposer::dispatchAttachments()
         return;
     auto &entries = m_attachments->entries();
     for (int row = 0; row < entries.size(); ++row) {
-        auto &entry = entries[row];
-        if (entry.state != QLatin1String("queued"))
+        if (entries[row].state != QLatin1String("queued"))
             continue;
-        quint64 opId = 0;
-        if (!entry.localPath.isEmpty()) {
-            opId = m_client->sendAttachment(m_roomId, entry.localPath,
-                                            entry.mime, QString(), entry.width,
-                                            entry.height, entry.animated);
-        } else {
-            opId = m_client->sendAttachmentBytes(m_roomId, entry.data,
-                                                 entry.fileName, entry.mime,
-                                                 entry.width, entry.height);
-        }
-        if (opId == 0) {
-            entry.state = QStringLiteral("failed");
-            entry.error = tr("The attachment could not be queued.");
-        } else {
-            entry.state = QStringLiteral("dispatching");
-            entry.opId = opId;
-        }
-        m_attachments->updateEntry(row);
+        entries[row].sendRequested = true;
+        dispatchAttachment(row);
     }
+}
+
+// v0.7 video round: one entry's dispatch, separated out because a video
+// waits for its locally extracted poster. The wait is bounded by the
+// extractor's own timeout and resolves either way; a video whose poster
+// could not be produced still sends, just without one.
+void MessageComposer::dispatchAttachment(int row)
+{
+    if (!m_client || m_roomId.isEmpty())
+        return;
+    auto &entries = m_attachments->entries();
+    if (row < 0 || row >= entries.size())
+        return;
+    auto &entry = entries[row];
+    if (entry.state != QLatin1String("queued") || !entry.sendRequested
+        || entry.posterPending)
+        return;
+    quint64 opId = 0;
+    if (entry.localPath.isEmpty()) {
+        opId = m_client->sendAttachmentBytes(m_roomId, entry.data,
+                                             entry.fileName, entry.mime,
+                                             entry.width, entry.height);
+    } else if (entry.isVideo) {
+        opId = m_client->sendVideo(m_roomId, entry.localPath, entry.mime,
+                                   QString(), entry.width, entry.height,
+                                   entry.durationMs, entry.poster,
+                                   entry.posterWidth, entry.posterHeight);
+    } else {
+        opId = m_client->sendAttachment(m_roomId, entry.localPath,
+                                        entry.mime, QString(), entry.width,
+                                        entry.height, entry.animated);
+    }
+    if (opId == 0) {
+        entry.state = QStringLiteral("failed");
+        entry.error = tr("The attachment could not be queued.");
+    } else {
+        entry.state = QStringLiteral("dispatching");
+        entry.opId = opId;
+    }
+    m_attachments->updateEntry(row);
 }
 
 void MessageComposer::sendVoiceMessage(const QString &localPath,
