@@ -108,10 +108,11 @@ Popup {
         }
         TapHandler {
             id: overlayTap
-            // Exclusive signals: double-tap exits WITHOUT first flipping
-            // the play state.
-            exclusiveSignals: TapHandler.SingleTap | TapHandler.DoubleTap
-            onSingleTapped: {
+            // Instant toggle on every tap (exclusive signals delayed the
+            // single tap by the whole double-click interval — the same
+            // "laggy pause" the inline card had). A double-tap toggles
+            // twice — net no state change — then exits.
+            onTapped: {
                 if (!root.player) return
                 root.player.playbackState === MediaPlayer.PlayingState
                     ? root.player.pause() : root.player.play()

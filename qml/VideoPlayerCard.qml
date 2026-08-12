@@ -205,14 +205,17 @@ Item {
 
         HoverHandler { id: cardHover }
 
-        // Tap toggles play/pause; double-tap expands (matching the
-        // expanded view, where double-tap exits). Exclusive signals so a
-        // double-tap does not first flip the play state as a side effect.
+        // Tap toggles play/pause IMMEDIATELY; double-tap expands. NOT
+        // exclusive signals: exclusivity makes Qt sit out the whole
+        // double-click interval (~500 ms) before committing to the single
+        // tap, which read as "pause is laggy" in live use (maintainer
+        // feedback 2026-08-12). With plain taps the toggle is instant; a
+        // double-tap toggles twice — net no state change — and then
+        // expands, costing only a one-frame flicker.
         TapHandler {
             id: videoTap
             enabled: root.ready && root.fetchState !== "failed"
-            exclusiveSignals: TapHandler.SingleTap | TapHandler.DoubleTap
-            onSingleTapped: {
+            onTapped: {
                 player.playbackState === MediaPlayer.PlayingState
                     ? player.pause()
                     : (app.playback.acquire(root.ownerKey), player.play())
