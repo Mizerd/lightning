@@ -189,7 +189,14 @@ Item {
 
     Rectangle {
         anchors.fill: parent
-        color: AppTheme.surfaceElevated
+        // Black, not a theme surface: the VideoOutput aspect-FITS inside a
+        // card whose width is floored by the control bar, so a portrait
+        // video leaves side gutters — on a themed fill those read as
+        // colored stripes glued to the video (maintainer screenshot,
+        // 2026-08-12). Black is the universal letterbox and makes the
+        // gutters read as part of the player, exactly like the expanded
+        // overlay's scrim.
+        color: "#000000"
         radius: AppTheme.radiusSm
         border.color: AppTheme.border
         border.width: 1
