@@ -207,7 +207,27 @@ Item {
         VideoOutput {
             id: output
             anchors.fill: parent
-            fillMode: VideoOutput.PreserveAspectFit
+            // Match the cover's edge-to-edge presentation: the card's width
+            // is floored by the control bar, so a plain aspect-FIT leaves
+            // visible letterbox bars for any small card/video mismatch
+            // (maintainer screenshot, 2026-08-12) while the poster before it
+            // filled by cropping. Fill by cropping whenever the shapes are
+            // close (≤20% mismatch — a sliver off the edges, exactly what
+            // the cover already cropped); genuinely different shapes (a
+            // portrait video in a metadata-less 16:9 card) keep the honest
+            // fit + black letterbox rather than amputating real content.
+            // The expanded overlay always shows the uncropped frame.
+            readonly property real videoRatio:
+                sourceRect.height > 0 && sourceRect.width > 0
+                ? sourceRect.width / sourceRect.height : 0
+            readonly property real cardRatio:
+                height > 0 ? width / height : 0
+            readonly property real mismatch:
+                videoRatio > 0 && cardRatio > 0
+                ? Math.max(videoRatio, cardRatio)
+                  / Math.min(videoRatio, cardRatio) : 999
+            fillMode: mismatch <= 1.2 ? VideoOutput.PreserveAspectCrop
+                                      : VideoOutput.PreserveAspectFit
         }
 
         HoverHandler { id: cardHover }
