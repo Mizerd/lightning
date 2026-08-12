@@ -583,17 +583,14 @@ int main(int argc, char *argv[])
             qputenv("QT_FORCE_STDERR_LOGGING", "1");
     }
 
-    // VAAPI zero-copy texture export (vaExportSurfaceHandle) fails per
-    // decoded frame on common Mesa stacks — Qt's FFmpeg backend then warns
-    // and falls back to a CPU copy for EVERY frame anyway (the storm
-    // VaapiLogGate bounds, observed live on the maintainer's desktop).
-    // Skipping the doomed export up front keeps hardware DECODE while
-    // taking the CPU-frame path directly: no per-frame failure, no spam,
-    // one less round trip per frame on affected drivers. Chat-sized videos
-    // don't miss zero-copy; an explicitly set value always wins for
-    // machines where the export path works.
-    if (!qEnvironmentVariableIsSet("QT_DISABLE_HW_TEXTURES_CONVERSION"))
-        qputenv("QT_DISABLE_HW_TEXTURES_CONVERSION", "1");
+    // Deliberately NOT setting QT_DISABLE_HW_TEXTURES_CONVERSION here.
+    // It was briefly defaulted to 1 to skip the per-frame
+    // vaExportSurfaceHandle failure storm, but on the very Mesa stack it
+    // was meant to help it broke playback outright — black frames and a
+    // frozen UI (maintainer live test, 2026-08-12). The noisy
+    // export-attempt-then-CPU-fallback path, bounded by VaapiLogGate,
+    // actually plays; users on stacks where the variable helps can still
+    // set it in their environment.
 
     // Bound the per-frame VAAPI texture-export warning spam from Qt's
     // FFmpeg video backend (thousands of identical lines per minute on
