@@ -1054,6 +1054,12 @@ void MediaBridge::onMediaReady(quint64 opId, const QString &mediaKey, int kind,
     const bool playableWanted =
         m_playableWanted.remove(request.cacheKey) > 0;
     const bool prefetchWanted = m_prefetchWanted.remove(request.cacheKey);
+    // Remember the real payload size of A/V media (sniffed from bytes, not
+    // trusted labels): metadata-less events can then prefetch — and so
+    // poster — on every later session after one fetch.
+    if (request.kind == 0 && looksLikeAvContainer(bytes))
+        Q_EMIT playableSizeLearned(request.mediaKey,
+                                   static_cast<qint64>(bytes.size()));
     if (!((playableWanted || prefetchWanted)
           && bytes.size() > kLargeCacheSkipBytes))
         insertCache(request.cacheKey, bytes);

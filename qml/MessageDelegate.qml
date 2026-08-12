@@ -3137,8 +3137,16 @@ Item {
                 // downloads); a declared size of 0 makes MediaBridge
                 // decline while the poster path still serves an
                 // already-materialized file.
+                // Declared size first; else the size learned from a
+                // previous fetch (persisted per account), so the
+                // pre-metadata-fix backlog prefetches — and posters — on
+                // every session after a single play.
                 var prefetchSize = app.settings.gifAutoplay !== 2
-                                   ? (model.mediaSize || 0) : 0
+                                   ? (model.mediaSize
+                                      || app.settings.knownMediaSizeBytes(
+                                             model.mediaKey || "")
+                                      || 0)
+                                   : 0
                 if (model.mediaThumbAvailable === true) {
                     bridgeSource = app.mediaBridge.mediaSource(model.mediaKey,
                                                                "thumb")

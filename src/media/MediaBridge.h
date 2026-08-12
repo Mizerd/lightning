@@ -256,6 +256,11 @@ Q_SIGNALS:
     // no pixels cross this signal.
     void videoDimensionsLearned(const QString &mediaKey, int width,
                                 int height);
+    // A full A/V payload's real byte size, observed at fetch time. Lets
+    // the bounded speculative prefetch work on later sessions for events
+    // that declare no size (the pre-metadata-fix backlog) once the media
+    // has been fetched a single time. Size only — never content.
+    void playableSizeLearned(const QString &mediaKey, qint64 bytes);
 
 private Q_SLOTS:
     void onMediaReady(quint64 opId, const QString &mediaKey, int kind,

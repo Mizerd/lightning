@@ -189,6 +189,13 @@ public:
     Q_INVOKABLE QSize knownVideoDimensions(const QString &mediaKey) const;
     void setKnownVideoDimensions(const QString &mediaKey, int width,
                                  int height);
+    // Learned payload size (bytes) for media whose event declares none —
+    // recorded from the first real fetch, so the bounded speculative
+    // prefetch (and with it the poster) works on every later session for
+    // the pre-metadata-fix backlog after a single play. Same hashed-key +
+    // LRU discipline as the dimensions. 0 when unknown.
+    Q_INVOKABLE double knownMediaSizeBytes(const QString &mediaKey) const;
+    void setKnownMediaSizeBytes(const QString &mediaKey, qint64 bytes);
 
     // v0.6.7: remembered size of a user-resizable overlay picker (the GIF and
     // emoji pickers, which carry a drag grip), stored as a SHARE of the space
@@ -430,6 +437,10 @@ private:
     // no account is active) and the legacy device-global fallback key.
     static QString roomNotificationModeGlobalKey(const QString &roomId);
     QString roomNotificationModeScopedKey(const QString &roomId) const;
+    // Learned-media store internals: one LRU index covers both the
+    // dimension and payload-size keys of an entry.
+    static QString mediaInfoIndexKeyForSlug(const QString &slug);
+    void touchMediaInfoIndex(const QString &slug, const QString &hash);
     // Hot-path slug lookup: roomNotificationMode() runs for every appended
     // remote event (NotificationManager context), so the active account's
     // slug is cached keyed by the active user id. An account can only

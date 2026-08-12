@@ -138,7 +138,9 @@ Rectangle {
         // downloads of any media class.
         if (rowOnScreen && mediaKey.length > 0 && app.mediaBridge.supported
             && app.settings.gifAutoplay !== 2)
-            app.mediaBridge.prefetchPlayable(mediaKey, fileSize || 0)
+            app.mediaBridge.prefetchPlayable(
+                mediaKey,
+                fileSize || app.settings.knownMediaSizeBytes(mediaKey) || 0)
     }
     Component.onCompleted: maybePrefetch()
     onMediaKeyChanged: {

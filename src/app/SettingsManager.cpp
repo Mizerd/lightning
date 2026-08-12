@@ -871,6 +871,61 @@ QSize SettingsManager::knownVideoDimensions(const QString &mediaKey) const
                                                                    : QSize{};
 }
 
+QString SettingsManager::mediaInfoIndexKeyForSlug(const QString &slug)
+{
+    return QLatin1String(kAccountsGroup) + QLatin1Char('/') + slug
+        + QLatin1String("/media/video-dims-index");
+}
+
+// Shared LRU touch for the learned-media keys: dims and size share one
+// index, so an evicted entry drops BOTH of its keys and the store stays
+// bounded regardless of which fact was learned first.
+void SettingsManager::touchMediaInfoIndex(const QString &slug,
+                                          const QString &hash)
+{
+    const QString base = QLatin1String(kAccountsGroup) + QLatin1Char('/')
+        + slug + QLatin1String("/media/");
+    const QString indexKey = mediaInfoIndexKeyForSlug(slug);
+    QStringList index = m_store->value(indexKey).toStringList();
+    index.removeOne(hash);
+    index.append(hash);
+    while (index.size() > kVideoDimsCap) {
+        const QString victim = index.takeFirst();
+        m_store->remove(base + QLatin1String("video-dims/") + victim);
+        m_store->remove(base + QLatin1String("payload-size/") + victim);
+    }
+    m_store->setValue(indexKey, index);
+}
+
+double SettingsManager::knownMediaSizeBytes(const QString &mediaKey) const
+{
+    if (mediaKey.isEmpty())
+        return 0;
+    const QString slug = activeAccountSlugCached();
+    if (slug.isEmpty())
+        return 0;
+    const QString key = QLatin1String(kAccountsGroup) + QLatin1Char('/')
+        + slug + QLatin1String("/media/payload-size/")
+        + videoDimsHash(mediaKey);
+    const qint64 bytes = m_store->value(key, 0).toLongLong();
+    return bytes > 0 ? static_cast<double>(bytes) : 0;
+}
+
+void SettingsManager::setKnownMediaSizeBytes(const QString &mediaKey,
+                                             qint64 bytes)
+{
+    if (!mediaKey.startsWith(QLatin1Char('$')) || bytes <= 0)
+        return;
+    const QString slug = activeAccountSlugCached();
+    if (slug.isEmpty())
+        return;
+    const QString hash = videoDimsHash(mediaKey);
+    m_store->setValue(QLatin1String(kAccountsGroup) + QLatin1Char('/') + slug
+                          + QLatin1String("/media/payload-size/") + hash,
+                      bytes);
+    touchMediaInfoIndex(slug, hash);
+}
+
 void SettingsManager::setKnownVideoDimensions(const QString &mediaKey,
                                               int width, int height)
 {
@@ -881,20 +936,11 @@ void SettingsManager::setKnownVideoDimensions(const QString &mediaKey,
     const QString slug = activeAccountSlugCached();
     if (slug.isEmpty())
         return;
-    const QString prefix = QLatin1String(kAccountsGroup) + QLatin1Char('/')
-        + slug + QLatin1String("/media/video-dims/");
     const QString hash = videoDimsHash(mediaKey);
-    const QString indexKey = QLatin1String(kAccountsGroup) + QLatin1Char('/')
-        + slug + QLatin1String("/media/video-dims-index");
-    QStringList index = m_store->value(indexKey).toStringList();
-    index.removeOne(hash);
-    index.append(hash);
-    while (index.size() > kVideoDimsCap) {
-        const QString victim = index.takeFirst();
-        m_store->remove(prefix + victim);
-    }
-    m_store->setValue(prefix + hash, QSize(width, height));
-    m_store->setValue(indexKey, index);
+    m_store->setValue(QLatin1String(kAccountsGroup) + QLatin1Char('/') + slug
+                          + QLatin1String("/media/video-dims/") + hash,
+                      QSize(width, height));
+    touchMediaInfoIndex(slug, hash);
 }
 
 namespace {

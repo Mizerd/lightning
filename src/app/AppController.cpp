@@ -193,6 +193,11 @@ AppController::AppController(Backend backend, bool screenshotDemo,
         if (m_settings)
             m_settings->setKnownVideoDimensions(mediaKey, width, height);
     });
+    connect(m_mediaBridge.get(), &MediaBridge::playableSizeLearned, this,
+            [this](const QString &mediaKey, qint64 bytes) {
+        if (m_settings)
+            m_settings->setKnownMediaSizeBytes(mediaKey, bytes);
+    });
 
     // GIF policy follows the persisted settings live.
     m_gif->setRating(m_settings->gifSafeSearch());
