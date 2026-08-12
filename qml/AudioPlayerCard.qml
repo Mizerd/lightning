@@ -248,10 +248,13 @@ Rectangle {
             objectName: "audioPlayPauseButton"
             fill: true
             implicitWidth: 30; implicitHeight: 30
+            // Always a play glyph when idle — the accent-filled button with
+            // a mic read as "record", not "play" (maintainer feedback
+            // 2026-08-12); the voice identity is already carried by the
+            // "Voice message" label and the waveform.
             iconName: root.fetchState === "fetching"
                       ? "schedule"
-                      : (root.playing ? "pause"
-                         : (root.isVoice && !root.ready ? "mic" : "play_arrow"))
+                      : (root.playing ? "pause" : "play_arrow")
             iconSize: 17
             enabled: root.fetchState !== "fetching"
             readonly property string actionLabel: root.playing
