@@ -301,6 +301,14 @@ private:
     void recomputeSearch();
     void reload();
     int rowForEventId(const QString &eventId) const;
+    // Lazily rebuilt eventId -> row map behind rowForEventId/eventForId.
+    // Every structural mutation (and every whole-event replacement, whose
+    // id can change local: -> remote) calls invalidateRowIndex(); the next
+    // lookup rebuilds once in O(n). Turns the previously-linear lookups —
+    // several of which sat inside per-row bindings and per-diff handlers —
+    // into amortized O(1).
+    void invalidateRowIndex() const { m_rowIndexDirty = true; }
+    const QHash<QString, int> &rowIndex() const;
     void refreshTypingText();
     QVariantList reactionsVariant(const TimelineEvent &e) const;
     QVariantList pollAnswersVariant(const TimelineEvent &e) const;
@@ -332,6 +340,13 @@ private:
 
     MatrixClient *m_client = nullptr;
     QString m_roomId;
+    mutable QHash<QString, int> m_rowIndex;
+    mutable bool m_rowIndexDirty = true;
+    // Memoized MessageHtml::sanitize output per event id (FormattedBodyRole
+    // is re-read for every row on member hydration; the sanitize walk is the
+    // costly part). Invalidated per event on edit/replace/redact and
+    // wholesale on member hydration, theme-color change, and reload.
+    mutable QHash<QString, QString> m_sanitizedHtmlCache;
     QString m_selfUserId;
     QList<TimelineEvent> m_events;
     // Loaded thread replies per root event id. IsThreadRootRole and

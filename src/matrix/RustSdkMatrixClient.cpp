@@ -39,6 +39,19 @@ QString takeRustString(char *raw)
     return out;
 }
 
+// JSON poll path: the Rust string is already UTF-8, and QJsonDocument
+// parses UTF-8 bytes — the previous QString round trip transcoded every
+// polled event UTF-8 -> UTF-16 -> UTF-8 on the GUI thread (up to 512
+// events per 100 ms tick).
+QByteArray takeRustBytes(char *raw)
+{
+    if (!raw)
+        return {};
+    QByteArray out(raw);
+    mx_rust_free_cstring(raw);
+    return out;
+}
+
 bool pathExistsOrIsLink(const QString &path)
 {
     const QFileInfo info(path);
@@ -2137,11 +2150,11 @@ void RustSdkMatrixClient::pollRustEvents()
     // population is bounded by the C++ in-flight discipline, so "fully"
     // is a handful of events; 256 is a defensive iteration cap only.
     for (int i = 0; i < 256; ++i) {
-        const QString raw =
-            takeRustString(mx_rust_poll_command_event(m_rustHandle));
+        const QByteArray raw =
+            takeRustBytes(mx_rust_poll_command_event(m_rustHandle));
         if (raw.isEmpty())
             break;
-        const QJsonDocument doc = QJsonDocument::fromJson(raw.toUtf8());
+        const QJsonDocument doc = QJsonDocument::fromJson(raw);
         if (!doc.isObject()) {
             qCWarning(lcRust) << "discarding malformed Rust SDK command event";
             continue;
@@ -2173,11 +2186,11 @@ void RustSdkMatrixClient::pollRustEvents()
     constexpr int kSoftDrainCap = 64;
     constexpr int kHardDrainCap = 256;
     for (int i = 0; i < kHardDrainCap; ++i) {
-        const QString raw = takeRustString(mx_rust_poll_event(m_rustHandle));
+        const QByteArray raw = takeRustBytes(mx_rust_poll_event(m_rustHandle));
         if (raw.isEmpty())
             break;
 
-        const QJsonDocument doc = QJsonDocument::fromJson(raw.toUtf8());
+        const QJsonDocument doc = QJsonDocument::fromJson(raw);
         if (!doc.isObject()) {
             qCWarning(lcRust) << "discarding malformed Rust SDK event";
             continue;
@@ -3265,20 +3278,29 @@ void RustSdkMatrixClient::flushTimelineInsertBatch()
         && first + count <= timelineIt->size()) {
         items = timelineIt->mid(first, count);
         changedItems.reserve(m_timelineInsertBatchChangedIds.size());
-        for (const QString &stableId : std::as_const(
-                 m_timelineInsertBatchChangedIds)) {
+        if (!m_timelineInsertBatchChangedIds.isEmpty()) {
+            // One pass over the mirror builds the stable-id index; the
+            // previous per-id rescan was O(changed x mirror) QString
+            // compares on every pagination flush.
+            QHash<QString, int> rowByStableId;
+            rowByStableId.reserve(timelineIt->size());
             for (int row = 0; row < timelineIt->size(); ++row) {
                 const TimelineEvent &candidate = timelineIt->at(row);
-                const QString candidateId = !candidate.itemId.isEmpty()
+                const QString &candidateId = !candidate.itemId.isEmpty()
                     ? candidate.itemId : candidate.eventId;
-                if (candidateId == stableId) {
-                    // A later insertion may have brought this updated item into
-                    // the new range. Its final range payload already contains
-                    // the update, so a second dataChanged would be redundant.
-                    if (row < first || row >= first + count)
-                        changedItems.append({row, candidate});
-                    break;
-                }
+                if (!candidateId.isEmpty() && !rowByStableId.contains(candidateId))
+                    rowByStableId.insert(candidateId, row);
+            }
+            for (const QString &stableId : std::as_const(
+                     m_timelineInsertBatchChangedIds)) {
+                const int row = rowByStableId.value(stableId, -1);
+                if (row < 0)
+                    continue;
+                // A later insertion may have brought this updated item into
+                // the new range. Its final range payload already contains
+                // the update, so a second dataChanged would be redundant.
+                if (row < first || row >= first + count)
+                    changedItems.append({row, timelineIt->at(row)});
             }
         }
     }
@@ -4215,6 +4237,13 @@ quint64 RustSdkMatrixClient::fetchMedia(const QString &mediaKey, int kind,
         static_cast<unsigned int>(qBound(0, kind, 1)), opId,
         static_cast<unsigned int>(qBound(0, timeoutClass, 2))));
     return result.isEmpty() ? opId : 0;
+}
+
+void RustSdkMatrixClient::cancelMediaFetch(quint64 opId)
+{
+    if (!m_rustHandle || opId == 0)
+        return;
+    mx_rust_media_cancel(m_rustHandle, opId);
 }
 
 quint64 RustSdkMatrixClient::fetchMxcThumbnail(const QString &mxc,

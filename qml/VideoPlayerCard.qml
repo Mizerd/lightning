@@ -51,17 +51,30 @@ Item {
     // Stable failure identity: MediaBridge marks/signals by this cache key.
     readonly property string fetchCacheKey: "full:" + mediaKey
 
+    // The media key with a bridge fetch outstanding on this card's behalf;
+    // recorded so reset/destruction can cancel the backend download (an
+    // abandoned fetch used to keep downloading, starving later media).
+    property string fetchingKey: ""
+
     function start() {
         var url = app.mediaBridge.playableSource(root.mediaKey)
         if (url.length > 0) {
             fetchState = "idle"
+            fetchingKey = ""
             player.source = url
             pinFile()
             app.playback.acquire(root.ownerKey)
             player.play()
         } else {
             fetchState = "fetching"
+            fetchingKey = root.mediaKey
         }
+    }
+    function cancelFetch() {
+        if (fetchingKey.length === 0)
+            return
+        app.mediaBridge.cancelPlayable(fetchingKey)
+        fetchingKey = ""
     }
     function pinFile() {
         // The player holds the materialized temp file open; the LRU must
@@ -94,6 +107,7 @@ Item {
         player.stop()
         player.source = ""
         unpinFile()
+        cancelFetch()
         fetchState = "idle"
         app.playback.release(root.ownerKey)
     }
@@ -107,6 +121,7 @@ Item {
     Component.onCompleted: start()
     Component.onDestruction: {
         unpinFile()
+        cancelFetch()
         app.playback.release(root.ownerKey)
     }
     // Offscreen resource release: a video paused by scrolling away used to
@@ -140,8 +155,10 @@ Item {
         }
         function onMediaFetchFailed(cacheKey, category) {
             if (cacheKey === root.fetchCacheKey
-                && root.fetchState === "fetching")
+                && root.fetchState === "fetching") {
                 root.fetchState = "failed"
+                root.fetchingKey = "" // the fetch is over; nothing to cancel
+            }
         }
     }
     Connections {

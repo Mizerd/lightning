@@ -15,6 +15,7 @@
 #include <memory>
 
 class MatrixClient;
+class VideoPosterExtractor;
 
 // v0.5.9: managed download half of the media pipeline for the Rust backend.
 //
@@ -64,6 +65,39 @@ public:
     // in-process QMediaPlayer ONLY. Paths must never reach external
     // applications. QML retries from playableMediaReady(cacheKey).
     Q_INVOKABLE QString playableSource(const QString &mediaKey);
+    // v0.7 perf round: bounded speculative playable prefetch. Called for an
+    // on-screen video cover so the payload is (usually) already
+    // materialized when the user presses Play — the 5-8s press-to-playback
+    // wait was pure download time. Only dispatches when the event's Matrix
+    // metadata declares a size at or below the speculative cap (fail-safe:
+    // unknown or large sizes are never prefetched), at the lowest priority
+    // class, so it can never crowd out visible chrome or explicit intent.
+    // Queued prefetches are dropped on room switch exactly like GIF
+    // autoplay prefetches. sizeBytes comes from QML as a double.
+    Q_INVOKABLE void prefetchPlayable(const QString &mediaKey,
+                                      double sizeBytes);
+    // v0.7 perf round: poster for a video WITHOUT a Matrix thumbnail.
+    // Returns the provider URL when a poster is already cached under the
+    // event's "thumb:" key; otherwise arranges one — extracting the first
+    // frame of the already-materialized playable file, or (bounded by the
+    // speculative cap) prefetching the payload first — and returns "".
+    // QML retries from mediaCached("thumb:<mediaKey>"). The poster is
+    // encoded JPEG in the ordinary in-RAM image cache: decrypted-media
+    // derived pixels never touch disk.
+    Q_INVOKABLE QString videoPosterSource(const QString &mediaKey,
+                                          double sizeBytes);
+    // v0.7 perf round: cancel the playable fetch for a card that no longer
+    // wants it (closed mid-download, delegate reused, room left). Playable
+    // interest is refcounted (two cards can share one fetch); when the
+    // count reaches zero this frees the concurrency slot immediately and
+    // aborts the backend download task, so an abandoned multi-hundred-MB
+    // transfer stops consuming bandwidth and store access. No failure mark
+    // is left — a fresh Play re-dispatches cleanly. ONLY an animated/GIF
+    // consumer of the same bytes keeps the fetch alive; a pending poster
+    // hook or speculative prefetch deliberately does NOT veto a user
+    // cancel (review H1 — the poster is a derivative that can be
+    // re-extracted whenever the file is next materialized).
+    Q_INVOKABLE void cancelPlayable(const QString &mediaKey);
     // Container sniffing for the playable path: returns the file suffix
     // ("mp4", "webm", "ogg", …) when the payload's magic matches a
     // supported audio/video container, "" otherwise. Static + public for
@@ -270,6 +304,10 @@ private:
     // Validation failures reported by the backend never fix themselves;
     // everything else (network, timeout, unavailable, …) is transient.
     static bool isPermanentCategory(const QString &category);
+    // Review M3: every terminal outcome (failure, watchdog timeout,
+    // dispatch failure) must void the interest sets for its key — leaked
+    // entries both grew unboundedly and vetoed cancelPlayable forever.
+    void dropInterestSets(const QString &cacheKey);
     static bool isAvatarClassKey(const QString &cacheKey);
     void dispatch(const Pending &request);
     void pump();
@@ -295,6 +333,12 @@ private:
                               const QString &mimetype);
     QString writePlayableFile(const QString &cacheKey, const QByteArray &bytes,
                               const QString &mimetype);
+    // Lazy poster machinery: constructed on the first poster request so
+    // headless tests (and sessions that never show a thumbnail-less video)
+    // never touch Qt Multimedia.
+    void startPosterExtraction(const QString &mediaKey,
+                               const QString &filePath);
+    void onPosterReady(const QString &mediaKey, const QByteArray &jpeg);
 
     MatrixClient *m_client = nullptr;
 
@@ -308,6 +352,11 @@ private:
     mutable QList<QString> m_avatarLru;
     qint64 m_cacheLimit = 64 * 1024 * 1024;
     qint64 m_avatarCacheLimit = 8 * 1024 * 1024;
+    // Running per-class byte totals (guarded by m_cacheMutex), maintained
+    // by insertCache/clear so no path ever needs to iterate the whole
+    // cache to know its size.
+    qint64 m_cacheBytesMain = 0;
+    qint64 m_cacheBytesAvatar = 0;
     // v0.7.1: per-key content revision, bumped ONLY on an actual byte
     // insert (insertCache) and appended to provider URLs as "?r=<n>".
     // A re-cached key therefore always yields a NEW source string, so a QML
@@ -360,6 +409,7 @@ private:
     qint64 m_statDroppedStale = 0;
     qint64 m_statCacheHit = 0;
     qint64 m_statCacheMiss = 0;
+    qint64 m_statCancelled = 0;
     // review H1b/M2: bumped when cachedFullContentHash() runs a SHA-256 on
     // a memo miss AND the payload survived the hash (the digest is only
     // counted once it is actually installed) — a timing-independent,
@@ -383,7 +433,22 @@ private:
     QHash<QString, QString> m_playableFiles;
     QHash<QString, qint64> m_playableSizes;
     QList<QString> m_playableLru;
-    QSet<QString> m_playableWanted;
+    // REFCOUNTED playable interest (review M1): the same media event can be
+    // rendered by two cards at once (main timeline + thread panel), and one
+    // card's cancel must not strand the other mid-fetch. Only when the
+    // count reaches zero may cancelPlayable abort the shared op. Failure
+    // paths drop the whole entry — a retry re-expresses interest.
+    QHash<QString, int> m_playableWanted;
+    // v0.7 perf round: speculative playable interest ("full:" keys). Kept
+    // separate from m_playableWanted so dropQueuedSpeculative can still
+    // distinguish a real pressed-play consumer (kept) from a prefetch
+    // (dropped on room switch).
+    QSet<QString> m_prefetchWanted;
+    // "full:" keys whose materialization should trigger a poster grab, and
+    // media keys with an extraction currently queued/active.
+    QSet<QString> m_posterWanted;
+    QSet<QString> m_posterExtracting;
+    VideoPosterExtractor *m_posterExtractor = nullptr;
     // Cache keys whose materialized file a live player currently holds
     // open, REFCOUNTED (review L1): the same media event can be rendered by
     // two cards at once (main timeline + thread panel), and one card's
@@ -420,4 +485,7 @@ private:
     // Full-size media above this skips the RAM LRU (it exists on disk for
     // the player; caching it in memory would evict every image at once).
     static constexpr qint64 kLargeCacheSkipBytes = 8 * 1024 * 1024;
+    // Speculative playable prefetch cap: a video/audio payload whose Matrix
+    // metadata declares more than this is only fetched on explicit Play.
+    static constexpr qint64 kSpeculativePlayableMaxBytes = 32 * 1024 * 1024;
 };

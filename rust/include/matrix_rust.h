@@ -579,6 +579,12 @@ char *mx_rust_media_fetch_mxc(void *client,
                               unsigned long long height,
                               unsigned long long op_id);
 /*
+ * Cancel an in-flight media fetch by op id: aborts the download task and
+ * drops any parked bytes. Idempotent; no terminal event is emitted for a
+ * cancelled op (the caller already released its slot).
+ */
+void mx_rust_media_cancel(void *client, unsigned long long op_id);
+/*
  * Move a parked media payload out of the bridge. Returns NULL for unknown
  * (stale / already-taken) op ids; otherwise a buffer of *out_len bytes that
  * MUST be released with mx_rust_media_free (never free()).

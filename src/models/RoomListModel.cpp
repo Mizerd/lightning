@@ -20,6 +20,14 @@ RoomListModel::RoomListModel(QObject *parent)
         Q_EMIT filterGenerationChanged();
         reconcileRooms();
     });
+    // Per-room update signals (roomUpdated fires per incoming event,
+    // membersChanged per roster arrival) coalesce onto one zero-timer
+    // reconcile per event-loop turn — a sync burst used to run the full
+    // sort-and-diff pass once per event.
+    m_reconcileCoalesce.setSingleShot(true);
+    m_reconcileCoalesce.setInterval(0);
+    connect(&m_reconcileCoalesce, &QTimer::timeout,
+            this, &RoomListModel::reconcileRooms);
 }
 
 void RoomListModel::setClient(MatrixClient *client)
@@ -313,13 +321,16 @@ QList<RoomInfo> RoomListModel::desiredRooms() const
 
 void RoomListModel::refresh()
 {
+    // Structural change (roomsChanged/login): reconcile now and drop any
+    // pending coalesced pass it supersedes.
+    m_reconcileCoalesce.stop();
     reconcileRooms();
 }
 
 void RoomListModel::refreshRoom(const QString &roomId)
 {
     Q_UNUSED(roomId);
-    reconcileRooms();
+    m_reconcileCoalesce.start();
 }
 
 void RoomListModel::onUserProfileFinished(quint64 opId, bool ok,
@@ -439,6 +450,11 @@ bool RoomListModel::replaceRoom(int row, const RoomInfo &room)
 {
     if (row < 0 || row >= m_rooms.size() || room.id.isEmpty()) return false;
     if (m_rooms.at(row).id != room.id) return false;
+    // Unchanged rows emit nothing: reconcileRooms() calls this for EVERY
+    // row on EVERY room update, and an unconditional roleless dataChanged
+    // made each incoming message re-evaluate every delegate binding of
+    // every visible room (including avatar sources).
+    if (m_rooms.at(row) == room) return true;
     m_rooms[row] = room; Q_EMIT dataChanged(index(row), index(row)); return true;
 }
 

@@ -182,6 +182,8 @@ public:
     QString syncMode() const override { return m_syncMode; }
 
     QList<RoomInfo> rooms() const override;
+    RoomInfo roomInfo(const QString &roomId) const override
+    { return m_rooms.value(roomId); }
     QList<TimelineEvent> timeline(const QString &roomId) const override;
 
     QString displayNameFor(const QString &roomId, const QString &userId) const override;
@@ -329,6 +331,7 @@ public:
     quint64 fetchMedia(const QString &mediaKey, int kind,
                        int timeoutClass = 0) override;
     quint64 fetchMxcThumbnail(const QString &mxc, int width, int height) override;
+    void cancelMediaFetch(quint64 opId) override;
     qint64 maxUploadSize() const override { return m_maxUploadSize; }
 
 Q_SIGNALS:

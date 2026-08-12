@@ -212,14 +212,10 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             return;   // the room copy of the same event already notifies
         NotificationManager::Context context;
         context.selfUserId = m_client->currentUserId();
-        RoomInfo info;
-        const auto rooms = m_client->rooms();
-        for (const auto &candidate : rooms) {
-            if (candidate.id == roomId) {
-                info = candidate;
-                break;
-            }
-        }
+        // Targeted lookup — the previous rooms() call deep-copied the whole
+        // room list (every QString and member hash) once per appended event,
+        // which is O(events x rooms) across a sync burst.
+        const RoomInfo info = m_client->roomInfo(roomId);
         context.roomName = info.name.isEmpty() ? roomId : info.name;
         context.roomIsDirect = info.isDirect;
         context.roomMode = static_cast<NotificationManager::RoomMode>(

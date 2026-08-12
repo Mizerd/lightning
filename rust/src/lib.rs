@@ -186,6 +186,14 @@ struct RustClient {
     // the matching `mx_rust_media_take` call; the map is cleared on
     // shutdown so decrypted media never outlives the session in memory.
     media_results: Arc<Mutex<HashMap<u64, Vec<u8>>>>,
+    // Abort handles for in-flight media fetches, keyed by op id. A fetch
+    // whose requester is gone (video card closed mid-download, room left)
+    // used to run to completion anyway — an uncancellable multi-hundred-MB
+    // download saturating the link while every newer fetch queued behind
+    // it. mx_rust_media_cancel aborts the task at its next await point;
+    // tasks remove their own entry when they resolve normally. Cleared on
+    // shutdown with the parked results.
+    pub(crate) media_fetch_aborts: Arc<Mutex<HashMap<u64, tokio::task::AbortHandle>>>,
     // v0.7 defense-in-depth: dedicated TERMINAL event lane. Op-id-keyed
     // command results (media ready/failed, GIF responses/downloads) are
     // delivered here so a timeline-diff flood on the bulk queue can never
@@ -239,6 +247,7 @@ impl RustClient {
             verification_shutdown: Arc::new(AtomicBool::new(false)),
             import_active: Arc::new(AtomicBool::new(false)),
             media_results: Arc::new(Mutex::new(HashMap::new())),
+            media_fetch_aborts: Arc::new(Mutex::new(HashMap::new())),
             command_events: Arc::new(Mutex::new(VecDeque::new())),
             bootstrap_task: Mutex::new(None),
             recovery_nudges: Arc::new(Mutex::new(None)),
@@ -350,6 +359,16 @@ impl RustClient {
 
         self.timelines.shutdown(&self.runtime);
 
+        // Abort still-running media downloads BEFORE joining the room-action
+        // pool: nobody can consume their bytes past this point, and a live
+        // multi-hundred-MB transfer would otherwise burn the entire join
+        // budget below before being force-aborted.
+        if let Ok(mut guard) = self.media_fetch_aborts.lock() {
+            for (_, handle) in guard.drain() {
+                handle.abort();
+            }
+        }
+
         let actions = self.room_action_tasks.lock().ok()
             .map(|mut guard| std::mem::take(&mut *guard))
             .unwrap_or_default();
@@ -403,6 +422,13 @@ impl RustClient {
         if let Ok(mut guard) = self.media_results.lock() {
             guard.clear();
         }
+        // Late-registered abort handles (a fetch dispatched between the
+        // drain above and sync stop) are cleared with the parked bytes.
+        if let Ok(mut guard) = self.media_fetch_aborts.lock() {
+            for (_, handle) in guard.drain() {
+                handle.abort();
+            }
+        }
         // Notification-settings state is session-scoped: the cached
         // NotificationSettings holds a Client clone (and an event-handler
         // guard) that must not outlive the session, and leftover pending
@@ -437,6 +463,29 @@ impl RustClient {
         if let Ok(mut tasks) = self.room_action_tasks.lock() {
             tasks.retain(|task| !task.is_finished());
             tasks.push(self.runtime.spawn(future));
+        }
+    }
+
+    /// Media fetches ride the same tracked room-action pool (so shutdown
+    /// joins them) but additionally register an abort handle under their op
+    /// id, so mx_rust_media_cancel can stop an abandoned download at its
+    /// next await point. The future is responsible for removing its own
+    /// entry once its network wait resolves (see rooms::media_fetch).
+    fn spawn_media_fetch<F>(&self, op_id: u64, future: F)
+    where
+        F: std::future::Future<Output = ()> + Send + 'static,
+    {
+        if let Ok(mut tasks) = self.room_action_tasks.lock() {
+            tasks.retain(|task| !task.is_finished());
+            let handle = self.runtime.spawn(future);
+            if let Ok(mut aborts) = self.media_fetch_aborts.lock() {
+                // Bounded: drop entries whose tasks already resolved (the
+                // self-removal races task completion only in theory, but a
+                // stale inert handle must not accumulate either way).
+                aborts.retain(|_, h| !h.is_finished());
+                aborts.insert(op_id, handle.abort_handle());
+            }
+            tasks.push(handle);
         }
     }
 
@@ -5369,6 +5418,33 @@ pub unsafe extern "C" fn mx_rust_media_fetch_mxc(
     })
 }
 
+/// Cancel an in-flight media fetch by op id. Aborts the download task at
+/// its next await point (freeing its bandwidth and its store access) and
+/// drops any bytes it already parked. Idempotent: unknown, finished, or
+/// already-cancelled op ids are a no-op. The caller (C++ MediaBridge) has
+/// already released its own slot for the op, so no terminal event is
+/// emitted for a cancelled fetch — a late one would be dropped as stale
+/// anyway.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_media_cancel(ptr: *mut c_void, op_id: u64) {
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        let Ok(bridge) = (unsafe { bridge(ptr) }) else {
+            return;
+        };
+        if let Some(handle) = bridge
+            .media_fetch_aborts
+            .lock()
+            .ok()
+            .and_then(|mut guard| guard.remove(&op_id))
+        {
+            handle.abort();
+        }
+        if let Ok(mut guard) = bridge.media_results.lock() {
+            guard.remove(&op_id);
+        }
+    }));
+}
+
 /// Move a parked media payload out of the bridge. Returns a heap buffer the
 /// caller MUST release with `mx_rust_media_free`, or null when the op id is
 /// unknown (stale/duplicate take). This is the only path media bytes take
@@ -5477,7 +5553,7 @@ async fn build_client(homeserver: &str, store_path: &Path) -> Result<Client, Str
     // with_subscriptions stays false: Lightning drives thread follow state
     // through the direct Room subscribe/unsubscribe/query API, not the MSC4308
     // sliding-sync extension.
-    Client::builder()
+    let client = Client::builder()
         .homeserver_url(homeserver)
         .sqlite_store(store_path, None)
         .user_agent("Lightning/0.6.6")
@@ -5485,7 +5561,46 @@ async fn build_client(homeserver: &str, store_path: &Path) -> Result<Client, Str
         .with_threading_support(ThreadingSupport::Enabled { with_subscriptions: false })
         .build()
         .await
-        .map_err(|err| format_matrix_error("failed to build Matrix Rust SDK client", err))
+        .map_err(|err| format_matrix_error("failed to build Matrix Rust SDK client", err))?;
+    // Media-store retention policy. Without one the SDK runs
+    // MediaRetentionPolicy::empty(): every fetched payload — including a
+    // 500 MiB video — is INSERTed whole into matrix-sdk-media.sqlite3, the
+    // store grows without bound, and cleanup never runs. Worse, the media
+    // store serializes ALL cache reads and writes on its single write
+    // connection (reads bump last_access first), so one giant blob INSERT
+    // stalls every avatar/thumbnail/audio fetch behind it and can lapse the
+    // cross-process lease into TimedOut errors — the observed "after a
+    // video plays, other media loads slowly or not at all". The policy
+    // makes the store skip oversized payloads BEFORE the write; the paired
+    // guard in rooms::media_fetch skips the doomed cache round-trip
+    // entirely for declared-oversize fetches. new() carries the SDK
+    // defaults (400 MiB cache budget, 60-day expiry, daily cleanup); only
+    // max_file_size is tuned up to keep the 20 MiB animated-GIF class
+    // cacheable across sessions.
+    let policy = matrix_sdk::media::MediaRetentionPolicy::new()
+        .with_max_file_size(Some(rooms::MEDIA_STORE_MAX_FILE_BYTES));
+    // Best-effort: a policy write failure must never block login, and the
+    // error string may embed the store path — it is deliberately not
+    // logged anywhere.
+    if client.media().set_media_retention_policy(policy).await.is_ok() {
+        // Sweep blobs cached before the policy existed (or by older
+        // builds). Runs once per client BUILD (login/restore/switch), not
+        // once ever — the SDK's own cleanup_frequency debounces the real
+        // work to daily. Fire-and-forget but BOUNDED: the task holds a
+        // Client clone, and dropping the shared runtime on session release
+        // cancels it before any store deletion; the timeout keeps it from
+        // holding the media store's write connection indefinitely either
+        // way.
+        let media_client = client.clone();
+        tokio::spawn(async move {
+            let _ = tokio::time::timeout(
+                std::time::Duration::from_secs(120),
+                media_client.media().clean(),
+            )
+            .await;
+        });
+    }
+    Ok(client)
 }
 
 async fn restore_client(

@@ -1505,6 +1505,14 @@ pub(crate) fn media_size_cap(timeout_class: u32) -> u64 {
     }
 }
 
+/// Largest payload the SDK media store may cache (the retention policy's
+/// max_file_size, set in build_client). 24 MiB keeps avatars, thumbnails,
+/// stickers, images and the whole 20 MiB animated-GIF class cacheable
+/// across sessions while videos and large audio bypass sqlite entirely —
+/// one giant blob INSERT on the store's single write connection is what
+/// stalled every other media fetch behind it.
+pub(crate) const MEDIA_STORE_MAX_FILE_BYTES: u64 = 24 * 1024 * 1024;
+
 fn emit_media_failed(
     terminal: &crate::EventQueueRef,
     parked: &std::sync::Arc<std::sync::Mutex<std::collections::HashMap<u64, Vec<u8>>>>,
@@ -1560,7 +1568,16 @@ pub(crate) fn media_fetch(
             }
         }
     }
-    bridge.spawn_room_action(async move {
+    // A payload whose Matrix metadata already declares it larger than the
+    // retention policy's max_file_size can never be served from or admitted
+    // to the sqlite media cache — but use_cache=true would still take the
+    // store's single write connection for the guaranteed-miss read (reads
+    // bump last_access first) and again after the download. Bypass the
+    // cache round-trip entirely for those; everything else keeps the cache.
+    let use_cache =
+        kind != 0 || declared_size.map_or(true, |s| s <= MEDIA_STORE_MAX_FILE_BYTES);
+    let aborts = Arc::clone(&bridge.media_fetch_aborts);
+    bridge.spawn_media_fetch(op_id, async move {
         let request = MediaRequestParameters { source, format: MediaFormat::File };
         // Bounded await: matrix-sdk 0.18 deliberately disables its own HTTP
         // timeout for media, so an unresponsive server would otherwise hang
@@ -1569,9 +1586,12 @@ pub(crate) fn media_fetch(
         // emitted per op.
         let outcome = tokio::time::timeout(
             std::time::Duration::from_secs(media_timeout_secs(timeout_class)),
-            client.media().get_media_content(&request, true),
+            client.media().get_media_content(&request, use_cache),
         )
         .await;
+        if let Ok(mut guard) = aborts.lock() {
+            guard.remove(&op_id);
+        }
         if !timelines.lifecycle_current(lifecycle) {
             return;
         }
@@ -1636,7 +1656,8 @@ pub(crate) fn media_fetch_mxc(
     let timelines = Arc::clone(&bridge.timelines);
     let results = Arc::clone(&bridge.media_results);
     let lifecycle = timelines.lifecycle();
-    bridge.spawn_room_action(async move {
+    let aborts = Arc::clone(&bridge.media_fetch_aborts);
+    bridge.spawn_media_fetch(op_id, async move {
         let format = if width == 0 || height == 0 {
             MediaFormat::File
         } else {
@@ -1657,6 +1678,9 @@ pub(crate) fn media_fetch_mxc(
             client.media().get_media_content(&request, true),
         )
         .await;
+        if let Ok(mut guard) = aborts.lock() {
+            guard.remove(&op_id);
+        }
         if !timelines.lifecycle_current(lifecycle) {
             return;
         }

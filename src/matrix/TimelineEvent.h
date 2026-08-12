@@ -209,3 +209,13 @@ struct TimelineEvent {
         return type == DateDivider || type == ReadMarker || type == TimelineStart;
     }
 };
+
+// Every member is an implicitly-shared Qt value type (or trivial), so a
+// TimelineEvent can be moved by memcpy. Without this, QList treats the
+// struct as non-relocatable and every insert/prepend/removeAt shifts
+// elements through the full copy-constructor chain (~30 QString refcount
+// round trips each) — measurable on every pagination prepend.
+Q_DECLARE_TYPEINFO(Reaction, Q_RELOCATABLE_TYPE);
+Q_DECLARE_TYPEINFO(ReadReceipt, Q_RELOCATABLE_TYPE);
+Q_DECLARE_TYPEINFO(PollAnswer, Q_RELOCATABLE_TYPE);
+Q_DECLARE_TYPEINFO(TimelineEvent, Q_RELOCATABLE_TYPE);

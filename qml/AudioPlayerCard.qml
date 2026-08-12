@@ -84,13 +84,25 @@ Rectangle {
         var url = app.mediaBridge.playableSource(root.mediaKey)
         if (url.length > 0) {
             fetchState = "idle"
+            fetchingKey = ""
             player.source = url
             pinFile()
             app.playback.acquire(root.ownerKey)
             player.play()
         } else {
             fetchState = "fetching"
+            fetchingKey = root.mediaKey
         }
+    }
+    // The media key with a bridge fetch outstanding on this card's behalf;
+    // reset/destruction cancels it so an abandoned download stops consuming
+    // bandwidth and pipeline slots.
+    property string fetchingKey: ""
+    function cancelFetch() {
+        if (fetchingKey.length === 0)
+            return
+        app.mediaBridge.cancelPlayable(fetchingKey)
+        fetchingKey = ""
     }
     function pinFile() {
         // The player now holds the materialized temp file open; the LRU
@@ -114,16 +126,35 @@ Rectangle {
         }
         engaged = false // unload the backend and its temp-file handle
         unpinFile()
+        cancelFetch()
         fetchState = "idle"
         app.playback.release(root.ownerKey)
     }
+    // Bounded speculative prefetch (size-capped, lowest priority, deduped
+    // by MediaBridge) so Play starts from the materialized file instead of
+    // a download wait. Voice messages and short tracks fit the cap.
+    function maybePrefetch() {
+        // Same user preference as GIF autoplay: "never" means no passive
+        // downloads of any media class.
+        if (rowOnScreen && mediaKey.length > 0 && app.mediaBridge.supported
+            && app.settings.gifAutoplay !== 2)
+            app.mediaBridge.prefetchPlayable(mediaKey, fileSize || 0)
+    }
+    Component.onCompleted: maybePrefetch()
     onMediaKeyChanged: {
         resumePositionMs = 0 // a different track never inherits a position
         resetPlayback()      // delegate reuse safety
+        maybePrefetch()
     }
-    onRowOnScreenChanged: if (!rowOnScreen && playing) player.pause()
+    onRowOnScreenChanged: {
+        if (!rowOnScreen && playing)
+            player.pause()
+        else if (rowOnScreen)
+            maybePrefetch()
+    }
     Component.onDestruction: {
         unpinFile()
+        cancelFetch()
         app.playback.release(root.ownerKey)
     }
     // Offscreen resource release: a paused, scrolled-away card frees its
@@ -155,6 +186,7 @@ Rectangle {
             var url = app.mediaBridge.playableSource(root.mediaKey)
             if (url.length === 0 || !root.player) return
             root.fetchState = "idle"
+            root.fetchingKey = ""
             root.player.source = url
             root.pinFile()
             app.playback.acquire(root.ownerKey)
@@ -162,8 +194,10 @@ Rectangle {
         }
         function onMediaFetchFailed(cacheKey, category) {
             if (cacheKey === root.fetchCacheKey
-                && root.fetchState === "fetching")
+                && root.fetchState === "fetching") {
                 root.fetchState = "failed"
+                root.fetchingKey = "" // the fetch is over; nothing to cancel
+            }
         }
     }
     Connections {

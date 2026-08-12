@@ -36,6 +36,12 @@ Rectangle {
     property string colorKey: ""
     // Explicit initials font size; 0 derives from the avatar size.
     property int labelSize: 0
+    // Perf: rows outside the viewport set this false so their loading
+    // skeletons stop animating — every other Skeleton in the app gates on
+    // rowOnScreen, and hundreds of off-screen infinite animations kept the
+    // scene graph permanently dirty during room open. Default true keeps
+    // non-timeline surfaces (room list, popovers, rail) unchanged.
+    property bool onScreen: true
 
     implicitWidth: size
     implicitHeight: size
@@ -203,6 +209,7 @@ Rectangle {
         objectName: "avatarSkeleton"
         anchors.fill: parent
         visible: root.presentationState === "loading"
+        active: root.onScreen
         circle: root.circle
         radius: root.circle ? Math.min(width, height) / 2 : root.squareRadius
     }

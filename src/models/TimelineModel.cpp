@@ -273,8 +273,12 @@ void TimelineModel::recomputeSearch()
             const auto &event = m_events.at(raw);
             if (event.isVirtual() || event.eventId.isEmpty())
                 continue;
-            const QString text = visibleTextForEvent(event.eventId);
-            if (text.contains(needle, Qt::CaseInsensitive))
+            // The event is already in hand — reading its visible text
+            // directly (same rules as visibleTextForEvent) avoids the
+            // per-row id lookup that made this recompute quadratic.
+            if (event.type == TimelineEvent::StateChange || event.redacted)
+                continue;
+            if (event.body.contains(needle, Qt::CaseInsensitive))
                 m_searchResults.append(event.eventId);
         }
     }
@@ -508,9 +512,17 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
         // safe RichText subset and rewrite mentions to resolved display names.
         if (e.redacted || e.formattedBody.isEmpty())
             return QString();
+        // The full character-walk sanitize is NOT cheap and this role is
+        // re-read for every row on member hydration (and twice per binding
+        // evaluation before the QML read was deduplicated). Memoized per
+        // event id; invalidated on edit/replace/redact/theme-color change,
+        // and wholesale on member hydration and reload.
+        const auto memo = m_sanitizedHtmlCache.constFind(e.eventId);
+        if (memo != m_sanitizedHtmlCache.constEnd())
+            return memo.value();
         const QString roomId = m_roomId;
         MatrixClient *client = m_client;
-        return MessageHtml::sanitize(
+        QString sanitized = MessageHtml::sanitize(
             e.formattedBody,
             [client, roomId](const QString &userId) {
                 return client ? client->displayNameFor(roomId, userId)
@@ -520,6 +532,9 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
             MessageHtml::MentionStyle{m_mentionAccentColor,
                                       m_mentionSoftColor,
                                       m_codeBackgroundColor});
+        if (!e.eventId.isEmpty())
+            m_sanitizedHtmlCache.insert(e.eventId, sanitized);
+        return sanitized;
     }
     case TimestampRole:          return e.timestamp;
     case TypeRole:               return static_cast<int>(e.type);
@@ -856,18 +871,34 @@ void TimelineModel::setMentionStyle(const QString &accentColor,
     m_mentionAccentColor = nextAccent;
     m_mentionSoftColor = nextSoft;
     m_codeBackgroundColor = nextCode;
+    m_sanitizedHtmlCache.clear();
     const int exposed = rowCount();
     if (exposed > 0)
         Q_EMIT dataChanged(index(0), index(exposed - 1), {FormattedBodyRole});
 }
 
+const QHash<QString, int> &TimelineModel::rowIndex() const
+{
+    if (m_rowIndexDirty) {
+        m_rowIndex.clear();
+        m_rowIndex.reserve(m_events.size());
+        for (int i = 0; i < m_events.size(); ++i) {
+            const QString &id = m_events.at(i).eventId;
+            // First-wins on a duplicate id, matching the linear scan this
+            // index replaced (and the batch index in RustSdkMatrixClient).
+            if (!id.isEmpty() && !m_rowIndex.contains(id))
+                m_rowIndex.insert(id, i);
+        }
+        m_rowIndexDirty = false;
+    }
+    return m_rowIndex;
+}
+
 int TimelineModel::rowForEventId(const QString &eventId) const
 {
-    for (int i = 0; i < m_events.size(); ++i) {
-        if (m_events.at(i).eventId == eventId)
-            return i;
-    }
-    return -1;
+    if (eventId.isEmpty())
+        return -1;
+    return rowIndex().value(eventId, -1);
 }
 
 void TimelineModel::onEventAppended(const QString &roomId, const TimelineEvent &event)
@@ -877,7 +908,11 @@ void TimelineModel::onEventAppended(const QString &roomId, const TimelineEvent &
     const int publicRow = static_cast<int>(m_events.size());
     beginInsertRows({}, publicRow, publicRow);
     m_events.append(event);
-    rebuildThreadReplyIndex();
+    invalidateRowIndex();
+    // Incremental: an append can only add one reply to one root — the full
+    // O(n) rebuild ran once per live event during sync bursts.
+    if (!event.threadRootId.isEmpty())
+        ++m_threadReplyCounts[event.threadRootId];
     endInsertRows();
     Q_EMIT countChanged();
     emitPresentationGroupingChanged(publicRow - 1, publicRow);
@@ -894,6 +929,9 @@ void TimelineModel::onEventReplaced(const QString &roomId,
         return;
     const bool groupingChanged = groupingInputsDiffer(m_events.at(row), newEvent);
     m_events[row] = newEvent;
+    invalidateRowIndex(); // replacement can rename local: -> remote id
+    m_sanitizedHtmlCache.remove(oldEventId);
+    m_sanitizedHtmlCache.remove(newEvent.eventId);
     rebuildThreadReplyIndex();
     const auto idx = index(row);
     Q_EMIT dataChanged(idx, idx);
@@ -919,20 +957,32 @@ void TimelineModel::onEventEdited(const QString &roomId, const QString &eventId)
 {
     if (roomId != m_roomId) return;
     if (!m_client) return;
-    // Pull fresh event data from client cache.
+    const int row = rowForEventId(eventId);
+    if (row < 0) return;
+    // Pull fresh event data from client cache. The mirror is positionally
+    // aligned with this model (both apply the same diff stream), so the
+    // same row is the O(1) fast path; the scan remains as a correctness
+    // fallback for any transient misalignment.
     const auto latest = m_client->timeline(m_roomId);
-    for (const auto &e : latest) {
-        if (e.eventId == eventId) {
-            const int row = rowForEventId(eventId);
-            if (row < 0) return;
-            m_events[row] = e;
-            rebuildThreadReplyIndex();
-            const auto idx = index(row);
-            Q_EMIT dataChanged(idx, idx,
-                               { BodyRole, FormattedBodyRole, EditedRole });
-            return;
+    const TimelineEvent *fresh = nullptr;
+    if (row < latest.size() && latest.at(row).eventId == eventId) {
+        fresh = &latest.at(row);
+    } else {
+        for (const auto &e : latest) {
+            if (e.eventId == eventId) {
+                fresh = &e;
+                break;
+            }
         }
     }
+    if (!fresh)
+        return;
+    m_events[row] = *fresh;
+    invalidateRowIndex();
+    m_sanitizedHtmlCache.remove(eventId);
+    rebuildThreadReplyIndex();
+    const auto idx = index(row);
+    Q_EMIT dataChanged(idx, idx, { BodyRole, FormattedBodyRole, EditedRole });
 }
 
 void TimelineModel::onEventRedacted(const QString &roomId, const QString &eventId)
@@ -942,6 +992,7 @@ void TimelineModel::onEventRedacted(const QString &roomId, const QString &eventI
     if (row < 0) return;
     m_events[row].redacted = true;
     m_events[row].body.clear();
+    m_sanitizedHtmlCache.remove(eventId);
     const auto idx = index(row);
     Q_EMIT dataChanged(idx, idx, { BodyRole, RedactedRole, ReactionsRole });
     emitPresentationGroupingChanged(row - 1, row + 1);
@@ -953,14 +1004,25 @@ void TimelineModel::onReactionsChanged(const QString &roomId, const QString &eve
     if (!m_client) return;
     const int row = rowForEventId(eventId);
     if (row < 0) return;
+    // Same positional fast path as onEventEdited — the mirror and the model
+    // apply the same diff stream, so `row` is almost always the answer.
     const auto latest = m_client->timeline(m_roomId);
-    for (const auto &e : latest) {
-        if (e.eventId == eventId) {
-            m_events[row].reactions = e.reactions;
-            const auto idx = index(row);
-            Q_EMIT dataChanged(idx, idx, { ReactionsRole });
-            return;
+    const TimelineEvent *fresh = nullptr;
+    if (row < latest.size() && latest.at(row).eventId == eventId) {
+        fresh = &latest.at(row);
+    } else {
+        for (const auto &e : latest) {
+            if (e.eventId == eventId) {
+                fresh = &e;
+                break;
+            }
         }
+    }
+    if (fresh) {
+        m_events[row].reactions = fresh->reactions;
+        const auto idx = index(row);
+        Q_EMIT dataChanged(idx, idx, { ReactionsRole });
+        return;
     }
 }
 
@@ -972,6 +1034,7 @@ void TimelineModel::onEventsPrepended(const QString &roomId,
     beginInsertRows({}, 0, events.size() - 1);
     for (int i = events.size() - 1; i >= 0; --i)
         m_events.prepend(events.at(i));
+    invalidateRowIndex();
     rebuildThreadReplyIndex();
     endInsertRows();
     Q_EMIT countChanged();
@@ -1003,7 +1066,9 @@ void TimelineModel::onEventInsertedAt(const QString &roomId, int index,
     }
     beginInsertRows({}, index, index);
     m_events.insert(index, event);
-    rebuildThreadReplyIndex();
+    invalidateRowIndex();
+    if (!event.threadRootId.isEmpty())
+        ++m_threadReplyCounts[event.threadRootId];
     endInsertRows();
     Q_EMIT countChanged();
     emitPresentationGroupingChanged(index - 1, index + 1);
@@ -1022,6 +1087,7 @@ void TimelineModel::onEventsInsertedAt(
     beginInsertRows({}, index, index + events.size() - 1);
     for (int offset = 0; offset < events.size(); ++offset)
         m_events.insert(index + offset, events.at(offset));
+    invalidateRowIndex();
     rebuildThreadReplyIndex();
     endInsertRows();
     Q_EMIT countChanged();
@@ -1051,7 +1117,10 @@ void TimelineModel::onEventChangedAt(const QString &roomId, int index,
     // rebuild a real cost in long timelines.
     const bool threadIndexChanged =
         m_events.at(index).threadRootId != event.threadRootId;
+    m_sanitizedHtmlCache.remove(m_events.at(index).eventId);
+    m_sanitizedHtmlCache.remove(event.eventId);
     m_events[index] = event;
+    invalidateRowIndex();
     if (threadIndexChanged)
         rebuildThreadReplyIndex();
     const auto idx = this->index(index);
@@ -1069,8 +1138,15 @@ void TimelineModel::onEventRemovedAt(const QString &roomId, int index)
         return;
     }
     beginRemoveRows({}, index, index);
+    const QString removedRoot = m_events.at(index).threadRootId;
+    m_sanitizedHtmlCache.remove(m_events.at(index).eventId);
     m_events.removeAt(index);
-    rebuildThreadReplyIndex();
+    invalidateRowIndex();
+    if (!removedRoot.isEmpty()) {
+        const auto it = m_threadReplyCounts.find(removedRoot);
+        if (it != m_threadReplyCounts.end() && --it.value() <= 0)
+            m_threadReplyCounts.erase(it);
+    }
     endRemoveRows();
     Q_EMIT countChanged();
     emitPresentationGroupingChanged(index - 1, index);
@@ -1088,8 +1164,11 @@ void TimelineModel::onEventsTruncatedTo(const QString &roomId, int length)
         return;
     const int publicSize = static_cast<int>(m_events.size());
     beginRemoveRows({}, length, publicSize - 1);
-    while (m_events.size() > length)
+    while (m_events.size() > length) {
+        m_sanitizedHtmlCache.remove(m_events.last().eventId);
         m_events.removeLast();
+    }
+    invalidateRowIndex();
     rebuildThreadReplyIndex();
     endRemoveRows();
     Q_EMIT countChanged();
@@ -1100,6 +1179,10 @@ void TimelineModel::onLoggedOut()
 {
     beginResetModel();
     m_events.clear();
+    invalidateRowIndex();
+    // Rendered message HTML is decrypted plaintext for encrypted rooms —
+    // it must not outlive the session (review M4).
+    m_sanitizedHtmlCache.clear();
     m_threadReplyCounts.clear();
     m_roomId.clear();
     endResetModel();
@@ -1119,6 +1202,7 @@ void TimelineModel::onTypingChanged(const QString &roomId)
 void TimelineModel::onMembersChanged(const QString &roomId)
 {
     if (roomId != m_roomId) return;
+    m_sanitizedHtmlCache.clear(); // mention chips embed resolved names
     // Refresh SDK/member-derived identity for every row (cheap: one signal).
     // FormattedBodyRole and ReplyToSenderRole are member-derived too: mention
     // chips and reply headers resolve display names through the SAME member
@@ -1315,13 +1399,8 @@ QVariantMap TimelineModel::layoutMetadataAt(int row) const
 
 const TimelineEvent *TimelineModel::eventForId(const QString &eventId) const
 {
-    if (eventId.isEmpty())
-        return nullptr;
-    for (const auto &event : m_events) {
-        if (event.eventId == eventId)
-            return &event;
-    }
-    return nullptr;
+    const int row = rowForEventId(eventId);
+    return row >= 0 ? &m_events.at(row) : nullptr;
 }
 
 QString TimelineModel::visibleTextForEvent(const QString &eventId) const
@@ -1495,6 +1574,8 @@ void TimelineModel::reload()
     m_events = (m_client && !m_roomId.isEmpty())
                    ? m_client->timeline(m_roomId)
                    : QList<TimelineEvent>{};
+    invalidateRowIndex();
+    m_sanitizedHtmlCache.clear();
     rebuildThreadReplyIndex();
     endResetModel();
     Q_EMIT countChanged();

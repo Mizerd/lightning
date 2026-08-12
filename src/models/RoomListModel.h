@@ -118,6 +118,8 @@ private:
     QString m_pendingSearchQuery;
     quint64 m_filterGeneration = 1;
     QTimer m_searchDebounce;
+    // Coalesces per-event refreshRoom() calls into one reconcile per turn.
+    QTimer m_reconcileCoalesce;
     QHash<QString, QString> m_profileAvatars;
     QHash<quint64, QString> m_profileOps;
     QSet<QString> m_profilePending;

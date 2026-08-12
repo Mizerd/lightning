@@ -322,9 +322,13 @@ Item {
     objectName: "messageDelegateRoot"
     function resetForReuse() {
         menuEventId = ""
-        messageDetailsDialog.details = ({})
-        if (moreMenu.visible) moreMenu.close()
-        if (messageDetailsDialog.visible) messageDetailsDialog.close()
+        if (detailsDialogItem) {
+            detailsDialogItem.details = ({})
+            if (detailsDialogItem.visible)
+                detailsDialogItem.close()
+        }
+        if (moreMenuItem && moreMenuItem.visible)
+            moreMenuItem.close()
         refreshPreview()
     }
     ListView.onReused: resetForReuse()
@@ -341,7 +345,7 @@ Item {
         var p = root.mapToItem(Overlay.overlay,
                                x === undefined ? root.width : x,
                                y === undefined ? 0 : y)
-        moreMenu.popup(Overlay.overlay, p.x, p.y)
+        root.ensureContextMenu().popup(Overlay.overlay, p.x, p.y)
     }
     function copyToClipboard(value) {
         if (!value || value.length === 0) return
@@ -575,6 +579,7 @@ Item {
                     anchors.top: parent.top
                     visible: root.showsIdentity && !root.compactMode
                              && !(root.bubbleMode && model.isOwn === true)
+                    onScreen: root.rowOnScreen
                     size: 32
                     mxc: model.senderAvatarMxc || ""
                     name: model.senderDisplayName || model.senderInitials
@@ -991,9 +996,13 @@ Item {
                             // their sanitized HTML directly — it is already a
                             // safe RichText subset from MessageHtml::sanitize,
                             // so it must NOT be re-escaped through linkifiedBody.
-                            if (model.formattedBody && model.formattedBody.length > 0)
+                            // Read the role ONCE — each read used to run the
+                            // full sanitize in C++ (now memoized, but one
+                            // read is still half the work of two).
+                            var fb = model.formattedBody
+                            if (fb && fb.length > 0)
                                 return root.highlightSearchMatches(
-                                            model.formattedBody,
+                                            fb,
                                             root.searchHighlight,
                                             root.isCurrentSearchHit)
                             return root.highlightSearchMatches(
@@ -1255,15 +1264,31 @@ Item {
             // while it is pinned open by a click, or while one of its menus
             // is open — so it never vanishes as the pointer travels from the
             // message to the buttons. Subtle AppTheme surface/border framing.
-            Rectangle {
-                id: actionBar
+            // Perf: the four-button hover action bar is created on first
+            // hover (or pin / open menu) instead of eagerly for every
+            // loaded row, then kept for the delegate's lifetime with
+            // visibility gating — zero creation cost at room open.
+            Loader {
+                id: actionBarLoader
                 anchors.top: parent.top
                 anchors.right: parent.right
                 anchors.topMargin: -3
                 anchors.rightMargin: 2
-                visible: rowHover.hovered || root.actionsPinned
-                         || moreMenu.opened
                 z: 3
+                // Created on first need, then latched alive for the
+                // delegate's lifetime; visibility gates afterwards. The
+                // latch write is DEFERRED: onLoaded fires synchronously
+                // inside the active binding's own evaluation, and a direct
+                // write to one of its dependencies from there is a
+                // detected binding loop.
+                property bool latched: false
+                active: latched || rowHover.hovered || root.actionsPinned
+                        || root.moreMenuOpen
+                onLoaded: Qt.callLater(function() { latched = true })
+                visible: rowHover.hovered || root.actionsPinned
+                         || root.moreMenuOpen
+                sourceComponent: Rectangle {
+                id: actionBar
                 // v0.6.5 (SPEC 1a): container surface bg, 1px borderStrong,
                 // radius radiusTile, 2px padding.
                 radius: AppTheme.radiusTile
@@ -1283,9 +1308,13 @@ Item {
                         radius: AppTheme.radiusControl
                         iconName: "add_reaction"
                         iconSize: 18
+                        // Cheap local predicate — semantically identical
+                        // to "messagePermalink() is non-empty" but without
+                        // the per-row O(n) timeline scan the C++ call cost
+                        // (three of these per row made room open O(n²)).
                         enabled: !model.redacted
-                                 && root.timelineModel.messagePermalink(
-                                     root.eventIdForActions()).length > 0
+                                 && (model.eventId || "").length > 0
+                                 && model.eventId.indexOf("local:") !== 0
                         Accessible.name: qsTr("React to message")
                         ToolTip.text: qsTr("React")
                         ToolTip.visible: hovered
@@ -1302,9 +1331,13 @@ Item {
                         radius: AppTheme.radiusControl
                         iconName: "reply"
                         iconSize: 18
+                        // Cheap local predicate — semantically identical
+                        // to "messagePermalink() is non-empty" but without
+                        // the per-row O(n) timeline scan the C++ call cost
+                        // (three of these per row made room open O(n²)).
                         enabled: !model.redacted
-                                 && root.timelineModel.messagePermalink(
-                                     root.eventIdForActions()).length > 0
+                                 && (model.eventId || "").length > 0
+                                 && model.eventId.indexOf("local:") !== 0
                         Accessible.name: qsTr("Reply to message")
                         ToolTip.text: qsTr("Reply")
                         ToolTip.visible: hovered
@@ -1319,9 +1352,13 @@ Item {
                         iconName: "forum"
                         iconSize: 18
                         visible: !root.inThreadPanel
+                        // Cheap local predicate — semantically identical
+                        // to "messagePermalink() is non-empty" but without
+                        // the per-row O(n) timeline scan the C++ call cost
+                        // (three of these per row made room open O(n²)).
                         enabled: !model.redacted
-                                 && root.timelineModel.messagePermalink(
-                                     root.eventIdForActions()).length > 0
+                                 && (model.eventId || "").length > 0
+                                 && model.eventId.indexOf("local:") !== 0
                         Accessible.name: qsTr("Reply in thread")
                         ToolTip.text: qsTr("Reply in thread")
                         ToolTip.visible: hovered
@@ -1341,301 +1378,42 @@ Item {
                         iconSize: 18
                         // v0.6.5 (SPEC 1a): active button gets the accentSoft
                         // chip while its menu is open.
-                        active: moreMenu.opened
+                        active: root.moreMenuOpen
                         Accessible.name: qsTr("More message actions")
                         ToolTip.text: qsTr("More")
                         ToolTip.visible: hovered
                         ToolTip.delay: 500
-                        onClicked: root.openContextMenu(root.width - moreMenu.implicitWidth,
-                                                       actionBar.y + actionBar.height)
-                        // v0.7: the message action menu is a Lightning
-                        // popover — flat themed surface, icon + label rows,
-                        // logical separators, danger-styled destructive
-                        // action. Every action re-resolves its event by the
-                        // STABLE id snapshotted when the menu opened
-                        // (menuEventId), never a recycled delegate's row.
-                        AppMenu {
-                            id: moreMenu
-                            objectName: "messageContextMenu"
-                            menuWidth: AppTheme.menuWidthMessage
-                            // Storm §3.1 mono context header — this row's own
-                            // sender and time (the menu instance lives in the
-                            // delegate, so the row data is authoritative).
-                            contextLabel: qsTr("Message · %1 · %2")
-                                .arg(model.senderDisplayName || model.sender || "")
-                                .arg(Qt.formatDateTime(model.timestamp, "hh:mm"))
-                            onClosed: root.menuEventId = ""
-                            // v0.6.5 (SPEC 1a): single-key accelerators while
-                            // the menu is open. Keys cannot attach to a Menu
-                            // (a Popup, not an Item), so these are Shortcuts
-                            // scoped by moreMenu.opened — inert whenever the
-                            // menu is closed. Each one calls exactly the same
-                            // action expression as the matching row's
-                            // onTriggered below, gated by the same enabled
-                            // condition, then closes the menu. The mock hints
-                            // ↑ on Edit (a composer-history convention this
-                            // app does not have, and a Key_Up shortcut would
-                            // steal menu arrow navigation) — the real binding
-                            // is E and the row's keycap says so.
-                            Shortcut {
-                                sequence: "R"
-                                enabled: moreMenu.opened
-                                context: Qt.ApplicationShortcut
-                                onActivated: {
-                                    if (root.timelineModel.messagePermalink(
-                                            root.menuEventId).length > 0
-                                        && !root.timelineModel.messageDetails(
-                                            root.menuEventId).redacted) {
-                                        root.beginReply(root.menuEventId)
-                                        moreMenu.close()
-                                    }
-                                }
-                            }
-                            Shortcut {
-                                sequence: "T"
-                                enabled: moreMenu.opened
-                                context: Qt.ApplicationShortcut
-                                onActivated: {
-                                    if (root.timelineModel.messagePermalink(
-                                            root.menuEventId).length > 0
-                                        && !root.timelineModel.messageDetails(
-                                            root.menuEventId).redacted) {
-                                        var details = root.timelineModel.messageDetails(
-                                                          root.menuEventId)
-                                        var rootId = (details.threadRootId || "").length > 0
-                                                     ? details.threadRootId
-                                                     : root.menuEventId
-                                        app.thread.openThread(app.currentRoomId, rootId)
-                                        moreMenu.close()
-                                    }
-                                }
-                            }
-                            Shortcut {
-                                sequence: "E"
-                                enabled: moreMenu.opened
-                                context: Qt.ApplicationShortcut
-                                onActivated: {
-                                    if (root.timelineModel.canEditEvent(root.menuEventId)) {
-                                        app.composer.beginEdit(
-                                            root.menuEventId,
-                                            root.timelineModel.visibleTextForEvent(
-                                                root.menuEventId),
-                                            root.timelineModel.sanitizedHtmlForEvent(
-                                                root.menuEventId))
-                                        moreMenu.close()
-                                    }
-                                }
-                            }
-                            Shortcut {
-                                sequence: "Ctrl+C"
-                                enabled: moreMenu.opened
-                                context: Qt.ApplicationShortcut
-                                onActivated: {
-                                    if (root.timelineModel.visibleTextForEvent(
-                                            root.menuEventId).length > 0) {
-                                        root.copyToClipboard(
-                                            root.timelineModel.visibleTextForEvent(
-                                                root.menuEventId))
-                                        moreMenu.close()
-                                    }
-                                }
-                            }
-                            // v0.6.5 (SPEC 1a): quick-react row — the 5 most
-                            // recently used emoji plus a trailing "more" cell
-                            // that opens the full shared picker. Replaces the
-                            // standalone "React" row (removed below); the
-                            // hover action bar's own React button is a
-                            // separate affordance and is unaffected.
-                            QuickReactionStrip {
-                                objectName: "quickReactionStrip"
-                                emojis: app.emojiCatalog.recentEmoji || []
-                                enabled: root.timelineModel.messagePermalink(
-                                             root.menuEventId).length > 0
-                                         && !root.timelineModel.messageDetails(
-                                             root.menuEventId).redacted
-                                opacity: enabled ? 1.0 : 0.5
-                                onPicked: (emoji) => {
-                                    if (root.timelineModel.messagePermalink(
-                                            root.menuEventId).length === 0
-                                        || root.timelineModel.messageDetails(
-                                            root.menuEventId).redacted)
-                                        return
-                                    app.composer.reactTo(root.menuEventId, emoji)
-                                    moreMenu.close()
-                                }
-                                onMorePressed: {
-                                    root.openReactionPickerFor(root.menuEventId, bubbleRow)
-                                    moreMenu.close()
-                                }
-                            }
-                            AppMenuItem {
-                                iconName: "reply"
-                                text: qsTr("Reply")
-                                accel: "R"
-                                enabled: root.timelineModel.messagePermalink(
-                                             root.menuEventId).length > 0
-                                         && !root.timelineModel.messageDetails(
-                                             root.menuEventId).redacted
-                                onTriggered: root.beginReply(root.menuEventId)
-                            }
-                            AppMenuItem {
-                                iconName: "forum"
-                                text: qsTr("Reply in thread")
-                                accel: "T"
-                                enabled: root.timelineModel.messagePermalink(
-                                             root.menuEventId).length > 0
-                                         && !root.timelineModel.messageDetails(
-                                             root.menuEventId).redacted
-                                onTriggered: {
-                                    var details = root.timelineModel.messageDetails(
-                                                      root.menuEventId)
-                                    var rootId = (details.threadRootId || "").length > 0
-                                                 ? details.threadRootId
-                                                 : root.menuEventId
-                                    // v0.6.0: opens the thread panel; its
-                                    // composer sends real SDK m.thread
-                                    // replies.
-                                    app.thread.openThread(app.currentRoomId,
-                                                          rootId)
-                                }
-                            }
-                            // v0.6.0 checkpoint 5: from a thread reply,
-                            // locate the same event in the room timeline
-                            // (highlighted); the existing navigation shows a
-                            // safe message when the target is unavailable.
-                            AppMenuItem {
-                                iconName: "arrow_forward"
-                                text: qsTr("Open in room")
-                                visible: root.inThreadPanel
-                                enabled: root.menuEventId !== ""
-                                onTriggered: app.pagination.jumpToEvent(
-                                    root.menuEventId)
-                            }
-                            AppMenuSeparator {}
-                            AppMenuItem {
-                                iconName: "content_copy"
-                                text: qsTr("Copy text")
-                                accel: "Ctrl+C"
-                                enabled: root.timelineModel.visibleTextForEvent(
-                                             root.menuEventId).length > 0
-                                onTriggered: root.copyToClipboard(
-                                    root.timelineModel.visibleTextForEvent(root.menuEventId))
-                            }
-                            AppMenuItem {
-                                iconName: "link"
-                                text: qsTr("Copy message link")
-                                enabled: root.timelineModel.messagePermalink(
-                                             root.menuEventId).length > 0
-                                onTriggered: root.copyToClipboard(
-                                    root.timelineModel.messagePermalink(root.menuEventId))
-                            }
-                            // v0.7: unified media action — every media row
-                            // offers Save from the same menu (cards keep
-                            // their inline affordances too).
-                            AppMenuItem {
-                                objectName: "saveMediaMenuItem"
-                                iconName: "download"
-                                text: qsTr("Save as…")
-                                visible: (model.isImage === true
-                                          || model.isVideo === true
-                                          || model.isAudio === true
-                                          || model.isSticker === true
-                                          || model.isFile === true)
-                                         && model.mediaSourceAvailable === true
-                                         && app.mediaBridge.supported
-                                enabled: visible && root.menuEventId !== ""
-                                onTriggered: {
-                                    if (root.timelineView
-                                        && root.timelineView.saveMedia)
-                                        root.timelineView.saveMedia(
-                                            model.mediaKey || "",
-                                            model.mediaFilename || "download")
-                                }
-                            }
-                            // v0.6.6 UX rework: GIF starring moved OFF this
-                            // menu entirely — it is now a Discord-style hover
-                            // star overlaid on the GIF media itself (see
-                            // imageComponent's starEligible/refreshStarredState
-                            // below), never a dropdown row.
-                            // SPEC 1a: the copy group and the people/editing
-                            // group are separate — third divider.
-                            AppMenuSeparator { }
-                            AppMenuItem {
-                                iconName: "person"
-                                text: qsTr("View profile")
-                                enabled: root.menuEventId !== ""
-                                         && root.timelineView
-                                         && !!root.timelineView.openSenderProfile
-                                onTriggered: {
-                                    var details = root.timelineModel.messageDetails(
-                                                      root.menuEventId)
-                                    if (!details.senderId)
-                                        return
-                                    root.timelineView.openSenderProfile({
-                                        userId: details.senderId,
-                                        displayName: details.senderName || "",
-                                        avatarUrl: model.senderAvatarMxc || ""
-                                    })
-                                }
-                            }
-                            AppMenuItem {
-                                iconName: "info"
-                                text: qsTr("View details")
-                                enabled: root.menuEventId !== ""
-                                onTriggered: {
-                                    messageDetailsDialog.details =
-                                        root.timelineModel.messageDetails(root.menuEventId)
-                                    if (messageDetailsDialog.details.eventId)
-                                        messageDetailsDialog.open()
-                                }
-                            }
-                            AppMenuItem {
-                                iconName: "edit_square"
-                                text: qsTr("Edit")
-                                accel: "E"
-                                enabled: root.timelineModel.canEditEvent(root.menuEventId)
-                                visible: enabled
-                                onTriggered: app.composer.beginEdit(
-                                    root.menuEventId,
-                                    root.timelineModel.visibleTextForEvent(root.menuEventId),
-                                    root.timelineModel.sanitizedHtmlForEvent(root.menuEventId))
-                            }
-                            // v0.7 polls: conservative rule — own running
-                            // polls only. The server and receiving clients
-                            // enforce the actual MSC3381 permission rules.
-                            AppMenuItem {
-                                objectName: "endPollMenuItem"
-                                iconName: "check_circle"
-                                text: qsTr("End poll")
-                                visible: model.isPoll === true
-                                         && model.canEndPoll === true
-                                enabled: visible && root.menuEventId !== ""
-                                onTriggered: app.composer.endPoll(
-                                    root.menuEventId,
-                                    root.inThreadPanel
-                                    ? (app.thread.rootEventId || "") : "")
-                            }
-                            AppMenuSeparator {
-                                visible: root.timelineModel.canRedactEvent(
-                                             root.menuEventId)
-                            }
-                            AppMenuItem {
-                                iconName: "delete"
-                                text: qsTr("Delete")
-                                danger: true
-                                enabled: root.timelineModel.canRedactEvent(root.menuEventId)
-                                visible: enabled
-                                onTriggered: app.composer.redact(root.menuEventId)
-                            }
+                        onClicked: {
+                            var menu = root.ensureContextMenu()
+                            root.openContextMenu(
+                                root.width - menu.implicitWidth,
+                                actionBarLoader.y + actionBarLoader.height)
                         }
                     }
                 }
+            }
             }
         }
 
         // Reactions row
         Flow {
-            visible: !model.redacted && model.reactions && model.reactions.length > 0
+            id: reactionsFlow
+            // Identity-guarded projection (same pattern as the read-receipt
+            // strip below): ReactionsRole builds a fresh QVariantList on
+            // every read, and a Repeater bound to it tore down and rebuilt
+            // every chip on every unrelated Set diff (receipt moves alone
+            // made that per-message-burst). Only a REAL change replaces the
+            // model the Repeater sees.
+            readonly property var liveReactions: model.reactions || []
+            property var shownReactions: []
+            function refreshReactions() {
+                var next = liveReactions
+                if (JSON.stringify(next) !== JSON.stringify(shownReactions))
+                    shownReactions = next
+            }
+            onLiveReactionsChanged: refreshReactions()
+            Component.onCompleted: refreshReactions()
+            visible: !model.redacted && shownReactions.length > 0
             Layout.alignment: Qt.AlignLeft
             // Align with the message body across every layout mode (Modern 40,
             // compact 8, bubble 44) instead of a fixed 36; add a deliberate
@@ -1645,7 +1423,7 @@ Item {
             Layout.topMargin: AppTheme.spacingXS
             spacing: AppTheme.spacingXS
             Repeater {
-                model: root.reactionsList()
+                model: reactionsFlow.shownReactions
                 Rectangle {
                     id: reactionChip
                     objectName: "reactionChip"
@@ -1856,6 +1634,7 @@ Item {
                         }
                         Avatar {
                             anchors.centerIn: parent
+                            onScreen: root.rowOnScreen
                             size: 16
                             mxc: modelData.avatarMxc
                             name: modelData.displayName
@@ -1916,64 +1695,366 @@ Item {
         height: 0
     }
 
-    Dialog {
-        id: messageDetailsDialog
-        objectName: "messageDetailsDialog"
-        parent: Overlay.overlay
-        anchors.centerIn: parent
-        modal: true
-        title: qsTr("Message details")
-        standardButtons: Dialog.Ok
-        property var details: ({})
-        width: Math.min(520, parent ? parent.width - 32 : 520)
-        contentItem: ColumnLayout {
-            spacing: AppTheme.spacingS
-            Repeater {
-                model: [
-                    [qsTr("Sender"), messageDetailsDialog.details.senderName || ""],
-                    [qsTr("Sender ID"), messageDetailsDialog.details.senderId || ""],
-                    [qsTr("Timestamp"), messageDetailsDialog.details.timestamp || ""],
-                    [qsTr("Room ID"), messageDetailsDialog.details.roomId || ""],
-                    [qsTr("Event ID"), messageDetailsDialog.details.eventId || ""],
-                    [qsTr("Type"), messageDetailsDialog.details.eventType || ""],
-                    [qsTr("Delivery"), messageDetailsDialog.details.delivery || ""],
-                    [qsTr("Encryption"), messageDetailsDialog.details.encryption || ""],
-                    [qsTr("Decryption"), messageDetailsDialog.details.decryption || ""],
-                    [qsTr("Edited"), messageDetailsDialog.details.edited ? qsTr("Yes") : qsTr("No")],
-                    [qsTr("Redacted"), messageDetailsDialog.details.redacted ? qsTr("Yes") : qsTr("No")],
-                    [qsTr("Reply target"), messageDetailsDialog.details.replyTargetId || ""]
-                ]
-                RowLayout {
-                    visible: modelData[1] !== ""
-                    Layout.fillWidth: true
-                    Label {
-                        text: modelData[0]
-                        color: AppTheme.textMuted
-                        Layout.preferredWidth: 110
-                    }
-                    Label {
-                        text: modelData[1]
-                        color: AppTheme.text
-                        wrapMode: Text.WrapAnywhere
-                        textFormat: Text.PlainText
-                        Layout.fillWidth: true
+    // Perf: the ~25-item context menu (with its Shortcuts and quick-react
+    // strip) and the modal details dialog used to be instantiated eagerly
+    // by EVERY loaded row — the dominant per-row creation cost this
+    // timeline pays for its no-virtualization design. Both now load on
+    // first use and stay loaded for the delegate's lifetime. The Loaders
+    // inherit the delegate context, so model.* and every root.* helper
+    // resolve exactly as before.
+    readonly property bool moreMenuOpen:
+        moreMenuItem ? moreMenuItem.opened : false
+    function ensureContextMenu() {
+        if (!moreMenuItem)
+            moreMenuItem = moreMenuComponent.createObject(root)
+        return moreMenuItem
+    }
+    function openMessageDetails(details) {
+        if (!details || !details.eventId)
+            return
+        if (!detailsDialogItem)
+            detailsDialogItem = detailsDialogComponent.createObject(root)
+        detailsDialogItem.details = details
+        detailsDialogItem.open()
+    }
+    // Popups are not Items, so a Loader cannot host them — lazy-create
+    // through a Component instead (created parented to the delegate, so
+    // lifetime and context are identical to the old inline declaration).
+    property var moreMenuItem: null
+    Component {
+        id: moreMenuComponent
+        AppMenu {
+            id: moreMenu
+            objectName: "messageContextMenu"
+            menuWidth: AppTheme.menuWidthMessage
+            // Storm §3.1 mono context header — this row's own
+            // sender and time (the menu instance lives in the
+            // delegate, so the row data is authoritative).
+            contextLabel: qsTr("Message · %1 · %2")
+                .arg(model.senderDisplayName || model.sender || "")
+                .arg(Qt.formatDateTime(model.timestamp, "hh:mm"))
+            onClosed: root.menuEventId = ""
+            // v0.6.5 (SPEC 1a): single-key accelerators while
+            // the menu is open. Keys cannot attach to a Menu
+            // (a Popup, not an Item), so these are Shortcuts
+            // scoped by moreMenu.opened — inert whenever the
+            // menu is closed. Each one calls exactly the same
+            // action expression as the matching row's
+            // onTriggered below, gated by the same enabled
+            // condition, then closes the menu. The mock hints
+            // ↑ on Edit (a composer-history convention this
+            // app does not have, and a Key_Up shortcut would
+            // steal menu arrow navigation) — the real binding
+            // is E and the row's keycap says so.
+            Shortcut {
+                sequence: "R"
+                enabled: moreMenu.opened
+                context: Qt.ApplicationShortcut
+                onActivated: {
+                    if (root.timelineModel.messagePermalink(
+                            root.menuEventId).length > 0
+                        && !root.timelineModel.messageDetails(
+                            root.menuEventId).redacted) {
+                        root.beginReply(root.menuEventId)
+                        moreMenu.close()
                     }
                 }
             }
+            Shortcut {
+                sequence: "T"
+                enabled: moreMenu.opened
+                context: Qt.ApplicationShortcut
+                onActivated: {
+                    if (root.timelineModel.messagePermalink(
+                            root.menuEventId).length > 0
+                        && !root.timelineModel.messageDetails(
+                            root.menuEventId).redacted) {
+                        var details = root.timelineModel.messageDetails(
+                                          root.menuEventId)
+                        var rootId = (details.threadRootId || "").length > 0
+                                     ? details.threadRootId
+                                     : root.menuEventId
+                        app.thread.openThread(app.currentRoomId, rootId)
+                        moreMenu.close()
+                    }
+                }
+            }
+            Shortcut {
+                sequence: "E"
+                enabled: moreMenu.opened
+                context: Qt.ApplicationShortcut
+                onActivated: {
+                    if (root.timelineModel.canEditEvent(root.menuEventId)) {
+                        app.composer.beginEdit(
+                            root.menuEventId,
+                            root.timelineModel.visibleTextForEvent(
+                                root.menuEventId),
+                            root.timelineModel.sanitizedHtmlForEvent(
+                                root.menuEventId))
+                        moreMenu.close()
+                    }
+                }
+            }
+            Shortcut {
+                sequence: "Ctrl+C"
+                enabled: moreMenu.opened
+                context: Qt.ApplicationShortcut
+                onActivated: {
+                    if (root.timelineModel.visibleTextForEvent(
+                            root.menuEventId).length > 0) {
+                        root.copyToClipboard(
+                            root.timelineModel.visibleTextForEvent(
+                                root.menuEventId))
+                        moreMenu.close()
+                    }
+                }
+            }
+            // v0.6.5 (SPEC 1a): quick-react row — the 5 most
+            // recently used emoji plus a trailing "more" cell
+            // that opens the full shared picker. Replaces the
+            // standalone "React" row (removed below); the
+            // hover action bar's own React button is a
+            // separate affordance and is unaffected.
+            QuickReactionStrip {
+                objectName: "quickReactionStrip"
+                emojis: app.emojiCatalog.recentEmoji || []
+                enabled: root.timelineModel.messagePermalink(
+                             root.menuEventId).length > 0
+                         && !root.timelineModel.messageDetails(
+                             root.menuEventId).redacted
+                opacity: enabled ? 1.0 : 0.5
+                onPicked: (emoji) => {
+                    if (root.timelineModel.messagePermalink(
+                            root.menuEventId).length === 0
+                        || root.timelineModel.messageDetails(
+                            root.menuEventId).redacted)
+                        return
+                    app.composer.reactTo(root.menuEventId, emoji)
+                    moreMenu.close()
+                }
+                onMorePressed: {
+                    root.openReactionPickerFor(root.menuEventId, bubbleRow)
+                    moreMenu.close()
+                }
+            }
+            AppMenuItem {
+                iconName: "reply"
+                text: qsTr("Reply")
+                accel: "R"
+                enabled: root.timelineModel.messagePermalink(
+                             root.menuEventId).length > 0
+                         && !root.timelineModel.messageDetails(
+                             root.menuEventId).redacted
+                onTriggered: root.beginReply(root.menuEventId)
+            }
+            AppMenuItem {
+                iconName: "forum"
+                text: qsTr("Reply in thread")
+                accel: "T"
+                enabled: root.timelineModel.messagePermalink(
+                             root.menuEventId).length > 0
+                         && !root.timelineModel.messageDetails(
+                             root.menuEventId).redacted
+                onTriggered: {
+                    var details = root.timelineModel.messageDetails(
+                                      root.menuEventId)
+                    var rootId = (details.threadRootId || "").length > 0
+                                 ? details.threadRootId
+                                 : root.menuEventId
+                    // v0.6.0: opens the thread panel; its
+                    // composer sends real SDK m.thread
+                    // replies.
+                    app.thread.openThread(app.currentRoomId,
+                                          rootId)
+                }
+            }
+            // v0.6.0 checkpoint 5: from a thread reply,
+            // locate the same event in the room timeline
+            // (highlighted); the existing navigation shows a
+            // safe message when the target is unavailable.
+            AppMenuItem {
+                iconName: "arrow_forward"
+                text: qsTr("Open in room")
+                visible: root.inThreadPanel
+                enabled: root.menuEventId !== ""
+                onTriggered: app.pagination.jumpToEvent(
+                    root.menuEventId)
+            }
+            AppMenuSeparator {}
+            AppMenuItem {
+                iconName: "content_copy"
+                text: qsTr("Copy text")
+                accel: "Ctrl+C"
+                enabled: root.timelineModel.visibleTextForEvent(
+                             root.menuEventId).length > 0
+                onTriggered: root.copyToClipboard(
+                    root.timelineModel.visibleTextForEvent(root.menuEventId))
+            }
+            AppMenuItem {
+                iconName: "link"
+                text: qsTr("Copy message link")
+                enabled: root.timelineModel.messagePermalink(
+                             root.menuEventId).length > 0
+                onTriggered: root.copyToClipboard(
+                    root.timelineModel.messagePermalink(root.menuEventId))
+            }
+            // v0.7: unified media action — every media row
+            // offers Save from the same menu (cards keep
+            // their inline affordances too).
+            AppMenuItem {
+                objectName: "saveMediaMenuItem"
+                iconName: "download"
+                text: qsTr("Save as…")
+                visible: (model.isImage === true
+                          || model.isVideo === true
+                          || model.isAudio === true
+                          || model.isSticker === true
+                          || model.isFile === true)
+                         && model.mediaSourceAvailable === true
+                         && app.mediaBridge.supported
+                enabled: visible && root.menuEventId !== ""
+                onTriggered: {
+                    if (root.timelineView
+                        && root.timelineView.saveMedia)
+                        root.timelineView.saveMedia(
+                            model.mediaKey || "",
+                            model.mediaFilename || "download")
+                }
+            }
+            // v0.6.6 UX rework: GIF starring moved OFF this
+            // menu entirely — it is now a Discord-style hover
+            // star overlaid on the GIF media itself (see
+            // imageComponent's starEligible/refreshStarredState
+            // below), never a dropdown row.
+            // SPEC 1a: the copy group and the people/editing
+            // group are separate — third divider.
+            AppMenuSeparator { }
+            AppMenuItem {
+                iconName: "person"
+                text: qsTr("View profile")
+                enabled: root.menuEventId !== ""
+                         && root.timelineView
+                         && !!root.timelineView.openSenderProfile
+                onTriggered: {
+                    var details = root.timelineModel.messageDetails(
+                                      root.menuEventId)
+                    if (!details.senderId)
+                        return
+                    root.timelineView.openSenderProfile({
+                        userId: details.senderId,
+                        displayName: details.senderName || "",
+                        avatarUrl: model.senderAvatarMxc || ""
+                    })
+                }
+            }
+            AppMenuItem {
+                iconName: "info"
+                text: qsTr("View details")
+                enabled: root.menuEventId !== ""
+                onTriggered: root.openMessageDetails(
+                    root.timelineModel.messageDetails(
+                        root.menuEventId))
+            }
+            AppMenuItem {
+                iconName: "edit_square"
+                text: qsTr("Edit")
+                accel: "E"
+                enabled: root.timelineModel.canEditEvent(root.menuEventId)
+                visible: enabled
+                onTriggered: app.composer.beginEdit(
+                    root.menuEventId,
+                    root.timelineModel.visibleTextForEvent(root.menuEventId),
+                    root.timelineModel.sanitizedHtmlForEvent(root.menuEventId))
+            }
+            // v0.7 polls: conservative rule — own running
+            // polls only. The server and receiving clients
+            // enforce the actual MSC3381 permission rules.
+            AppMenuItem {
+                objectName: "endPollMenuItem"
+                iconName: "check_circle"
+                text: qsTr("End poll")
+                visible: model.isPoll === true
+                         && model.canEndPoll === true
+                enabled: visible && root.menuEventId !== ""
+                onTriggered: app.composer.endPoll(
+                    root.menuEventId,
+                    root.inThreadPanel
+                    ? (app.thread.rootEventId || "") : "")
+            }
+            AppMenuSeparator {
+                visible: root.timelineModel.canRedactEvent(
+                             root.menuEventId)
+            }
+            AppMenuItem {
+                iconName: "delete"
+                text: qsTr("Delete")
+                danger: true
+                enabled: root.timelineModel.canRedactEvent(root.menuEventId)
+                visible: enabled
+                onTriggered: app.composer.redact(root.menuEventId)
+            }
         }
     }
+    property var detailsDialogItem: null
+    Component {
+        id: detailsDialogComponent
+        Dialog {
+                id: messageDetailsDialog
+                objectName: "messageDetailsDialog"
+                parent: Overlay.overlay
+                anchors.centerIn: parent
+                modal: true
+                title: qsTr("Message details")
+                standardButtons: Dialog.Ok
+                property var details: ({})
+                width: Math.min(520, parent ? parent.width - 32 : 520)
+                contentItem: ColumnLayout {
+                    spacing: AppTheme.spacingS
+                    Repeater {
+                        model: [
+                            [qsTr("Sender"), messageDetailsDialog.details.senderName || ""],
+                            [qsTr("Sender ID"), messageDetailsDialog.details.senderId || ""],
+                            [qsTr("Timestamp"), messageDetailsDialog.details.timestamp || ""],
+                            [qsTr("Room ID"), messageDetailsDialog.details.roomId || ""],
+                            [qsTr("Event ID"), messageDetailsDialog.details.eventId || ""],
+                            [qsTr("Type"), messageDetailsDialog.details.eventType || ""],
+                            [qsTr("Delivery"), messageDetailsDialog.details.delivery || ""],
+                            [qsTr("Encryption"), messageDetailsDialog.details.encryption || ""],
+                            [qsTr("Decryption"), messageDetailsDialog.details.decryption || ""],
+                            [qsTr("Edited"), messageDetailsDialog.details.edited ? qsTr("Yes") : qsTr("No")],
+                            [qsTr("Redacted"), messageDetailsDialog.details.redacted ? qsTr("Yes") : qsTr("No")],
+                            [qsTr("Reply target"), messageDetailsDialog.details.replyTargetId || ""]
+                        ]
+                        RowLayout {
+                            visible: modelData[1] !== ""
+                            Layout.fillWidth: true
+                            Label {
+                                text: modelData[0]
+                                color: AppTheme.textMuted
+                                Layout.preferredWidth: 110
+                            }
+                            Label {
+                                text: modelData[1]
+                                color: AppTheme.text
+                                wrapMode: Text.WrapAnywhere
+                                textFormat: Text.PlainText
+                                Layout.fillWidth: true
+                            }
+                        }
+                    }
+                }
+            }
+    }
+
 
     Connections {
         target: app
         function onCurrentRoomIdChanged() {
-            moreMenu.close()
-            messageDetailsDialog.close()
+            if (root.moreMenuItem) root.moreMenuItem.close()
+            if (root.detailsDialogItem) root.detailsDialogItem.close()
             root.menuEventId = ""
         }
     }
-
-    // JS helper: models expose reactions as QVariantList. Return as-is for Repeater.
-    function reactionsList() { return model.reactions || [] }
 
     // Local echoes carry "local:*" ids. QML actions should still work because
     // the backend keys pendingSends by txnId, but redact of a local echo will
@@ -3013,9 +3094,12 @@ Item {
             readonly property bool playbackAvailable:
                 model.mediaSourceAvailable === true && app.mediaBridge.supported
 
+            // The poster path serves BOTH cases now: a Matrix thumbnail is
+            // fetched as before, and a video without one gets a locally
+            // extracted first-frame poster (MediaBridge.videoPosterSource),
+            // bounded by the speculative prefetch cap.
             readonly property bool usesBridge:
                 model.mediaSourceAvailable === true && app.mediaBridge.supported
-                && model.mediaThumbAvailable === true
             readonly property string bridgeCacheKey:
                 "thumb:" + (model.mediaKey || "")
             property string bridgeSource: ""
@@ -3025,8 +3109,36 @@ Item {
                 if (bridgeFailed)
                     app.mediaBridge.retry(bridgeCacheKey)
                 bridgeFailed = false
-                bridgeSource = app.mediaBridge.mediaSource(model.mediaKey,
-                                                           "thumb")
+                // Speculative payload prefetch is governed by the SAME
+                // user preference as GIF autoplay (never = no passive
+                // downloads); a declared size of 0 makes MediaBridge
+                // decline while the poster path still serves an
+                // already-materialized file.
+                var prefetchSize = app.settings.gifAutoplay !== 2
+                                   ? (model.mediaSize || 0) : 0
+                if (model.mediaThumbAvailable === true) {
+                    bridgeSource = app.mediaBridge.mediaSource(model.mediaKey,
+                                                               "thumb")
+                } else if (root.rowOnScreen) {
+                    bridgeSource = app.mediaBridge.videoPosterSource(
+                        model.mediaKey, prefetchSize)
+                } else {
+                    // Off-screen rows must not trigger poster/prefetch work;
+                    // the onScreen observer below re-runs this on reveal.
+                    bridgeSource = ""
+                }
+                // Bounded speculative payload prefetch so pressing Play is
+                // (usually) instant instead of a multi-second download.
+                // MediaBridge enforces the size cap and deduplication.
+                if (root.rowOnScreen && playbackAvailable && prefetchSize > 0)
+                    app.mediaBridge.prefetchPlayable(model.mediaKey,
+                                                     prefetchSize)
+            }
+            readonly property bool coverOnScreen: root.rowOnScreen
+            onCoverOnScreenChanged: {
+                if (coverOnScreen && bridgeSource.length === 0
+                    && !bridgeFailed)
+                    videoSourceRefresh.restart()
             }
             function resetForMedia() {
                 // A pooled Loader keeps this videoBox instance alive while
@@ -3072,6 +3184,13 @@ Item {
             // tone, type icon, filename. The play affordance and duration
             // chip overlay it exactly as they would a real poster, so the
             // card never looks broken while (or because) no poster exists.
+            // Placeholder shows when no bridge is available, the fetch
+            // failed, or a no-Matrix-thumbnail video has no poster (yet, or
+            // ever — an over-cap video is not prefetched for one).
+            readonly property bool showPlaceholder:
+                !usesBridge || bridgeFailed
+                || (model.mediaThumbAvailable !== true
+                    && bridgeSource.length === 0)
             Rectangle {
                 objectName: "videoNoThumbPlaceholder"
                 anchors.fill: parent
@@ -3079,7 +3198,7 @@ Item {
                 color: AppTheme.surfaceElevated
                 border.color: AppTheme.border
                 border.width: 1
-                visible: !videoBox.usesBridge || videoBox.bridgeFailed
+                visible: videoBox.showPlaceholder
                 ColumnLayout {
                     anchors.centerIn: parent
                     spacing: AppTheme.spacing8
@@ -3103,9 +3222,8 @@ Item {
                 anchors.fill: parent
                 radius: AppTheme.radiusSm
                 visible: thumbImg.status !== Image.Ready
-                        && !(!videoBox.usesBridge || videoBox.bridgeFailed)
-                active: root.rowOnScreen && videoBox.usesBridge
-                        && !videoBox.bridgeFailed
+                        && !videoBox.showPlaceholder
+                active: root.rowOnScreen && !videoBox.showPlaceholder
             }
             Image {
                 id: thumbImg

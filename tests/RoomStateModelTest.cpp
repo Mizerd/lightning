@@ -126,6 +126,9 @@ void RoomStateModelTest::liveDirectUpdateChangesCategory()
              QStringLiteral("room"));
     client.mirror[0].isDirect = true;
     Q_EMIT client.roomUpdated(client.mirror[0].id);
+    // v0.7 perf round: per-room updates coalesce onto a zero-timer
+    // reconcile; settle it before asserting.
+    QCoreApplication::processEvents();
     QCOMPARE(model.data(model.index(0), RoomListModel::CategoryRole).toString(),
              QStringLiteral("dm"));
 }
@@ -210,12 +213,14 @@ void RoomStateModelTest::effectiveDirectAvatarPolicy()
     client.mirror[0].avatarUrl.clear();
     client.mirror[0].members[bob.userId].avatarMxcUrl.clear();
     Q_EMIT client.membersChanged(dm.id);
+    QCoreApplication::processEvents();
     QVERIFY(model.data(model.index(0), RoomListModel::AvatarUrlRole).toString().isEmpty());
 
     MemberInfo carol{QStringLiteral("@carol:example.org"), QStringLiteral("Carol"),
                      QStringLiteral("mxc://example.org/carol")};
     client.mirror[0].members.insert(carol.userId, carol);
     Q_EMIT client.membersChanged(dm.id);
+    QCoreApplication::processEvents();
     QVERIFY(model.data(model.index(0), RoomListModel::AvatarUrlRole).toString().isEmpty());
 
     client.mirror[0].members.remove(carol.userId);
@@ -243,6 +248,7 @@ void RoomStateModelTest::effectiveDirectAvatarRefreshAndAccountIsolation()
     client.mirror[0].members[dm.directUserId].avatarMxcUrl =
         QStringLiteral("mxc://old/bob-new");
     Q_EMIT client.membersChanged(dm.id);
+    QCoreApplication::processEvents();
     QCOMPARE(model.data(model.index(0), RoomListModel::AvatarUrlRole).toString(),
              QStringLiteral("mxc://old/bob-new"));
 
@@ -372,6 +378,7 @@ void RoomStateModelTest::mismatchedProfileResultDoesNotWedgePending()
     // The still-avatarless target must be re-fetched on the next reconcile.
     client.profileUser.clear();
     Q_EMIT client.roomUpdated(dm.id);
+    QCoreApplication::processEvents();
     QCOMPARE(client.profileUser, dm.directUserId);
     QVERIFY(client.profileOp > firstOp);
 }

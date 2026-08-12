@@ -69,3 +69,44 @@ struct RoomInfo {
     QStringList childRoomIds;
     QStringList parentSpaceIds;
 };
+
+inline bool operator==(const MemberInfo &a, const MemberInfo &b)
+{
+    return a.userId == b.userId && a.displayName == b.displayName
+        && a.avatarMxcUrl == b.avatarMxcUrl;
+}
+
+// Full-field equality so RoomListModel::replaceRoom can skip the
+// dataChanged storm for a room nothing actually changed on. Cheap in
+// practice: unchanged copies flow from the same mirror objects, so the
+// implicitly-shared members short-circuit on d-pointer identity.
+inline bool operator==(const RoomInfo &a, const RoomInfo &b)
+{
+    return a.id == b.id && a.name == b.name && a.topic == b.topic
+        && a.avatarUrl == b.avatarUrl
+        && a.lastMessagePreview == b.lastMessagePreview
+        && a.lastActivity == b.lastActivity
+        && a.unreadCount == b.unreadCount
+        && a.highlightCount == b.highlightCount
+        && a.markedUnread == b.markedUnread
+        && a.hasUnreadMessages == b.hasUnreadMessages
+        && a.encrypted == b.encrypted && a.isSpace == b.isSpace
+        && a.isDirect == b.isDirect && a.directUserId == b.directUserId
+        && a.directUserIds == b.directUserIds
+        && a.canonicalAlias == b.canonicalAlias
+        && a.inviterUserId == b.inviterUserId
+        && a.inviterDisplayName == b.inviterDisplayName
+        && a.roomType == b.roomType && a.membership == b.membership
+        && a.invitePending == b.invitePending
+        && a.inviteError == b.inviteError && a.spaceId == b.spaceId
+        && a.prevBatchToken == b.prevBatchToken
+        && a.paginationExhausted == b.paginationExhausted
+        && a.members == b.members && a.typingUserIds == b.typingUserIds
+        && a.childRoomIds == b.childRoomIds
+        && a.parentSpaceIds == b.parentSpaceIds;
+}
+
+inline bool operator!=(const RoomInfo &a, const RoomInfo &b)
+{
+    return !(a == b);
+}

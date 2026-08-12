@@ -79,12 +79,14 @@ private Q_SLOTS:
 
         // The liveness guard matches React's real current condition
         // (permalink non-empty AND not redacted), not a permalink-only check.
+        // v0.7 perf round: the menu moved to a lazily-created root-level
+        // Component (16 spaces shallower), so the continuation indent is 28.
         QVERIFY(block.contains(QStringLiteral(
             "root.timelineModel.messagePermalink(\n"
-            "                                            root.menuEventId).length === 0")));
+            "                            root.menuEventId).length === 0")));
         QVERIFY(block.contains(QStringLiteral(
             "root.timelineModel.messageDetails(\n"
-            "                                            root.menuEventId).redacted)")));
+            "                            root.menuEventId).redacted)")));
 
         // The standalone "React" row is gone from the dropdown — bounded to
         // this block so it cannot match the earlier, unrelated hover action
@@ -159,7 +161,9 @@ private Q_SLOTS:
         QVERIFY(block.contains(QStringLiteral("radius: AppTheme.radiusTile")));
         QVERIFY(block.contains(QStringLiteral("border.color: AppTheme.borderStrong")));
         QCOMPARE(block.count(QStringLiteral("radius: AppTheme.radiusControl")), 4);
-        QVERIFY(block.contains(QStringLiteral("active: moreMenu.opened")));
+        // v0.7 perf round: the menu is created lazily, so the open state is
+        // surfaced through the delegate's moreMenuOpen proxy property.
+        QVERIFY(block.contains(QStringLiteral("active: root.moreMenuOpen")));
     }
 
     // ---- 1d: room context menu ----

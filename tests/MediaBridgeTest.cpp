@@ -52,6 +52,7 @@ public:
         int timeoutClass = 0; // v0.7: 0 standard / 1 playable / 2 save
     };
     QList<Fetch> fetches;
+    QList<quint64> cancels;
     bool rejectFetches = false;
 
     bool supportsMediaBridge() const override { return true; }
@@ -72,6 +73,7 @@ public:
         fetches.append({ op, mxc, 2, width, height });
         return op;
     }
+    void cancelMediaFetch(quint64 opId) override { cancels.append(opId); }
 
     void succeed(quint64 opId, const QByteArray &bytes,
                  const QString &mime = QStringLiteral("image/png"))
@@ -1327,6 +1329,219 @@ private Q_SLOTS:
         QCOMPARE(client.fetches.last().key, QStringLiteral("$keep"));
         client.succeed(client.fetches.at(1).opId, QByteArray("img"));
         QCOMPARE(client.fetches.size(), 9); // 8 + $keep; the GIF never ran
+    }
+
+    // ── v0.7 perf round: cancellation + bounded playable prefetch ──
+
+    // Cancelling an in-flight playable fetch aborts the backend op, frees
+    // the slot, and leaves NO failure mark — a fresh Play must re-dispatch
+    // immediately.
+    void cancelPlayableAbortsBackendAndFreesSlot()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        bridge.playableSource(QStringLiteral("$video"));
+        QCOMPARE(bridge.inflightCountForTest(), 1);
+        const quint64 opId = client.fetches.first().opId;
+        bridge.cancelPlayable(QStringLiteral("$video"));
+        QCOMPARE(bridge.inflightCountForTest(), 0);
+        QCOMPARE(client.cancels, QList<quint64>{opId});
+        QVERIFY(bridge.failureCategory(QStringLiteral("full:$video")).isEmpty());
+        // A fresh Play dispatches again at the playable class.
+        bridge.playableSource(QStringLiteral("$video"));
+        QCOMPARE(client.fetches.size(), 2);
+        QCOMPARE(client.fetches.last().timeoutClass, 1);
+    }
+
+    // A late completion for a cancelled op is stale — it must not populate
+    // the cache or emit playableMediaReady.
+    void lateCompletionAfterCancelIsDropped()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        QSignalSpy ready(&bridge, &MediaBridge::playableMediaReady);
+        bridge.playableSource(QStringLiteral("$video"));
+        const quint64 opId = client.fetches.first().opId;
+        bridge.cancelPlayable(QStringLiteral("$video"));
+        client.succeed(opId, QByteArray("GIF89a-not-really"),
+                       QStringLiteral("video/mp4"));
+        QCOMPARE(ready.count(), 0);
+        QVERIFY(bridge.cachedSource(QStringLiteral("full:$video")).isEmpty());
+    }
+
+    // Another interest class on the same bytes keeps the fetch alive: a
+    // GIF row wants the payload too, so cancel must not abort the op.
+    void cancelKeepsFetchAliveForOtherConsumers()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        bridge.animatedSource(QStringLiteral("$shared"));
+        bridge.playableSource(QStringLiteral("$shared")); // coalesces
+        QCOMPARE(client.fetches.size(), 1);
+        bridge.cancelPlayable(QStringLiteral("$shared"));
+        QCOMPARE(client.cancels.size(), 0);
+        QCOMPARE(bridge.inflightCountForTest(), 1);
+    }
+
+    // Prefetch is bounded: declared in-cap sizes dispatch speculatively at
+    // the playable timeout class; unknown or over-cap sizes never dispatch.
+    void prefetchPlayableHonorsSizeCap()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        bridge.prefetchPlayable(QStringLiteral("$big"),
+                                512.0 * 1024 * 1024);
+        bridge.prefetchPlayable(QStringLiteral("$unknown"), 0);
+        QCOMPARE(client.fetches.size(), 0);
+        bridge.prefetchPlayable(QStringLiteral("$small"), 4 * 1024 * 1024);
+        QCOMPARE(client.fetches.size(), 1);
+        QCOMPARE(client.fetches.first().timeoutClass, 1);
+        // A prefetched payload materializes and signals playableMediaReady
+        // so a waiting card can start instantly.
+        QSignalSpy ready(&bridge, &MediaBridge::playableMediaReady);
+        QByteArray mp4(1024, 'x');
+        mp4.replace(4, 4, "ftyp");
+        client.succeed(client.fetches.first().opId, mp4,
+                       QStringLiteral("video/mp4"));
+        QCOMPARE(ready.count(), 1);
+        // Play now serves the materialized file with no new fetch.
+        QVERIFY(!bridge.playableSource(QStringLiteral("$small")).isEmpty());
+        QCOMPARE(client.fetches.size(), 1);
+    }
+
+    // Queued prefetches are speculative: a room switch drops them exactly
+    // like GIF autoplay prefetches.
+    void queuedPrefetchDroppedOnRoomSwitch()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        for (int i = 0; i < 8; ++i)
+            bridge.mediaSource(QStringLiteral("$m%1").arg(i),
+                               QStringLiteral("thumb"));
+        bridge.prefetchPlayable(QStringLiteral("$spec"), 1024 * 1024);
+        QCOMPARE(bridge.queuedCountForTest(), 1);
+        bridge.dropQueuedSpeculative();
+        QCOMPARE(bridge.queuedCountForTest(), 0);
+    }
+
+    // review M1: playable interest is refcounted — two cards on the same
+    // media (main timeline + thread panel) share one fetch, and the first
+    // card's cancel must not strand the second.
+    void cancelWithTwoPlayableConsumersKeepsFetch()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        bridge.playableSource(QStringLiteral("$dual")); // card A
+        bridge.playableSource(QStringLiteral("$dual")); // card B coalesces
+        QCOMPARE(client.fetches.size(), 1);
+        bridge.cancelPlayable(QStringLiteral("$dual")); // card A leaves
+        QCOMPARE(client.cancels.size(), 0);
+        QCOMPARE(bridge.inflightCountForTest(), 1);
+        bridge.cancelPlayable(QStringLiteral("$dual")); // card B leaves too
+        QCOMPARE(client.cancels.size(), 1);
+        QCOMPARE(bridge.inflightCountForTest(), 0);
+    }
+
+    // review H1: a poster hook left behind by an over-cap video (whose
+    // prefetch declined) must not veto a later user cancel.
+    void posterHookForOverCapVideoDoesNotBlockCancel()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        // No Matrix thumbnail, 500 MB declared: the poster path declines
+        // the prefetch and must not leak its hook.
+        bridge.videoPosterSource(QStringLiteral("$huge"),
+                                 500.0 * 1024 * 1024);
+        QCOMPARE(client.fetches.size(), 0);
+        // User presses Play, then closes the card mid-download.
+        bridge.playableSource(QStringLiteral("$huge"));
+        QCOMPARE(bridge.inflightCountForTest(), 1);
+        const quint64 opId = client.fetches.first().opId;
+        bridge.cancelPlayable(QStringLiteral("$huge"));
+        QCOMPARE(client.cancels, QList<quint64>{opId});
+        QCOMPARE(bridge.inflightCountForTest(), 0);
+    }
+
+    // review M3: a terminal failure voids every interest class for the key
+    // — a later cancel finds nothing to veto it, and the sets stay bounded.
+    void terminalFailureClearsInterestSets()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        bridge.prefetchPlayable(QStringLiteral("$flaky"), 1024 * 1024);
+        QCOMPARE(client.fetches.size(), 1);
+        client.fail(client.fetches.first().opId, QStringLiteral("network"));
+        // A pressed-play fetch for the same key after the transient mark
+        // clears must dispatch and be cancellable.
+        bridge.retry(QStringLiteral("full:$flaky"));
+        bridge.playableSource(QStringLiteral("$flaky"));
+        QCOMPARE(client.fetches.size(), 2);
+        bridge.cancelPlayable(QStringLiteral("$flaky"));
+        QCOMPARE(client.cancels.size(), 1);
+        QCOMPARE(bridge.inflightCountForTest(), 0);
+    }
+
+    // review-recheck LOW: a playableSource call served synchronously from
+    // the RAM cache holds no fetch, so it must not leave an interest count
+    // behind — a phantom +1 would silently veto a later cancel of a REAL
+    // fetch for the same key.
+    void ramCacheHitLeavesNoPhantomInterest()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        bridge.setPlayableCapsForTest(1, 1024 * 1024); // 1 materialized file
+        QByteArray mp4(256, 'x');
+        mp4.replace(4, 4, "ftyp");
+        // Fetch $track once (RAM-cached + materialized).
+        bridge.playableSource(QStringLiteral("$track"));
+        client.succeed(client.fetches.at(0).opId, mp4,
+                       QStringLiteral("video/mp4"));
+        // Evict $track's FILE with $other (file cap is 1)...
+        bridge.playableSource(QStringLiteral("$other"));
+        client.succeed(client.fetches.at(1).opId, mp4,
+                       QStringLiteral("video/mp4"));
+        // ...then serve $track from RAM bytes — the synchronous cache-hit
+        // path this regression is about. It must not retain interest.
+        QVERIFY(!bridge.playableSource(QStringLiteral("$track")).isEmpty());
+        // Drop the RAM copies (limit forces eviction on the next insert)…
+        bridge.setCacheLimitBytes(1);
+        bridge.mediaSource(QStringLiteral("$bump"), QStringLiteral("full"));
+        client.succeed(client.fetches.at(2).opId, QByteArray("img"));
+        // …and $track's file again (via $other, itself now a real fetch).
+        bridge.playableSource(QStringLiteral("$other"));
+        client.succeed(client.fetches.at(3).opId, mp4,
+                       QStringLiteral("video/mp4"));
+        // A REAL fetch for $track now carries exactly one press-play
+        // interest; a phantom +1 from the earlier cache hit would make
+        // this cancel a silent no-op.
+        bridge.playableSource(QStringLiteral("$track"));
+        QCOMPARE(bridge.inflightCountForTest(), 1);
+        bridge.cancelPlayable(QStringLiteral("$track"));
+        QCOMPARE(client.cancels.size(), 1);
+        QCOMPARE(bridge.inflightCountForTest(), 0);
+    }
+
+    // cancelPlayable with no playable interest registered is a no-op (an
+    // unrelated ordinary fetch for the same key must survive).
+    void cancelWithoutPlayableInterestIsNoop()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        bridge.mediaSource(QStringLiteral("$img"), QStringLiteral("full"));
+        QCOMPARE(bridge.inflightCountForTest(), 1);
+        bridge.cancelPlayable(QStringLiteral("$img"));
+        QCOMPARE(bridge.inflightCountForTest(), 1);
+        QCOMPARE(client.cancels.size(), 0);
     }
 };
 

@@ -1,6 +1,7 @@
 #include "media/MediaBridge.h"
 
 #include "matrix/MatrixClient.h"
+#include "media/VideoPosterExtractor.h"
 
 #include <QDir>
 #include <QFile>
@@ -186,17 +187,18 @@ QByteArray MediaBridge::cachedBytes(const QString &cacheKey) const
     const auto it = m_cache.constFind(cacheKey);
     if (it == m_cache.constEnd())
         return {};
-    touch(cacheKey);
+    // Deliberately NO touch(): this is the path Qt's image-decode thread
+    // takes through MediaImageProvider, and the LRU reorder is an O(n) list
+    // scan under the mutex the GUI thread contends for. Recency is already
+    // recorded by the cachedSource() call that produced the provider URL,
+    // so skipping it here costs only approximate LRU accuracy.
     return it.value();
 }
 
 qint64 MediaBridge::cacheBytesUsed() const
 {
     QMutexLocker lock(&m_cacheMutex);
-    qint64 total = 0;
-    for (const QByteArray &bytes : m_cache)
-        total += bytes.size();
-    return total;
+    return m_cacheBytesMain + m_cacheBytesAvatar;
 }
 
 void MediaBridge::touch(const QString &cacheKey) const
@@ -210,7 +212,16 @@ void MediaBridge::touch(const QString &cacheKey) const
 void MediaBridge::insertCache(const QString &cacheKey, const QByteArray &bytes)
 {
     QMutexLocker lock(&m_cacheMutex);
+    const bool avatarClass = isAvatarClassKey(cacheKey);
+    qint64 &classTotal = avatarClass ? m_cacheBytesAvatar : m_cacheBytesMain;
+    // Running per-class byte totals replace the previous full-cache
+    // iteration on every insert (O(n) with a string-prefix test per entry).
+    // An overwrite must retire the old payload's bytes first.
+    if (const auto existing = m_cache.constFind(cacheKey);
+        existing != m_cache.constEnd())
+        classTotal -= existing.value().size();
     m_cache.insert(cacheKey, bytes);
+    classTotal += bytes.size();
     // An actual byte insert is the ONLY revision bump: cache hits keep an
     // identical provider URL (pixmap-cache dedup survives), a re-fetch
     // after eviction or replacement produces a new one.
@@ -220,19 +231,13 @@ void MediaBridge::insertCache(const QString &cacheKey, const QByteArray &bytes)
     // budget. Classes are disjoint and each bounded, so an avatar insert
     // can never evict timeline media and timeline churn can never evict
     // avatars; total memory stays bounded by the sum of both caps.
-    const bool avatarClass = isAvatarClassKey(cacheKey);
     QList<QString> &lru = avatarClass ? m_avatarLru : m_lru;
     const qint64 limit = avatarClass ? m_avatarCacheLimit : m_cacheLimit;
-    qint64 total = 0;
-    for (auto it = m_cache.cbegin(); it != m_cache.cend(); ++it) {
-        if (isAvatarClassKey(it.key()) == avatarClass)
-            total += it.value().size();
-    }
-    while (total > limit && lru.size() > 1) {
+    while (classTotal > limit && lru.size() > 1) {
         const QString victim = lru.takeLast();
         if (victim == cacheKey)
             continue;
-        total -= m_cache.value(victim).size();
+        classTotal -= m_cache.value(victim).size();
         m_cache.remove(victim);
         // review H1b: the memoized content hash for an evicted key is dead
         // weight (cachedFullContentHash() can never return it once the
@@ -415,15 +420,27 @@ QString MediaBridge::playableSource(const QString &mediaKey)
         m_playableLru.prepend(cacheKey);
         return QUrl::fromLocalFile(path).toString();
     }
-    m_playableWanted.insert(cacheKey);
-    if (failureBlocks(cacheKey))
+    ++m_playableWanted[cacheKey]; // refcounted (review M1)
+    if (failureBlocks(cacheKey)) {
+        // Blocked: no fetch will run for this call — do not leave a
+        // phantom interest count behind.
+        if (--m_playableWanted[cacheKey] <= 0)
+            m_playableWanted.remove(cacheKey);
         return {};
+    }
     const QByteArray cached = cachedBytes(cacheKey);
     if (!cached.isEmpty()) {
         // Mimetype intentionally empty: the container magic decides.
         const QString written = writePlayableFile(cacheKey, cached, {});
-        if (!written.isEmpty())
+        if (!written.isEmpty()) {
+            // Served synchronously: no fetch will run for this call, so no
+            // interest count may linger (same rule as the failure-mark
+            // return above — a phantom +1 would silently veto a later
+            // cancel of a real fetch for this key).
+            if (--m_playableWanted[cacheKey] <= 0)
+                m_playableWanted.remove(cacheKey);
             return QUrl::fromLocalFile(written).toString();
+        }
     }
     if (!alreadyPending(cacheKey)) {
         Pending request;
@@ -439,6 +456,166 @@ QString MediaBridge::playableSource(const QString &mediaKey)
         promoteQueuedRequest(cacheKey, 0, 1);
     }
     return {};
+}
+
+void MediaBridge::prefetchPlayable(const QString &mediaKey, double sizeBytes)
+{
+    if (mediaKey.isEmpty()
+        || mediaKey.contains(QLatin1String("send-queue.localhost"))
+        || !supported())
+        return;
+    // Fail-safe bound: only a declared, in-cap size is worth speculative
+    // bandwidth. Unknown sizes wait for explicit Play.
+    const qint64 declared = static_cast<qint64>(sizeBytes);
+    if (declared <= 0 || declared > kSpeculativePlayableMaxBytes)
+        return;
+    const QString cacheKey = mediaCacheKey(mediaKey, 0);
+    const QString path = m_playableFiles.value(cacheKey);
+    if (!path.isEmpty() && QFileInfo::exists(path)) {
+        // Already materialized — only a pending poster hook may remain.
+        if (m_posterWanted.remove(cacheKey))
+            startPosterExtraction(mediaKey, path);
+        return;
+    }
+    if (failureBlocks(cacheKey))
+        return;
+    const QByteArray cached = cachedBytes(cacheKey);
+    if (!cached.isEmpty()) {
+        const QString written = writePlayableFile(cacheKey, cached, {});
+        if (!written.isEmpty()) {
+            Q_EMIT playableMediaReady(cacheKey);
+            if (m_posterWanted.remove(cacheKey))
+                startPosterExtraction(mediaKey, written);
+        }
+        return;
+    }
+    if (alreadyPending(cacheKey))
+        return;
+    m_prefetchWanted.insert(cacheKey);
+    Pending request;
+    request.cacheKey = cacheKey;
+    request.mediaKey = mediaKey;
+    request.kind = 0;
+    request.timeoutClass = 1; // playable-class bound fits the payload size
+    request.priority = 3;     // speculative — never crowds explicit intent
+    qCDebug(lcMedia, "prefetch %s (declared %lld bytes)",
+            qUtf8Printable(keyTag(cacheKey)),
+            static_cast<long long>(declared));
+    dispatch(request);
+}
+
+QString MediaBridge::videoPosterSource(const QString &mediaKey,
+                                       double sizeBytes)
+{
+    if (mediaKey.isEmpty()
+        || mediaKey.contains(QLatin1String("send-queue.localhost"))
+        || !supported())
+        return {};
+    const QString posterKey = mediaCacheKey(mediaKey, 1);
+    const QString cached = cachedSource(posterKey);
+    if (!cached.isEmpty())
+        return cached;
+    if (failureBlocks(posterKey))
+        return {};
+    const QString playableKey = mediaCacheKey(mediaKey, 0);
+    const QString path = m_playableFiles.value(playableKey);
+    if (!path.isEmpty() && QFileInfo::exists(path)) {
+        startPosterExtraction(mediaKey, path);
+        return {};
+    }
+    // Materialize first (bounded by the speculative cap), then extract when
+    // onMediaReady writes the file. An over-cap or unknown-size video keeps
+    // the styled placeholder until it is actually played — at which point
+    // the materialized file exists and the next poster request succeeds.
+    m_posterWanted.insert(playableKey);
+    prefetchPlayable(mediaKey, sizeBytes);
+    // The prefetch may decline (over-cap or unknown declared size, failure
+    // mark, unsupported): a hook with no materialization path would leak
+    // AND veto later cancels (review H1/M3). Keep it only while something
+    // can actually deliver the file.
+    if (!alreadyPending(playableKey) && !m_playableFiles.contains(playableKey))
+        m_posterWanted.remove(playableKey);
+    return {};
+}
+
+void MediaBridge::cancelPlayable(const QString &mediaKey)
+{
+    if (mediaKey.isEmpty())
+        return;
+    const QString cacheKey = mediaCacheKey(mediaKey, 0);
+    const auto wanted = m_playableWanted.find(cacheKey);
+    if (wanted == m_playableWanted.end())
+        return; // no playable consumer was waiting on this key
+    // Refcounted (review M1): another card still waits on the same bytes.
+    if (--wanted.value() > 0)
+        return;
+    m_playableWanted.erase(wanted);
+    // A GIF row wanting the same bytes keeps the fetch alive. A pending
+    // POSTER hook or speculative prefetch does NOT veto a user cancel
+    // (review H1): the poster is a derivative nicety that can be
+    // re-derived whenever the file is next materialized, while the cancel
+    // frees a live multi-hundred-MB transfer now.
+    if (m_animatedWanted.contains(cacheKey)) {
+        m_prefetchWanted.remove(cacheKey);
+        m_posterWanted.remove(cacheKey);
+        return;
+    }
+    m_prefetchWanted.remove(cacheKey);
+    m_posterWanted.remove(cacheKey);
+    for (int i = m_queue.size() - 1; i >= 0; --i) {
+        const Pending &p = m_queue.at(i);
+        if (p.cacheKey == cacheKey && !p.saveRequest && !p.starRequest)
+            m_queue.removeAt(i);
+    }
+    for (auto it = m_inflight.begin(); it != m_inflight.end(); ++it) {
+        if (it->cacheKey == cacheKey && !it->saveRequest && !it->starRequest) {
+            const quint64 opId = it.key();
+            m_inflight.erase(it);
+            ++m_statCancelled;
+            qCDebug(lcMedia, "cancel %s opId=%llu",
+                    qUtf8Printable(keyTag(cacheKey)),
+                    static_cast<unsigned long long>(opId));
+            if (m_client)
+                m_client->cancelMediaFetch(opId);
+            break;
+        }
+    }
+    // No failure mark: a fresh Play must re-dispatch immediately.
+    pump();
+}
+
+void MediaBridge::startPosterExtraction(const QString &mediaKey,
+                                        const QString &filePath)
+{
+    if (m_posterExtracting.contains(mediaKey))
+        return;
+    if (!m_posterExtractor) {
+        m_posterExtractor = new VideoPosterExtractor(this);
+        connect(m_posterExtractor, &VideoPosterExtractor::posterReady,
+                this, &MediaBridge::onPosterReady);
+    }
+    m_posterExtracting.insert(mediaKey);
+    m_posterExtractor->requestPoster(mediaKey, filePath);
+}
+
+void MediaBridge::onPosterReady(const QString &mediaKey,
+                                const QByteArray &jpeg)
+{
+    m_posterExtracting.remove(mediaKey);
+    const QString posterKey = mediaCacheKey(mediaKey, 1);
+    if (jpeg.isEmpty()) {
+        // Permanent for this session: re-decoding the same file would fail
+        // the same way. An explicit retry() (the cover tap) clears it.
+        m_failed.insert(posterKey, {QStringLiteral("rejected"),
+                                    m_failureClock.elapsed()});
+        Q_EMIT mediaFetchFailed(posterKey, QStringLiteral("rejected"));
+        return;
+    }
+    insertCache(posterKey, jpeg);
+    qCDebug(lcMedia, "poster %s bytes=%lld",
+            qUtf8Printable(keyTag(posterKey)),
+            static_cast<long long>(jpeg.size()));
+    Q_EMIT mediaCached(posterKey);
 }
 
 QString MediaBridge::playableExtensionFor(const QByteArray &bytes,
@@ -670,6 +847,7 @@ void MediaBridge::dispatch(const Pending &request)
             Q_EMIT mediaBytesForStar(tracked.mediaKey, false, {},
                                      QStringLiteral("unavailable"));
         } else {
+            dropInterestSets(tracked.cacheKey);
             markFailed(tracked, QStringLiteral("unavailable"));
             Q_EMIT mediaFetchFailed(tracked.cacheKey,
                                     QStringLiteral("unavailable"));
@@ -759,6 +937,7 @@ void MediaBridge::checkInflightTimeouts()
             // surfaces a fallback immediately and re-dispatches once the
             // interval elapses — never an indefinite loading state. A late
             // real completion for this op is now a stale/foreign no-op.
+            dropInterestSets(request.cacheKey);
             markFailed(request, QStringLiteral("timeout"));
             Q_EMIT mediaFetchFailed(request.cacheKey, QStringLiteral("timeout"));
         }
@@ -785,6 +964,7 @@ QVariantMap MediaBridge::healthSnapshot() const
     out.insert(QStringLiteral("failed"), m_statFailed);
     out.insert(QStringLiteral("timedOut"), m_statTimedOut);
     out.insert(QStringLiteral("droppedStale"), m_statDroppedStale);
+    out.insert(QStringLiteral("cancelled"), m_statCancelled);
     out.insert(QStringLiteral("cacheHits"), m_statCacheHit);
     out.insert(QStringLiteral("cacheMisses"), m_statCacheMiss);
     out.insert(QStringLiteral("contentHashComputed"), m_statContentHashComputed);
@@ -855,8 +1035,11 @@ void MediaBridge::onMediaReady(quint64 opId, const QString &mediaKey, int kind,
     // pushing them through the RAM LRU would evict the entire image cache
     // for one video. Smaller payloads (thumbnails, images, short audio)
     // keep the existing in-memory path.
-    const bool playableWanted = m_playableWanted.remove(request.cacheKey);
-    if (!(playableWanted && bytes.size() > kLargeCacheSkipBytes))
+    const bool playableWanted =
+        m_playableWanted.remove(request.cacheKey) > 0;
+    const bool prefetchWanted = m_prefetchWanted.remove(request.cacheKey);
+    if (!((playableWanted || prefetchWanted)
+          && bytes.size() > kLargeCacheSkipBytes))
         insertCache(request.cacheKey, bytes);
     qCDebug(lcMedia, "ready %s bytes=%lld mime=%s in=%lldms -> mediaCached",
             qUtf8Printable(keyTag(request.cacheKey)),
@@ -869,12 +1052,19 @@ void MediaBridge::onMediaReady(quint64 opId, const QString &mediaKey, int kind,
         else
             Q_EMIT mediaFetchFailed(request.cacheKey, QStringLiteral("invalid_gif"));
     }
-    if (playableWanted) {
-        if (!writePlayableFile(request.cacheKey, bytes, mimetype).isEmpty())
+    if (playableWanted || prefetchWanted) {
+        const QString written =
+            writePlayableFile(request.cacheKey, bytes, mimetype);
+        if (!written.isEmpty()) {
             Q_EMIT playableMediaReady(request.cacheKey);
-        else
-            Q_EMIT mediaFetchFailed(request.cacheKey,
-                                    QStringLiteral("rejected"));
+            if (m_posterWanted.remove(request.cacheKey))
+                startPosterExtraction(request.mediaKey, written);
+        } else {
+            m_posterWanted.remove(request.cacheKey);
+            if (playableWanted)
+                Q_EMIT mediaFetchFailed(request.cacheKey,
+                                        QStringLiteral("rejected"));
+        }
     }
     Q_EMIT mediaCached(request.cacheKey);
 }
@@ -974,6 +1164,10 @@ void MediaBridge::dropQueuedSpeculative()
         if (p.priority == 3 && !p.saveRequest && !p.starRequest
             && !m_playableWanted.contains(p.cacheKey)) {
             m_animatedWanted.remove(p.cacheKey);
+            // Speculative playable prefetches (and their poster hooks) are
+            // exactly as irrelevant after a room switch as GIF prefetches.
+            m_prefetchWanted.remove(p.cacheKey);
+            m_posterWanted.remove(p.cacheKey);
             m_queue.removeAt(i);
             ++dropped;
         }
@@ -1042,6 +1236,17 @@ QString MediaBridge::writeAnimatedFile(const QString &cacheKey,
     return path;
 }
 
+void MediaBridge::dropInterestSets(const QString &cacheKey)
+{
+    // Terminal outcome for this key: every interest class is void. The
+    // consumers were told (mediaFetchFailed / their own signals) and a
+    // retry re-expresses interest from scratch.
+    m_playableWanted.remove(cacheKey);
+    m_animatedWanted.remove(cacheKey);
+    m_prefetchWanted.remove(cacheKey);
+    m_posterWanted.remove(cacheKey);
+}
+
 void MediaBridge::markFailed(const Pending &request, const QString &category)
 {
     if (request.saveRequest || request.starRequest)
@@ -1080,6 +1285,7 @@ void MediaBridge::onMediaFailed(quint64 opId, const QString &mediaKey, int kind,
     qCWarning(lcMedia, "failed %s category=%s",
               qUtf8Printable(keyTag(request.cacheKey)),
               qUtf8Printable(category));
+    dropInterestSets(request.cacheKey);
     markFailed(request, category);
     Q_EMIT mediaFetchFailed(request.cacheKey, category);
 }
@@ -1238,6 +1444,8 @@ void MediaBridge::clear()
         m_cache.clear();
         m_lru.clear();
         m_avatarLru.clear();
+        m_cacheBytesMain = 0;
+        m_cacheBytesAvatar = 0;
         // Account isolation + bounded memory: revisions restart with the
         // session (a fresh session's first insert is revision 1 again).
         m_revision.clear();
@@ -1256,6 +1464,19 @@ void MediaBridge::clear()
     m_playableSizes.clear();
     m_playableLru.clear();
     m_playableWanted.clear();
+    m_prefetchWanted.clear();
+    m_posterWanted.clear();
+    m_posterExtracting.clear();
+    // Session isolation (review H2): an extraction still decoding must not
+    // deliver a poster derived from the PREVIOUS account's decrypted video
+    // into the next session's cache. Disconnect first (a queued completion
+    // already in flight can then never reach onPosterReady), then let the
+    // extractor die with its decoder; the next request lazily recreates it.
+    if (m_posterExtractor) {
+        disconnect(m_posterExtractor, nullptr, this, nullptr);
+        m_posterExtractor->deleteLater();
+        m_posterExtractor = nullptr;
+    }
     m_pinnedPlayables.clear(); // the files the pins protected are gone too
     m_playableNameSalt.clear(); // next session gets fresh unguessable names
     m_animatedDir.reset(); // recursively removes decrypted temporary files

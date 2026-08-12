@@ -65,6 +65,20 @@ public:
 
     // Room + timeline queries
     virtual QList<RoomInfo> rooms() const = 0;
+    // Targeted single-room lookup. The default derives from rooms(), which
+    // deep-copies the whole list — backends with a native index override it
+    // (the per-appended-event notification context used to pay that full
+    // copy for every event of a sync burst). Returns a default-constructed
+    // RoomInfo when the room is unknown.
+    virtual RoomInfo roomInfo(const QString &roomId) const
+    {
+        const auto all = rooms();
+        for (const auto &room : all) {
+            if (room.id == roomId)
+                return room;
+        }
+        return {};
+    }
     virtual QList<TimelineEvent> timeline(const QString &roomId) const = 0;
 
     // Member lookup: display name and avatar mxc. Fallback = MXID / empty.
@@ -480,6 +494,10 @@ public:
     // Server-side thumbnail of a plain mxc URI (avatars).
     virtual quint64 fetchMxcThumbnail(const QString &mxc, int width, int height)
     { Q_UNUSED(mxc); Q_UNUSED(width); Q_UNUSED(height); return 0; }
+    // Cancel an in-flight media fetch. Best-effort and idempotent: backends
+    // without cancellation ignore it; no mediaReady/mediaFailed is emitted
+    // for a cancelled op (the caller already dropped its bookkeeping).
+    virtual void cancelMediaFetch(quint64 opId) { Q_UNUSED(opId); }
 
     // Server upload limit in bytes; 0 while unknown.
     virtual qint64 maxUploadSize() const { return 0; }

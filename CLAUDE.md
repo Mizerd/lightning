@@ -364,6 +364,18 @@ backend capability checks and honest live-test status.
   thread-aware
 - Images, files, clipboard images, encrypted attachments, media viewing/saving,
   animated GIF attachments, and validated direct-raster inline previews
+- Inline video/audio playback materializes the decrypted payload as a
+  session-scoped 0600 temp file (wiped on sign-out/switch/exit). Since the
+  2026-08-12 perf round this includes a BOUNDED speculative prefetch for
+  on-screen video/audio rows (declared size ≤ 32 MiB, lowest priority,
+  cancelled/dropped on room switch) governed by the SAME user preference as
+  GIF autoplay ("never" disables all passive media downloads), plus a
+  locally extracted first-frame poster for videos without a Matrix
+  thumbnail (JPEG, RAM image cache only — never disk). In-flight fetches
+  are cancellable end-to-end (QML card → MediaBridge → mx_rust_media_cancel
+  aborts the download task), and the SDK media store runs a real retention
+  policy (max_file_size 24 MiB) so large payloads no longer enter — or
+  stall — matrix-sdk-media.sqlite3
 - Backward pagination and retry, stable navigation, loaded-timeline search,
   message links/permalinks, message details, context menus, and sender profiles
 - Link previews with encrypted-room privacy controls and security validation
