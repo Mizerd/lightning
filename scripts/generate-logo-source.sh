@@ -1,5 +1,11 @@
 #!/usr/bin/env bash
-# Produce the canonical circular Lightning logo from a square raster original.
+# Produce a circular-masked logo from a square raster original.
+#
+# NOTE (2026-08-12): the committed lightning-source.png is currently the RAW
+# transparent "thick" mark, copied verbatim — the circular mask cuts the
+# speech-bubble tail (it crosses the inscribed circle) and must not be
+# applied to it. Use this script only for opaque square originals where the
+# Element-style disk is wanted.
 #
 # Usage: scripts/generate-logo-source.sh /path/to/square-logo.png
 #

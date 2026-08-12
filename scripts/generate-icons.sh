@@ -3,10 +3,12 @@
 #
 # Usage: scripts/generate-icons.sh
 #
-# The source of truth is data/icons/lightning-source.png — the maintainer's
-# square artwork processed once by scripts/generate-logo-source.sh into the
-# canonical circular presentation (1254×1254 RGBA, transparent outside the
-# full-bleed circle). Standard hicolor sizes plus 256/512 for high-DPI
+# The source of truth is data/icons/lightning-source.png — since 2026-08-12
+# this is the maintainer's RAW transparent "thick" mark (1254×1254 RGBA),
+# deliberately NOT circular-masked: the speech-bubble tail crosses the
+# inscribed circle, and the full-bleed mask of generate-logo-source.sh was
+# what amputated it on every icon surface. That script remains for opaque
+# square originals that want the disk treatment. Standard hicolor sizes plus 256/512 for high-DPI
 # displays (taskbars, window switchers, the Windows .ico) are produced with
 # deterministic Lanczos downscaling — every size is a real downscale of the
 # high-resolution source, so nothing is upscaled or pixelated. The generated
