@@ -3169,6 +3169,21 @@ Item {
                     if (cacheKey === videoBox.bridgeCacheKey)
                         videoBox.bridgeFailed = true
                 }
+                // A video with NO declared size (every Lightning-sent
+                // video before the send-metadata fix) is never prefetched,
+                // so its poster can only come from the file the user's own
+                // Play just materialized. Re-run the poster path exactly
+                // when that file lands — videoPosterSource then extracts
+                // from the materialized file with no network at all.
+                function onPlayableMediaReady(cacheKey) {
+                    if (cacheKey === "full:" + (model.mediaKey || "")
+                        && model.mediaThumbAvailable !== true
+                        && videoBox.bridgeSource.length === 0
+                        && !videoBox.bridgeFailed)
+                        videoBox.bridgeSource =
+                            app.mediaBridge.videoPosterSource(
+                                model.mediaKey, 0)
+                }
             }
 
             function formatDuration(ms) {

@@ -15,7 +15,7 @@
 use std::sync::Arc;
 
 use matrix_sdk::{
-    attachment::{AttachmentInfo, BaseImageInfo},
+    attachment::{self, AttachmentInfo, BaseImageInfo},
     media::{MediaFormat, MediaRequestParameters, MediaThumbnailSettings},
     ruma::{
         api::client::{
@@ -1314,6 +1314,45 @@ fn image_info(width: u64, height: u64, size: u64, animated: bool) -> Option<Atta
     }))
 }
 
+/// Typed attachment metadata for every send. Non-image sends used to go
+/// out with `info: None` — no size, dimensions, or duration on the wire —
+/// which broke every receiver-side feature keyed on declared metadata:
+/// Lightning's own bounded playable prefetch and first-frame poster both
+/// (deliberately) decline when an event declares no size, so every
+/// Lightning-sent video rendered as a bare placeholder forever. The size
+/// is authoritative here (filesystem / byte count); dimensions and
+/// duration are best-effort from the caller and omitted when unknown
+/// rather than fabricated.
+pub(crate) fn attachment_info(
+    mime: &str,
+    width: u64,
+    height: u64,
+    size: u64,
+) -> Option<AttachmentInfo> {
+    if mime.starts_with("image/") {
+        return image_info(width, height, size, mime == "image/gif");
+    }
+    if mime.starts_with("video/") {
+        return Some(AttachmentInfo::Video(attachment::BaseVideoInfo {
+            duration: None,
+            height: UInt::new(height).filter(|v| u64::from(*v) > 0),
+            width: UInt::new(width).filter(|v| u64::from(*v) > 0),
+            size: UInt::new(size),
+            blurhash: None,
+        }));
+    }
+    if mime.starts_with("audio/") {
+        return Some(AttachmentInfo::Audio(attachment::BaseAudioInfo {
+            duration: None,
+            size: UInt::new(size),
+            waveform: None,
+        }));
+    }
+    Some(AttachmentInfo::File(attachment::BaseFileInfo {
+        size: UInt::new(size),
+    }))
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn send_attachment_path(
     bridge: &RustClient,
@@ -1334,11 +1373,10 @@ pub(crate) fn send_attachment_path(
     if metadata.len() == 0 {
         return Err("attachment file is empty".to_owned());
     }
-    let info = if mime.starts_with("image/") {
-        image_info(width, height, metadata.len(), animated)
-    } else {
-        None
-    };
+    // `animated` marks GIF images; attachment_info re-derives it from the
+    // mime, so the flag stays purely a caller-side hint.
+    let _ = animated;
+    let info = attachment_info(&mime, width, height, metadata.len());
     let caption = if caption.trim().is_empty() { None } else { Some(caption) };
     bridge.timelines.send_attachment(
         &bridge.runtime,
@@ -1372,11 +1410,7 @@ pub(crate) fn send_attachment_bytes(
         return Err("clipboard data is not a supported image".to_owned());
     }
     let size = bytes.len() as u64;
-    let info = if mime.starts_with("image/") {
-        image_info(width, height, size, mime == "image/gif")
-    } else {
-        None
-    };
+    let info = attachment_info(&mime, width, height, size);
     bridge.timelines.send_attachment(
         &bridge.runtime,
         room_id,
@@ -1412,11 +1446,10 @@ pub(crate) fn send_thread_attachment_path(
     if metadata.len() == 0 {
         return Err("attachment file is empty".to_owned());
     }
-    let info = if mime.starts_with("image/") {
-        image_info(width, height, metadata.len(), animated)
-    } else {
-        None
-    };
+    // `animated` marks GIF images; attachment_info re-derives it from the
+    // mime, so the flag stays purely a caller-side hint.
+    let _ = animated;
+    let info = attachment_info(&mime, width, height, metadata.len());
     let caption = if caption.trim().is_empty() { None } else { Some(caption) };
     let Some(client) = bridge.client.lock().ok().and_then(|g| g.clone()) else {
         return Err("Rust SDK session is not logged in.".to_owned());
@@ -1455,11 +1488,7 @@ pub(crate) fn send_thread_attachment_bytes(
         return Err("clipboard data is not a supported image".to_owned());
     }
     let size = bytes.len() as u64;
-    let info = if mime.starts_with("image/") {
-        image_info(width, height, size, mime == "image/gif")
-    } else {
-        None
-    };
+    let info = attachment_info(&mime, width, height, size);
     let Some(client) = bridge.client.lock().ok().and_then(|g| g.clone()) else {
         return Err("Rust SDK session is not logged in.".to_owned());
     };
@@ -1775,6 +1804,51 @@ mod tests {
         assert_eq!(media_size_cap(0), 512 * 1024 * 1024);
         assert_eq!(media_size_cap(1), 512 * 1024 * 1024);
         assert_eq!(media_size_cap(2), 2 * 1024 * 1024 * 1024);
+    }
+
+    // Every send carries typed metadata with at least the authoritative
+    // size — `info: None` on non-image sends is what shipped every
+    // Lightning-sent video with no declared size, which the receiver-side
+    // prefetch/poster path (deliberately) refuses to work without.
+    #[test]
+    fn attachment_info_declares_size_for_every_type() {
+        match attachment_info("video/mp4", 1280, 720, 1000) {
+            Some(AttachmentInfo::Video(info)) => {
+                assert_eq!(info.size, UInt::new(1000));
+                assert_eq!(info.width, UInt::new(1280));
+                assert_eq!(info.height, UInt::new(720));
+            }
+            other => panic!("expected video info, got {other:?}"),
+        }
+        // Unknown dimensions are omitted, never sent as zero.
+        match attachment_info("video/webm", 0, 0, 42) {
+            Some(AttachmentInfo::Video(info)) => {
+                assert_eq!(info.size, UInt::new(42));
+                assert!(info.width.is_none());
+                assert!(info.height.is_none());
+            }
+            other => panic!("expected video info, got {other:?}"),
+        }
+        match attachment_info("audio/flac", 0, 0, 7) {
+            Some(AttachmentInfo::Audio(info)) => {
+                assert_eq!(info.size, UInt::new(7));
+            }
+            other => panic!("expected audio info, got {other:?}"),
+        }
+        match attachment_info("application/pdf", 0, 0, 9) {
+            Some(AttachmentInfo::File(info)) => {
+                assert_eq!(info.size, UInt::new(9));
+            }
+            other => panic!("expected file info, got {other:?}"),
+        }
+        // Images keep the existing contract: no dimensions, no info.
+        assert!(attachment_info("image/png", 0, 0, 5).is_none());
+        match attachment_info("image/gif", 100, 100, 5) {
+            Some(AttachmentInfo::Image(info)) => {
+                assert_eq!(info.is_animated, Some(true));
+            }
+            other => panic!("expected image info, got {other:?}"),
+        }
     }
 
     // The timeout wrapper emits exactly one outcome: a never-completing
