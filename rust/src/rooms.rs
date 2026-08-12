@@ -1353,6 +1353,73 @@ pub(crate) fn attachment_info(
     }))
 }
 
+/// MSC3245 voice-message metadata. The SDK converts AttachmentInfo::Voice
+/// into the `org.matrix.msc3245.voice` marker plus the
+/// `org.matrix.msc1767.audio` block (duration + waveform normalized to
+/// 0..=1) and sends through the ordinary attachment path — uploaded and,
+/// in encrypted rooms, encrypted exactly like any audio file. `waveform`
+/// carries 0..=100 amplitudes (the same scale the receive path emits);
+/// empty is allowed — the voice marker still applies and receivers fall
+/// back to a plain progress track (the SDK emits the audio block only
+/// when BOTH duration and waveform are present).
+pub(crate) fn voice_info(
+    duration_ms: u64,
+    size: u64,
+    waveform: &[u8],
+) -> AttachmentInfo {
+    let normalized = if waveform.is_empty() {
+        None
+    } else {
+        Some(
+            waveform
+                .iter()
+                .map(|v| f32::from((*v).min(100)) / 100.0)
+                .collect(),
+        )
+    };
+    AttachmentInfo::Voice(attachment::BaseAudioInfo {
+        duration: Some(std::time::Duration::from_millis(duration_ms)),
+        size: UInt::new(size),
+        waveform: normalized,
+    })
+}
+
+/// v0.7 voice round: send a recorded voice message. Same validation and
+/// routing as send_attachment_path; only the info differs (see voice_info).
+/// The waveform is bounded by the FFI layer; duration must be real — a
+/// zero-length recording is a caller bug, not a sendable message.
+pub(crate) fn send_voice_path(
+    bridge: &RustClient,
+    room_id: String,
+    path: String,
+    mime: String,
+    duration_ms: u64,
+    waveform: Vec<u8>,
+    op_id: u64,
+) -> Result<(), String> {
+    let metadata = std::fs::metadata(&path)
+        .map_err(|_| "voice file is not readable".to_owned())?;
+    if !metadata.is_file() {
+        return Err("voice path is not a regular file".to_owned());
+    }
+    if metadata.len() == 0 {
+        return Err("voice file is empty".to_owned());
+    }
+    if duration_ms == 0 {
+        return Err("voice duration is unknown".to_owned());
+    }
+    let info = Some(voice_info(duration_ms, metadata.len(), &waveform));
+    bridge.timelines.send_attachment(
+        &bridge.runtime,
+        room_id,
+        AttachmentSource::File(std::path::PathBuf::from(path)),
+        mime,
+        None,
+        info,
+        op_id,
+    )
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn send_attachment_path(
     bridge: &RustClient,

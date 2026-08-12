@@ -12,6 +12,7 @@
 #include "media/MediaBridge.h"
 #include "media/MediaPlaybackController.h"
 #include "media/MediaManager.h"
+#include "media/VoiceRecorder.h"
 #include "models/MessageComposer.h"
 #include "models/MentionSuggestionModel.h"
 #include "models/EmojiCatalog.h"
@@ -186,6 +187,12 @@ class AppController : public QObject
     Q_PROPERTY(ConversationController* conversations READ conversations CONSTANT)
     Q_PROPERTY(RoomInfoController* roomInfo READ roomInfo CONSTANT)
     Q_PROPERTY(MediaBridge* mediaBridge READ mediaBridge CONSTANT)
+    // v0.7 voice round: microphone capture for MSC3245 voice messages.
+    // Created LAZILY on first access (the composer only touches it on the
+    // first mic press), so the audio backend never spins up for a session
+    // that never records. CONSTANT is honest: the pointer is created once
+    // inside the first read and never changes afterwards.
+    Q_PROPERTY(VoiceRecorder* voiceRecorder READ voiceRecorder CONSTANT)
     // v0.7: shared inline-playback coordinator (one audible media card at a
     // time; stopped on room/account switches and sign-out).
     Q_PROPERTY(MediaPlaybackController* playback READ playback CONSTANT)
@@ -343,6 +350,12 @@ public:
     ConversationController *conversations() const { return m_conversations.get(); }
     RoomInfoController *roomInfo() const { return m_roomInfo.get(); }
     MediaBridge *mediaBridge() const { return m_mediaBridge.get(); }
+    VoiceRecorder *voiceRecorder()
+    {
+        if (!m_voiceRecorder)
+            m_voiceRecorder = std::make_unique<VoiceRecorder>(this);
+        return m_voiceRecorder.get();
+    }
     MediaPlaybackController *playback() const { return m_playback.get(); }
     PaginationController *pagination() const { return m_pagination.get(); }
     ReadReceiptCoordinator *readReceipts() const { return m_readReceipts.get(); }
@@ -727,6 +740,7 @@ private:
     std::unique_ptr<ConversationController> m_conversations;
     std::unique_ptr<RoomInfoController> m_roomInfo;
     std::unique_ptr<MediaBridge> m_mediaBridge;
+    std::unique_ptr<VoiceRecorder> m_voiceRecorder; // lazy — see getter
     std::unique_ptr<MediaPlaybackController> m_playback;
     std::unique_ptr<PaginationController> m_pagination;
     std::unique_ptr<ReadReceiptCoordinator> m_readReceipts;

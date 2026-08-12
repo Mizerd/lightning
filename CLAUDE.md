@@ -879,9 +879,15 @@ Keep this list grounded in source and recent history:
   checkpoints), and the design shell on a real desktop (KDE Wayland taskbar
   icon association included).
 - Deliberate follow-ups from the design handoff: thread participant
-  facepiles (needs participant data in the thread-summary bridge payload),
-  voice messages (the composer keeps the designed mic slot in the honest
-  unavailable state), and Matrix presence. Markdown sending (formatting
+  facepiles (needs participant data in the thread-summary bridge payload)
+  and Matrix presence. Voice messages LANDED 2026-08-12 (VoiceRecorder:
+  Qt Multimedia capture, OGG/Opus preferred with AAC/MP4 fallback, real
+  QAudioDecoder-derived waveform; mx_rust_timeline_send_voice →
+  AttachmentInfo::Voice, so the SDK emits the MSC3245 marker + MSC1767
+  duration/waveform block via the normal encrypting attachment path; the
+  hard duration cap DISCARDS, never auto-sends). Room composer only —
+  the thread composer mic is a follow-up. Live mic capture and Element
+  interop of sent voice events: NOT TESTED. Markdown sending (formatting
   toolbar + SDK text_markdown on interactive sends), message layout modes,
   and text-size scaling landed with the 2026-07-20 checkpoints; their live
   Element interoperability (formatted-body rendering) is still user-pending.

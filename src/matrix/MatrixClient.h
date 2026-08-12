@@ -454,6 +454,20 @@ public:
         Q_UNUSED(mime); Q_UNUSED(width); Q_UNUSED(height);
         return 0;
     }
+    // v0.7: MSC3245 voice message. The SDK marks the event as a voice
+    // message and carries duration + waveform (0..=100 amplitudes, may be
+    // empty) through the normal encrypting attachment path. Result echoes
+    // on attachmentQueueFinished by op id.
+    virtual quint64 sendVoiceMessage(const QString &roomId,
+                                     const QString &localPath,
+                                     const QString &mime,
+                                     qint64 durationMs,
+                                     const QList<int> &waveform)
+    {
+        Q_UNUSED(roomId); Q_UNUSED(localPath); Q_UNUSED(mime);
+        Q_UNUSED(durationMs); Q_UNUSED(waveform);
+        return 0;
+    }
 
     // v0.6.1: attachment sending INTO a thread. Routed through the SDK's
     // thread-focused timeline so the m.thread relation and (in encrypted

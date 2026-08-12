@@ -5296,6 +5296,42 @@ pub unsafe extern "C" fn mx_rust_timeline_send_attachment(
     })
 }
 
+/// v0.7 voice round: MSC3245 voice message. `waveform` is 0..=100
+/// amplitudes (may be null/empty); bounded here so a hostile length can
+/// never allocate unbounded memory. Result echoes on
+/// attachment_send_result by op_id exactly like every attachment send.
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn mx_rust_timeline_send_voice(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    local_path: *const c_char,
+    mime: *const c_char,
+    duration_ms: u64,
+    waveform: *const u8,
+    waveform_len: usize,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let local_path = unsafe { cstr_arg(local_path) }?;
+        let mime = unsafe { cstr_arg(mime) }?;
+        if waveform_len > 1024 {
+            return Err("voice waveform is too long".to_owned());
+        }
+        let waveform = if waveform.is_null() || waveform_len == 0 {
+            Vec::new()
+        } else {
+            unsafe { std::slice::from_raw_parts(waveform, waveform_len) }.to_vec()
+        };
+        rooms::send_voice_path(
+            bridge, room_id, local_path, mime, duration_ms, waveform, op_id,
+        )
+        .map(|_| String::new())
+    })
+}
+
 #[no_mangle]
 #[allow(clippy::too_many_arguments)]
 pub unsafe extern "C" fn mx_rust_timeline_send_attachment_bytes(

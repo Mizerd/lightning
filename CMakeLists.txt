@@ -299,6 +299,8 @@ set(APP_SOURCES
     src/media/MediaPlaybackController.cpp
     src/media/VideoPosterExtractor.h
     src/media/VideoPosterExtractor.cpp
+    src/media/VoiceRecorder.h
+    src/media/VoiceRecorder.cpp
     src/crypto/CryptoManager.h
     src/crypto/CryptoManager.cpp
     src/crypto/CryptoHealthModel.h
@@ -1570,6 +1572,19 @@ if(BUILD_TESTING)
     target_link_libraries(media-bridge-test
         PRIVATE Qt6::Core Qt6::Gui Qt6::Multimedia Qt6::Test)
     add_test(NAME media-bridge COMMAND media-bridge-test)
+
+    # v0.7 voice round: waveform bucket math (max-preserving downsample,
+    # loudness normalization, bounds) — pure static helper, no audio
+    # backend is ever constructed.
+    qt_add_executable(voice-recorder-test
+        tests/VoiceRecorderTest.cpp
+        src/media/VoiceRecorder.h
+        src/media/VoiceRecorder.cpp
+    )
+    target_include_directories(voice-recorder-test PRIVATE src)
+    target_link_libraries(voice-recorder-test
+        PRIVATE Qt6::Core Qt6::Gui Qt6::Multimedia Qt6::Test)
+    add_test(NAME voice-recorder COMMAND voice-recorder-test)
 
     # v0.7: shared inline-playback coordinator — single audible owner,
     # owner-checked release, stopAll generation for room/account switches.

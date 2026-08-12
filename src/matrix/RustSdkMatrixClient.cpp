@@ -4136,6 +4136,40 @@ quint64 RustSdkMatrixClient::sendAttachment(const QString &roomId,
     return opId;
 }
 
+quint64 RustSdkMatrixClient::sendVoiceMessage(const QString &roomId,
+                                              const QString &localPath,
+                                              const QString &mime,
+                                              qint64 durationMs,
+                                              const QList<int> &waveform)
+{
+    if (!m_rustHandle || roomId.isEmpty() || localPath.isEmpty()
+        || mime.isEmpty() || durationMs <= 0)
+        return 0;
+    if (!timelineActiveFor(roomId)) {
+        qCWarning(lcRust) << "voice send requires the open room timeline";
+        return 0;
+    }
+    // Clamp to the bridge scale; the FFI bounds the length.
+    QByteArray amplitudes;
+    amplitudes.reserve(waveform.size());
+    for (int value : waveform)
+        amplitudes.append(static_cast<char>(qBound(0, value, 100)));
+    const quint64 opId = nextOpId();
+    const QByteArray room = roomId.toUtf8();
+    const QByteArray path = localPath.toUtf8();
+    const QByteArray mimeBytes = mime.toUtf8();
+    const QString result = takeRustString(mx_rust_timeline_send_voice(
+        m_rustHandle, room.constData(), path.constData(),
+        mimeBytes.constData(), static_cast<unsigned long long>(durationMs),
+        reinterpret_cast<const unsigned char *>(amplitudes.constData()),
+        static_cast<size_t>(amplitudes.size()), opId));
+    if (!result.isEmpty()) {
+        qCWarning(lcRust) << "voice send rejected";
+        return 0;
+    }
+    return opId;
+}
+
 quint64 RustSdkMatrixClient::sendAttachmentBytes(const QString &roomId,
                                                  const QByteArray &bytes,
                                                  const QString &filename,

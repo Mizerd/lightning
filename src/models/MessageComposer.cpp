@@ -5,6 +5,7 @@
 
 #include <QBuffer>
 #include <QClipboard>
+#include <QFile>
 #include <QGuiApplication>
 #include <QImage>
 #include <QMimeData>
@@ -45,6 +46,11 @@ void MessageComposer::setClient(MatrixClient *client)
                 this, &MessageComposer::onAttachmentQueueFinished);
         connect(m_client, &MatrixClient::loggedOut, this, [this] {
             m_attachments->clearAll();
+            // Unresolved voice recordings must not outlive the session on
+            // disk; their ops can never resolve past this point.
+            for (const QString &file : std::as_const(m_voiceOps))
+                QFile::remove(file);
+            m_voiceOps.clear();
         });
     }
     updateCanSend();
@@ -145,6 +151,32 @@ void MessageComposer::dispatchAttachments()
     }
 }
 
+void MessageComposer::sendVoiceMessage(const QString &localPath,
+                                       const QString &mime,
+                                       qreal durationMs,
+                                       const QVariantList &waveform)
+{
+    if (!m_client || m_roomId.isEmpty() || localPath.isEmpty()
+        || mime.isEmpty() || durationMs <= 0) {
+        Q_EMIT attachmentRejected(tr("The voice message could not be sent."));
+        return;
+    }
+    QList<int> amplitudes;
+    amplitudes.reserve(waveform.size());
+    for (const QVariant &value : waveform)
+        amplitudes.append(value.toInt());
+    const quint64 opId = m_client->sendVoiceMessage(
+        m_roomId, localPath, mime, static_cast<qint64>(durationMs),
+        amplitudes);
+    if (opId == 0) {
+        // Never queued: the recording is dead — reclaim it now.
+        QFile::remove(localPath);
+        Q_EMIT attachmentRejected(tr("The voice message could not be sent."));
+        return;
+    }
+    m_voiceOps.insert(opId, localPath);
+}
+
 void MessageComposer::onAttachmentQueueFinished(quint64 opId,
                                                 const QString &roomId,
                                                 bool ok,
@@ -152,6 +184,19 @@ void MessageComposer::onAttachmentQueueFinished(quint64 opId,
 {
     Q_UNUSED(roomId);
     Q_UNUSED(category);
+    if (const auto voiceIt = m_voiceOps.constFind(opId);
+        voiceIt != m_voiceOps.constEnd()) {
+        // The op owns its recording file; queued or failed, the SDK holds
+        // the bytes (or nothing) — the path is no longer needed.
+        QFile::remove(voiceIt.value());
+        m_voiceOps.erase(voiceIt);
+        // Voice sends have no tray entry; only a failure needs surfacing —
+        // success already shows as the SDK local echo in the timeline.
+        if (!ok)
+            Q_EMIT attachmentRejected(
+                tr("The voice message could not be sent."));
+        return;
+    }
     auto &entries = m_attachments->entries();
     for (int row = 0; row < entries.size(); ++row) {
         if (entries[row].opId != opId || opId == 0)

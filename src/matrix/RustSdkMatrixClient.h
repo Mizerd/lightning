@@ -314,6 +314,9 @@ public:
     quint64 sendAttachment(const QString &roomId, const QString &localPath,
                            const QString &mime, const QString &caption,
                            int width, int height, bool animated) override;
+    quint64 sendVoiceMessage(const QString &roomId, const QString &localPath,
+                             const QString &mime, qint64 durationMs,
+                             const QList<int> &waveform) override;
     quint64 sendAttachmentBytes(const QString &roomId, const QByteArray &bytes,
                                 const QString &filename, const QString &mime,
                                 int width, int height) override;

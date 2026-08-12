@@ -521,6 +521,17 @@ char *mx_rust_timeline_send_attachment(void *client,
                                        unsigned long long height,
                                        int animated,
                                        unsigned long long op_id);
+/* v0.7: MSC3245 voice message. waveform: 0..=100 amplitudes (may be NULL /
+ * empty; at most 1024 entries). The SDK adds the voice marker + duration/
+ * waveform block and sends via the normal (encrypting) attachment path. */
+char *mx_rust_timeline_send_voice(void *client,
+                                  const char *room_id,
+                                  const char *local_path,
+                                  const char *mime,
+                                  unsigned long long duration_ms,
+                                  const unsigned char *waveform,
+                                  size_t waveform_len,
+                                  unsigned long long op_id);
 /* Clipboard image path: one bounded byte copy, no temporary file on disk. */
 char *mx_rust_timeline_send_attachment_bytes(void *client,
                                              const char *room_id,

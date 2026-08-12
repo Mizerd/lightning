@@ -25,6 +25,10 @@ Item {
     // keyboard shortcuts still apply regardless of visibility.
     property bool toolbarExpanded: false
 
+    // v0.7: a voice recording (or its finalization) is in progress — the
+    // mic slot shows the recording pill instead of the idle button.
+    property bool voiceActive: false
+
     // Transient validation feedback ("folder rejected", "too large", …).
     property string attachmentNotice: ""
     property int emojiSelectionStart: 0
@@ -199,7 +203,30 @@ Item {
     }
     Connections {
         target: app
-        function onCurrentRoomIdChanged() { mentionPopup.close() }
+        function onCurrentRoomIdChanged() {
+            mentionPopup.close()
+            // A recording targets the room it was started in; switching
+            // away discards it rather than sending into the wrong room.
+            if (root.voiceActive) {
+                app.voiceRecorder.cancel()
+                root.voiceActive = false
+            }
+        }
+    }
+    // Recorder results. target uses the lazy getter only while a recording
+    // is active, so binding this block never constructs the recorder.
+    Connections {
+        target: root.voiceActive ? app.voiceRecorder : null
+        function onReady(filePath, mime, durationMs, waveform) {
+            root.voiceActive = false
+            app.composer.sendVoiceMessage(filePath, mime, durationMs,
+                                          waveform)
+        }
+        function onFailed(message) {
+            root.voiceActive = false
+            root.attachmentNotice = message
+            noticeTimer.restart()
+        }
     }
 
     function openGifPicker() {
@@ -972,8 +999,13 @@ Item {
                         onClicked: root.openGifPicker()
                     }
 
-                    // Voice capture has no backend yet: the control keeps the
-                    // designed slot with the app's honest unavailable state.
+                    // v0.7: voice capture. Idle: the designed mic slot.
+                    // Recording: a compact pill with a pulsing dot, the
+                    // elapsed time, cancel, and send. app.voiceRecorder is
+                    // created lazily on the FIRST press, so the audio
+                    // backend never spins up for a session that never
+                    // records; hardware/encoder absence surfaces honestly
+                    // through the recorder's failed() signal on press.
                     IconButton {
                         objectName: "composerMicButton"
                         Layout.alignment: Qt.AlignVCenter
@@ -981,11 +1013,110 @@ Item {
                         radius: 6
                         iconName: "mic"
                         iconSize: 22
-                        enabled: false
-                        Accessible.name: qsTr("Voice messages are not available yet")
-                        ToolTip.text: qsTr("Voice messages are not available yet")
+                        visible: !root.voiceActive
+                        enabled: app.currentRoomId !== ""
+                                 && app.composer.attachmentsSupported
+                        Accessible.name: qsTr("Record a voice message")
+                        ToolTip.text: qsTr("Record a voice message")
                         ToolTip.visible: hovered
                         ToolTip.delay: 500
+                        onClicked: {
+                            // Failure on this FIRST press is reported from
+                            // the return value: the failure Connections
+                            // only arms once voiceActive is true.
+                            if (app.voiceRecorder.start()) {
+                                root.voiceActive = true
+                            } else {
+                                root.attachmentNotice =
+                                    qsTr("Voice recording is unavailable.")
+                                noticeTimer.restart()
+                            }
+                        }
+                    }
+                    Rectangle {
+                        id: voicePill
+                        objectName: "composerVoicePill"
+                        // NEVER touch app.voiceRecorder while idle: the
+                        // property getter constructs the recorder (and the
+                        // audio backend) on first access, and this pill is
+                        // instantiated with the composer.
+                        readonly property var rec:
+                            root.voiceActive ? app.voiceRecorder : null
+                        visible: root.voiceActive
+                        Layout.alignment: Qt.AlignVCenter
+                        implicitHeight: 28
+                        implicitWidth: voicePillRow.implicitWidth + 16
+                        radius: AppTheme.radiusPill
+                        color: AppTheme.accentSoft
+                        border.color: AppTheme.accent
+                        border.width: 1
+                        RowLayout {
+                            id: voicePillRow
+                            anchors.centerIn: parent
+                            spacing: AppTheme.spacing8
+                            Rectangle {
+                                id: voiceDot
+                                width: 8; height: 8; radius: 4
+                                color: AppTheme.danger
+                                // Solid while finalizing; pulsing while
+                                // live (steady with reduced motion).
+                                property real t: 0
+                                opacity: (voicePill.rec
+                                          && voicePill.rec.processing)
+                                         || AppTheme.reducedMotion
+                                         ? 1.0 : 0.35 + 0.65 * voiceDot.t
+                                SequentialAnimation on t {
+                                    running: root.voiceActive
+                                             && !AppTheme.reducedMotion
+                                    loops: Animation.Infinite
+                                    NumberAnimation { from: 0; to: 1; duration: 700 }
+                                    NumberAnimation { from: 1; to: 0; duration: 700 }
+                                }
+                            }
+                            Label {
+                                text: {
+                                    var ms = voicePill.rec
+                                             ? voicePill.rec.durationMs : 0
+                                    var total = Math.floor(ms / 1000)
+                                    var m = Math.floor(total / 60)
+                                    var s = total % 60
+                                    return m + ":" + (s < 10 ? "0" : "") + s
+                                }
+                                color: AppTheme.text
+                                font.pixelSize: 12
+                                font.weight: Font.DemiBold
+                            }
+                            IconButton {
+                                objectName: "composerVoiceCancelButton"
+                                implicitWidth: 24; implicitHeight: 24
+                                iconName: "close"
+                                iconSize: 15
+                                Accessible.name: qsTr("Discard the recording")
+                                ToolTip.text: qsTr("Discard")
+                                ToolTip.visible: hovered
+                                ToolTip.delay: 500
+                                onClicked: {
+                                    app.voiceRecorder.cancel()
+                                    root.voiceActive = false
+                                }
+                            }
+                            IconButton {
+                                objectName: "composerVoiceSendButton"
+                                implicitWidth: 24; implicitHeight: 24
+                                fill: true
+                                iconName: "send"
+                                iconSize: 14
+                                enabled: voicePill.rec
+                                         && voicePill.rec.recording
+                                Accessible.name: qsTr("Send the voice message")
+                                ToolTip.text: qsTr("Send")
+                                ToolTip.visible: hovered
+                                ToolTip.delay: 500
+                                // stop() finalizes and derives the waveform;
+                                // the ready() handler below performs the send.
+                                onClicked: app.voiceRecorder.stop()
+                            }
+                        }
                     }
 
                     // Accent-fill send (34px, radius 9 — a rounded square).

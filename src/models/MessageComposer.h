@@ -5,6 +5,7 @@
 
 #include <QList>
 #include <QObject>
+#include <QHash>
 #include <QString>
 #include <QTimer>
 #include <QUrl>
@@ -124,6 +125,13 @@ public:
                                 int maxSelections);
     Q_INVOKABLE void sendImageFromPath(const QString &localPath);
     Q_INVOKABLE void sendFileFromPath(const QString &localPath);
+    // v0.7: MSC3245 voice message from VoiceRecorder's finalized output.
+    // waveform entries are 0..=100; failure surfaces via
+    // attachmentRejected exactly like tray attachments.
+    Q_INVOKABLE void sendVoiceMessage(const QString &localPath,
+                                      const QString &mime,
+                                      qreal durationMs,
+                                      const QVariantList &waveform);
 
     // v0.5.9 attachment tray.
     AttachmentQueueModel *attachments() const { return m_attachments; }
@@ -181,6 +189,12 @@ private:
     QString m_threadRootId;
     QString m_threadPreview;
     QList<mention::MentionRef> m_mentionRefs;
+    // Voice send ops in flight, mapped to the recording file each one
+    // owns: a failed queueing surfaces to the user (the tray model only
+    // tracks its own entries), and the file is deleted when the op
+    // resolves — the SDK reads the bytes into its queue at queueing time
+    // and never re-reads the path.
+    QHash<quint64, QString> m_voiceOps;
     bool    m_canSend = false;
     bool    m_typingActive = false;
     QTimer  m_typingRefresh;
