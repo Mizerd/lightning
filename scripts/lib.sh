@@ -63,7 +63,20 @@ windows_unsigned_suffix() {
 # Write a sibling <name>.sha256 that records only the basename, so that a
 # downloaded artifact verifies with `sha256sum -c <name>.sha256` regardless of
 # where it is checked out.
+#
+# macOS has no sha256sum; `shasum -a 256` produces byte-identical output, so the
+# fallback keeps one checksum format across Linux containers and the native
+# macOS runner. Ordering matters: prefer the GNU tool where it exists so Linux
+# behaviour is unchanged.
+sha256_of() {
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$@"
+    else
+        shasum -a 256 "$@"
+    fi
+}
+
 write_sha256() {
     local path="$1"
-    ( cd "$(dirname "$path")" && sha256sum "$(basename "$path")" >"$(basename "$path").sha256" )
+    ( cd "$(dirname "$path")" && sha256_of "$(basename "$path")" >"$(basename "$path").sha256" )
 }

@@ -36,8 +36,14 @@ lightning-deploy project 7
 │                          validate-appimage, validate-snap)
 ├── publication           (publish-packages)
 ├── registry verification (verify-published-packages)
-└── final release action  (finalize-release)
+├── final release action  (finalize-release)
+└── non-publishing test paths
+    ├── windows-package-test  (Linux cross-build, unsigned)
+    └── macos-package-test    (native arm64 on the Mac mini, unsigned)
 ```
+
+The two test paths are opt-in, never part of a release, and produce only
+expiring CI artifacts. Neither feeds `publish-packages`.
 
 The permanent home of every released package is project 6's Generic Package
 Registry. Project 7 keeps only expiring CI artifacts for diagnostics; nothing
@@ -56,6 +62,8 @@ Only manually created `web` and `api` pipelines are accepted.
 | build | `build-flatpak` | KDE-runtime sandbox build → single-file bundle |
 | build | `build-appimage` | Debian staged build → self-contained AppImage |
 | build | `build-snap` | Snap packed from the AppImage job's AppDir |
+| build | `windows-package-test` | Opt-in unsigned Windows cross-build (never publishes) |
+| build | `macos-package-test` | Opt-in unsigned macOS arm64 `.app` on the Mac mini (never publishes) |
 | validate | `validate-deb` | Clean Debian install/run/uninstall audit |
 | validate | `validate-rpm` | Clean Fedora install/run/uninstall audit |
 | validate | `validate-flatpak` | Bundle install into a disposable installation, run, uninstall |
@@ -177,6 +185,88 @@ packaging pipeline. See
 decision and [`docs/windows-runner-operations.md`](docs/windows-runner-operations.md)
 for operations, rollback, cache, and troubleshooting.
 
+## macOS unsigned test packaging
+
+`macos-package-test` is a **native** build on real Apple hardware — the physical
+M1 Mac mini at `10.195.35.7` (tags `macos`, `arm64`, `ios`), added 2026-08-13.
+Unlike the Windows target it is not a cross-build: there is no supported way to
+cross-compile a Qt/QML macOS app, and Apple's SDK and `codesign` cannot run in a
+Linux container. It is therefore the only job in this project that uses a
+**shell executor on bare metal** rather than a pinned image.
+
+That has consequences the pipeline is explicit about. The toolchain is installed
+on the host (Homebrew Qt 6.11.1, CMake, Ninja; rustup 1.93.0 in the `runner`
+account; clang and the macOS SDK from Xcode/CLT), so it is not pinned by an
+image digest — `build-macos.sh` therefore *records* the versions it actually
+used into `build-info.json`. The working directory persists between jobs, so
+every output path is explicitly removed rather than assumed clean. The `runner`
+account is non-admin and cannot `brew install`, so a CI job cannot alter the
+toolchain it builds against.
+
+Start a new pipeline from project 7's protected default branch with exactly:
+
+```text
+BUILD_MACOS_PACKAGES=true
+BUILD_WINDOWS_PACKAGES=false
+BUILD_FORMATS=none
+PUBLISH_PACKAGES=false
+SOURCE_REF=<full 40-character project-6 commit SHA>
+RELEASE_VERSION=
+RELEASE_NOTES_B64=
+```
+
+`BUILD_FORMATS=none` excludes every Linux package build and
+`BUILD_WINDOWS_PACKAGES=false` excludes both Windows jobs, so the pipeline is
+exactly `config-tests` → `resolve-source` → `macos-package-test`. A branch, tag,
+short SHA, merge request, publication input, release input, or Linux format
+selection excludes the macOS job. If both platform flags are set true, only the
+Windows job runs — request one platform at a time.
+
+The job produces seven-day, developer-visible CI artifacts only:
+
+- `Lightning-<version>-<source-short-sha>-macos-arm64.zip` and its `.sha256`
+- `dist/macos/build-info.json`
+- `dist/macos/reports/` — macdeployqt log, codesign output, `spctl` assessment,
+  `otool` dependency dumps, and `macos-validation.json`
+
+It builds the project-6 source with the real Rust backend for
+`aarch64-apple-darwin`, asserts the Rust-only invariant on the built binary
+(same fail-closed check as the Linux path), assembles a `Lightning.app` —
+Lightning's CMake never sets `MACOSX_BUNDLE`, so the bundle is built by the
+script, not by `cmake --install` — bundles the Qt frameworks and QML modules
+with `macdeployqt`, re-signs ad-hoc, and validates the finished bundle before it
+is archived. Validation checks bundle structure, `arm64` Mach-O, that no
+bundled binary still references `/opt/homebrew` (which would make the app run
+only on the build machine), the presence of every linked Qt framework and the
+cocoa platform plugin, signature validity, and that the bundled binary actually
+executes `--version` and `--build-info`.
+
+**`NSMicrophoneUsageDescription` is mandatory, not decorative.** Lightning
+records voice messages via `QMediaCaptureSession`/`QAudioInput`, and macOS
+terminates any process that touches the microphone without a usage string, so a
+missing key is a hard validation failure.
+
+These are unsigned test artifacts, not a release:
+
+- ad-hoc signed (`-`), **not** Developer ID signed, and **not notarized**, so
+  Gatekeeper refuses them on any machine but the builder. Validation runs
+  `spctl --assess` and records the *expected* rejection as evidence, so a green
+  pipeline is never mistaken for a distributable build;
+- **arm64 only** — Homebrew's Qt bottle is arm64-only, so this is not a
+  universal binary;
+- `LSMinimumSystemVersion` **14.0**, inherited from that Qt's `minos`;
+- **no GUI acceptance testing** — window creation, notifications, media
+  playback, microphone capture, Keychain behaviour, and Retina rendering remain
+  **NOT TESTED**.
+
+There is deliberately **no publishing macOS job**. `build-macos.sh` refuses to
+run with `PUBLISH_PACKAGES=true`, and `tests/test-pipeline-config.py` asserts
+that no such job exists and that `publish-packages` does not consume the bundle:
+publishing an artifact Gatekeeper blocks would be worse than shipping nothing.
+See [`docs/macos-packaging.md`](docs/macos-packaging.md) for the architecture
+decision, the bundle layout, and the ordered path to a releasable signed +
+notarized build.
+
 ### Build caching
 
 Every package runner bind-mounts a private host directory at `/cache` into its
@@ -260,6 +350,9 @@ exists with a matching version.
 | `RELEASE_VERSION` | Application version without a leading `v`, e.g. `0.6.1`. Required to publish; must equal the source's CMake version. |
 | `RELEASE_ACTION` | `create` or `attach-existing`. Any other value is rejected. |
 | `PUBLISH_PACKAGES` | `false` by default (safe, non-publishing). `true` enables publish/verify/release. |
+| `BUILD_FORMATS` | Build-only format selection: `all`, `none`, or a comma list from `deb,rpm,flatpak,appimage,snap`. `none` is required for a Windows- or macOS-only test pipeline. |
+| `BUILD_WINDOWS_PACKAGES` | `false` by default. `true` enables the unsigned Windows cross-package test job. |
+| `BUILD_MACOS_PACKAGES` | `false` by default. `true` enables the unsigned macOS arm64 `.app` test job on the Mac mini runner. |
 | `RELEASE_NOTES_B64` | `create` only: base64-encoded Markdown release notes. |
 | `TARGET_PROJECT_ID` / `LIGHTNING_PROJECT_ID` | Fixed to `6`; scripts reject any other value so publication cannot be redirected. |
 | `PACKAGE_NAME` | `lightning`. |
@@ -482,7 +575,9 @@ or source archives.
   the safe mapping of CI variables into the build (env, not command line; never
   logged), using synthetic canary values only.
 - `tests/test-pipeline-config.py` — required stages/jobs, publish/verify/release
-  gating for both actions, and dependency wiring.
+  gating for both actions, dependency wiring, and the two platform test gates:
+  that a macOS-only request creates no Linux or Windows build job, and that no
+  macOS job can ever reach the publication chain.
 - `tests/test-windows-metadata.py` — the Windows product-metadata gate, against
   synthetic PE files with real version resources: correct metadata passes, and a
   version mismatch, a wrong product name, a missing copyright, a wrong
@@ -507,6 +602,15 @@ One switch decides the signed/unsigned story everywhere: `windows_signed` in
 governs PE and MSI metadata, published asset names, and the release description,
 so none of them can claim a signature that does not exist. Flip it only in the
 change that actually signs.
+
+macOS artifacts are **not signed for distribution** either. The bundle carries
+an **ad-hoc** signature because Apple Silicon will not execute unsigned pages at
+all — that makes it runnable, not distributable. It is not Developer ID signed
+and not notarized, so Gatekeeper blocks it everywhere except the build machine,
+which is why there is no publishing macOS job. Note that the Mac runner has
+FileVault disabled and automatic GUI login (so the runner LaunchAgent starts
+unattended), so importing a Developer ID key there needs a deliberate keychain
+model decided first — see [`docs/macos-packaging.md`](docs/macos-packaging.md).
 
 ## Release ordering (authoritative)
 

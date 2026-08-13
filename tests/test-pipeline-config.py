@@ -43,7 +43,7 @@ required_jobs = [
     "validate-deb", "validate-rpm",
     "validate-flatpak", "validate-appimage", "validate-snap",
     "publish-packages", "verify-published-packages", "finalize-release",
-    "windows-package-test", "build-windows",
+    "windows-package-test", "build-windows", "macos-package-test",
 ]
 for job in required_jobs:
     check(job in doc, f"job {job} is defined")
@@ -359,6 +359,82 @@ check(not evaluate(bw_gate, {"CI_COMMIT_BRANCH": "main", "CI_DEFAULT_BRANCH": "m
 check(not evaluate(bw_gate, {"CI_COMMIT_BRANCH": "feature", "CI_DEFAULT_BRANCH": "main",
                              "PUBLISH_PACKAGES": "true"}),
       "build-windows is excluded off the default branch")
+
+# --- macOS: native shell-executor test path on the physical Mac mini ---------
+# Same restrictive shape as the Windows gate, with two extra guarantees: it is
+# mutually exclusive with the Windows job, and it has NO publishing counterpart
+# anywhere in the graph (unsigned/un-notarized bundles must never be published).
+macos = resolve_extends("macos-package-test")
+check(set(macos.get("tags", [])) == {"macos", "arm64"},
+      "macOS job selects only the Apple Silicon runner tags")
+# A shell-executor job must not carry an image: there is no macOS container.
+check("image" not in macos,
+      "macOS job declares no image (shell executor on bare metal)")
+check(macos.get("stage") == "build", "macOS job runs in the build stage")
+check("resolve-source" in needs_names("macos-package-test"),
+      "macOS job consumes the resolve-source artifacts")
+
+# width is not cosmetic here: the gate is one long `if:` expression and yaml's
+# default 80-column wrapping splits it mid-token, which silently breaks every
+# substring assertion below.
+macos_rule_text = yaml.dump(macos.get("rules", []), width=10**6)
+for required in ("CI_DEFAULT_BRANCH", "CI_PIPELINE_SOURCE", "BUILD_MACOS_PACKAGES",
+                 "BUILD_WINDOWS_PACKAGES", "PUBLISH_PACKAGES", "BUILD_FORMATS",
+                 "SOURCE_REF", "RELEASE_VERSION", "RELEASE_NOTES_B64"):
+    check(required in macos_rule_text, f"macOS gate constrains {required}")
+check("release:" not in yaml.dump(doc["macos-package-test"]),
+      "macOS job has no GitLab release action")
+check(macos.get("artifacts", {}).get("expire_in") == "7 days",
+      "macOS test artifacts expire in seven days")
+check(macos.get("artifacts", {}).get("access") == "developer",
+      "macOS test artifacts are limited to developers")
+
+macos_gate = macos["rules"]
+macos_vars = {
+    "CI_COMMIT_BRANCH": "main", "CI_DEFAULT_BRANCH": "main",
+    "CI_PIPELINE_SOURCE": "web", "BUILD_MACOS_PACKAGES": "true",
+    "BUILD_WINDOWS_PACKAGES": "false",
+    "PUBLISH_PACKAGES": "false", "BUILD_FORMATS": "none",
+    "SOURCE_REF": "7" * 40, "RELEASE_VERSION": "", "RELEASE_NOTES_B64": "",
+}
+check(evaluate(macos_gate, macos_vars),
+      "trusted default-branch macOS-only request includes the macOS job")
+for key, value in (("CI_COMMIT_BRANCH", "feature"),
+                   ("CI_PIPELINE_SOURCE", "merge_request_event"),
+                   ("BUILD_MACOS_PACKAGES", "false"),
+                   ("BUILD_WINDOWS_PACKAGES", "true"),
+                   ("PUBLISH_PACKAGES", "true"),
+                   ("BUILD_FORMATS", "all"),
+                   ("SOURCE_REF", "main"),
+                   ("RELEASE_VERSION", "0.6.6"),
+                   ("RELEASE_NOTES_B64", "bm90ZXM=")):
+    rejected = dict(macos_vars)
+    rejected[key] = value
+    check(not evaluate(macos_gate, rejected),
+          f"macOS gate rejects unsafe {key}={value}")
+
+# The whole point of the macOS request: no Linux and no Windows build job is
+# created, so the pipeline is genuinely macOS-only.
+check(not any(build_included(fmt, macos_vars) for fmt in all_fmts),
+      "a macOS-only request creates no Linux package build")
+check(not evaluate(resolve_extends("windows-package-test")["rules"], macos_vars),
+      "a macOS-only request creates no Windows test job")
+check(not evaluate(resolve_extends("build-windows")["rules"], macos_vars),
+      "a macOS-only request creates no Windows publishing job")
+
+# macOS must never reach the publication chain. Unsigned, un-notarized bundles
+# are rejected by Gatekeeper on every machine but the builder, so publishing
+# them would hand users something they cannot open.
+check("macos-package-test" not in needs_names("publish-packages"),
+      "publish-packages does not consume the macOS bundle")
+check(not any(job.startswith("build-macos") for job in doc),
+      "no publishing macOS build job exists")
+for job_name, job_def in doc.items():
+    if not isinstance(job_def, dict) or "macos" not in str(job_def.get("tags", [])):
+        continue
+    merged_rules = yaml.dump(resolve_extends(job_name).get("rules", []), width=10**6)
+    check('PUBLISH_PACKAGES == "false"' in merged_rules,
+          f"{job_name} (macOS runner) is gated to non-publishing pipelines only")
 
 if errors:
     print(f"\nPipeline config tests FAILED ({len(errors)})", file=sys.stderr)

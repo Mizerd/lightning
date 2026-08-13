@@ -38,6 +38,10 @@ variables:
     value: "false"
     options: ["false", "true"]
     description: "Safe default false. Enables unsigned Windows cross-package test artifacts only with BUILD_FORMATS=none on the protected default branch."
+  BUILD_MACOS_PACKAGES:
+    value: "false"
+    options: ["false", "true"]
+    description: "Safe default false. Enables the unsigned macOS arm64 .app test bundle only with BUILD_FORMATS=none on the protected default branch. Runs on the physical Mac mini runner."
   RELEASE_NOTES_B64:
     value: ""
     description: "create only: base64-encoded Markdown notes. Otherwise a tracked docs/releases/vX.Y.Z.md is used."
@@ -70,6 +74,23 @@ variables:
     PUBLISH_API_BASE: "http://10.195.35.2/api/v4"
   rules:
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $PUBLISH_PACKAGES == "true"'
+      when: on_success
+    - when: never
+
+# Native macOS gate. Same shape as the Windows gate — protected default branch,
+# manually created pipeline, fully pinned project-6 commit, every publication
+# input disabled — plus BUILD_FORMATS=none and BUILD_WINDOWS_PACKAGES=false so a
+# macOS request produces a macOS-only pipeline with no Linux or Windows build
+# jobs created at all. (If both BUILD_MACOS_PACKAGES and BUILD_WINDOWS_PACKAGES
+# are set true, only the Windows job runs; ask for one platform at a time.)
+#
+# This job runs on a SHELL executor on the physical Mac mini, not in a
+# container: it has no image isolation and the working directory persists
+# between jobs. That is why the gate is this strict and why the job never
+# publishes — see docs/macos-packaging.md.
+.macos-test-rules:
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE =~ /^(web|api)$/ && $BUILD_MACOS_PACKAGES == "true" && $BUILD_WINDOWS_PACKAGES == "false" && $PUBLISH_PACKAGES == "false" && $BUILD_FORMATS == "none" && $SOURCE_REF =~ /^[0-9a-f]{40}$/ && $RELEASE_VERSION == "" && $RELEASE_NOTES_B64 == ""'
       when: on_success
     - when: never
 
@@ -405,6 +426,52 @@ build-windows:
     expire_in: 7 days
     paths:
       - dist/windows/
+
+# Native macOS arm64 test bundle, built on the physical Mac mini runner
+# (10.195.35.7) with the shell executor. There is no macOS container image and
+# no supported way to cross-compile a Qt/QML app to macOS, so this is the only
+# target in the project that builds on bare metal against a host-installed
+# toolchain. The script records the exact toolchain versions it used into
+# build-info.json because they are not pinned by an image.
+#
+# Deliberately absent: any publishing counterpart. macOS artifacts are ad-hoc
+# signed and un-notarized, so Gatekeeper rejects them everywhere except the
+# machine that built them. Shipping that to users would be worse than shipping
+# nothing, so build-macos.sh refuses to run with PUBLISH_PACKAGES=true.
+macos-package-test:
+  extends: .macos-test-rules
+  stage: build
+  tags: [macos, arm64]
+  resource_group: lightning-macos-package
+  interruptible: true
+  timeout: 2h
+  needs:
+    - job: resolve-source
+      artifacts: true
+  variables:
+    # The Mac mini is 8-core / 16 GiB. Four keeps the Rust link steps inside
+    # memory while leaving the auto-login GUI session responsive.
+    BUILD_JOBS: "4"
+  before_script:
+    - test "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH"
+    - test "$BUILD_MACOS_PACKAGES" = "true"
+    - test "$PUBLISH_PACKAGES" = "false"
+    - test "$BUILD_FORMATS" = "none"
+    - test -z "$RELEASE_VERSION"
+    - test -z "$RELEASE_NOTES_B64"
+  script:
+    - ./scripts/prepare-pinned-source-macos.sh
+    - ./scripts/build-macos.sh
+  artifacts:
+    name: "lightning-macos-test-${CI_PIPELINE_ID}"
+    when: always
+    access: developer
+    expire_in: 7 days
+    paths:
+      - dist/macos/*.zip
+      - dist/macos/*.sha256
+      - dist/macos/build-info.json
+      - dist/macos/reports/
 
 validate-deb:
   # Build-only pipelines may select formats via BUILD_FORMATS;
