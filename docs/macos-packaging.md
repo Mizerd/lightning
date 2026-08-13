@@ -320,6 +320,41 @@ Artifacts, developer-visible, seven-day expiry:
 - `dist/macos/reports/` — macdeployqt log, codesign output, `spctl` assessment,
   `otool` dependency dumps, validation JSON
 
+## Expected noise in a successful build log
+
+A green run still prints a lot of alarming-looking output. These are all
+benign, and none of them fails the job:
+
+**`ERROR: Cannot resolve rpath "@rpath/Qt3DCore.framework/..."`** (also QtPdf,
+QtStateMachine, QtQuickTimeline, QtVirtualKeyboard, QtSvg, and friends).
+`macdeployqt` walks every QML import it can reach from the source tree and
+reports modules it cannot find. Homebrew's Qt does not ship the Qt3D, QtPdf, or
+QtStateMachine modules at all, and Lightning does not import them — the scanner
+simply cannot tell an optional style/import chain from a required one. The
+frameworks the app *actually* links are asserted individually by
+`validate-macos-artifacts.sh`, which is the check that matters.
+
+**`ERROR: codesign verification error: ... invalid signature (code or signature
+have been modified) In subcomponent: .../libbrotlicommon.1.dylib`**. This is
+`macdeployqt`'s own internal verification, and it is correct at the moment it
+runs: macdeployqt has just rewritten those Mach-O load commands with
+`install_name_tool`, which invalidates the signatures Homebrew shipped. The
+build then re-signs everything inside-out and verifies, so the line immediately
+after it in the log is `bundle signature verifies (ad-hoc)`. If the re-sign ever
+failed, the script would `die` rather than continue.
+
+**`ld: warning: object file ... was built for newer 'macOS' version`** and
+**`ld: warning: building for macOS-X, but linking with dylib ... built for newer
+version`**. These indicated a real bug and should no longer appear — see
+[Deployment target](#deployment-target). If they come back, the derived target
+has drifted from what Qt or the Rust objects were actually built against.
+
+**Long single-threaded stretches.** Lightning's `[profile.release]` sets
+`lto = true` and `codegen-units = 1`, so the final Rust crate and its link-time
+optimisation are single-threaded by construction. `BUILD_JOBS` parallelises the
+C++ phase and independent crates; it cannot split an LTO pass. Expect one busy
+core for a long stretch, then `ninja -j$BUILD_JOBS` for the ~200 C++ files.
+
 ## Troubleshooting
 
 **`required tool not found on the runner`** — the host toolchain changed. Only
