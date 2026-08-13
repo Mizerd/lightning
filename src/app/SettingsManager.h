@@ -70,6 +70,15 @@ class SettingsManager : public QObject
     // 1=OnHover, 2=Never. gifSafeSearch is a gif::Rating id (0=g,1=pg,2=pg-13,
     // 3=r). storeRecentGifs toggles Recents recording. gifPreferredProvider is
     // the picker's default provider id ("giphy"/"klipy").
+    //
+    // NOTE the name is historical. `gifAutoplay` (stored key "gif/autoplay")
+    // has governed ALL passive media since the 2026-08-12 perf round — GIF
+    // animation, the picker's autoplay, and the speculative video/audio
+    // prefetch — so 2=Never means "no passive downloads at all", not merely
+    // "still GIFs". The UI presents it as "Autoplay and prefetch media". The
+    // property and key keep their old names ON PURPOSE: renaming the stored
+    // key would silently reset every existing user's preference to the
+    // default, which is a worse outcome than a slightly stale identifier.
     Q_PROPERTY(int gifAutoplay READ gifAutoplay WRITE setGifAutoplay
                    NOTIFY gifAutoplayChanged)
     Q_PROPERTY(int gifSafeSearch READ gifSafeSearch WRITE setGifSafeSearch

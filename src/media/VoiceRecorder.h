@@ -44,16 +44,22 @@ public:
     // update is a trap (review L3). A failed start() reports through
     // failed() regardless.
     Q_INVOKABLE bool available();
-    bool recording() const { return m_state == State::Recording; }
-    bool processing() const { return m_state == State::Processing; }
+    // These four are virtual ONLY so a test double can stand in for the
+    // capture chain (AppController::setVoiceRecorderForTest). The ownership
+    // rules that keep a live recording from being stolen — the defect that
+    // orphaned an open microphone — are otherwise unassertable without real
+    // hardware. Production has exactly one implementation.
+    virtual bool recording() const { return m_state == State::Recording; }
+    virtual bool processing() const { return m_state == State::Processing; }
     qint64 durationMs() const;
 
-    // Begin a new recording (any previous unsent recording's file is
-    // dropped). Returns false — with failed() emitted — when no device or
-    // encoder is available.
-    Q_INVOKABLE bool start();
+    // Begin a new recording. Returns false — WITHOUT emitting failed() —
+    // when the recorder is not Idle, i.e. a recording is already running or
+    // finalizing; it does NOT supersede one. Returns false WITH failed()
+    // when no device or encoder is available.
+    Q_INVOKABLE virtual bool start();
     // Discard the active recording and its file.
-    Q_INVOKABLE void cancel();
+    Q_INVOKABLE virtual void cancel();
     // Finalize: stops capture, derives the waveform from the recorded
     // file, then emits ready(). No-op unless recording.
     Q_INVOKABLE void stop();

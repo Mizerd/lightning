@@ -201,11 +201,21 @@ private Q_SLOTS:
             "app.requestRoomNotificationMode(model.roomId)")));
         QVERIFY(block.contains(QStringLiteral(
             "function onRoomNotificationModeChanged(roomId) {")));
-        // Three radio rows, each a pure binding — never an imperative
-        // assignment (AppMenuItem itself never self-toggles radioSelected;
-        // the owner must not either). Mode 1 is labeled for what the SDK
-        // rule actually does: mentions AND keyword rules keep firing.
-        QCOMPARE(block.count(QStringLiteral("radio: true")), 3);
+        // FOUR radio rows since v0.7, each a pure binding — never an
+        // imperative assignment (AppMenuItem itself never self-toggles
+        // radioSelected; the owner must not either). Mode 1 is labeled for
+        // what the SDK rule actually does: mentions AND keyword rules keep
+        // firing. Mode 3 ("Follow account default") was added so this
+        // flyout can represent the same states Room Information offers —
+        // without it a room set to mode 3 showed NO selected radio here.
+        QCOMPARE(block.count(QStringLiteral("radio: true")), 4);
+        QVERIFY(block.contains(
+            QStringLiteral("text: qsTr(\"Follow account default\")")));
+        QVERIFY(block.contains(QStringLiteral(
+            "radioSelected: notificationsFlyout.currentMode === 3")));
+        // Offered only where there is a real account rule to defer to.
+        QVERIFY(block.contains(
+            QStringLiteral("visible: app.serverRoomNotificationModes")));
         QVERIFY(block.contains(QStringLiteral("text: qsTr(\"All messages\")")));
         QVERIFY(block.contains(QStringLiteral(
             "text: qsTr(\"Mentions & keywords\")")));
@@ -252,8 +262,14 @@ private Q_SLOTS:
             QStringLiteral("settings (server push rules).");
         const QString failedFragment1 =
             QStringLiteral("Couldn't save to the server");
+        // v0.7: the failure line now also states that the write is retried
+        // on reconnect. The admission of failure must still come FIRST and
+        // unqualified, which is what this fragment pins; the retry promise
+        // is checked separately below.
         const QString failedFragment2 =
             QStringLiteral("kept on this device.");
+        const QString retryFragment =
+            QStringLiteral("Retried when you reconnect.");
         const QString localFragment1 =
             QStringLiteral("Local setting: it does not change this");
         const QString localFragment2 =
@@ -266,6 +282,7 @@ private Q_SLOTS:
             QVERIFY(source.contains(savedFragment2));
             QVERIFY(source.contains(failedFragment1));
             QVERIFY(source.contains(failedFragment2));
+            QVERIFY(source.contains(retryFragment));
             QVERIFY(source.contains(localFragment1));
             QVERIFY(source.contains(localFragment2));
             // Never over-promise: no "synced with" phrasing anywhere (there

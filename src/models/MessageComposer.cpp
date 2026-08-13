@@ -6,6 +6,7 @@
 #include <QBuffer>
 #include <QClipboard>
 #include <QFile>
+#include <QFileInfo>
 #include <QGuiApplication>
 #include <QImage>
 #include <QMimeData>
@@ -52,8 +53,8 @@ void MessageComposer::setClient(MatrixClient *client)
             m_attachments->clearAll();
             // Unresolved voice recordings must not outlive the session on
             // disk; their ops can never resolve past this point.
-            for (const QString &file : std::as_const(m_voiceOps))
-                QFile::remove(file);
+            for (const VoiceOp &op : std::as_const(m_voiceOps))
+                QFile::remove(op.localPath);
             m_voiceOps.clear();
         });
     }
@@ -185,15 +186,32 @@ void MessageComposer::sendVoiceMessage(const QString &localPath,
 {
     if (!m_client || m_roomId.isEmpty() || localPath.isEmpty()
         || mime.isEmpty() || durationMs <= 0) {
+        QFile::remove(localPath);
         Q_EMIT attachmentRejected(tr("The voice message could not be sent."));
+        return;
+    }
+    // Preflight against the server's advertised upload limit, exactly like a
+    // tray attachment. A recording is the one attachment the user cannot
+    // resize, so failing it here — before an upload that the server would
+    // reject — is the only useful moment to say so. Silent when the limit is
+    // unknown: no invented ceiling refuses what the server would accept.
+    const qint64 recordedBytes = QFileInfo(localPath).size();
+    if (m_attachments && m_attachments->exceedsUploadLimit(recordedBytes)) {
+        QFile::remove(localPath);
+        Q_EMIT attachmentRejected(
+            tr("The voice message is larger than the server's upload "
+               "limit (%1).")
+                .arg(AttachmentQueueModel::humanSize(
+                    m_attachments->uploadLimit())));
         return;
     }
     QList<int> amplitudes;
     amplitudes.reserve(waveform.size());
     for (const QVariant &value : waveform)
         amplitudes.append(value.toInt());
+    const QString targetRoom = m_roomId;
     const quint64 opId = m_client->sendVoiceMessage(
-        m_roomId, localPath, mime, static_cast<qint64>(durationMs),
+        targetRoom, localPath, mime, static_cast<qint64>(durationMs),
         amplitudes);
     if (opId == 0) {
         // Never queued: the recording is dead — reclaim it now.
@@ -201,7 +219,7 @@ void MessageComposer::sendVoiceMessage(const QString &localPath,
         Q_EMIT attachmentRejected(tr("The voice message could not be sent."));
         return;
     }
-    m_voiceOps.insert(opId, localPath);
+    m_voiceOps.insert(opId, VoiceOp{localPath, targetRoom});
 }
 
 void MessageComposer::onAttachmentQueueFinished(quint64 opId,
@@ -209,21 +227,31 @@ void MessageComposer::onAttachmentQueueFinished(quint64 opId,
                                                 bool ok,
                                                 const QString &category)
 {
-    Q_UNUSED(roomId);
     Q_UNUSED(category);
     if (const auto voiceIt = m_voiceOps.constFind(opId);
         voiceIt != m_voiceOps.constEnd()) {
         // The op owns its recording file; queued or failed, the SDK holds
-        // the bytes (or nothing) — the path is no longer needed.
-        QFile::remove(voiceIt.value());
+        // the bytes (or nothing) — the path is no longer needed. Cleanup is
+        // unconditional so a recording can never be orphaned on disk.
+        const VoiceOp op = voiceIt.value();
+        QFile::remove(op.localPath);
         m_voiceOps.erase(voiceIt);
         // Voice sends have no tray entry; only a failure needs surfacing —
-        // success already shows as the SDK local echo in the timeline.
-        if (!ok)
+        // success already shows as the SDK local echo in the timeline. The
+        // notice is scoped to the room the recording was sent to: a failure
+        // that resolves after the user has switched away belongs to that
+        // conversation, not to whatever is on screen now, and there is no
+        // banner to leave behind when they return.
+        if (!ok && op.roomId == m_roomId)
             Q_EMIT attachmentRejected(
                 tr("The voice message could not be sent."));
         return;
     }
+    // Tray entries belong to the room they were prepared in — setRoomId
+    // clears them — so a late result for another room matches no row. The
+    // explicit guard keeps that true even if that ever changes.
+    if (!roomId.isEmpty() && roomId != m_roomId)
+        return;
     auto &entries = m_attachments->entries();
     for (int row = 0; row < entries.size(); ++row) {
         if (entries[row].opId != opId || opId == 0)

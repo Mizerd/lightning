@@ -95,9 +95,22 @@ private Q_SLOTS:
         app.setRoomNotificationMode(kRoomId, 1);
         QCOMPARE(app.settings()->roomNotificationMode(kRoomId), 1);
         // Out-of-range modes and empty room ids never reach the cache.
+        // NOTE: 3 used to be out of range and is now VALID — it is
+        // "follow the account default" (server-side: the room's
+        // user-defined push rules are deleted). The upper invalid bound
+        // moved to 4 with that change; this is a contract update, not a
+        // relaxed guard.
         app.setRoomNotificationMode(kRoomId, -1);
-        app.setRoomNotificationMode(kRoomId, 3);
+        app.setRoomNotificationMode(kRoomId, 4);
         app.setRoomNotificationMode(QString{}, 2);
+        QCOMPARE(app.settings()->roomNotificationMode(kRoomId), 1);
+        // 3 IS accepted and persists as an explicit choice. It must not be
+        // confused with an absent key: absence reads back as 0, so storing
+        // it explicitly is what distinguishes "following the account
+        // default" from "never configured".
+        app.setRoomNotificationMode(kRoomId, 3);
+        QCOMPARE(app.settings()->roomNotificationMode(kRoomId), 3);
+        app.setRoomNotificationMode(kRoomId, 1);
         QCOMPARE(app.settings()->roomNotificationMode(kRoomId), 1);
         // Defence-in-depth: a composite thread-timeline id must never reach
         // a settings key or a protocol call.
@@ -337,6 +350,111 @@ private Q_SLOTS:
         Q_EMIT rust->roomNotificationModeChanged(kRoomId, 0, false);
         QVERIFY(app.roomNotificationModeSyncFailed(kRoomId));
         QCOMPARE(app.settings()->roomNotificationMode(kRoomId), 1);
+#endif
+    }
+
+    // v0.7: a write that failed offline is retried on the next reconnection,
+    // and — critically — the room does NOT leave the failed state merely
+    // because a retry was attempted. Only a server acknowledgement retires
+    // it. Anything else would show "saved" for a rule the server never took.
+    void failedWriteIsRetriedOnReconnectButNotPrematurelyCleared()
+    {
+#ifndef ENABLE_RUST_SDK_BACKEND
+        QSKIP("server notification modes require the Rust backend");
+#else
+        AppController app(AppController::RustBackend);
+        auto *rust = rustClient(app);
+        QVERIFY(rust);
+
+        app.setRoomNotificationMode(kRoomId, 2);
+        Q_EMIT rust->roomNotificationModeWriteFailed(kRoomId);
+        QVERIFY(app.roomNotificationModeSyncFailed(kRoomId));
+
+        QSignalSpy syncState(
+            &app, &AppController::roomNotificationModeSyncStateChanged);
+        // Observable seam: the backend call no-ops without a live session,
+        // so without this the assertions below would hold identically on
+        // code that never retries at all.
+        QSignalSpy retried(&app,
+                           &AppController::roomNotificationModesRetried);
+
+        // Reconnect: the edge into Syncing is what retries. Re-announcing
+        // the same state must NOT retry again (no server hammering).
+        Q_EMIT rust->connectionStateChanged(MatrixClient::Syncing);
+        Q_EMIT rust->connectionStateChanged(MatrixClient::Syncing);
+        QCOMPARE(retried.count(), 1);
+        QCOMPARE(retried.first().at(0).toInt(), 1);
+
+        // A non-Syncing state then a return to Syncing is a NEW edge.
+        Q_EMIT rust->connectionStateChanged(MatrixClient::Offline);
+        Q_EMIT rust->connectionStateChanged(MatrixClient::Syncing);
+        QCOMPARE(retried.count(), 2);
+
+        // The retry was issued, but nothing has acknowledged it, so the
+        // room is STILL disclosed as kept-on-this-device and the local
+        // value is untouched. A premature clear here would be the "pretend
+        // the rule changed" failure this path exists to prevent.
+        QVERIFY(app.roomNotificationModeSyncFailed(kRoomId));
+        QCOMPARE(app.settings()->roomNotificationMode(kRoomId), 2);
+        QCOMPARE(syncState.count(), 0);
+
+        // Only the server's matching user-defined report retires it.
+        Q_EMIT rust->roomNotificationModeChanged(kRoomId, 2, true);
+        QVERIFY(!app.roomNotificationModeSyncFailed(kRoomId));
+        QCOMPARE(syncState.count(), 1);
+#endif
+    }
+
+    // Mode 3 is "follow the account default": server-side a rule REMOVAL,
+    // never a rule whose value is 3.
+    void followAccountDefaultIsStoredDistinctlyFromAnAbsentKey()
+    {
+        AppController app(AppController::MockBackend);
+        app.setRoomNotificationMode(kRoomId, 3);
+        QCOMPARE(app.settings()->roomNotificationMode(kRoomId), 3);
+        // Distinct from an absent key, which reads back as 0. This is the
+        // entire reason mode 3 is stored explicitly rather than represented
+        // by removing the setting.
+        QCOMPARE(app.settings()->roomNotificationMode(
+                     QStringLiteral("!never-configured:example.org")), 0);
+    }
+
+    // A successful rule REMOVAL is the only acknowledgement a "follow
+    // account default" choice can receive. Without honouring it, a clear
+    // that failed once and then succeeded on retry would claim "couldn't
+    // save" for the rest of the session and be re-issued on every
+    // reconnect.
+    void clearAcknowledgementRetiresAFailedFollowDefault()
+    {
+#ifndef ENABLE_RUST_SDK_BACKEND
+        QSKIP("server notification modes require the Rust backend");
+#else
+        AppController app(AppController::RustBackend);
+        auto *rust = rustClient(app);
+        QVERIFY(rust);
+
+        app.setRoomNotificationMode(kRoomId, 3);
+        QCOMPARE(app.settings()->roomNotificationMode(kRoomId), 3);
+        Q_EMIT rust->roomNotificationModeWriteFailed(kRoomId);
+        QVERIFY(app.roomNotificationModeSyncFailed(kRoomId));
+
+        // A rule-VALUE report must not retire it — this room has no rule.
+        Q_EMIT rust->roomNotificationModeChanged(kRoomId, 0, true);
+        QVERIFY(app.roomNotificationModeSyncFailed(kRoomId));
+
+        // The clear acknowledgement does.
+        Q_EMIT rust->roomNotificationModeCleared(kRoomId);
+        QVERIFY(!app.roomNotificationModeSyncFailed(kRoomId));
+        QCOMPARE(app.settings()->roomNotificationMode(kRoomId), 3);
+
+        // A clear acknowledged AFTER the user picked an explicit mode
+        // belongs to a superseded choice and must not retire that newer
+        // choice's pending state.
+        app.setRoomNotificationMode(kRoomId, 1);
+        Q_EMIT rust->roomNotificationModeWriteFailed(kRoomId);
+        QVERIFY(app.roomNotificationModeSyncFailed(kRoomId));
+        Q_EMIT rust->roomNotificationModeCleared(kRoomId);
+        QVERIFY(app.roomNotificationModeSyncFailed(kRoomId));
 #endif
     }
 

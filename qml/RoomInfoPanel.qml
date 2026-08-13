@@ -198,14 +198,28 @@ Rectangle {
                         id: notificationModeCombo
                         objectName: "roomNotificationModeCombo"
                         Layout.fillWidth: true
-                        model: [
-                            qsTr("All messages"),
-                            // "& keywords" is what the rule actually does:
-                            // the SDK's MentionsAndKeywordsOnly mode keeps
-                            // keyword rules firing.
-                            qsTr("Mentions & keywords"),
-                            qsTr("Mute")
-                        ]
+                        // Index === mode, so "Follow account default" (3)
+                        // stays last. It is offered ONLY on a backend that
+                        // owns server push rules: with a device-local
+                        // backend there is no account rule to defer to, so
+                        // the option would be a label with nothing behind
+                        // it — locally mode 3 simply notifies, which would
+                        // silently disagree with what it claims to do.
+                        model: app.serverRoomNotificationModes
+                            ? [
+                                qsTr("All messages"),
+                                // "& keywords" is what the rule actually
+                                // does: the SDK's MentionsAndKeywordsOnly
+                                // mode keeps keyword rules firing.
+                                qsTr("Mentions & keywords"),
+                                qsTr("Mute"),
+                                qsTr("Follow account default")
+                              ]
+                            : [
+                                qsTr("All messages"),
+                                qsTr("Mentions & keywords"),
+                                qsTr("Mute")
+                              ]
                         // Explicit mirrors of the cached mode and the
                         // room's sync-failure state: both getters are
                         // Q_INVOKABLEs, so bindings cannot observe their
@@ -223,7 +237,16 @@ Rectangle {
                                        app.roomInfo.roomId)
                         }
                         Component.onCompleted: refreshMode()
-                        currentIndex: displayedMode
+                        // A mode-3 value persisted under a server-capable
+                        // backend must not select a non-existent row on a
+                        // device-local one. Clamp to 0 ("All messages"),
+                        // NOT to count-1: the last row is "Mute", and mode
+                        // 3 locally notifies for everything, so clamping to
+                        // the end would show the exact opposite of what the
+                        // device does.
+                        currentIndex: (displayedMode >= 0
+                                       && displayedMode < count)
+                                      ? displayedMode : 0
                         Connections {
                             target: app.settings
                             function onRoomNotificationModeChanged(roomId) {
@@ -261,9 +284,24 @@ Rectangle {
                         text: app.serverRoomNotificationModes
                               ? (notificationModeCombo.syncFailed
                                  ? qsTr("Couldn't save to the server — "
-                                        + "kept on this device.")
-                                 : qsTr("Saved to your account's notification "
-                                        + "settings (server push rules)."))
+                                        + "kept on this device. "
+                                        + "Retried when you reconnect.")
+                                 : (notificationModeCombo.displayedMode === 3
+                                    // Honest about the split: the SERVER
+                                    // applies the account default to
+                                    // pushes, but Lightning does not know
+                                    // what that default resolves to, so
+                                    // this device notifies for everything.
+                                    // Claiming "the account default
+                                    // applies" without that caveat would
+                                    // mislead anyone whose default is
+                                    // mentions-only.
+                                    ? qsTr("This room has no override — your "
+                                           + "account's settings apply on the "
+                                           + "server. This device notifies "
+                                           + "for all messages.")
+                                    : qsTr("Saved to your account's notification "
+                                           + "settings (server push rules).")))
                               : qsTr("Local setting: it does not change this "
                                      + "room's server push rules.")
                     }

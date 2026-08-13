@@ -1144,6 +1144,114 @@ Rectangle {
                                 threadGifPicker.open()
                             }
                         }
+                        // v0.7 thread parity: voice capture, using the same
+                        // shared recorder as the room composer. Ownership
+                        // lives in app.voiceOwner, so at most one composer is
+                        // ever armed to send a finished recording.
+                        IconButton {
+                            objectName: "threadMicButton"
+                            implicitWidth: 24; implicitHeight: 24
+                            radius: 6
+                            iconName: "mic"
+                            iconSize: 18
+                            visible: !panel.voiceActive
+                            enabled: app.thread.state === ThreadController.Ready
+                                     && app.thread.attachmentsSupported
+                            Accessible.name: qsTr("Record a voice message")
+                            ToolTip.text: qsTr("Record a voice message")
+                            ToolTip.visible: hovered
+                            ToolTip.delay: 500
+                            onClicked: {
+                                if (!app.startVoiceRecording("thread")) {
+                                    panel.attachmentNotice =
+                                        app.voiceRecordingBusy()
+                                        ? qsTr("A recording is already in "
+                                               + "progress.")
+                                        : qsTr("Voice recording is "
+                                               + "unavailable.")
+                                    threadNoticeTimer.restart()
+                                }
+                            }
+                        }
+                        Rectangle {
+                            id: threadVoicePill
+                            objectName: "threadVoicePill"
+                            // NEVER touch app.voiceRecorder while idle: the
+                            // getter constructs the recorder (and the audio
+                            // backend) on first access.
+                            readonly property var rec:
+                                panel.voiceActive ? app.voiceRecorder : null
+                            visible: panel.voiceActive
+                            Layout.alignment: Qt.AlignVCenter
+                            implicitHeight: 24
+                            implicitWidth: threadVoiceRow.implicitWidth + 14
+                            radius: AppTheme.radiusPill
+                            color: AppTheme.accentSoft
+                            border.color: AppTheme.accent
+                            border.width: 1
+                            RowLayout {
+                                id: threadVoiceRow
+                                anchors.centerIn: parent
+                                spacing: AppTheme.spacing6
+                                Rectangle {
+                                    id: threadVoiceDot
+                                    width: 7; height: 7; radius: 3.5
+                                    color: AppTheme.danger
+                                    property real t: 0
+                                    opacity: (threadVoicePill.rec
+                                              && threadVoicePill.rec.processing)
+                                             || AppTheme.reducedMotion
+                                             ? 1.0 : 0.35 + 0.65 * threadVoiceDot.t
+                                    SequentialAnimation on t {
+                                        running: panel.voiceActive
+                                                 && !AppTheme.reducedMotion
+                                        loops: Animation.Infinite
+                                        NumberAnimation { from: 0; to: 1; duration: 700 }
+                                        NumberAnimation { from: 1; to: 0; duration: 700 }
+                                    }
+                                }
+                                Label {
+                                    text: {
+                                        var ms = threadVoicePill.rec
+                                                 ? threadVoicePill.rec.durationMs : 0
+                                        var total = Math.floor(ms / 1000)
+                                        var m = Math.floor(total / 60)
+                                        var s = total % 60
+                                        return m + ":" + (s < 10 ? "0" : "") + s
+                                    }
+                                    color: AppTheme.text
+                                    font.pixelSize: 11
+                                    font.weight: Font.DemiBold
+                                }
+                                IconButton {
+                                    objectName: "threadVoiceCancelButton"
+                                    implicitWidth: 22; implicitHeight: 22
+                                    iconName: "close"
+                                    iconSize: 14
+                                    Accessible.name: qsTr("Discard the recording")
+                                    ToolTip.text: qsTr("Discard")
+                                    ToolTip.visible: hovered
+                                    ToolTip.delay: 500
+                                    onClicked: app.cancelVoiceRecording()
+                                }
+                                IconButton {
+                                    objectName: "threadVoiceSendButton"
+                                    implicitWidth: 22; implicitHeight: 22
+                                    fill: true
+                                    iconName: "send"
+                                    iconSize: 13
+                                    enabled: threadVoicePill.rec
+                                             && threadVoicePill.rec.recording
+                                    Accessible.name: qsTr("Send the voice message")
+                                    ToolTip.text: qsTr("Send")
+                                    ToolTip.visible: hovered
+                                    ToolTip.delay: 500
+                                    // stop() finalizes and derives the
+                                    // waveform; the ready() handler sends.
+                                    onClicked: app.voiceRecorder.stop()
+                                }
+                            }
+                        }
                         // Accent-fill thread send: 28×28, radius 7, 16px icon.
                         IconButton {
                             objectName: "threadSendButton"
@@ -1189,6 +1297,47 @@ Rectangle {
         target: app.thread
         function onAttachmentRejected(reason) {
             panel.attachmentNotice = reason
+            threadNoticeTimer.restart()
+        }
+    }
+
+    // v0.7 thread parity: this panel owns the shared recorder. DERIVED from
+    // app.voiceOwner rather than a local flag — see MessageComposerBar's
+    // matching property and AppController::voiceOwner for why two
+    // independent flags would let one recording be sent twice.
+    readonly property bool voiceActive: app.voiceOwner === "thread"
+    // A recording targets the thread it was started in. Leaving that thread
+    // — closing the panel, opening another thread, or switching rooms —
+    // discards it rather than sending it into the wrong conversation, the
+    // same rule the room composer applies on a room change.
+    Connections {
+        target: app.thread
+        function onStateChanged() {
+            if (panel.voiceActive
+                && app.thread.state !== ThreadController.Ready)
+                app.cancelVoiceRecording()
+        }
+    }
+    Connections {
+        target: app
+        function onCurrentRoomIdChanged() {
+            if (panel.voiceActive)
+                app.cancelVoiceRecording()
+        }
+    }
+    // Recorder results. target uses the lazy getter only while this panel
+    // owns a recording, so binding this block never constructs the recorder.
+    Connections {
+        target: panel.voiceActive ? app.voiceRecorder : null
+        function onReady(filePath, mime, durationMs, waveform) {
+            // Release ownership FIRST: the send is this panel's, and a
+            // re-entrant signal must not find us still armed.
+            app.endVoiceRecording()
+            app.thread.sendVoiceMessage(filePath, mime, durationMs, waveform)
+        }
+        function onFailed(message) {
+            app.endVoiceRecording()
+            panel.attachmentNotice = message
             threadNoticeTimer.restart()
         }
     }

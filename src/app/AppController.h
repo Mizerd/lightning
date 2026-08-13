@@ -193,6 +193,25 @@ class AppController : public QObject
     // that never records. CONSTANT is honest: the pointer is created once
     // inside the first read and never changes afterwards.
     Q_PROPERTY(VoiceRecorder* voiceRecorder READ voiceRecorder CONSTANT)
+    // v0.7 thread parity: WHICH composer owns the shared recorder — "" when
+    // idle, "room" or "thread" while recording.
+    //
+    // There is exactly ONE VoiceRecorder for the whole application, and both
+    // composers listen to its ready()/failed() signals. Before this existed
+    // each composer armed those Connections off its own local flag, so a
+    // recording started in the room composer and then superseded by one
+    // started in the thread panel left BOTH armed — and a single ready()
+    // sent the same file twice, once into the room and once into the thread.
+    // Opening a thread does not change currentRoomId, so the room composer's
+    // cancel-on-room-change never fired for that sequence. Making ownership
+    // one authoritative value, rather than two flags that must agree, is
+    // what removes the whole class of bug: a composer sends only while it is
+    // the owner, and at most one composer is ever the owner.
+    //
+    // Ownership is NEVER transferred away from a live recording. A second
+    // composer's start is refused while the recorder is busy — see
+    // startVoiceRecording for why stealing it orphaned the microphone.
+    Q_PROPERTY(QString voiceOwner READ voiceOwner NOTIFY voiceOwnerChanged)
     // v0.7: shared inline-playback coordinator (one audible media card at a
     // time; stopped on room/account switches and sign-out).
     Q_PROPERTY(MediaPlaybackController* playback READ playback CONSTANT)
@@ -356,6 +375,32 @@ public:
             m_voiceRecorder = std::make_unique<VoiceRecorder>(this);
         return m_voiceRecorder.get();
     }
+    QString voiceOwner() const { return m_voiceOwner; }
+    // Start a recording owned by `owner` ("room" or "thread"). Constructs
+    // the recorder on first use exactly as the getter does, so a session
+    // that never records never spins up the audio backend. Returns false
+    // when no device or encoder is available, AND when a recording is
+    // already in progress anywhere — ownership is taken only after a
+    // successful start and is never stolen from a live recorder, so at most
+    // one composer is ever armed to send the result. Use
+    // voiceRecordingBusy() to tell the two refusals apart.
+    Q_INVOKABLE bool startVoiceRecording(const QString &owner);
+    // True while any recording is in progress (including one owned by the
+    // other composer, and including the finalizing window). Lets a refused
+    // start report "already recording" instead of "unavailable".
+    Q_INVOKABLE bool voiceRecordingBusy() const;
+    // Test seam, in the shape of AttachmentQueueModel::setPosterRequestHook.
+    // Replaces the real capture chain so the ownership rules — a second
+    // composer cannot steal a live recording, and a refused start leaves the
+    // existing owner intact — are assertable without a microphone. The
+    // AppController takes ownership of the recorder. Production never calls
+    // this; the lazy getter builds the real one.
+    void setVoiceRecorderForTest(VoiceRecorder *recorder);
+    // Release ownership without touching the recorder. Called after the
+    // owning composer has consumed ready()/failed().
+    Q_INVOKABLE void endVoiceRecording();
+    // Discard an in-progress recording and release ownership.
+    Q_INVOKABLE void cancelVoiceRecording();
     MediaPlaybackController *playback() const { return m_playback.get(); }
     PaginationController *pagination() const { return m_pagination.get(); }
     ReadReceiptCoordinator *readReceipts() const { return m_readReceipts.get(); }
@@ -394,7 +439,10 @@ public Q_SLOTS:
     // True while the room's LAST server push-rule write is known to have
     // failed (the device-local mode still applies). Cleared by the next
     // successful user-defined report for the room; session-scoped, never
-    // persisted. Automatic retry on reconnect is an accepted follow-up.
+    // persisted. Rooms in this state are retried automatically on the next
+    // reconnection (see retryFailedNotificationModes); a room leaves the
+    // failed set only when the SERVER acknowledges the value, never merely
+    // because a retry was attempted.
     Q_INVOKABLE bool roomNotificationModeSyncFailed(const QString &roomId) const;
 
     // v0.7 multi-account. Switch the whole Matrix context (client session,
@@ -578,6 +626,13 @@ public Q_SLOTS:
     bool roomKeyImportRunning() const { return m_roomKeyImportRunning; }
 
 Q_SIGNALS:
+    void voiceOwnerChanged();
+    // Emitted when a reconnect retry batch is ISSUED, carrying how many
+    // rooms were re-sent. Exists so the retry is observable: the backend
+    // call itself no-ops without a live session, so a test asserting only
+    // on state cannot tell "retried" from "never ran" — which is exactly
+    // what a first version of the retry test could not distinguish.
+    void roomNotificationModesRetried(int roomCount);
     void currentScreenChanged();
     void appIconChanged();
     void initialSyncDoneChanged();
@@ -741,6 +796,15 @@ private:
     std::unique_ptr<RoomInfoController> m_roomInfo;
     std::unique_ptr<MediaBridge> m_mediaBridge;
     std::unique_ptr<VoiceRecorder> m_voiceRecorder; // lazy — see getter
+    QString m_voiceOwner;                           // "", "room", "thread"
+    // Re-issue push-rule writes that failed offline, once per genuine
+    // transition into Syncing. Never clears the failure set itself.
+    void retryFailedNotificationModes();
+    // MatrixClient::ConnectionState as an int — the class is only
+    // forward-declared here. -1 is "no state seen yet", which is distinct
+    // from every real enumerator, so the first transition into Syncing
+    // counts as an edge.
+    int m_lastConnectionState = -1;
     std::unique_ptr<MediaPlaybackController> m_playback;
     std::unique_ptr<PaginationController> m_pagination;
     std::unique_ptr<ReadReceiptCoordinator> m_readReceipts;

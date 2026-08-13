@@ -838,7 +838,7 @@ int SettingsManager::roomNotificationMode(const QString &roomId) const
         ? scopedKey
         : roomNotificationModeGlobalKey(roomId);
     const int mode = m_store->value(readKey, 0).toInt();
-    return (mode < 0 || mode > 2) ? 0 : mode;
+    return (mode < 0 || mode > 3) ? 0 : mode;
 }
 
 namespace {
@@ -1012,7 +1012,13 @@ void SettingsManager::setRoomNotificationMode(const QString &roomId, int mode)
 {
     if (roomId.isEmpty())
         return;
-    if (mode < 0 || mode > 2)
+    // 3 = follow the account default. It is stored EXPLICITLY and is not the
+    // same as an absent key: absence reads back as 0 (all messages), so
+    // "never configured" and "deliberately following the account default"
+    // would otherwise be indistinguishable in the UI. The server-side truth
+    // is the absence of a user-defined push rule; this is the device-local
+    // record of that choice.
+    if (mode < 0 || mode > 3)
         mode = 0;
     if (roomNotificationMode(roomId) == mode)
         return;

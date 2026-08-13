@@ -241,6 +241,9 @@ public:
     // NotificationSettings push-rule manager (label-faithful 0/1/2).
     bool supportsServerNotificationModes() const override { return true; }
     void setRoomNotificationMode(const QString &roomId, int mode) override;
+    void clearRoomNotificationMode(const QString &roomId) override;
+    void requestThreadParticipants(const QString &roomId,
+                                   const QString &rootEventId) override;
     void requestRoomNotificationMode(const QString &roomId) override;
     void acceptInvite(const QString &roomId) override;
     void rejectInvite(const QString &roomId) override;
@@ -322,6 +325,11 @@ public:
     quint64 sendVoiceMessage(const QString &roomId, const QString &localPath,
                              const QString &mime, qint64 durationMs,
                              const QList<int> &waveform) override;
+    quint64 sendThreadVoiceMessage(const QString &roomId,
+                                   const QString &rootEventId,
+                                   const QString &localPath,
+                                   const QString &mime, qint64 durationMs,
+                                   const QList<int> &waveform) override;
     quint64 sendAttachmentBytes(const QString &roomId, const QByteArray &bytes,
                                 const QString &filename, const QString &mime,
                                 int width, int height) override;

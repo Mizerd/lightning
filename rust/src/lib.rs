@@ -2110,6 +2110,98 @@ pub unsafe extern "C" fn mx_rust_set_room_notification_mode(
     })
 }
 
+/// v0.7: real participants of a thread, for the summary-card facepile.
+/// Answers asynchronously with a `thread_participants` poll event carrying
+/// presentation-safe rows only (user id, display name, avatar mxc) — never
+/// event content. See rooms::thread_participants for why this cannot come
+/// from the SDK's thread summary.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_thread_participants(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    root_event_id: *const c_char,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let root_event_id = unsafe { cstr_arg(root_event_id) }?;
+        rooms::thread_participants(bridge, room_id, root_event_id)
+            .map(|_| String::new())
+    })
+}
+
+/// v0.7: "follow account default" — REMOVE the room's user-defined push
+/// rules so the account's own rules decide again.
+///
+/// This is the honest server-side representation of the choice: Matrix has
+/// no "follow default" rule, it has the ABSENCE of a room override. The SDK
+/// owns the rule deletion (`delete_user_defined_room_rules`); nothing here
+/// writes push-rule JSON.
+///
+/// Shares the set path's serialization and target marker (using mode 3 as
+/// this room's target) so a clear and a set issued back to back cannot land
+/// out of order or report each other's outcome. Success reports
+/// `user_defined: false` — which is precisely what the room's state now is.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_clear_room_notification_mode(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let client = bridge.client.lock().ok().and_then(|guard| guard.clone())
+            .ok_or_else(|| "no active Matrix session".to_owned())?;
+        let room = RoomId::parse(&room_id).ok().and_then(|id| client.get_room(&id))
+            .ok_or_else(|| "unknown room".to_owned())?;
+        let events = Arc::clone(&bridge.events);
+        let targets = Arc::clone(&bridge.notification_mode_targets);
+        let serial = Arc::clone(&bridge.notification_mode_serial);
+        let settings_slot = Arc::clone(&bridge.notification_settings);
+        // 3 = follow-account-default, the C++ side's RoomMode::FollowDefault.
+        const FOLLOW_DEFAULT: u8 = 3;
+        if let Ok(mut guard) = targets.lock() {
+            guard.insert(room_id.clone(), FOLLOW_DEFAULT);
+        }
+        let target_guard = NotificationTargetGuard {
+            targets: Arc::clone(&targets),
+            room_id: room_id.clone(),
+            mode: FOLLOW_DEFAULT,
+        };
+        bridge.spawn_room_action(async move {
+            let _target_guard = target_guard;
+            let _serial = serial.lock().await;
+            if !is_latest_notification_target(&targets, &room_id, FOLLOW_DEFAULT) {
+                return;
+            }
+            let settings = notification_settings_handle(&settings_slot, &client).await;
+            let result = settings
+                .delete_user_defined_room_rules(room.room_id())
+                .await;
+            if !take_notification_target_if_latest(&targets, &room_id, FOLLOW_DEFAULT) {
+                return;
+            }
+            match result {
+                Ok(()) => enqueue(&events, json!({
+                    "type": "room_notification_mode",
+                    "room_id": room_id,
+                    "mode": FOLLOW_DEFAULT,
+                    // No user-defined rule exists for this room any more.
+                    // That is the whole point of the operation, so it is
+                    // reported truthfully rather than as a user rule of 3.
+                    "user_defined": false,
+                    "followed_default": true,
+                })),
+                Err(_) => enqueue(&events, json!({
+                    "type": "notification_mode_error",
+                    "room_id": room_id,
+                })),
+            }
+        });
+        Ok(String::new())
+    })
+}
+
 /// Report a room's current notification mode: the account's user-defined
 /// room rule when one exists, otherwise the account DEFAULT resolved for
 /// this room's shape (encrypted? one-to-one?), flagged `user_defined:false`.
@@ -5409,6 +5501,46 @@ pub unsafe extern "C" fn mx_rust_timeline_send_voice(
         };
         rooms::send_voice_path(
             bridge, room_id, local_path, mime, duration_ms, waveform, op_id,
+        )
+        .map(|_| String::new())
+    })
+}
+
+/// v0.7 thread parity: the thread twin of `mx_rust_timeline_send_voice`.
+/// Same MSC3245 metadata and the same waveform bound; routed through the
+/// thread-focused SDK timeline so the event carries a real `m.thread`
+/// relation to `root_event_id`. Result echoes on attachment_send_result by
+/// op_id exactly like every attachment send.
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn mx_rust_thread_send_voice(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    root_event_id: *const c_char,
+    local_path: *const c_char,
+    mime: *const c_char,
+    duration_ms: u64,
+    waveform: *const u8,
+    waveform_len: usize,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let root_event_id = unsafe { cstr_arg(root_event_id) }?;
+        let local_path = unsafe { cstr_arg(local_path) }?;
+        let mime = unsafe { cstr_arg(mime) }?;
+        if waveform_len > 1024 {
+            return Err("voice waveform is too long".to_owned());
+        }
+        let waveform = if waveform.is_null() || waveform_len == 0 {
+            Vec::new()
+        } else {
+            unsafe { std::slice::from_raw_parts(waveform, waveform_len) }.to_vec()
+        };
+        rooms::send_thread_voice_path(
+            bridge, room_id, root_event_id, local_path, mime, duration_ms,
+            waveform, op_id,
         )
         .map(|_| String::new())
     })

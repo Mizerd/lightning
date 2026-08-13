@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QHash>
 #include <QObject>
 #include <QString>
 #include <QStringList>
@@ -156,6 +157,15 @@ public:
     // true when handled (so the editor does not also paste), false to let the
     // text editor paste normally.
     Q_INVOKABLE bool pasteFromClipboard();
+    // v0.7 thread parity: MSC3245 voice message into the OPEN thread, from
+    // the same shared VoiceRecorder the room composer uses. waveform entries
+    // are 0..=100. Always a real m.thread reply through the SDK thread send
+    // path — there is no room-send fallback. Failure surfaces via
+    // attachmentRejected, scoped to the thread it was recorded in.
+    Q_INVOKABLE void sendVoiceMessage(const QString &localPath,
+                                      const QString &mime,
+                                      qreal durationMs,
+                                      const QVariantList &waveform);
     // Follow/unfollow the open thread (server-side MSC4306 subscription).
     Q_INVOKABLE void setFollowed(bool followed);
     // Send ONE threaded read receipt for the open thread's latest readable
@@ -203,6 +213,18 @@ private:
     // One entry, once it is dispatchable (a video waits for its poster).
     void dispatchAttachment(int row);
     void clearAttachments();
+
+    // Voice send ops in flight for this panel. Each carries the recording
+    // file it owns AND the exact thread it was sent to. The file is deleted
+    // unconditionally when the op resolves; the FAILURE is only surfaced
+    // while that same thread is still open, so a late failure never appears
+    // over a different thread — or a different room.
+    struct VoiceOp {
+        QString localPath;
+        QString roomId;
+        QString rootEventId;
+    };
+    QHash<quint64, VoiceOp> m_voiceOps;
 
     MatrixClient *m_client = nullptr;
     TimelineModel m_model;

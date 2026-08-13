@@ -191,12 +191,19 @@ private:
     QString m_threadRootId;
     QString m_threadPreview;
     QList<mention::MentionRef> m_mentionRefs;
-    // Voice send ops in flight, mapped to the recording file each one
-    // owns: a failed queueing surfaces to the user (the tray model only
-    // tracks its own entries), and the file is deleted when the op
-    // resolves — the SDK reads the bytes into its queue at queueing time
-    // and never re-reads the path.
-    QHash<quint64, QString> m_voiceOps;
+    // Voice send ops in flight. Each carries the recording file it owns AND
+    // the room it was sent to. The file is deleted when the op resolves (the
+    // SDK reads the bytes into its queue at queueing time and never re-reads
+    // the path), but the FAILURE is only surfaced when the composer is still
+    // showing that room: an upload that fails after the user has moved on
+    // must not appear over an unrelated conversation. Cleanup is
+    // unconditional, reporting is scoped — the two are deliberately not the
+    // same decision.
+    struct VoiceOp {
+        QString localPath;
+        QString roomId;
+    };
+    QHash<quint64, VoiceOp> m_voiceOps;
     bool    m_canSend = false;
     bool    m_typingActive = false;
     QTimer  m_typingRefresh;

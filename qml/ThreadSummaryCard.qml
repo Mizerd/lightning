@@ -25,6 +25,18 @@ Item {
     property var latestTimestamp: undefined      // QDateTime or undefined
     property bool unread: false
 
+    // v0.7 facepile. Ordered, MXID-deduplicated participant rows
+    // ({userId, displayName, avatarUrl}) from ThreadManager — real thread
+    // senders, never inferred from rendered delegates. Empty means UNKNOWN
+    // (not yet fetched, or the lookup failed), never "nobody": the card
+    // falls back to the latest sender's avatar rather than showing an empty
+    // facepile.
+    property var participants: []
+    // The design shows a small stack; more than this is not more legible.
+    readonly property int maxFaces: 4
+    readonly property int faceSize: 18
+    readonly property int faceOverlap: 6
+
     signal activated()
 
     // A root only shows the card once the SDK reports thread activity. Using
@@ -128,16 +140,87 @@ Item {
                 color: card.unread ? AppTheme.accent : AppTheme.textMuted
             }
 
-            // Latest reply sender avatar (existing safe avatar path).
-            Avatar {
-                Layout.preferredWidth: 18
-                Layout.preferredHeight: 18
+            // Participant facepile — REAL thread participants (root sender
+            // first, then first-appearance order, deduplicated by MXID on
+            // the Rust side). Falls back to the latest reply's sender alone
+            // while participants are still unknown, so the card never loses
+            // the avatar it used to show.
+            //
+            // Geometry is fixed by the COUNT, which is known synchronously;
+            // each Avatar has a fixed size. So resolving an avatar image
+            // later cannot move anything — no layout jump.
+            Item {
+                id: facepile
+                readonly property var people: card.participants
+                readonly property int shown:
+                    Math.min(card.maxFaces, people.length)
+                readonly property int step: card.faceSize - card.faceOverlap
                 Layout.alignment: Qt.AlignVCenter
-                size: 18
-                mxc: card.latestAvatarMxc
-                name: card.latestSender
-                colorKey: card.latestSenderId
-                visible: card.latestSender.length > 0
+                Layout.preferredHeight: card.faceSize
+                // Width derives from the participant COUNT and the card's
+                // own inputs — never from a child's `visible`. Item.visible
+                // reads EFFECTIVE (ancestor-gated) visibility, so a width
+                // that depended on fallbackAvatar.visible while also gating
+                // it would latch at 0: once hidden, the child reads hidden
+                // regardless of its own binding and nothing re-evaluates.
+                // That permanently hid the fallback avatar on cards created
+                // before their latest-sender metadata hydrated.
+                readonly property bool hasFallback:
+                    shown === 0 && card.latestSender.length > 0
+                Layout.preferredWidth: shown > 0
+                    ? card.faceSize + (shown - 1) * step
+                    : (hasFallback ? card.faceSize : 0)
+
+                Repeater {
+                    model: facepile.shown
+                    delegate: Item {
+                        required property int index
+                        // Leftmost face on top reads as a stack rather than
+                        // a row of discs.
+                        z: facepile.shown - index
+                        x: index * facepile.step
+                        width: card.faceSize
+                        height: card.faceSize
+                        // Guarded: on a shrink, a surviving delegate can
+                        // re-evaluate before the Repeater model shrinks and
+                        // would otherwise dereference undefined. Several
+                        // suites assert zero engine warnings.
+                        readonly property var person:
+                            index >= 0 && index < facepile.people.length
+                                ? facepile.people[index] : null
+                        Avatar {
+                            anchors.fill: parent
+                            size: card.faceSize
+                            mxc: parent.person ? parent.person.avatarUrl : ""
+                            name: parent.person ? parent.person.displayName : ""
+                            colorKey: parent.person ? parent.person.userId : ""
+                        }
+                        // Drawn OVER the avatar: an inner ring in the card's
+                        // own colour separates overlapping faces without
+                        // changing the pile's geometry.
+                        Rectangle {
+                            anchors.fill: parent
+                            radius: width / 2
+                            color: "transparent"
+                            border.color: AppTheme.surface
+                            border.width: 1.5
+                            visible: index > 0
+                        }
+                    }
+                }
+
+                // Pre-participants fallback: exactly what the card showed
+                // before facepiles existed.
+                Avatar {
+                    id: fallbackAvatar
+                    visible: facepile.hasFallback
+                    width: card.faceSize
+                    height: card.faceSize
+                    size: card.faceSize
+                    mxc: card.latestAvatarMxc
+                    name: card.latestSender
+                    colorKey: card.latestSenderId
+                }
             }
 
             Label {

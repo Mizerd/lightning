@@ -27,7 +27,12 @@ Item {
 
     // v0.7: a voice recording (or its finalization) is in progress — the
     // mic slot shows the recording pill instead of the idle button.
-    property bool voiceActive: false
+    //
+    // DERIVED, never assigned: the recorder is shared with the thread
+    // composer and app.voiceOwner is the single authority for which one owns
+    // it. A local flag would let both composers believe they own the same
+    // recording and send it twice (see AppController::voiceOwner).
+    readonly property bool voiceActive: app.voiceOwner === "room"
 
     // Transient validation feedback ("folder rejected", "too large", …).
     property string attachmentNotice: ""
@@ -207,10 +212,8 @@ Item {
             mentionPopup.close()
             // A recording targets the room it was started in; switching
             // away discards it rather than sending into the wrong room.
-            if (root.voiceActive) {
-                app.voiceRecorder.cancel()
-                root.voiceActive = false
-            }
+            if (root.voiceActive)
+                app.cancelVoiceRecording()
         }
     }
     // Recorder results. target uses the lazy getter only while a recording
@@ -218,12 +221,14 @@ Item {
     Connections {
         target: root.voiceActive ? app.voiceRecorder : null
         function onReady(filePath, mime, durationMs, waveform) {
-            root.voiceActive = false
+            // Release ownership FIRST: the send is this composer's, and a
+            // re-entrant signal must not find us still armed.
+            app.endVoiceRecording()
             app.composer.sendVoiceMessage(filePath, mime, durationMs,
                                           waveform)
         }
         function onFailed(message) {
-            root.voiceActive = false
+            app.endVoiceRecording()
             root.attachmentNotice = message
             noticeTimer.restart()
         }
@@ -1023,12 +1028,21 @@ Item {
                         onClicked: {
                             // Failure on this FIRST press is reported from
                             // the return value: the failure Connections
-                            // only arms once voiceActive is true.
-                            if (app.voiceRecorder.start()) {
-                                root.voiceActive = true
-                            } else {
+                            // only arms once this composer owns the
+                            // recorder. A press while the thread composer
+                            // is recording is REFUSED (never stolen), so
+                            // that recording keeps its owner and its
+                            // controls.
+                            if (!app.startVoiceRecording("room")) {
+                                // A refusal because something is already
+                                // recording is NOT "unavailable" — saying
+                                // so would send the user looking for a
+                                // hardware fault that does not exist.
                                 root.attachmentNotice =
-                                    qsTr("Voice recording is unavailable.")
+                                    app.voiceRecordingBusy()
+                                    ? qsTr("A recording is already in "
+                                           + "progress.")
+                                    : qsTr("Voice recording is unavailable.")
                                 noticeTimer.restart()
                             }
                         }
@@ -1095,10 +1109,7 @@ Item {
                                 ToolTip.text: qsTr("Discard")
                                 ToolTip.visible: hovered
                                 ToolTip.delay: 500
-                                onClicked: {
-                                    app.voiceRecorder.cancel()
-                                    root.voiceActive = false
-                                }
+                                onClicked: app.cancelVoiceRecording()
                             }
                             IconButton {
                                 objectName: "composerVoiceSendButton"

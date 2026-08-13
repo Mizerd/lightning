@@ -8,12 +8,6 @@
 #include <QMimeDatabase>
 #include <QSize>
 
-namespace {
-// Conservative documented fallback when the server has not reported its
-// m.upload.size yet. The real limit replaces it as soon as it is known.
-constexpr qint64 kFallbackUploadLimit = 100 * 1024 * 1024;
-} // namespace
-
 AttachmentQueueModel::AttachmentQueueModel(QObject *parent)
     : QAbstractListModel(parent)
 {
@@ -24,10 +18,30 @@ void AttachmentQueueModel::setClient(MatrixClient *client)
     m_client = client;
 }
 
+// 0 means the limit is UNKNOWN — the homeserver advertises no m.upload.size,
+// the capability lookup has not answered yet, or it failed. It does NOT mean
+// "unlimited", and it is deliberately not replaced by a client-side default:
+// an invented ceiling would refuse files this server would have accepted, and
+// would be indistinguishable downstream from a real advertised limit. When
+// the limit is unknown, no preflight happens and the SDK/server decides.
 qint64 AttachmentQueueModel::uploadLimit() const
 {
     const qint64 server = m_client ? m_client->maxUploadSize() : 0;
-    return server > 0 ? server : kFallbackUploadLimit;
+    return server > 0 ? server : 0;
+}
+
+bool AttachmentQueueModel::exceedsUploadLimit(qint64 bytes) const
+{
+    const qint64 limit = uploadLimit();
+    // Exactly at the limit is allowed: m.upload.size is the largest accepted
+    // payload, not the first rejected one.
+    return limit > 0 && bytes > limit;
+}
+
+QString AttachmentQueueModel::uploadLimitMessage() const
+{
+    return tr("The file is larger than the server's upload limit (%1).")
+        .arg(humanSize(uploadLimit()));
 }
 
 QString AttachmentQueueModel::humanSize(qint64 bytes)
@@ -55,9 +69,8 @@ QString AttachmentQueueModel::addFile(const QUrl &fileUrl)
         return tr("That file cannot be read.");
     if (info.size() <= 0)
         return tr("Empty files cannot be sent.");
-    if (info.size() > uploadLimit())
-        return tr("The file is larger than the server's upload limit (%1).")
-            .arg(humanSize(uploadLimit()));
+    if (exceedsUploadLimit(info.size()))
+        return uploadLimitMessage();
     for (const Entry &existing : m_entries) {
         if (!existing.localPath.isEmpty() && existing.localPath == path)
             return tr("That file is already attached.");
@@ -174,7 +187,7 @@ QString AttachmentQueueModel::addImageData(const QByteArray &bytes,
 {
     if (bytes.isEmpty())
         return tr("The clipboard image is empty.");
-    if (bytes.size() > uploadLimit())
+    if (exceedsUploadLimit(bytes.size()))
         return tr("The image is larger than the server's upload limit (%1).")
             .arg(humanSize(uploadLimit()));
 

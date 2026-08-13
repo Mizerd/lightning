@@ -1504,12 +1504,42 @@ void RustSdkMatrixClient::setRoomMarkedUnread(const QString &roomId, bool unread
 
 void RustSdkMatrixClient::setRoomNotificationMode(const QString &roomId, int mode)
 {
+    // Mode 3 (follow account default) deliberately does NOT reach this
+    // range: it is a rule REMOVAL, routed through
+    // clearRoomNotificationMode. Accepting it here would send an invalid
+    // RoomNotificationMode across the FFI.
     if (!m_rustHandle || roomId.isEmpty() || mode < 0 || mode > 2) return;
     const QByteArray room = roomId.toUtf8();
     const QString result = takeRustString(mx_rust_set_room_notification_mode(
         m_rustHandle, room.constData(), mode));
     if (!result.isEmpty())
         qCWarning(lcRust) << "notification-mode command rejected";
+}
+
+void RustSdkMatrixClient::requestThreadParticipants(const QString &roomId,
+                                                    const QString &rootEventId)
+{
+    // Defence-in-depth: the composite thread-timeline id must never reach a
+    // protocol call (see isThreadTimelineId's other guards).
+    if (!m_loggedIn || !m_rustHandle || roomId.isEmpty()
+        || rootEventId.isEmpty() || isThreadTimelineId(roomId))
+        return;
+    const QByteArray room = roomId.toUtf8();
+    const QByteArray root = rootEventId.toUtf8();
+    const QString result = takeRustString(mx_rust_thread_participants(
+        m_rustHandle, room.constData(), root.constData()));
+    if (!result.isEmpty())
+        qCWarning(lcRust) << "thread participants request rejected";
+}
+
+void RustSdkMatrixClient::clearRoomNotificationMode(const QString &roomId)
+{
+    if (!m_rustHandle || roomId.isEmpty()) return;
+    const QByteArray room = roomId.toUtf8();
+    const QString result = takeRustString(
+        mx_rust_clear_room_notification_mode(m_rustHandle, room.constData()));
+    if (!result.isEmpty())
+        qCWarning(lcRust) << "notification-mode clear rejected";
 }
 
 void RustSdkMatrixClient::requestRoomNotificationMode(const QString &roomId)
@@ -2536,7 +2566,21 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
     if (type == QLatin1String("room_notification_mode")) {
         const QString roomId = event.value(QStringLiteral("room_id")).toString();
         const int mode = event.value(QStringLiteral("mode")).toInt(-1);
-        if (roomId.isEmpty() || mode < 0 || mode > 2) return;
+        if (roomId.isEmpty()) return;
+        // A successful "follow account default" reports mode 3 with
+        // followed_default — the room's user-defined rules were REMOVED.
+        // It is a distinct outcome from a rule write, so it travels on its
+        // own signal: routing it through roomNotificationModeChanged would
+        // either be dropped as a non-user-defined report or, worse, be
+        // reconciled as though the server held a rule whose value is 3.
+        // Without this the clear could never be acknowledged, and a room
+        // whose clear failed once would claim "couldn't save" forever even
+        // after a retry succeeded.
+        if (event.value(QStringLiteral("followed_default")).toBool()) {
+            Q_EMIT roomNotificationModeCleared(roomId);
+            return;
+        }
+        if (mode < 0 || mode > 2) return;
         Q_EMIT roomNotificationModeChanged(
             roomId, mode,
             event.value(QStringLiteral("user_defined")).toBool());
@@ -4256,6 +4300,43 @@ quint64 RustSdkMatrixClient::sendVoiceMessage(const QString &roomId,
     return opId;
 }
 
+quint64 RustSdkMatrixClient::sendThreadVoiceMessage(
+    const QString &roomId, const QString &rootEventId,
+    const QString &localPath, const QString &mime, qint64 durationMs,
+    const QList<int> &waveform)
+{
+    // Same preconditions as sendThreadAttachment (which is what this is —
+    // a thread attachment carrying voice metadata), plus the duration the
+    // MSC3245 block requires. Deliberately NOT gated on
+    // timelineActiveFor(roomId): the room path needs the open room timeline
+    // because it sends through it, while the thread path sends through the
+    // thread-focused timeline the panel already holds open.
+    if (!m_loggedIn || !m_rustHandle || roomId.isEmpty()
+        || rootEventId.isEmpty() || localPath.isEmpty() || mime.isEmpty()
+        || durationMs <= 0)
+        return 0;
+    // Clamp to the bridge scale; the FFI bounds the length.
+    QByteArray amplitudes;
+    amplitudes.reserve(waveform.size());
+    for (int value : waveform)
+        amplitudes.append(static_cast<char>(qBound(0, value, 100)));
+    const quint64 opId = nextOpId();
+    const QByteArray room = roomId.toUtf8();
+    const QByteArray root = rootEventId.toUtf8();
+    const QByteArray path = localPath.toUtf8();
+    const QByteArray mimeBytes = mime.toUtf8();
+    const QString result = takeRustString(mx_rust_thread_send_voice(
+        m_rustHandle, room.constData(), root.constData(), path.constData(),
+        mimeBytes.constData(), static_cast<unsigned long long>(durationMs),
+        reinterpret_cast<const unsigned char *>(amplitudes.constData()),
+        static_cast<size_t>(amplitudes.size()), opId));
+    if (!result.isEmpty()) {
+        qCWarning(lcRust) << "thread voice send rejected";
+        return 0;
+    }
+    return opId;
+}
+
 quint64 RustSdkMatrixClient::sendAttachmentBytes(const QString &roomId,
                                                  const QByteArray &bytes,
                                                  const QString &filename,
@@ -4551,6 +4632,40 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
         return true;
     }
 
+    if (type == QLatin1String("thread_participants")) {
+        // Presentation-safe rows only; the Rust side already refused to
+        // send anything else. A failed lookup is forwarded as ok=false so
+        // the card keeps what it had rather than being handed an empty set
+        // that would read as "nobody is in this thread".
+        if (!event.value(QStringLiteral("ok")).toBool()) {
+            Q_EMIT threadParticipantsReceived(
+                event.value(QStringLiteral("room_id")).toString(),
+                event.value(QStringLiteral("root_event_id")).toString(),
+                {}, 0, false);
+            return true;
+        }
+        QVariantList participants;
+        const QJsonArray rows =
+            event.value(QStringLiteral("participants")).toArray();
+        for (const QJsonValue &row : rows) {
+            const QJsonObject obj = row.toObject();
+            participants.append(QVariantMap{
+                { QStringLiteral("userId"),
+                  obj.value(QStringLiteral("user_id")).toString() },
+                { QStringLiteral("displayName"),
+                  obj.value(QStringLiteral("display_name")).toString() },
+                { QStringLiteral("avatarUrl"),
+                  obj.value(QStringLiteral("avatar_url")).toString() },
+            });
+        }
+        Q_EMIT threadParticipantsReceived(
+            event.value(QStringLiteral("room_id")).toString(),
+            event.value(QStringLiteral("root_event_id")).toString(),
+            participants,
+            event.value(QStringLiteral("distinct")).toInt(),
+            event.value(QStringLiteral("truncated")).toBool());
+        return true;
+    }
     if (type == QLatin1String("room_members")) {
         QVariantMap snapshot;
         snapshot.insert(QStringLiteral("ok"),

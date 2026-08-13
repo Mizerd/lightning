@@ -32,7 +32,7 @@ use matrix_sdk::{
         },
         room::RoomType,
         serde::Raw,
-        OwnedMxcUri, OwnedUserId, RoomId, UInt, UserId,
+        EventId, OwnedMxcUri, OwnedUserId, RoomId, UInt, UserId,
     },
     RoomMemberships, RoomState,
 };
@@ -48,10 +48,6 @@ const MEMBER_SNAPSHOT_CAP: usize = 500;
 
 /// Avatar uploads are small; refuse anything larger before reading it.
 const MAX_AVATAR_BYTES: u64 = 8 * 1024 * 1024;
-
-/// Last-resort attachment bound when the server's m.upload.size is unknown.
-/// C++ enforces the real (server-provided) limit before dispatching.
-pub(crate) const FALLBACK_UPLOAD_LIMIT: u64 = 100 * 1024 * 1024;
 
 pub(crate) fn require_client(bridge: &RustClient) -> Result<matrix_sdk::Client, String> {
     bridge
@@ -997,6 +993,126 @@ pub(crate) fn invite_users(
 }
 
 // ---------------------------------------------------------------------------
+// Thread participants (facepiles)
+// ---------------------------------------------------------------------------
+
+/// How many participants cross the FFI. The facepile shows 2-4; a small
+/// surplus lets the UI dedupe/choose without a second request, and caps what
+/// one payload can carry.
+const THREAD_PARTICIPANT_CAP: usize = 8;
+
+/// v0.7: the REAL participants of a thread, for the summary card facepile.
+///
+/// matrix-sdk-ui 0.18 does not expose this: `ThreadSummary` and
+/// `ThreadListItem` both carry only the root sender, the latest reply's
+/// sender and a reply COUNT — a count of replies, never of people. So the
+/// participants are derived from the thread's actual events via
+/// `Room::load_or_fetch_event_with_relations`, which is CACHE-FIRST and only
+/// hits the network when the relations are not already known locally (and
+/// writes what it fetches back into the event cache, so a second card for
+/// the same root is free).
+///
+/// Ordering is deterministic: the root's sender first, then every other
+/// sender in the order they first appear in the thread. Deduplicated by
+/// Matrix user id, so the same person appearing ten times is one face.
+///
+/// Only presentation-safe fields cross the FFI — user id, display name,
+/// avatar mxc — never event content, never message bodies. `truncated`
+/// reports honestly whether more distinct participants exist than were
+/// returned, so the UI is never invited to imply a total it does not know.
+pub(crate) fn thread_participants(
+    bridge: &RustClient,
+    room_id: String,
+    root_event_id: String,
+) -> Result<(), String> {
+    use matrix_sdk::ruma::events::relation::RelationType;
+
+    let client = require_client(bridge)?;
+    let room = joined_room(&client, &room_id)?;
+    let root = EventId::parse(&root_event_id)
+        .map_err(|_| "invalid thread root event id".to_owned())?;
+    let events = Arc::clone(&bridge.events);
+    let timelines = Arc::clone(&bridge.timelines);
+    let lifecycle = timelines.lifecycle();
+    bridge.spawn_room_action(async move {
+        let loaded = room
+            .load_or_fetch_event_with_relations(
+                &root,
+                Some(vec![RelationType::Thread]),
+                None,
+            )
+            .await;
+        if !timelines.lifecycle_current(lifecycle) {
+            return;   // account/session moved on: never touch the next one
+        }
+        let Ok((root_event, replies)) = loaded else {
+            // A failure is reported as a failure. The card keeps whatever it
+            // already had rather than being handed a fabricated empty set.
+            enqueue(&events, json!({
+                "type": "thread_participants",
+                "lifecycle": lifecycle,
+                "room_id": room_id,
+                "root_event_id": root_event_id,
+                "ok": false,
+            }));
+            return;
+        };
+
+        // Root sender first, then first-appearance order among the replies.
+        let mut ordered: Vec<OwnedUserId> = Vec::new();
+        let mut seen: std::collections::HashSet<OwnedUserId> =
+            std::collections::HashSet::new();
+        let push = |sender: OwnedUserId,
+                        ordered: &mut Vec<OwnedUserId>,
+                        seen: &mut std::collections::HashSet<OwnedUserId>| {
+            if seen.insert(sender.clone()) {
+                ordered.push(sender);
+            }
+        };
+        if let Ok(parsed) = root_event.raw().deserialize() {
+            push(parsed.sender().to_owned(), &mut ordered, &mut seen);
+        }
+        for reply in &replies {
+            if let Ok(parsed) = reply.raw().deserialize() {
+                push(parsed.sender().to_owned(), &mut ordered, &mut seen);
+            }
+        }
+
+        let distinct = ordered.len();
+        let truncated = distinct > THREAD_PARTICIPANT_CAP;
+        let mut rows: Vec<serde_json::Value> = Vec::new();
+        for user_id in ordered.into_iter().take(THREAD_PARTICIPANT_CAP) {
+            // Profile from the already-synced member state; no extra network
+            // call per face. Absent fields stay empty and the C++ side falls
+            // back to the localpart + colour avatar, never a bare MXID label.
+            let member = room.get_member_no_sync(&user_id).await.ok().flatten();
+            rows.push(json!({
+                "user_id": user_id.to_string(),
+                "display_name": member
+                    .as_ref()
+                    .and_then(|m| m.display_name().map(|s| s.to_owned()))
+                    .unwrap_or_default(),
+                "avatar_url": member
+                    .as_ref()
+                    .and_then(|m| m.avatar_url().map(|a| a.to_string()))
+                    .unwrap_or_default(),
+            }));
+        }
+        enqueue(&events, json!({
+            "type": "thread_participants",
+            "lifecycle": lifecycle,
+            "room_id": room_id,
+            "root_event_id": root_event_id,
+            "ok": true,
+            "participants": rows,
+            "distinct": distinct,
+            "truncated": truncated,
+        }));
+    });
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 // Member snapshot + permissions
 // ---------------------------------------------------------------------------
 
@@ -1480,6 +1596,83 @@ pub(crate) fn send_voice_path(
         None,
         info,
         None,
+        op_id,
+    )
+}
+
+/// The thread twin of `send_voice_path`.
+///
+/// Validation and MSC3245 metadata are IDENTICAL — the same `voice_info`
+/// builds the same `AttachmentInfo::Voice`, so a voice message sent into a
+/// thread carries exactly the marker, duration and waveform a room voice
+/// message does. The only difference is the routing: this goes through
+/// `send_thread_attachment`, the thread-focused SDK timeline, so the event
+/// carries a real `m.thread` relation to `root_event_id`. Encryption is
+/// unchanged and entirely SDK-owned; nothing here touches crypto, and there
+/// is deliberately no fallback to an ordinary room send — a thread voice
+/// message that cannot be routed into its thread must fail, not silently
+/// land in the main timeline.
+pub(crate) fn send_thread_voice_path(
+    bridge: &RustClient,
+    room_id: String,
+    root_event_id: String,
+    path: String,
+    mime: String,
+    duration_ms: u64,
+    waveform: Vec<u8>,
+    op_id: u64,
+) -> Result<(), String> {
+    let metadata = std::fs::metadata(&path)
+        .map_err(|_| "voice file is not readable".to_owned())?;
+    if !metadata.is_file() {
+        return Err("voice path is not a regular file".to_owned());
+    }
+    if metadata.len() == 0 {
+        return Err("voice file is empty".to_owned());
+    }
+    if duration_ms == 0 {
+        return Err("voice duration is unknown".to_owned());
+    }
+    let info = Some(voice_info(duration_ms, metadata.len(), &waveform));
+    let Some(client) = bridge.client.lock().ok().and_then(|g| g.clone()) else {
+        return Err("Rust SDK session is not logged in.".to_owned());
+    };
+    // Read the recording NOW, on the caller's thread, rather than handing
+    // over a path for the spawned task to read later.
+    //
+    // The SDK resolves AttachmentSource::File with fs::read INSIDE the
+    // spawned task — after it has resolved (and possibly BUILT) the
+    // thread-focused timeline. C++ reclaims a thread recording when the
+    // panel closes, which is one click away from Send, so a path handed
+    // over here could be deleted before that read ever happened: the send
+    // would fail with InvalidAttachmentData AND the result would be
+    // suppressed by the advanced thread generation, silently losing a
+    // message the user believed they had sent.
+    //
+    // Taking the bytes up front removes the window entirely instead of
+    // racing it. A voice message is hard-bounded by the recorder (mono
+    // 32 kbps Opus under a 15-minute cap, a few MB), so this is a small,
+    // predictable allocation — not the unbounded read that makes the File
+    // variant the right choice for ordinary attachments.
+    let bytes = std::fs::read(&path)
+        .map_err(|_| "voice file is not readable".to_owned())?;
+    if bytes.is_empty() {
+        return Err("voice file is empty".to_owned());
+    }
+    let filename = std::path::Path::new(&path)
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "voice-message".to_owned());
+    bridge.timelines.send_thread_attachment(
+        &bridge.runtime,
+        client,
+        room_id,
+        root_event_id,
+        AttachmentSource::Data { bytes, filename },
+        mime,
+        None,
+        info,
+        None,   // a voice message has no thumbnail
         op_id,
     )
 }
@@ -1982,6 +2175,14 @@ pub(crate) fn media_fetch_mxc(
 }
 
 /// Server upload limit (m.upload.size), fetched once per session by C++.
+///
+/// `bytes: 0` means UNKNOWN, not unlimited and not a default: either the
+/// homeserver advertises no maximum or the capability lookup failed. C++
+/// treats 0 as "no preflight is possible" and lets the send path proceed,
+/// so the server itself rejects an oversized upload. Reporting an invented
+/// ceiling here would be worse than reporting nothing — it would refuse
+/// files the server would have accepted, while looking like a real
+/// server-advertised limit to everything downstream.
 pub(crate) fn fetch_upload_limit(bridge: &RustClient) -> Result<(), String> {
     let client = require_client(bridge)?;
     let events = Arc::clone(&bridge.events);
@@ -1992,7 +2193,7 @@ pub(crate) fn fetch_upload_limit(bridge: &RustClient) -> Result<(), String> {
             .load_or_fetch_max_upload_size()
             .await
             .map(u64::from)
-            .unwrap_or(FALLBACK_UPLOAD_LIMIT);
+            .unwrap_or(0);
         if !timelines.lifecycle_current(lifecycle) {
             return;
         }

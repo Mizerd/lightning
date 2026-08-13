@@ -1403,6 +1403,8 @@ if(BUILD_TESTING)
         tests/ThreadControllerTest.cpp
         src/threads/ThreadController.h
         src/threads/ThreadController.cpp
+        src/threads/ThreadManager.h
+        src/threads/ThreadManager.cpp
         src/models/MentionTokenizer.h
         src/models/MentionTokenizer.cpp
         src/models/TimelineModel.h
@@ -1518,6 +1520,17 @@ if(BUILD_TESTING)
     lightning_configure_qml_app(room-notification-mode-test)
     target_link_libraries(room-notification-mode-test PRIVATE Qt6::Test)
     add_test(NAME room-notification-mode COMMAND room-notification-mode-test)
+
+    # v0.7 thread parity: ownership of the single shared VoiceRecorder.
+    # Pins that a live recording is refused-not-stolen, which is what keeps
+    # the microphone from being orphaned with no owner and no UI to stop it.
+    qt_add_executable(voice-ownership-test
+        tests/VoiceOwnershipTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_app(voice-ownership-test)
+    target_link_libraries(voice-ownership-test PRIVATE Qt6::Test)
+    add_test(NAME voice-ownership COMMAND voice-ownership-test)
     set_tests_properties(room-notification-mode PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 

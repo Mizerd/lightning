@@ -308,8 +308,9 @@ public:
     // keywords, 2 = mute. Backends without push-rule support keep the
     // false default and the per-room mode stays a device-local setting.
     // setRoomNotificationMode is label-faithful: mode 0 sets an explicit
-    // AllMessages rule (a "follow account default" choice that removes the
-    // user rule instead is an accepted follow-up, not offered yet).
+    // AllMessages rule. Mode 3 (follow the account default) is NOT sent
+    // here — it is the ABSENCE of a room override, so it goes through
+    // clearRoomNotificationMode(), which deletes the user-defined rules.
     // requestRoomNotificationMode usually answers asynchronously via
     // roomNotificationModeChanged with the user-defined rule when one
     // exists, else the account default resolved for the room's shape —
@@ -320,6 +321,26 @@ public:
     {
         Q_UNUSED(roomId);
         Q_UNUSED(mode);
+    }
+    // v0.7: ask for a thread's real participants (facepile). Answers
+    // asynchronously via threadParticipantsReceived. Cache-first on the
+    // Rust side, so a repeat request for a known thread costs no network.
+    // Backends without thread support simply never answer, and the card
+    // renders without a facepile.
+    virtual void requestThreadParticipants(const QString &roomId,
+                                           const QString &rootEventId)
+    {
+        Q_UNUSED(roomId); Q_UNUSED(rootEventId);
+    }
+    // v0.7 "follow account default": drop this room's user-defined push
+    // rules so the account's rules decide again. Success reports on the
+    // dedicated roomNotificationModeCleared signal — NOT on
+    // roomNotificationModeChanged, which carries a rule's value, whereas
+    // this outcome is the absence of a rule. Backends without push-rule
+    // support do nothing, and the mode stays a device-local setting.
+    virtual void clearRoomNotificationMode(const QString &roomId)
+    {
+        Q_UNUSED(roomId);
     }
     virtual void requestRoomNotificationMode(const QString &roomId)
     {
@@ -488,6 +509,23 @@ public:
         Q_UNUSED(durationMs); Q_UNUSED(waveform);
         return 0;
     }
+    // v0.7 thread parity: the thread twin of sendVoiceMessage. Carries the
+    // SAME MSC3245 metadata, routed through the SDK's thread-focused
+    // timeline so the event is a real m.thread reply. Returning 0 (the
+    // default, for backends without thread voice support) is a refusal, NOT
+    // a licence to fall back to a room send — a thread voice message must
+    // never land in the main timeline.
+    virtual quint64 sendThreadVoiceMessage(const QString &roomId,
+                                           const QString &rootEventId,
+                                           const QString &localPath,
+                                           const QString &mime,
+                                           qint64 durationMs,
+                                           const QList<int> &waveform)
+    {
+        Q_UNUSED(roomId); Q_UNUSED(rootEventId); Q_UNUSED(localPath);
+        Q_UNUSED(mime); Q_UNUSED(durationMs); Q_UNUSED(waveform);
+        return 0;
+    }
 
     // v0.6.1: attachment sending INTO a thread. Routed through the SDK's
     // thread-focused timeline so the m.thread relation and (in encrypted
@@ -625,6 +663,12 @@ Q_SIGNALS:
     // is kept and the UI must say so instead of claiming the mode was
     // saved to the account. Room id only — no error text, no rule JSON.
     void roomNotificationModeWriteFailed(const QString &roomId);
+    // v0.7: the room's user-defined push rules were successfully REMOVED —
+    // it now follows the account default. Deliberately separate from
+    // roomNotificationModeChanged: that signal carries a rule's value, and
+    // this outcome is the absence of a rule. It is the acknowledgement that
+    // retires a failed "follow account default" write.
+    void roomNotificationModeCleared(const QString &roomId);
 
     void errorOccurred(const QString &message);
 
@@ -679,6 +723,17 @@ Q_SIGNALS:
     // isOwn).
     void roomMembersReceived(quint64 opId, const QString &roomId,
                              const QVariantMap &snapshot);
+    // v0.7: real thread participants for the summary-card facepile.
+    // `participants` is an ordered, user-id-deduplicated QVariantList of
+    // maps (userId, displayName, avatarUrl) — root sender first, then
+    // first-appearance order. `distinct` is the number of DISTINCT senders
+    // found (never the reply count); `truncated` is true when more exist
+    // than were sent. An unsuccessful lookup arrives with an empty list and
+    // distinct 0, and must be treated as "unknown", never as "nobody".
+    void threadParticipantsReceived(const QString &roomId,
+                                    const QString &rootEventId,
+                                    const QVariantList &participants,
+                                    int distinct, bool truncated);
     void roomEditFinished(quint64 opId, const QString &roomId,
                           const QString &field, bool ok,
                           const QString &category);

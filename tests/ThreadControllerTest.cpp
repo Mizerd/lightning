@@ -10,6 +10,7 @@
 #include "models/AttachmentQueueModel.h"
 #include "models/TimelineModel.h"
 #include "threads/ThreadController.h"
+#include "threads/ThreadManager.h"
 
 #include <QDir>
 #include <QFileInfo>
@@ -826,6 +827,58 @@ private Q_SLOTS:
         client.logout();
         QCOMPARE(controller.state(), ThreadController::Closed);
         QCOMPARE(controller.model()->rowCount(), 0);
+    }
+
+    // v0.7 facepiles. ThreadManager's participant cache is what makes it
+    // safe for every visible summary card to ask on every appearance: the
+    // request is idempotent per (room, root), an unknown thread reads back
+    // empty rather than inventing anyone, and the whole cache is dropped on
+    // sign-out so one account's faces can never surface under another's.
+    void threadParticipantsAreCachedDedupedAndAccountScoped()
+    {
+        MockMatrixClient client;
+        ThreadManager threads;
+        threads.setClient(&client);
+
+        const QString root = QStringLiteral("$root:example.org");
+
+        // Unknown thread: empty means UNKNOWN, never "nobody".
+        QVERIFY(threads.participants(kGeneral, root).isEmpty());
+
+        QSignalSpy changed(&threads, &ThreadManager::participantsChanged);
+        const QVariantList people{
+            QVariantMap{ { QStringLiteral("userId"),
+                           QStringLiteral("@alice:example.org") },
+                         { QStringLiteral("displayName"),
+                           QStringLiteral("Alice") },
+                         { QStringLiteral("avatarUrl"), QString{} } },
+            QVariantMap{ { QStringLiteral("userId"),
+                           QStringLiteral("@bob:example.org") },
+                         { QStringLiteral("displayName"),
+                           QStringLiteral("Bob") },
+                         { QStringLiteral("avatarUrl"), QString{} } },
+        };
+        Q_EMIT client.threadParticipantsReceived(kGeneral, root, people, 2,
+                                                 false);
+        QCOMPARE(changed.count(), 1);
+        QCOMPARE(threads.participants(kGeneral, root).size(), 2);
+
+        // Scoped by BOTH room and root: a different root in the same room is
+        // a different thread and must not inherit these faces.
+        QVERIFY(threads.participants(
+                    kGeneral, QStringLiteral("$other:example.org")).isEmpty());
+
+        // A failed lookup arrives empty and must NOT be cached as an answer
+        // — caching it would make a transient failure permanent for the
+        // session and suppress every later retry.
+        const QString root2 = QStringLiteral("$second:example.org");
+        Q_EMIT client.threadParticipantsReceived(kGeneral, root2, {}, 0, false);
+        QCOMPARE(changed.count(), 1);          // no "changed" for a failure
+        QVERIFY(threads.participants(kGeneral, root2).isEmpty());
+
+        // Sign-out drops everything: no cross-account face leakage.
+        client.logout();
+        QVERIFY(threads.participants(kGeneral, root).isEmpty());
     }
 };
 

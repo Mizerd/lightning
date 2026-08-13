@@ -1,6 +1,8 @@
 #pragma once
 
+#include <QHash>
 #include <QObject>
+#include <QSet>
 #include <QString>
 #include <QStringList>
 #include <QVariantList>
@@ -42,6 +44,47 @@ public:
     // by lastReplyTs descending. Useful for a thread-list side panel.
     Q_INVOKABLE QVariantList threadSummaries(const QString &roomId) const;
 
+    // v0.7 facepiles: REAL thread participants, cached per (room, root).
+    //
+    // participants() is a pure read — it never issues a request, so it is
+    // safe to call from a QML binding. requestParticipants() is the
+    // explicit fetch, and it is idempotent per root: a root that is already
+    // cached or already in flight costs nothing, so a summary card may call
+    // it every time it becomes visible without generating traffic. Both are
+    // scoped by room id, and the whole cache is dropped on sign-out, account
+    // switch and room change so one account's faces can never appear under
+    // another's.
+    //
+    // An empty list means "not known yet", NOT "nobody" — a failed lookup is
+    // indistinguishable from a pending one by design, because rendering an
+    // empty facepile is preferable to rendering a wrong one.
+    Q_INVOKABLE QVariantList participants(const QString &roomId,
+                                          const QString &rootEventId) const;
+    Q_INVOKABLE void requestParticipants(const QString &roomId,
+                                         const QString &rootEventId);
+
+Q_SIGNALS:
+    // A root's participants arrived (or changed). QML re-reads
+    // participants() for that root; no payload travels with the signal so a
+    // stale binding cannot capture one.
+    void participantsChanged(const QString &roomId, const QString &rootEventId);
+
 private:
+    // A request that never answers must not block that root forever; see
+    // requestParticipants for the paths that answer nothing at all. Sits
+    // comfortably above the SDK's own per-request timeout plus retry, so a
+    // slow-but-successful fetch rarely trips it. Tripping it is cheap
+    // anyway: the key is released without caching a result, so the worst
+    // case is one redundant (cache-first) refetch, never a wrong answer.
+    static constexpr int kParticipantRequestTimeoutMs = 60000;
+
+    static QString participantKey(const QString &roomId,
+                                  const QString &rootEventId);
+    void clearParticipants();
+
     MatrixClient *m_client = nullptr;
+    // key = roomId + '\x1f' + rootEventId (the same unit separator the
+    // timeline ids use; neither component can contain it).
+    QHash<QString, QVariantList> m_participants;
+    QSet<QString> m_participantsInFlight;
 };

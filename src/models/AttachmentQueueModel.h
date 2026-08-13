@@ -96,6 +96,19 @@ public:
 
     static QString humanSize(qint64 bytes);
 
+    // The homeserver's advertised m.upload.size, or 0 when it is UNKNOWN
+    // (not advertised, not answered yet, or the lookup failed). 0 is never
+    // treated as unlimited and never replaced by a client-side default —
+    // see the definition for why an invented ceiling is worse than none.
+    qint64 uploadLimit() const;
+    // True only when a real server limit is known AND `bytes` exceeds it.
+    // Exactly at the limit is allowed. Shared by every send path so the
+    // preflight cannot drift between composers.
+    bool exceedsUploadLimit(qint64 bytes) const;
+    // Human-readable refusal for an oversized payload, e.g. for a notice.
+    // Only meaningful when exceedsUploadLimit() is true.
+    QString uploadLimitMessage() const;
+
     // v0.7 video round. Test seam: replaces the offscreen video decoder so
     // a poster outcome can be exercised without a real media backend or a
     // real video file. The hook receives (tag, localPath) and is expected
@@ -117,7 +130,6 @@ Q_SIGNALS:
     void entryPrepared(int row);
 
 private:
-    qint64 uploadLimit() const;
     void startPosterJob(int row);
     int rowForPosterTag(const QString &tag) const;
 

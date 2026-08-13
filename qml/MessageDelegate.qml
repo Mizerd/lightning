@@ -1243,6 +1243,7 @@ Item {
                         // preview, the authoritative reply count and an unread
                         // indicator; activating it opens the correct thread.
                         ThreadSummaryCard {
+                            id: threadSummaryCard
                             visible: model.isThreadRoot === true
                             replyCount: model.threadReplyCount !== undefined
                                         ? model.threadReplyCount : -1
@@ -1255,6 +1256,61 @@ Item {
                             unread: model.threadUnread === true
                             onActivated: app.thread.openThread(
                                 app.currentRoomId, root.eventIdForActions())
+
+                            // v0.7 facepile. The root event id is read once
+                            // here rather than in each binding below, so a
+                            // late model change cannot leave the card
+                            // showing one thread's faces under another's.
+                            readonly property string rootId:
+                                model.isThreadRoot === true
+                                    ? root.eventIdForActions() : ""
+                            // Guarded like Avatar.qml's canary: an
+                            // unqualified `app` lookup performed during
+                            // delegate creation can resolve undefined, and
+                            // the binding would then throw and latch at ""
+                            // with no self-heal path (30ee39b).
+                            readonly property string roomId:
+                                typeof app !== "undefined" ? app.currentRoomId : ""
+
+                            // Pure read — issues no request, so this is safe
+                            // as a binding. The fetch is explicit below.
+                            function refreshParticipants() {
+                                participants = (rootId !== "" && roomId !== "")
+                                    ? app.threads.participants(roomId, rootId)
+                                    : []
+                            }
+                            // Fetched once per (room, root) —
+                            // requestParticipants is idempotent, so a card
+                            // may call this on every appearance without
+                            // generating traffic.
+                            //
+                            // NOTE this is NOT a viewport gate. The room
+                            // timeline is a non-virtualized Repeater +
+                            // Column (TimelinePane), so every LOADED row is
+                            // instantiated and visible whether or not it is
+                            // on screen. Opening a thread-heavy room, and
+                            // each pagination batch that lands more roots,
+                            // therefore issues one relations fetch per root.
+                            // Bounding that fan-out is an accepted
+                            // follow-up; the per-root dedupe already caps it
+                            // at once per root per session.
+                            function ensureParticipants() {
+                                if (!visible || rootId === "" || roomId === "")
+                                    return
+                                app.threads.requestParticipants(roomId, rootId)
+                                refreshParticipants()
+                            }
+                            onRootIdChanged: ensureParticipants()
+                            onVisibleChanged: ensureParticipants()
+                            Component.onCompleted: ensureParticipants()
+                            Connections {
+                                target: app.threads
+                                function onParticipantsChanged(roomId, rootEventId) {
+                                    if (roomId === threadSummaryCard.roomId
+                                        && rootEventId === threadSummaryCard.rootId)
+                                        threadSummaryCard.refreshParticipants()
+                                }
+                            }
                         }
                     }
                 }

@@ -327,6 +327,19 @@ Item {
                 radioSelected: notificationsFlyout.currentMode === 2
                 onTriggered: root.setNotificationMode(2)
             }
+            // v0.7: the same "follow account default" choice Room
+            // Information offers. Without it a room set to mode 3 shows NO
+            // selected radio here — two entry points to one setting
+            // disagreeing, with this one rendering a state it cannot
+            // express. Server-capable backends only: with a device-local
+            // backend there is no account rule to defer to.
+            AppMenuItem {
+                visible: app.serverRoomNotificationModes
+                text: qsTr("Follow account default")
+                radio: true
+                radioSelected: notificationsFlyout.currentMode === 3
+                onTriggered: root.setNotificationMode(3)
+            }
             Label {
                 objectName: "roomNotificationDisclaimer"
                 leftPadding: AppTheme.menuItemPadding
@@ -339,10 +352,15 @@ Item {
                 // yet); a failed write is admitted instead of claimed
                 // saved; other backends keep the mode strictly
                 // device-local.
+                // v0.7: a failed write is now retried on the next
+                // reconnection, so the failure line says so. It still
+                // admits the failure first — the retry is a promise to try
+                // again, never a claim that the rule was saved.
                 text: app.serverRoomNotificationModes
                       ? (notificationsFlyout.syncFailed
                          ? qsTr("Couldn't save to the server — "
-                                + "kept on this device.")
+                                + "kept on this device. "
+                                + "Retried when you reconnect.")
                          : qsTr("Saved to your account's notification "
                                 + "settings (server push rules)."))
                       : qsTr("Local setting: it does not change this "

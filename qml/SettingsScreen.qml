@@ -85,8 +85,9 @@ Item {
         { title: qsTr("Load previews in encrypted rooms"),
           keywords: qsTr("link preview encrypted"), section: "privacy",
           breadcrumb: qsTr("Privacy & security · Link previews") },
-        { title: qsTr("Autoplay GIFs"), keywords: qsTr("gif autoplay"),
-          section: "privacy", breadcrumb: qsTr("Privacy & security · GIFs") },
+        { title: qsTr("Autoplay and prefetch media"),
+          keywords: qsTr("gif autoplay prefetch video audio media"),
+          section: "privacy", breadcrumb: qsTr("Privacy & security · Media") },
         { title: qsTr("GIF safe search"),
           keywords: qsTr("gif safe search rating"), section: "privacy",
           breadcrumb: qsTr("Privacy & security · GIFs") },
@@ -1736,13 +1737,13 @@ Item {
                                     Layout.topMargin: AppTheme.spacing4
                                 }
 
-                                Label { text: qsTr("Autoplay GIFs"); color: AppTheme.stormTextSecondary }
+                                Label { text: qsTr("Autoplay and prefetch media"); color: AppTheme.stormTextSecondary }
                                 AppComboBox {
                                     storm: true
                                     id: gifAutoplayCombo
                                     Layout.fillWidth: true
                                     textRole: "label"; valueRole: "value"
-                                    Accessible.name: qsTr("Autoplay GIFs")
+                                    Accessible.name: qsTr("Autoplay and prefetch media")
                                     model: [
                                         { label: qsTr("Always"),   value: 0 },
                                         { label: qsTr("On hover"), value: 1 },
@@ -1750,6 +1751,13 @@ Item {
                                     ]
                                     currentIndex: Math.max(0, indexOfValue(app.settings.gifAutoplay))
                                     onActivated: app.settings.gifAutoplay = currentValue
+                                }
+                                Label {
+                                    text: qsTr("Also governs passive downloads: GIF, video and audio prefetching. \"Never\" disables all of them.")
+                                    color: AppTheme.stormTextMuted
+                                    font.pixelSize: AppTheme.fontCaption
+                                    wrapMode: Text.WordWrap
+                                    Layout.fillWidth: true
                                 }
 
                                 Label { text: qsTr("GIF safe search"); color: AppTheme.stormTextSecondary }

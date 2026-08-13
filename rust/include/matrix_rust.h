@@ -79,6 +79,24 @@ char *mx_rust_set_marked_unread(void *client, const char *room_id, int unread);
 char *mx_rust_set_room_notification_mode(void *client,
                                          const char *room_id,
                                          int mode);
+/* v0.7 "follow account default": remove the room's user-defined push rules
+ * so the account's own rules apply again. Matrix has no follow-default rule
+ * — it has the ABSENCE of a room override — so this deletes rather than
+ * writes. Reports mode 3 with "user_defined":false on success, which is
+ * exactly the room's resulting state. Shares the set path's serialization,
+ * so a clear and a set cannot land out of order. */
+char *mx_rust_clear_room_notification_mode(void *client, const char *room_id);
+/* v0.7: real thread participants for the summary-card facepile. Answers
+ * asynchronously with
+ *   {"type":"thread_participants","room_id","root_event_id","ok":bool,
+ *    "participants":[{"user_id","display_name","avatar_url"}],
+ *    "distinct":n,"truncated":bool}
+ * Cache-first (Room::load_or_fetch_event_with_relations); only
+ * presentation-safe fields cross, never event content. "distinct" is the
+ * number of DISTINCT senders found, not the reply count. */
+char *mx_rust_thread_participants(void *client,
+                                  const char *room_id,
+                                  const char *root_event_id);
 char *mx_rust_get_room_notification_mode(void *client, const char *room_id);
 char *mx_rust_accept_invite(void *client, const char *room_id);
 char *mx_rust_reject_invite(void *client, const char *room_id);
@@ -553,6 +571,19 @@ char *mx_rust_timeline_send_voice(void *client,
                                   const unsigned char *waveform,
                                   size_t waveform_len,
                                   unsigned long long op_id);
+/* v0.7 thread parity: the thread twin of mx_rust_timeline_send_voice. Same
+ * MSC3245 metadata and the same 1024-entry waveform bound, routed through
+ * the thread-focused SDK timeline so the event carries a real m.thread
+ * relation. Never falls back to an ordinary room send. */
+char *mx_rust_thread_send_voice(void *client,
+                                const char *room_id,
+                                const char *root_event_id,
+                                const char *local_path,
+                                const char *mime,
+                                unsigned long long duration_ms,
+                                const unsigned char *waveform,
+                                size_t waveform_len,
+                                unsigned long long op_id);
 /* Clipboard image path: one bounded byte copy, no temporary file on disk. */
 char *mx_rust_timeline_send_attachment_bytes(void *client,
                                              const char *room_id,

@@ -27,7 +27,15 @@ public:
     Q_ENUM(PreviewMode)
     // Local per-room notification mode (explicitly local-only, not server
     // push rules).
-    enum RoomMode { AllMessages = 0, MentionsOnly = 1, Muted = 2 };
+    // FollowDefault means the user removed this room's override, so the
+    // ACCOUNT's push rules decide. The server knows that default and applies
+    // it to real pushes; this device does not persist it, so locally the row
+    // falls through to "notify" — identical to how a never-configured room
+    // has always behaved here. Deliberately not fabricating a resolved
+    // default: shouldNotify() only special-cases Muted and MentionsOnly.
+    enum RoomMode {
+        AllMessages = 0, MentionsOnly = 1, Muted = 2, FollowDefault = 3
+    };
     Q_ENUM(RoomMode)
     // SettingsManager's notificationSound values.
     enum SoundMode { SoundOff = 0, SoundMentionsAndDirect = 1, SoundAll = 2 };

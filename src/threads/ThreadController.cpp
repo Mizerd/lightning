@@ -5,6 +5,8 @@
 
 #include <QBuffer>
 #include <QClipboard>
+#include <QFile>
+#include <QFileInfo>
 #include <QGuiApplication>
 #include <QImage>
 #include <QMimeData>
@@ -43,6 +45,14 @@ void ThreadController::setClient(MatrixClient *client)
     if (m_client) {
         connect(m_client, &MatrixClient::attachmentQueueFinished, this,
                 &ThreadController::onAttachmentQueueFinished);
+        connect(m_client, &MatrixClient::loggedOut, this, [this] {
+            // Unresolved thread recordings must not outlive the session on
+            // disk; their ops can never resolve past this point. Mirrors
+            // MessageComposer's cleanup for the room path.
+            for (const VoiceOp &op : std::as_const(m_voiceOps))
+                QFile::remove(op.localPath);
+            m_voiceOps.clear();
+        });
         connect(m_client, &MatrixClient::timelineReset, this,
                 [this](const QString &timelineId) {
                     // Only the currently requested thread's reset promotes
@@ -188,6 +198,24 @@ void ThreadController::close()
     clearAttachments();
     resetFollowState();
     m_lastMarkedReadEventId.clear();
+    // Reclaim any voice recording whose send may never report back. The
+    // thread send result is gated on the THREAD generation, which advances
+    // when the thread closes or another opens — so an op still in flight
+    // here can silently never resolve, and its file would survive until
+    // logout.
+    //
+    // Deleting here is safe because the thread voice path takes the BYTES
+    // up front (rooms::send_thread_voice_path reads the file on the calling
+    // thread and hands over AttachmentSource::Data), so nothing downstream
+    // ever touches this path again. That is a structural guarantee, not a
+    // timing one: with the File variant the SDK's fs::read happens inside
+    // the spawned task, and closing the panel right after Send could delete
+    // the recording before it was read — losing the message silently,
+    // because the advanced thread generation also suppresses the failure
+    // report.
+    for (const VoiceOp &op : std::as_const(m_voiceOps))
+        QFile::remove(op.localPath);
+    m_voiceOps.clear();
     if (wasActive)
         setState(Closed);
 }
@@ -407,14 +435,75 @@ void ThreadController::dispatchAttachment(int row)
     m_attachments->updateEntry(row);
 }
 
+void ThreadController::sendVoiceMessage(const QString &localPath,
+                                        const QString &mime,
+                                        qreal durationMs,
+                                        const QVariantList &waveform)
+{
+    if (!m_client || m_state != Ready || m_roomId.isEmpty()
+        || m_rootEventId.isEmpty() || localPath.isEmpty() || mime.isEmpty()
+        || durationMs <= 0) {
+        QFile::remove(localPath);
+        Q_EMIT attachmentRejected(tr("The voice message could not be sent."));
+        return;
+    }
+    // Same preflight as the room composer: refuse before uploading what the
+    // server would reject. Silent when the limit is unknown.
+    const qint64 recordedBytes = QFileInfo(localPath).size();
+    if (m_attachments && m_attachments->exceedsUploadLimit(recordedBytes)) {
+        QFile::remove(localPath);
+        Q_EMIT attachmentRejected(
+            tr("The voice message is larger than the server's upload "
+               "limit (%1).")
+                .arg(AttachmentQueueModel::humanSize(
+                    m_attachments->uploadLimit())));
+        return;
+    }
+    QList<int> amplitudes;
+    amplitudes.reserve(waveform.size());
+    for (const QVariant &value : waveform)
+        amplitudes.append(value.toInt());
+    // Capture the target thread NOW: the panel may move before the send
+    // resolves, and the recording belongs to the thread it was made in.
+    const QString targetRoom = m_roomId;
+    const QString targetRoot = m_rootEventId;
+    const quint64 opId = m_client->sendThreadVoiceMessage(
+        targetRoom, targetRoot, localPath, mime,
+        static_cast<qint64>(durationMs), amplitudes);
+    if (opId == 0) {
+        // Never queued — and NEVER retried as a room send: a thread voice
+        // message that cannot reach its thread must not land in the main
+        // timeline.
+        QFile::remove(localPath);
+        Q_EMIT attachmentRejected(tr("The voice message could not be sent."));
+        return;
+    }
+    m_voiceOps.insert(opId, VoiceOp{localPath, targetRoom, targetRoot});
+}
+
 void ThreadController::onAttachmentQueueFinished(quint64 opId,
                                                  const QString &roomId,
                                                  bool ok,
                                                  const QString &category)
 {
-    Q_UNUSED(roomId);
     Q_UNUSED(category);
     if (opId == 0)
+        return;
+    if (const auto voiceIt = m_voiceOps.constFind(opId);
+        voiceIt != m_voiceOps.constEnd()) {
+        // Cleanup is unconditional; reporting is scoped to the still-open
+        // thread. Both room AND root must still match — a failure from
+        // another thread in the same room is just as misplaced as one from
+        // another room.
+        const VoiceOp op = voiceIt.value();
+        QFile::remove(op.localPath);
+        m_voiceOps.erase(voiceIt);
+        if (!ok && op.roomId == m_roomId && op.rootEventId == m_rootEventId)
+            Q_EMIT attachmentRejected(
+                tr("The voice message could not be sent."));
+        return;
+    }
+    if (!roomId.isEmpty() && roomId != m_roomId)
         return;
     auto &entries = m_attachments->entries();
     for (int row = 0; row < entries.size(); ++row) {

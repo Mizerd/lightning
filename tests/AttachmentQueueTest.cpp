@@ -111,6 +111,21 @@ public:
         lastOpId = nextOp++;
         return lastOpId;
     }
+    // v0.7 thread parity: records the voice send so a test can prove the
+    // preflight ran BEFORE the client was asked to send anything.
+    int voiceSends = 0;
+    QString lastVoiceRoom;
+    quint64 sendVoiceMessage(const QString &roomId, const QString &,
+                             const QString &, qint64,
+                             const QList<int> &) override
+    {
+        if (rejectSends)
+            return 0;
+        ++voiceSends;
+        lastVoiceRoom = roomId;
+        lastOpId = nextOp++;
+        return lastOpId;
+    }
 };
 
 QString writeFile(const QTemporaryDir &dir, const QString &name,
@@ -206,6 +221,132 @@ private Q_SLOTS:
         composer.addAttachment(QUrl::fromLocalFile(big));
         QCOMPARE(rejected.count(), 1);
         QCOMPARE(composer.attachments()->rowCount(), 0);
+    }
+
+    // An UNKNOWN server limit (0 — not advertised, not answered yet, or the
+    // lookup failed) must not reject anything locally. Before this round a
+    // fabricated 100 MiB ceiling stood in, so a 120 MiB file was refused
+    // even when the server would have accepted it. Fails on the old code:
+    // this file is deliberately larger than that former ceiling.
+    void unknownServerLimitDoesNotRejectLocally()
+    {
+        FakeClient client;
+        client.serverLimit = 0;   // unknown
+        MessageComposer composer;
+        composer.setClient(&client);
+        composer.setRoomId(QStringLiteral("!room:example.org"));
+        QSignalSpy rejected(&composer, &MessageComposer::attachmentRejected);
+
+        QTemporaryDir dir;
+        // 101 MiB: over the removed 100 MiB fallback, under nothing real.
+        QFile f(dir.filePath(QStringLiteral("huge.bin")));
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        QVERIFY(f.resize(101ll * 1024 * 1024));
+        f.close();
+
+        composer.addAttachment(QUrl::fromLocalFile(f.fileName()));
+        QCOMPARE(rejected.count(), 0);
+        QCOMPARE(composer.attachments()->rowCount(), 1);
+    }
+
+    // m.upload.size is the largest ACCEPTED payload, so exactly-at-limit
+    // must pass while one byte more must not.
+    void exactlyAtServerLimitIsAllowed()
+    {
+        FakeClient client;
+        client.serverLimit = 64;
+        MessageComposer composer;
+        composer.setClient(&client);
+        composer.setRoomId(QStringLiteral("!room:example.org"));
+        QSignalSpy rejected(&composer, &MessageComposer::attachmentRejected);
+
+        QTemporaryDir dir;
+        const QString exact =
+            writeFile(dir, QStringLiteral("exact.bin"), QByteArray(64, 'x'));
+        composer.addAttachment(QUrl::fromLocalFile(exact));
+        QCOMPARE(rejected.count(), 0);
+        QCOMPARE(composer.attachments()->rowCount(), 1);
+
+        const QString over =
+            writeFile(dir, QStringLiteral("over.bin"), QByteArray(65, 'x'));
+        composer.addAttachment(QUrl::fromLocalFile(over));
+        QCOMPARE(rejected.count(), 1);
+        QCOMPARE(composer.attachments()->rowCount(), 1);
+    }
+
+    // Voice messages had NO preflight at all: an oversized recording went
+    // straight to an upload the server would refuse. Fails on the old code,
+    // where voiceSends would be 1.
+    void voiceMessageIsPreflightedAgainstServerLimit()
+    {
+        FakeClient client;
+        client.serverLimit = 16;
+        MessageComposer composer;
+        composer.setClient(&client);
+        composer.setRoomId(QStringLiteral("!room:example.org"));
+        QSignalSpy rejected(&composer, &MessageComposer::attachmentRejected);
+
+        QTemporaryDir dir;
+        const QString rec =
+            writeFile(dir, QStringLiteral("voice.ogg"), QByteArray(64, 'v'));
+        composer.sendVoiceMessage(rec, QStringLiteral("audio/ogg"), 1200,
+                                  QVariantList{});
+        QCOMPARE(rejected.count(), 1);
+        QCOMPARE(client.voiceSends, 0);
+        // The refused recording is reclaimed, never orphaned on disk.
+        QVERIFY(!QFile::exists(rec));
+    }
+
+    // A voice send that fails AFTER the user has switched rooms must not
+    // surface over the room they are now looking at. Fails on the old code,
+    // which discarded the roomId (Q_UNUSED) and emitted unconditionally.
+    void lateVoiceFailureDoesNotBleedIntoAnotherRoom()
+    {
+        FakeClient client;
+        MessageComposer composer;
+        composer.setClient(&client);
+        composer.setRoomId(QStringLiteral("!a:example.org"));
+
+        QTemporaryDir dir;
+        const QString rec =
+            writeFile(dir, QStringLiteral("voice.ogg"), QByteArray(8, 'v'));
+        composer.sendVoiceMessage(rec, QStringLiteral("audio/ogg"), 900,
+                                  QVariantList{});
+        QCOMPARE(client.voiceSends, 1);
+        const quint64 op = client.lastOpId;
+
+        // The user moves to another room before the upload resolves.
+        composer.setRoomId(QStringLiteral("!b:example.org"));
+        QSignalSpy rejected(&composer, &MessageComposer::attachmentRejected);
+        Q_EMIT client.attachmentQueueFinished(op, QStringLiteral("!a:example.org"),
+                                              false, QString());
+        QCOMPARE(rejected.count(), 0);
+        // Cleanup is unconditional even though reporting was suppressed.
+        QVERIFY(!QFile::exists(rec));
+    }
+
+    // The same failure, with the user still in the originating room, MUST
+    // be reported — proving the scoping suppresses the wrong context only,
+    // not the notice itself.
+    void voiceFailureInCurrentRoomIsStillReported()
+    {
+        FakeClient client;
+        MessageComposer composer;
+        composer.setClient(&client);
+        composer.setRoomId(QStringLiteral("!a:example.org"));
+
+        QTemporaryDir dir;
+        const QString rec =
+            writeFile(dir, QStringLiteral("voice.ogg"), QByteArray(8, 'v'));
+        composer.sendVoiceMessage(rec, QStringLiteral("audio/ogg"), 900,
+                                  QVariantList{});
+        const quint64 op = client.lastOpId;
+
+        QSignalSpy rejected(&composer, &MessageComposer::attachmentRejected);
+        Q_EMIT client.attachmentQueueFinished(op, QStringLiteral("!a:example.org"),
+                                              false, QString());
+        QCOMPARE(rejected.count(), 1);
+        QVERIFY(!QFile::exists(rec));
     }
 
     void detectsMimeFromContentNotExtension()

@@ -299,6 +299,23 @@ AppController::AppController(Backend backend, bool screenshotDemo,
         }
         m_settings->setRoomNotificationMode(roomId, mode);
     });
+    // A successful rule REMOVAL. This is the only acknowledgement a
+    // "follow account default" choice can ever receive, so it must retire
+    // the room's kept-on-this-device state — otherwise a clear that failed
+    // once and then succeeded on retry would keep claiming it had failed,
+    // and Lightning would re-issue the deletion on every later reconnect.
+    connect(m_client.get(), &MatrixClient::roomNotificationModeCleared, this,
+            [this](const QString &roomId) {
+        // Only meaningful while the local value actually is "follow
+        // default": a clear acknowledged after the user has since chosen an
+        // explicit mode belongs to a superseded choice and must not retire
+        // that newer choice's pending state.
+        if (m_settings->roomNotificationMode(roomId) != 3)
+            return;
+        if (!m_notificationModeSyncFailures.remove(roomId))
+            return;
+        Q_EMIT roomNotificationModeSyncStateChanged(roomId);
+    });
     connect(m_client.get(), &MatrixClient::roomNotificationModeWriteFailed,
             this, [this](const QString &roomId) {
         if (m_notificationModeSyncFailures.contains(roomId))
@@ -534,7 +551,8 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     connect(m_client.get(), &MatrixClient::errorOccurred,
             this, &AppController::errorReported);
     auto refreshConnectionStatus = [this]() {
-        switch (m_client->connectionState()) {
+        const MatrixClient::ConnectionState state = m_client->connectionState();
+        switch (state) {
         case MatrixClient::Disconnected:
             setConnectionStatus(m_client->isLoggedIn()
                 ? tr("Idle")
@@ -568,6 +586,23 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     };
     connect(m_client.get(), &MatrixClient::connectionStateChanged,
             this, refreshConnectionStatus);
+    // v0.7: a rule write that failed while offline is retried on the EDGE
+    // into Syncing, not on every status change — the signal can re-announce
+    // the same state, and retrying each time would hammer the server for a
+    // room that keeps failing. One attempt per genuine reconnection.
+    //
+    // Reads the state from the SIGNAL rather than re-querying the client:
+    // the argument is the authoritative "what just changed to", and it
+    // keeps the edge observable without depending on when the client's
+    // internal getter settles.
+    connect(m_client.get(), &MatrixClient::connectionStateChanged, this,
+            [this](MatrixClient::ConnectionState state) {
+                if (state == MatrixClient::Syncing
+                    && m_lastConnectionState
+                           != static_cast<int>(MatrixClient::Syncing))
+                    retryFailedNotificationModes();
+                m_lastConnectionState = static_cast<int>(state);
+            });
     connect(m_client.get(), &MatrixClient::initialSyncDoneChanged, this, [this, refreshConnectionStatus] {
         refreshConnectionStatus();
         Q_EMIT initialSyncDoneChanged();
@@ -1112,7 +1147,7 @@ void AppController::setRoomNotificationMode(const QString &roomId, int mode)
     // Defence-in-depth: the composite thread-timeline id must never reach
     // settings keys or a protocol call (the pickers only ever pass real
     // room ids; this guards against any future caller slipping one in).
-    if (roomId.isEmpty() || mode < 0 || mode > 2
+    if (roomId.isEmpty() || mode < 0 || mode > 3
         || MatrixClient::isThreadTimelineId(roomId))
         return;
     // Device-local value first: NotificationManager reads it (see the
@@ -1120,8 +1155,44 @@ void AppController::setRoomNotificationMode(const QString &roomId, int mode)
     // and keeps working offline. On server-capable backends it doubles as
     // the cache of the account's push-rule mode.
     m_settings->setRoomNotificationMode(roomId, mode);
-    if (m_client && m_client->supportsServerNotificationModes())
-        m_client->setRoomNotificationMode(roomId, mode);
+    if (m_client && m_client->supportsServerNotificationModes()) {
+        // Mode 3 is a rule REMOVAL, not a rule with value 3 — Matrix has no
+        // follow-default rule, only the absence of a room override.
+        if (mode == 3)
+            m_client->clearRoomNotificationMode(roomId);
+        else
+            m_client->setRoomNotificationMode(roomId, mode);
+    }
+}
+
+void AppController::retryFailedNotificationModes()
+{
+    if (!m_client || !m_client->supportsServerNotificationModes()
+        || m_notificationModeSyncFailures.isEmpty())
+        return;
+    // Re-issue the user's PERSISTED choice for every room whose write did
+    // not reach the server. The local value is authoritative here precisely
+    // because the write failed — nothing on the server has since contradicted
+    // it (a differing user-defined report is rejected while a room is in this
+    // set; see the roomNotificationModeChanged handler).
+    //
+    // The failure entries are deliberately NOT cleared here. A room leaves
+    // the set only when the server ACKNOWLEDGES the value, which happens in
+    // that same handler. Clearing on attempt would report success for a
+    // retry that is still in flight — or that fails again — which is exactly
+    // the "pretend the rule changed" outcome this whole path exists to
+    // avoid. A still-failing room simply stays disclosed as
+    // kept-on-this-device and is retried on the next reconnect.
+    const QList<QString> pending = m_notificationModeSyncFailures.values();
+    for (const QString &roomId : pending) {
+        const int mode = m_settings->roomNotificationMode(roomId);
+        if (mode == 3)
+            m_client->clearRoomNotificationMode(roomId);
+        else
+            m_client->setRoomNotificationMode(roomId, mode);
+    }
+    qCDebug(lcApp) << "retried room notification rules:" << pending.size();
+    Q_EMIT roomNotificationModesRetried(static_cast<int>(pending.size()));
 }
 
 void AppController::requestRoomNotificationMode(const QString &roomId)
@@ -1135,6 +1206,76 @@ void AppController::requestRoomNotificationMode(const QString &roomId)
 bool AppController::roomNotificationModeSyncFailed(const QString &roomId) const
 {
     return m_notificationModeSyncFailures.contains(roomId);
+}
+
+bool AppController::startVoiceRecording(const QString &owner)
+{
+    // Only the two known composers may own the recorder. An unrecognised
+    // owner is refused rather than stored: ownership is a send authorisation,
+    // so an unknown value must never end up holding it.
+    if (owner != QLatin1String("room") && owner != QLatin1String("thread"))
+        return false;
+    // Ownership is taken ONLY after a successful start, and never stolen
+    // from a live recording.
+    //
+    // VoiceRecorder::start() REFUSES while Recording or Processing and
+    // returns false WITHOUT emitting failed() (see VoiceRecorder::start).
+    // An earlier version of this function moved ownership first and cleared
+    // it when start() failed, which disowned the still-running recorder:
+    // the microphone stayed open with no pill, no cancel button and no
+    // owner to deliver ready() to — up to the recorder's 15-minute cap, and
+    // across sign-out. Refusing the transfer is what keeps the live
+    // recording reachable by the composer that actually owns it.
+    if (m_voiceRecorder
+        && (m_voiceRecorder->recording() || m_voiceRecorder->processing()))
+        return false;
+    if (!m_voiceOwner.isEmpty() && m_voiceOwner != owner)
+        return false;
+    if (!voiceRecorder()->start())
+        return false;
+    if (m_voiceOwner != owner) {
+        m_voiceOwner = owner;
+        Q_EMIT voiceOwnerChanged();
+    }
+    return true;
+}
+
+void AppController::setVoiceRecorderForTest(VoiceRecorder *recorder)
+{
+    m_voiceOwner.clear();
+    m_voiceRecorder.reset(recorder);
+    Q_EMIT voiceOwnerChanged();
+}
+
+bool AppController::voiceRecordingBusy() const
+{
+    // True when a recording is in progress ANYWHERE — used by a composer to
+    // tell "no microphone available" apart from "the other composer is
+    // already recording", which are very different messages to show.
+    return !m_voiceOwner.isEmpty()
+        || (m_voiceRecorder
+            && (m_voiceRecorder->recording() || m_voiceRecorder->processing()));
+}
+
+void AppController::endVoiceRecording()
+{
+    if (m_voiceOwner.isEmpty())
+        return;
+    m_voiceOwner.clear();
+    Q_EMIT voiceOwnerChanged();
+}
+
+void AppController::cancelVoiceRecording()
+{
+    // Never construct the recorder just to cancel: with no owner there is
+    // nothing recording, and touching the getter would spin up the audio
+    // backend for a session that never recorded.
+    if (m_voiceOwner.isEmpty())
+        return;
+    if (m_voiceRecorder)
+        m_voiceRecorder->cancel();
+    m_voiceOwner.clear();
+    Q_EMIT voiceOwnerChanged();
 }
 
 SettingsManager *AppController::settings() const { return m_settings.get(); }
