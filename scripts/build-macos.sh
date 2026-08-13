@@ -39,11 +39,18 @@ MACOS_DEPLOYMENT_TARGET="14.0"
 require_var EXPECTED_SOURCE_SHA
 [[ "$EXPECTED_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || die "macOS packaging requires a full source commit SHA"
 
-# Fail closed rather than silently producing an unusable "release". If macOS
-# ever becomes a release target this needs Developer ID signing + notarization
-# first, not a relaxation of this check.
-[[ "${PUBLISH_PACKAGES:-false}" == false ]] || \
-    die "macOS artifacts are unsigned/un-notarized and must not be published"
+# macOS builds run in full-fleet and publishing pipelines too, so this script no
+# longer refuses PUBLISH_PACKAGES=true — it would otherwise fail exactly the
+# pipelines that build every other platform. What it does instead is guarantee
+# the artifact can never be mistaken for a release: the build kind stays
+# unsigned-test regardless of the pipeline, and nothing here uploads. The
+# structural guarantee lives in the pipeline — publish-packages does not consume
+# this job's artifact and the job has no release action, both asserted by
+# tests/test-pipeline-config.py.
+if [[ "${PUBLISH_PACKAGES:-false}" == true ]]; then
+    printf 'Publishing pipeline: building the macOS bundle as an unsigned TEST artifact.\n'
+    printf 'It is ad-hoc signed and un-notarized, and is NOT published.\n'
+fi
 
 [[ "$(uname -s)" == Darwin ]] || die "build-macos.sh must run on macOS"
 [[ "$(uname -m)" == arm64 ]] || die "expected an Apple Silicon (arm64) runner"

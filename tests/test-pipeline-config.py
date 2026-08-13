@@ -379,8 +379,7 @@ check("resolve-source" in needs_names("macos-package-test"),
 # substring assertion below.
 macos_rule_text = yaml.dump(macos.get("rules", []), width=10**6)
 for required in ("CI_DEFAULT_BRANCH", "CI_PIPELINE_SOURCE", "BUILD_MACOS_PACKAGES",
-                 "BUILD_WINDOWS_PACKAGES", "PUBLISH_PACKAGES", "BUILD_FORMATS",
-                 "SOURCE_REF", "RELEASE_VERSION", "RELEASE_NOTES_B64"):
+                 "SOURCE_REF"):
     check(required in macos_rule_text, f"macOS gate constrains {required}")
 check("release:" not in yaml.dump(doc["macos-package-test"]),
       "macOS job has no GitLab release action")
@@ -402,19 +401,13 @@ check(evaluate(macos_gate, macos_vars),
 for key, value in (("CI_COMMIT_BRANCH", "feature"),
                    ("CI_PIPELINE_SOURCE", "merge_request_event"),
                    ("BUILD_MACOS_PACKAGES", "false"),
-                   ("BUILD_WINDOWS_PACKAGES", "true"),
-                   ("PUBLISH_PACKAGES", "true"),
-                   ("BUILD_FORMATS", "all"),
-                   ("SOURCE_REF", "main"),
-                   ("RELEASE_VERSION", "0.6.6"),
-                   ("RELEASE_NOTES_B64", "bm90ZXM=")):
+                   ("SOURCE_REF", "main")):
     rejected = dict(macos_vars)
     rejected[key] = value
     check(not evaluate(macos_gate, rejected),
           f"macOS gate rejects unsafe {key}={value}")
 
-# The whole point of the macOS request: no Linux and no Windows build job is
-# created, so the pipeline is genuinely macOS-only.
+# A macOS-only request (BUILD_FORMATS=none) creates no Linux or Windows build.
 check(not any(build_included(fmt, macos_vars) for fmt in all_fmts),
       "a macOS-only request creates no Linux package build")
 check(not evaluate(resolve_extends("windows-package-test")["rules"], macos_vars),
@@ -422,9 +415,33 @@ check(not evaluate(resolve_extends("windows-package-test")["rules"], macos_vars)
 check(not evaluate(resolve_extends("build-windows")["rules"], macos_vars),
       "a macOS-only request creates no Windows publishing job")
 
+# ...and the converse: the Mac is a dedicated host sharing nothing with the
+# Linux/Windows pools, so a full-fleet or publishing run must NOT silently drop
+# the macOS build. Excluding it would mean macOS missing from exactly the
+# pipelines that build every other platform.
+fleet_vars = dict(macos_vars, BUILD_FORMATS="all")
+check(evaluate(macos_gate, fleet_vars),
+      "macOS runs alongside a full-fleet build (BUILD_FORMATS=all)")
+check(all(build_included(f, fleet_vars) for f in all_fmts),
+      "the full-fleet request still builds every Linux format")
+publish_fleet = dict(macos_vars, BUILD_FORMATS="all", PUBLISH_PACKAGES="true",
+                     RELEASE_VERSION="0.6.6")
+check(evaluate(macos_gate, publish_fleet),
+      "macOS also runs in a publishing fleet pipeline")
+
+# "Instantly" is a scheduling property, not a wish: the job must depend only on
+# resolve-source (never on a Linux build) and must sit in its own resource
+# group, or it would queue behind the two bounded Linux build lanes.
+check(needs_names("macos-package-test") == ["resolve-source"],
+      "macOS job waits only on resolve-source, never on a Linux build")
+macos_group = macos.get("resource_group")
+check(macos_group not in set(BUILD_GROUP.values()) and macos_group is not None,
+      "macOS job has its own resource group, so it never queues behind Linux lanes")
+
 # macOS must never reach the publication chain. Unsigned, un-notarized bundles
 # are rejected by Gatekeeper on every machine but the builder, so publishing
-# them would hand users something they cannot open.
+# them would hand users something they cannot open. With the gate now allowing
+# publishing pipelines, THIS is the invariant that keeps them out of a release.
 check("macos-package-test" not in needs_names("publish-packages"),
       "publish-packages does not consume the macOS bundle")
 check(not any(job.startswith("build-macos") for job in doc),
@@ -432,9 +449,10 @@ check(not any(job.startswith("build-macos") for job in doc),
 for job_name, job_def in doc.items():
     if not isinstance(job_def, dict) or "macos" not in str(job_def.get("tags", [])):
         continue
-    merged_rules = yaml.dump(resolve_extends(job_name).get("rules", []), width=10**6)
-    check('PUBLISH_PACKAGES == "false"' in merged_rules,
-          f"{job_name} (macOS runner) is gated to non-publishing pipelines only")
+    check("release" not in job_def,
+          f"{job_name} (macOS runner) has no release action")
+    check(job_name not in needs_names("publish-packages"),
+          f"{job_name} (macOS runner) is not consumed by publish-packages")
 
 if errors:
     print(f"\nPipeline config tests FAILED ({len(errors)})", file=sys.stderr)

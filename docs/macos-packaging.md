@@ -163,10 +163,53 @@ pipeline is honest about it rather than implying otherwise:
   microphone capture, Keychain behaviour, and Retina rendering are **NOT
   TESTED**.
 
-`build-macos.sh` refuses to run with `PUBLISH_PACKAGES=true`, and
-`tests/test-pipeline-config.py` asserts that no publishing macOS job exists and
-that `publish-packages` does not consume the bundle. Publishing an artifact
-Gatekeeper blocks would be worse than shipping nothing.
+The bundle always reports `build_kind: unsigned-test`, whatever the pipeline, and
+`tests/test-pipeline-config.py` asserts that no publishing macOS job exists, that
+`publish-packages` does not consume the bundle, and that no macOS-tagged job has
+a release action. Publishing an artifact Gatekeeper blocks would be worse than
+shipping nothing.
+
+> Earlier revisions made `build-macos.sh` abort on `PUBLISH_PACKAGES=true`. That
+> was dropped once macOS was allowed into full-fleet runs — it would have failed
+> exactly the pipelines that build every other platform. The guarantee is
+> structural (nothing consumes or releases the artifact), not a refusal to build.
+
+## Running with the fleet
+
+The gate constrains only the default branch, a web/api pipeline, a pinned
+40-character SHA, and `BUILD_MACOS_PACKAGES=true`. It is deliberately **not**
+constrained on `BUILD_FORMATS`, `BUILD_WINDOWS_PACKAGES`, or
+`PUBLISH_PACKAGES`, because the Mac shares no capacity with the Linux or Windows
+pools:
+
+| Request | Result |
+| --- | --- |
+| `BUILD_MACOS_PACKAGES=true`, `BUILD_FORMATS=none` | macOS-only pipeline |
+| `BUILD_MACOS_PACKAGES=true`, `BUILD_FORMATS=all` | macOS builds in parallel with the whole Linux fleet |
+| `BUILD_MACOS_PACKAGES=true`, `PUBLISH_PACKAGES=true` | macOS builds, Linux publishes; the macOS bundle is not published |
+| `BUILD_MACOS_PACKAGES=false` | no macOS job at all |
+
+It starts as soon as `resolve-source` completes. Two properties make that true
+and both are asserted in the config tests:
+
+- `needs` is exactly `[resolve-source]` — never a Linux build job;
+- `resource_group` is `lightning-macos-package`, distinct from the two bounded
+  Linux lanes (`lightning-package-build-a` / `-b`), so it never waits on them.
+
+## GIF provider keys
+
+When `GIPHY_API_KEY` / `KLIPY_API_KEY` are available the build embeds them
+through the same generator mechanism as every other target, so the picker works
+with no local configuration. `build-info.json` records `gif_keys_embedded`.
+
+The validator's leak scan reads that flag rather than scanning unconditionally.
+An embedded key in a key-embedding build is intended, not a leak — flagging it
+would fail every normal run. What the scan enforces is the inverse: a build that
+reported itself **keyless** must not contain a key. It also always scans for
+runner tokens, SSH private keys, and builder paths.
+
+Note that a key compiled into a binary is ultimately extractable. These
+artifacts are developer-scoped and expire in seven days.
 
 ## Path to a releasable macOS build
 
@@ -211,24 +254,22 @@ is unchanged — the GNU tool is still preferred where it exists.
 
 ## Running it
 
-From project 7's protected default branch, a **web** or **api** pipeline with
-exactly:
+From project 7's protected default branch, a **web** or **api** pipeline with:
 
 ```text
 BUILD_MACOS_PACKAGES=true
-BUILD_WINDOWS_PACKAGES=false
 BUILD_FORMATS=none
 PUBLISH_PACKAGES=false
 SOURCE_REF=<full 40-character project-6 commit SHA>
-RELEASE_VERSION=
-RELEASE_NOTES_B64=
 ```
 
-`BUILD_FORMATS=none` excludes every Linux package build and
-`BUILD_WINDOWS_PACKAGES=false` excludes both Windows jobs, so the pipeline is
+`BUILD_FORMATS=none` excludes every Linux package build, so the pipeline is
 `config-tests` → `resolve-source` → `macos-package-test` and nothing else.
 (`config-tests` and `resolve-source` are Linux container jobs — they run the
 test suite and pin the source SHA; they do not build any Linux package.)
+
+See [Running with the fleet](#running-with-the-fleet) for combining it with a
+full-fleet run.
 
 Artifacts, developer-visible, seven-day expiry:
 

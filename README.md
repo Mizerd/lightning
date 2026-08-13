@@ -203,24 +203,37 @@ every output path is explicitly removed rather than assumed clean. The `runner`
 account is non-admin and cannot `brew install`, so a CI job cannot alter the
 toolchain it builds against.
 
-Start a new pipeline from project 7's protected default branch with exactly:
+For a **macOS-only** pipeline, start one from project 7's protected default
+branch with:
 
 ```text
 BUILD_MACOS_PACKAGES=true
-BUILD_WINDOWS_PACKAGES=false
 BUILD_FORMATS=none
 PUBLISH_PACKAGES=false
 SOURCE_REF=<full 40-character project-6 commit SHA>
-RELEASE_VERSION=
-RELEASE_NOTES_B64=
 ```
 
-`BUILD_FORMATS=none` excludes every Linux package build and
-`BUILD_WINDOWS_PACKAGES=false` excludes both Windows jobs, so the pipeline is
-exactly `config-tests` → `resolve-source` → `macos-package-test`. A branch, tag,
-short SHA, merge request, publication input, release input, or Linux format
-selection excludes the macOS job. If both platform flags are set true, only the
-Windows job runs — request one platform at a time.
+`BUILD_FORMATS=none` excludes every Linux package build, so the pipeline is
+exactly `config-tests` → `resolve-source` → `macos-package-test`.
+
+The gate is deliberately **not** constrained on `BUILD_FORMATS`,
+`BUILD_WINDOWS_PACKAGES`, or `PUBLISH_PACKAGES` — only on the default branch, a
+web/api pipeline, a pinned 40-character SHA, and the explicit
+`BUILD_MACOS_PACKAGES=true` opt-in. So the same flag added to a **full-fleet**
+run (`BUILD_FORMATS=all`, with or without publication) builds macOS *alongside*
+Linux rather than instead of it. The Mac is a dedicated host that shares no
+capacity with the Linux or Windows pools, so there is no reason to exclude it —
+and excluding it would mean macOS silently missing from exactly the pipelines
+that build every other platform.
+
+It starts as soon as `resolve-source` finishes: the job depends only on
+`resolve-source`, never on a Linux build, and sits in its own
+`lightning-macos-package` resource group rather than either of the two bounded
+Linux build lanes, so it never queues behind them. Both properties are asserted
+in `tests/test-pipeline-config.py`.
+
+A branch, tag, short SHA, or merge-request pipeline still excludes the macOS
+job.
 
 The job produces seven-day, developer-visible CI artifacts only:
 
@@ -259,10 +272,20 @@ These are unsigned test artifacts, not a release:
   playback, microphone capture, Keychain behaviour, and Retina rendering remain
   **NOT TESTED**.
 
-There is deliberately **no publishing macOS job**. `build-macos.sh` refuses to
-run with `PUBLISH_PACKAGES=true`, and `tests/test-pipeline-config.py` asserts
-that no such job exists and that `publish-packages` does not consume the bundle:
-publishing an artifact Gatekeeper blocks would be worse than shipping nothing.
+When the project's `GIPHY_API_KEY` / `KLIPY_API_KEY` variables are available the
+build **deliberately embeds** them, exactly as the Windows test path does, so the
+GIF picker works without local configuration. A key compiled into a binary is
+ultimately extractable — these artifacts are developer-scoped and expire in
+seven days. Validation records that the keys were embedded on purpose; the check
+it *does* enforce is the inverse, that a build reporting itself keyless contains
+no key.
+
+There is deliberately **no publishing macOS job**. The bundle always reports
+`build_kind: unsigned-test` regardless of pipeline, and
+`tests/test-pipeline-config.py` asserts that no publishing macOS job exists,
+that `publish-packages` does not consume the bundle, and that no macOS-tagged
+job carries a release action: publishing an artifact Gatekeeper blocks would be
+worse than shipping nothing.
 See [`docs/macos-packaging.md`](docs/macos-packaging.md) for the architecture
 decision, the bundle layout, and the ordered path to a releasable signed +
 notarized build.

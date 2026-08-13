@@ -77,20 +77,22 @@ variables:
       when: on_success
     - when: never
 
-# Native macOS gate. Same shape as the Windows gate — protected default branch,
-# manually created pipeline, fully pinned project-6 commit, every publication
-# input disabled — plus BUILD_FORMATS=none and BUILD_WINDOWS_PACKAGES=false so a
-# macOS request produces a macOS-only pipeline with no Linux or Windows build
-# jobs created at all. (If both BUILD_MACOS_PACKAGES and BUILD_WINDOWS_PACKAGES
-# are set true, only the Windows job runs; ask for one platform at a time.)
+# Native macOS gate: protected default branch, manually created pipeline, fully
+# pinned project-6 commit, and an explicit opt-in.
 #
-# This job runs on a SHELL executor on the physical Mac mini, not in a
-# container: it has no image isolation and the working directory persists
-# between jobs. That is why the gate is this strict and why the job never
-# publishes — see docs/macos-packaging.md.
+# Deliberately NOT constrained on BUILD_FORMATS, BUILD_WINDOWS_PACKAGES, or
+# PUBLISH_PACKAGES. The Mac is a dedicated host that shares nothing with the
+# Linux/Windows pools, so there is no capacity reason to exclude it from a
+# full-fleet run — and excluding it would mean macOS silently missing from
+# exactly the pipelines that build every other platform. With BUILD_FORMATS=none
+# this still yields a macOS-only pipeline; with BUILD_FORMATS=all it runs
+# alongside the Linux fleet, in parallel, on its own runner.
+#
+# It still never publishes: no publish job consumes its artifact and it has no
+# release action. See docs/macos-packaging.md.
 .macos-test-rules:
   rules:
-    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE =~ /^(web|api)$/ && $BUILD_MACOS_PACKAGES == "true" && $BUILD_WINDOWS_PACKAGES == "false" && $PUBLISH_PACKAGES == "false" && $BUILD_FORMATS == "none" && $SOURCE_REF =~ /^[0-9a-f]{40}$/ && $RELEASE_VERSION == "" && $RELEASE_NOTES_B64 == ""'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE =~ /^(web|api)$/ && $BUILD_MACOS_PACKAGES == "true" && $SOURCE_REF =~ /^[0-9a-f]{40}$/'
       when: on_success
     - when: never
 
@@ -449,16 +451,13 @@ macos-package-test:
     - job: resolve-source
       artifacts: true
   variables:
-    # The Mac mini is 8-core / 16 GiB. Four keeps the Rust link steps inside
-    # memory while leaving the auto-login GUI session responsive.
-    BUILD_JOBS: "4"
+    # The Mac mini is 8-core / 16 GiB. Six for the parallel C++ phase, which
+    # still leaves headroom for the fat-LTO Rust link (codegen-units=1 upstream,
+    # so that stage is single-threaded and memory-heavy regardless).
+    BUILD_JOBS: "6"
   before_script:
     - test "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH"
     - test "$BUILD_MACOS_PACKAGES" = "true"
-    - test "$PUBLISH_PACKAGES" = "false"
-    - test "$BUILD_FORMATS" = "none"
-    - test -z "$RELEASE_VERSION"
-    - test -z "$RELEASE_NOTES_B64"
   script:
     - ./scripts/prepare-pinned-source-macos.sh
     - ./scripts/build-macos.sh

@@ -197,14 +197,27 @@ scan_for() {
 scan_for "a GitLab runner token" 'glrt-'
 scan_for "an SSH private key" '-----BEGIN OPENSSH PRIVATE KEY-----'
 scan_for "a builder SSH path" "$HOME/.ssh"
-# Only meaningful when this was a key-embedding build; the value, never the name.
+
+# GIF provider keys are a conditional check, not an unconditional one. When the
+# project's GIPHY_API_KEY/KLIPY_API_KEY variables are available the build
+# *deliberately* compiles them in, exactly like the Windows test path, so the
+# picker works without local configuration — finding them is then correct, not a
+# leak. The property worth enforcing is the opposite one: a build that reported
+# itself keyless must not contain a key. build-info.json records which happened.
+#
 # Written as full `if` blocks: under `set -e` a trailing `[[ ... ]] && cmd` whose
 # test is false makes the whole list return 1 and aborts the script.
-if [[ -n "${GIPHY_API_KEY:-}" ]]; then
-    scan_for "the Giphy provider key value" "$GIPHY_API_KEY"
-fi
-if [[ -n "${KLIPY_API_KEY:-}" ]]; then
-    scan_for "the Klipy provider key value" "$KLIPY_API_KEY"
+GIF_EMBEDDED="$(jq -r '.gif_keys_embedded // false' "$CONTENTS/Resources/build-info.json" 2>/dev/null || echo unknown)"
+if [[ "$GIF_EMBEDDED" == "true" ]]; then
+    printf '  note: GIF provider keys are intentionally embedded in this build\n'
+    printf '        (developer-scoped, expiring artifact — an embedded key is extractable)\n'
+else
+    if [[ -n "${GIPHY_API_KEY:-}" ]]; then
+        scan_for "the Giphy provider key value in a keyless build" "$GIPHY_API_KEY"
+    fi
+    if [[ -n "${KLIPY_API_KEY:-}" ]]; then
+        scan_for "the Klipy provider key value in a keyless build" "$KLIPY_API_KEY"
+    fi
 fi
 if (( leak_hits == 0 )); then
     printf '  ok: no runner tokens, private keys, or builder paths in the bundle\n'
