@@ -41,7 +41,7 @@ variables:
   BUILD_MACOS_PACKAGES:
     value: "false"
     options: ["false", "true"]
-    description: "Safe default false. Enables the unsigned macOS arm64 .app test bundle only with BUILD_FORMATS=none on the protected default branch. Runs on the physical Mac mini runner."
+    description: "Safe default false. Enables the unsigned macOS arm64 .app test bundle on the protected default branch with a pinned 40-char SOURCE_REF. Runs on the physical Mac mini runner, in parallel with the Linux fleet when BUILD_FORMATS is also set; never published."
   RELEASE_NOTES_B64:
     value: ""
     description: "create only: base64-encoded Markdown notes. Otherwise a tracked docs/releases/vX.Y.Z.md is used."
@@ -446,15 +446,23 @@ macos-package-test:
   tags: [macos, arm64]
   resource_group: lightning-macos-package
   interruptible: true
-  timeout: 2h
+  # 3h, not 2h. A warm run finishes in ~10 minutes, but any change to the
+  # toolchain or MACOSX_DEPLOYMENT_TARGET invalidates every cargo fingerprint
+  # and forces a rebuild of ~1000 crates followed by a fat-LTO link that alone
+  # took over an hour on this hardware. Pipeline 89 was killed at exactly 2h
+  # part-way through macdeployqt for that reason.
+  timeout: 3h
   needs:
     - job: resolve-source
       artifacts: true
   variables:
-    # The Mac mini is 8-core / 16 GiB. Six for the parallel C++ phase, which
-    # still leaves headroom for the fat-LTO Rust link (codegen-units=1 upstream,
-    # so that stage is single-threaded and memory-heavy regardless).
-    BUILD_JOBS: "6"
+    # Back to 4 after pipeline 89. The Mac mini has 16 GiB, and six parallel
+    # rustc processes in the dependency phase drove the machine into heavy
+    # memory compression (~500k compressions) which slowed the whole build far
+    # more than the extra parallelism gained. The C++ phase is not the
+    # bottleneck here; the single-threaded fat-LTO link is, and no value of
+    # BUILD_JOBS affects it.
+    BUILD_JOBS: "4"
   before_script:
     - test "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH"
     - test "$BUILD_MACOS_PACKAGES" = "true"
