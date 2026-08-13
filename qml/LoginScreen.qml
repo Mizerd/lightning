@@ -156,7 +156,13 @@ Item {
                     Component.onCompleted: text = app.settings.loginHomeserverPrefill
                     placeholderText: "https://matrix.org"
                     Accessible.name: qsTr("Homeserver URL")
-                    onEditingFinished: app.settings.loginHomeserverPrefill = text
+                    onEditingFinished: {
+                        app.settings.loginHomeserverPrefill = text
+                        // Ask the server what it actually offers. Until it
+                        // answers, no auth-method choices are shown at all —
+                        // the UI never guesses on a homeserver's behalf.
+                        app.auth.discoverAuthMethods(text)
+                    }
                     KeyNavigation.tab: userField
                 }
 
@@ -248,6 +254,8 @@ Item {
                         case "authenticating": return qsTr("Signing in…")
                         case "starting_sync":  return qsTr("Starting sync…")
                         case "ready":          return qsTr("Signing in…")
+                        case "waiting_for_browser":
+                            return qsTr("Waiting for your browser…")
                         default:               return qsTr("Signing in…")
                         }
                     }
@@ -255,6 +263,76 @@ Item {
                     Layout.fillWidth: true
                     Layout.topMargin: AppTheme.spacingXS
                     onClicked: root.submit()
+                }
+
+                // ── Browser sign-in (OAuth 2.0 / OIDC) ──────────────────
+                // Shown ONLY when the homeserver's own discovery says it
+                // offers OAuth and this build can perform it. Nothing here
+                // is hard-coded for any particular provider.
+                AppButton {
+                    id: browserLoginBtn
+                    objectName: "browserLoginButton"
+                    kind: "secondary"
+                    visible: app.auth.serverOffersBrowserLogin
+                             && !app.auth.browserLoginInProgress
+                    text: qsTr("Continue in browser")
+                    // Browser sign-in needs no typed user or password — the
+                    // homeserver identifies the account, which is why the
+                    // store cannot be chosen until it answers.
+                    enabled: !app.auth.isLoggingIn
+                    Layout.fillWidth: true
+                    Layout.topMargin: AppTheme.spacingXS
+                    Accessible.name: qsTr("Continue in browser")
+                    onClicked: app.auth.beginBrowserLogin(homeserverField.text)
+                }
+
+                // The waiting state ALWAYS offers a way out. A browser that
+                // is closed, denied, or simply ignored must never leave this
+                // screen stuck: Cancel resolves it immediately, and the
+                // backend also times the attempt out on its own.
+                ColumnLayout {
+                    visible: app.auth.browserLoginInProgress
+                    Layout.fillWidth: true
+                    Layout.topMargin: AppTheme.spacingXS
+                    spacing: AppTheme.spacingXS
+
+                    Label {
+                        objectName: "browserLoginWaitingLabel"
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                        text: qsTr("Finish signing in with the page that opened "
+                                   + "in your browser, then return to Lightning.")
+                        color: AppTheme.textMuted
+                        font.family: AppTheme.uiFont
+                        font.pixelSize: 12
+                    }
+                    AppButton {
+                        objectName: "browserLoginCancelButton"
+                        kind: "secondary"
+                        text: qsTr("Cancel")
+                        Layout.fillWidth: true
+                        Accessible.name: qsTr("Cancel browser sign-in")
+                        onClicked: app.auth.cancelBrowserLogin()
+                    }
+                }
+
+                // Honest disclosure, never a button: the server offers legacy
+                // Matrix SSO but Lightning cannot perform it. Offering it and
+                // failing would be worse than saying so plainly. Suppressed
+                // when a method that DOES work is available.
+                Label {
+                    objectName: "ssoUnsupportedNotice"
+                    visible: app.auth.serverOffersUnsupportedSso
+                             && !app.auth.serverOffersBrowserLogin
+                             && !app.auth.serverOffersPassword
+                    Layout.fillWidth: true
+                    Layout.topMargin: AppTheme.spacingXS
+                    wrapMode: Text.WordWrap
+                    text: qsTr("This homeserver uses a single sign-on method "
+                               + "Lightning does not support.")
+                    color: AppTheme.textMuted
+                    font.family: AppTheme.uiFont
+                    font.pixelSize: 12
                 }
 
                 // ── Local-session repair card ───────────────────────────

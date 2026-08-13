@@ -316,6 +316,25 @@ public:
     QVariantMap accountRecord(const QString &userId) const;
     // Access token for a specific saved account (SecretStore lookup).
     QString accessTokenFor(const QString &userId) const;
+    // OAuth session material. Both are CREDENTIALS kept in the SecretStore
+    // beside the access token; neither is a Q_PROPERTY and neither may reach
+    // QML. Empty is a normal answer — password sessions usually have no
+    // refresh token, and only OAuth accounts have a client id.
+    // Write back tokens the SDK rotated during an automatic refresh. Narrow
+    // on purpose — touches only the two credentials, never the sync token or
+    // the active-account pointer.
+    bool updateSessionTokens(const QString &userId,
+                             const QString &accessToken,
+                             const QString &refreshToken);
+    QString refreshToken() const;
+    QString refreshTokenFor(const QString &userId) const;
+    QString oauthClientIdFor(const QString &userId) const;
+    // Which SDK API restores this account: "password" (matrix_auth) or
+    // "oauth". Not a secret — restore must be able to route correctly even
+    // when the keyring cannot be read, so this lives in QSettings. Accounts
+    // saved before OAuth existed report "password".
+    QString authTypeFor(const QString &userId) const;
+    bool isOAuthAccount(const QString &userId) const;
 
     // Where this account's Rust SDK store actually lives, as recorded at
     // login from the directory that was really opened. Empty means "never
@@ -380,10 +399,22 @@ public:
     bool secretsAreSecure() const;
     QString secretBackendName() const;
 
+    // `refreshToken` may be empty (a password session on a server that issues
+    // none). `authType` is "password" or "oauth" and decides which SDK API
+    // restores the account. `oauthClientId` is the dynamic-registration id and
+    // is only meaningful for OAuth accounts. The three trailing arguments are
+    // defaulted so every existing password-login call site keeps its meaning:
+    // password, no refresh token, no client id.
+    //
+    // refreshToken and oauthClientId are CREDENTIALS: they go to the
+    // SecretStore, never to QSettings, never to QML, and are never logged.
     void saveSession(const QString &homeserverUrl,
                      const QString &userId,
                      const QString &deviceId,
-                     const QString &accessToken);
+                     const QString &accessToken,
+                     const QString &refreshToken = QString(),
+                     const QString &authType = QStringLiteral("password"),
+                     const QString &oauthClientId = QString());
     void setSyncToken(const QString &token);
     // Clear the active session, including stale metadata whose token is
     // already absent. Returns false only when the account's SecretStore

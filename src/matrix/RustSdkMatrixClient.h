@@ -171,6 +171,15 @@ public:
     void logout() override;
     bool restoreSession() override;
     bool detachSession() override;
+
+    // OAuth 2.0 / OIDC. See the two-phase store lifecycle note in
+    // rust/src/oauth.rs: phase A authenticates on a store-less bootstrap
+    // handle, phase B opens the real account store only once the homeserver
+    // has named the account and device.
+    bool supportsOAuthLogin() const override { return true; }
+    void discoverAuthMethods(const QString &homeserver) override;
+    void beginOAuthLogin(const QString &homeserver) override;
+    void cancelOAuthLogin() override;
     bool isLoggedIn() const override { return m_loggedIn; }
     QString currentUserId() const override { return m_userId; }
     QString homeserverUrl() const override { return m_homeserver; }
@@ -514,6 +523,41 @@ private:
     bool ensureRustHandleForStorePath(const QString &storePath,
                                       const QString &slug);
     void releaseRustHandle();
+
+    // Phase A: a handle with NO persistent store, used only to discover a
+    // server's auth methods and to run the browser sign-in.
+    //
+    // It is deliberately SEPARATE from m_rustHandle rather than replacing it.
+    // Discovery runs as soon as a homeserver is entered, and adding a second
+    // account must not tear down the signed-in account's live session just
+    // because the user typed a URL. It also has no store, so it has no
+    // generation to protect — the guard that matters is m_oauthInFlight.
+    bool ensureOAuthBootstrapHandle();
+    void releaseAuthHandle();
+    // Drains the bootstrap handle's event queue. Runs on the same poll timer
+    // as the session queue but independently of it, because during a sign-in
+    // there may be no session handle at all.
+    void drainAuthEvents();
+    // Phase B: the homeserver has answered with the canonical identity, so the
+    // real account store can finally be chosen, gated and opened.
+    void completeOAuthLogin(const QString &userId,
+                            const QString &deviceId,
+                            const QString &clientId,
+                            const QString &accessToken,
+                            const QString &refreshToken);
+    // Tear down the callback listener and any in-flight authorization.
+    void endOAuthAttempt();
+
+    // Phase A handle. Never carries a session and never syncs.
+    void *m_authHandle = nullptr;
+    class OAuthCallbackServer *m_oauthCallback = nullptr;
+    // The homeserver this OAuth attempt targets. Held for phase B, which must
+    // derive the account identity from the SERVER's answer plus this URL.
+    QString m_oauthHomeserver;
+    // True between beginOAuthLogin() and a terminal outcome. Guards against a
+    // second attempt racing the first and against a late callback completing
+    // a cancelled sign-in.
+    bool m_oauthInFlight = false;
     QString rustStorePathForUser(const QString &userIdForStore) const;
     void pollRustEvents();
     void handleRustEvent(const QJsonObject &event, quint64 eventGeneration);

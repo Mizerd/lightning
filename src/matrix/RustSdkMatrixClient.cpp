@@ -1,6 +1,7 @@
 #include "matrix/RustSdkMatrixClient.h"
 
 #include "app/SettingsManager.h"
+#include "auth/OAuthCallbackServer.h"
 #include "crypto/E2eeDiagnostics.h"
 #include "crypto/QrImageProvider.h"
 #include "matrix/EventPreview.h"
@@ -12,6 +13,7 @@
 #include "storage/AppDataPaths.h"
 
 #include <QDateTime>
+#include <QDesktopServices>
 #include <QDir>
 #include <QFileInfo>
 #include <QJsonArray>
@@ -101,6 +103,11 @@ RustSdkMatrixClient::~RustSdkMatrixClient()
 {
     m_pollTimer.stop();
     m_lifecycle.invalidate();
+    // Closing during discovery or a browser sign-in must not leak the
+    // bootstrap handle — it owns a tokio runtime, an in-memory crypto store,
+    // and this attempt's session tokens.
+    endOAuthAttempt();
+    releaseAuthHandle();
     releaseRustHandle();
 }
 
@@ -604,6 +611,356 @@ bool RustSdkMatrixClient::detachSession()
     return true;
 }
 
+// --- OAuth 2.0 / OIDC ------------------------------------------------------
+//
+// Phase A runs entirely on m_authHandle, which has no store (see
+// rust/src/oauth.rs). Nothing here opens, creates or deletes an account store.
+// Phase B — completeOAuthLogin() — is the only place that does, and it runs
+// only after the homeserver has named the account and the device.
+
+bool RustSdkMatrixClient::ensureOAuthBootstrapHandle()
+{
+    releaseAuthHandle();
+    m_authHandle = mx_rust_oauth_bootstrap_create();
+    if (!m_authHandle) {
+        Q_EMIT errorOccurred(tr("Failed to create Rust SDK backend handle."));
+        return false;
+    }
+    // The sign-in may be happening from the login screen, where there is no
+    // session handle and the poll timer would otherwise be stopped.
+    if (!m_pollTimer.isActive())
+        m_pollTimer.start();
+    return true;
+}
+
+void RustSdkMatrixClient::releaseAuthHandle()
+{
+    if (!m_authHandle)
+        return;
+    mx_rust_destroy(m_authHandle);
+    m_authHandle = nullptr;
+}
+
+void RustSdkMatrixClient::endOAuthAttempt()
+{
+    m_oauthInFlight = false;
+    m_oauthHomeserver.clear();
+    if (m_oauthCallback) {
+        m_oauthCallback->stop();
+        m_oauthCallback->deleteLater();
+        m_oauthCallback = nullptr;
+    }
+}
+
+void RustSdkMatrixClient::discoverAuthMethods(const QString &homeserver)
+{
+    // Discovery and an in-flight sign-in share the bootstrap handle, and
+    // ensureOAuthBootstrapHandle() destroys whatever is there. Re-probing
+    // mid-sign-in would therefore throw away the Client holding THIS
+    // attempt's PKCE verifier and CSRF state, and the callback would arrive
+    // to an empty slot. The running attempt wins; the user can cancel it.
+    if (m_oauthInFlight)
+        return;
+
+    const QString hs = homeserver.trimmed();
+    if (hs.isEmpty()) {
+        Q_EMIT authMethodsDiscovered(hs, false, false, false);
+        return;
+    }
+    if (!ensureOAuthBootstrapHandle()) {
+        Q_EMIT authMethodsDiscovered(hs, false, false, false);
+        return;
+    }
+    const QByteArray hsBytes = hs.toUtf8();
+    const QString result =
+        takeRustString(mx_rust_oauth_discover(m_authHandle, hsBytes.constData()));
+    if (!result.isEmpty()) {
+        // A local failure to even start discovery. Report "nothing known"
+        // rather than guessing that password works.
+        Q_EMIT authMethodsDiscovered(hs, false, false, false);
+    }
+}
+
+void RustSdkMatrixClient::beginOAuthLogin(const QString &homeserver)
+{
+    const QString hs = homeserver.trimmed();
+    if (hs.isEmpty()) {
+        Q_EMIT loginFailed(tr("A homeserver is required."));
+        return;
+    }
+    if (m_oauthInFlight) {
+        // A second attempt must not race the first; the user can cancel.
+        return;
+    }
+
+    if (!ensureOAuthBootstrapHandle()) {
+        Q_EMIT loginFailed(tr("Rust SDK backend could not be initialized."));
+        return;
+    }
+
+    m_oauthCallback = new OAuthCallbackServer(this);
+    if (!m_oauthCallback->listen()) {
+        endOAuthAttempt();
+        releaseAuthHandle();
+        Q_EMIT loginFailed(tr("Lightning could not open a local port to receive "
+                              "the sign-in response. Check whether a firewall is "
+                              "blocking loopback connections."));
+        return;
+    }
+
+    connect(m_oauthCallback, &OAuthCallbackServer::callbackReceived,
+            this, [this](const QString &redirectUrl) {
+        // SENSITIVE: redirectUrl carries the authorization code. It goes
+        // straight to the SDK and is never logged or shown.
+        if (!m_oauthInFlight || !m_authHandle)
+            return;
+        const QByteArray cb = redirectUrl.toUtf8();
+        const QString result =
+            takeRustString(mx_rust_oauth_finish(m_authHandle, cb.constData()));
+        if (!result.isEmpty()) {
+            endOAuthAttempt();
+            releaseAuthHandle();
+            Q_EMIT loginFailed(tr("The sign-in could not be completed."));
+        }
+    });
+
+    connect(m_oauthCallback, &OAuthCallbackServer::callbackFailed,
+            this, [this](const QString &error) {
+        if (!m_oauthInFlight)
+            return;
+        if (m_authHandle)
+            takeRustString(mx_rust_oauth_abort(m_authHandle));
+        endOAuthAttempt();
+        releaseAuthHandle();
+        // access_denied is the ordinary "user said no", not a fault.
+        Q_EMIT loginFailed(error == QLatin1String("access_denied")
+                               ? tr("Sign-in was cancelled.")
+                               : tr("The server refused the sign-in request."));
+    });
+
+    connect(m_oauthCallback, &OAuthCallbackServer::timedOut, this, [this] {
+        if (!m_oauthInFlight)
+            return;
+        if (m_authHandle)
+            takeRustString(mx_rust_oauth_abort(m_authHandle));
+        endOAuthAttempt();
+        releaseAuthHandle();
+        Q_EMIT loginFailed(tr("The sign-in timed out. Please try again."));
+    });
+
+    m_oauthInFlight = true;
+    m_oauthHomeserver = hs;
+
+    const QByteArray hsBytes = hs.toUtf8();
+    const QByteArray redirectBytes = m_oauthCallback->redirectUri().toUtf8();
+    const QString result = takeRustString(
+        mx_rust_oauth_begin(m_authHandle, hsBytes.constData(), redirectBytes.constData()));
+    if (!result.isEmpty()) {
+        endOAuthAttempt();
+        releaseAuthHandle();
+        Q_EMIT loginFailed(result.startsWith(QLatin1String("error: ")) ? result.mid(7)
+                                                                      : result);
+    }
+}
+
+void RustSdkMatrixClient::cancelOAuthLogin()
+{
+    if (!m_oauthInFlight)
+        return;
+    if (m_authHandle)
+        takeRustString(mx_rust_oauth_abort(m_authHandle));
+    endOAuthAttempt();
+    releaseAuthHandle();
+    // Deliberately a resolved state, not silence: the UI must leave
+    // "Signing in".
+    Q_EMIT loginFailed(tr("Sign-in was cancelled."));
+}
+
+void RustSdkMatrixClient::drainAuthEvents()
+{
+    if (!m_authHandle)
+        return;
+
+    for (int i = 0; i < 64; ++i) {
+        const QByteArray raw = takeRustBytes(mx_rust_poll_event(m_authHandle));
+        if (raw.isEmpty())
+            break;
+        const QJsonDocument doc = QJsonDocument::fromJson(raw);
+        if (!doc.isObject())
+            continue;
+        const QJsonObject event = doc.object();
+        const QString type = event.value(QStringLiteral("type")).toString();
+
+        if (type == QLatin1String("auth_discovery")) {
+            Q_EMIT authMethodsDiscovered(
+                event.value(QStringLiteral("homeserver")).toString(),
+                event.value(QStringLiteral("password")).toBool(),
+                event.value(QStringLiteral("oauth")).toBool(),
+                event.value(QStringLiteral("sso")).toBool());
+            // Discovery is a one-shot question; drop the handle unless a
+            // sign-in is using it.
+            if (!m_oauthInFlight)
+                releaseAuthHandle();
+            continue;
+        }
+
+        if (type == QLatin1String("oauth_url")) {
+            const QString url = event.value(QStringLiteral("url")).toString();
+            if (url.isEmpty())
+                continue;
+            // Open the system browser here so the flow works even if the UI
+            // ignores the signal; the signal drives the waiting/cancel state.
+            QDesktopServices::openUrl(QUrl(url));
+            Q_EMIT oauthBrowserUrlReady(url);
+            continue;
+        }
+
+        if (type == QLatin1String("oauth_ok")) {
+            // SENSITIVE: this event carries access and refresh tokens. Never
+            // log `event`.
+            const QString userId = event.value(QStringLiteral("user_id")).toString();
+            const QString deviceId = event.value(QStringLiteral("device_id")).toString();
+            const QString clientId = event.value(QStringLiteral("client_id")).toString();
+            const QString accessToken = event.value(QStringLiteral("access_token")).toString();
+            const QString refreshToken = event.value(QStringLiteral("refresh_token")).toString();
+            completeOAuthLogin(userId, deviceId, clientId, accessToken, refreshToken);
+            continue;
+        }
+
+        if (type == QLatin1String("oauth_failed")) {
+            const QString message = event.value(QStringLiteral("message")).toString();
+            endOAuthAttempt();
+            releaseAuthHandle();
+            Q_EMIT loginFailed(message.isEmpty()
+                                   ? tr("The sign-in could not be completed.")
+                                   : message);
+            continue;
+        }
+    }
+}
+
+void RustSdkMatrixClient::completeOAuthLogin(const QString &userId,
+                                             const QString &deviceId,
+                                             const QString &clientId,
+                                             const QString &accessToken,
+                                             const QString &refreshToken)
+{
+    // PHASE B. The homeserver has answered, so the account is finally known
+    // and a store can be chosen. Everything before this point ran without one.
+    const QString homeserver = m_oauthHomeserver;
+
+    // Phase A is finished either way: release the store-less handle before
+    // anything else, so the bootstrap client (and the tokens it holds in
+    // memory) go away even if the checks below refuse.
+    endOAuthAttempt();
+    releaseAuthHandle();
+
+    if (userId.isEmpty() || deviceId.isEmpty() || accessToken.isEmpty()) {
+        Q_EMIT loginFailed(tr("The server completed sign-in without returning a "
+                              "usable session."));
+        return;
+    }
+
+    matrix::app_data::AccountIdentity identity;
+    if (!matrix::app_data::resolveAccountIdentity(homeserver, userId, &identity)) {
+        Q_EMIT loginFailed(matrix::rust_session::userMessage(
+            matrix::rust_session::StoreBlockReason::InvalidSavedIdentity));
+        return;
+    }
+
+    // Point at the store this account is RECORDED to use, never a freshly
+    // derived one — the same rule the password path follows.
+    QString savedDeviceId;
+    bool hasSavedSession = false;
+    if (m_settings) {
+        matrix::app_data::AccountIdentity savedIdentity;
+        if (m_settings->resolveSavedIdentity(identity.userId, &savedIdentity)) {
+            matrix::app_data::bindStoreSlug(&identity,
+                                            savedIdentity.effectiveStoreSlug());
+        }
+        hasSavedSession = m_settings->hasSavedAccount(identity.userId);
+        savedDeviceId = m_settings->accountRecord(identity.userId)
+                            .value(QStringLiteral("deviceId"))
+                            .toString();
+    }
+
+    const QString storePath = identity.rustStorePath;
+    const bool storeExists = QFileInfo::exists(storePath);
+
+    // THE gate. A device the authorization server just created must never be
+    // attached to a store that belongs to a different device.
+    const auto reason = matrix::rust_session::oauthLoginBlockReason(
+        identity, storeExists, hasSavedSession, savedDeviceId, deviceId);
+    if (reason != matrix::rust_session::StoreBlockReason::None) {
+        qCWarning(lcRust) << "OAuth sign-in refused"
+                          << "slug=" << identity.effectiveStoreSlug()
+                          << "reason=" << matrix::rust_session::diagnosticName(reason);
+        Q_EMIT loginFailed(matrix::rust_session::userMessage(reason));
+        return;
+    }
+
+    // The account this attempt is opening. MUST be set before anything can
+    // emit login_failed: the shared failure handler keys its store-slug
+    // rewrite and its destructive local-reset prompt on m_openingIdentity, so
+    // leaving the previously-opened account here would point both at the
+    // WRONG account — a failed browser sign-in for account B offering to
+    // delete account A's crypto store.
+    m_openingIdentity = identity;
+
+    if (!ensureRustHandleForIdentity(identity)) {
+        setState(Error);
+        Q_EMIT loginFailed(tr("Rust SDK backend could not be initialized."));
+        return;
+    }
+
+    m_homeserver = identity.homeserver;
+    m_userId = identity.userId;
+    m_deviceId = deviceId;
+    m_loggedIn = false;
+    m_rooms.clear();
+    m_roomOrder.clear();
+    m_timelines.clear();
+    m_pendingSends.clear();
+    setInitialSyncDone(false);
+    Q_EMIT roomsChanged();
+    setState(Connecting);
+
+    // Record the session BEFORE restoring, so a crash mid-restore leaves a
+    // store with a matching record rather than an apparent orphan.
+    if (m_settings) {
+        m_settings->saveSession(identity.homeserver, identity.userId, deviceId,
+                                accessToken, refreshToken,
+                                QStringLiteral("oauth"), clientId);
+        m_settings->setSyncToken({});
+        // RECORD the store location. CLAUDE.md section 6: the store an account
+        // uses is recorded, never re-derived twice. The password path does
+        // this from the login_ok handler, which is gated on an access_token
+        // that the OAuth restore event deliberately does not carry — so
+        // without this call OAuth would be the one account type whose slug is
+        // recomputed on every restore, logout, reset and orphan check.
+        recordStoreLocation(identity);
+    }
+
+    const QByteArray hsBytes = identity.homeserver.toUtf8();
+    const QByteArray userBytes = identity.userId.toUtf8();
+    const QByteArray deviceBytes = deviceId.toUtf8();
+    const QByteArray clientBytes = clientId.toUtf8();
+    const QByteArray tokenBytes = accessToken.toUtf8();
+    const QByteArray refreshBytes = refreshToken.toUtf8();
+    const QString result = takeRustString(mx_rust_oauth_restore(m_rustHandle,
+                                                                hsBytes.constData(),
+                                                                userBytes.constData(),
+                                                                deviceBytes.constData(),
+                                                                clientBytes.constData(),
+                                                                tokenBytes.constData(),
+                                                                refreshBytes.constData()));
+    if (!result.isEmpty()) {
+        setState(Error);
+        Q_EMIT loginFailed(result.startsWith(QLatin1String("error: ")) ? result.mid(7)
+                                                                       : result);
+    }
+}
+
 bool RustSdkMatrixClient::restoreSession()
 {
     if (!m_settings || !m_settings->hasSession())
@@ -681,11 +1038,44 @@ bool RustSdkMatrixClient::restoreSession()
     const QByteArray userBytes = userId.toUtf8();
     const QByteArray deviceBytes = deviceId.toUtf8();
     const QByteArray tokenBytes = accessToken.toUtf8();
-    const QString result = takeRustString(mx_rust_restore(m_rustHandle,
-                                                          hsBytes.constData(),
-                                                          userBytes.constData(),
-                                                          deviceBytes.constData(),
-                                                          tokenBytes.constData()));
+    // Carry the refresh token when the account has one. Before 0.6.7 this was
+    // dropped on every restore (the Rust side hardcoded None), so a session
+    // whose access token expired could not be renewed and surfaced as
+    // M_UNKNOWN_TOKEN instead. Empty is normal for password sessions on
+    // servers that issue no refresh token.
+    const QByteArray refreshBytes = m_settings->refreshToken().toUtf8();
+
+    // Restart WITHOUT logout must restore the existing device and session, not
+    // create a new one — and it must do so through the SDK API that owns this
+    // session type. Routing an OAuth session through matrix_auth() would fail
+    // confusingly and give up its refresh handling. The discriminator is read
+    // from QSettings, so it stays readable even when the keyring is not.
+    QString result;
+    if (m_settings->isOAuthAccount(userId)) {
+        const QByteArray clientBytes = m_settings->oauthClientIdFor(userId).toUtf8();
+        if (clientBytes.isEmpty()) {
+            // An OAuth account with no registration id cannot be restored;
+            // say so instead of silently taking the password path.
+            setState(Error);
+            Q_EMIT loginFailed(matrix::rust_session::userMessage(
+                matrix::rust_session::StoreBlockReason::MissingSessionMetadata));
+            return false;
+        }
+        result = takeRustString(mx_rust_oauth_restore(m_rustHandle,
+                                                      hsBytes.constData(),
+                                                      userBytes.constData(),
+                                                      deviceBytes.constData(),
+                                                      clientBytes.constData(),
+                                                      tokenBytes.constData(),
+                                                      refreshBytes.constData()));
+    } else {
+        result = takeRustString(mx_rust_restore(m_rustHandle,
+                                                hsBytes.constData(),
+                                                userBytes.constData(),
+                                                deviceBytes.constData(),
+                                                tokenBytes.constData(),
+                                                refreshBytes.constData()));
+    }
     if (!result.isEmpty()) {
         setState(Error);
         Q_EMIT loginFailed(result.startsWith(QLatin1String("error: "))
@@ -2169,6 +2559,11 @@ void RustSdkMatrixClient::refuseSend(const char *op)
 
 void RustSdkMatrixClient::pollRustEvents()
 {
+    // Phase A events first, and unconditionally: a browser sign-in normally
+    // runs from the login screen, where there is no session handle at all, so
+    // this must not sit behind the m_rustHandle guard below.
+    drainAuthEvents();
+
     if (!m_rustHandle)
         return;
 
@@ -2361,6 +2756,46 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
         return;
     }
 
+    if (type == QLatin1String("session_tokens_refreshed")) {
+        // SENSITIVE: carries the rotated access and refresh tokens. Never log
+        // `event`. The SDK renewed them in memory; if they are not written
+        // back, the store keeps the CONSUMED refresh token and presenting it
+        // again can make the server revoke the whole session.
+        // Keyed on the CANONICAL active-account id, not raw m_userId.
+        // saveSession() writes secrets under the canonicalized id (server name
+        // lowercased), and on the password path m_userId is the server's raw
+        // answer, which :2798 already acknowledges may differ. Writing under
+        // the raw id would put the rotated pair where nothing reads it and
+        // leave the CONSUMED refresh token under the canonical key — silently
+        // reintroducing the exact bug this event exists to prevent.
+        const QString tokenOwner = m_settings ? m_settings->userId() : QString{};
+        if (m_settings && !tokenOwner.isEmpty()) {
+            m_settings->updateSessionTokens(
+                tokenOwner,
+                event.value(QStringLiteral("access_token")).toString(),
+                event.value(QStringLiteral("refresh_token")).toString());
+        }
+        return;
+    }
+
+    if (type == QLatin1String("session_token_revoked")) {
+        // The credential died and the SDK could not renew it. Surface the
+        // existing revoked-credential state instead of letting sync fail in a
+        // loop. The local store is fine — this must NOT invite a reset.
+        // Same shape as the M_UNKNOWN_TOKEN path below: the local store is
+        // fine, only the credential died, so this reports and must NOT arm a
+        // destructive reset (suggestsLocalReset(AccessTokenRevoked) is false).
+        qCInfo(lcRust) << "session credential rejected and could not be renewed"
+                       << "slug=" << m_openingIdentity.slug;
+        Q_EMIT localSessionBlocked(
+            matrix::rust_session::diagnosticName(
+                matrix::rust_session::StoreBlockReason::AccessTokenRevoked),
+            m_openingIdentity.userId, m_openingIdentity.homeserver);
+        Q_EMIT loginFailed(matrix::rust_session::userMessage(
+            matrix::rust_session::StoreBlockReason::AccessTokenRevoked));
+        return;
+    }
+
     if (type == QLatin1String("login_ok")) {
         m_freshLoginIdentity = {};
         // SENSITIVE: this event object carries `access_token`. Never pass
@@ -2378,8 +2813,17 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
         m_deviceId = event.value(QStringLiteral("device_id")).toString(m_deviceId);
         m_loggedIn = !m_userId.isEmpty();
         const QString accessToken = event.value(QStringLiteral("access_token")).toString();
+        // SENSITIVE, same rule as the access token: a refresh token mints new
+        // access tokens, so it goes straight to the SecretStore and is never
+        // logged. Absent for servers that issue non-refreshable sessions, and
+        // absent on the restore path (which already has one saved).
+        const QString refreshToken = event.value(QStringLiteral("refresh_token")).toString();
         if (m_loggedIn && m_settings && !accessToken.isEmpty()) {
-            m_settings->saveSession(m_homeserver, m_userId, m_deviceId, accessToken);
+            // This handler serves password login and password restore. OAuth
+            // sessions are saved by the OAuth phase-B path, which supplies the
+            // "oauth" auth type and the registration client id.
+            m_settings->saveSession(m_homeserver, m_userId, m_deviceId, accessToken,
+                                    refreshToken);
             m_settings->setSyncToken({});
         }
         // The homeserver, not the login form, decides the canonical user id,

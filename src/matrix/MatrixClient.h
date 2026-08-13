@@ -46,6 +46,29 @@ public:
     // detach, restoreSession() activates whichever account the settings now
     // select. Returns false when the backend cannot detach.
     virtual bool detachSession() { return false; }
+
+    // --- OAuth 2.0 / OIDC browser sign-in -----------------------------------
+    // Additive, with safe defaults: a backend that does not implement browser
+    // authentication (Mock, the experimental C++ HTTP client) keeps working
+    // unchanged and simply reports that it cannot do it. Only
+    // RustSdkMatrixClient overrides these.
+    //
+    // Whether this backend can perform a browser sign-in AT ALL. Independent
+    // of whether a particular homeserver offers one — that is discovery.
+    virtual bool supportsOAuthLogin() const { return false; }
+    // Ask the homeserver which authentication methods it really offers.
+    // Answers asynchronously through authMethodsDiscovered(). Never
+    // hard-codes behaviour for any particular server.
+    virtual void discoverAuthMethods(const QString &homeserver) { Q_UNUSED(homeserver); }
+    // Start a browser sign-in. Emits oauthBrowserUrlReady() with the URL to
+    // open, then either loginSucceeded()/loginFailed() through the normal
+    // session path. The Matrix user id is NOT known until this completes, so
+    // no account store is opened before it does.
+    virtual void beginOAuthLogin(const QString &homeserver) { Q_UNUSED(homeserver); }
+    // User cancelled, or the wait timed out. Safe to call when nothing is in
+    // flight. Must leave the UI in a resolved state, never in "Signing in".
+    virtual void cancelOAuthLogin() {}
+
     virtual bool isLoggedIn() const = 0;
     virtual QString currentUserId() const = 0;
     virtual QString homeserverUrl() const = 0;
@@ -594,6 +617,19 @@ Q_SIGNALS:
     void loginSucceeded(const QString &userId);
     void loginFailed(const QString &reason);
     void loggedOut();
+    // Which authentication methods this homeserver actually offers, from the
+    // server's own answer. `sso` reports legacy Matrix SSO for honest UI copy
+    // only — Lightning cannot perform it (the SDK helper needs the
+    // sso-login/local-server features, whose axum dependency is not vendored),
+    // so it must never be presented as a usable option.
+    void authMethodsDiscovered(const QString &homeserver,
+                               bool password,
+                               bool oauth,
+                               bool sso);
+    // The authorization URL to open in the system browser. Contains no
+    // credentials — it is the authorization endpoint plus this attempt's
+    // public parameters — but it is single-use, so it is not logged.
+    void oauthBrowserUrlReady(const QString &url);
 
     void connectionStateChanged(ConnectionState state);
     void initialSyncDoneChanged();

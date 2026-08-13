@@ -185,6 +185,11 @@ set(APP_SOURCES
     src/auth/AuthManager.cpp
     src/auth/AccountManager.h
     src/auth/AccountManager.cpp
+    # Loopback redirect endpoint for OAuth browser sign-in. Built into every
+    # configuration: it is plain Qt Network with no Rust dependency, and the
+    # Rust backend is the only thing that drives it.
+    src/auth/OAuthCallbackServer.h
+    src/auth/OAuthCallbackServer.cpp
 
     src/matrix/MatrixClient.h
     src/matrix/MatrixClient.cpp

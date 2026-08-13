@@ -59,6 +59,10 @@ constexpr auto kAccountDeviceId     = "deviceId";
 constexpr auto kAccountDisplayName  = "displayName";
 constexpr auto kAccountAvatarUrl    = "avatarUrl";
 constexpr auto kAccountAddedAt      = "addedAt";
+// Which authentication mechanism owns this account's session. Absent means
+// "password", so every account saved before OAuth existed keeps working
+// without a migration pass.
+constexpr auto kAccountAuthType     = "authType";
 constexpr auto kAccountSyncToken    = "syncToken";
 // The account's real on-disk SDK store directory name, recorded at login
 // instead of re-derived. See SettingsManager::storeSlugFor.
@@ -66,6 +70,12 @@ constexpr auto kAccountStoreSlug    = "storeSlug";
 
 // SecretStore keys.
 constexpr auto kSecretAccessToken   = "accessToken";
+// OAuth session material. Both live in the SecretStore beside the access
+// token, never in QSettings: a refresh token is a long-lived credential that
+// mints access tokens, and the dynamic-registration client id identifies this
+// installation to the authorization server. Neither is ever exposed to QML.
+constexpr auto kSecretRefreshToken  = "refreshToken";
+constexpr auto kSecretOAuthClientId = "oauthClientId";
 }
 
 SettingsManager::SettingsManager(QObject *parent)
@@ -1250,6 +1260,74 @@ QString SettingsManager::accessToken() const
     return m_store->value(kAccessTokenLegacy).toString();
 }
 
+bool SettingsManager::updateSessionTokens(const QString &userId,
+                                          const QString &accessToken,
+                                          const QString &refreshToken)
+{
+    // Narrow by design: the SDK rotated this session's tokens, so ONLY the
+    // two credentials change. Going through saveSession() would also clear the
+    // sync token and re-assert the active account, which a background refresh
+    // must not do.
+    const QString uid = userId.trimmed();
+    if (uid.isEmpty() || accessToken.isEmpty() || !m_secretStore)
+        return false;
+    bool ok = m_secretStore->storeSecret(uid, QLatin1String(kSecretAccessToken),
+                                         accessToken);
+    // Written even when empty: a server that stops issuing a refresh token
+    // must not leave the previous one behind to be replayed.
+    ok = m_secretStore->storeSecret(uid, QLatin1String(kSecretRefreshToken),
+                                    refreshToken)
+         && ok;
+    if (!ok) {
+        // Never echoes either value.
+        qCWarning(lcSettings) << "failed to persist refreshed session tokens";
+    }
+    return ok;
+}
+
+QString SettingsManager::refreshToken() const
+{
+    return refreshTokenFor(userId());
+}
+
+QString SettingsManager::refreshTokenFor(const QString &userId) const
+{
+    const QString uid = userId.trimmed();
+    if (uid.isEmpty() || !m_secretStore)
+        return {};
+    // Absent is normal: password sessions on servers that do not issue
+    // refresh tokens have none, and an empty string means exactly that.
+    return m_secretStore->readSecret(uid, QLatin1String(kSecretRefreshToken));
+}
+
+QString SettingsManager::oauthClientIdFor(const QString &userId) const
+{
+    const QString uid = userId.trimmed();
+    if (uid.isEmpty() || !m_secretStore)
+        return {};
+    return m_secretStore->readSecret(uid, QLatin1String(kSecretOAuthClientId));
+}
+
+QString SettingsManager::authTypeFor(const QString &userId) const
+{
+    // The discriminator that decides which SDK API restores this session:
+    // "oauth" -> oauth().restore_session(), anything else -> the password
+    // path through matrix_auth(). Deliberately NOT a secret — it is a routing
+    // decision, and it must stay readable even when the keyring is locked so
+    // restore can fail honestly instead of silently taking the wrong path.
+    const QString slug = slugForSavedAccount(userId);
+    if (slug.isEmpty())
+        return QStringLiteral("password");
+    const QString value =
+        m_store->value(accountKey(slug, kAccountAuthType)).toString().trimmed();
+    return value.isEmpty() ? QStringLiteral("password") : value;
+}
+
+bool SettingsManager::isOAuthAccount(const QString &userId) const
+{
+    return authTypeFor(userId) == QLatin1String("oauth");
+}
+
 QString SettingsManager::userId() const
 {
     return activeAccountUserId();
@@ -1285,7 +1363,10 @@ QString SettingsManager::secretBackendName() const
 void SettingsManager::saveSession(const QString &homeserverUrl_,
                                   const QString &userId_,
                                   const QString &deviceId_,
-                                  const QString &accessToken_)
+                                  const QString &accessToken_,
+                                  const QString &refreshToken_,
+                                  const QString &authType_,
+                                  const QString &oauthClientId_)
 {
     const bool hsChanged = homeserverUrl() != homeserverUrl_;
 
@@ -1312,11 +1393,35 @@ void SettingsManager::saveSession(const QString &homeserverUrl_,
     // Keep the login prefill on the most recently used homeserver.
     m_store->setValue(kHomeserver, hsCanonical);
 
+    // Which SDK API restores this account. Written in QSettings, NOT the
+    // SecretStore: restore has to route correctly even when the keyring is
+    // locked, and taking the password path for an OAuth account would produce
+    // a baffling failure instead of an honest one. Never a secret.
+    const QString authType = authType_.trimmed().isEmpty()
+                                 ? QStringLiteral("password")
+                                 : authType_.trimmed();
+    m_store->setValue(accountKey(slug, kAccountAuthType), authType);
+
     if (m_secretStore) {
         if (!m_secretStore->storeSecret(uidCanonical, QLatin1String(kSecretAccessToken), accessToken_)) {
             qCWarning(lcSettings)
                 << "failed to persist access token to SecretStore:"
                 << m_secretStore->lastError();
+        }
+        // Refresh token and OAuth client id are credentials and live beside
+        // the access token. Both are rewritten on every save — including to
+        // an EMPTY value — so a re-login that produced no refresh token
+        // cannot leave the previous session's token behind to be replayed.
+        if (!m_secretStore->storeSecret(uidCanonical,
+                                        QLatin1String(kSecretRefreshToken),
+                                        refreshToken_)) {
+            // Deliberately does not echo the value or the SDK error detail.
+            qCWarning(lcSettings) << "failed to persist refresh token to SecretStore";
+        }
+        if (!m_secretStore->storeSecret(uidCanonical,
+                                        QLatin1String(kSecretOAuthClientId),
+                                        oauthClientId_)) {
+            qCWarning(lcSettings) << "failed to persist OAuth client id to SecretStore";
         }
         // Make sure a stale legacy plaintext token is not left behind.
         m_store->remove(kAccessTokenLegacy);

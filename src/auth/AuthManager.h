@@ -32,12 +32,33 @@ class AuthManager : public QObject
     //   ready          sync is running
     Q_PROPERTY(QString loginStage READ loginStage NOTIFY loginStageChanged)
 
-    // v0.4.1: capability flags. Password login works on the HTTP backend.
-    // SSO / OIDC are v0.5 targets — the properties exist so QML can render
-    // the buttons in a disabled state without guessing.
+    // Backend CAPABILITY: what this build can do at all, regardless of any
+    // particular server. Distinct from discovery below, which is what a given
+    // homeserver actually offers.
     Q_PROPERTY(bool supportsPasswordLogin READ supportsPasswordLogin CONSTANT)
     Q_PROPERTY(bool supportsSsoLogin      READ supportsSsoLogin      CONSTANT)
     Q_PROPERTY(bool supportsOidcLogin     READ supportsOidcLogin     CONSTANT)
+
+    // SERVER DISCOVERY: what the entered homeserver advertises. All false
+    // until a discovery completes, so the UI shows nothing speculative.
+    //
+    //   idle       no homeserver resolved yet
+    //   probing    discovery in flight
+    //   done       the server answered
+    //   failed     the server could not be asked
+    Q_PROPERTY(QString discoveryState READ discoveryState NOTIFY discoveryChanged)
+    Q_PROPERTY(QString discoveredHomeserver READ discoveredHomeserver NOTIFY discoveryChanged)
+    Q_PROPERTY(bool serverOffersPassword READ serverOffersPassword NOTIFY discoveryChanged)
+    Q_PROPERTY(bool serverOffersBrowserLogin READ serverOffersBrowserLogin NOTIFY discoveryChanged)
+    // The server offers legacy Matrix SSO but Lightning CANNOT perform it (the
+    // SDK helper needs the sso-login/local-server features, whose axum
+    // dependency is not vendored in this offline build). Exposed only so the
+    // UI can say so honestly — never render it as a usable button.
+    Q_PROPERTY(bool serverOffersUnsupportedSso READ serverOffersUnsupportedSso
+                   NOTIFY discoveryChanged)
+    // True from the moment a browser sign-in starts until it resolves.
+    Q_PROPERTY(bool browserLoginInProgress READ browserLoginInProgress
+                   NOTIFY browserLoginInProgressChanged)
 
 public:
     explicit AuthManager(MatrixClient *client, QObject *parent = nullptr);
@@ -51,11 +72,27 @@ public:
     // Password login is available on all compiled backends. Rust may still
     // surface SDK-side login errors through MatrixClient::login().
     bool supportsPasswordLogin() const { return true; }
-    // v0.4.1: capability advertisements only — no protocol implementation.
-    // Real SSO / OIDC flow is v0.5. Setting these to false keeps the UI
-    // honest.
+    // Legacy Matrix SSO is NOT implemented and is not merely unfinished: the
+    // SDK's login_sso helper is gated behind the sso-login/local-server
+    // features, whose axum dependency is not vendored in this offline
+    // --locked build. Reporting false keeps the UI honest.
     bool supportsSsoLogin()  const { return false; }
-    bool supportsOidcLogin() const { return false; }
+    // OAuth 2.0 / OIDC, answered by the backend rather than hardcoded.
+    bool supportsOidcLogin() const;
+
+    QString discoveryState() const { return m_discoveryState; }
+    QString discoveredHomeserver() const { return m_discoveredHomeserver; }
+    bool serverOffersPassword() const { return m_serverPassword; }
+    bool serverOffersBrowserLogin() const { return m_serverOauth; }
+    bool serverOffersUnsupportedSso() const { return m_serverSso; }
+    bool browserLoginInProgress() const { return m_browserLoginInProgress; }
+
+    // Ask the homeserver what it offers. Answers through discoveryChanged.
+    Q_INVOKABLE void discoverAuthMethods(const QString &homeserver);
+    // Start an OAuth browser sign-in against the entered homeserver.
+    Q_INVOKABLE void beginBrowserLogin(const QString &homeserver);
+    // User pressed Cancel, or closed the browser. Always resolves the UI.
+    Q_INVOKABLE void cancelBrowserLogin();
 
     Q_INVOKABLE void login(const QString &homeserver,
                            const QString &user,
@@ -74,6 +111,8 @@ Q_SIGNALS:
     void isLoggedInChanged();
     void lastErrorChanged();
     void loginStageChanged();
+    void discoveryChanged();
+    void browserLoginInProgressChanged();
     void loginSucceeded();
     void loginFailed(const QString &reason);
     void loggedOut();
@@ -83,8 +122,16 @@ private:
     void setLastError(const QString &err);
     void setLoginStage(const QString &stage);
 
+    void setBrowserLoginInProgress(bool v);
+
     MatrixClient *m_client = nullptr;
     bool m_loggingIn = false;
     QString m_lastError;
     QString m_loginStage = QStringLiteral("idle");
+    QString m_discoveryState = QStringLiteral("idle");
+    QString m_discoveredHomeserver;
+    bool m_serverPassword = false;
+    bool m_serverOauth = false;
+    bool m_serverSso = false;
+    bool m_browserLoginInProgress = false;
 };

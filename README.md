@@ -74,6 +74,20 @@ still developing, some workflows remain experimental.
 ### Accounts, rooms and Spaces
 
 - Password login, persistent sessions and restoration, and logout
+- **Browser sign-in (OAuth 2.0 / OIDC)** on homeservers that offer it. After a
+  homeserver is entered, Lightning asks the server which authentication methods
+  it actually supports and offers only those — nothing is hard-coded for any
+  provider. The browser flow is owned by the Matrix Rust SDK (`Client::oauth()`):
+  the SDK builds the authorization URL with PKCE, validates the CSRF state,
+  exchanges the code, and refreshes access tokens. Lightning contributes only
+  the system-browser launch and a single-shot loopback listener bound to
+  127.0.0.1 on an ephemeral port.
+  Sign-in runs in two phases so that a device the server has just created can
+  never attach to another device's encryption store: authentication happens with
+  no local store at all, and the account's store is chosen, checked and opened
+  only after the homeserver has named the user and device.
+  Legacy Matrix SSO is **detected but not supported** — Lightning tells you when
+  a server offers only that, rather than presenting a button that cannot work.
 - **Multi-account**: several signed-in accounts across any mix of homeservers,
   with fast in-app switching and no login form between them; each account keeps
   its own isolated SDK and encryption store, and only the active account syncs

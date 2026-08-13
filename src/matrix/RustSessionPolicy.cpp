@@ -26,6 +26,47 @@ StoreBlockReason passwordLoginBlockReason(
     return StoreBlockReason::ExistingStoreNeedsRestore;
 }
 
+StoreBlockReason oauthLoginBlockReason(
+    const app_data::AccountIdentity &target,
+    bool storeExists,
+    bool targetHasSavedSession,
+    const QString &targetSavedDeviceId,
+    const QString &newDeviceId)
+{
+    Q_UNUSED(target);
+    // Nothing on disk for this account: a first OAuth sign-in creates the
+    // store fresh, which is always safe.
+    if (!storeExists)
+        return StoreBlockReason::None;
+
+    // A store with no record beside it cannot be proven to belong to this
+    // account. Same verdict as the password path.
+    if (!targetHasSavedSession)
+        return StoreBlockReason::MissingSessionMetadata;
+
+    const QString saved = targetSavedDeviceId.trimmed();
+    if (saved.isEmpty())
+        return StoreBlockReason::MissingDeviceId;
+
+    // The authorization server must have named the device. Without it we
+    // cannot tell re-authorization from a brand-new device, and guessing here
+    // is precisely what must never happen.
+    const QString fresh = newDeviceId.trimmed();
+    if (fresh.isEmpty())
+        return StoreBlockReason::MissingDeviceId;
+
+    // Re-authorizing the SAME device that owns this store: restoring the new
+    // tokens into it is correct and is the ordinary "my session expired, sign
+    // in again" path. Device IDs are case-sensitive opaque server strings, so
+    // this is an exact comparison.
+    if (saved == fresh)
+        return StoreBlockReason::None;
+
+    // A genuinely new device. The existing store belongs to the old one and
+    // must not be adopted.
+    return StoreBlockReason::ExistingStoreNeedsRestore;
+}
+
 StoreBlockReason restoreBlockReason(
     const app_data::AccountIdentity &,
     bool storeExists,

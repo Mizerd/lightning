@@ -40,12 +40,64 @@ char *mx_rust_login(void *client,
 char *mx_rust_restore_from_file(void *client,
                                 const char *homeserver,
                                 const char *expected_user_id);
+/* refresh_token may be "" when the account has none (the usual case for a
+ * password session on a server that does not issue them). It is a CREDENTIAL:
+ * never log it and never pass it to QML. */
 char *mx_rust_restore(void *client,
                       const char *homeserver,
                       const char *user_id,
                       const char *device_id,
-                      const char *access_token);
+                      const char *access_token,
+                      const char *refresh_token);
 void  mx_rust_logout(void *client);
+
+/* ---------------------------------------------------------------------------
+ * OAuth 2.0 / OIDC (matrix-sdk 0.18 `Client::oauth()`); see rust/src/oauth.rs.
+ *
+ * Two-phase store lifecycle. Phase A runs on a BOOTSTRAP handle created by
+ * mx_rust_oauth_bootstrap_create(), which has NO persistent store — the SDK's
+ * in-memory default — because the Matrix user ID is unknown until the code
+ * exchange completes, so no account store can be chosen yet. Phase B happens
+ * on an ordinary account-scoped handle from mx_rust_create(), via
+ * mx_rust_oauth_restore(). The bootstrap handle must never sync and must be
+ * released with mx_rust_destroy() once oauth_ok has been consumed.
+ *
+ * PKCE, the CSRF `state` and the token exchange are SDK-owned. Lightning only
+ * opens the browser and receives the loopback redirect.
+ *
+ * Legacy Matrix SSO is deliberately NOT implemented: the SDK's helper needs
+ * the sso-login/local-server features, whose axum dependency is not vendored
+ * in this offline --locked build. Discovery still reports whether a server
+ * offers it so the UI can say so honestly.
+ * ------------------------------------------------------------------------- */
+void *mx_rust_oauth_bootstrap_create(void);
+/* Enqueues one `auth_discovery` event: which methods this server really
+ * offers. Never hard-codes behaviour for a particular homeserver. */
+char *mx_rust_oauth_discover(void *client, const char *homeserver);
+/* Enqueues `oauth_url` (open it in the system browser) or `oauth_failed`.
+ * redirect_uri must be a loopback address; anything else is refused. */
+char *mx_rust_oauth_begin(void *client,
+                          const char *homeserver,
+                          const char *redirect_uri);
+/* `callback` is the full redirect URI the loopback listener received. It
+ * carries the authorization code — never log it. Enqueues `oauth_ok` (with
+ * the canonical user/device and the session material) or `oauth_failed`. */
+char *mx_rust_oauth_finish(void *client, const char *callback);
+/* Cancellation/timeout: drops the SDK's stored authorization data so a late
+ * or replayed callback cannot complete the sign-in. */
+char *mx_rust_oauth_abort(void *client);
+/* Phase B. client_id is the dynamic-registration id from oauth_ok; both
+ * tokens are CREDENTIALS. refresh_token may be "". */
+char *mx_rust_oauth_restore(void *client,
+                            const char *homeserver,
+                            const char *user_id,
+                            const char *device_id,
+                            const char *client_id,
+                            const char *access_token,
+                            const char *refresh_token);
+/* Revokes the tokens at the authorization server. Store deletion stays in
+ * C++, which is the only layer that knows which store belongs to whom. */
+char *mx_rust_oauth_logout(void *client);
 
 void  mx_rust_start_sync(void *client);
 /* Cancels and joins the owned sync task. 1 = stopped, 0 = already stopped. */

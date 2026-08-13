@@ -328,6 +328,48 @@ backend capability checks and honest live-test status.
 
 - Password login, persistent SDK session/store, session restoration, logout,
   sync/initial-sync state, and account-scoped local reset paths
+- **OAuth 2.0 / OIDC browser sign-in** through `Client::oauth()` on
+  matrix-sdk 0.18 (`rust/src/oauth.rs`). PKCE, the CSRF `state`, the code
+  exchange and the token-refresh REQUEST are SDK-owned; Lightning implements
+  no OAuth primitive. Refresh needs two things the SDK does not do by itself:
+  `ClientBuilder::handle_refresh_tokens()` (it defaults to FALSE, and without
+  it a 401 is forwarded rather than renewed, so a saved refresh token is
+  inert), and writing the ROTATED pair back — `oauth::spawn_token_persistence`
+  subscribes to `SessionChange::TokensRefreshed` and persists through
+  `SettingsManager::updateSessionTokens`. Skipping that leaves a CONSUMED
+  refresh token in the store, and an OAuth 2.1 server treats its reuse as
+  compromise. `SessionChange::UnknownToken` surfaces as the existing
+  `AccessTokenRevoked` state instead of an endless sync-failure loop. It adds only the system-browser launch and
+  `src/auth/OAuthCallbackServer.*` — loopback-only (127.0.0.1), ephemeral
+  port, single-shot, size-bounded, with a timeout, because matrix-sdk's own
+  `local-server` helper is gated behind `sso-login`, whose `axum` dependency
+  is not vendored in this offline `--locked` build. Costs NO dependency
+  change: `oauth2`/`oauth2-reqwest` are already non-optional deps of
+  matrix-sdk 0.18.
+  **Two-phase store lifecycle, and it is mandatory.** Password login knows the
+  account before it contacts the server; OAuth does not — the user id arrives
+  only from `whoami` after the code exchange. So phase A authenticates on a
+  bootstrap handle with NO persistent store (the builder's in-memory default;
+  it must never sync, or it would upload device keys that phase B would then
+  contradict), and phase B derives the normal `AccountIdentity`, applies
+  `rust_session::oauthLoginBlockReason()`, and only then opens the account's
+  sqlite store and restores through `oauth().restore_session()`. That policy
+  is the OAuth counterpart of `passwordLoginBlockReason`: a device the server
+  just issued must never adopt a store belonging to a different device. Note
+  it deliberately does NOT suggest a local reset — that store belongs to a
+  live device whose keys are still valid.
+  Sessions carry an `authType` discriminator (QSettings, not the SecretStore,
+  so restore routes correctly even when the keyring is locked): `password`
+  restores via `matrix_auth()`, `oauth` via `oauth()`. Refresh tokens and the
+  dynamic-registration client id are CREDENTIALS in the SecretStore, never in
+  QSettings, never exposed to QML, never logged. Legacy Matrix SSO is
+  detected and disclosed as unsupported, never offered.
+  Live homeserver validation of the browser flow, refresh and OAuth logout is
+  **NOT TESTED** — no OAuth-capable test account was available.
+- `restore_client()` previously hardcoded `refresh_token: None`, silently
+  discarding a saved refresh token on every restore, so an expired access
+  token surfaced as `M_UNKNOWN_TOKEN` instead of being renewed. Fixed for
+  password sessions as well as OAuth
 - Persistent multi-account support: account records live under
   `accounts/<slug>/` in QSettings (SettingsManager), tokens stay per-user-id
   in the SecretStore, and the session accessors are views of the active

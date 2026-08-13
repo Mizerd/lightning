@@ -62,6 +62,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 mod gifs;
+mod oauth;
 mod rooms;
 mod timeline;
 
@@ -165,6 +166,17 @@ struct RustClient {
     // (flow_id, sas) — SasVerification has no flow_id() accessor on
     // matrix-sdk 0.18, so we track it externally.
     active_sas: Arc<Mutex<Option<(String, SasVerification)>>>,
+    // The CSRF `state` of the OAuth authorization request currently in
+    // flight, kept ONLY so a cancelled sign-in can call
+    // `OAuth::abort_login(state)` and drop the SDK's stored validation data.
+    // Scoped to this handle — and an OAuth sign-in always runs on its own
+    // short-lived bootstrap handle — so two accounts can never share it.
+    // Never logged: it is the anti-CSRF value for one login attempt.
+    oauth_state: Arc<Mutex<Option<matrix_sdk::authentication::oauth::CsrfToken>>>,
+    // Managed handle for the session-token persistence watcher (see
+    // oauth::spawn_token_persistence). Held so shutdown can abort it; without
+    // this it is an unowned task holding a strong Client forever.
+    token_task: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
     // (flow_id, qr) — the SHOW-QR half of the same single-flow policy.
     // QrVerification likewise has no flow_id() accessor, so the id is
     // tracked alongside it exactly like the SAS slot. At most one of
@@ -249,6 +261,8 @@ impl RustClient {
             notification_settings: Arc::new(Mutex::new(None)),
             active_request: Arc::new(Mutex::new(None)),
             active_sas: Arc::new(Mutex::new(None)),
+            oauth_state: Arc::new(Mutex::new(None)),
+            token_task: Arc::new(Mutex::new(None)),
             active_qr: Arc::new(Mutex::new(None)),
             verification_tasks: Mutex::new(Vec::new()),
             verification_shutdown: Arc::new(AtomicBool::new(false)),
@@ -307,6 +321,18 @@ impl RustClient {
     /// under it), then the sync loop. A bounded timeout remains only as a
     /// last-resort error boundary after the deterministic join.
     fn shutdown_managed_tasks(&self) -> (bool, bool) {
+        // The token-persistence watcher holds a strong Client purely to read
+        // rotated tokens, and its broadcast sender lives INSIDE that same
+        // Client — so recv() can never return Closed on its own and the task
+        // would keep this account's crypto store open across mx_rust_destroy,
+        // exactly the hazard described for the SAS drivers below.
+        // Aborted rather than joined: it is parked in recv() and has no
+        // cooperative exit.
+        if let Ok(mut guard) = self.token_task.lock() {
+            if let Some(handle) = guard.take() {
+                handle.abort();
+            }
+        }
         // v0.7.3: SAS drivers first. They are the only managed tasks that
         // hold an Arc<Client> purely to poll verification state, so one left
         // running keeps this account's crypto store open across
@@ -678,6 +704,7 @@ pub unsafe extern "C" fn mx_rust_login(
         let store_path = bridge.store_path.clone();
         let session_file = Arc::clone(&bridge.session_file);
         let client_slot = Arc::clone(&bridge.client);
+        let token_task = Arc::clone(&bridge.token_task);
         let events = Arc::clone(&bridge.events);
         let active_request = Arc::clone(&bridge.active_request);
         let active_sas = Arc::clone(&bridge.active_sas);
@@ -721,6 +748,17 @@ pub unsafe extern "C" fn mx_rust_login(
                                         );
                                     }
                                 }
+                                // Servers that issue refreshable password
+                                // sessions rotate them exactly like OAuth, so
+                                // the rotated pair must be persisted here too.
+                                if let Ok(mut guard) = token_task.lock() {
+                                    if let Some(previous) = guard.replace(
+                                        oauth::spawn_token_persistence(
+                                            &client, Arc::clone(&events)))
+                                    {
+                                        previous.abort();
+                                    }
+                                }
                                 if let Ok(mut guard) = client_slot.lock() {
                                     *guard = Some(client);
                                 }
@@ -732,6 +770,13 @@ pub unsafe extern "C" fn mx_rust_login(
                                         "user_id": response.user_id.to_string(),
                                         "device_id": response.device_id.to_string(),
                                         "access_token": response.access_token,
+                                        // Servers that issue refreshable
+                                        // password sessions return one; it is
+                                        // stored beside the access token so a
+                                        // restart can renew instead of dying
+                                        // with M_UNKNOWN_TOKEN. Absent on the
+                                        // servers that do not.
+                                        "refresh_token": response.refresh_token,
                                     }),
                                 );
                             }
@@ -888,6 +933,7 @@ pub unsafe extern "C" fn mx_rust_restore(
     user_id: *const c_char,
     device_id: *const c_char,
     access_token: *const c_char,
+    refresh_token: *const c_char,
 ) -> *mut c_char {
     ffi_string(|| {
         let bridge = unsafe { bridge(ptr)? };
@@ -895,6 +941,11 @@ pub unsafe extern "C" fn mx_rust_restore(
         let user_id = unsafe { cstr_arg(user_id) }?;
         let device_id = unsafe { cstr_arg(device_id) }?;
         let access_token = unsafe { cstr_arg(access_token) }?;
+        // Empty means "the account has no refresh token", which is the normal
+        // case for a password session on a server that does not issue them.
+        let refresh_token = unsafe { cstr_arg(refresh_token) }?;
+        let refresh_token =
+            if refresh_token.is_empty() { None } else { Some(refresh_token) };
 
         bridge.stop_sync_and_wait();
         bridge.enqueue(json!({ "type": "status", "state": "connecting" }));
@@ -908,11 +959,19 @@ pub unsafe extern "C" fn mx_rust_restore(
         // Shared runtime: the SDK's post-restore E2EE initialization task
         // must outlive this call (see run_async_on).
         let shared_runtime = Arc::clone(&bridge.runtime);
+        let token_task = Arc::clone(&bridge.token_task);
         std::thread::spawn(move || {
             let runtime_events = Arc::clone(&events);
             run_async_on(shared_runtime, runtime_events, "restore", async move {
-                match restore_client(&homeserver, &store_path, &user_id, &device_id, access_token)
-                    .await
+                match restore_client(
+                    &homeserver,
+                    &store_path,
+                    &user_id,
+                    &device_id,
+                    access_token,
+                    refresh_token,
+                )
+                .await
                 {
                     Ok(client) => {
                         install_event_handlers(
@@ -922,6 +981,13 @@ pub unsafe extern "C" fn mx_rust_restore(
                             Arc::clone(&active_sas),
                             Arc::clone(&active_qr),
                         );
+                        if let Ok(mut guard) = token_task.lock() {
+                            if let Some(previous) = guard.replace(
+                                oauth::spawn_token_persistence(&client, Arc::clone(&events)))
+                            {
+                                previous.abort();
+                            }
+                        }
                         if let Ok(mut guard) = client_slot.lock() {
                             *guard = Some(client);
                         }
@@ -5803,12 +5869,30 @@ async fn build_client(homeserver: &str, store_path: &Path) -> Result<Client, Str
     // with_subscriptions stays false: Lightning drives thread follow state
     // through the direct Room subscribe/unsubscribe/query API, not the MSC4308
     // sliding-sync extension.
-    let client = Client::builder()
+    // An EMPTY store path means "no persistent store": the builder's default
+    // is an in-memory store, and skipping .sqlite_store() leaves it there.
+    // This is what the OAuth bootstrap phase uses (see oauth.rs) — it must
+    // authenticate, learn the canonical user/device, and be dropped WITHOUT
+    // ever creating an account store on disk, because until `whoami` answers
+    // there is no way to know which account's store it would be. Every
+    // ordinary login/restore passes a real path and is unaffected.
+    // handle_refresh_tokens defaults to FALSE in matrix-sdk 0.18. Without it
+    // the SDK forwards a 401 straight through instead of renewing, so a saved
+    // refresh token is inert and an expired access token still surfaces as
+    // M_UNKNOWN_TOKEN — carrying the token is necessary but not sufficient.
+    // Rotated tokens must then be persisted on every change (see
+    // oauth::spawn_token_persistence), or the store keeps a CONSUMED refresh
+    // token and an OAuth 2.1 server treats its reuse as compromise.
+    let mut builder = Client::builder()
         .homeserver_url(homeserver)
-        .sqlite_store(store_path, None)
         .user_agent(USER_AGENT)
+        .handle_refresh_tokens()
         .with_encryption_settings(encryption_settings)
-        .with_threading_support(ThreadingSupport::Enabled { with_subscriptions: false })
+        .with_threading_support(ThreadingSupport::Enabled { with_subscriptions: false });
+    if !store_path.as_os_str().is_empty() {
+        builder = builder.sqlite_store(store_path, None);
+    }
+    let client = builder
         .build()
         .await
         .map_err(|err| format_matrix_error("failed to build Matrix Rust SDK client", err))?;
@@ -5859,14 +5943,22 @@ async fn restore_client(
     user_id: &str,
     device_id: &str,
     access_token: String,
+    refresh_token: Option<String>,
 ) -> Result<Client, String> {
     let user_id: OwnedUserId = UserId::parse(user_id)
         .map_err(|err| format!("invalid stored Matrix user id: {err}"))?
         .to_owned();
     let device_id: OwnedDeviceId = device_id.to_owned().into();
+    // refresh_token was hardcoded to None until 0.6.7. That was survivable
+    // only while every session was a password session against a server that
+    // issued non-expiring access tokens: a saved refresh token was dropped on
+    // every restore, so a session whose access token expired could not be
+    // renewed and surfaced as M_UNKNOWN_TOKEN instead. It must be carried for
+    // password sessions too — refreshable password sessions exist — and it is
+    // mandatory for OAuth, where tokens are short-lived by design.
     let session = MatrixSession {
         meta: SessionMeta { user_id, device_id },
-        tokens: SessionTokens { access_token, refresh_token: None },
+        tokens: SessionTokens { access_token, refresh_token },
     };
     restore_client_with_session(homeserver, store_path, session).await
 }

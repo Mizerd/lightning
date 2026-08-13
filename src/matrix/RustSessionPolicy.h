@@ -40,6 +40,29 @@ StoreBlockReason passwordLoginBlockReason(
     bool targetHasSavedSession,
     const QString &targetSavedDeviceId);
 
+// The OAuth counterpart of passwordLoginBlockReason, applied in PHASE B —
+// after the browser flow has completed and the homeserver has told us the
+// canonical user id and the device id it created.
+//
+// OAuth cannot ask this question before contacting the server the way password
+// login can: the account is unknown until the code exchange finishes. That is
+// exactly why it must be asked afterwards and before the account's sqlite
+// store is opened. A freshly authorized OAuth device attaching to a store that
+// belongs to a DIFFERENT device is the same ownership bug password login was
+// fixed for in v0.5.5 — the new session would inherit another device's Megolm
+// and identity state and diverge from what the server believes.
+//
+// `newDeviceId` is the device the authorization server just issued.
+// `targetSavedDeviceId` is the device recorded for this account locally.
+// Same device -> this is a re-authorization of the session that already owns
+// the store, and restoring into it is correct. Different device -> refuse.
+StoreBlockReason oauthLoginBlockReason(
+    const app_data::AccountIdentity &target,
+    bool storeExists,
+    bool targetHasSavedSession,
+    const QString &targetSavedDeviceId,
+    const QString &newDeviceId);
+
 StoreBlockReason restoreBlockReason(
     const app_data::AccountIdentity &target,
     bool storeExists,
