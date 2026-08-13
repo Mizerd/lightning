@@ -61,6 +61,48 @@ claims an Xcode build that the CLT actually produced.
 > with `sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer`
 > before adding an iOS job.
 
+## Deployment target
+
+`CMAKE_OSX_DEPLOYMENT_TARGET`, `MACOSX_DEPLOYMENT_TARGET`, and
+`LSMinimumSystemVersion` all come from one derived value: the **highest `minos`
+across the Qt frameworks the app links**, read with `otool -l` at build time.
+
+It is derived rather than hardcoded because Homebrew's Qt does not have a single
+floor:
+
+| Framework | `minos` |
+| --- | --- |
+| QtCore, QtGui, QtNetwork, QtSql, QtWidgets | 14.0 |
+| QtQml, QtQuick, QtQuickControls2, QtMultimedia | **26.0** |
+
+An earlier revision read only `QtCore` and hardcoded `14.0`. That produced a
+bundle whose `Info.plist` advertised macOS 14 support while linking frameworks
+that require macOS 26 — it would not have loaded there at all. The linker warned
+about exactly this:
+
+```text
+ld: warning: building for macOS-14.0, but linking with dylib
+    '.../QtQuick.framework/...' which was built for newer version 26.0
+```
+
+Taking the maximum keeps the compatibility claim true and self-corrects whenever
+Homebrew rebuilds Qt against a different SDK.
+
+`MACOSX_DEPLOYMENT_TARGET` is exported for the same value so cargo/rustc and the
+C sources the `cc` crate compiles (sha3, aes, jitterentropy, blake3) target the
+same floor as the C++ link. Without it those objects are built against the host
+SDK and the linker reports:
+
+```text
+ld: warning: object file (...libmatrix_client_rust.a[361](...sha3...o))
+    was built for newer 'macOS' version (26.5) than being linked (14.0)
+```
+
+Consequence worth knowing: while Qt comes from Homebrew, the bundle's floor
+tracks whatever macOS the build machine runs. Supporting genuinely older macOS
+would mean supplying a Qt built against an older SDK (the official Qt installer
+rather than Homebrew), not lowering this number.
+
 ## Apple framework linking
 
 The build passes `-framework Security -framework CoreFoundation` via
@@ -154,9 +196,9 @@ pipeline is honest about it rather than implying otherwise:
   distributable build.
 - **arm64 only**, not a universal binary: Homebrew's Qt bottle is arm64-only, so
   an Intel or universal build would need a separate Qt.
-- `LSMinimumSystemVersion` is **14.0**, inherited from Homebrew's Qt
-  (`minos 14.0`). The app cannot claim support for an older macOS than the
-  frameworks it links.
+- `LSMinimumSystemVersion` is **derived at build time** (currently **26.0**) —
+  see [Deployment target](#deployment-target). The app must not claim support for
+  an older macOS than the frameworks it links.
 - **No GUI acceptance testing.** Validation exercises `--version` and
   `--build-info` on the bundled binary, which proves the frameworks load and the
   binary executes. Real window creation, notifications, media playback,

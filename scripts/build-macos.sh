@@ -32,9 +32,18 @@ REPORT_DIR="$MACOS_DIST/reports"
 # to, so it must stay stable once artifacts exist in the wild — changing it
 # re-prompts every user for permissions and invalidates notarization.
 BUNDLE_ID="net.smetonis.lightning"
-# Homebrew's Qt 6.11 is built with minos 14.0; the app cannot claim to support
-# an older macOS than the frameworks it links.
-MACOS_DEPLOYMENT_TARGET="14.0"
+# Deployment target is DERIVED from the Qt frameworks the app actually links,
+# not hardcoded. Homebrew's Qt does not have one floor: qtbase modules (QtCore,
+# QtGui, QtNetwork, QtSql, QtWidgets) are built minos 14.0 while qtdeclarative
+# and qtmultimedia (QtQml, QtQuick, QtQuickControls2, QtMultimedia) are built
+# minos 26.0. Reading only QtCore and hardcoding 14.0 produced a bundle whose
+# Info.plist claimed macOS 14 support while linking frameworks that require 26 —
+# it would simply fail to load there, and the linker said so:
+#   ld: warning: building for macOS-14.0, but linking with dylib
+#       '.../QtQuick.framework/...' which was built for newer version 26.0
+# Taking the maximum keeps the claim true and self-corrects when Homebrew's Qt
+# is rebuilt against a different SDK.
+QT_LINKED_MODULES="QtCore QtGui QtQml QtQuick QtQuickControls2 QtNetwork QtSql QtWidgets QtMultimedia"
 
 require_var EXPECTED_SOURCE_SHA
 [[ "$EXPECTED_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || die "macOS packaging requires a full source commit SHA"
@@ -83,6 +92,24 @@ done
 [[ -d "$QT_PREFIX/lib/cmake/Qt6" ]] || die "Qt 6 not found at $QT_PREFIX"
 
 QT_VERSION="$("$QT_PREFIX/bin/qmake" -query QT_VERSION)"
+
+MACOS_DEPLOYMENT_TARGET="$(
+    for fw in $QT_LINKED_MODULES; do
+        fw_bin="$QT_PREFIX/lib/${fw}.framework/Versions/A/${fw}"
+        [ -f "$fw_bin" ] || continue
+        otool -l "$fw_bin" 2>/dev/null \
+            | awk '/LC_BUILD_VERSION/{f=1} f&&/minos/{print $2; exit}'
+    done | sort -V | tail -1
+)"
+[[ "$MACOS_DEPLOYMENT_TARGET" =~ ^[0-9]+\.[0-9]+$ ]] || \
+    die "could not determine the Qt deployment floor from $QT_PREFIX"
+
+# Applies to cargo/rustc and to the C sources the `cc` crate compiles (sha3,
+# aes, jitterentropy, blake3). Without it those objects are built against the
+# host SDK while the C++ link targets the Qt floor, which the linker reports as
+# "object file was built for newer macOS version than being linked".
+export MACOSX_DEPLOYMENT_TARGET="$MACOS_DEPLOYMENT_TARGET"
+
 RUST_VERSION="$(rustc --version)"
 CMAKE_VERSION="$(cmake --version | head -1)"
 MACOS_VERSION="$(sw_vers -productVersion)"

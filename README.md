@@ -267,7 +267,10 @@ These are unsigned test artifacts, not a release:
   pipeline is never mistaken for a distributable build;
 - **arm64 only** — Homebrew's Qt bottle is arm64-only, so this is not a
   universal binary;
-- `LSMinimumSystemVersion` **14.0**, inherited from that Qt's `minos`;
+- `LSMinimumSystemVersion` is **derived** from the highest `minos` across the Qt
+  frameworks the app links, not hardcoded. Homebrew's Qt has a split floor —
+  qtbase modules are built `minos 14.0` but QtQml/QtQuick/QtQuickControls2/
+  QtMultimedia are `26.0` — so the real floor today is **macOS 26.0**;
 - **no GUI acceptance testing** — window creation, notifications, media
   playback, microphone capture, Keychain behaviour, and Retina rendering remain
   **NOT TESTED**.
