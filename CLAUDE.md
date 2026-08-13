@@ -59,17 +59,21 @@ previous virtualized contract rather than separately observed defects, but
 the regression net for the timeline is incomplete and porting them is the
 highest-value open work. This is disclosed in `docs/releases/v0.6.6.md`.
 
-As of the 2026-08-12 video-thumbnail round the registered count is **93 per
-tree** and the environment shows **91/93 on both trees** — ONLY the two
-timeline suites above, at exactly their release-era sub-test totals
+As of the 2026-08-13 thread-parity + OAuth integration the registered count
+is **94 per tree** (the `voice-ownership` suite was added) and the merged
+tree measures **92/94 on both trees** — ONLY the two timeline suites above.
+That number is from the INTEGRATED result, not from either contributing
+branch in isolation; three separate worktrees independently reproduced the
+same two failures at `9e4b6fb`. Earlier revisions of this paragraph claimed
+85/87 and then 86/91; both were stale in the pessimistic direction — the
+`settings-shell-qml`, `design-acceptance` and `verification-qr-qml` failures
+they recorded were environmental drift and have cleared. The two timeline
+suites remain at exactly their release-era sub-test totals
 (`timeline-pane-qml` 36 passed / 27 failed, `timeline-hydration-qml` 5
-passed / 2 failed). The three suites the 2026-08-11 round recorded as also
-failing here — `settings-shell-qml`, `design-acceptance` and
-`verification-qr-qml` — now PASS; that was environmental drift (offscreen
-pixel sampling, a host KDE style leak) and it has cleared on its own, which
-is exactly why those numbers were flagged as describing one desktop on one
-day. Run the suites yourself rather than trusting these; the same caveat
-still applies to this paragraph.
+passed / 2 failed). The drift was offscreen pixel sampling and a host KDE
+style leak — exactly why those numbers were flagged as describing one
+desktop on one day. Run the suites yourself rather than trusting these; the
+same caveat still applies to this paragraph.
 
 Run `git log --oneline v0.6.6..HEAD` rather than trusting this list; it will
 go stale the same way the narrative below did.
@@ -455,6 +459,45 @@ backend capability checks and honest live-test status.
   timeline so the `m.thread` relation and encryption stay SDK-owned
 - Element-style root summary cards with server reply counts, latest metadata,
   live updates, and conservative unread indication
+- **Thread voice messages** (2026-08-13). The thread composer has the same
+  mic, pill, waveform, cancel and send as the room composer, reusing the ONE
+  shared `VoiceRecorder`. `rooms::send_thread_voice_path` builds the SAME
+  `AttachmentInfo::Voice` as the room path and routes through
+  `mx_rust_thread_send_voice` → the thread-focused SDK timeline, so the
+  `m.thread` relation and encryption stay SDK-owned. There is deliberately
+  NO room-send fallback: a thread voice message that cannot reach its thread
+  must fail, never land in the main timeline. It hands over BYTES, not a
+  path — the SDK resolves `AttachmentSource::File` with `fs::read` INSIDE
+  its spawned task, so reclaiming the recording when the panel closes (one
+  click after Send) could delete it before it was read, and the advanced
+  thread generation would suppress the failure report. Do not switch this
+  back to `File`.
+  Ownership of the shared recorder is ONE authoritative value
+  (`AppController::voiceOwner`), never two per-composer flags: with two,
+  recording in the room composer and then in a thread (opening a thread does
+  not change `currentRoomId`, so cancel-on-room-change never fires) left
+  both armed and one `ready()` sent the same file to BOTH. Ownership is taken
+  only AFTER a successful start and is NEVER stolen from a live recorder —
+  `VoiceRecorder::start()` refuses while Recording/Processing and returns
+  false WITHOUT emitting `failed()`, so moving ownership first orphaned the
+  microphone with no pill and no owner, for up to 15 minutes and across
+  sign-out. Live mic capture and Element interop: NOT TESTED
+- **Thread participant facepiles** (2026-08-13). matrix-sdk-ui 0.18 exposes
+  NO participant list: `ThreadSummary` and `ThreadListItem` both carry only
+  the root sender, the latest reply's sender and a count of REPLIES — never
+  of people, and `num_replies` is not a participant count. So participants
+  come from the thread's own events via
+  `Room::load_or_fetch_event_with_relations` (cache-first, network only on a
+  miss, writes back to the event cache), deduplicated by user id in Rust,
+  root sender first then first-appearance order. Only user id, display name
+  and avatar mxc cross the FFI — never event content. `ThreadManager` caches
+  per (roomId, rootEventId), cleared on sign-out; requests are idempotent per
+  root, and an unanswered one is released after 60s so a root never becomes
+  permanently un-retryable. An empty list means UNKNOWN, never "nobody" — a
+  FAILED lookup is deliberately not cached, and the card falls back to the
+  latest sender's avatar. No "+N" badge: the distinct total beyond the cap is
+  not known. Fetches run per LOADED root (the timeline is not virtualized),
+  with an uncapped spawn — bounding that is an accepted follow-up
 - True thread-reply filtering from the live main timeline, cold-cache initial
   loading, stable per-thread scrolling, quick-switch navigation, and in-place
   thread E2EE recovery
@@ -488,6 +531,29 @@ were never backed up or shared.
   cache that keeps policy working offline, and a failed write is disclosed
   in the UI as kept-on-this-device). Non-Rust backends remain device-local.
   Live homeserver/Element interoperability of the rules is NOT TESTED
+- **"Follow account default" and retry on reconnect** (2026-08-13). Matrix
+  has no follow-default rule — it has the ABSENCE of a room override — so
+  mode 3 routes to `clearRoomNotificationMode` →
+  `mx_rust_clear_room_notification_mode` → the SDK's
+  `delete_user_defined_room_rules`, and `setRoomNotificationMode` still
+  refuses 3 toward the FFI so an invalid `RoomNotificationMode` can never
+  cross. Success reports on its own `roomNotificationModeCleared` signal:
+  the absence of a rule is not a rule's value, and routing it through
+  `roomNotificationModeChanged` meant a successful clear was DROPPED, so a
+  clear that failed once claimed "couldn't save" for the whole session and
+  was re-issued on every reconnect. Mode 3 is stored EXPLICITLY, not as a
+  missing key — an absent key already reads back as 0, so absence cannot
+  distinguish "following the default" from "never configured". Clamps are
+  0..3 in `SettingsManager` only; the other mode settings stay 0..2.
+  `NotificationManager` branches only on Muted/MentionsOnly, so mode 3
+  falls through to notify locally — the UI discloses that the SERVER applies
+  the account default while THIS DEVICE notifies for all messages, because
+  the resolved default is not known here and is not fabricated. The option
+  is offered only on a backend that owns server push rules. A write that
+  fails offline is retried on the EDGE into Syncing (not on every status
+  change), and a room leaves the failed set ONLY when the server
+  acknowledges it — never merely because a retry was attempted. Live
+  homeserver validation of the deletion and the retry: NOT TESTED
 
 ### Settings, usability, and accessibility
 
@@ -526,6 +592,32 @@ were never backed up or shared.
   Qt otherwise routes category logs to the journal when stderr is no TTY.
 - Room-activity visibility, link/GIF preview policy, notification privacy and
   sound, per-room notification mode, and wheel-speed settings
+- The media autoplay control is labelled **"Autoplay and prefetch media"**
+  (2026-08-13) because that is what it governs since the perf round: GIF
+  animation, the picker's autoplay, AND the speculative video/audio
+  prefetch. The stored key stays `gif/autoplay` and the property stays
+  `gifAutoplay` ON PURPOSE — renaming the key would silently reset every
+  existing user's preference, which is worse than a stale identifier
+- **Pre-send upload-limit preflight** (2026-08-13) against the homeserver's
+  advertised `m.upload.size` ONLY. Both fabricated 100 MiB ceilings are
+  gone; the Rust one was the worse, reporting an invented value as though
+  the server had advertised it whenever the capability lookup failed. 0 now
+  means UNKNOWN — never "unlimited", never replaced by a client default —
+  and suppresses local rejection entirely rather than refusing files the
+  server would have accepted. Voice messages had NO preflight at all and
+  now share `AttachmentQueueModel::exceedsUploadLimit`, so the check cannot
+  drift between composers. Exactly-at-limit is allowed (`>`, not `>=`):
+  `m.upload.size` is the largest ACCEPTED payload. Consequence to keep in
+  mind: with no advertised limit there is no client-side ceiling at all, so
+  an arbitrarily large file enters the SDK send queue. Re-adding a bound
+  would need to be worded plainly as a CLIENT safety limit, never presented
+  as the server's
+- **Send failures are scoped to where they happened** (2026-08-13).
+  `onAttachmentQueueFinished` received a `roomId` and discarded it, so a
+  late voice-send failure surfaced over whatever room the composer had since
+  moved to. Ops now carry their target room (and thread root). Cleanup of
+  the recording stays UNCONDITIONAL so nothing is orphaned on disk; only the
+  NOTICE is scoped — those are deliberately not the same decision
 - Unicode emoji picker with search, tones, and bounded local recents
 - Keyboard quick switch/search/navigation, accessible labels/roles/actions,
   focus handling, and keyboard-operable message/thread actions
@@ -941,16 +1033,17 @@ Keep this list grounded in source and recent history:
   real account (the lazy Latest-Events registration landed with the 0.7 UI
   checkpoints), and the design shell on a real desktop (KDE Wayland taskbar
   icon association included).
-- Deliberate follow-ups from the design handoff: thread participant
-  facepiles (needs participant data in the thread-summary bridge payload)
-  and Matrix presence. Voice messages LANDED 2026-08-12 (VoiceRecorder:
-  Qt Multimedia capture, OGG/Opus preferred with AAC/MP4 fallback, real
-  QAudioDecoder-derived waveform; mx_rust_timeline_send_voice →
-  AttachmentInfo::Voice, so the SDK emits the MSC3245 marker + MSC1767
-  duration/waveform block via the normal encrypting attachment path; the
-  hard duration cap DISCARDS, never auto-sends). Room composer only —
-  the thread composer mic is a follow-up. Live mic capture and Element
-  interop of sent voice events: NOT TESTED. Markdown sending (formatting
+- Remaining design-handoff follow-up: Matrix presence. Thread participant
+  facepiles LANDED 2026-08-13 (see §7 Threads) — the entry that said they
+  "need participant data in the thread-summary bridge payload" was
+  misleading: the SDK has no such payload to extend. Voice messages LANDED
+  2026-08-12 (VoiceRecorder: Qt Multimedia capture, OGG/Opus preferred with
+  AAC/MP4 fallback, real QAudioDecoder-derived waveform;
+  mx_rust_timeline_send_voice → AttachmentInfo::Voice, so the SDK emits the
+  MSC3245 marker + MSC1767 duration/waveform block via the normal
+  encrypting attachment path; the hard duration cap DISCARDS, never
+  auto-sends). The thread composer mic LANDED 2026-08-13. Live mic capture
+  and Element interop of sent voice events: NOT TESTED. Markdown sending (formatting
   toolbar + SDK text_markdown on interactive sends), message layout modes,
   and text-size scaling landed with the 2026-07-20 checkpoints; their live
   Element interoperability (formatted-body rendering) is still user-pending.
@@ -1008,6 +1101,19 @@ order a successor should pick them up:
 - Live validation still outstanding for everything the post-release rounds
   added: read receipts, server push-rule notification modes, QR verification
   against Element / Element X, and saving GIFs. All **NOT TESTED**.
+- From the 2026-08-13 thread-parity round, all **NOT TESTED**: microphone
+  capture and Element interop of thread voice events; real-homeserver
+  deletion of a room's push rules ("follow account default") and the
+  reconnect retry; facepile rendering and real `/relations` cost on a live
+  account. Accepted follow-ups from its review, none blocking: bound the
+  per-loaded-root participant fetch fan-out (the timeline is not
+  virtualized and `spawn_room_action` is uncapped); decide whether a
+  client-side sanity ceiling should apply when the server advertises no
+  upload limit (deliberately absent — see §7); `setVoiceRecorderForTest`
+  would be better taking a `unique_ptr`; `voice_info` computes `info.size`
+  from the stat size rather than the uploaded bytes; and `FakeRecorder` is
+  a PARTIAL double — `stop()`/`durationMs()` are not virtual, so anyone
+  needing `stop() → ready()` must extend the seam consciously.
 
 The 2026-08-11 media/UX round (single commit on `main`) landed: big-emoji
 rendering for 1-3 emoji-only messages (EmojiCatalog::emojiOnlySequenceCount,
