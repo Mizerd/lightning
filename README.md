@@ -1,12 +1,55 @@
-# lightning-deploy
+<div align="center">
 
-Private Debian and RPM packaging **and release orchestration** for the Lightning
-Matrix client. This is GitLab **project 7**. It fetches an immutable source
-revision from the canonical Lightning source project (**project 6**), builds
-native packages, validates each on a clean target system, publishes the
-validated files to project 6's Generic Package Registry, verifies them, and
-finally creates or updates the matching GitLab Release with package asset links.
-It is not a second Lightning source repository.
+# ⚡ lightning-deploy
+
+**Packaging and release orchestration for the [Lightning](https://gitlab.smetonis.net/Mizerd/lightning) Matrix client.**
+
+[![GitLab project 7](https://img.shields.io/badge/GitLab-project%207-fc6d26.svg)](https://gitlab.smetonis.net/Mizerd/lightning-deploy/-/pipelines)
+[![Linux formats](https://img.shields.io/badge/linux-deb%20%7C%20rpm%20%7C%20flatpak%20%7C%20appimage%20%7C%20snap-2f6be0.svg)](#packages-and-clean-system-validation)
+[![Windows: cross-built test](https://img.shields.io/badge/windows-cross--built%20test-4c8fdc.svg)](#windows-unsigned-test-packaging)
+[![macOS: native arm64 test](https://img.shields.io/badge/macOS-native%20arm64%20test-000000.svg)](#macos-unsigned-test-packaging)
+[![Pipelines: manual only](https://img.shields.io/badge/pipelines-web%20%2F%20api%20only-orange.svg)](#modes)
+[![Signing: unsigned](https://img.shields.io/badge/signing-unsigned-lightgrey.svg)](#code-signing)
+
+</div>
+
+This is GitLab **project 7**. It fetches an immutable source revision from the
+canonical Lightning source project (**project 6**), builds native packages,
+validates each on a clean target system, publishes the validated files to
+project 6's Generic Package Registry, verifies them, and finally creates or
+updates the matching GitLab Release with package asset links. It is **not** a
+second Lightning source repository — it holds no application code.
+
+|  |  |
+|---|---|
+| **Five Linux formats** | `deb`, `rpm`, `flatpak`, `appimage`, `snap` — each built and installed on a clean system before it can be published |
+| **Immutable input** | Every publishing pipeline pins one full 40-character project 6 SHA; both builders refetch it and must agree |
+| **Publish, then verify** | Files are re-downloaded from the registry and checked before the release is created — the release is the *last* action, never the first |
+| **Two test-only paths** | Cross-built Windows and natively built macOS arm64 artifacts that can never reach the registry, enforced by tests |
+| **No accidental runs** | `web`/`api` pipelines only; publication additionally requires the protected default branch and full validation |
+| **Truthful metadata** | One switch governs whether artifacts may claim a signature, so no file can advertise one it does not carry |
+
+> **Scope:** build infrastructure for a self-managed GitLab instance. Nix
+> packaging is deferred — no Nix package is built, validated, published, or
+> linked. Windows and macOS artifacts are **test builds only** and are not part
+> of any release.
+
+## Contents
+
+- [Architecture](#architecture)
+- [Pipeline stages and jobs](#pipeline-stages-and-jobs)
+- [Windows unsigned test packaging](#windows-unsigned-test-packaging)
+- [macOS unsigned test packaging](#macos-unsigned-test-packaging)
+- [Modes](#modes)
+- [Variables](#variables)
+- [Publication manifest](#publication-manifest)
+- [Registry, verification, and immutability](#registry-verification-and-immutability)
+- [Packages and clean-system validation](#packages-and-clean-system-validation)
+- [Authentication and security](#authentication-and-security)
+- [GIF provider keys](#gif-provider-keys)
+- [Tests](#tests)
+- [Code signing](#code-signing)
+- [Release ordering (authoritative)](#release-ordering-authoritative)
 
 The canonical local checkout is `/home/roksme/git/lightning-deploy`. The
 canonical source checkout is `/home/roksme/git/lightning`.
