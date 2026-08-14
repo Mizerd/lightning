@@ -7,7 +7,7 @@
 **A fast, native Matrix desktop client — Qt 6 on top of the official Rust Matrix SDK.**
 
 [![Licence: GPL-3.0-or-later](https://img.shields.io/badge/licence-GPL--3.0--or--later-blue.svg)](LICENSE)
-[![Latest release](https://img.shields.io/badge/release-v0.6.6-2f6be0.svg)](https://gitlab.smetonis.net/Mizerd/lightning/-/releases)
+[![Latest release](https://img.shields.io/badge/release-v0.7.0-2f6be0.svg)](https://gitlab.smetonis.net/Mizerd/lightning/-/releases)
 [![Platform: Linux | Windows](https://img.shields.io/badge/platform-Linux%20%7C%20Windows-4c8fdc.svg)](#installation)
 [![Qt 6](https://img.shields.io/badge/Qt-6.5%2B-41CD52.svg)](https://www.qt.io/)
 [![matrix-rust-sdk](https://img.shields.io/badge/matrix--rust--sdk-0.18-000000.svg)](https://github.com/matrix-org/matrix-rust-sdk)
@@ -30,7 +30,7 @@ Lightning implements no Matrix cryptography of its own.
 | **Rich composer** | Markdown, mentions, polls, GIFs, emoji, attachments — in rooms and threads |
 | **Open source** | GPL-3.0-or-later, packaged for both platforms |
 
-> **Status:** under active development (0.6.x). Usable day to day, but not
+> **Status:** under active development (0.7.x). Usable day to day, but not
 > formally audited or certified — expect rough edges and occasional
 > regressions. Linux is the primary development and support target; Windows
 > (x86-64) packages ship alongside every release from v0.6.3 onward.
@@ -74,10 +74,11 @@ still developing, some workflows remain experimental.
 ### Accounts, rooms and Spaces
 
 - Password login, persistent sessions and restoration, and logout
-- **Browser sign-in (OAuth 2.0 / OIDC)** on homeservers that offer it. After a
-  homeserver is entered, Lightning asks the server which authentication methods
-  it actually supports and offers only those — nothing is hard-coded for any
-  provider. The browser flow is owned by the Matrix Rust SDK (`Client::oauth()`):
+- **Browser sign-in (OAuth 2.0 / OIDC)** on homeservers that offer it —
+  live-validated against matrix.org, including new-account registration
+  through an upstream identity provider. Lightning asks the server which
+  authentication methods it actually supports as you type the homeserver
+  and offers only those — nothing is hard-coded for any provider. The browser flow is owned by the Matrix Rust SDK (`Client::oauth()`):
   the SDK builds the authorization URL with PKCE, validates the CSRF state,
   exchanges the code, and refreshes access tokens. Lightning contributes only
   the system-browser launch and a single-shot loopback listener bound to
@@ -92,8 +93,15 @@ still developing, some workflows remain experimental.
   with fast in-app switching and no login form between them; each account keeps
   its own isolated SDK and encryption store, and only the active account syncs
 - Scoped account removal and logout that never touch other accounts
-- Joined rooms, direct messages, invites, and Matrix Space hierarchy navigation
+- Joined rooms, direct messages, invites, and Matrix Space hierarchy
+  navigation, with a **Space front page** (double-click a Space in the rail)
+  listing its rooms
 - Room creation, member lists and roles, room-profile editing, and invites
+- **Moderation**: kick, ban and unban from the member profile, gated by real
+  power-level permissions; banned members stay visible so unban is
+  reachable, and unbanning can invite the user straight back
+- **Room list filters** — All / People / Rooms / Unreads chips, persisted
+  per account, so busy DM lists never bury your rooms
 - Keyboard quick switcher (Ctrl-K) with a **navigate mode** across rooms, DMs,
   Spaces, and invites and a **command mode** (`>`) with scope chips, plus
   find-in-timeline (Ctrl-F) across the currently loaded timeline, which
@@ -103,8 +111,11 @@ still developing, some workflows remain experimental.
 
 - Live timelines with replies, edits, reactions, redactions, mentions, and
   typing indicators
-- **Read receipts** as Element-style avatar chips on each message, with a "+N"
-  overflow pill and a "Read by …" summary for the tooltip and screen readers
+- **Read receipts** as Element-style avatar chips riding a fixed right-edge
+  rail, with a "+N" overflow pill and a "Read by …" summary for the tooltip
+  and screen readers
+- **Per-user name colours** — every sender keeps one deterministic,
+  WCAG-AA-checked colour, matched to their avatar, across every surface
 - **MSC3381 polls** — vote, change your vote, and see live tallies
 - Unread and mention states, marked-unread, first-unread and jump-to-latest
   navigation, and backward pagination
@@ -127,7 +138,10 @@ still developing, some workflows remain experimental.
 ### Media
 
 - Images, files, and clipboard images, including encrypted attachments
-- Inline **video and audio playback** with posters, duration, and waveforms
+- **Voice messages** (MSC3245) — record with a live waveform and send, in
+  rooms and threads, as mono Opus through the SDK's encrypting media path
+- Inline **video and audio playback** with posters, duration, and waveforms;
+  outgoing videos carry a locally extracted poster thumbnail
 - Animated GIF attachments and a multi-provider GIF browser (GIPHY and KLIPY):
   trending, search, categories, recents, safe-search, and autoplay policy,
   sending as real Matrix media into rooms and threads
@@ -249,7 +263,7 @@ for exactly which files would be signed. Verify a download against the published
   by signing out of the account inside the app.
 
 The authoritative per-release list of artifacts is the release notes — for
-example [`docs/releases/v0.6.6.md`](docs/releases/v0.6.6.md) — and the Releases
+example [`docs/releases/v0.7.0.md`](docs/releases/v0.7.0.md) — and the Releases
 page itself. Packaging, cross-platform builds, publishing, and verification are
 maintained in a separate automation project,
 [**lightning-deploy**](https://gitlab.smetonis.net/Mizerd/lightning-deploy); this
