@@ -320,6 +320,34 @@ Artifacts, developer-visible, seven-day expiry:
 - `dist/macos/reports/` — macdeployqt log, codesign output, `spctl` assessment,
   `otool` dependency dumps, validation JSON
 
+## Build times and the cargo cache
+
+Cargo's target directory is not inside the build tree. `build-macos.sh` symlinks
+`build/rust` to `$LIGHTNING_MACOS_CACHE/cargo-target`
+(default `~/Library/Caches/lightning-ci/cargo-target`) so it survives the shell
+executor wiping the workspace between jobs.
+
+Measured on the Mac mini (M1, 16 GiB, `BUILD_JOBS=4`):
+
+| Cache state | Wall clock | Notes |
+| --- | --- | --- |
+| Warm | ~10 min | Only changed crates plus the C++ and bundling phases |
+| Cold | ~2 h 35 min | ~1000 crates, then a >1 h single-threaded fat-LTO pass |
+
+The job `timeout` is `3h` to cover the cold case. Two things invalidate the whole
+cache and force a cold rebuild:
+
+- **The deployment target changes.** `MACOSX_DEPLOYMENT_TARGET` is part of
+  rustc's fingerprint, so a Qt upgrade that moves the derived floor (see
+  [Deployment target](#deployment-target)) rebuilds everything exactly once.
+- **The Rust toolchain changes.**
+
+Do not raise `BUILD_JOBS` past 4 on this host. Six parallel `rustc` processes
+push a 16 GiB machine into heavy memory compression and the build gets slower,
+not faster. See the single-threaded note in
+[Expected noise](#expected-noise-in-a-successful-build-log) for why more
+parallelism does not help the part that dominates a cold build.
+
 ## Expected noise in a successful build log
 
 A green run still prints a lot of alarming-looking output. These are all

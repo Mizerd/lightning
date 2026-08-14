@@ -235,6 +235,10 @@ in `tests/test-pipeline-config.py`.
 A branch, tag, short SHA, or merge-request pipeline still excludes the macOS
 job.
 
+Expect roughly 10 minutes with a warm cargo cache and up to 2.5 hours cold —
+the job `timeout` is `3h` for that reason. See
+[Build times and the cargo cache](docs/macos-packaging.md#build-times-and-the-cargo-cache).
+
 The job produces seven-day, developer-visible CI artifacts only:
 
 - `Lightning-<version>-<source-short-sha>-macos-arm64.zip` and its `.sha256`
