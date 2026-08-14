@@ -4,7 +4,6 @@
 
 **Packaging and release orchestration for the [Lightning](https://gitlab.smetonis.net/Mizerd/lightning) Matrix client.**
 
-[![GitLab project 7](https://img.shields.io/badge/GitLab-project%207-fc6d26.svg)](https://gitlab.smetonis.net/Mizerd/lightning-deploy/-/pipelines)
 [![Linux formats](https://img.shields.io/badge/linux-deb%20%7C%20rpm%20%7C%20flatpak%20%7C%20appimage%20%7C%20snap-2f6be0.svg)](#packages-and-clean-system-validation)
 [![Windows: cross-built test](https://img.shields.io/badge/windows-cross--built%20test-4c8fdc.svg)](#windows-unsigned-test-packaging)
 [![macOS: native arm64 test](https://img.shields.io/badge/macOS-native%20arm64%20test-000000.svg)](#macos-unsigned-test-packaging)
