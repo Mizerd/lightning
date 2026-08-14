@@ -305,9 +305,25 @@ printf 'APPL????' >"$CONTENTS/PkgInfo"
 # without a source scan macdeployqt cannot see which Qt QML modules (QtQuick,
 # QtQuick.Controls, QtMultimedia, ...) the app actually imports and would ship a
 # bundle that fails at first window.
+# The console output is filtered; the log file is not. macdeployqt emits a pair
+# of lines per unresolvable dependency —
+#   ERROR: Cannot resolve rpath "@rpath/QtVirtualKeyboard.framework/..."
+#   ERROR:  using QList("/opt/homebrew/opt/qtdeclarative/lib", ...)
+# — roughly 40 of them, for modules this script prunes immediately afterwards
+# and for dylibs (libwebp, libsharpyuv, libbrotlicommon) that it resolves on a
+# later pass anyway. They are printed during deployment, so pruning cannot
+# prevent them; they can only be filtered. Every line still lands verbatim in
+# reports/macdeployqt.log, and the count is reported below, so nothing is
+# hidden — only moved out of the way. Any OTHER macdeployqt error still prints.
 macdeployqt "$APP_DIR" \
     -qmldir="$SOURCE_DIR" \
-    -verbose=1 2>&1 | tee "$REPORT_DIR/macdeployqt.log"
+    -verbose=1 2>&1 \
+    | tee "$REPORT_DIR/macdeployqt.log" \
+    | { grep -vE '^ERROR: +(Cannot resolve rpath|using QList)' || true; }
+
+rpath_noise="$(grep -c 'Cannot resolve rpath' "$REPORT_DIR/macdeployqt.log" || true)"
+printf 'macdeployqt: %s unresolvable-rpath lines filtered from the console (see reports/macdeployqt.log)\n' \
+    "$rpath_noise"
 
 # --- prune modules the app does not import -----------------------------------
 # macdeployqt deploys every plugin in its default categories, not only the ones

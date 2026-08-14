@@ -197,10 +197,27 @@ Contents/Resources/qml/QtQuick/Pdf
 Contents/Resources/qml/QtQml/StateMachine
 ```
 
-This removes the dead payload and most of the `Cannot resolve rpath` noise it
-generated. If a future Lightning release does import one of these, the module
-must be *fixed* (bundled with its framework), not merely un-pruned — and the
-validation run at the end of the build is what would catch its absence.
+This removes the dead payload. It does **not** silence the errors: macdeployqt
+prints them while deploying, before the prune runs, so they can only be
+filtered — see below. If a future Lightning release does import one of these,
+the module must be *fixed* (bundled with its framework), not merely un-pruned,
+and the validation run at the end of the build is what would catch its absence.
+
+### Console filtering
+
+macdeployqt emits about 40 lines, in pairs, for dependencies it cannot resolve:
+
+```text
+ERROR: Cannot resolve rpath "@rpath/QtVirtualKeyboard.framework/..."
+ERROR:  using QList("/opt/homebrew/opt/qtdeclarative/lib", ...)
+```
+
+They are all either for modules the build prunes moments later, or for dylibs
+(`libwebp`, `libsharpyuv`, `libbrotlicommon`) that macdeployqt resolves on a
+later pass. Only those two patterns are filtered from the console, and the build
+prints how many it dropped. **Every line still lands verbatim in
+`reports/macdeployqt.log`**, which is an artifact, and any other macdeployqt
+error — a codesign failure, for instance — still prints.
 
 ### Load-command repair pass
 
@@ -435,8 +452,9 @@ A green run still prints a lot of alarming-looking output. These are all
 benign, and none of them fails the job:
 
 **`ERROR: Cannot resolve rpath "@rpath/QtVirtualKeyboard.framework/..."`** (also
-Qt3D*, QtPdf, QtStateMachine, QtQuickTimeline, QtSvg). Mostly eliminated — see
-[Pruned modules](#pruned-modules) — but the mechanism is worth knowing.
+Qt3D*, QtPdf, QtStateMachine, QtQuickTimeline, QtSvg). Now filtered from the
+console and kept in `reports/macdeployqt.log` — see
+[Console filtering](#console-filtering) — but the mechanism is worth knowing.
 
 The frameworks are **not** missing; they are all present under
 `$(brew --prefix qt)/lib`. They fail to resolve because Homebrew's Qt binaries
