@@ -309,6 +309,81 @@ macdeployqt "$APP_DIR" \
     -qmldir="$SOURCE_DIR" \
     -verbose=1 2>&1 | tee "$REPORT_DIR/macdeployqt.log"
 
+# --- prune modules the app does not import -----------------------------------
+# macdeployqt deploys every plugin in its default categories, not only the ones
+# this app can reach. On this Qt that pulls in a virtual-keyboard input context
+# and, through it, the VirtualKeyboard/Timeline/StateMachine/Pdf QML modules.
+# Lightning imports none of them (its only imports are QtQuick, QtQuick.Controls
+# [.Basic], QtQuick.Dialogs, QtQuick.Effects, QtQuick.Layouts, QtQuick.Window,
+# QtMultimedia and its own MatrixClient module).
+#
+# They do not merely waste space, they arrive broken. Homebrew's Qt frameworks
+# carry rpaths naming the per-module prefixes (.../opt/qtbase/lib,
+# .../opt/qtdeclarative/lib) and there is no such prefix for qt3d, qtscxml or
+# qtpdf, so macdeployqt cannot resolve their frameworks and emits a long wall of
+#   ERROR: Cannot resolve rpath "@rpath/QtVirtualKeyboard.framework/..."
+# then copies the QML module and its plugin in anyway, without the framework it
+# needs. Removing them deletes dead payload and the noise it generates. Anything
+# genuinely required would fail the validation run at the end of this script.
+for dead in \
+    "$CONTENTS/PlugIns/platforminputcontexts" \
+    "$CONTENTS/Resources/qml/QtQuick/VirtualKeyboard" \
+    "$CONTENTS/Resources/qml/QtQuick/Timeline" \
+    "$CONTENTS/Resources/qml/QtQuick/Pdf" \
+    "$CONTENTS/Resources/qml/QtQml/StateMachine"
+do
+    [[ -e "$dead" ]] || continue
+    rm -rf -- "$dead"
+    printf 'pruned unused module: %s\n' "${dead#"$APP_DIR"/}"
+done
+
+# --- repair load commands macdeployqt left pointing at the host ---------------
+# macdeployqt drives install_name_tool through QProcess and does not always wait
+# for it. Its own log carries
+#   QProcess: Destroyed while process ("install_name_tool") is still running.
+# and when that race bites, a binary keeps an absolute /opt/homebrew dependency.
+# That bundle only runs on this machine, and it is intermittent: the same commit
+# produced a clean bundle in pipeline 90 and one broken plugin
+# (PlugIns/quick/libqtquicktemplates2plugin.dylib -> QtNetwork) in pipeline 91.
+#
+# So do not trust macdeployqt to have finished. Sweep every Mach-O and rewrite
+# any remaining host reference to the copy already inside the bundle. A host
+# dependency whose framework is NOT bundled is a real missing dependency and
+# stops the build rather than shipping something that cannot run elsewhere.
+repaired=0
+while IFS= read -r macho; do
+    install_name="$(otool -D "$macho" 2>/dev/null | sed -n '2p')"
+    while IFS= read -r dep; do
+        [[ -n "$dep" ]] || continue
+        # The install name (LC_ID_DYLIB) is the binary's own identity, not a
+        # dependency; macdeployqt leaves it as-is and that is harmless.
+        [[ "$dep" == "$install_name" ]] && continue
+
+        case "$dep" in
+            "$QT_PREFIX"/*|/opt/homebrew/*|/usr/local/*) ;;
+            *) continue ;;
+        esac
+
+        # .../SomeFramework.framework/Versions/A/SomeFramework  or  .../libfoo.1.dylib
+        if [[ "$dep" == *.framework/* ]]; then
+            fw="${dep##*/}"
+            rel="Frameworks/${fw}.framework/Versions/A/${fw}"
+        else
+            rel="Frameworks/${dep##*/}"
+        fi
+
+        [[ -f "$CONTENTS/$rel" ]] || \
+            die "bundled $(basename "$macho") needs $dep, which macdeployqt did not bundle"
+
+        install_name_tool -change "$dep" "@executable_path/../$rel" "$macho"
+        printf 'repaired %s: %s\n' "${macho#"$APP_DIR"/}" "$dep"
+        repaired=$((repaired + 1))
+    done < <(otool -L "$macho" 2>/dev/null | tail -n +2 | awk '{print $1}')
+done < <(find "$APP_DIR" -type f \( -perm -u+x -o -name '*.dylib' \) -exec sh -c \
+    'file -b "$1" | grep -q "Mach-O" && printf "%s\n" "$1"' _ {} \;)
+
+printf 'load-command repair pass: %d rewritten\n' "$repaired"
+
 # --- metadata ----------------------------------------------------------------
 # Written BEFORE signing, deliberately. build-info.json lives inside
 # Contents/Resources, so adding it after the bundle is sealed invalidates the

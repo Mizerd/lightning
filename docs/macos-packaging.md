@@ -172,6 +172,58 @@ run **at all**; it is not distribution signing.
 The archive is produced with `ditto -c -k --sequesterRsrc --keepParent`, not
 `zip -r`: a plain zip mangles framework symlink layout and breaks the signature.
 
+### Pruned modules
+
+`macdeployqt` deploys every plugin in its default categories, not only the ones
+the app can reach. Here that pulls in the virtual-keyboard input context and,
+through it, the VirtualKeyboard, Timeline, StateMachine and Pdf QML modules.
+Lightning imports none of them — its complete import set is `QtQuick`,
+`QtQuick.Controls`, `QtQuick.Controls.Basic`, `QtQuick.Dialogs`,
+`QtQuick.Effects`, `QtQuick.Layouts`, `QtQuick.Window`, `QtMultimedia` and its
+own `MatrixClient`.
+
+They also arrive **broken**: their frameworks cannot be resolved (see
+[Expected noise](#expected-noise-in-a-successful-build-log)), so the QML module
+and its plugin are copied in while the framework it links is not. A bundle that
+loaded one would fail at runtime.
+
+So the build deletes them after macdeployqt and before signing:
+
+```text
+Contents/PlugIns/platforminputcontexts
+Contents/Resources/qml/QtQuick/VirtualKeyboard
+Contents/Resources/qml/QtQuick/Timeline
+Contents/Resources/qml/QtQuick/Pdf
+Contents/Resources/qml/QtQml/StateMachine
+```
+
+This removes the dead payload and most of the `Cannot resolve rpath` noise it
+generated. If a future Lightning release does import one of these, the module
+must be *fixed* (bundled with its framework), not merely un-pruned — and the
+validation run at the end of the build is what would catch its absence.
+
+### Load-command repair pass
+
+`macdeployqt` drives `install_name_tool` through `QProcess` without always
+waiting for it. Its own log carries:
+
+```text
+QProcess: Destroyed while process ("install_name_tool") is still running.
+```
+
+When that race bites, a binary keeps an absolute `/opt/homebrew` dependency and
+the bundle only runs on the build machine. It is **intermittent**: the same
+source commit produced a clean bundle in pipeline 90 and a broken
+`PlugIns/quick/libqtquicktemplates2plugin.dylib` (still pointing at
+`/opt/homebrew/opt/qtbase/lib/QtNetwork.framework`) in pipeline 91, which failed
+validation.
+
+Rather than rely on macdeployqt having finished, the build sweeps every Mach-O
+in the bundle afterwards and rewrites any remaining host reference to the copy
+already inside `Contents/Frameworks`. A binary's own install name (`LC_ID_DYLIB`)
+is skipped — it is identity, not a dependency. A host dependency whose framework
+is *not* bundled is a genuine missing dependency and stops the build.
+
 ## Bundle identity
 
 ```text
@@ -327,39 +379,77 @@ Cargo's target directory is not inside the build tree. `build-macos.sh` symlinks
 (default `~/Library/Caches/lightning-ci/cargo-target`) so it survives the shell
 executor wiping the workspace between jobs.
 
-Measured on the Mac mini (M1, 16 GiB, `BUILD_JOBS=4`):
-
-| Cache state | Wall clock | Notes |
-| --- | --- | --- |
-| Warm | ~10 min | Only changed crates plus the C++ and bundling phases |
-| Cold | ~2 h 35 min | ~1000 crates, then a >1 h single-threaded fat-LTO pass |
-
-The job `timeout` is `3h` to cover the cold case. Two things invalidate the whole
-cache and force a cold rebuild:
+Two things invalidate the cache and force every crate to rebuild:
 
 - **The deployment target changes.** `MACOSX_DEPLOYMENT_TARGET` is part of
   rustc's fingerprint, so a Qt upgrade that moves the derived floor (see
   [Deployment target](#deployment-target)) rebuilds everything exactly once.
 - **The Rust toolchain changes.**
 
-Do not raise `BUILD_JOBS` past 4 on this host. Six parallel `rustc` processes
-push a 16 GiB machine into heavy memory compression and the build gets slower,
-not faster. See the single-threaded note in
-[Expected noise](#expected-noise-in-a-successful-build-log) for why more
-parallelism does not help the part that dominates a cold build.
+### Wall clock is unpredictable on this host
+
+Job durations observed so far, all building the same source commit:
+
+| Pipeline | Job wall clock | Cargo's own reported time |
+| --- | --- | --- |
+| 88 | 10 min | 5m 56s |
+| 90 | 2 h 34 min | 6m 00s |
+| 91 | 1 h 22 min | 6m 01s |
+
+Cargo reports essentially the same build time every run, and the C++ phase after
+it takes well under a minute (ninja steps 6→180 completed in ~45 s in pipeline
+91). The variance is **not** explained by cache state, crate count, or LTO.
+
+In pipeline 91 the cargo ninja step occupied 64m 43s of wall clock while cargo
+itself reported 6m 01s. There was no lock contention (`Blocking waiting for file
+lock` never appears), no swap (`vm.swapusage` 0), and no memory shortage
+(`memory_pressure` reported 86% free). Sampled directly, `rustc` was consuming a
+full core — but it had accumulated only ~6 minutes of CPU time across an hour of
+elapsed time, meaning it spent most of that hour not scheduled.
+
+**This is unexplained.** Do not trust a single measurement from this host as a
+performance baseline. Two things are worth investigating before drawing
+conclusions:
+
+- The Mac is auto-logged into a **GUI session** and renders an animated aerial
+  wallpaper. `WallpaperAerialsExtension`, `WindowServer` and
+  `VTDecoderXPCService` are continuously resident and were the busiest processes
+  in a live sample taken during a build.
+- Spotlight (`mds`, `mds_stores`, `mdworker_shared`, `corespotlightd`) and
+  `mediaanalysisd` index the machine, including the build tree.
+
+Neither has been disabled, and neither has been *proven* to cause the stalls.
+
+The job `timeout` is `3h` — headroom for the worst case observed, not an
+estimate of how long the build should take.
+
+`BUILD_JOBS` is `4`. It was briefly raised to 6, which coincided with a job that
+hit the old 2h timeout, so it was put back. Given the variance documented above,
+treat that as a precaution rather than a measured result — the fat-LTO pass
+(`lto = true`, `codegen-units = 1`) is single-threaded regardless, so no value of
+`BUILD_JOBS` affects the step that dominates the run.
 
 ## Expected noise in a successful build log
 
 A green run still prints a lot of alarming-looking output. These are all
 benign, and none of them fails the job:
 
-**`ERROR: Cannot resolve rpath "@rpath/Qt3DCore.framework/..."`** (also QtPdf,
-QtStateMachine, QtQuickTimeline, QtVirtualKeyboard, QtSvg, and friends).
-`macdeployqt` walks every QML import it can reach from the source tree and
-reports modules it cannot find. Homebrew's Qt does not ship the Qt3D, QtPdf, or
-QtStateMachine modules at all, and Lightning does not import them — the scanner
-simply cannot tell an optional style/import chain from a required one. The
-frameworks the app *actually* links are asserted individually by
+**`ERROR: Cannot resolve rpath "@rpath/QtVirtualKeyboard.framework/..."`** (also
+Qt3D*, QtPdf, QtStateMachine, QtQuickTimeline, QtSvg). Mostly eliminated — see
+[Pruned modules](#pruned-modules) — but the mechanism is worth knowing.
+
+The frameworks are **not** missing; they are all present under
+`$(brew --prefix qt)/lib`. They fail to resolve because Homebrew's Qt binaries
+carry rpaths naming *per-module* prefixes (`/opt/homebrew/opt/qtbase/lib`,
+`/opt/homebrew/opt/qtdeclarative/lib`, `/opt/homebrew/opt/qtmultimedia/lib`),
+and there is no corresponding prefix for qt3d, qtscxml or qtpdf. So macdeployqt
+searches a list that cannot contain them, gives up, and copies the QML module in
+*without* the framework it needs — dead payload, not just noise.
+
+The remaining `libwebp`/`libsharpyuv`/`libbrotlicommon` lines are different: those
+dylibs *are* bundled, and macdeployqt resolves them on a later pass.
+
+The frameworks the app actually links are asserted individually by
 `validate-macos-artifacts.sh`, which is the check that matters.
 
 **`ERROR: codesign verification error: ... invalid signature (code or signature

@@ -446,22 +446,20 @@ macos-package-test:
   tags: [macos, arm64]
   resource_group: lightning-macos-package
   interruptible: true
-  # 3h, not 2h. A warm run finishes in ~10 minutes, but any change to the
-  # toolchain or MACOSX_DEPLOYMENT_TARGET invalidates every cargo fingerprint
-  # and forces a rebuild of ~1000 crates followed by a fat-LTO link that alone
-  # took over an hour on this hardware. Pipeline 89 was killed at exactly 2h
-  # part-way through macdeployqt for that reason.
+  # 3h is headroom for the worst case observed, not an estimate. The same commit
+  # has built in 10 minutes (pipeline 88) and 2h34m (pipeline 90) on this host,
+  # while cargo self-reported ~6 minutes in both. The variance is unexplained and
+  # is not cache state — see docs/macos-packaging.md, "Wall clock is
+  # unpredictable on this host". Pipeline 89 was killed at the old 2h limit.
   timeout: 3h
   needs:
     - job: resolve-source
       artifacts: true
   variables:
-    # Back to 4 after pipeline 89. The Mac mini has 16 GiB, and six parallel
-    # rustc processes in the dependency phase drove the machine into heavy
-    # memory compression (~500k compressions) which slowed the whole build far
-    # more than the extra parallelism gained. The C++ phase is not the
-    # bottleneck here; the single-threaded fat-LTO link is, and no value of
-    # BUILD_JOBS affects it.
+    # Back to 4 after pipeline 89 hit the old 2h timeout while running 6. Given
+    # how variable this host's wall clock is, treat that as a precaution rather
+    # than a measured result. The step that dominates the run is the
+    # single-threaded fat-LTO link, which no value of BUILD_JOBS affects.
     BUILD_JOBS: "4"
   before_script:
     - test "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH"

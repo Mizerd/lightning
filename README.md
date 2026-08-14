@@ -277,8 +277,9 @@ in `tests/test-pipeline-config.py`.
 A branch, tag, short SHA, or merge-request pipeline still excludes the macOS
 job.
 
-Expect roughly 10 minutes with a warm cargo cache and up to 2.5 hours cold —
-the job `timeout` is `3h` for that reason. See
+Job duration on this host is erratic — the same commit has taken 10 minutes and
+2.5 hours, and the cause is not yet identified. The job `timeout` is `3h` as
+headroom for the worst case observed. See
 [Build times and the cargo cache](docs/macos-packaging.md#build-times-and-the-cargo-cache).
 
 The job produces seven-day, developer-visible CI artifacts only:
