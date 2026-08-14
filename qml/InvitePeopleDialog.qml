@@ -184,7 +184,13 @@ Dialog {
             visible: !root.batchDone
             onUserSelected: (userId, displayName, avatarUrl) => {
                 var membership = root.membershipOf(userId)
-                if (membership === "joined" || membership === "invited") {
+                // "banned" joined this pre-check with the unban round: the
+                // server refuses invites to banned users outright, so
+                // letting the selection through produced an unexplained
+                // "Not permitted" failure (live report 2026-08-14). Point
+                // at the real remedy instead.
+                if (membership === "joined" || membership === "invited"
+                        || membership === "banned") {
                     alreadyLabel.userId = userId
                     alreadyLabel.membership = membership
                     picker.clear()
@@ -209,7 +215,10 @@ Dialog {
             Layout.fillWidth: true
             text: membership === "joined"
                   ? qsTr("%1 is already in this room.").arg(userId)
-                  : qsTr("%1 has already been invited.").arg(userId)
+                  : membership === "banned"
+                    ? qsTr("%1 is banned from this room. Unban them from "
+                           + "the People tab first.").arg(userId)
+                    : qsTr("%1 has already been invited.").arg(userId)
             color: AppTheme.stormTextMuted
             wrapMode: Text.WordWrap
             font.pixelSize: AppTheme.fontSizeS
