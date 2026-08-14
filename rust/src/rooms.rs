@@ -1192,6 +1192,11 @@ pub(crate) fn room_members(
                         _ => "other",
                     },
                     "role": role,
+                    // Raw power level so the UI can hide moderation actions
+                    // against peers at or above the viewer's own level (the
+                    // server enforces regardless; this only avoids offering
+                    // an action that must fail).
+                    "power_level": power_level_int(member.power_level()),
                     "ambiguous": member.name_ambiguous(),
                     "is_own": Some(member.user_id())
                         == own_id.as_ref().map(|o| o.as_ref()),
@@ -1215,6 +1220,12 @@ pub(crate) fn room_members(
         let can_edit_avatar = own_member
             .as_ref()
             .is_some_and(|m| m.can_send_state(StateEventType::RoomAvatar));
+        let can_kick = own_member.as_ref().is_some_and(|m| m.can_kick());
+        let can_ban = own_member.as_ref().is_some_and(|m| m.can_ban());
+        let own_power_level = own_member
+            .as_ref()
+            .map(|m| power_level_int(m.power_level()))
+            .unwrap_or(0);
 
         if !timelines.lifecycle_current(lifecycle) {
             return;
@@ -1232,7 +1243,79 @@ pub(crate) fn room_members(
             "own_can_edit_name": can_edit_name,
             "own_can_edit_topic": can_edit_topic,
             "own_can_edit_avatar": can_edit_avatar,
+            "own_can_kick": can_kick,
+            "own_can_ban": can_ban,
+            "own_power_level": own_power_level,
             "members": rows,
+        }));
+    });
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Moderation (kick / ban)
+// ---------------------------------------------------------------------------
+
+// UserPowerLevel → bridge integer. MSC4289 room creators are "Infinite";
+// they map to a sentinel every finite room power level sits below, chosen
+// to survive the JSON f64 hop exactly. Known accepted edges: a pathological
+// explicit power level above 1e9 would outrank a creator here, and the
+// value is consumed as a 64-bit integer on the C++ side — neither occurs
+// in real deployments.
+fn power_level_int(
+    level: matrix_sdk::ruma::events::room::power_levels::UserPowerLevel,
+) -> i64 {
+    use matrix_sdk::ruma::events::room::power_levels::UserPowerLevel;
+    match level {
+        UserPowerLevel::Infinite => 1_000_000_000,
+        UserPowerLevel::Int(v) => v.into(),
+        // The enum is non_exhaustive; an unknown future variant reads as
+        // an ordinary member rather than inventing power.
+        _ => 0,
+    }
+}
+
+// Kick or ban one user from a joined room through the SDK's own moderation
+// calls. Power-level enforcement is the SERVER'S; the client only avoids
+// offering actions that must fail and surfaces the result honestly. An
+// empty reason means "no reason given". Result event:
+// room_moderation_result { op_id, room_id, user_id, op, ok, category }.
+pub(crate) fn moderate_member(
+    bridge: &RustClient,
+    room_id: String,
+    user_id: String,
+    reason: String,
+    ban: bool,
+    op_id: u64,
+) -> Result<(), String> {
+    let client = require_client(bridge)?;
+    let room = joined_room(&client, &room_id)?;
+    let uid = UserId::parse(&user_id).map_err(|_| "invalid user id".to_owned())?;
+    let events = Arc::clone(&bridge.events);
+    let timelines = Arc::clone(&bridge.timelines);
+    let lifecycle = timelines.lifecycle();
+    bridge.spawn_room_action(async move {
+        let reason_opt = (!reason.is_empty()).then_some(reason.as_str());
+        let result = if ban {
+            room.ban_user(&uid, reason_opt).await
+        } else {
+            room.kick_user(&uid, reason_opt).await
+        };
+        if !timelines.lifecycle_current(lifecycle) {
+            return;
+        }
+        enqueue(&events, json!({
+            "type": "room_moderation_result",
+            "op_id": op_id,
+            "lifecycle": lifecycle,
+            "room_id": room_id,
+            "user_id": user_id,
+            "op": if ban { "ban" } else { "kick" },
+            "ok": result.is_ok(),
+            "category": result
+                .err()
+                .map(|err| classify_room_error(&err.to_string()))
+                .unwrap_or(""),
         }));
     });
     Ok(())

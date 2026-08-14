@@ -466,6 +466,15 @@ public:
     { Q_UNUSED(roomId); return 0; }
     virtual quint64 leaveRoom(const QString &roomId)
     { Q_UNUSED(roomId); return 0; }
+    // Moderation: kick or ban one user (SDK-owned power-level semantics;
+    // the server enforces, the client only surfaces the result). `reason`
+    // may be empty. 0 = unsupported on this backend.
+    virtual quint64 kickUser(const QString &roomId, const QString &userId,
+                             const QString &reason)
+    { Q_UNUSED(roomId); Q_UNUSED(userId); Q_UNUSED(reason); return 0; }
+    virtual quint64 banUser(const QString &roomId, const QString &userId,
+                            const QString &reason)
+    { Q_UNUSED(roomId); Q_UNUSED(userId); Q_UNUSED(reason); return 0; }
     virtual quint64 addRoomToSpace(const QString &spaceId, const QString &roomId)
     { Q_UNUSED(spaceId); Q_UNUSED(roomId); return 0; }
     // v0.7: MSC1772 child removal (empty-via m.space.child). Never leaves
@@ -775,6 +784,10 @@ Q_SIGNALS:
                           const QString &category);
     void roomLeaveFinished(quint64 opId, const QString &roomId, bool ok,
                            const QString &category);
+    // op is "kick" or "ban"; category is a sanitized error class on failure.
+    void moderationFinished(quint64 opId, const QString &roomId,
+                            const QString &userId, const QString &op,
+                            bool ok, const QString &category);
     void spaceChildFinished(quint64 opId, const QString &spaceId,
                             const QString &roomId, bool ok);
     void spaceChildRemoveFinished(quint64 opId, const QString &spaceId,

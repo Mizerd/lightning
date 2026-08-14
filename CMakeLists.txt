@@ -1401,6 +1401,20 @@ if(BUILD_TESTING)
     target_link_libraries(conversation-flow-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME conversation-flow COMMAND conversation-flow-test)
 
+    # 2026-08-14: kick/ban moderation through RoomInfoController — snapshot
+    # permission ingestion, SDK-flag gating, one-in-flight discipline,
+    # sanitized result mapping, stale-result rejection on room switch.
+    qt_add_executable(room-info-moderation-test
+        tests/RoomInfoModerationTest.cpp
+        src/app/RoomInfoController.h
+        src/app/RoomInfoController.cpp
+        src/matrix/MatrixClient.h
+        src/matrix/MatrixClient.cpp
+    )
+    target_include_directories(room-info-moderation-test PRIVATE src)
+    target_link_libraries(room-info-moderation-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME room-info-moderation COMMAND room-info-moderation-test)
+
     # v0.6.0: SDK-backed thread foundation — lifecycle (open/close/switch),
     # root/reply identity via the composite timeline id, failure states,
     # thread-only send path, encrypted-thread fixtures, participants.

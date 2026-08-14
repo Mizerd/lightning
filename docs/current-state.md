@@ -995,7 +995,12 @@ was delivered in the following v0.5.10 release.
     Invite button. Clicking a member opens `MemberProfilePopover` (avatar
     initial, display name, full MXID, membership state, role, and
     **Message** — which reuses an existing DM via m.direct or creates a
-    new encrypted one; no moderation actions in this release).
+    new encrypted one). Since 2026-08-14 the popover also offers
+    **Remove (kick)** and **Ban** — SDK `Room::kick_user`/`ban_user`
+    through `mx_rust_moderate_user`, gated on the snapshot's
+    `can_kick`/`can_ban` flags and only against members strictly below
+    the viewer's own power level; an inline confirm carries an optional
+    reason, and failures surface sanitized in place.
   - **Media & Files** — media shared in the *loaded* timeline
     (`TimelineModel::mediaEntries()`, newest first; no automatic history
     fetch). Images open in the in-app viewer; every entry offers Save As
@@ -1031,7 +1036,11 @@ was delivered in the following v0.5.10 release.
   non-raster refused) — a refusal drops the thumbnail and still sends the
   video. No thumbnail content or encryption is ever assembled in C++.
 - Composer: unified bar (attach `＋`, expanding multiline editor capped at
-  ~6 lines, Send; Enter sends, Shift+Enter newline). The attachment tray
+  ~6 lines — past the cap it really scrolls with the caret kept visible
+  since 2026-08-14 (`TextArea.flickable`; the cap alone used to clip
+  overflow lines invisibly, and an edit began caret-at-0 with the tail cut
+  off — edits now start caret-at-end), Send; Enter sends, Shift+Enter
+  newline). The attachment tray
   (`AttachmentQueueModel`) holds prepared files with name/size/thumbnail,
   per-entry queued → dispatching → failed(+retry) state, and remove
   buttons; nothing uploads until the user sends. Validation on add:

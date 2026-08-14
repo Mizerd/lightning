@@ -564,6 +564,15 @@ char *mx_rust_remove_room_avatar(void *client,
 char *mx_rust_leave_room(void *client,
                          const char *room_id,
                          unsigned long long op_id);
+/* Moderation: kick (ban = 0) or ban (ban = 1) one user from a joined room
+ * through the SDK's own moderation calls; `reason` may be empty. Result:
+ * room_moderation_result { op_id, room_id, user_id, op, ok, category }. */
+char *mx_rust_moderate_user(void *client,
+                            const char *room_id,
+                            const char *user_id,
+                            const char *reason,
+                            unsigned char ban,
+                            unsigned long long op_id);
 char *mx_rust_add_room_to_space(void *client,
                                 const char *space_id,
                                 const char *room_id,

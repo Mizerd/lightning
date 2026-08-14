@@ -23,6 +23,8 @@ void RoomInfoController::setClient(MatrixClient *client)
                 this, &RoomInfoController::onRoomEditFinished);
         connect(m_client, &MatrixClient::roomLeaveFinished,
                 this, &RoomInfoController::onRoomLeaveFinished);
+        connect(m_client, &MatrixClient::moderationFinished,
+                this, &RoomInfoController::onModerationFinished);
         connect(m_client, &MatrixClient::membersChanged,
                 this, &RoomInfoController::onMembersChanged);
         connect(m_client, &MatrixClient::loggedOut,
@@ -44,12 +46,14 @@ void RoomInfoController::setRoomId(const QString &roomId)
     m_membersOp = 0;
     m_editOp = 0;
     m_leaveOp = 0;
+    m_moderationOp = 0;
     m_editError.clear();
     m_leaveError.clear();
     clearSnapshot();
     Q_EMIT roomIdChanged();
     Q_EMIT editStateChanged();
     Q_EMIT leaveStateChanged();
+    Q_EMIT moderationStateChanged();
     if (!m_roomId.isEmpty())
         refreshMembers();
 }
@@ -64,6 +68,9 @@ void RoomInfoController::clearSnapshot()
     m_canEditName = false;
     m_canEditTopic = false;
     m_canEditAvatar = false;
+    m_canKick = false;
+    m_canBan = false;
+    m_ownPowerLevel = 0;
     Q_EMIT membersChanged();
 }
 
@@ -97,6 +104,10 @@ void RoomInfoController::onRoomMembersReceived(quint64 opId,
     m_canEditName = snapshot.value(QStringLiteral("canEditName")).toBool();
     m_canEditTopic = snapshot.value(QStringLiteral("canEditTopic")).toBool();
     m_canEditAvatar = snapshot.value(QStringLiteral("canEditAvatar")).toBool();
+    m_canKick = snapshot.value(QStringLiteral("canKick")).toBool();
+    m_canBan = snapshot.value(QStringLiteral("canBan")).toBool();
+    m_ownPowerLevel =
+        snapshot.value(QStringLiteral("ownPowerLevel")).toLongLong();
     Q_EMIT membersChanged();
 }
 
@@ -217,6 +228,94 @@ void RoomInfoController::onRoomLeaveFinished(quint64 opId, const QString &roomId
     Q_EMIT roomLeft(roomId);
 }
 
+bool RoomInfoController::canModerate(const QString &userId, bool ban) const
+{
+    if (!m_client || m_roomId.isEmpty() || userId.isEmpty() || !supported())
+        return false;
+    // SDK-derived permission flag — never a role label.
+    if (ban ? !m_canBan : !m_canKick)
+        return false;
+    // The target must be a loaded snapshot row: absence of the row is the
+    // "unknown" state and fails closed. The power level itself may be any
+    // integer, including negative (Element's "Restricted" is -1), so no
+    // sentinel value can stand in for "unknown".
+    for (const QVariant &value : m_members) {
+        const QVariantMap row = value.toMap();
+        if (row.value(QStringLiteral("userId")).toString() != userId)
+            continue;
+        if (row.value(QStringLiteral("isOwn")).toBool())
+            return false;
+        if (!row.contains(QStringLiteral("powerLevel")))
+            return false;
+        // Strictly below the viewer's own level (Element semantics; the
+        // server enforces regardless).
+        return row.value(QStringLiteral("powerLevel")).toLongLong()
+               < m_ownPowerLevel;
+    }
+    return false;
+}
+
+void RoomInfoController::kickMember(const QString &userId,
+                                    const QString &reason)
+{
+    moderate(userId, reason, false);
+}
+
+void RoomInfoController::banMember(const QString &userId,
+                                   const QString &reason)
+{
+    moderate(userId, reason, true);
+}
+
+void RoomInfoController::moderate(const QString &userId,
+                                  const QString &reason, bool ban)
+{
+    if (m_moderationOp != 0)
+        return;
+    // Re-check the full offer policy at dispatch time — the QML surface
+    // binds to canModerate() but must never be the enforcement point.
+    if (!canModerate(userId, ban))
+        return;
+    const quint64 opId = ban ? m_client->banUser(m_roomId, userId, reason)
+                             : m_client->kickUser(m_roomId, userId, reason);
+    if (opId == 0) {
+        // Synchronous rejection (backend unsupported, room not joined,
+        // invalid user id): report honestly instead of leaving the
+        // confirm surface armed forever (review L2).
+        Q_EMIT moderationActionFinished(
+            m_roomId, userId, ban ? QStringLiteral("ban")
+                                  : QStringLiteral("kick"),
+            false, tr("The action could not be sent."));
+        return;
+    }
+    m_moderationOp = opId;
+    Q_EMIT moderationStateChanged();
+}
+
+void RoomInfoController::onModerationFinished(quint64 opId,
+                                              const QString &roomId,
+                                              const QString &userId,
+                                              const QString &op, bool ok,
+                                              const QString &category)
+{
+    if (opId != m_moderationOp)
+        return;
+    m_moderationOp = 0;
+    Q_EMIT moderationStateChanged();
+    const QString message = ok
+        ? QString()
+        : (category == QLatin1String("forbidden")
+               ? tr("You do not have permission to do that.")
+               : tr("The action failed. Check your connection and retry."));
+    Q_EMIT moderationActionFinished(roomId, userId, op, ok, message);
+    // The roster refresh is CLIENT-initiated: the Rust backend only emits
+    // membersChanged in response to an explicit member fetch, never from
+    // sync, so without this the kicked user would stay in the People list
+    // until the next room switch (review M2).
+    if (ok && roomId == m_roomId)
+        refreshMembers();
+}
+
 QVariantList RoomInfoController::filterMembers(const QString &needle) const
 {
     if (needle.trimmed().isEmpty())
@@ -237,6 +336,7 @@ void RoomInfoController::onLoggedOut()
     m_membersOp = 0;
     m_editOp = 0;
     m_leaveOp = 0;
+    m_moderationOp = 0;
     m_adhocLeaveOps.clear();
     m_roomId.clear();
     m_editError.clear();
@@ -245,4 +345,5 @@ void RoomInfoController::onLoggedOut()
     Q_EMIT roomIdChanged();
     Q_EMIT editStateChanged();
     Q_EMIT leaveStateChanged();
+    Q_EMIT moderationStateChanged();
 }

@@ -27,6 +27,28 @@ Popup {
     property string avatarMxc: ""
     property bool isOwn: false
 
+    // --- Moderation (kick / ban) state ---
+    // "" | "kick" | "ban" — which confirm surface is showing.
+    property string modAction: ""
+    property string modError: ""
+    // The offer policy is the CONTROLLER'S (RoomInfoController::
+    // canModerate: SDK permission flag, loaded snapshot row for the
+    // target — unknown fails closed — non-self, strictly below the
+    // viewer's own power level). Captured at openFor() time; the
+    // controller re-checks at dispatch, so this is presentation only.
+    // Scoped to the room-info snapshot being for the room currently open
+    // (the panel may show a Space's settings instead).
+    property bool showKick: false
+    property bool showBan: false
+
+    function _refreshModeration() {
+        var scoped = app.roomInfo
+                     && app.roomInfo.roomId === app.currentRoomId
+                     && userId.length > 0
+        showKick = scoped ? app.roomInfo.canModerate(userId, false) : false
+        showBan = scoped ? app.roomInfo.canModerate(userId, true) : false
+    }
+
     // The same room-member profile the list row shows — one resolution
     // path, no popover-local reinvention.
     readonly property string visibleName:
@@ -45,6 +67,10 @@ Popup {
         role = member.role || ""
         avatarMxc = member.avatarUrl || ""
         isOwn = member.isOwn === true
+        modAction = ""
+        modError = ""
+        modReasonField.text = ""
+        _refreshModeration()
         open()
     }
 
@@ -380,6 +406,152 @@ Popup {
                     }
                 }
             }
+            // --- Moderation row (kick / ban) ---
+            // Outline-danger secondaries; the bolt fill stays reserved for
+            // the Message primary. Hidden entirely when the viewer lacks
+            // the power (or it cannot be established) — never a disabled
+            // placeholder.
+            RowLayout {
+                visible: (root.showKick || root.showBan)
+                         && root.modAction === ""
+                Layout.fillWidth: true
+                spacing: AppTheme.spacing8
+
+                Repeater {
+                    model: [
+                        { op: "kick", label: qsTr("Remove"),
+                          icon: "person_remove", show: root.showKick },
+                        { op: "ban", label: qsTr("Ban"),
+                          icon: "block", show: root.showBan }
+                    ]
+                    delegate: AbstractButton {
+                        id: modButton
+                        required property var modelData
+                        objectName: "profileModButton_" + modelData.op
+                        visible: modelData.show
+                        Layout.fillWidth: true
+                        implicitHeight: 32
+                        hoverEnabled: true
+                        focusPolicy: Qt.TabFocus
+                        Accessible.role: Accessible.Button
+                        Accessible.name: modelData.op === "kick"
+                            ? qsTr("Remove %1 from the room").arg(root.visibleName)
+                            : qsTr("Ban %1 from the room").arg(root.visibleName)
+                        contentItem: RowLayout {
+                            spacing: AppTheme.spacing6
+                            Item { Layout.fillWidth: true }
+                            Icon {
+                                name: modButton.modelData.icon
+                                size: 16
+                                color: AppTheme.danger
+                            }
+                            Label {
+                                text: modButton.modelData.label
+                                color: AppTheme.danger
+                                font.family: AppTheme.menuFont
+                                font.pixelSize: 13
+                                font.weight: Font.Bold
+                            }
+                            Item { Layout.fillWidth: true }
+                        }
+                        background: Rectangle {
+                            radius: AppTheme.radiusTile
+                            color: (modButton.hovered || modButton.down)
+                                   ? AppTheme.stormSelection : "transparent"
+                            border.width: 1
+                            border.color: AppTheme.danger
+                        }
+                        onClicked: {
+                            root.modError = ""
+                            root.modAction = modelData.op
+                        }
+                    }
+                }
+            }
+
+            // Inline confirm surface: reason (optional) + Confirm/Cancel.
+            ColumnLayout {
+                visible: root.modAction !== ""
+                Layout.fillWidth: true
+                spacing: AppTheme.spacing6
+
+                Label {
+                    Layout.fillWidth: true
+                    text: root.modAction === "kick"
+                          ? qsTr("Remove %1 from this room?").arg(root.visibleName)
+                          : qsTr("Ban %1 from this room?").arg(root.visibleName)
+                    color: AppTheme.stormText
+                    font.pixelSize: AppTheme.fontSecondary
+                    font.weight: Font.Bold
+                    wrapMode: Text.Wrap
+                }
+                AppTextField {
+                    id: modReasonField
+                    Layout.fillWidth: true
+                    storm: true
+                    placeholderText: qsTr("Reason (optional)")
+                }
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: AppTheme.spacing8
+                    AppButton {
+                        objectName: "profileModConfirmButton"
+                        Layout.fillWidth: true
+                        text: root.modAction === "kick" ? qsTr("Remove")
+                                                        : qsTr("Ban")
+                        kind: "danger"
+                        storm: true
+                        enabled: app.roomInfo
+                                 && !app.roomInfo.moderationPending
+                        onClicked: {
+                            root.modError = ""
+                            if (root.modAction === "kick")
+                                app.roomInfo.kickMember(root.userId,
+                                                        modReasonField.text)
+                            else
+                                app.roomInfo.banMember(root.userId,
+                                                       modReasonField.text)
+                        }
+                    }
+                    AppButton {
+                        Layout.fillWidth: true
+                        text: qsTr("Cancel")
+                        storm: true
+                        enabled: app.roomInfo
+                                 && !app.roomInfo.moderationPending
+                        onClicked: root.modAction = ""
+                    }
+                }
+                Label {
+                    visible: root.modError.length > 0
+                    Layout.fillWidth: true
+                    text: root.modError
+                    color: AppTheme.danger
+                    font.pixelSize: 11
+                    wrapMode: Text.Wrap
+                    Accessible.name: text
+                }
+            }
+
+            Connections {
+                target: app.roomInfo
+                enabled: root.visible
+                function onModerationActionFinished(roomId, userId, op, ok,
+                                                    message) {
+                    if (userId !== root.userId)
+                        return
+                    if (ok)
+                        root.close()
+                    else
+                        root.modError = message
+                }
+                // A roster refresh while open (e.g. after a successful
+                // action elsewhere) can change what may be offered.
+                function onMembersChanged() {
+                    root._refreshModeration()
+                }
+            }
+
             Label {
                 id: copiedNotice
                 visible: false

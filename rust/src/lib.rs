@@ -5393,6 +5393,28 @@ pub unsafe extern "C" fn mx_rust_leave_room(
     })
 }
 
+/// Moderation: kick (`ban` = 0) or ban (`ban` = 1) one user from a joined
+/// room via the SDK's Room::kick_user / Room::ban_user. `reason` may be
+/// empty. Result event: room_moderation_result.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_moderate_user(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    user_id: *const c_char,
+    reason: *const c_char,
+    ban: u8,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let user_id = unsafe { cstr_arg(user_id) }?;
+        let reason = unsafe { cstr_arg(reason) }?;
+        rooms::moderate_member(bridge, room_id, user_id, reason, ban != 0, op_id)
+            .map(|_| String::new())
+    })
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_add_room_to_space(
     ptr: *mut c_void,

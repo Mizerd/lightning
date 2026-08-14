@@ -9,6 +9,7 @@
 #include <QFile>
 #include <QRegularExpression>
 #include <QSet>
+#include <QtEndian>
 #include <QtTest/QtTest>
 
 namespace {
@@ -49,6 +50,77 @@ QString stripCommentsAndTr(QString qml)
     qml.remove(QRegularExpression(QStringLiteral("//[^\n]*")));
     qml.remove(QRegularExpression(QStringLiteral("qsTr\\(\"[^\"]*\"\\)")));
     return qml;
+}
+
+// Minimal TTF cmap coverage reader (formats 4 and 12), big-endian per the
+// OpenType spec. Returns every Unicode codepoint the font maps — enough to
+// prove a mapped Icon.qml codepoint actually has a glyph, with no font
+// database or Gui dependency.
+QSet<uint> fontCoveredCodepoints(const QString &path)
+{
+    QSet<uint> covered;
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly))
+        return covered;
+    const QByteArray data = file.readAll();
+    const auto u16 = [&data](qsizetype off) -> quint16 {
+        return qFromBigEndian<quint16>(
+            reinterpret_cast<const uchar *>(data.constData()) + off);
+    };
+    const auto u32 = [&data](qsizetype off) -> quint32 {
+        return qFromBigEndian<quint32>(
+            reinterpret_cast<const uchar *>(data.constData()) + off);
+    };
+    if (data.size() < 12)
+        return covered;
+    const quint16 numTables = u16(4);
+    qsizetype cmapOff = -1;
+    for (quint16 i = 0; i < numTables; ++i) {
+        const qsizetype rec = 12 + i * 16;
+        if (rec + 16 > data.size())
+            return covered;
+        if (data.mid(rec, 4) == QByteArrayLiteral("cmap"))
+            cmapOff = u32(rec + 8);
+    }
+    if (cmapOff < 0 || cmapOff + 4 > data.size())
+        return covered;
+    const quint16 numSubtables = u16(cmapOff + 2);
+    for (quint16 i = 0; i < numSubtables; ++i) {
+        const qsizetype rec = cmapOff + 4 + i * 8;
+        if (rec + 8 > data.size())
+            return covered;
+        const qsizetype sub = cmapOff + u32(rec + 4);
+        if (sub + 2 > data.size())
+            continue;
+        const quint16 format = u16(sub);
+        if (format == 4) {
+            const quint16 segCount = u16(sub + 6) / 2;
+            const qsizetype endCodes = sub + 14;
+            const qsizetype startCodes = endCodes + segCount * 2 + 2;
+            if (startCodes + segCount * 2 > data.size())
+                continue;
+            for (quint16 s = 0; s < segCount; ++s) {
+                const quint16 end = u16(endCodes + s * 2);
+                const quint16 start = u16(startCodes + s * 2);
+                for (uint cp = start; cp <= end && cp != 0xFFFF; ++cp)
+                    covered.insert(cp);
+            }
+        } else if (format == 12) {
+            if (sub + 16 > data.size())
+                continue;
+            const quint32 numGroups = u32(sub + 12);
+            for (quint32 g = 0; g < numGroups; ++g) {
+                const qsizetype group = sub + 16 + qsizetype(g) * 12;
+                if (group + 12 > data.size())
+                    break;
+                const quint32 start = u32(group);
+                const quint32 end = u32(group + 4);
+                for (quint32 cp = start; cp <= end; ++cp)
+                    covered.insert(cp);
+            }
+        }
+    }
+    return covered;
 }
 
 } // namespace
@@ -162,6 +234,38 @@ private Q_SLOTS:
                          " does not subset it — the glyph would render blank")
                                     .arg(name)));
         }
+    }
+
+    void everyMappedCodepointHasAGlyphInTheSubsetFont()
+    {
+        // 2026-08-14 (review H1): the subset-script check above keeps NAMES
+        // in step, but a wrong codepoint VALUE in Icon.qml still rendered
+        // tofu — "block" shipped mapped to the legacy Material Icons
+        // U+E14B while the Material Symbols subset carries U+F08C. Parse
+        // the font's own cmap and require every mapped codepoint to
+        // resolve.
+        const QSet<uint> covered = fontCoveredCodepoints(QStringLiteral(
+            SOURCE_DIR "/data/fonts/MaterialSymbolsRounded-subset.ttf"));
+        QVERIFY(covered.size() >= 40);
+
+        const QString iconQml = readAll(QStringLiteral(QML_DIR "/Icon.qml"));
+        QVERIFY(!iconQml.isEmpty());
+        const QRegularExpression mapEntry(QStringLiteral(
+            "\"([a-z0-9_]+)\": \"\\\\u([0-9A-Fa-f]{4})\""));
+        auto it = mapEntry.globalMatch(iconQml);
+        int checked = 0;
+        while (it.hasNext()) {
+            const auto match = it.next();
+            const uint cp = match.captured(2).toUInt(nullptr, 16);
+            QVERIFY2(covered.contains(cp),
+                     qPrintable(QStringLiteral(
+                         "Icon.qml maps '%1' to U+%2 but the subset font has "
+                         "no glyph there — it would render blank")
+                         .arg(match.captured(1),
+                              match.captured(2).toUpper())));
+            ++checked;
+        }
+        QVERIFY(checked >= 40);
     }
 };
 

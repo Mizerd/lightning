@@ -125,7 +125,9 @@ private slots:
         QVERIFY(!content.contains(QStringLiteral("\"call\"")));
         QVERIFY(!content.contains(QStringLiteral("\"videocam\"")));
         QVERIFY(!content.contains(QStringLiteral("\"more_horiz\"")));
-        QVERIFY(!content.contains(QStringLiteral("\"block\"")));
+        // "block" left this list on 2026-08-14: it is now the icon of the
+        // REAL ban action (SDK Room::ban_user through RoomInfoController),
+        // not an Ignore placeholder. Ignore itself remains omitted below.
         QVERIFY(!content.contains(QStringLiteral("presenceOnline")));
 
         // No qsTr() user-facing string ever mentions the omitted

@@ -31,6 +31,11 @@ class RoomInfoController : public QObject
     Q_PROPERTY(bool canEditName READ canEditName NOTIFY membersChanged)
     Q_PROPERTY(bool canEditTopic READ canEditTopic NOTIFY membersChanged)
     Q_PROPERTY(bool canEditAvatar READ canEditAvatar NOTIFY membersChanged)
+    Q_PROPERTY(bool canKick READ canKick NOTIFY membersChanged)
+    Q_PROPERTY(bool canBan READ canBan NOTIFY membersChanged)
+    Q_PROPERTY(qlonglong ownPowerLevel READ ownPowerLevel NOTIFY membersChanged)
+    Q_PROPERTY(bool moderationPending READ moderationPending
+                   NOTIFY moderationStateChanged)
     Q_PROPERTY(bool editPending READ editPending NOTIFY editStateChanged)
     Q_PROPERTY(QString editError READ editError NOTIFY editStateChanged)
     Q_PROPERTY(bool leavePending READ leavePending NOTIFY leaveStateChanged)
@@ -54,6 +59,10 @@ public:
     bool canEditName() const { return m_canEditName; }
     bool canEditTopic() const { return m_canEditTopic; }
     bool canEditAvatar() const { return m_canEditAvatar; }
+    bool canKick() const { return m_canKick; }
+    bool canBan() const { return m_canBan; }
+    qlonglong ownPowerLevel() const { return m_ownPowerLevel; }
+    bool moderationPending() const { return m_moderationOp != 0; }
     bool editPending() const { return m_editOp != 0; }
     QString editError() const { return m_editError; }
     bool leavePending() const { return m_leaveOp != 0; }
@@ -75,6 +84,19 @@ public:
     // Case-insensitive member filter over the loaded snapshot; returns the
     // same map shape as `members`.
     Q_INVOKABLE QVariantList filterMembers(const QString &needle) const;
+    // Moderation (kick / ban) against the panel's room. `reason` may be
+    // empty. One in-flight action at a time. The offer/dispatch policy
+    // lives HERE, not in QML (architecture §5): canModerate() requires
+    // the SDK-derived permission flag, a loaded snapshot row for the
+    // target (an unknown target FAILS CLOSED — note a row's power level
+    // may legitimately be negative, e.g. Element's "Restricted" -1, so
+    // absence of the row, never a sentinel value, is the unknown state),
+    // a non-self target, and the target sitting STRICTLY below the
+    // viewer's own power level (Element semantics; the server enforces
+    // regardless — this only avoids offering an action that must fail).
+    Q_INVOKABLE bool canModerate(const QString &userId, bool ban) const;
+    Q_INVOKABLE void kickMember(const QString &userId, const QString &reason);
+    Q_INVOKABLE void banMember(const QString &userId, const QString &reason);
 
 Q_SIGNALS:
     void roomIdChanged();
@@ -88,6 +110,13 @@ Q_SIGNALS:
     // panel's leaveError/leaveStateChanged stay reserved for the panel's own
     // pending room and are not touched by this path.
     void roomLeaveFailed(const QString &roomId, const QString &message);
+    void moderationStateChanged();
+    // op is "kick" or "ban"; message is a sanitized failure text, empty on
+    // success. A successful action triggers a client-initiated roster
+    // refresh (the backend never emits a members snapshot from sync).
+    void moderationActionFinished(const QString &roomId, const QString &userId,
+                                  const QString &op, bool ok,
+                                  const QString &message);
 
 private Q_SLOTS:
     void onRoomMembersReceived(quint64 opId, const QString &roomId,
@@ -97,11 +126,15 @@ private Q_SLOTS:
                             const QString &category);
     void onRoomLeaveFinished(quint64 opId, const QString &roomId, bool ok,
                              const QString &category);
+    void onModerationFinished(quint64 opId, const QString &roomId,
+                              const QString &userId, const QString &op,
+                              bool ok, const QString &category);
     void onMembersChanged(const QString &roomId);
     void onLoggedOut();
 
 private:
     void clearSnapshot();
+    void moderate(const QString &userId, const QString &reason, bool ban);
 
     MatrixClient *m_client = nullptr;
     QString m_roomId;
@@ -119,6 +152,10 @@ private:
     bool m_canEditName = false;
     bool m_canEditTopic = false;
     bool m_canEditAvatar = false;
+    bool m_canKick = false;
+    bool m_canBan = false;
+    qlonglong m_ownPowerLevel = 0;
+    quint64 m_moderationOp = 0;
     QString m_editError;
     QString m_leaveError;
 };

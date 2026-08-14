@@ -320,6 +320,10 @@ public:
     quint64 setRoomAvatar(const QString &roomId, const QString &localPath) override;
     quint64 removeRoomAvatar(const QString &roomId) override;
     quint64 leaveRoom(const QString &roomId) override;
+    quint64 kickUser(const QString &roomId, const QString &userId,
+                     const QString &reason) override;
+    quint64 banUser(const QString &roomId, const QString &userId,
+                    const QString &reason) override;
     quint64 addRoomToSpace(const QString &spaceId, const QString &roomId) override;
     quint64 removeRoomFromSpace(const QString &spaceId,
                                 const QString &roomId) override;
@@ -611,6 +615,10 @@ private:
                                const QList<TimelineEvent> &newestFirstCandidates);
     bool timelineActiveFor(const QString &roomId) const;
     bool timelineReadyForPagination(const QString &roomId) const;
+    // Shared kick/ban implementation behind kickUser()/banUser().
+    quint64 moderateUser(const QString &roomId, const QString &userId,
+                         const QString &reason, bool ban);
+
     // v0.5.9: new-command plumbing. nextOpId() never returns 0 (0 means
     // "unsupported" at the interface level).
     quint64 nextOpId() { return ++m_opCounter; }

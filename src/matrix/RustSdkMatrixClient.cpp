@@ -4568,6 +4568,36 @@ quint64 RustSdkMatrixClient::leaveRoom(const QString &roomId)
     return result.isEmpty() ? opId : 0;
 }
 
+quint64 RustSdkMatrixClient::kickUser(const QString &roomId,
+                                      const QString &userId,
+                                      const QString &reason)
+{
+    return moderateUser(roomId, userId, reason, false);
+}
+
+quint64 RustSdkMatrixClient::banUser(const QString &roomId,
+                                     const QString &userId,
+                                     const QString &reason)
+{
+    return moderateUser(roomId, userId, reason, true);
+}
+
+quint64 RustSdkMatrixClient::moderateUser(const QString &roomId,
+                                          const QString &userId,
+                                          const QString &reason, bool ban)
+{
+    if (!m_rustHandle || roomId.isEmpty() || userId.isEmpty())
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray room = roomId.toUtf8();
+    const QByteArray user = userId.toUtf8();
+    const QByteArray why = reason.toUtf8();
+    const QString result = takeRustString(mx_rust_moderate_user(
+        m_rustHandle, room.constData(), user.constData(), why.constData(),
+        ban ? 1 : 0, opId));
+    return result.isEmpty() ? opId : 0;
+}
+
 quint64 RustSdkMatrixClient::addRoomToSpace(const QString &spaceId,
                                             const QString &roomId)
 {
@@ -5128,6 +5158,14 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
                         event.value(QStringLiteral("own_can_edit_topic")).toBool());
         snapshot.insert(QStringLiteral("canEditAvatar"),
                         event.value(QStringLiteral("own_can_edit_avatar")).toBool());
+        snapshot.insert(QStringLiteral("canKick"),
+                        event.value(QStringLiteral("own_can_kick")).toBool());
+        snapshot.insert(QStringLiteral("canBan"),
+                        event.value(QStringLiteral("own_can_ban")).toBool());
+        snapshot.insert(
+            QStringLiteral("ownPowerLevel"),
+            static_cast<qlonglong>(
+                event.value(QStringLiteral("own_power_level")).toDouble()));
         snapshot.insert(QStringLiteral("category"),
                         event.value(QStringLiteral("category")).toString());
         QVariantList members;
@@ -5145,6 +5183,10 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
                          row.value(QStringLiteral("membership")).toString());
             entry.insert(QStringLiteral("role"),
                          row.value(QStringLiteral("role")).toString());
+            entry.insert(
+                QStringLiteral("powerLevel"),
+                static_cast<qlonglong>(
+                    row.value(QStringLiteral("power_level")).toDouble()));
             entry.insert(QStringLiteral("ambiguous"),
                          row.value(QStringLiteral("ambiguous")).toBool());
             entry.insert(QStringLiteral("isOwn"),
@@ -5198,6 +5240,17 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
                                  event.value(QStringLiteral("room_id")).toString(),
                                  event.value(QStringLiteral("ok")).toBool(),
                                  event.value(QStringLiteral("category")).toString());
+        return true;
+    }
+
+    if (type == QLatin1String("room_moderation_result")) {
+        Q_EMIT moderationFinished(
+            opId(),
+            event.value(QStringLiteral("room_id")).toString(),
+            event.value(QStringLiteral("user_id")).toString(),
+            event.value(QStringLiteral("op")).toString(),
+            event.value(QStringLiteral("ok")).toBool(),
+            event.value(QStringLiteral("category")).toString());
         return true;
     }
 

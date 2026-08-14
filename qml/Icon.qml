@@ -25,6 +25,8 @@ Text {
         "groups": "\uf233",
         "person": "\uf0d3",
         "person_add": "\uea4d",
+        "person_remove": "\uef66",
+        "block": "\uf08c",
         "forum": "\ue8af",
         "chat_bubble": "\ue0cb",
         "info": "\ue88e",
