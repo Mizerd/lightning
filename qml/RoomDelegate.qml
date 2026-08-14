@@ -83,7 +83,10 @@ Item {
             size: 30
             name: model.name || ""
             mxc: model.avatarUrl || ""
-            colorKey: model.roomId || ""
+            // One fallback-colour policy: an unambiguous DM is coloured as
+            // the PERSON (their MXID), matching their message rows and
+            // receipt chips everywhere else.
+            colorKey: model.identityColorKey || model.roomId || ""
             // Design shell: people are circles, rooms and Spaces are
             // rounded squares that show a "#" glyph until the avatar loads.
             circle: model.isDirect === true

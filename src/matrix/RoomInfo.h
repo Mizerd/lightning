@@ -110,3 +110,18 @@ inline bool operator!=(const RoomInfo &a, const RoomInfo &b)
 {
     return !(a == b);
 }
+
+// The ONE identity key a room's fallback-avatar colour hashes from — the
+// same policy as effectiveAvatarUrl's mxc choice: an unambiguous 1:1 DM is
+// coloured as the PERSON (their MXID, matching every user-keyed surface —
+// message rows, receipt chips, member list), everything else as the room.
+// A group DM or ambiguous m.direct mapping (more than one target) must not
+// adopt an arbitrary member's identity. Live report 2026-08-14: the same
+// person rendered purple in one surface and green in another because DM
+// rows hashed the room id while user rows hashed the MXID.
+inline QString identityColorKey(const RoomInfo &r)
+{
+    if (r.isDirect && r.directUserIds.size() <= 1 && !r.directUserId.isEmpty())
+        return r.directUserId;
+    return r.id;
+}

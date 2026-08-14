@@ -285,6 +285,10 @@ Rectangle {
                 name: railAccount.activeAccount.displayName
                       || railAccount.localpart
                 mxc: railAccount.activeAccount.avatarUrl || ""
+                // Key by the MXID like every other self-avatar surface —
+                // a display-name key gave the rail its own colour and
+                // recoloured on rename.
+                colorKey: app.accounts ? app.accounts.activeUserId : ""
             }
             // Presence: Lightning shows its own connection state on the
             // self avatar (Matrix presence is not surfaced yet).

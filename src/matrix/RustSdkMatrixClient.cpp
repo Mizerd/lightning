@@ -2984,6 +2984,19 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
         return;
     }
 
+    if (type == QLatin1String("room_members_changed")) {
+        // Sync membership poke: reaches ONLY the roster-refetch consumers
+        // via roomMemberEventSeen — never membersChanged, whose timeline
+        // consumer repaints every loaded row (review H1). Rust already
+        // rate-limits the event per room. Without this poke the People
+        // panel only refreshed when it was reopened (live report
+        // 2026-08-14).
+        const QString roomId = event.value(QStringLiteral("room_id")).toString();
+        if (m_rooms.contains(roomId))
+            Q_EMIT roomMemberEventSeen(roomId);
+        return;
+    }
+
     if (type == QLatin1String("invite_state_update")) {
         const QString roomId = event.value(QStringLiteral("room_id")).toString();
         auto room = m_rooms.find(roomId);
@@ -5177,6 +5190,10 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
                 event.value(QStringLiteral("own_power_level")).toDouble()));
         snapshot.insert(QStringLiteral("category"),
                         event.value(QStringLiteral("category")).toString());
+        // A cache-only snapshot that precedes the synced roster under the
+        // same op; the controller renders it but keeps the op pending.
+        snapshot.insert(QStringLiteral("partial"),
+                        event.value(QStringLiteral("partial")).toBool());
         QVariantList members;
         const QJsonArray rows = event.value(QStringLiteral("members")).toArray();
         for (const QJsonValue &value : rows) {
@@ -5228,7 +5245,12 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
                     if (!it->avatarMxcUrl.isEmpty())
                         slot.avatarMxcUrl = it->avatarMxcUrl;
                 }
-                Q_EMIT membersChanged(membersRoomId);
+                // One presentation refresh per FETCH, not per snapshot:
+                // the partial merge still primes the member cache, but
+                // only the full roster fires membersChanged — its
+                // timeline consumer dirties every loaded row (review H1).
+                if (!event.value(QStringLiteral("partial")).toBool())
+                    Q_EMIT membersChanged(membersRoomId);
             }
         }
         Q_EMIT roomMembersReceived(opId(), membersRoomId, snapshot);

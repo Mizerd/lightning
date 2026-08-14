@@ -265,6 +265,60 @@ ApplicationWindow {
         enabled: app.screenshotDemoActive
         onActivated: if (app.demo) app.demo.toggleControls()
     }
+
+    // Interface zoom (Discord-style shortcuts). The value is applied as
+    // QT_SCALE_FACTOR at startup — Qt reads it exactly once — so changes
+    // take effect on the next launch; the transient notice says so
+    // honestly instead of silently doing nothing.
+    function _adjustZoom(delta) {
+        var next = delta === 0 ? 100 : app.settings.interfaceZoom + delta
+        app.settings.interfaceZoom = next
+        zoomNotice.show()
+    }
+    Shortcut {
+        sequences: ["Ctrl+=", "Ctrl++"]
+        onActivated: window._adjustZoom(5)
+    }
+    Shortcut {
+        sequences: ["Ctrl+-"]
+        onActivated: window._adjustZoom(-5)
+    }
+    Shortcut {
+        sequences: ["Ctrl+0"]
+        onActivated: window._adjustZoom(0)
+    }
+    Rectangle {
+        id: zoomNotice
+        function show() { visible = true; zoomNoticeTimer.restart() }
+        visible: false
+        // In the OVERLAY, above any open popup — a plain window child
+        // renders below Popups and the notice would be invisible with
+        // Settings or a picker open (review nit).
+        parent: Overlay.overlay
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.top: parent.top
+        anchors.topMargin: AppTheme.spacing16
+        z: 1000
+        radius: AppTheme.radiusLg
+        color: AppTheme.stormPanel
+        border.color: AppTheme.stormBorder
+        border.width: 1
+        width: zoomNoticeLabel.implicitWidth + AppTheme.spacing16 * 2
+        height: zoomNoticeLabel.implicitHeight + AppTheme.spacing12
+        Label {
+            id: zoomNoticeLabel
+            anchors.centerIn: parent
+            text: qsTr("Interface zoom %1% — takes effect after restart")
+                  .arg(app.settings.interfaceZoom)
+            color: AppTheme.stormText
+            font.pixelSize: AppTheme.fontSecondary
+        }
+        Timer {
+            id: zoomNoticeTimer
+            interval: 2500
+            onTriggered: zoomNotice.visible = false
+        }
+    }
     Loader {
         active: app.screenshotDemoActive
         anchors.fill: parent

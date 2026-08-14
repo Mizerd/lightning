@@ -365,8 +365,16 @@ backend capability checks and honest live-test status.
   dynamic-registration client id are CREDENTIALS in the SecretStore, never in
   QSettings, never exposed to QML, never logged. Legacy Matrix SSO is
   detected and disclosed as unsupported, never offered.
-  Live homeserver validation of the browser flow, refresh and OAuth logout is
-  **NOT TESTED** — no OAuth-capable test account was available.
+  Live validation (2026-08-15): the browser sign-in flow **PASSED against
+  matrix.org** (MAS/OIDC) — Rokas logged in end-to-end, and separately
+  **registered a brand-new account through the Google upstream IdP** and
+  logged in with it, exercising the full multi-step MAS journey and the
+  two-phase store bootstrap for a never-seen account. Refresh, restart
+  restoration and sign-out were then confirmed working live with his
+  original test account — the OAuth path is fully live-validated. The same
+  session surfaced a discovery-UX defect — the method choices only
+  appeared after Enter in the homeserver field — fixed by probing the
+  prefilled server on open and debounce-probing while typing.
 - `restore_client()` previously hardcoded `refresh_token: None`, silently
   discarding a saved refresh token on every restore, so an expired access
   token surfaced as `M_UNKNOWN_TOKEN` instead of being renewed. Fixed for

@@ -15,6 +15,7 @@ namespace {
 constexpr auto kHomeserver          = "homeserver/url";
 constexpr auto kTheme               = "ui/theme";
 constexpr auto kMessageLayout       = "ui/messageLayout";
+constexpr auto kRoomFilterMode      = "ui/roomFilterMode";
 constexpr auto kTextScale           = "ui/textScale";
 constexpr auto kUiFont              = "ui/uiFont";
 constexpr auto kLanguage            = "ui/language";
@@ -39,6 +40,11 @@ constexpr auto kGifProvider         = "gif/provider";       // "giphy"/"klipy"
 constexpr auto kShowRoomActivity    = "timeline/showRoomActivity";
 // v0.5.19: 0=Standard, 1=Fast, 2=Very fast (see TimelineScrollController).
 constexpr auto kTimelineWheelSpeed  = "timeline/wheelSpeed";
+// GLOBAL (device-wide, never per-account): it becomes QT_SCALE_FACTOR in
+// main() BEFORE any account restores — the same rationale as the custom
+// app icon. main.cpp reads this key directly pre-QGuiApplication; keep
+// the key name and the 75..150 clamp in sync with that read.
+constexpr auto kInterfaceZoom       = "ui/interfaceZoom";
 constexpr int kRecentEmojiLimit     = 32;
 // v0.2/v0.3 stored the access token here in plaintext. v0.4 migrates it out
 // on first read; the key stays defined only so the migration code can find
@@ -716,6 +722,23 @@ void SettingsManager::setMessageLayout(int layout)
     Q_EMIT messageLayoutChanged();
 }
 
+int SettingsManager::roomFilterMode() const
+{
+    // 0 All, 1 People, 2 Rooms, 3 Unreads (RoomListModel::filterMode).
+    const int stored = appearanceValue(kRoomFilterMode, 0).toInt();
+    return (stored < 0 || stored > 3) ? 0 : stored;
+}
+
+void SettingsManager::setRoomFilterMode(int mode)
+{
+    if (mode < 0 || mode > 3)
+        mode = 0;
+    if (roomFilterMode() == mode)
+        return;
+    setAppearanceValue(kRoomFilterMode, mode);
+    Q_EMIT roomFilterModeChanged();
+}
+
 int SettingsManager::textScale() const
 {
     const int stored = appearanceValue(kTextScale, 100).toInt();
@@ -1182,6 +1205,23 @@ void SettingsManager::setShowRoomActivity(bool v)
         return;
     m_store->setValue(kShowRoomActivity, v);
     Q_EMIT showRoomActivityChanged();
+}
+
+int SettingsManager::interfaceZoom() const
+{
+    const int stored = m_store->value(kInterfaceZoom, 100).toInt();
+    return (stored < kMinInterfaceZoom || stored > kMaxInterfaceZoom)
+        ? 100
+        : stored;
+}
+
+void SettingsManager::setInterfaceZoom(int percent)
+{
+    percent = std::clamp(percent, kMinInterfaceZoom, kMaxInterfaceZoom);
+    if (interfaceZoom() == percent)
+        return;
+    m_store->setValue(kInterfaceZoom, percent);
+    Q_EMIT interfaceZoomChanged();
 }
 
 int SettingsManager::timelineWheelSpeed() const

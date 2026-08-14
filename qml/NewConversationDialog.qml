@@ -638,7 +638,10 @@ Dialog {
                             size: 32
                             circle: true
                             name: existingRow.dmName
-                            colorKey: modelData.roomId
+                            // The dialog already knows WHO this DM is with;
+                            // key by the person, matching every other
+                            // surface that shows them.
+                            colorKey: root.selectedUserId
                         }
                         Label {
                             Layout.fillWidth: true

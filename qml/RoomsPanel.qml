@@ -287,6 +287,44 @@ Rectangle {
             }
         }
 
+        // Element-style list filter chips. The MODEL owns the filtering
+        // (RoomListModel::filterMode); the chip row just reflects and
+        // writes the persisted per-account preference, which the model
+        // follows through the Binding below — so an account switch or a
+        // restart restores the chosen view.
+        Rectangle {
+            Layout.fillWidth: true
+            color: AppTheme.sidebar
+            implicitHeight: filterChips.implicitHeight + AppTheme.spacing8
+            // storm: deliberately left false — the room-list family keeps
+            // the default themed treatment (same rule as MenuKeycap here).
+            SegmentedControl {
+                id: filterChips
+                objectName: "roomFilterChips"
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.leftMargin: AppTheme.spacing12
+                anchors.rightMargin: AppTheme.spacing12
+                anchors.verticalCenter: parent.verticalCenter
+                dense: true
+                model: [
+                    { label: qsTr("All"), value: 0 },
+                    { label: qsTr("People"), value: 1 },
+                    { label: qsTr("Rooms"), value: 2 },
+                    { label: qsTr("Unreads"), value: 3 }
+                ]
+                current: app.roomList.filterMode
+                onActivated: (value) => {
+                    app.settings.roomFilterMode = value
+                }
+            }
+        }
+        Binding {
+            target: app.roomList
+            property: "filterMode"
+            value: app.settings.roomFilterMode
+        }
+
         NewConversationDialog {
             id: newConversationDialog
             parent: Overlay.overlay

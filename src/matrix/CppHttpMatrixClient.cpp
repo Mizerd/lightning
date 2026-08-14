@@ -977,8 +977,13 @@ void CppHttpMatrixClient::processJoinedRooms(const QJsonObject &joined)
             structureChanged = true;
         else
             Q_EMIT roomUpdated(roomId);
-        if (membersChangedFlag)
+        if (membersChangedFlag) {
             Q_EMIT membersChanged(roomId);
+            // The roster-refetch consumers listen to the poke signal
+            // since review H1; this backend's sync detection serves both
+            // meanings.
+            Q_EMIT roomMemberEventSeen(roomId);
+        }
     }
 
     if (structureChanged)

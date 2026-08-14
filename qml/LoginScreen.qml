@@ -153,10 +153,31 @@ Item {
                     // add-account flow) re-asserted itself and reverted typed
                     // input back to "your own" homeserver, making it
                     // impossible to point the field at a different one.
-                    Component.onCompleted: text = app.settings.loginHomeserverPrefill
+                    //
+                    // Discovery runs WITHOUT waiting for Enter (live report
+                    // 2026-08-15: the sign-in options were "hidden" until
+                    // the server was typed and Enter pressed): once for the
+                    // prefilled server on open, then debounced while
+                    // typing. AuthManager resets per call and tags results
+                    // by server, so a stale probe can never label a newer
+                    // one; the UI still never guesses on a homeserver's
+                    // behalf — it just asks sooner.
+                    Component.onCompleted: {
+                        text = app.settings.loginHomeserverPrefill
+                        if (text.length > 0)
+                            app.auth.discoverAuthMethods(text)
+                    }
                     placeholderText: "https://matrix.org"
                     Accessible.name: qsTr("Homeserver URL")
+                    onTextEdited: discoverDebounce.restart()
+                    Timer {
+                        id: discoverDebounce
+                        interval: 700
+                        onTriggered:
+                            app.auth.discoverAuthMethods(homeserverField.text)
+                    }
                     onEditingFinished: {
+                        discoverDebounce.stop()
                         app.settings.loginHomeserverPrefill = text
                         // Ask the server what it actually offers. Until it
                         // answers, no auth-method choices are shown at all —

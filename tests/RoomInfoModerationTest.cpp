@@ -101,6 +101,23 @@ public:
         lastOpId = nextOp++;
         return lastOpId;
     }
+    quint64 inviteUsers(const QString &roomId,
+                        const QStringList &userIds) override
+    {
+        ++inviteCalls;
+        lastInviteRoom = roomId;
+        lastInvitees = userIds;
+        // Own op record: the roster refresh that follows a successful
+        // action bumps lastOpId again, so the shared field cannot
+        // identify the invite op.
+        lastInviteOpId = nextOp++;
+        lastOpId = lastInviteOpId;
+        return lastInviteOpId;
+    }
+    int inviteCalls = 0;
+    QString lastInviteRoom;
+    QStringList lastInvitees;
+    quint64 lastInviteOpId = 0;
 };
 
 QVariantMap memberRow(const QString &userId, qlonglong powerLevel,
@@ -302,6 +319,77 @@ private Q_SLOTS:
         controller.unbanMember(QStringLiteral("@banned:example.org"), {});
         QCOMPARE(client.unbanCalls, 0);
         QVERIFY(!controller.moderationPending());
+    }
+
+    // Invite-back rides ONLY a successful unban that asked for it.
+    void unbanInviteBackFollowsSuccessOnly()
+    {
+        FakeClient client;
+        RoomInfoController controller;
+        controller.setClient(&client);
+        controller.setRoomId(QStringLiteral("!room:example.org"));
+        const QVariantList members = {
+            memberRow(QStringLiteral("@banned:example.org"), 0,
+                      /*isOwn=*/false, QStringLiteral("banned")),
+        };
+        Q_EMIT client.roomMembersReceived(
+            client.lastOpId, QStringLiteral("!room:example.org"),
+            snapshotWithMembers(true, true, 100, members));
+
+        // Failure path first: no invite is ever dispatched.
+        controller.unbanMember(QStringLiteral("@banned:example.org"), {},
+                               /*inviteBack=*/true);
+        QCOMPARE(client.unbanCalls, 1);
+        Q_EMIT client.moderationFinished(client.lastOpId,
+                                         QStringLiteral("!room:example.org"),
+                                         QStringLiteral("@banned:example.org"),
+                                         QStringLiteral("unban"), false,
+                                         QStringLiteral("forbidden"));
+        QCOMPARE(client.inviteCalls, 0);
+
+        // Success path: exactly one invite for exactly that user, and its
+        // result is reported under op "invite_back".
+        Q_EMIT client.roomMembersReceived(client.lastOpId,
+                                          QStringLiteral("!room:example.org"),
+                                          snapshotWithMembers(true, true, 100,
+                                                              members));
+        controller.unbanMember(QStringLiteral("@banned:example.org"), {},
+                               /*inviteBack=*/true);
+        const quint64 unbanOp = client.lastOpId;
+        QSignalSpy done(&controller,
+                        &RoomInfoController::moderationActionFinished);
+        Q_EMIT client.moderationFinished(unbanOp,
+                                         QStringLiteral("!room:example.org"),
+                                         QStringLiteral("@banned:example.org"),
+                                         QStringLiteral("unban"), true, {});
+        QCOMPARE(client.inviteCalls, 1);
+        QCOMPARE(client.lastInvitees,
+                 QStringList{ QStringLiteral("@banned:example.org") });
+        Q_EMIT client.inviteUserFinished(client.lastInviteOpId,
+                                         QStringLiteral("!room:example.org"),
+                                         QStringLiteral("@banned:example.org"),
+                                         true, {});
+        bool sawInviteBack = false;
+        for (const auto &args : done) {
+            if (args.at(2).toString() == QLatin1String("invite_back")) {
+                sawInviteBack = true;
+                QCOMPARE(args.at(3).toBool(), true);
+            }
+        }
+        QVERIFY(sawInviteBack);
+
+        // Without the flag, a successful unban invites nobody.
+        Q_EMIT client.roomMembersReceived(client.lastOpId,
+                                          QStringLiteral("!room:example.org"),
+                                          snapshotWithMembers(true, true, 100,
+                                                              members));
+        controller.unbanMember(QStringLiteral("@banned:example.org"), {},
+                               /*inviteBack=*/false);
+        Q_EMIT client.moderationFinished(client.lastOpId,
+                                         QStringLiteral("!room:example.org"),
+                                         QStringLiteral("@banned:example.org"),
+                                         QStringLiteral("unban"), true, {});
+        QCOMPARE(client.inviteCalls, 1);
     }
 
     // Review M2: the roster refresh after a successful action is

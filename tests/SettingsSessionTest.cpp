@@ -94,6 +94,7 @@ private Q_SLOTS:
     void wheelSpeedDefaultsToFastPersistsAndFallsBack();
     void gifPolicyDefaultsPersistAndClamp();
     void messageLayoutAndTextScalePersistAndClamp();
+    void interfaceZoomAndRoomFilterPersistAndClamp();
     void appearanceIsPerAccountWithGlobalFallback();
     void uiFontPersistsPerAccountAndValidates();
     void loginHomeserverPrefillIsAccountIndependent();
@@ -446,6 +447,41 @@ void SettingsSessionTest::messageLayoutAndTextScalePersistAndClamp()
     SettingsManager reopened;
     QCOMPARE(reopened.messageLayout(), 1);
     QCOMPARE(reopened.textScale(), 130);
+}
+
+// 2026-08-14: interface zoom (global, startup-applied via QT_SCALE_FACTOR)
+// and the room-list filter chips (per-account appearance state).
+void SettingsSessionTest::interfaceZoomAndRoomFilterPersistAndClamp()
+{
+    {
+        SettingsManager settings;
+        QCOMPARE(settings.interfaceZoom(), 100);
+        QCOMPARE(settings.roomFilterMode(), 0);
+        QSignalSpy zoomSpy(&settings, &SettingsManager::interfaceZoomChanged);
+        QSignalSpy filterSpy(&settings,
+                             &SettingsManager::roomFilterModeChanged);
+        settings.setInterfaceZoom(125);
+        QCOMPARE(settings.interfaceZoom(), 125);
+        QCOMPARE(zoomSpy.count(), 1);
+        settings.setInterfaceZoom(400);
+        QCOMPARE(settings.interfaceZoom(),
+                 SettingsManager::kMaxInterfaceZoom);
+        settings.setInterfaceZoom(10);
+        QCOMPARE(settings.interfaceZoom(),
+                 SettingsManager::kMinInterfaceZoom);
+        settings.setInterfaceZoom(110);
+
+        settings.setRoomFilterMode(2);
+        QCOMPARE(settings.roomFilterMode(), 2);
+        QCOMPARE(filterSpy.count(), 1);
+        // Out-of-range falls back to All instead of persisting junk.
+        settings.setRoomFilterMode(9);
+        QCOMPARE(settings.roomFilterMode(), 0);
+        settings.setRoomFilterMode(3);
+    }
+    SettingsManager reopened;
+    QCOMPARE(reopened.interfaceZoom(), 110);
+    QCOMPARE(reopened.roomFilterMode(), 3);
 }
 
 void SettingsSessionTest::appearanceIsPerAccountWithGlobalFallback()

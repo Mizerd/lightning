@@ -25,7 +25,14 @@ void RoomInfoController::setClient(MatrixClient *client)
                 this, &RoomInfoController::onRoomLeaveFinished);
         connect(m_client, &MatrixClient::moderationFinished,
                 this, &RoomInfoController::onModerationFinished);
-        connect(m_client, &MatrixClient::membersChanged,
+        connect(m_client, &MatrixClient::inviteUserFinished,
+                this, &RoomInfoController::onInviteUserFinished);
+        // The sync poke, NOT membersChanged (review H1): this controller
+        // REFETCHES on the signal, and membersChanged also fires for the
+        // snapshots its own fetches deliver — the pending-op guard is
+        // what kept that from looping. roomMemberEventSeen carries only
+        // the "membership changed in sync" meaning.
+        connect(m_client, &MatrixClient::roomMemberEventSeen,
                 this, &RoomInfoController::onMembersChanged);
         connect(m_client, &MatrixClient::loggedOut,
                 this, &RoomInfoController::onLoggedOut);
@@ -39,14 +46,22 @@ bool RoomInfoController::supported() const
 
 void RoomInfoController::setRoomId(const QString &roomId)
 {
-    if (m_roomId == roomId)
+    if (m_roomId == roomId) {
+        // Reopening the panel for the room it last showed used to render
+        // an arbitrarily old snapshot with loading == false and no way to
+        // refetch. A refetch here is a store read after the first sync.
+        if (!m_roomId.isEmpty() && m_membersOp == 0)
+            refreshMembers();
         return;
+    }
     m_roomId = roomId;
     // Room switch invalidates every in-flight operation for the old room.
     m_membersOp = 0;
     m_editOp = 0;
     m_leaveOp = 0;
     m_moderationOp = 0;
+    m_inviteBackUserId.clear();
+    m_inviteBackOp = 0;
     m_editError.clear();
     m_leaveError.clear();
     clearSnapshot();
@@ -92,15 +107,27 @@ void RoomInfoController::onRoomMembersReceived(quint64 opId,
 {
     if (opId != m_membersOp || roomId != m_roomId)
         return; // stale snapshot (old room / old request)
-    m_membersOp = 0;
+    // A partial (cache-only) snapshot renders immediately but keeps the
+    // op pending — `loading` stays true until the synced roster lands
+    // under the same op.
+    const bool partial = snapshot.value(QStringLiteral("partial")).toBool();
+    if (!partial)
+        m_membersOp = 0;
     if (!snapshot.value(QStringLiteral("ok")).toBool()) {
         Q_EMIT membersChanged();
         return;
     }
     m_members = snapshot.value(QStringLiteral("members")).toList();
-    m_joinedCount = snapshot.value(QStringLiteral("joinedCount")).toInt();
-    m_invitedCount = snapshot.value(QStringLiteral("invitedCount")).toInt();
-    m_truncated = snapshot.value(QStringLiteral("truncated")).toBool();
+    // The counts and the truncation flag are WHOLE-roster facts a
+    // cache-only snapshot cannot know — a confidently wrong "2 members"
+    // is worse than the previous value while loading (review M3). Rows
+    // and permissions still render immediately.
+    if (!partial) {
+        m_joinedCount = snapshot.value(QStringLiteral("joinedCount")).toInt();
+        m_invitedCount =
+            snapshot.value(QStringLiteral("invitedCount")).toInt();
+        m_truncated = snapshot.value(QStringLiteral("truncated")).toBool();
+    }
     m_canInvite = snapshot.value(QStringLiteral("canInvite")).toBool();
     m_canEditName = snapshot.value(QStringLiteral("canEditName")).toBool();
     m_canEditTopic = snapshot.value(QStringLiteral("canEditTopic")).toBool();
@@ -289,9 +316,19 @@ void RoomInfoController::banMember(const QString &userId,
 }
 
 void RoomInfoController::unbanMember(const QString &userId,
-                                     const QString &reason)
+                                     const QString &reason, bool inviteBack)
 {
+    // With an action already in flight, arming would OVERWRITE the live
+    // unban's pending invite (review L3) — the busy refusal must come
+    // before the arm, and moderate() below re-refuses regardless.
+    if (moderationPending())
+        return;
+    m_inviteBackUserId = inviteBack ? userId : QString();
     moderate(userId, reason, QStringLiteral("unban"));
+    // moderate() can refuse synchronously; never leave the invite armed
+    // for an unban that was not dispatched.
+    if (m_moderationOp == 0)
+        m_inviteBackUserId.clear();
 }
 
 void RoomInfoController::moderate(const QString &userId,
@@ -342,10 +379,46 @@ void RoomInfoController::onModerationFinished(quint64 opId,
                ? tr("You do not have permission to do that.")
                : tr("The action failed. Check your connection and retry."));
     Q_EMIT moderationActionFinished(roomId, userId, op, ok, message);
+    // Invite-back requested from the unban confirm: only after a
+    // SUCCESSFUL unban, through the normal invite path; its own result
+    // arrives via onInviteUserFinished.
+    if (ok && op == QLatin1String("unban") && roomId == m_roomId
+        && !m_inviteBackUserId.isEmpty() && userId == m_inviteBackUserId
+        && m_client) {
+        m_inviteBackOp = m_client->inviteUsers(m_roomId, { userId });
+        if (m_inviteBackOp == 0) {
+            Q_EMIT moderationActionFinished(
+                roomId, userId, QStringLiteral("invite_back"), false,
+                tr("The invite could not be sent."));
+        }
+    }
+    m_inviteBackUserId.clear();
     // The roster refresh is CLIENT-initiated: the Rust backend only emits
     // membersChanged in response to an explicit member fetch, never from
     // sync, so without this the kicked user would stay in the People list
     // until the next room switch (review M2).
+    if (ok && roomId == m_roomId)
+        refreshMembers();
+}
+
+void RoomInfoController::onInviteUserFinished(quint64 opId,
+                                              const QString &roomId,
+                                              const QString &userId, bool ok,
+                                              const QString &category)
+{
+    if (opId == 0 || opId != m_inviteBackOp)
+        return;
+    m_inviteBackOp = 0;
+    const QString message = ok
+        ? QString()
+        : (category == QLatin1String("forbidden")
+               ? tr("You do not have permission to invite them.")
+               : tr("The invite could not be sent."));
+    Q_EMIT moderationActionFinished(roomId, userId,
+                                    QStringLiteral("invite_back"), ok,
+                                    message);
+    // Show the Invited state without waiting for the next panel open; a
+    // newer fetch op simply supersedes any pending one.
     if (ok && roomId == m_roomId)
         refreshMembers();
 }
@@ -371,6 +444,8 @@ void RoomInfoController::onLoggedOut()
     m_editOp = 0;
     m_leaveOp = 0;
     m_moderationOp = 0;
+    m_inviteBackUserId.clear();
+    m_inviteBackOp = 0;
     m_adhocLeaveOps.clear();
     m_roomId.clear();
     m_editError.clear();

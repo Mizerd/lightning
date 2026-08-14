@@ -584,7 +584,7 @@ Popup {
                         size: 28
                         mxc: model.avatarUrl
                         name: model.name
-                        colorKey: model.roomId
+                        colorKey: model.identityColorKey || model.roomId
                         circle: model.category === "dm"
                     }
                     ColumnLayout {
@@ -699,7 +699,7 @@ Popup {
                         size: 28
                         mxc: model.kind === "entity" ? model.avatarUrl : ""
                         name: model.kind === "entity" ? model.name : ""
-                        colorKey: model.kind === "entity" ? model.roomId : ""
+                        colorKey: model.kind === "entity" ? (model.identityColorKey || model.roomId) : ""
                         circle: model.kind === "entity" && model.category === "dm"
                     }
                     ColumnLayout {

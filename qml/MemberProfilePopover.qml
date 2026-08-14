@@ -31,6 +31,9 @@ Popup {
     // "" | "kick" | "ban" — which confirm surface is showing.
     property string modAction: ""
     property string modError: ""
+    // Unban confirm option: send a normal invite after a successful
+    // unban (maintainer request — one step back in instead of two).
+    property bool inviteBackChecked: true
     // The offer policy is the CONTROLLER'S (RoomInfoController::
     // canModerate: SDK permission flag, loaded snapshot row for the
     // target — unknown fails closed — non-self, strictly below the
@@ -72,6 +75,7 @@ Popup {
         modAction = ""
         modError = ""
         modReasonField.text = ""
+        inviteBackChecked = true
         _refreshModeration()
         open()
     }
@@ -512,6 +516,28 @@ Popup {
                     placeholderText: qsTr("Reason (optional)")
                 }
                 RowLayout {
+                    visible: root.modAction === "unban"
+                    Layout.fillWidth: true
+                    spacing: AppTheme.spacing8
+                    AppSwitch {
+                        checked: root.inviteBackChecked
+                        onToggled: root.inviteBackChecked
+                                   = !root.inviteBackChecked
+                        Accessible.name: qsTr("Invite back after unbanning")
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        text: qsTr("Invite back after unbanning")
+                        color: AppTheme.stormTextSecondary
+                        font.pixelSize: AppTheme.fontSecondary
+                        wrapMode: Text.Wrap
+                        TapHandler {
+                            onTapped: root.inviteBackChecked
+                                      = !root.inviteBackChecked
+                        }
+                    }
+                }
+                RowLayout {
                     Layout.fillWidth: true
                     spacing: AppTheme.spacing8
                     AppButton {
@@ -534,8 +560,9 @@ Popup {
                                 app.roomInfo.banMember(root.userId,
                                                        modReasonField.text)
                             else
-                                app.roomInfo.unbanMember(root.userId,
-                                                         modReasonField.text)
+                                app.roomInfo.unbanMember(
+                                    root.userId, modReasonField.text,
+                                    root.inviteBackChecked)
                         }
                     }
                     AppButton {

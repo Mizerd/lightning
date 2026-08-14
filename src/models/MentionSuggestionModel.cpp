@@ -37,7 +37,9 @@ void MentionSuggestionModel::setClient(MatrixClient *client)
     if (m_client) {
         connect(m_client, &MatrixClient::roomMembersReceived, this,
                 &MentionSuggestionModel::onRoomMembersReceived);
-        connect(m_client, &MatrixClient::membersChanged, this,
+        // The sync poke, not membersChanged — same rationale as
+        // RoomInfoController (review H1): this model REFETCHES on it.
+        connect(m_client, &MatrixClient::roomMemberEventSeen, this,
                 &MentionSuggestionModel::onMembersChanged);
         connect(m_client, &MatrixClient::loggedOut, this,
                 &MentionSuggestionModel::onLoggedOut);
@@ -82,7 +84,11 @@ void MentionSuggestionModel::onRoomMembersReceived(quint64 opId,
 {
     if (opId != m_membersOp || roomId != m_roomId)
         return; // stale (old room / superseded request)
-    m_membersOp = 0;
+    // A partial (cache-only) snapshot is usable immediately, but the op
+    // stays pending so the synced roster under the same op is not
+    // dropped as stale.
+    if (!snapshot.value(QStringLiteral("partial")).toBool())
+        m_membersOp = 0;
     if (!snapshot.value(QStringLiteral("ok")).toBool())
         return;
 

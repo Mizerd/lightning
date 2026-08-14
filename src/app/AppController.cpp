@@ -1485,6 +1485,13 @@ void AppController::setCurrentRoomId(const QString &roomId)
     m_timeline->setRoomId(roomId);
     m_composer->setRoomId(roomId);
     m_pagination->setRoomId(roomId);
+    // The Unreads list filter keeps the open room visible (reading it
+    // must not remove the row the selection sits on).
+    m_roomList->setPinnedRoomId(roomId);
+    // Mention suggestions arm on the room the user last typed "@" in and
+    // never disarmed on switch, leaving that room's roster refetching on
+    // every membership event indefinitely (review M2).
+    m_mentionSuggestions->setRoomId(QString());
     // v0.6.5: hydrate the member roster on first open — mention chips,
     // reply headers and thread summaries resolve display names through the
     // roster-fed cache behind displayNameFor(), and before this the fetch

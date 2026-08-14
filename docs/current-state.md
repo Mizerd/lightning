@@ -1015,7 +1015,16 @@ was delivered in the following v0.5.10 release.
     deserializes the ban list into the (still capped) snapshot — if that
     cost shows up on heavily-moderated rooms, the fix is a panel-scoped
     fetch. An inline confirm carries an optional reason; failures
-    surface sanitized in place.
+    surface sanitized in place. The unban confirm offers "Invite back
+    after unbanning" (default on): a successful unban is followed by a
+    normal invite whose result reports under op "invite_back". The
+    People list is cache-first (an instant PARTIAL snapshot from
+    members_no_sync precedes the synced roster under the same op —
+    `loading` stays true until the full one lands) and LIVE: a
+    SyncRoomMemberEvent handler pokes membersChanged so an open panel
+    refetches on sync membership changes, and reopening the panel for
+    the unchanged room refetches too (both cheap store reads after the
+    first sync).
   - **Media & Files** — media shared in the *loaded* timeline
     (`TimelineModel::mediaEntries()`, newest first; no automatic history
     fetch). Images open in the in-app viewer; every entry offers Save As

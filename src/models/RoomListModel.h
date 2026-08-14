@@ -17,6 +17,11 @@ class RoomListModel : public QAbstractListModel
     Q_OBJECT
     Q_PROPERTY(QString searchQuery READ searchQuery WRITE setSearchQuery NOTIFY searchQueryChanged)
     Q_PROPERTY(quint64 filterGeneration READ filterGeneration NOTIFY filterGenerationChanged)
+    // Element-style list filter: 0 = All, 1 = People (DMs), 2 = Rooms,
+    // 3 = Unreads. Invites always pass (they need action), and in Unreads
+    // mode the pinned (currently open) room stays visible so reading a
+    // room does not yank its row out from under the selection.
+    Q_PROPERTY(int filterMode READ filterMode WRITE setFilterMode NOTIFY filterModeChanged)
 public:
     enum Roles {
         RoomIdRole = Qt::UserRole + 1,
@@ -40,6 +45,9 @@ public:
         InvitePendingRole,
         InviteErrorRole,
         CanonicalAliasRole,
+        // identityColorKey(RoomInfo): partner MXID for unambiguous 1:1
+        // DMs, room id otherwise — the single fallback-colour policy.
+        IdentityColorKeyRole,
     };
 
     explicit RoomListModel(QObject *parent = nullptr);
@@ -81,6 +89,11 @@ public:
     QString searchQuery() const { return m_searchQuery; }
     void setSearchQuery(const QString &query);
     quint64 filterGeneration() const { return m_filterGeneration; }
+    int filterMode() const { return m_filterMode; }
+    void setFilterMode(int mode);
+    // The currently open room; kept visible in Unreads mode (see the
+    // filterMode property comment). Set by AppController on room switch.
+    void setPinnedRoomId(const QString &roomId);
 
     // v0.7 account switching: drop DM profile lookups resolved under the
     // previous account's authority, then rebuild from the client.
@@ -106,6 +119,7 @@ private Q_SLOTS:
 
 private:
     QString effectiveAvatarUrl(const RoomInfo &room) const;
+    bool passesScopeFilter(const RoomInfo &r) const;
     bool passesFilter(const RoomInfo &r) const;
     QList<RoomInfo> desiredRooms() const;
     void reconcileRooms();
@@ -116,6 +130,8 @@ private:
     QList<RoomInfo> m_rooms; // Filtered subset actually shown.
     QString m_searchQuery;
     QString m_pendingSearchQuery;
+    int m_filterMode = 0;
+    QString m_pinnedRoomId;
     quint64 m_filterGeneration = 1;
     QTimer m_searchDebounce;
     // Coalesces per-event refreshRoom() calls into one reconcile per turn.
@@ -127,4 +143,5 @@ private:
 Q_SIGNALS:
     void searchQueryChanged();
     void filterGenerationChanged();
+    void filterModeChanged();
 };

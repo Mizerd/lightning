@@ -291,7 +291,8 @@ Item {
                                 size: 30
                                 name: modelData.name || ""
                                 mxc: modelData.avatarUrl || ""
-                                colorKey: modelData.roomId || ""
+                                colorKey: modelData.identityColorKey
+                                          || modelData.roomId || ""
                                 circle: modelData.isDirect === true
                                 roomGlyph: modelData.isDirect !== true
                             }

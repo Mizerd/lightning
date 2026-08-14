@@ -700,6 +700,14 @@ Q_SIGNALS:
     void paginationStateChanged(const QString &roomId);
     void typingChanged(const QString &roomId);
     void membersChanged(const QString &roomId);
+    // A sync m.room.member event was seen for this room (join/leave/kick/
+    // ban/invite AND every display-name or avatar change). Distinct from
+    // membersChanged on purpose (review H1): membersChanged means "a
+    // member SNAPSHOT landed" and drives presentation refreshes
+    // (TimelineModel dirties every loaded row on it); this poke can fire
+    // per member event in a busy bridged room and must only reach the
+    // roster REFETCH consumers, whose pending-op guards bound the work.
+    void roomMemberEventSeen(const QString &roomId);
 
     // Server-reported per-room notification mode (0/1/2 as above).
     // userDefined is true for an explicit per-room rule, false when the

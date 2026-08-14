@@ -33,7 +33,9 @@ public:
     }
     void emitMembersChanged(const QString &roomId)
     {
-        Q_EMIT membersChanged(roomId);
+        // The model re-requests on the sync poke since review H1;
+        // membersChanged now only drives presentation consumers.
+        Q_EMIT roomMemberEventSeen(roomId);
     }
     void emitLoggedOut() { Q_EMIT loggedOut(); }
 

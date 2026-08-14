@@ -32,6 +32,10 @@ class SettingsManager : public QObject
     // logged-out default and the fallback for accounts without one.
     Q_PROPERTY(int messageLayout READ messageLayout WRITE setMessageLayout
                    NOTIFY messageLayoutChanged)
+    // Room-list filter chips (0 All, 1 People, 2 Rooms, 3 Unreads) —
+    // per-account with global fallback, like the other appearance state.
+    Q_PROPERTY(int roomFilterMode READ roomFilterMode WRITE setRoomFilterMode
+                   NOTIFY roomFilterModeChanged)
     Q_PROPERTY(int textScale READ textScale WRITE setTextScale
                    NOTIFY textScaleChanged)
     // v0.7: bundled UI font family (per-account with global fallback, like
@@ -94,6 +98,12 @@ class SettingsManager : public QObject
     // (0=Standard, 1=Fast, 2=Very fast). Default and safe fallback: Fast.
     Q_PROPERTY(int timelineWheelSpeed READ timelineWheelSpeed
                    WRITE setTimelineWheelSpeed NOTIFY timelineWheelSpeedChanged)
+    // Whole-interface zoom percent (75..150). GLOBAL: main() turns it into
+    // QT_SCALE_FACTOR before the app object exists, so it cannot be
+    // per-account and only takes effect on the next launch — Qt reads the
+    // scale factor exactly once at startup.
+    Q_PROPERTY(int interfaceZoom READ interfaceZoom WRITE setInterfaceZoom
+                   NOTIFY interfaceZoomChanged)
     Q_PROPERTY(bool hasSession READ hasSession NOTIFY sessionChanged)
     Q_PROPERTY(QString userId READ userId NOTIFY sessionChanged)
     Q_PROPERTY(QString secretBackendName READ secretBackendName NOTIFY secretBackendChanged)
@@ -147,6 +157,8 @@ public:
     static constexpr int kMaxMessageLayout = 2;
     int messageLayout() const;
     void setMessageLayout(int layout);
+    int roomFilterMode() const;
+    void setRoomFilterMode(int mode);
 
     // Text scale percent. Out-of-range values read back as 100.
     static constexpr int kMinTextScale = 90;
@@ -250,6 +262,11 @@ public:
     // v0.5.19: timeline discrete-wheel speed. 0=Standard, 1=Fast, 2=Very fast.
     // An out-of-range or legacy value reads back as Fast (1).
     static constexpr int kDefaultTimelineWheelSpeed = 1; // Fast
+    static constexpr int kMinInterfaceZoom = 75;
+    static constexpr int kMaxInterfaceZoom = 150;
+    int interfaceZoom() const;
+    void setInterfaceZoom(int percent);
+
     int timelineWheelSpeed() const;
     void setTimelineWheelSpeed(int v);
 
@@ -438,6 +455,7 @@ Q_SIGNALS:
     void loginHomeserverPrefillChanged();
     void themeChanged();
     void messageLayoutChanged();
+    void roomFilterModeChanged();
     void textScaleChanged();
     void uiFontChanged();
     void languageChanged();
@@ -456,6 +474,7 @@ Q_SIGNALS:
     void gifPreferredProviderChanged();
     void showRoomActivityChanged();
     void timelineWheelSpeedChanged();
+    void interfaceZoomChanged();
     void sessionChanged();
     void secretBackendChanged();
     // A saved-account record was added, removed, or updated.

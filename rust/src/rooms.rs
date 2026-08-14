@@ -1130,6 +1130,31 @@ pub(crate) fn room_members(
     let lifecycle = timelines.lifecycle();
     let own_id = client.user_id().map(|u| u.to_owned());
     bridge.spawn_room_action(async move {
+        // Cache-first: an instant PARTIAL snapshot from the state store
+        // (the members already known locally — typically timeline senders
+        // and heroes on a lazy-loaded room) so the People list renders
+        // immediately instead of sitting empty through the first
+        // network-backed /members fetch. The synced full roster follows
+        // under the SAME op with partial=false. An empty cache emits
+        // nothing — an empty partial would read as "nobody".
+        if let Ok(cached) = room
+            .members_no_sync(RoomMemberships::ACTIVE | RoomMemberships::BAN)
+            .await
+        {
+            if !cached.is_empty() && timelines.lifecycle_current(lifecycle) {
+                let snapshot = members_snapshot_json(
+                    &room, &cached, own_id.as_deref(), &room_id, op_id,
+                    lifecycle, /*partial=*/ true,
+                )
+                .await;
+                // Re-check after the await inside the builder (§9: the
+                // guard sits immediately before the emit).
+                if timelines.lifecycle_current(lifecycle) {
+                    enqueue(&events, snapshot);
+                }
+            }
+        }
+
         // ACTIVE (join+invite) plus BAN: banned members must be visible or
         // unban is unreachable from the client. They are excluded from the
         // joined/invited counts and from mention suggestions downstream.
@@ -1155,7 +1180,32 @@ pub(crate) fn room_members(
         if !timelines.lifecycle_current(lifecycle) {
             return;
         }
+        let snapshot = members_snapshot_json(
+            &room, &members, own_id.as_deref(), &room_id, op_id, lifecycle,
+            /*partial=*/ false,
+        )
+        .await;
+        // Guard immediately before the emit (§9) — the builder awaits a
+        // store read for the own-member permissions.
+        if timelines.lifecycle_current(lifecycle) {
+            enqueue(&events, snapshot);
+        }
+    });
+    Ok(())
+}
 
+// One snapshot shape for both the instant cache-only (partial) emit and
+// the synced full roster — sort, counts, cap, rows, own permissions.
+async fn members_snapshot_json(
+    room: &matrix_sdk::Room,
+    members: &[matrix_sdk::room::RoomMember],
+    own_id: Option<&matrix_sdk::ruma::UserId>,
+    room_id: &str,
+    op_id: u64,
+    lifecycle: u64,
+    partial: bool,
+) -> serde_json::Value {
+    {
         let mut sorted: Vec<&matrix_sdk::room::RoomMember> = members.iter().collect();
         sorted.sort_by(|a, b| {
             use matrix_sdk::ruma::events::room::member::MembershipState;
@@ -1217,15 +1267,14 @@ pub(crate) fn room_members(
                     // an action that must fail).
                     "power_level": power_level_int(member.power_level()),
                     "ambiguous": member.name_ambiguous(),
-                    "is_own": Some(member.user_id())
-                        == own_id.as_ref().map(|o| o.as_ref()),
+                    "is_own": Some(member.user_id()) == own_id,
                 })
             })
             .collect();
 
         // Own permissions, from the SDK's power-level helpers — never
         // guessed from role labels or room-creator status.
-        let own_member = match &own_id {
+        let own_member = match own_id {
             Some(own) => room.get_member_no_sync(own).await.ok().flatten(),
             None => None,
         };
@@ -1252,15 +1301,16 @@ pub(crate) fn room_members(
             .map(|m| power_level_int(m.power_level()))
             .unwrap_or(0);
 
-        if !timelines.lifecycle_current(lifecycle) {
-            return;
-        }
-        enqueue(&events, json!({
+        json!({
             "type": "room_members",
             "op_id": op_id,
             "lifecycle": lifecycle,
             "room_id": room_id,
             "ok": true,
+            // A partial snapshot keeps the op OPEN on the C++ side: the
+            // panel renders it but stays "loading" until the synced
+            // roster lands under the same op.
+            "partial": partial,
             "truncated": truncated,
             "joined_count": joined_count,
             "invited_count": invited_count,
@@ -1273,9 +1323,8 @@ pub(crate) fn room_members(
             "own_can_unban": can_unban,
             "own_power_level": own_power_level,
             "members": rows,
-        }));
-    });
-    Ok(())
+        })
+    }
 }
 
 // ---------------------------------------------------------------------------

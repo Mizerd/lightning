@@ -215,6 +215,8 @@ QVariantList SpaceManager::childRoomsDetailed(const QString &spaceId) const
             { QStringLiteral("name"),          it->name },
             { QStringLiteral("avatarUrl"),     it->avatarUrl },
             { QStringLiteral("isDirect"),      it->isDirect },
+            // Shared fallback-colour policy (see RoomInfo.h).
+            { QStringLiteral("identityColorKey"), identityColorKey(*it) },
             { QStringLiteral("hasUnread"),     it->hasUnreadMessages },
             { QStringLiteral("unreadCount"),   it->unreadCount },
             { QStringLiteral("highlightCount"), it->highlightCount },

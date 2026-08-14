@@ -32,6 +32,7 @@
 #endif
 #include <QQmlContext>
 #include <QQuickStyle>
+#include <QSettings>
 #include <QStringList>
 #include <QTextStream>
 
@@ -697,6 +698,23 @@ int main(int argc, char *argv[])
             QStringLiteral("matrix-client-screenshot-demo"));
 #endif
 
+    // Interface zoom (Settings → Appearance, Ctrl+= / Ctrl+-): Qt reads
+    // QT_SCALE_FACTOR exactly once at startup, so the persisted percent is
+    // applied here, pre-QGuiApplication — that is why zoom changes take
+    // effect on the next launch. An explicitly set user env always wins
+    // (and is then left untouched below).
+    bool zoomEnvSetHere = false;
+    if (!qEnvironmentVariableIsSet("QT_SCALE_FACTOR")) {
+        const int zoom =
+            QSettings().value(QStringLiteral("ui/interfaceZoom"), 100).toInt();
+        if (zoom != 100 && zoom >= SettingsManager::kMinInterfaceZoom
+            && zoom <= SettingsManager::kMaxInterfaceZoom) {
+            qputenv("QT_SCALE_FACTOR",
+                    QByteArray::number(zoom / 100.0, 'f', 2));
+            zoomEnvSetHere = true;
+        }
+    }
+
 #ifdef Q_OS_WIN
     // Pin the Qt Multimedia FFmpeg backend on Windows so inline video decodes
     // reliably. The Windows Media Foundation backend delivers the first
@@ -710,6 +728,12 @@ int main(int argc, char *argv[])
 #endif
 
     QGuiApplication app(argc, argv);
+    // Qt has read the scale factor now; drop it from the environment so it
+    // does not leak into child processes (the OAuth system browser,
+    // xdg-open) and zoom THEIR UI too (review L2). A user-set env var is
+    // deliberately left alone.
+    if (zoomEnvSetHere)
+        qunsetenv("QT_SCALE_FACTOR");
     // Wayland compositors match the window to its launcher entry through
     // the desktop-file name (app_id "lightning" ↔ lightning.desktop); X11
     // matches WM_CLASS ("matrix-client") through StartupWMClass.

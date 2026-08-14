@@ -44,6 +44,8 @@ QVariant QuickSwitcherModel::data(const QModelIndex &index, int role) const
     const Result &r = m_results.at(index.row());
     switch (role) {
     case RoomIdRole:    return r.roomId;
+    case IdentityColorKeyRole:
+        return r.identityColorKey.isEmpty() ? r.roomId : r.identityColorKey;
     case NameRole:      return r.name;
     case SubtitleRole:  return r.subtitle;
     case CategoryRole:  return r.category;
@@ -61,6 +63,7 @@ QHash<int, QByteArray> QuickSwitcherModel::roleNames() const
 {
     return {
         { RoomIdRole,    "roomId" },
+        { IdentityColorKeyRole, "identityColorKey" },
         { NameRole,      "name" },
         { SubtitleRole,  "subtitle" },
         { CategoryRole,  "category" },
@@ -183,6 +186,7 @@ void QuickSwitcherModel::rebuild()
 
             Result r;
             r.roomId = room.id;
+            r.identityColorKey = identityColorKey(room);
             r.name = displayName;
             r.avatarUrl = room.avatarUrl;
             r.unread = room.unreadCount;

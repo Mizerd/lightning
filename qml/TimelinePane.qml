@@ -385,6 +385,11 @@ Rectangle {
                     squareRadius: 9
                     name: root.currentRoom.name || app.currentRoomId
                     mxc: root.currentRoom.avatarUrl || ""
+                    // One fallback-colour policy (was keyed by display
+                    // NAME here — a third colour for the same DM partner,
+                    // changing on rename).
+                    colorKey: root.currentRoom.identityColorKey
+                              || app.currentRoomId
                     // Shape rule: people/DMs are circles; rooms and Spaces
                     // are rounded squares.
                     circle: root.currentRoom.isDirect === true
@@ -3187,7 +3192,7 @@ Rectangle {
                                     size: 32
                                     name: modelData.name || ""
                                     mxc: modelData.avatarUrl || ""
-                                    colorKey: modelData.roomId || ""
+                                    colorKey: modelData.identityColorKey || modelData.roomId || ""
                                     circle: modelData.isDirect === true
                                     roomGlyph: modelData.isDirect !== true
                                 }
@@ -3462,7 +3467,7 @@ Rectangle {
                                     size: 26
                                     name: modelData.name || ""
                                     mxc: modelData.avatarUrl || ""
-                                    colorKey: modelData.roomId || ""
+                                    colorKey: modelData.identityColorKey || modelData.roomId || ""
                                     circle: modelData.isDirect === true
                                     roomGlyph: modelData.isDirect !== true
                                 }

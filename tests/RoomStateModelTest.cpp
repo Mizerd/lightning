@@ -98,6 +98,8 @@ private Q_SLOTS:
     void homeAggregatesSharedRoomWithoutDoubleCounting();
     void selectedSpaceDisappearingReturnsHome();
     void searchFiltersNameAndAliasAndFindsInvites();
+    void filterModeSplitsPeopleRoomsUnreads();
+    void identityColorKeyPolicyForDms();
 };
 
 void RoomStateModelTest::directClassificationUsesMDirectOnly()
@@ -521,6 +523,96 @@ void RoomStateModelTest::searchFiltersNameAndAliasAndFindsInvites()
     model.setSearchQuery(QString{});
     QTRY_COMPARE(model.searchQuery(), QString{});
     QCOMPARE(model.rowCount(), 3);
+}
+
+// 2026-08-14: Element-style filter chips. People/Rooms split on m.direct;
+// Unreads keeps unread rooms, the pinned (open) room, and — like every
+// mode — invites, which always need action.
+void RoomStateModelTest::filterModeSplitsPeopleRoomsUnreads()
+{
+    FakeClient client;
+    RoomListModel model;
+    auto dm = room(QStringLiteral("!dm:example.org"), /*direct=*/true);
+    auto quiet = room(QStringLiteral("!quiet:example.org"));
+    auto busy = room(QStringLiteral("!busy:example.org"));
+    busy.hasUnreadMessages = true;
+    auto invite = room(QStringLiteral("!inv:example.org"));
+    invite.membership = RoomInfo::Invited;
+    client.mirror = {dm, quiet, busy, invite};
+    model.setClient(&client);
+    QCOMPARE(model.rowCount(), 4);
+
+    const auto ids = [&model]() {
+        QStringList out;
+        for (int i = 0; i < model.rowCount(); ++i)
+            out.append(model.data(model.index(i),
+                                  RoomListModel::RoomIdRole).toString());
+        std::sort(out.begin(), out.end());
+        return out;
+    };
+
+    model.setFilterMode(1); // People
+    QCOMPARE(ids(), (QStringList{dm.id, invite.id}));
+    model.setFilterMode(2); // Rooms
+    QCOMPARE(ids(), (QStringList{busy.id, invite.id, quiet.id}));
+    model.setFilterMode(3); // Unreads
+    QCOMPARE(ids(), (QStringList{busy.id, invite.id}));
+    // The pinned (open) room stays visible in Unreads even when read.
+    model.setPinnedRoomId(quiet.id);
+    QCOMPARE(ids(), (QStringList{busy.id, invite.id, quiet.id}));
+    model.setPinnedRoomId(QString{});
+    QCOMPARE(ids(), (QStringList{busy.id, invite.id}));
+    // Out-of-range modes fall back to All (both directions — never
+    // edge-snapped).
+    model.setFilterMode(7);
+    QCOMPARE(model.filterMode(), 0);
+    QCOMPARE(model.rowCount(), 4);
+    model.setFilterMode(2);
+    model.setFilterMode(-2);
+    QCOMPARE(model.filterMode(), 0);
+    QCOMPARE(model.rowCount(), 4);
+
+    // Home's recent strip is immune to the mode filter.
+    model.setFilterMode(1);
+    const QVariantList recents = model.recentRooms(6);
+    QCOMPARE(recents.size(), 3); // dm + quiet + busy; the invite is not joined
+}
+
+// 2026-08-14: one fallback-colour policy — an unambiguous 1:1 DM is
+// coloured as the person (their MXID); group DMs and plain rooms as the
+// room (live report: the same user rendered in different colours across
+// surfaces).
+void RoomStateModelTest::identityColorKeyPolicyForDms()
+{
+    FakeClient client;
+    RoomListModel model;
+    auto dm = room(QStringLiteral("!dm:example.org"), /*direct=*/true);
+    dm.directUserId = QStringLiteral("@ga:example.org");
+    dm.directUserIds = {QStringLiteral("@ga:example.org")};
+    auto groupDm = room(QStringLiteral("!group:example.org"), /*direct=*/true);
+    groupDm.directUserId = QStringLiteral("@a:example.org");
+    groupDm.directUserIds = {QStringLiteral("@a:example.org"),
+                             QStringLiteral("@b:example.org")};
+    auto plain = room(QStringLiteral("!room:example.org"));
+    client.mirror = {dm, groupDm, plain};
+    model.setClient(&client);
+
+    const auto keyOf = [&model](const QString &roomId) {
+        for (int i = 0; i < model.rowCount(); ++i) {
+            if (model.data(model.index(i), RoomListModel::RoomIdRole)
+                    .toString() == roomId)
+                return model.data(model.index(i),
+                                  RoomListModel::IdentityColorKeyRole)
+                    .toString();
+        }
+        return QString();
+    };
+    QCOMPARE(keyOf(dm.id), QStringLiteral("@ga:example.org"));
+    QCOMPARE(keyOf(groupDm.id), groupDm.id); // ambiguous — never a member's
+    QCOMPARE(keyOf(plain.id), plain.id);
+    QCOMPARE(model.findRoom(dm.id)
+                 .value(QStringLiteral("identityColorKey")).toString(),
+             QStringLiteral("@ga:example.org"));
 }
 
 QTEST_GUILESS_MAIN(RoomStateModelTest)

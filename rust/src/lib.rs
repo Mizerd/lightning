@@ -39,6 +39,7 @@ use matrix_sdk::{
             },
             room::{
                 encrypted::OriginalSyncRoomEncryptedEvent,
+                member::SyncRoomMemberEvent,
                 message::{MessageType, OriginalSyncRoomMessageEvent, RoomMessageEventContent},
             },
             secret::send::ToDeviceSecretSendEvent,
@@ -6168,6 +6169,69 @@ fn install_event_handlers(
             }));
         }
     });
+    // Membership changes from sync: a lightweight per-room poke so an open
+    // People panel (and the mention roster) refetches without reopening —
+    // sync otherwise never produces a members snapshot (live report
+    // 2026-08-14: a user joined, sent a message, and the panel still
+    // showed one person). Only the room id crosses; the C++ side routes
+    // it to the refetch consumers alone (roomMemberEventSeen, review H1).
+    //
+    // Rate-limited per room (review M2): m.room.member also covers every
+    // display-name/avatar change, and a bridged room can sync several per
+    // second — an unthrottled poke would flood the bounded event queue
+    // and turn each event into a roster refetch. At most one leading poke
+    // per second per room; a suppressed burst schedules ONE trailing poke
+    // so the last change of a burst is never silently missed.
+    let member_events = Arc::clone(&events);
+    let member_poke_state: Arc<Mutex<HashMap<OwnedRoomId, (std::time::Instant, bool)>>> =
+        Arc::new(Mutex::new(HashMap::new()));
+    client.add_event_handler(move |_ev: SyncRoomMemberEvent, room: Room| {
+        let events = Arc::clone(&member_events);
+        let poke_state = Arc::clone(&member_poke_state);
+        async move {
+            const WINDOW: std::time::Duration = std::time::Duration::from_secs(1);
+            let room_id = room.room_id().to_owned();
+            let now = std::time::Instant::now();
+            {
+                let mut state = poke_state.lock().unwrap();
+                match state.get_mut(&room_id) {
+                    Some((last, trailing)) if now.duration_since(*last) < WINDOW => {
+                        if *trailing {
+                            return; // a trailing poke is already scheduled
+                        }
+                        *trailing = true;
+                        let events = Arc::clone(&events);
+                        let poke_state = Arc::clone(&poke_state);
+                        let deadline = *last + WINDOW;
+                        let room_id = room_id.clone();
+                        tokio::spawn(async move {
+                            tokio::time::sleep_until(deadline.into()).await;
+                            if let Some((last, trailing)) =
+                                poke_state.lock().unwrap().get_mut(&room_id)
+                            {
+                                *last = std::time::Instant::now();
+                                *trailing = false;
+                            }
+                            enqueue(&events, json!({
+                                "type": "room_members_changed",
+                                "room_id": room_id.to_string(),
+                            }));
+                        });
+                        return;
+                    }
+                    Some(entry) => *entry = (now, false),
+                    None => {
+                        state.insert(room_id.clone(), (now, false));
+                    }
+                }
+            }
+            enqueue(&events, json!({
+                "type": "room_members_changed",
+                "room_id": room_id.to_string(),
+            }));
+        }
+    });
+
     // Decrypted (or plaintext) room messages — the SDK dispatches this handler
     // for both. `encryption_info` is Some(...) only when the SDK decrypted the
     // payload; when Some, the event on the wire was m.room.encrypted and the

@@ -41,10 +41,13 @@ public:
         HasUnreadRole,
         IsSpaceRole,
         IsInviteRole,
+        // identityColorKey(RoomInfo) — the shared fallback-colour policy.
+        IdentityColorKeyRole,
     };
 
     struct Result {
         QString roomId;
+        QString identityColorKey;
         QString name;
         QString subtitle;
         QString avatarUrl;

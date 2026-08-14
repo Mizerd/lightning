@@ -129,6 +129,7 @@ QVariant RoomListModel::data(const QModelIndex &index, int role) const
     case InvitePendingRole:      return r.invitePending;
     case InviteErrorRole:        return r.inviteError;
     case CanonicalAliasRole:     return r.canonicalAlias;
+    case IdentityColorKeyRole:   return identityColorKey(r);
     default:                     return {};
     }
 }
@@ -157,6 +158,7 @@ QHash<int, QByteArray> RoomListModel::roleNames() const
         { InvitePendingRole,      "invitePending" },
         { InviteErrorRole,        "inviteError" },
         { CanonicalAliasRole,     "canonicalAlias" },
+        { IdentityColorKeyRole,   "identityColorKey" },
     };
 }
 
@@ -184,6 +186,8 @@ QVariantMap RoomListModel::findRoom(const QString &roomId) const
                 // DM bubble layout); omitting it made every DM header
                 // avatar render as a rounded square.
                 { QStringLiteral("isDirect"),  r.isDirect },
+                // One fallback-colour policy everywhere (see RoomInfo.h).
+                { QStringLiteral("identityColorKey"), identityColorKey(r) },
             };
         }
     }
@@ -192,14 +196,30 @@ QVariantMap RoomListModel::findRoom(const QString &roomId) const
 
 QVariantList RoomListModel::recentRooms(int max) const
 {
+    // Immune to the mode filter (People/Rooms/Unreads): selecting a chip
+    // in the room list must not reshape Home's "jump back in" strip, so
+    // this iterates the authoritative client list with the scope filters
+    // (space + search) only, re-sorted by activity.
+    QList<RoomInfo> pool;
+    if (m_client) {
+        for (const auto &r : m_client->rooms()) {
+            // Spaces render on the rail, not as conversations; invites and
+            // left rooms are not somewhere to "jump back in".
+            if (r.isSpace || r.membership != RoomInfo::Joined)
+                continue;
+            if (!passesScopeFilter(r))
+                continue;
+            pool.append(r);
+        }
+    }
+    std::stable_sort(pool.begin(), pool.end(),
+                     [](const RoomInfo &a, const RoomInfo &b) {
+                         return a.lastActivity > b.lastActivity;
+                     });
     QVariantList out;
-    for (const auto &r : m_rooms) {
+    for (const auto &r : pool) {
         if (out.size() >= max)
             break;
-        // Spaces render on the rail, not as conversations; invites and left
-        // rooms are not somewhere to "jump back in".
-        if (r.isSpace || r.membership != RoomInfo::Joined)
-            continue;
         out.append(QVariantMap{
             { QStringLiteral("roomId"),      r.id },
             { QStringLiteral("name"),        r.name },
@@ -210,6 +230,7 @@ QVariantList RoomListModel::recentRooms(int max) const
             // v0.7 Home: activity recency and the mention badge.
             { QStringLiteral("lastActivity"), r.lastActivity },
             { QStringLiteral("highlightCount"), r.highlightCount },
+            { QStringLiteral("identityColorKey"), identityColorKey(r) },
         });
     }
     return out;
@@ -277,7 +298,10 @@ QString RoomListModel::effectiveAvatarUrl(const RoomInfo &room) const
     return m_profileAvatars.value(room.directUserId);
 }
 
-bool RoomListModel::passesFilter(const RoomInfo &r) const
+// Scope filters only (space-room exclusion, search, Space membership) —
+// shared by the list filter and mode-immune surfaces like Home's recent
+// strip.
+bool RoomListModel::passesScopeFilter(const RoomInfo &r) const
 {
     // Space rooms themselves belong to the Space chip row, not the room list.
     if (r.isSpace && r.membership == RoomInfo::Joined) return false;
@@ -289,6 +313,63 @@ bool RoomListModel::passesFilter(const RoomInfo &r) const
     const QString active = m_spaces->activeSpaceId();
     if (active.isEmpty()) return true; // "All rooms"
     return m_spaces->includesRoom(active, r.id);
+}
+
+bool RoomListModel::passesFilter(const RoomInfo &r) const
+{
+    if (!passesScopeFilter(r))
+        return false;
+    // Element-style mode filter. Invites always pass — they need action
+    // regardless of the selected view — and in Unreads mode the pinned
+    // (open) room stays visible so reading it doesn't remove the row the
+    // selection sits on.
+    if (m_filterMode != 0 && r.membership != RoomInfo::Invited) {
+        switch (m_filterMode) {
+        case 1: // People
+            if (!r.isDirect) return false;
+            break;
+        case 2: // Rooms
+            if (r.isDirect) return false;
+            break;
+        case 3: // Unreads
+            if (!(r.hasUnreadMessages || r.markedUnread
+                  || r.highlightCount > 0 || r.id == m_pinnedRoomId))
+                return false;
+            break;
+        default:
+            break;
+        }
+    }
+    return true;
+}
+
+void RoomListModel::setFilterMode(int mode)
+{
+    // Same convention as SettingsManager: an unknown value falls back to
+    // All rather than snapping to the nearest edge.
+    const int clamped = (mode < 0 || mode > 3) ? 0 : mode;
+    if (clamped == m_filterMode)
+        return;
+    m_filterMode = clamped;
+    // Same three-step sequence as the search and Space filter changes.
+    ++m_filterGeneration;
+    Q_EMIT filterGenerationChanged();
+    reconcileRooms();
+    Q_EMIT filterModeChanged();
+}
+
+void RoomListModel::setPinnedRoomId(const QString &roomId)
+{
+    if (roomId == m_pinnedRoomId)
+        return;
+    m_pinnedRoomId = roomId;
+    // Only the Unreads view depends on the pin; skip the reconcile
+    // otherwise (room switches are frequent).
+    if (m_filterMode == 3) {
+        ++m_filterGeneration;
+        Q_EMIT filterGenerationChanged();
+        reconcileRooms();
+    }
 }
 
 void RoomListModel::setSearchQuery(const QString &query)

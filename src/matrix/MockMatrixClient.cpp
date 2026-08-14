@@ -2597,6 +2597,7 @@ void MockMatrixClient::setRoomMemberForTest(const QString &roomId,
         if (!member.avatarMxcUrl.isEmpty())
             slot.avatarMxcUrl = member.avatarMxcUrl;
         Q_EMIT membersChanged(roomId);
+        Q_EMIT roomMemberEventSeen(roomId);
         return;
     }
 }

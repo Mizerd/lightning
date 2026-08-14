@@ -105,8 +105,14 @@ public:
                                  const QString &op) const;
     Q_INVOKABLE void kickMember(const QString &userId, const QString &reason);
     Q_INVOKABLE void banMember(const QString &userId, const QString &reason);
+    // `inviteBack`: after a SUCCESSFUL unban, send a normal invite so the
+    // user can rejoin without a second manual step (maintainer request,
+    // 2026-08-14). The invite result surfaces through
+    // moderationActionFinished with op "invite_back"; the server remains
+    // the authority on both steps.
     Q_INVOKABLE void unbanMember(const QString &userId,
-                                 const QString &reason);
+                                 const QString &reason,
+                                 bool inviteBack = false);
 
 Q_SIGNALS:
     void roomIdChanged();
@@ -140,6 +146,9 @@ private Q_SLOTS:
     void onModerationFinished(quint64 opId, const QString &roomId,
                               const QString &userId, const QString &op,
                               bool ok, const QString &category);
+    void onInviteUserFinished(quint64 opId, const QString &roomId,
+                              const QString &userId, bool ok,
+                              const QString &category);
     void onMembersChanged(const QString &roomId);
     void onLoggedOut();
 
@@ -169,6 +178,10 @@ private:
     bool m_canUnban = false;
     qlonglong m_ownPowerLevel = 0;
     quint64 m_moderationOp = 0;
+    // Armed while an unban that should be followed by an invite is in
+    // flight; the invite itself is tracked by its own op id.
+    QString m_inviteBackUserId;
+    quint64 m_inviteBackOp = 0;
     QString m_editError;
     QString m_leaveError;
 };

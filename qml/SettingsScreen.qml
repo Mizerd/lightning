@@ -55,6 +55,9 @@ Item {
           control: "messageLayout" },
         { title: qsTr("Text size"), keywords: qsTr("text size font scale"),
           section: "appearance", breadcrumb: qsTr("Appearance") },
+        { title: qsTr("Interface zoom"),
+          keywords: qsTr("interface zoom scale bigger ui size"),
+          section: "appearance", breadcrumb: qsTr("Appearance") },
         { title: qsTr("Font"), keywords: qsTr("font family typeface"),
           section: "appearance", breadcrumb: qsTr("Appearance") },
         { title: qsTr("Language"), keywords: qsTr("language locale"),
@@ -1358,6 +1361,97 @@ Item {
                             font.pixelSize: AppTheme.fontCaption
                             text: qsTr("Scales message and list text. Interface chrome "
                                        + "and icons keep their size.")
+                        }
+
+                        // ── Interface zoom (whole-UI scale via
+                        // QT_SCALE_FACTOR; startup-applied, hence the
+                        // restart caption — Qt reads the factor once) ───
+                        Label {
+                            Layout.topMargin: AppTheme.spacing8
+                            text: qsTr("INTERFACE ZOOM")
+                            color: AppTheme.stormTextFaint
+                            font.pixelSize: AppTheme.fontChip
+                            font.family: AppTheme.monoFont
+                            font.weight: Font.DemiBold
+                            font.letterSpacing: AppTheme.trackingStorm
+                        }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: AppTheme.spacing12
+                            Slider {
+                                id: interfaceZoomSlider
+                                objectName: "interfaceZoomSlider"
+                                Layout.fillWidth: true
+                                Layout.maximumWidth: 320
+                                from: 75
+                                to: 150
+                                stepSize: 5
+                                snapMode: Slider.SnapAlways
+                                value: app.settings.interfaceZoom
+                                onMoved: app.settings.interfaceZoom
+                                         = Math.round(value)
+                                Accessible.name: qsTr("Interface zoom")
+                                background: Rectangle {
+                                    x: interfaceZoomSlider.leftPadding
+                                    y: interfaceZoomSlider.topPadding
+                                       + interfaceZoomSlider.availableHeight / 2
+                                       - 2
+                                    width: interfaceZoomSlider.availableWidth
+                                    height: 4
+                                    radius: 99
+                                    color: AppTheme.stormInset
+                                    Rectangle {
+                                        width: interfaceZoomSlider.visualPosition
+                                               * parent.width
+                                        height: parent.height
+                                        radius: 99
+                                        color: AppTheme.bolt
+                                    }
+                                }
+                                handle: Rectangle {
+                                    x: interfaceZoomSlider.leftPadding
+                                       + interfaceZoomSlider.visualPosition
+                                         * (interfaceZoomSlider.availableWidth
+                                            - width)
+                                    y: interfaceZoomSlider.topPadding
+                                       + interfaceZoomSlider.availableHeight / 2
+                                       - height / 2
+                                    width: 16; height: 16; radius: 8
+                                    // Same groove-vs-fill ink rule as the
+                                    // text-size thumb above.
+                                    color: interfaceZoomSlider.visualPosition
+                                           > 0.5
+                                           ? AppTheme.boltInk : "#FFFFFF"
+                                    Rectangle {
+                                        anchors.fill: parent
+                                        anchors.topMargin: 1
+                                        anchors.bottomMargin: -1
+                                        radius: 8
+                                        z: -1
+                                        color: "#40000000"
+                                    }
+                                    border.width: interfaceZoomSlider.visualFocus
+                                                  ? 2 : 0
+                                    border.color: AppTheme.bolt
+                                }
+                            }
+                            Label {
+                                text: app.settings.interfaceZoom + "%"
+                                color: AppTheme.stormTextMuted
+                                font.pixelSize: 12
+                                font.family: AppTheme.monoFont
+                            }
+                        }
+                        Label {
+                            Layout.fillWidth: true
+                            Layout.leftMargin: AppTheme.spacing4
+                            wrapMode: Text.WordWrap
+                            color: AppTheme.stormTextMuted
+                            font.pixelSize: AppTheme.fontCaption
+                            text: qsTr("Scales the entire interface — text, "
+                                       + "icons and layout. Ctrl+= and Ctrl+- "
+                                       + "adjust it anywhere. Takes effect the "
+                                       + "next time Lightning starts.")
                         }
 
                         // ── v0.7: UI font (bundled OFL families) ────────

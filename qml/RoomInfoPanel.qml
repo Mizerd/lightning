@@ -319,6 +319,7 @@ Rectangle {
                             size: 56
                             name: root.roomData.name || ""
                             mxc: root.roomData.avatarUrl || ""
+                            colorKey: root.roomData.identityColorKey || ""
                             circle: root.roomData.isDirect === true
                         }
                         ColumnLayout {
