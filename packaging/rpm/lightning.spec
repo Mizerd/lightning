@@ -32,6 +32,7 @@ appstreamcli validate --no-net %{buildroot}%{_datadir}/metainfo/lightning.metain
 %{_bindir}/matrix-client
 %{_datadir}/applications/lightning.desktop
 %{_datadir}/icons/hicolor/*/apps/lightning.png
+%{_datadir}/icons/hicolor/scalable/apps/lightning.svg
 %{_datadir}/metainfo/lightning.metainfo.xml
 %license %{_datadir}/licenses/lightning/copyright
 %license %{_docdir}/lightning/LICENSE
