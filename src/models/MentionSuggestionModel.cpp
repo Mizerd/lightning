@@ -100,8 +100,18 @@ void MentionSuggestionModel::onRoomMembersReceived(quint64 opId,
             continue; // never suggest the signed-in user
         const QString membership =
             row.value(QStringLiteral("membership")).toString();
-        if (membership == QLatin1String("leave")
-            || membership == QLatin1String("ban"))
+        // ALLOW-list, not a deny-list: only members actually in (or
+        // invited to) the room are suggestable. The snapshot now carries
+        // banned members (so unban is reachable) and backends are not
+        // constrained to one spelling of the excluded states — an
+        // unlisted label must fail closed, never be suggested. Both
+        // spellings are legitimate: the Rust snapshot says
+        // "joined"/"invited", the mock backend the raw Matrix
+        // "join"/"invite" (the HTTP backend never delivers this payload).
+        if (membership != QLatin1String("joined")
+            && membership != QLatin1String("join")
+            && membership != QLatin1String("invited")
+            && membership != QLatin1String("invite"))
             continue;
         if (seen.contains(uid))
             continue; // dedup by MXID

@@ -996,11 +996,26 @@ was delivered in the following v0.5.10 release.
     initial, display name, full MXID, membership state, role, and
     **Message** — which reuses an existing DM via m.direct or creates a
     new encrypted one). Since 2026-08-14 the popover also offers
-    **Remove (kick)** and **Ban** — SDK `Room::kick_user`/`ban_user`
-    through `mx_rust_moderate_user`, gated on the snapshot's
-    `can_kick`/`can_ban` flags and only against members strictly below
-    the viewer's own power level; an inline confirm carries an optional
-    reason, and failures surface sanitized in place.
+    **Remove (kick)**, **Ban** and **Unban** — SDK
+    `Room::kick_user`/`ban_user`/`unban_user` through
+    `mx_rust_moderate_user` (op 0/1/2), with the offer/dispatch policy in
+    `RoomInfoController::canModerate`: the snapshot's
+    `can_kick`/`can_ban`/`can_unban` flags (unban's required level is
+    max(ban, kick) per ruma's `PowerLevelAction::Unban`, so it carries
+    its OWN SDK-derived flag), a loaded row for the target, membership
+    matching the action (unban only for banned members, kick/ban never
+    for them), non-self, and strictly below the viewer's own power
+    level. The member snapshot fetches `ACTIVE | BAN`, so banned members
+    appear (sorted last, "Banned" chip, excluded from joined/invited
+    counts, from the `truncated` computation — which speaks about the
+    ACTIVE roster — and from @-mention suggestions) — that is what makes
+    unban reachable. Known accepted limits: in a room at or over the
+    500-row snapshot cap the banned rows are the first the cap drops, so
+    unban is silently unreachable there; and every room open now
+    deserializes the ban list into the (still capped) snapshot — if that
+    cost shows up on heavily-moderated rooms, the fix is a panel-scoped
+    fetch. An inline confirm carries an optional reason; failures
+    surface sanitized in place.
   - **Media & Files** — media shared in the *loaded* timeline
     (`TimelineModel::mediaEntries()`, newest first; no automatic history
     fetch). Images open in the in-app viewer; every entry offers Save As

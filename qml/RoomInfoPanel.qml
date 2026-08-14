@@ -624,6 +624,15 @@ Rectangle {
                             color: AppTheme.warning
                             font.pixelSize: AppTheme.fontSizeXS
                         }
+                        // Banned members ride the snapshot since the unban
+                        // round (sorted last) — mark them so the list
+                        // doesn't read as "still here".
+                        Label {
+                            visible: modelData.membership === "banned"
+                            text: qsTr("Banned")
+                            color: AppTheme.danger
+                            font.pixelSize: AppTheme.fontSizeXS
+                        }
                         Label {
                             visible: modelData.role === "administrator"
                                      || modelData.role === "creator"

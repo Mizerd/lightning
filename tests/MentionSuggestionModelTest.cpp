@@ -128,6 +128,40 @@ private slots:
                  QStringLiteral("@bob:hs"));
     }
 
+    // 2026-08-14 (unban round): the snapshot now carries banned members
+    // and the filter is an ALLOW-list — only joined/invited (either
+    // spelling) are suggestable; a banned row and any unknown label fail
+    // closed instead of being suggested.
+    void excludesBannedAndUnknownMemberships()
+    {
+        MemberMock mock;
+        MentionSuggestionModel model;
+        model.setClient(&mock);
+        model.setRoomId(QStringLiteral("!r:hs"));
+        mock.deliver(mock.m_op, QStringLiteral("!r:hs"),
+                     { member(QStringLiteral("@bob:hs"),
+                              QStringLiteral("Bob")),
+                       member(QStringLiteral("@inv:hs"),
+                              QStringLiteral("Invitee"),
+                              /*isOwn=*/false, /*ambiguous=*/false,
+                              QStringLiteral("invited")),
+                       member(QStringLiteral("@troll:hs"),
+                              QStringLiteral("Troll"),
+                              /*isOwn=*/false, /*ambiguous=*/false,
+                              QStringLiteral("banned")),
+                       member(QStringLiteral("@odd:hs"),
+                              QStringLiteral("Odd"),
+                              /*isOwn=*/false, /*ambiguous=*/false,
+                              QStringLiteral("knock")) });
+        QCOMPARE(model.count(), 2);
+        QStringList ids;
+        for (int i = 0; i < model.count(); ++i)
+            ids.append(model.get(i).value(QStringLiteral("userId")).toString());
+        std::sort(ids.begin(), ids.end());
+        QCOMPARE(ids, (QStringList{ QStringLiteral("@bob:hs"),
+                                    QStringLiteral("@inv:hs") }));
+    }
+
     void dedupsByMxid()
     {
         MemberMock mock;

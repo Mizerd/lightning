@@ -22,6 +22,7 @@ public:
     int memberCalls = 0;
     int kickCalls = 0;
     int banCalls = 0;
+    int unbanCalls = 0;
     QString lastModRoom;
     QString lastModUser;
     QString lastModReason;
@@ -88,16 +89,29 @@ public:
         lastOpId = nextOp++;
         return lastOpId;
     }
+    quint64 unbanUser(const QString &roomId, const QString &userId,
+                      const QString &reason) override
+    {
+        if (!moderationSupported)
+            return 0;
+        ++unbanCalls;
+        lastModRoom = roomId;
+        lastModUser = userId;
+        lastModReason = reason;
+        lastOpId = nextOp++;
+        return lastOpId;
+    }
 };
 
 QVariantMap memberRow(const QString &userId, qlonglong powerLevel,
-                      bool isOwn = false)
+                      bool isOwn = false,
+                      const QString &membership = QStringLiteral("joined"))
 {
     QVariantMap member;
     member.insert(QStringLiteral("userId"), userId);
     member.insert(QStringLiteral("displayName"),
                   userId.mid(1, userId.indexOf(QLatin1Char(':')) - 1));
-    member.insert(QStringLiteral("membership"), QStringLiteral("joined"));
+    member.insert(QStringLiteral("membership"), membership);
     member.insert(QStringLiteral("role"), QStringLiteral("user"));
     member.insert(QStringLiteral("powerLevel"), powerLevel);
     member.insert(QStringLiteral("isOwn"), isOwn);
@@ -105,7 +119,8 @@ QVariantMap memberRow(const QString &userId, qlonglong powerLevel,
 }
 
 QVariantMap snapshotWithMembers(bool canKick, bool canBan, qlonglong ownPl,
-                                const QVariantList &members)
+                                const QVariantList &members,
+                                bool canUnban)
 {
     QVariantMap snapshot;
     snapshot.insert(QStringLiteral("ok"), true);
@@ -118,9 +133,19 @@ QVariantMap snapshotWithMembers(bool canKick, bool canBan, qlonglong ownPl,
     snapshot.insert(QStringLiteral("canEditAvatar"), false);
     snapshot.insert(QStringLiteral("canKick"), canKick);
     snapshot.insert(QStringLiteral("canBan"), canBan);
+    snapshot.insert(QStringLiteral("canUnban"), canUnban);
     snapshot.insert(QStringLiteral("ownPowerLevel"), ownPl);
     snapshot.insert(QStringLiteral("members"), members);
     return snapshot;
+}
+
+QVariantMap snapshotWithMembers(bool canKick, bool canBan, qlonglong ownPl,
+                                const QVariantList &members)
+{
+    // Default: the common configuration where unban is granted alongside
+    // ban (kick level <= ban level, so max(ban, kick) == ban).
+    return snapshotWithMembers(canKick, canBan, ownPl, members,
+                               canKick && canBan);
 }
 
 QVariantMap snapshotWith(bool canKick, bool canBan, qlonglong ownPl)
@@ -182,23 +207,100 @@ private Q_SLOTS:
             snapshotWithMembers(true, true, 100, members));
 
         QVERIFY(controller.canModerate(QStringLiteral("@below:example.org"),
-                                       false));
+                                       QStringLiteral("kick")));
         QVERIFY(controller.canModerate(
-            QStringLiteral("@restricted:example.org"), true));
+            QStringLiteral("@restricted:example.org"), QStringLiteral("ban")));
         QVERIFY(!controller.canModerate(QStringLiteral("@equal:example.org"),
-                                        false));
+                                        QStringLiteral("kick")));
         QVERIFY(!controller.canModerate(QStringLiteral("@above:example.org"),
-                                        true));
+                                        QStringLiteral("ban")));
         QVERIFY(!controller.canModerate(QStringLiteral("@me:example.org"),
-                                        false));
+                                        QStringLiteral("kick")));
         // Unknown target (no snapshot row) fails closed.
         QVERIFY(!controller.canModerate(
-            QStringLiteral("@stranger:example.org"), false));
+            QStringLiteral("@stranger:example.org"), QStringLiteral("kick")));
+        // Unknown op fails closed.
+        QVERIFY(!controller.canModerate(QStringLiteral("@below:example.org"),
+                                        QStringLiteral("smite")));
 
         // The dispatch path re-checks the same policy: an equal-power kick
         // never reaches the client even though canKick is true.
         controller.kickMember(QStringLiteral("@equal:example.org"), {});
         QCOMPARE(client.kickCalls, 0);
+        QVERIFY(!controller.moderationPending());
+    }
+
+    // Unban is membership-aware: only banned members can be unbanned, and
+    // banned members can be neither kicked nor re-banned. Unban rides the
+    // ban power flag.
+    void unbanIsOfferedOnlyForBannedMembers()
+    {
+        FakeClient client;
+        RoomInfoController controller;
+        controller.setClient(&client);
+        controller.setRoomId(QStringLiteral("!room:example.org"));
+        const QVariantList members = {
+            memberRow(QStringLiteral("@me:example.org"), 100, /*isOwn=*/true),
+            memberRow(QStringLiteral("@joined:example.org"), 0),
+            memberRow(QStringLiteral("@banned:example.org"), 0,
+                      /*isOwn=*/false, QStringLiteral("banned")),
+            memberRow(QStringLiteral("@bannedadmin:example.org"), 100,
+                      /*isOwn=*/false, QStringLiteral("banned")),
+        };
+        Q_EMIT client.roomMembersReceived(
+            client.lastOpId, QStringLiteral("!room:example.org"),
+            snapshotWithMembers(true, true, 100, members));
+
+        QVERIFY(controller.canModerate(QStringLiteral("@banned:example.org"),
+                                       QStringLiteral("unban")));
+        // A banned member is already out: no kick, no second ban.
+        QVERIFY(!controller.canModerate(QStringLiteral("@banned:example.org"),
+                                        QStringLiteral("kick")));
+        QVERIFY(!controller.canModerate(QStringLiteral("@banned:example.org"),
+                                        QStringLiteral("ban")));
+        // A joined member cannot be "unbanned".
+        QVERIFY(!controller.canModerate(QStringLiteral("@joined:example.org"),
+                                        QStringLiteral("unban")));
+        // The strictly-below rule applies to unban too.
+        QVERIFY(!controller.canModerate(
+            QStringLiteral("@bannedadmin:example.org"),
+            QStringLiteral("unban")));
+
+        // Dispatch reaches the client's unban call.
+        controller.unbanMember(QStringLiteral("@banned:example.org"),
+                               QStringLiteral("appeal accepted"));
+        QCOMPARE(client.unbanCalls, 1);
+        QCOMPARE(client.kickCalls, 0);
+        QCOMPARE(client.banCalls, 0);
+        QCOMPARE(client.lastModUser, QStringLiteral("@banned:example.org"));
+        QCOMPARE(client.lastModReason, QStringLiteral("appeal accepted"));
+        QVERIFY(controller.moderationPending());
+    }
+
+    // Review MU1: unban's required level is max(ban, kick) — a room with
+    // kick above ban grants can_ban WITHOUT can_unban, and the client
+    // must not offer an unban the server will reject. The flag comes
+    // from the SDK's PowerLevelAction::Unban helper, never derived from
+    // the ban flag.
+    void unbanHasItsOwnPermissionFlag()
+    {
+        FakeClient client;
+        RoomInfoController controller;
+        controller.setClient(&client);
+        controller.setRoomId(QStringLiteral("!room:example.org"));
+        const QVariantList members = {
+            memberRow(QStringLiteral("@banned:example.org"), 0,
+                      /*isOwn=*/false, QStringLiteral("banned")),
+        };
+        // canBan true, canUnban false — the kick-above-ban configuration.
+        Q_EMIT client.roomMembersReceived(
+            client.lastOpId, QStringLiteral("!room:example.org"),
+            snapshotWithMembers(false, true, 100, members,
+                                /*canUnban=*/false));
+        QVERIFY(!controller.canModerate(QStringLiteral("@banned:example.org"),
+                                        QStringLiteral("unban")));
+        controller.unbanMember(QStringLiteral("@banned:example.org"), {});
+        QCOMPARE(client.unbanCalls, 0);
         QVERIFY(!controller.moderationPending());
     }
 

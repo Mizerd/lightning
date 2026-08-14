@@ -324,6 +324,8 @@ public:
                      const QString &reason) override;
     quint64 banUser(const QString &roomId, const QString &userId,
                     const QString &reason) override;
+    quint64 unbanUser(const QString &roomId, const QString &userId,
+                      const QString &reason) override;
     quint64 addRoomToSpace(const QString &spaceId, const QString &roomId) override;
     quint64 removeRoomFromSpace(const QString &spaceId,
                                 const QString &roomId) override;
@@ -615,9 +617,10 @@ private:
                                const QList<TimelineEvent> &newestFirstCandidates);
     bool timelineActiveFor(const QString &roomId) const;
     bool timelineReadyForPagination(const QString &roomId) const;
-    // Shared kick/ban implementation behind kickUser()/banUser().
+    // Shared implementation behind kickUser()/banUser()/unbanUser();
+    // `op` mirrors the FFI encoding (0 = kick, 1 = ban, 2 = unban).
     quint64 moderateUser(const QString &roomId, const QString &userId,
-                         const QString &reason, bool ban);
+                         const QString &reason, int op);
 
     // v0.5.9: new-command plumbing. nextOpId() never returns 0 (0 means
     // "unsupported" at the interface level).

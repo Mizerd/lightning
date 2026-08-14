@@ -4572,19 +4572,26 @@ quint64 RustSdkMatrixClient::kickUser(const QString &roomId,
                                       const QString &userId,
                                       const QString &reason)
 {
-    return moderateUser(roomId, userId, reason, false);
+    return moderateUser(roomId, userId, reason, 0);
 }
 
 quint64 RustSdkMatrixClient::banUser(const QString &roomId,
                                      const QString &userId,
                                      const QString &reason)
 {
-    return moderateUser(roomId, userId, reason, true);
+    return moderateUser(roomId, userId, reason, 1);
+}
+
+quint64 RustSdkMatrixClient::unbanUser(const QString &roomId,
+                                       const QString &userId,
+                                       const QString &reason)
+{
+    return moderateUser(roomId, userId, reason, 2);
 }
 
 quint64 RustSdkMatrixClient::moderateUser(const QString &roomId,
                                           const QString &userId,
-                                          const QString &reason, bool ban)
+                                          const QString &reason, int op)
 {
     if (!m_rustHandle || roomId.isEmpty() || userId.isEmpty())
         return 0;
@@ -4594,7 +4601,7 @@ quint64 RustSdkMatrixClient::moderateUser(const QString &roomId,
     const QByteArray why = reason.toUtf8();
     const QString result = takeRustString(mx_rust_moderate_user(
         m_rustHandle, room.constData(), user.constData(), why.constData(),
-        ban ? 1 : 0, opId));
+        static_cast<unsigned char>(op), opId));
     return result.isEmpty() ? opId : 0;
 }
 
@@ -5162,6 +5169,8 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
                         event.value(QStringLiteral("own_can_kick")).toBool());
         snapshot.insert(QStringLiteral("canBan"),
                         event.value(QStringLiteral("own_can_ban")).toBool());
+        snapshot.insert(QStringLiteral("canUnban"),
+                        event.value(QStringLiteral("own_can_unban")).toBool());
         snapshot.insert(
             QStringLiteral("ownPowerLevel"),
             static_cast<qlonglong>(

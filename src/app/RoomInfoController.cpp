@@ -70,6 +70,7 @@ void RoomInfoController::clearSnapshot()
     m_canEditAvatar = false;
     m_canKick = false;
     m_canBan = false;
+    m_canUnban = false;
     m_ownPowerLevel = 0;
     Q_EMIT membersChanged();
 }
@@ -106,6 +107,7 @@ void RoomInfoController::onRoomMembersReceived(quint64 opId,
     m_canEditAvatar = snapshot.value(QStringLiteral("canEditAvatar")).toBool();
     m_canKick = snapshot.value(QStringLiteral("canKick")).toBool();
     m_canBan = snapshot.value(QStringLiteral("canBan")).toBool();
+    m_canUnban = snapshot.value(QStringLiteral("canUnban")).toBool();
     m_ownPowerLevel =
         snapshot.value(QStringLiteral("ownPowerLevel")).toLongLong();
     Q_EMIT membersChanged();
@@ -228,12 +230,23 @@ void RoomInfoController::onRoomLeaveFinished(quint64 opId, const QString &roomId
     Q_EMIT roomLeft(roomId);
 }
 
-bool RoomInfoController::canModerate(const QString &userId, bool ban) const
+bool RoomInfoController::canModerate(const QString &userId,
+                                     const QString &op) const
 {
+    const bool isKick = op == QLatin1String("kick");
+    const bool isBan = op == QLatin1String("ban");
+    const bool isUnban = op == QLatin1String("unban");
+    if (!isKick && !isBan && !isUnban)
+        return false;
     if (!m_client || m_roomId.isEmpty() || userId.isEmpty() || !supported())
         return false;
-    // SDK-derived permission flag — never a role label.
-    if (ban ? !m_canBan : !m_canKick)
+    // SDK-derived permission flag — never a role label, never derived
+    // from another flag: unban's required level is max(ban, kick)
+    // (ruma PowerLevelAction::Unban), so it has its own snapshot flag
+    // (review MU1 — gating unban on the ban power alone over-offered in
+    // rooms where kick > ban).
+    const bool allowed = isKick ? m_canKick : isBan ? m_canBan : m_canUnban;
+    if (!allowed)
         return false;
     // The target must be a loaded snapshot row: absence of the row is the
     // "unknown" state and fails closed. The power level itself may be any
@@ -247,6 +260,14 @@ bool RoomInfoController::canModerate(const QString &userId, bool ban) const
             return false;
         if (!row.contains(QStringLiteral("powerLevel")))
             return false;
+        // Membership must match the action: unban applies ONLY to banned
+        // members, kick/ban never to them (a banned member is already
+        // out; the server would reject a second ban as a no-op state
+        // change and a kick outright).
+        const bool banned = row.value(QStringLiteral("membership"))
+                                .toString() == QLatin1String("banned");
+        if (isUnban != banned)
+            return false;
         // Strictly below the viewer's own level (Element semantics; the
         // server enforces regardless).
         return row.value(QStringLiteral("powerLevel")).toLongLong()
@@ -258,34 +279,47 @@ bool RoomInfoController::canModerate(const QString &userId, bool ban) const
 void RoomInfoController::kickMember(const QString &userId,
                                     const QString &reason)
 {
-    moderate(userId, reason, false);
+    moderate(userId, reason, QStringLiteral("kick"));
 }
 
 void RoomInfoController::banMember(const QString &userId,
                                    const QString &reason)
 {
-    moderate(userId, reason, true);
+    moderate(userId, reason, QStringLiteral("ban"));
+}
+
+void RoomInfoController::unbanMember(const QString &userId,
+                                     const QString &reason)
+{
+    moderate(userId, reason, QStringLiteral("unban"));
 }
 
 void RoomInfoController::moderate(const QString &userId,
-                                  const QString &reason, bool ban)
+                                  const QString &reason, const QString &op)
 {
     if (m_moderationOp != 0)
         return;
     // Re-check the full offer policy at dispatch time — the QML surface
     // binds to canModerate() but must never be the enforcement point.
-    if (!canModerate(userId, ban))
+    if (!canModerate(userId, op))
         return;
-    const quint64 opId = ban ? m_client->banUser(m_roomId, userId, reason)
-                             : m_client->kickUser(m_roomId, userId, reason);
+    quint64 opId = 0;
+    if (op == QLatin1String("kick"))
+        opId = m_client->kickUser(m_roomId, userId, reason);
+    else if (op == QLatin1String("ban"))
+        opId = m_client->banUser(m_roomId, userId, reason);
+    else if (op == QLatin1String("unban"))
+        opId = m_client->unbanUser(m_roomId, userId, reason);
+    else
+        return; // canModerate() already refused unknown ops — never
+                // default a destructive dispatcher to kick (review LU4).
     if (opId == 0) {
         // Synchronous rejection (backend unsupported, room not joined,
         // invalid user id): report honestly instead of leaving the
         // confirm surface armed forever (review L2).
         Q_EMIT moderationActionFinished(
-            m_roomId, userId, ban ? QStringLiteral("ban")
-                                  : QStringLiteral("kick"),
-            false, tr("The action could not be sent."));
+            m_roomId, userId, op, false,
+            tr("The action could not be sent."));
         return;
     }
     m_moderationOp = opId;

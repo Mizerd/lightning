@@ -27,6 +27,7 @@ Text {
         "person_add": "\uea4d",
         "person_remove": "\uef66",
         "block": "\uf08c",
+        "undo": "\ue166",
         "forum": "\ue8af",
         "chat_bubble": "\ue0cb",
         "info": "\ue88e",

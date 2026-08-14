@@ -40,13 +40,15 @@ Popup {
     // (the panel may show a Space's settings instead).
     property bool showKick: false
     property bool showBan: false
+    property bool showUnban: false
 
     function _refreshModeration() {
         var scoped = app.roomInfo
                      && app.roomInfo.roomId === app.currentRoomId
                      && userId.length > 0
-        showKick = scoped ? app.roomInfo.canModerate(userId, false) : false
-        showBan = scoped ? app.roomInfo.canModerate(userId, true) : false
+        showKick = scoped ? app.roomInfo.canModerate(userId, "kick") : false
+        showBan = scoped ? app.roomInfo.canModerate(userId, "ban") : false
+        showUnban = scoped ? app.roomInfo.canModerate(userId, "unban") : false
     }
 
     // The same room-member profile the list row shows — one resolution
@@ -254,6 +256,7 @@ Popup {
                     visible: root.membership.length > 0
                     text: root.membership === "invited" ? qsTr("Invited")
                         : root.membership === "joined" ? qsTr("Member")
+                        : root.membership === "banned" ? qsTr("Banned")
                         : root.membership
                     // Reading text on the panel rides the muted ink —
                     // faint stays reserved for decorative mono (AA note in
@@ -406,13 +409,15 @@ Popup {
                     }
                 }
             }
-            // --- Moderation row (kick / ban) ---
-            // Outline-danger secondaries; the bolt fill stays reserved for
-            // the Message primary. Hidden entirely when the viewer lacks
-            // the power (or it cannot be established) — never a disabled
+            // --- Moderation row (kick / ban / unban) ---
+            // Kick/ban are outline-danger secondaries; unban is an
+            // ordinary outline secondary (it restores access, it does not
+            // remove it). The bolt fill stays reserved for the Message
+            // primary. Hidden entirely when the viewer lacks the power
+            // (or it cannot be established) — never a disabled
             // placeholder.
             RowLayout {
-                visible: (root.showKick || root.showBan)
+                visible: (root.showKick || root.showBan || root.showUnban)
                          && root.modAction === ""
                 Layout.fillWidth: true
                 spacing: AppTheme.spacing8
@@ -420,13 +425,21 @@ Popup {
                 Repeater {
                     model: [
                         { op: "kick", label: qsTr("Remove"),
-                          icon: "person_remove", show: root.showKick },
+                          icon: "person_remove", danger: true,
+                          show: root.showKick },
                         { op: "ban", label: qsTr("Ban"),
-                          icon: "block", show: root.showBan }
+                          icon: "block", danger: true,
+                          show: root.showBan },
+                        { op: "unban", label: qsTr("Unban"),
+                          icon: "undo", danger: false,
+                          show: root.showUnban }
                     ]
                     delegate: AbstractButton {
                         id: modButton
                         required property var modelData
+                        readonly property color modInk:
+                            modelData.danger ? AppTheme.danger
+                                             : AppTheme.stormTextSecondary
                         objectName: "profileModButton_" + modelData.op
                         visible: modelData.show
                         Layout.fillWidth: true
@@ -436,18 +449,20 @@ Popup {
                         Accessible.role: Accessible.Button
                         Accessible.name: modelData.op === "kick"
                             ? qsTr("Remove %1 from the room").arg(root.visibleName)
-                            : qsTr("Ban %1 from the room").arg(root.visibleName)
+                            : modelData.op === "ban"
+                              ? qsTr("Ban %1 from the room").arg(root.visibleName)
+                              : qsTr("Unban %1").arg(root.visibleName)
                         contentItem: RowLayout {
                             spacing: AppTheme.spacing6
                             Item { Layout.fillWidth: true }
                             Icon {
                                 name: modButton.modelData.icon
                                 size: 16
-                                color: AppTheme.danger
+                                color: modButton.modInk
                             }
                             Label {
                                 text: modButton.modelData.label
-                                color: AppTheme.danger
+                                color: modButton.modInk
                                 font.family: AppTheme.menuFont
                                 font.pixelSize: 13
                                 font.weight: Font.Bold
@@ -459,7 +474,9 @@ Popup {
                             color: (modButton.hovered || modButton.down)
                                    ? AppTheme.stormSelection : "transparent"
                             border.width: 1
-                            border.color: AppTheme.danger
+                            border.color: modButton.modelData.danger
+                                          ? AppTheme.danger
+                                          : AppTheme.stormBorderStrong
                         }
                         onClicked: {
                             root.modError = ""
@@ -479,7 +496,10 @@ Popup {
                     Layout.fillWidth: true
                     text: root.modAction === "kick"
                           ? qsTr("Remove %1 from this room?").arg(root.visibleName)
-                          : qsTr("Ban %1 from this room?").arg(root.visibleName)
+                          : root.modAction === "ban"
+                            ? qsTr("Ban %1 from this room?").arg(root.visibleName)
+                            : qsTr("Unban %1? They will be able to join again.")
+                                  .arg(root.visibleName)
                     color: AppTheme.stormText
                     font.pixelSize: AppTheme.fontSecondary
                     font.weight: Font.Bold
@@ -498,8 +518,10 @@ Popup {
                         objectName: "profileModConfirmButton"
                         Layout.fillWidth: true
                         text: root.modAction === "kick" ? qsTr("Remove")
-                                                        : qsTr("Ban")
-                        kind: "danger"
+                            : root.modAction === "ban" ? qsTr("Ban")
+                            : qsTr("Unban")
+                        kind: root.modAction === "unban" ? "secondary"
+                                                         : "danger"
                         storm: true
                         enabled: app.roomInfo
                                  && !app.roomInfo.moderationPending
@@ -508,9 +530,12 @@ Popup {
                             if (root.modAction === "kick")
                                 app.roomInfo.kickMember(root.userId,
                                                         modReasonField.text)
-                            else
+                            else if (root.modAction === "ban")
                                 app.roomInfo.banMember(root.userId,
                                                        modReasonField.text)
+                            else
+                                app.roomInfo.unbanMember(root.userId,
+                                                         modReasonField.text)
                         }
                     }
                     AppButton {

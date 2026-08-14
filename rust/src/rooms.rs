@@ -27,7 +27,9 @@ use matrix_sdk::{
         },
         assign,
         events::{
-            room::encryption::RoomEncryptionEventContent, space::child::SpaceChildEventContent,
+            room::encryption::RoomEncryptionEventContent,
+            room::power_levels::PowerLevelAction,
+            space::child::SpaceChildEventContent,
             InitialStateEvent, StateEventType,
         },
         room::RoomType,
@@ -1128,7 +1130,13 @@ pub(crate) fn room_members(
     let lifecycle = timelines.lifecycle();
     let own_id = client.user_id().map(|u| u.to_owned());
     bridge.spawn_room_action(async move {
-        let members = match room.members(RoomMemberships::ACTIVE).await {
+        // ACTIVE (join+invite) plus BAN: banned members must be visible or
+        // unban is unreachable from the client. They are excluded from the
+        // joined/invited counts and from mention suggestions downstream.
+        let members = match room
+            .members(RoomMemberships::ACTIVE | RoomMemberships::BAN)
+            .await
+        {
             Ok(members) => members,
             Err(err) => {
                 if timelines.lifecycle_current(lifecycle) {
@@ -1151,16 +1159,19 @@ pub(crate) fn room_members(
         let mut sorted: Vec<&matrix_sdk::room::RoomMember> = members.iter().collect();
         sorted.sort_by(|a, b| {
             use matrix_sdk::ruma::events::room::member::MembershipState;
-            let joined_first = |m: &matrix_sdk::room::RoomMember| {
-                matches!(m.membership(), MembershipState::Join)
+            // Joined first, then invited, banned last.
+            let rank = |m: &matrix_sdk::room::RoomMember| match m.membership() {
+                MembershipState::Join => 0,
+                MembershipState::Invite => 1,
+                MembershipState::Ban => 2,
+                _ => 3,
             };
-            joined_first(b)
-                .cmp(&joined_first(a))
+            rank(a)
+                .cmp(&rank(b))
                 .then(b.power_level().cmp(&a.power_level()))
                 .then_with(|| a.name().to_lowercase().cmp(&b.name().to_lowercase()))
         });
 
-        let truncated = sorted.len() > MEMBER_SNAPSHOT_CAP;
         let mut joined_count = 0u64;
         let mut invited_count = 0u64;
         for member in &sorted {
@@ -1171,6 +1182,13 @@ pub(crate) fn room_members(
                 _ => {}
             }
         }
+        // `truncated` speaks about the ACTIVE roster (the population the
+        // joined/invited counts and the UI notice describe). Banned
+        // members sort last, so they are the first rows the cap drops —
+        // silently: a ban list beyond the cap makes those bans
+        // unreachable for unban, an accepted limit (review LU1/LU2).
+        let truncated =
+            (joined_count + invited_count) as usize > MEMBER_SNAPSHOT_CAP;
 
         let rows: Vec<serde_json::Value> = sorted
             .iter()
@@ -1189,6 +1207,7 @@ pub(crate) fn room_members(
                     "membership": match member.membership() {
                         MembershipState::Join => "joined",
                         MembershipState::Invite => "invited",
+                        MembershipState::Ban => "banned",
                         _ => "other",
                     },
                     "role": role,
@@ -1222,6 +1241,12 @@ pub(crate) fn room_members(
             .is_some_and(|m| m.can_send_state(StateEventType::RoomAvatar));
         let can_kick = own_member.as_ref().is_some_and(|m| m.can_kick());
         let can_ban = own_member.as_ref().is_some_and(|m| m.can_ban());
+        // Unban's required level is max(ban, kick) (ruma
+        // PowerLevelAction::Unban), NOT the ban level alone — ask the SDK
+        // rather than deriving it (review MU1).
+        let can_unban = own_member
+            .as_ref()
+            .is_some_and(|m| m.can_do(PowerLevelAction::Unban));
         let own_power_level = own_member
             .as_ref()
             .map(|m| power_level_int(m.power_level()))
@@ -1245,6 +1270,7 @@ pub(crate) fn room_members(
             "own_can_edit_avatar": can_edit_avatar,
             "own_can_kick": can_kick,
             "own_can_ban": can_ban,
+            "own_can_unban": can_unban,
             "own_power_level": own_power_level,
             "members": rows,
         }));
@@ -1275,19 +1301,34 @@ fn power_level_int(
     }
 }
 
-// Kick or ban one user from a joined room through the SDK's own moderation
-// calls. Power-level enforcement is the SERVER'S; the client only avoids
-// offering actions that must fail and surfaces the result honestly. An
-// empty reason means "no reason given". Result event:
+// Kick, ban or unban one user through the SDK's own moderation calls
+// (`op`: 0 = kick, 1 = ban, 2 = unban). Power-level enforcement is the
+// SERVER'S; the client only avoids offering actions that must fail and
+// surfaces the result honestly. An empty reason means "no reason given".
+// Result event:
 // room_moderation_result { op_id, room_id, user_id, op, ok, category }.
 pub(crate) fn moderate_member(
     bridge: &RustClient,
     room_id: String,
     user_id: String,
     reason: String,
-    ban: bool,
+    op: u8,
     op_id: u64,
 ) -> Result<(), String> {
+    // Parse once into an exhaustive enum so the dispatch below has no
+    // fallthrough arm — a dispatcher of destructive membership actions
+    // must refuse an unknown op, never default to one (review LU4).
+    enum ModOp {
+        Kick,
+        Ban,
+        Unban,
+    }
+    let (mod_op, op_name) = match op {
+        0 => (ModOp::Kick, "kick"),
+        1 => (ModOp::Ban, "ban"),
+        2 => (ModOp::Unban, "unban"),
+        _ => return Err("invalid moderation op".to_owned()),
+    };
     let client = require_client(bridge)?;
     let room = joined_room(&client, &room_id)?;
     let uid = UserId::parse(&user_id).map_err(|_| "invalid user id".to_owned())?;
@@ -1296,10 +1337,10 @@ pub(crate) fn moderate_member(
     let lifecycle = timelines.lifecycle();
     bridge.spawn_room_action(async move {
         let reason_opt = (!reason.is_empty()).then_some(reason.as_str());
-        let result = if ban {
-            room.ban_user(&uid, reason_opt).await
-        } else {
-            room.kick_user(&uid, reason_opt).await
+        let result = match mod_op {
+            ModOp::Kick => room.kick_user(&uid, reason_opt).await,
+            ModOp::Ban => room.ban_user(&uid, reason_opt).await,
+            ModOp::Unban => room.unban_user(&uid, reason_opt).await,
         };
         if !timelines.lifecycle_current(lifecycle) {
             return;
@@ -1310,7 +1351,7 @@ pub(crate) fn moderate_member(
             "lifecycle": lifecycle,
             "room_id": room_id,
             "user_id": user_id,
-            "op": if ban { "ban" } else { "kick" },
+            "op": op_name,
             "ok": result.is_ok(),
             "category": result
                 .err()

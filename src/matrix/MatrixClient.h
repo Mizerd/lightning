@@ -466,14 +466,17 @@ public:
     { Q_UNUSED(roomId); return 0; }
     virtual quint64 leaveRoom(const QString &roomId)
     { Q_UNUSED(roomId); return 0; }
-    // Moderation: kick or ban one user (SDK-owned power-level semantics;
-    // the server enforces, the client only surfaces the result). `reason`
-    // may be empty. 0 = unsupported on this backend.
+    // Moderation: kick, ban or unban one user (SDK-owned power-level
+    // semantics; the server enforces, the client only surfaces the
+    // result). `reason` may be empty. 0 = unsupported on this backend.
     virtual quint64 kickUser(const QString &roomId, const QString &userId,
                              const QString &reason)
     { Q_UNUSED(roomId); Q_UNUSED(userId); Q_UNUSED(reason); return 0; }
     virtual quint64 banUser(const QString &roomId, const QString &userId,
                             const QString &reason)
+    { Q_UNUSED(roomId); Q_UNUSED(userId); Q_UNUSED(reason); return 0; }
+    virtual quint64 unbanUser(const QString &roomId, const QString &userId,
+                              const QString &reason)
     { Q_UNUSED(roomId); Q_UNUSED(userId); Q_UNUSED(reason); return 0; }
     virtual quint64 addRoomToSpace(const QString &spaceId, const QString &roomId)
     { Q_UNUSED(spaceId); Q_UNUSED(roomId); return 0; }
