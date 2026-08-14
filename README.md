@@ -277,10 +277,10 @@ in `tests/test-pipeline-config.py`.
 A branch, tag, short SHA, or merge-request pipeline still excludes the macOS
 job.
 
-Job duration on this host is erratic — the same commit has taken 10 minutes and
-2.5 hours, and the cause is not yet identified. The job `timeout` is `3h` as
-headroom for the worst case observed. See
-[Build times and the cargo cache](docs/macos-packaging.md#build-times-and-the-cargo-cache).
+The same commit once took 10 minutes and 2.5 hours on this host: the Mac was
+idle-sleeping mid-build (macOS sleeps on lack of user activity, not lack of CPU
+load). The job now runs under `caffeinate`. The `timeout` is `3h` as headroom.
+See [The build host used to sleep mid-build](docs/macos-packaging.md#the-build-host-used-to-sleep-mid-build).
 
 The job produces seven-day, developer-visible CI artifacts only:
 

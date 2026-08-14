@@ -446,11 +446,11 @@ macos-package-test:
   tags: [macos, arm64]
   resource_group: lightning-macos-package
   interruptible: true
-  # 3h is headroom for the worst case observed, not an estimate. The same commit
-  # has built in 10 minutes (pipeline 88) and 2h34m (pipeline 90) on this host,
-  # while cargo self-reported ~6 minutes in both. The variance is unexplained and
-  # is not cache state — see docs/macos-packaging.md, "Wall clock is
-  # unpredictable on this host". Pipeline 89 was killed at the old 2h limit.
+  # 3h is headroom, not an estimate. The same commit built in 10 minutes
+  # (pipeline 88) and 2h34m (pipeline 90) because the Mac was idle-sleeping
+  # mid-build; cargo reported ~6 minutes of real work in both. See the
+  # caffeinate note on `script` below. Pipeline 89 died at the old 2h limit.
+  # Re-measure a real baseline now that builds no longer sleep.
   timeout: 3h
   needs:
     - job: resolve-source
@@ -465,8 +465,19 @@ macos-package-test:
     - test "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH"
     - test "$BUILD_MACOS_PACKAGES" = "true"
   script:
-    - ./scripts/prepare-pinned-source-macos.sh
-    - ./scripts/build-macos.sh
+    # caffeinate is not optional. macOS idle sleep is driven by user/HID
+    # activity and power assertions, NOT by CPU load, so a headless Mac with
+    # nobody at the keyboard sleeps mid-build even at 100% CPU. gitlab-runner
+    # takes no power assertion of its own. This host was found with `sleep 1`
+    # (one minute) and slept 867 seconds in the middle of a build, which is why
+    # the same commit took 10 minutes one run and 2.5 hours the next while
+    # cargo consistently reported ~6 minutes of actual work.
+    #
+    # The host setting should also be fixed (`sudo pmset -a sleep 0 disksleep 0
+    # powernap 0`), but that is admin-owned and can be reverted by a macOS
+    # update or a settings change; this keeps the job correct regardless.
+    - caffeinate -dims ./scripts/prepare-pinned-source-macos.sh
+    - caffeinate -dims ./scripts/build-macos.sh
   artifacts:
     name: "lightning-macos-test-${CI_PIPELINE_ID}"
     when: always

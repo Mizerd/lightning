@@ -386,9 +386,9 @@ Two things invalidate the cache and force every crate to rebuild:
   [Deployment target](#deployment-target)) rebuilds everything exactly once.
 - **The Rust toolchain changes.**
 
-### Wall clock is unpredictable on this host
+### The build host used to sleep mid-build
 
-Job durations observed so far, all building the same source commit:
+Job durations observed for the *same* source commit:
 
 | Pipeline | Job wall clock | Cargo's own reported time |
 | --- | --- | --- |
@@ -396,32 +396,32 @@ Job durations observed so far, all building the same source commit:
 | 90 | 2 h 34 min | 6m 00s |
 | 91 | 1 h 22 min | 6m 01s |
 
-Cargo reports essentially the same build time every run, and the C++ phase after
-it takes well under a minute (ninja steps 6→180 completed in ~45 s in pipeline
-91). The variance is **not** explained by cache state, crate count, or LTO.
+Cargo reported the same ~6 minutes every run and the C++ phase took under a
+minute, so the variance was never in the build. **The Mac was falling asleep.**
 
-In pipeline 91 the cargo ninja step occupied 64m 43s of wall clock while cargo
-itself reported 6m 01s. There was no lock contention (`Blocking waiting for file
-lock` never appears), no swap (`vm.swapusage` 0), and no memory shortage
-(`memory_pressure` reported 86% free). Sampled directly, `rustc` was consuming a
-full core — but it had accumulated only ~6 minutes of CPU time across an hour of
-elapsed time, meaning it spent most of that hour not scheduled.
+`pmset -g` showed `sleep 1` — idle sleep after one minute — and `pmset -g log`
+recorded 13,903 seconds of sleep across 30 events in a 90-minute window,
+including a single 867-second sleep in the middle of a build. That is why
+`rustc` accumulated only ~6 minutes of CPU across an hour of elapsed time while
+sampling at a full core whenever it *was* awake.
 
-**This is unexplained.** Do not trust a single measurement from this host as a
-performance baseline. Two things are worth investigating before drawing
-conclusions:
+The trap is that **macOS idle sleep is driven by user/HID activity and power
+assertions, not CPU load.** A headless Mac with nobody at the keyboard sleeps
+even at 100% CPU, and `gitlab-runner` takes no power assertion of its own. The
+same mechanism delayed job pickup by 2–3 minutes and produced hundreds of
+`Checking for jobs... failed` entries, because the machine was asleep when
+GitLab had work for it.
 
-- The Mac is auto-logged into a **GUI session** and renders an animated aerial
-  wallpaper. `WallpaperAerialsExtension`, `WindowServer` and
-  `VTDecoderXPCService` are continuously resident and were the busiest processes
-  in a live sample taken during a build.
-- Spotlight (`mds`, `mds_stores`, `mdworker_shared`, `corespotlightd`) and
-  `mediaanalysisd` index the machine, including the build tree.
+Two independent fixes, deliberately both:
 
-Neither has been disabled, and neither has been *proven* to cause the stalls.
+- **The job** wraps its steps in `caffeinate -dims`, so the machine cannot sleep
+  while a build is running regardless of host configuration.
+- **The host** should have `sudo pmset -a sleep 0 disksleep 0 powernap 0` set.
+  This is admin-owned and can be undone by a macOS update or a settings change,
+  which is exactly why the job does not rely on it.
 
-The job `timeout` is `3h` — headroom for the worst case observed, not an
-estimate of how long the build should take.
+The job `timeout` is `3h` — headroom, not an estimate. Re-measure a true
+baseline once builds have run without sleeping.
 
 `BUILD_JOBS` is `4`. It was briefly raised to 6, which coincided with a job that
 hit the old 2h timeout, so it was put back. Given the variance documented above,
