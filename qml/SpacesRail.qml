@@ -153,7 +153,19 @@ Rectangle {
                 }
 
                 TapHandler {
+                    // Single tap filters the room list to the Space;
+                    // double tap additionally opens the Space Home
+                    // overview (the sub-room front page). Only REAL
+                    // Spaces have an overview — a double-tap on the
+                    // Home/"Other rooms" pseudo tiles must not tear
+                    // down the open room for a surface that does not
+                    // exist (review L3).
                     onTapped: if (app.spaces) app.spaces.activeSpaceId = model.spaceId
+                    onDoubleTapped: {
+                        if (model.spaceId.length > 0
+                                && model.spaceId.charAt(0) === "!")
+                            app.openSpaceHome(model.spaceId)
+                    }
                 }
 
                 ToolTip {

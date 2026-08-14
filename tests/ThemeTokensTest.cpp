@@ -351,6 +351,85 @@ private Q_SLOTS:
         }
     }
 
+    // 2026-08-14: the per-user sender-name inks (AppTheme.userColor) are
+    // `var` ARRAYS, invisible to the named-literal collection above, and
+    // an authoring-time-only AA claim shipped failing on Warm's other-
+    // bubble (review M6). Enforce the full matrix: every ink of a mode
+    // >= 4.5:1 against every background / card / elevated-card /
+    // OTHER-bubble surface its mode's themes render the identity header
+    // on (Bubbles-for-DMs puts the name on the other party's bubble).
+    void senderNameInksMeetContrastOnMessageSurfaces()
+    {
+        const auto inks = [this](const char *arrayName) -> QStringList {
+            const QRegularExpression re(QStringLiteral(
+                "property\\s+var\\s+%1\\s*:\\s*\\[([^\\]]*)\\]")
+                .arg(QLatin1String(arrayName)));
+            const auto match = re.match(m_theme);
+            QStringList out;
+            if (!match.hasMatch())
+                return out;
+            const QRegularExpression hex(
+                QStringLiteral("#[0-9A-Fa-f]{6}"));
+            auto it = hex.globalMatch(match.captured(1));
+            while (it.hasNext())
+                out.append(it.next().captured(0));
+            return out;
+        };
+        const QStringList lightInks = inks("_nameInksLight");
+        const QStringList darkInks = inks("_nameInksDark");
+        QCOMPARE(lightInks.size(), 9);
+        QCOMPARE(darkInks.size(), 9);
+
+        const QStringList lightSurfaces = {
+            // Lightning Light, Warm, Moss Light: bg / card / elevated /
+            // other-bubble.
+            QStringLiteral("_bgLight"), QStringLiteral("_cardLight"),
+            QStringLiteral("_cardElevatedLight"), QStringLiteral("_hoverLight"),
+            QStringLiteral("_warBg"), QStringLiteral("_warCard"),
+            QStringLiteral("_warCardElevated"), QStringLiteral("_warOtherBubble"),
+            QStringLiteral("_mosBg"), QStringLiteral("_mosCard"),
+            QStringLiteral("_mosCardElevated"), QStringLiteral("_mosOtherBubble"),
+        };
+        const QStringList darkSurfaces = {
+            QStringLiteral("_bgDark"), QStringLiteral("_cardDark"),
+            QStringLiteral("_cardElevatedDark"),
+            QStringLiteral("_dkBg"), QStringLiteral("_dkCard"),
+            QStringLiteral("_dkCardElevated"),
+            QStringLiteral("_graBg"), QStringLiteral("_graCard"),
+            QStringLiteral("_graCardElevated"), QStringLiteral("_graOtherBubble"),
+            QStringLiteral("_norBg"), QStringLiteral("_norCard"),
+            QStringLiteral("_norCardElevated"), QStringLiteral("_norOtherBubble"),
+            QStringLiteral("_purBg"), QStringLiteral("_purCard"),
+            QStringLiteral("_purCardElevated"), QStringLiteral("_purOtherBubble"),
+            QStringLiteral("_indBg"), QStringLiteral("_indCard"),
+            QStringLiteral("_indCardElevated"), QStringLiteral("_indOtherBubble"),
+            QStringLiteral("_teaBg"), QStringLiteral("_teaCard"),
+            QStringLiteral("_teaCardElevated"), QStringLiteral("_teaOtherBubble"),
+            QStringLiteral("_stoCanvas"), QStringLiteral("_stoPanel"),
+            QStringLiteral("_stoSelection"),
+        };
+
+        const auto check = [this](const QStringList &inkList,
+                                  const QStringList &surfaceNames) {
+            for (const QString &surfaceName : surfaceNames) {
+                const QString surface = m_colors.value(surfaceName);
+                QVERIFY2(!surface.isEmpty(),
+                         qPrintable(QStringLiteral("missing surface: %1")
+                                        .arg(surfaceName)));
+                for (const QString &ink : inkList) {
+                    const double ratio = contrast(ink, surface);
+                    QVERIFY2(ratio >= 4.5,
+                             qPrintable(QStringLiteral(
+                                 "name ink %1 on %2 (%3) = %4 (< 4.5)")
+                                 .arg(ink, surfaceName, surface)
+                                 .arg(ratio, 0, 'f', 2)));
+                }
+            }
+        };
+        check(lightInks, lightSurfaces);
+        check(darkInks, darkSurfaces);
+    }
+
     void mentionWashKeepsBodyTextReadable()
     {
         // Review M1's lesson encoded: the mention-row wash derives from

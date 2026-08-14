@@ -139,9 +139,14 @@ Item {
             app.mentionSuggestions.roomId = app.currentRoomId
             app.mentionSuggestions.query = tok.query
             mentionPopup.query = tok.query
-            var p = input.mapToItem(Overlay.overlay, 0, 0)
+            // Anchor to the Flickable VIEWPORT, not the TextArea: the
+            // field is reparented into the flickable's content item, so
+            // once a long draft has scrolled (contentY > 0) the
+            // TextArea's scene top sits above the visible composer and
+            // the popup would detach (review M1).
+            var p = inputFlick.mapToItem(Overlay.overlay, 0, 0)
             mentionPopup.anchorInputTop = Qt.point(p.x, p.y)
-            mentionPopup.anchorWidth = input.width
+            mentionPopup.anchorWidth = inputFlick.width
             if (!mentionPopup.visible)
                 mentionPopup.open()
         } else {
@@ -800,13 +805,26 @@ Item {
                         onClicked: root.toolbarExpanded = !root.toolbarExpanded
                     }
 
-                    TextArea {
-                        id: input
-                        objectName: "composerInput"
+                    Flickable {
+                        id: inputFlick
                         Layout.fillWidth: true
                         Layout.alignment: Qt.AlignVCenter
-                        // Grows with content up to ~6 lines, then scrolls.
-                        Layout.maximumHeight: 140
+                        // Grows with content up to ~6 lines (at the current
+                        // text scale), then scrolls. The cap alone used to
+                        // clamp a bare TextArea, which cannot scroll itself —
+                        // lines past the cap painted outside the box and long
+                        // drafts/edits became invisible. TextArea.flickable
+                        // provides the scrolling and keeps the caret in view.
+                        Layout.maximumHeight: AppTheme.scaled(140)
+                        implicitHeight: input.implicitHeight
+                        clip: true
+                        boundsBehavior: Flickable.StopAtBounds
+                        flickableDirection: Flickable.VerticalFlick
+                        ScrollBar.vertical: ScrollBar {}
+
+                        TextArea.flickable: TextArea {
+                        id: input
+                        objectName: "composerInput"
                         placeholderText: {
                             if (app.currentRoomId === "")
                                 return qsTr("Select a room to start typing")
@@ -925,6 +943,7 @@ Item {
                             ranges: root.mentionHighlightRanges
                             accentColor: AppTheme.accent
                             softColor: AppTheme.accentSoft
+                        }
                         }
                     }
 
@@ -1170,5 +1189,19 @@ Item {
         function onTextChanged() {
             if (input.text !== app.composer.text) input.text = app.composer.text
         }
+        function onEditStateChanged() {
+            // A long edit used to load with the caret at 0 and everything
+            // past the height cap invisible. Put the caret at the end (as
+            // Element does); the caret-following scroll brings the tail
+            // into view. Deferred: editStateChanged fires before the
+            // beginEdit text has synced into the field. Named function so
+            // Qt.callLater's identity-based deduplication applies.
+            if (app.composer.isEditing)
+                Qt.callLater(root.placeEditCaret)
+        }
+    }
+    function placeEditCaret() {
+        input.cursorPosition = input.length
+        input.forceActiveFocus()
     }
 }

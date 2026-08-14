@@ -418,6 +418,14 @@ public Q_SLOTS:
     void showSettings();
     void openRoom(const QString &roomId);
 
+    // Space Home: select the Space in the rail AND clear the open room so
+    // the Space overview surface becomes visible. The overview pane itself
+    // has existed since the v0.7 UI checkpoints but was unreachable once
+    // any room had been opened — nothing on space selection cleared the
+    // room (user report, 2026-08-14). Reached from a rail double-click and
+    // the workspace header.
+    void openSpaceHome(const QString &spaceId);
+
     // Per-room notification mode (0 = all, 1 = mentions & keywords,
     // 2 = mute) — the single UI entry point. Always writes the
     // device-local SettingsManager value first (NotificationManager reads

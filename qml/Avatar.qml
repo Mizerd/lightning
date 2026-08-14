@@ -70,12 +70,10 @@ Rectangle {
     // Deterministic per-identity colour from the shared handoff palette;
     // neutral surface only when there is nothing to derive a colour from.
     readonly property string _paletteKey: colorKey.length > 0 ? colorKey : name
+    // Delegates to the shared AppTheme identity hash so the disc colour and
+    // the sender-name ink derived from the same key always agree.
     function _paletteColor(key) {
-        var h = 0
-        for (var i = 0; i < key.length; ++i)
-            h = ((h << 5) - h + key.charCodeAt(i)) | 0
-        var palette = AppTheme.avatarPalette
-        return palette[Math.abs(h) % palette.length]
+        return AppTheme.avatarColor(key)
     }
     color: presentationState === "missing" || presentationState === "failed"
            ? (_paletteKey.length > 0 ? _paletteColor(_paletteKey)

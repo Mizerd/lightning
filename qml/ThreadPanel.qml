@@ -352,7 +352,8 @@ Rectangle {
                     }
                     Label {
                         text: panel.rootData.senderDisplayName || ""
-                        color: AppTheme.text
+                        // Same per-user identity ink as the timeline rows.
+                        color: AppTheme.userColor(panel.rootData.sender || "")
                         font.pixelSize: AppTheme.scaled(13)
                         font.weight: Font.ExtraBold
                     }
@@ -976,11 +977,24 @@ Rectangle {
                             ToolTip.delay: 500
                             onClicked: threadAttachDialog.open()
                         }
-                        TextArea {
+                        Flickable {
+                            id: threadInputFlick
+                            Layout.fillWidth: true
+                            // Grows to ~6 lines at the current text scale,
+                            // then scrolls with the caret kept in view — a
+                            // bare TextArea cannot scroll, so the cap alone
+                            // painted overflow lines outside the box
+                            // (mirrors the room composer fix).
+                            Layout.maximumHeight: AppTheme.scaled(110)
+                            implicitHeight: threadComposerInput.implicitHeight
+                            clip: true
+                            boundsBehavior: Flickable.StopAtBounds
+                            flickableDirection: Flickable.VerticalFlick
+                            ScrollBar.vertical: ScrollBar {}
+
+                            TextArea.flickable: TextArea {
                             id: threadComposerInput
                             objectName: "threadComposerInput"
-                            Layout.fillWidth: true
-                            Layout.maximumHeight: 110
                             placeholderText: qsTr("Reply in thread")
                             placeholderTextColor: AppTheme.textMuted
                             wrapMode: TextArea.Wrap
@@ -1066,6 +1080,7 @@ Rectangle {
                                 ranges: panel.threadMentionHighlightRanges
                                 accentColor: AppTheme.accent
                                 softColor: AppTheme.accentSoft
+                            }
                             }
                         }
                         IconButton {
@@ -1394,9 +1409,11 @@ Rectangle {
             app.mentionSuggestions.roomId = app.thread.roomId
             app.mentionSuggestions.query = tok.query
             threadMentionPopup.query = tok.query
-            var p = threadComposerInput.mapToItem(Overlay.overlay, 0, 0)
+            // Viewport anchor, not the (reparented, unclamped) TextArea —
+            // mirrors the room composer (review M1).
+            var p = threadInputFlick.mapToItem(Overlay.overlay, 0, 0)
             threadMentionPopup.anchorInputTop = Qt.point(p.x, p.y)
-            threadMentionPopup.anchorWidth = threadComposerInput.width
+            threadMentionPopup.anchorWidth = threadInputFlick.width
             if (!threadMentionPopup.visible)
                 threadMentionPopup.open()
         } else {

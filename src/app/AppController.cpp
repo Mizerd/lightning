@@ -1728,6 +1728,24 @@ void AppController::openRoom(const QString &roomId)
 #endif
 }
 
+void AppController::openSpaceHome(const QString &spaceId)
+{
+    if (m_spaces)
+        m_spaces->setActiveSpaceId(spaceId);
+    if (m_currentRoomId.isEmpty())
+        return;
+    // Mirror the roomLeft path: the Rust backend's SDK timeline for the
+    // open room is closed before the room selection clears, so no live
+    // subscription outlives the visible timeline, and the room-info
+    // controller stops pointing at a room that is no longer shown.
+#ifdef ENABLE_RUST_SDK_BACKEND
+    if (auto *rust = qobject_cast<RustSdkMatrixClient *>(m_client.get()))
+        rust->closeRoomTimeline();
+#endif
+    setCurrentRoomId(QString());
+    m_roomInfo->setRoomId(QString());
+}
+
 void AppController::reloadCurrentRoomTimeline(int limit)
 {
 #ifdef ENABLE_RUST_SDK_BACKEND

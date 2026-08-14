@@ -138,6 +138,26 @@ Rectangle {
                     font.pixelSize: AppTheme.fontRoomTitle
                     font.weight: Font.ExtraBold
                     elide: Label.ElideRight
+
+                    // When a real Space is selected the workspace title is a
+                    // second route to its Space Home overview (the rail's
+                    // double-click being the other).
+                    readonly property bool spaceLink:
+                        app.spaces !== null
+                        && app.spaces.activeSpaceId.length > 0
+                        && app.spaces.activeSpaceId.charAt(0) === "!"
+                    HoverHandler {
+                        id: workspaceHover
+                        enabled: workspaceLabel.spaceLink
+                        cursorShape: Qt.PointingHandCursor
+                    }
+                    TapHandler {
+                        enabled: workspaceLabel.spaceLink
+                        onTapped: app.openSpaceHome(app.spaces.activeSpaceId)
+                    }
+                    ToolTip.visible: workspaceHover.hovered
+                    ToolTip.text: qsTr("Open Space overview")
+                    ToolTip.delay: 500
                 }
 
                 // The Lightning bolt mark — the app brand above all chats,

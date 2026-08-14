@@ -755,6 +755,44 @@ QtObject {
         "#2F8F5B", "#A3542F", "#6D5BD0", "#3A6EA5", "#B04A7E",
         "#C9662A", "#4A8F6D", "#B3823A", "#A05A92"
     ]
+    // The ONE identity hash behind avatar fills and sender-name inks, so a
+    // user's avatar disc and name label always agree on the hue family.
+    // (Formerly private to Avatar.qml; lifted here so name colouring cannot
+    // drift out of sync with it.)
+    function identityIndex(key) {
+        var h = 0
+        for (var i = 0; i < key.length; ++i)
+            h = ((h << 5) - h + key.charCodeAt(i)) | 0
+        return Math.abs(h) % avatarPalette.length
+    }
+    function avatarColor(key) { return avatarPalette[identityIndex(key)] }
+    // Sender-name text inks, hue-matched index-for-index to avatarPalette
+    // but tuned as TEXT ink: the avatar fills are mid-tone disc colours
+    // sized for white initials and fail normal-text contrast as ink in
+    // both modes. Every value below is >= 4.5:1 (WCAG AA, normal text)
+    // against every background / card / elevated-card / OTHER-bubble
+    // token of its mode's themes — the identity header renders on the
+    // other party's bubble in Bubbles-for-DMs mode, and Warm's #EDE2CE
+    // bubble is the binding constraint for the light greens (an earlier
+    // #1F7A49/#2F7455 pair computed 4.16/4.37 there and failed AA). The
+    // theme-token test enforces this matrix; do not edit an ink without
+    // re-running it.
+    readonly property var _nameInksDark: [
+        "#79D6A4", "#F2B08D", "#C0B4F5", "#9CC4EF", "#F1ACCD",
+        "#F2B183", "#93D5B4", "#E2C387", "#E5ACD7"
+    ]
+    readonly property var _nameInksLight: [
+        "#196B3F", "#96481F", "#5B48C0", "#2F5E93", "#A03A6E",
+        "#9C4A12", "#27654A", "#7D5A17", "#8E4680"
+    ]
+    // Deterministic per-user display-name colour (Element-style identity
+    // colouring). Falls back to the primary ink when there is no stable
+    // key to hash.
+    function userColor(key) {
+        if (!key || key.length === 0)
+            return textPrimary
+        return (dark ? _nameInksDark : _nameInksLight)[identityIndex(key)]
+    }
 
     // ---- Legacy aliases retained for existing QML. ----
     readonly property color surfaceAlt:          cardElevated

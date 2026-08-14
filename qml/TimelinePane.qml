@@ -395,11 +395,20 @@ Rectangle {
                     RowLayout {
                         spacing: AppTheme.spacingS
                         Label {
-                            text: root.currentRoom.name
-                                  ? root.currentRoom.name
-                                  : (app.currentRoomId === ""
-                                     ? qsTr("Home")
-                                     : app.currentRoomId)
+                            text: {
+                                if (root.currentRoom.name)
+                                    return root.currentRoom.name
+                                if (app.currentRoomId !== "")
+                                    return app.currentRoomId
+                                // No room open: Space Home shows the Space's
+                                // own name, not the literal "Home".
+                                if (app.spaces
+                                        && app.spaces.activeSpaceId.length > 0
+                                        && app.spaces.activeSpaceId.charAt(0) === "!")
+                                    return app.spaces.spaceName(
+                                        app.spaces.activeSpaceId) || qsTr("Space")
+                                return qsTr("Home")
+                            }
                             color: AppTheme.text
                             font.pixelSize: 15
                             font.weight: Font.ExtraBold
@@ -2717,21 +2726,41 @@ Rectangle {
             }
         }
 
-        // Typing indicator
+        // Typing indicator — a constant-height slot while a room is shown.
+        // It used to be a conditional row, so every appearance/disappearance
+        // resized the timeline viewport and the re-pin handler shifted the
+        // whole message stack by the indicator's height (the reported
+        // "jitters the chat up and down"). Only the label's opacity changes
+        // now; the reserved strip never moves the timeline.
         Rectangle {
             Layout.fillWidth: true
-            visible: app.timeline.typingText && app.timeline.typingText.length > 0
-            implicitHeight: typingLabel.implicitHeight + 6
+            Layout.preferredHeight: app.currentRoomId !== ""
+                ? Math.max(typingLabel.implicitHeight, typingMetrics.height) + 6
+                : 0
+            visible: app.currentRoomId !== ""
             color: AppTheme.background
+            FontMetrics {
+                id: typingMetrics
+                font.italic: true
+                font.pixelSize: 11
+            }
             Label {
                 id: typingLabel
                 anchors.left: parent.left
                 anchors.leftMargin: AppTheme.spacingM
+                anchors.right: parent.right
+                anchors.rightMargin: AppTheme.spacingM
                 anchors.verticalCenter: parent.verticalCenter
                 text: app.timeline.typingText
+                opacity: text.length > 0 ? 1 : 0
+                // The slot is always present; keep the EMPTY state out of
+                // the accessibility tree.
+                Accessible.ignored: text.length === 0
+                elide: Text.ElideRight
                 color: AppTheme.textMuted
                 font.italic: true
                 font.pixelSize: 11
+                Behavior on opacity { NumberAnimation { duration: 120 } }
             }
         }
 
