@@ -359,6 +359,15 @@ private:
     // (one pass per batch) so both roles answer in O(1).
     QHash<QString, int> m_threadReplyCounts;
     void rebuildThreadReplyIndex();
+    // Newest SDK-profile avatar this timeline has seen per sender. Receipt
+    // chips resolve avatars through the member cache first; this catches
+    // readers whose roster row is missing or unhydrated while their own
+    // messages in the loaded timeline carry a profile avatar (live report
+    // 2026-08-14: chips rendered letter fallbacks beside rows that showed
+    // the same user's picture). Room-scoped: rebuilt on reload/room switch.
+    QHash<QString, QString> m_senderAvatarIndex;
+    void noteSenderAvatar(const TimelineEvent &event);
+    void rebuildSenderAvatarIndex();
     QString m_typingText;
 
     // v0.6.1 loaded-timeline search (memory-only; never persisted).

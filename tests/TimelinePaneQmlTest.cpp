@@ -2603,11 +2603,10 @@ private Q_SLOTS:
         // Load 2 — six readers (uncapped total 6): 4 avatar chips + "+2"
         // overflow, newest-first list as the model delivers it, one
         // summary line for the tooltip and the accessible name. Loaded
-        // WIDE (1400px) so the content column's 760px cap engages and the
-        // chip stack must trail the RENDERED body text closely, not float
-        // toward the far outer column cap (see
-        // readReceiptChipsFollowRenderedContentNotTheCappedColumn for the
-        // live-bug regression and its measured gap).
+        // WIDE (1400px) so the strip is much wider than the chip stack
+        // and the right-edge rail placement is a real assertion (see
+        // readReceiptChipsRideTheRightEdgeRail for the full multi-row
+        // contract).
         QVariantList receipts;
         const QStringList names = {
             QStringLiteral("Alice"), QStringLiteral("Bob"),
@@ -2652,312 +2651,176 @@ private Q_SLOTS:
             // the two loads.
             QVERIFY(root->implicitHeight() > emptyHeight);
 
-            // Geometry: the chip stack's right edge trails the RENDERED
-            // body text (not the far outer content-column cap — see
-            // readReceiptChipsFollowRenderedContentNotTheCappedColumn for
-            // the live-bug regression this mirrors) and never exceeds the
-            // content column's own capped right edge or the 1400px row.
-            auto *column = root->findChild<QQuickItem *>(
-                QStringLiteral("messageContentColumn"));
+            // Geometry (2026-08-14, Element parity): the chip stack rides
+            // the strip's own RIGHT EDGE — one fixed receipt rail per
+            // pane — see readReceiptChipsRideTheRightEdgeRail for the
+            // full multi-row contract.
             auto *chipRow = strip->findChild<QQuickItem *>(
                 QStringLiteral("readReceiptRow"));
-            auto *body = root->findChild<QQuickItem *>(
-                QStringLiteral("messageBody"));
-            QVERIFY(column != nullptr);
             QVERIFY(chipRow != nullptr);
-            QVERIFY(body != nullptr);
-            const qreal columnRight =
-                column->mapToScene(QPointF(column->width(), 0)).x();
-            const qreal bodyRight =
-                body->mapToScene(QPointF(body->implicitWidth(), 0)).x();
+            const qreal stripRight =
+                strip->mapToScene(QPointF(strip->width(), 0)).x();
             const qreal chipsRight =
                 chipRow->mapToScene(QPointF(chipRow->width(), 0)).x();
-            QVERIFY2(qAbs(chipsRight - bodyRight) < 6.0,
+            QVERIFY2(qAbs(chipsRight - stripRight) < 1.5,
                      qPrintable(QStringLiteral(
-                         "chipsRight=%1 bodyRight=%2 columnRight=%3")
-                         .arg(chipsRight).arg(bodyRight).arg(columnRight)));
-            QVERIFY(chipsRight <= columnRight + 1.0);
-            QVERIFY(chipsRight < 1400.0 - 100.0);
+                         "chipsRight=%1 stripRight=%2")
+                         .arg(chipsRight).arg(stripRight)));
         }
 
         QCOMPARE(warnings, QStringList{});
     }
 
-    // Live-bug reproduction (2026-08-06 screenshot report): read-receipt
-    // chips floated far right of the text/link-preview they annotate. The
-    // lead's working hypothesis was a coordinate-FRAME mismatch between
-    // `bubble` (nested inside bubbleRow) and `receiptRow` (a sibling of
-    // bubbleRow) — disproven during investigation; not asserted here:
-    // bubbleRow and readReceiptStrip are both direct ColumnLayout children
-    // at x=0 in the SAME frame, and dumping real geometry inside a real
-    // ListView (any width, text scale, layout mode, resize timing,
-    // late-arriving receipts, or real delegate pooling) always showed the
-    // two edges agreeing exactly. The REAL bug: `receiptRow.x` anchored to
-    // `bubble.x + bubble.width` — the CONTENT COLUMN's fixed, capped outer
-    // width (up to AppTheme.timelineContentMaxWidth, 760px on a wide
-    // pane) — not to where the message's actual rendered content
-    // (text/media/link preview) ends. A short one-line body renders at a
-    // small fraction of that cap, so the chips visibly detached from the
-    // text by however much width the cap left unused — measured at 732
-    // logical px for the short-body row below, on the 1600px-wide fixture
-    // this test uses; the maintainer's live window showed the same defect
-    // class at a different width. A second, review-caught shape of the
-    // same bug: a naive fix that anchors to the WHOLE rendered content
-    // column (including the sender identity header) still leaves the
-    // chips detached whenever the header is wider than the body — this
-    // test's third row ("SpongeMan" + "Fr fr", the reporter's own row)
-    // pins that the chips trail the message body, never the header.
-    void readReceiptChipsFollowRenderedContentNotTheCappedColumn()
+    // 2026-08-14 (maintainer request, Element parity): read-receipt chips
+    // ride ONE fixed right-edge rail — the strip's own right edge, i.e.
+    // the far right of the timeline row — for every row, regardless of
+    // how wide the message body or the sender identity header renders.
+    // This deliberately REPLACES the 2026-08-06 "trail the rendered
+    // content" contract (whose per-row anchor walked the widest visible
+    // bubbleContent child); the three fixture rows below are kept from
+    // that era precisely because they exercise the row shapes that used
+    // to produce different chip positions — under the rail contract all
+    // three must agree on a single right edge.
+    void readReceiptChipsRideTheRightEdgeRail()
     {
+        // Delegate-level fixture (the same harness the bounded-chips test
+        // above uses): the full-pane fixture cannot exercise this — its
+        // rows never hydrate into app.timelineView offscreen, the same
+        // stale-fixture failure the rest of this suite carries. Three row
+        // shapes that produced three DIFFERENT chip positions under the
+        // retired trail-the-content contract must all place their chips on
+        // the strip's own right edge.
         AppController controller(AppController::MockBackend);
-        const QString roomId = loginAndRoomIdAt(controller, /*row=*/0);
-        QVERIFY(!roomId.isEmpty());
-        auto *mock = controller.findChild<MockMatrixClient *>();
-        QVERIFY(mock != nullptr);
-        controller.setCurrentRoomId(roomId);
+        QVariantMap fixture;
+        const auto roles = controller.timeline()->roleNames();
+        for (auto it = roles.cbegin(); it != roles.cend(); ++it)
+            fixture.insert(QString::fromUtf8(it.value()), QVariant{});
+        fixture.insert(QStringLiteral("isVirtual"), false);
+        fixture.insert(QStringLiteral("isStateActivity"), false);
+        fixture.insert(QStringLiteral("stateGroupEntries"), QVariantList{});
+        fixture.insert(QStringLiteral("showSenderIdentity"), true);
+        fixture.insert(QStringLiteral("itemId"), QString{});
+        fixture.insert(QStringLiteral("eventId"), QString{});
+        fixture.insert(QStringLiteral("eventType"), 0);
+        fixture.insert(QStringLiteral("status"), 0);
+        fixture.insert(QStringLiteral("isOwn"), false);
+        fixture.insert(QStringLiteral("replyToEventId"), QString{});
+        fixture.insert(QStringLiteral("timestamp"),
+                       QDateTime::currentDateTimeUtc());
+        fixture.insert(QStringLiteral("undecryptable"), false);
+        fixture.insert(QStringLiteral("redacted"), false);
+        fixture.insert(QStringLiteral("isImage"), false);
+        fixture.insert(QStringLiteral("isFile"), false);
+        fixture.insert(QStringLiteral("reactions"), QVariantList{});
+        QVariantList receipts;
+        for (const auto &reader :
+             { QStringLiteral("@carol:mock.local"),
+               QStringLiteral("@dave:mock.local") }) {
+            QVariantMap r;
+            r.insert(QStringLiteral("userId"), reader);
+            r.insert(QStringLiteral("displayName"),
+                     reader.mid(1, reader.indexOf(QLatin1Char(':')) - 1));
+            r.insert(QStringLiteral("avatarMxc"), QString{});
+            receipts.append(r);
+        }
+        fixture.insert(QStringLiteral("readReceipts"), receipts);
+        fixture.insert(QStringLiteral("readReceiptsTotal"), receipts.size());
 
-        const QList<ReadReceipt> receipts = {
-            { QStringLiteral("@carol:mock.local"), Q_INT64_C(1700000002000) },
-            { QStringLiteral("@dave:mock.local"),  Q_INT64_C(1700000001000) },
+        QStringList warnings;
+        const auto loadDelegate =
+            [this, &controller, &warnings](
+                QQmlApplicationEngine &engine,
+                const QVariantMap &model, qreal width) -> QQuickItem * {
+            connect(&engine, &QQmlEngine::warnings, this,
+                    [&warnings](const QList<QQmlError> &errors) {
+                        for (const auto &e : errors)
+                            warnings << e.toString();
+                    });
+            engine.rootContext()->setContextProperty("app", &controller);
+            engine.rootContext()->setContextProperty("model", model);
+            QSignalSpy createdSpy(&engine,
+                                  &QQmlApplicationEngine::objectCreated);
+            engine.loadFromModule(QStringLiteral("MatrixClient"),
+                                  QStringLiteral("MessageDelegate"));
+            if (createdSpy.isEmpty()
+                && !createdSpy.wait(kSignalTimeoutMs))
+                return nullptr;
+            auto *root = qobject_cast<QQuickItem *>(
+                createdSpy.at(0).at(0).value<QObject *>());
+            if (root == nullptr)
+                return nullptr;
+            root->setWidth(width);
+            QCoreApplication::processEvents();
+            return root;
         };
 
-        // Row 0: a SHORT one-line body ("Fr fr" in the screenshot) with a
-        // SHORT sender name — the shape that produced the visible floating
-        // gap (732 logical px against the outer capped column below).
-        TimelineEvent shortMsg;
-        shortMsg.eventId = QStringLiteral("$receipt-short");
-        shortMsg.itemId = QStringLiteral("uid-receipt-short");
-        shortMsg.roomId = roomId;
-        shortMsg.sender = QStringLiteral("@bob:mock.local");
-        shortMsg.senderDisplayName = QStringLiteral("Bob");
-        shortMsg.body = QStringLiteral("Fr fr");
-        shortMsg.timestamp = QDateTime::currentDateTimeUtc();
-        shortMsg.type = TimelineEvent::TextMessage;
-        shortMsg.status = TimelineEvent::Sent;
-        shortMsg.readBy = receipts;
-        shortMsg.readByTotal = receipts.size();
+        // The three shapes: short body + short name (the 2026-08-06
+        // screenshot row), a wide unbroken body near the column cap, and a
+        // header rendering wider than a two-word body ("SpongeMan"/"Fr
+        // fr", the reviewer's counterexample row).
+        struct Shape {
+            const char *sender;
+            const char *name;
+            const char *body;
+        };
+        const Shape shapes[] = {
+            { "@bob:mock.local", "Bob", "Fr fr" },
+            { "@bob:mock.local", "Bob",
+              "https://www.example.com/a/very/long/unbroken/path/segment/"
+              "that/cannot/wrap/anywhere/because/it/has/no/spaces/at/all" },
+            { "@sponge:mock.local", "SpongeMan", "Fr fr" },
+        };
 
-        // Row 1: a WIDE row (a long unbroken string with no wrap points,
-        // like the screenshot's Instagram URL) whose natural content width
-        // can approach or exceed the 760px cap. The chip must still never
-        // overflow PAST the capped column's own outer edge.
-        TimelineEvent wideMsg;
-        wideMsg.eventId = QStringLiteral("$receipt-wide");
-        wideMsg.itemId = QStringLiteral("uid-receipt-wide");
-        wideMsg.roomId = roomId;
-        wideMsg.sender = QStringLiteral("@bob:mock.local");
-        wideMsg.senderDisplayName = QStringLiteral("Bob");
-        wideMsg.body = QStringLiteral(
-            "https://www.example.com/a/very/long/unbroken/path/segment/"
-            "that/cannot/wrap/anywhere/because/it/has/no/spaces/at/all");
-        wideMsg.timestamp = QDateTime::currentDateTimeUtc().addSecs(1);
-        wideMsg.type = TimelineEvent::TextMessage;
-        wideMsg.status = TimelineEvent::Sent;
-        wideMsg.readBy = receipts;
-        wideMsg.readByTotal = receipts.size();
+        QVector<qreal> railOffsets;
+        for (const Shape &shape : shapes) {
+            QQmlApplicationEngine engine;
+            QVariantMap model = fixture;
+            model.insert(QStringLiteral("sender"),
+                         QString::fromLatin1(shape.sender));
+            model.insert(QStringLiteral("senderDisplayName"),
+                         QString::fromLatin1(shape.name));
+            model.insert(QStringLiteral("senderInitials"),
+                         QString::fromLatin1(shape.name).left(1));
+            model.insert(QStringLiteral("body"),
+                         QString::fromLatin1(shape.body));
+            QQuickItem *root = loadDelegate(engine, model, 1400);
+            QVERIFY(root != nullptr);
+            auto *strip = root->findChild<QQuickItem *>(
+                QStringLiteral("readReceiptStrip"));
+            QVERIFY(strip != nullptr);
+            QVERIFY(strip->isVisible());
+            auto *chipRow = strip->findChild<QQuickItem *>(
+                QStringLiteral("readReceiptRow"));
+            QVERIFY(chipRow != nullptr);
 
-        // Row 2: the reporter's EXACT row shape — a long sender display
-        // name ("SpongeMan" in the screenshot) over a short body ("Fr
-        // fr"). A reviewer proved that anchoring to the whole rendered
-        // content column (including the sender identity header) still
-        // leaves the chips floating on this row, because the header
-        // (name + timestamp) renders wider than the two-word body. Pins
-        // that the chosen anchor trails the BODY, never the header.
-        TimelineEvent headerMsg;
-        headerMsg.eventId = QStringLiteral("$receipt-header");
-        headerMsg.itemId = QStringLiteral("uid-receipt-header");
-        headerMsg.roomId = roomId;
-        headerMsg.sender = QStringLiteral("@sponge:mock.local");
-        headerMsg.senderDisplayName = QStringLiteral("SpongeMan");
-        headerMsg.body = QStringLiteral("Fr fr");
-        headerMsg.timestamp = QDateTime::currentDateTimeUtc().addSecs(2);
-        headerMsg.type = TimelineEvent::TextMessage;
-        headerMsg.status = TimelineEvent::Sent;
-        headerMsg.readBy = receipts;
-        headerMsg.readByTotal = receipts.size();
-
-        mock->resetTimelineForTest(roomId, { shortMsg, wideMsg, headerMsg },
-                                   /*paginationPages=*/0);
-
-        QQmlApplicationEngine engine;
-        QStringList warnings;
-        connect(&engine, &QQmlEngine::warnings, this,
-                [&warnings](const QList<QQmlError> &errors) {
-                    for (const auto &e : errors) warnings << e.toString();
-                });
-        engine.rootContext()->setContextProperty("app", &controller);
-        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
-        engine.loadFromModule(QStringLiteral("MatrixClient"),
-                              QStringLiteral("TimelinePane"));
-        if (createdSpy.isEmpty())
-            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
-        auto *root = qobject_cast<QQuickItem *>(
-            createdSpy.at(0).at(0).value<QObject *>());
-        QVERIFY(root != nullptr);
-        QQuickWindow window;
-        // Wide window: matches the maintainer's ~1961px report (the pane
-        // itself, after the rail/room-list, is comfortably over 1400px —
-        // wide enough that AppTheme.timelineContentMaxWidth (760) caps the
-        // content column well short of the row's own far edge).
-        window.resize(1600, 900);
-        root->setParentItem(window.contentItem());
-        root->setSize(QSizeF(window.width(), window.height()));
-        window.show();
-
-        auto *timeline = root->findChild<QQuickItem *>(
-            QStringLiteral("timelineListView"));
-        QVERIFY(timeline != nullptr);
-        QTRY_VERIFY_WITH_TIMEOUT(
-            timeline->property("presentationReady").toBool(), kSignalTimeoutMs);
-        QTRY_VERIFY_WITH_TIMEOUT(timeline->property("count").toInt() >= 3,
-                                 kSignalTimeoutMs);
-        QMetaObject::invokeMethod(timeline, "forceLayout");
-        QCoreApplication::processEvents();
-
-        // --- Row 0 (short body): the chip must trail the ACTUAL rendered
-        // text closely, not the far-away capped column edge.
-        QQuickItem *shortRow = nullptr;
-        QTRY_VERIFY_WITH_TIMEOUT(
-            (QMetaObject::invokeMethod(timeline, "itemAtIndex",
-                                       Q_RETURN_ARG(QQuickItem *, shortRow),
-                                       Q_ARG(int, 0)),
-             shortRow != nullptr),
-            kSignalTimeoutMs);
-        auto *shortStrip = shortRow->findChild<QQuickItem *>(
-            QStringLiteral("readReceiptStrip"));
-        auto *shortColumn = shortRow->findChild<QQuickItem *>(
-            QStringLiteral("messageContentColumn"));
-        auto *shortBody = shortRow->findChild<QQuickItem *>(
-            QStringLiteral("messageBody"));
-        QVERIFY(shortStrip != nullptr);
-        QVERIFY(shortColumn != nullptr);
-        QVERIFY(shortBody != nullptr);
-        QVERIFY(shortStrip->isVisible());
-        auto *shortChipRow = shortStrip->findChild<QQuickItem *>(
-            QStringLiteral("readReceiptRow"));
-        QVERIFY(shortChipRow != nullptr);
-
-        const qreal shortColumnRight =
-            shortColumn->mapToScene(QPointF(shortColumn->width(), 0)).x();
-        const qreal shortBodyRight = shortBody->mapToScene(
-            QPointF(shortBody->implicitWidth(), 0)).x();
-        const qreal shortChipsRight = shortChipRow->mapToScene(
-            QPointF(shortChipRow->width(), 0)).x();
-
-        // Sanity: this row's cap really is far from the actual text (the
-        // precondition the screenshot's defect depends on) — otherwise this
-        // assertion would trivially pass for the wrong reason.
-        QVERIFY2(shortColumnRight - shortBodyRight > 300.0,
+            const qreal stripRight =
+                strip->mapToScene(QPointF(strip->width(), 0)).x();
+            const qreal chipsRight =
+                chipRow->mapToScene(QPointF(chipRow->width(), 0)).x();
+            // The rail: chips ride the strip's own right edge no matter
+            // how wide the body or the identity header rendered. The
+            // retired contract fails this on the short-body rows by
+            // hundreds of px (chips near the body, strip edge far right).
+            QVERIFY2(qAbs(chipsRight - stripRight) < 1.5,
+                     qPrintable(QStringLiteral(
+                         "chips must ride the right-edge rail: sender=%1 "
+                         "chipsRight=%2 stripRight=%3")
+                         .arg(QString::fromLatin1(shape.sender))
+                         .arg(chipsRight).arg(stripRight)));
+            // The avatar-gutter floor survives the rail contract.
+            QVERIFY(chipRow->x() >= root->property("avatarGutterWidth")
+                                        .toReal() - 0.5);
+            railOffsets.append(stripRight - chipsRight);
+        }
+        // One rail, not three: every shape agrees on the same offset from
+        // the strip edge.
+        QCOMPARE(railOffsets.size(), 3);
+        QVERIFY2(qAbs(railOffsets[0] - railOffsets[1]) < 1.0
+                     && qAbs(railOffsets[1] - railOffsets[2]) < 1.0,
                  qPrintable(QStringLiteral(
-                     "fixture assumption failed: short body (%1) is not far "
-                     "under the capped column edge (%2) — the test no "
-                     "longer isolates the reported defect")
-                     .arg(shortBodyRight).arg(shortColumnRight)));
-
-        // The actual fix: the chip stack's right edge sits a few px past
-        // the RENDERED content (the facepile's own -4 spacing/margin), not
-        // toward the column cap. The OLD code fails this by 732 logical px
-        // (shortColumnRight - shortBodyRight above, on this 1600px
-        // fixture), so a single-digit-px bound here is real, not loose.
-        QVERIFY2(qAbs(shortChipsRight - shortBodyRight) < 6.0,
-                 qPrintable(QStringLiteral(
-                     "read-receipt chips must trail the RENDERED content's "
-                     "right edge, not the capped content column: "
-                     "bodyRight=%1 chipsRight=%2 columnRight=%3 "
-                     "(gap-from-body=%4, old-code gap-from-column-cap=%5)")
-                     .arg(shortBodyRight).arg(shortChipsRight)
-                     .arg(shortColumnRight)
-                     .arg(shortChipsRight - shortBodyRight)
-                     .arg(shortColumnRight - shortBodyRight)));
-        // And it must never sit BELOW the avatar gutter (existing floor).
-        QVERIFY(shortChipRow->x() >= shortRow->property("avatarGutterWidth")
-                                          .toReal() - 0.5);
-
-        // --- Row 1 (wide/unbroken body): the chip must still never
-        // overflow PAST the capped column's own outer edge — the existing
-        // clamp must survive the fix.
-        QQuickItem *wideRow = nullptr;
-        QTRY_VERIFY_WITH_TIMEOUT(
-            (QMetaObject::invokeMethod(timeline, "itemAtIndex",
-                                       Q_RETURN_ARG(QQuickItem *, wideRow),
-                                       Q_ARG(int, 1)),
-             wideRow != nullptr),
-            kSignalTimeoutMs);
-        auto *wideStrip = wideRow->findChild<QQuickItem *>(
-            QStringLiteral("readReceiptStrip"));
-        auto *wideColumn = wideRow->findChild<QQuickItem *>(
-            QStringLiteral("messageContentColumn"));
-        QVERIFY(wideStrip != nullptr);
-        QVERIFY(wideColumn != nullptr);
-        QVERIFY(wideStrip->isVisible());
-        auto *wideChipRow = wideStrip->findChild<QQuickItem *>(
-            QStringLiteral("readReceiptRow"));
-        QVERIFY(wideChipRow != nullptr);
-
-        const qreal wideColumnRight =
-            wideColumn->mapToScene(QPointF(wideColumn->width(), 0)).x();
-        const qreal wideChipsRight =
-            wideChipRow->mapToScene(QPointF(wideChipRow->width(), 0)).x();
-        QVERIFY2(wideChipsRight <= wideColumnRight + 1.0,
-                 qPrintable(QStringLiteral(
-                     "read-receipt chips must never overflow past the "
-                     "content column's own capped right edge: "
-                     "columnRight=%1 chipsRight=%2")
-                     .arg(wideColumnRight).arg(wideChipsRight)));
-
-        // --- Row 2 ("SpongeMan" + "Fr fr" — the reporter's exact row): a
-        // reviewer proved a header-inclusive anchor (the whole rendered
-        // content column, sender identity header included) still leaves
-        // the chips floating here, because the header renders wider than
-        // the two-word body. The fix explicitly excludes the header from
-        // its candidate list — pin that the chips trail the BODY, not the
-        // header, on precisely this row shape.
-        QQuickItem *headerRow = nullptr;
-        QTRY_VERIFY_WITH_TIMEOUT(
-            (QMetaObject::invokeMethod(timeline, "itemAtIndex",
-                                       Q_RETURN_ARG(QQuickItem *, headerRow),
-                                       Q_ARG(int, 2)),
-             headerRow != nullptr),
-            kSignalTimeoutMs);
-        auto *headerStrip = headerRow->findChild<QQuickItem *>(
-            QStringLiteral("readReceiptStrip"));
-        auto *headerBody = headerRow->findChild<QQuickItem *>(
-            QStringLiteral("messageBody"));
-        auto *identityHeader = headerRow->findChild<QQuickItem *>(
-            QStringLiteral("senderIdentityHeader"));
-        QVERIFY(headerStrip != nullptr);
-        QVERIFY(headerBody != nullptr);
-        QVERIFY(identityHeader != nullptr);
-        QVERIFY(headerStrip->isVisible());
-        auto *headerChipRow = headerStrip->findChild<QQuickItem *>(
-            QStringLiteral("readReceiptRow"));
-        QVERIFY(headerChipRow != nullptr);
-
-        const qreal identityHeaderRight = identityHeader->mapToScene(
-            QPointF(identityHeader->implicitWidth(), 0)).x();
-        const qreal headerBodyRight = headerBody->mapToScene(
-            QPointF(headerBody->implicitWidth(), 0)).x();
-        const qreal headerChipsRight = headerChipRow->mapToScene(
-            QPointF(headerChipRow->width(), 0)).x();
-
-        // Sanity: the header really is wider than the body on this row —
-        // the precondition the header-inclusive-anchor counterexample
-        // depends on — otherwise the next assertion passes for the wrong
-        // reason.
-        QVERIFY2(identityHeaderRight - headerBodyRight > 20.0,
-                 qPrintable(QStringLiteral(
-                     "fixture assumption failed: \"SpongeMan\"'s identity "
-                     "header (%1) is not meaningfully wider than \"Fr "
-                     "fr\"'s body (%2) — the test no longer isolates the "
-                     "reviewer's counterexample")
-                     .arg(identityHeaderRight).arg(headerBodyRight)));
-        QVERIFY2(qAbs(headerChipsRight - headerBodyRight) < 6.0,
-                 qPrintable(QStringLiteral(
-                     "read-receipt chips must trail the message BODY, "
-                     "never the sender identity header: bodyRight=%1 "
-                     "chipsRight=%2 identityHeaderRight=%3")
-                     .arg(headerBodyRight).arg(headerChipsRight)
-                     .arg(identityHeaderRight)));
+                     "shapes disagree on the receipt rail: %1 / %2 / %3")
+                     .arg(railOffsets[0]).arg(railOffsets[1])
+                     .arg(railOffsets[2])));
 
         QCOMPARE(warnings, QStringList{});
     }

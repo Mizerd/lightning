@@ -59,21 +59,18 @@ previous virtualized contract rather than separately observed defects, but
 the regression net for the timeline is incomplete and porting them is the
 highest-value open work. This is disclosed in `docs/releases/v0.6.6.md`.
 
-As of the 2026-08-13 thread-parity + OAuth integration the registered count
-is **94 per tree** (the `voice-ownership` suite was added) and the merged
-tree measures **92/94 on both trees** — ONLY the two timeline suites above.
-That number is from the INTEGRATED result, not from either contributing
-branch in isolation; three separate worktrees independently reproduced the
-same two failures at `9e4b6fb`. Earlier revisions of this paragraph claimed
-85/87 and then 86/91; both were stale in the pessimistic direction — the
-`settings-shell-qml`, `design-acceptance` and `verification-qr-qml` failures
-they recorded were environmental drift and have cleared. The two timeline
-suites remain at exactly their release-era sub-test totals
-(`timeline-pane-qml` 36 passed / 27 failed, `timeline-hydration-qml` 5
-passed / 2 failed). The drift was offscreen pixel sampling and a host KDE
-style leak — exactly why those numbers were flagged as describing one
-desktop on one day. Run the suites yourself rather than trusting these; the
-same caveat still applies to this paragraph.
+As of the 2026-08-14 user-report round the registered count is **95 per
+tree** (the `room-info-moderation` suite was added) and the tree measures
+**93/95 on both trees** — ONLY the two timeline suites above, with
+`timeline-pane-qml` improved to 37 passed / 26 failed (the read-receipt
+placement test was ported to the delegate-level fixture and the new
+right-edge-rail contract) and `timeline-hydration-qml` at 5 passed / 2
+failed (the release-era number). Earlier revisions of this paragraph
+claimed 85/87, then 86/91, then 92/94; the pessimistic drift entries
+(`settings-shell-qml`, `design-acceptance`, `verification-qr-qml`) were
+offscreen pixel sampling and a host KDE style leak — exactly why these
+numbers are flagged as describing one desktop on one day. Run the suites
+yourself rather than trusting this paragraph.
 
 Run `git log --oneline v0.6.6..HEAD` rather than trusting this list; it will
 go stale the same way the narrative below did.

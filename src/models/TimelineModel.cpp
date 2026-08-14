@@ -377,12 +377,19 @@ QVariantList TimelineModel::readReceiptsVariant(const TimelineEvent &e) const
         }
         if (display.isEmpty())
             display = matrix::user_lookup::localpartOrUserId(r.userId);
+        QString avatar =
+            m_client ? m_client->avatarMxcFor(e.roomId, r.userId) : QString{};
+        // Member-cache miss (hydration pending, failed, or a reader beyond
+        // the roster snapshot): fall back to the avatar this timeline has
+        // itself seen on the reader's own messages. Without this the chip
+        // rendered a letter fallback beside rows showing the same user's
+        // picture.
+        if (avatar.isEmpty())
+            avatar = m_senderAvatarIndex.value(r.userId);
         QVariantMap m;
         m.insert(QStringLiteral("userId"),      r.userId);
         m.insert(QStringLiteral("displayName"), display);
-        m.insert(QStringLiteral("avatarMxc"),
-                 m_client ? m_client->avatarMxcFor(e.roomId, r.userId)
-                          : QString{});
+        m.insert(QStringLiteral("avatarMxc"),   avatar);
         m.insert(QStringLiteral("tsMs"),        r.tsMs);
         out.append(m);
     }
@@ -908,6 +915,7 @@ void TimelineModel::onEventAppended(const QString &roomId, const TimelineEvent &
     const int publicRow = static_cast<int>(m_events.size());
     beginInsertRows({}, publicRow, publicRow);
     m_events.append(event);
+    noteSenderAvatar(event);
     invalidateRowIndex();
     // Incremental: an append can only add one reply to one root — the full
     // O(n) rebuild ran once per live event during sync bursts.
@@ -929,6 +937,7 @@ void TimelineModel::onEventReplaced(const QString &roomId,
         return;
     const bool groupingChanged = groupingInputsDiffer(m_events.at(row), newEvent);
     m_events[row] = newEvent;
+    noteSenderAvatar(newEvent);
     invalidateRowIndex(); // replacement can rename local: -> remote id
     m_sanitizedHtmlCache.remove(oldEventId);
     m_sanitizedHtmlCache.remove(newEvent.eventId);
@@ -1032,8 +1041,10 @@ void TimelineModel::onEventsPrepended(const QString &roomId,
     if (roomId != m_roomId) return;
     if (events.isEmpty()) return;
     beginInsertRows({}, 0, events.size() - 1);
-    for (int i = events.size() - 1; i >= 0; --i)
+    for (int i = events.size() - 1; i >= 0; --i) {
         m_events.prepend(events.at(i));
+        noteSenderAvatar(events.at(i));
+    }
     invalidateRowIndex();
     rebuildThreadReplyIndex();
     endInsertRows();
@@ -1066,6 +1077,7 @@ void TimelineModel::onEventInsertedAt(const QString &roomId, int index,
     }
     beginInsertRows({}, index, index);
     m_events.insert(index, event);
+    noteSenderAvatar(event);
     invalidateRowIndex();
     if (!event.threadRootId.isEmpty())
         ++m_threadReplyCounts[event.threadRootId];
@@ -1085,8 +1097,10 @@ void TimelineModel::onEventsInsertedAt(
         return;
     }
     beginInsertRows({}, index, index + events.size() - 1);
-    for (int offset = 0; offset < events.size(); ++offset)
+    for (int offset = 0; offset < events.size(); ++offset) {
         m_events.insert(index + offset, events.at(offset));
+        noteSenderAvatar(events.at(offset));
+    }
     invalidateRowIndex();
     rebuildThreadReplyIndex();
     endInsertRows();
@@ -1120,6 +1134,7 @@ void TimelineModel::onEventChangedAt(const QString &roomId, int index,
     m_sanitizedHtmlCache.remove(m_events.at(index).eventId);
     m_sanitizedHtmlCache.remove(event.eventId);
     m_events[index] = event;
+    noteSenderAvatar(event);
     invalidateRowIndex();
     if (threadIndexChanged)
         rebuildThreadReplyIndex();
@@ -1184,6 +1199,9 @@ void TimelineModel::onLoggedOut()
     // it must not outlive the session (review M4).
     m_sanitizedHtmlCache.clear();
     m_threadReplyCounts.clear();
+    // Session-scoped like every cache here: user-id → avatar pairs from
+    // account A must not linger into account B's session.
+    m_senderAvatarIndex.clear();
     m_roomId.clear();
     endResetModel();
     Q_EMIT roomIdChanged();
@@ -1577,6 +1595,25 @@ void TimelineModel::reload()
     invalidateRowIndex();
     m_sanitizedHtmlCache.clear();
     rebuildThreadReplyIndex();
+    rebuildSenderAvatarIndex();
     endResetModel();
     Q_EMIT countChanged();
+}
+
+void TimelineModel::noteSenderAvatar(const TimelineEvent &event)
+{
+    // Deliberately insert-only for non-empty values: an empty
+    // senderAvatarUrl means "not carried on this event", not "the user
+    // removed their avatar", so it must not erase a known one. A reader
+    // who cleared their avatar can keep the old picture on receipt chips
+    // until reload — consistent with what their older rows still show.
+    if (!event.sender.isEmpty() && !event.senderAvatarUrl.isEmpty())
+        m_senderAvatarIndex.insert(event.sender, event.senderAvatarUrl);
+}
+
+void TimelineModel::rebuildSenderAvatarIndex()
+{
+    m_senderAvatarIndex.clear();
+    for (const auto &event : std::as_const(m_events))
+        noteSenderAvatar(event);
 }

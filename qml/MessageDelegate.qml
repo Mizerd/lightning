@@ -630,76 +630,14 @@ Item {
                          // desktop windows (narrow windows shrink below it).
                        : Math.min(AppTheme.timelineContentMaxWidth,
                                   Math.max(1, parent.width - root.avatarGutterWidth))
-                // v0.7 live-bug fix: `width` above is the OUTER capped
-                // column — on a wide Modern/Compact pane it stays pinned at
-                // AppTheme.timelineContentMaxWidth (760) no matter how short
-                // the message actually is. Anything anchored to `width`
-                // (the read-receipt chip stack) then floats however much of
-                // that 760px cap the message didn't use — 732 logical px in
-                // the 1600px-wide engine-test fixture for a one-line body,
-                // the same class of gap the maintainer's live screenshot
-                // showed.
-                //
-                // This is the ACTUAL rendered message CONTENT's right edge
-                // (in this Rectangle's own local space) — deliberately NOT
-                // the sender identity header (name + timestamp): a header-
-                // inclusive anchor (bubbleContent.implicitWidth, an earlier
-                // shape of this fix) measured 86.7 logical px of float on
-                // the reporter's exact row ("SpongeMan" + "Fr fr") in the
-                // same engine-test fixture, because the header renders
-                // wider than the two-word body — receipts annotate the
-                // MESSAGE, not who sent it.
-                // nonHeaderContentWidth() below walks the bubbleContent
-                // children that actually carry message content — reply
-                // preview, media, poll, body text, the decrypting
-                // skeleton, the undecryptable action row, the link-preview
-                // card, and the meta/thread-summary row — and takes the
-                // widest currently VISIBLE one, each clamped by that
-                // child's own Layout.maximumWidth where it sets one.
-                // bodyLabel is the clamp that matters most: its raw
-                // unwrapped implicitWidth can be enormous (an unbroken URL
-                // with no wrap point), bounded to min(720, width - 8) by
-                // its own Layout.maximumWidth; the other candidates
-                // self-clamp their own implicitWidth by construction, so
-                // the generic clamp is a no-op for them — except the poll
-                // card (fixed implicitWidth 420), where it does real work
-                // on a column narrower than 420.
-                // The reactions Flow is a SIBLING of readReceiptStrip (not
-                // a bubbleContent child) and is deliberately excluded from
-                // this anchor — chips trail the message content only;
-                // folding reactions into the same anchor is a possible
-                // future choice, not this one. Clamped to `width` itself
-                // (the outer Math.min below) so wide content — a media
-                // card, a long unbroken URL — never pushes the anchor past
-                // the column's own cap.
-                //
-                // Hydration note: a media row or link-preview card starts
-                // at implicitWidth 0 (or a small placeholder) before its
-                // Loader resolves the real item, so the chip stack can
-                // shift horizontally ONCE when the real card measures in.
-                // Height is unaffected (readReceiptStrip's own
-                // implicitHeight depends only on receiptRow, never on this
-                // property) — accepted, the same one-time reflow every
-                // hydrating card already causes for the row's own width.
-                function nonHeaderContentWidth() {
-                    // Hand-maintained: one entry per direct bubbleContent
-                    // child EXCEPT identityHeader. Adding a new content
-                    // type to bubbleContent? Add it here too, or the
-                    // receipt chips will ignore its width.
-                    var candidates = [replyBox, mediaBox, pollLoader,
-                                       bodyLabel, decryptingSkeleton, utdRow,
-                                       previewLoader, metaRow]
-                    var widest = 0
-                    for (var i = 0; i < candidates.length; ++i) {
-                        var c = candidates[i]
-                        if (!c || !c.visible) continue
-                        var w = Math.min(c.implicitWidth, c.Layout.maximumWidth)
-                        if (w > widest) widest = w
-                    }
-                    return widest
-                }
-                readonly property real renderedContentRight:
-                    Math.min(width, bubbleContent.x + nonHeaderContentWidth())
+                // History note: a `renderedContentRight` anchor (walking
+                // the widest visible bubbleContent child) lived here from
+                // the 2026-08-06 float fix until 2026-08-14, when the
+                // maintainer asked for Element parity instead — the chip
+                // stack now rides the FULL ROW's right edge (one fixed
+                // rail identical for every row, like Element's receipt
+                // gutter), so a per-row content anchor is no longer
+                // needed.
                 height: implicitHeight
                 implicitHeight: bubbleContent.implicitHeight + root.bubblePad * 2
                 // v0.6.0 checkpoint 11: mentions get a subtle tint — direct
@@ -790,7 +728,10 @@ Item {
                             id: nameLabel
                             objectName: "senderName"
                             text: model.senderDisplayName || model.sender
-                            color: AppTheme.text
+                            // Element-style identity colour: deterministic
+                            // per-user ink hashed from the MXID, hue-matched
+                            // to the same user's avatar disc.
+                            color: AppTheme.userColor(model.sender || "")
                             font.pixelSize: AppTheme.scaled(
                                 root.compactMode || root.inThreadPanel
                                 ? 13 : AppTheme.fontSizeM)
@@ -1636,12 +1577,11 @@ Item {
             // sender presentation contract (whose scan enforces it by
             // banning the layout right-align literal in this file). This
             // strip respects it: the placement is identical for every
-            // message, own or not. The chip stack trails
-            // bubble.renderedContentRight — the RENDERED message content
-            // (never the sender identity header, never the outer capped
-            // column) — see that property's own comment for the full
-            // rationale and the 732-logical-px live-bug measurement it
-            // fixes.
+            // message, own or not. Since 2026-08-14 (maintainer request,
+            // Element parity) the chip stack rides this strip's own right
+            // edge — the FULL ROW width, not the 760px-capped content
+            // column — one fixed receipt rail for every row, like
+            // Element's receipt gutter at the timeline's right edge.
             Layout.fillWidth: true
             Layout.topMargin: 2
             implicitHeight: receiptRow.implicitHeight
@@ -1650,7 +1590,7 @@ Item {
                 id: receiptRow
                 objectName: "readReceiptRow"
                 x: Math.max(root.avatarGutterWidth,
-                            bubble.x + bubble.renderedContentRight - width)
+                            readReceiptStrip.width - width)
                 // Facepile overlap; each avatar sits on an 18px surface
                 // ring so overlapped edges stay legible on any theme.
                 spacing: -4
