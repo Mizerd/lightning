@@ -64,6 +64,7 @@ use serde_json::json;
 
 mod gifs;
 mod oauth;
+mod presence;
 mod rooms;
 mod timeline;
 
@@ -5206,6 +5207,36 @@ pub unsafe extern "C" fn mx_rust_get_user_profile(
         let bridge = unsafe { bridge(ptr)? };
         let user_id = unsafe { cstr_arg(user_id) }?;
         rooms::fetch_user_profile(bridge, user_id, op_id).map(|_| String::new())
+    })
+}
+
+/// v0.7.x Matrix presence: one bounded polling round over a JSON array of
+/// user ids (capped in presence.rs). Answers as a single `presence_batch`
+/// poll event carrying per-user ok/state/currently_active/last_active_ago.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_get_presence(
+    ptr: *mut c_void,
+    user_ids_json: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let payload = unsafe { cstr_arg(user_ids_json) }?;
+        presence::fetch_presence(bridge, payload, op_id).map(|_| String::new())
+    })
+}
+
+/// v0.7.x Matrix presence: publish the local user's own state
+/// (0 online, 1 unavailable, 2 offline). Fire-and-forget; a failure
+/// surfaces only as a `presence_publish_failed` event.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_set_presence(
+    ptr: *mut c_void,
+    state: c_uint,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        presence::publish_presence(bridge, state).map(|_| String::new())
     })
 }
 

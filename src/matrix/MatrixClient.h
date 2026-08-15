@@ -355,6 +355,20 @@ public:
     {
         Q_UNUSED(roomId); Q_UNUSED(rootEventId);
     }
+    // v0.7.x Matrix presence. Sliding Sync delivers no presence events, so
+    // presence is a bounded polling loop: PresenceManager watches exactly
+    // the users that are on screen and requests one batch per round.
+    // Answers asynchronously via presenceReceived. Backends without
+    // presence keep the false default and never answer — indicators simply
+    // stay absent, exactly like the thread facepile on a non-Rust backend.
+    virtual bool supportsPresence() const { return false; }
+    virtual void requestPresence(const QStringList &userIds, quint64 opId)
+    {
+        Q_UNUSED(userIds); Q_UNUSED(opId);
+    }
+    // Publish the local user's own presence (0 online, 1 unavailable,
+    // 2 offline). Fire-and-forget: the UI claims nothing about publication.
+    virtual void publishPresence(int state) { Q_UNUSED(state); }
     // v0.7 "follow account default": drop this room's user-defined push
     // rules so the account's rules decide again. Success reports on the
     // dedicated roomNotificationModeCleared signal — NOT on
@@ -790,6 +804,15 @@ Q_SIGNALS:
                                     const QString &rootEventId,
                                     const QVariantList &participants,
                                     int distinct, bool truncated);
+    // v0.7.x Matrix presence: one polling round's answers. `entries` is a
+    // QVariantList of maps — userId, ok, state ("online" / "unavailable" /
+    // "offline" / "unknown"), currentlyActive, lastActiveAgoMs (qlonglong,
+    // -1 when the server sent none), category (coarse, on ok=false only).
+    // An entry with ok=false means UNKNOWN for that user, never offline.
+    void presenceReceived(quint64 opId, const QVariantList &entries);
+    // Publishing the local user's own presence failed (coarse category).
+    // Informational: PresenceManager uses it only for bounded diagnostics.
+    void presencePublishFailed(const QString &category);
     void roomEditFinished(quint64 opId, const QString &roomId,
                           const QString &field, bool ok,
                           const QString &category);

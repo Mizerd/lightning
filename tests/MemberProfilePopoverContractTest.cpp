@@ -128,6 +128,13 @@ private slots:
         // "block" left this list on 2026-08-14: it is now the icon of the
         // REAL ban action (SDK Room::ban_user through RoomInfoController),
         // not an Ignore placeholder. Ignore itself remains omitted below.
+        //
+        // Presence left this list with the v0.7.x presence round: the
+        // popover now carries the REAL shared indicator (PresenceDot +
+        // status line backed by PresenceManager polling), so the contract
+        // flipped from "never present" to "present via the shared
+        // component" — the popover must not paint its own presence colours.
+        QVERIFY(content.contains(QStringLiteral("PresenceDot")));
         QVERIFY(!content.contains(QStringLiteral("presenceOnline")));
 
         // No qsTr() user-facing string ever mentions the omitted

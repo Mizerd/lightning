@@ -199,10 +199,15 @@ private Q_SLOTS:
     void roomRowAndPresenceDotAreOmitted()
     {
         const QString popup = read(QStringLiteral(QML_DIR "/MentionPopup.qml"));
-        // No campaign-icon @room row and no presence dot were fabricated —
-        // the model has no data to honestly back either (the file's own
-        // header comment documents the omission by name, which is why this
-        // does not also assert the bare "@room" substring is absent).
+        // No campaign-icon @room row and no presence dot here. @room still
+        // has no honest data behind it. Presence DOES have a real backend
+        // since the v0.7.x round (PresenceManager + PresenceDot), so the
+        // mention popup's omission is now a deliberate product choice —
+        // suggestion rows are transient type-ahead UI, not a roster — and
+        // this assertion pins that the popup never paints its own presence
+        // colours; if presence is ever added here, it must arrive via the
+        // shared PresenceDot, and this test changes shape like
+        // MemberProfilePopoverContractTest did.
         QVERIFY(!popup.contains(QStringLiteral("campaign")));
         QVERIFY(!popup.contains(QStringLiteral("Notify everyone")));
         QVERIFY(!popup.contains(QStringLiteral("presenceOnline")));

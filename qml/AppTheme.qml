@@ -680,10 +680,12 @@ QtObject {
     readonly property color pressedSurface:      selectedHover
     readonly property color messageHighlight:    selected
     readonly property color threadHighlight:     accent
-    // Presence dots (design: online = accent-family green, away = yellow).
+    // Presence dots (design: online = accent-family green, away = yellow,
+    // offline = the theme's muted ink — visibly "off" on every palette).
     readonly property color presenceOnline:      _p.online !== undefined
                                                  ? _p.online : success
     readonly property color presenceAway:        "#C9B23A"
+    readonly property color presenceOffline:     textMuted
 
     // ---- Trust-card brand constants (SPEC 1r). ----
     // ---- Storm surface language (0.6.5). ----

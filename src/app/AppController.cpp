@@ -26,6 +26,7 @@
 #ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO
 #include "app/ScreenshotDemoController.h"
 #endif
+#include "presence/PresenceManager.h"
 #include "threads/ThreadManager.h"
 
 #ifdef ENABLE_RUST_SDK_BACKEND
@@ -154,6 +155,8 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_cryptoBootstrap = std::make_unique<CryptoBootstrapModel>(this);
     m_spaces       = std::make_unique<SpaceManager>(this);
     m_threads      = std::make_unique<ThreadManager>(this);
+    m_presence     = std::make_unique<PresenceManager>(this);
+    m_presence->setSettings(m_settings.get());
     m_thread       = std::make_unique<ThreadController>(this);
     m_conversations= std::make_unique<ConversationController>(this);
     m_roomInfo     = std::make_unique<RoomInfoController>(this);
@@ -388,6 +391,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
 
     m_spaces->setClient(m_client.get());
     m_threads->setClient(m_client.get());
+    m_presence->setClient(m_client.get());
     m_thread->setClient(m_client.get());
     m_roomList->setClient(m_client.get());
     m_roomList->setSpaceManager(m_spaces.get());
@@ -1397,6 +1401,7 @@ MediaManager *AppController::media() const { return m_media.get(); }
 CryptoManager *AppController::crypto() const { return m_crypto.get(); }
 SpaceManager *AppController::spaces() const { return m_spaces.get(); }
 ThreadManager *AppController::threads() const { return m_threads.get(); }
+PresenceManager *AppController::presence() const { return m_presence.get(); }
 
 bool AppController::initialSyncDone() const
 {

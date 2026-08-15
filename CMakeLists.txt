@@ -322,6 +322,8 @@ set(APP_SOURCES
     src/threads/ThreadManager.cpp
     src/threads/ThreadController.h
     src/threads/ThreadController.cpp
+    src/presence/PresenceManager.h
+    src/presence/PresenceManager.cpp
 )
 
 if(ENABLE_RUST_SDK_BACKEND)
@@ -399,6 +401,7 @@ set(APP_QML_FILES
     qml/MenuKeycap.qml
     qml/MenuSectionLabel.qml
     qml/StatusChip.qml
+    qml/PresenceDot.qml
     qml/QuickReactionStrip.qml
     qml/IdentityCard.qml
     qml/TrustCard.qml
@@ -630,6 +633,7 @@ if(ENABLE_RUST_SDK_BACKEND)
                 --offline --locked
                 --manifest-path ${_rust_dir}/Cargo.toml
         DEPENDS ${_rust_dir}/src/lib.rs
+                ${_rust_dir}/src/presence.rs
                 ${_rust_dir}/src/rooms.rs
                 ${_rust_dir}/src/timeline.rs
                 ${_rust_dir}/include/matrix_rust.h
@@ -1766,6 +1770,29 @@ if(BUILD_TESTING)
     target_link_libraries(quick-switcher-test PRIVATE
         Qt6::Core Qt6::Gui Qt6::Qml Qt6::Test)
     add_test(NAME quick-switcher COMMAND quick-switcher-test)
+
+    # v0.7.x Matrix presence: PresenceManager policy — watch bookkeeping,
+    # batch application, unknown-vs-offline honesty, the disabled-server
+    # latch, session clearing, publication gating, batch rotation.
+    qt_add_executable(presence-manager-test
+        tests/PresenceManagerTest.cpp
+        src/presence/PresenceManager.h
+        src/presence/PresenceManager.cpp
+        src/matrix/MatrixClient.h
+        src/matrix/MatrixClient.cpp
+        src/matrix/MockMatrixClient.h
+        src/matrix/MockMatrixClient.cpp
+        src/matrix/MediaHelpers.h
+        src/matrix/MediaHelpers.cpp
+        # MockMatrixClient's registry-backed restore needs these:
+        src/app/SettingsManager.h
+        src/app/SettingsManager.cpp
+        src/storage/AppDataPaths.cpp
+    )
+    target_include_directories(presence-manager-test PRIVATE src)
+    target_link_libraries(presence-manager-test PRIVATE
+        Qt6::Core Qt6::Gui Qt6::Qml Qt6::Test)
+    add_test(NAME presence-manager COMMAND presence-manager-test)
 
     # v0.6.1: E2EE diagnostics redaction — never reveals full ids, stable for
     # correlation.

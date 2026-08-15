@@ -1922,6 +1922,32 @@ void RustSdkMatrixClient::requestThreadParticipants(const QString &roomId,
         qCWarning(lcRust) << "thread participants request rejected";
 }
 
+void RustSdkMatrixClient::requestPresence(const QStringList &userIds,
+                                          quint64 opId)
+{
+    if (!m_loggedIn || !m_rustHandle || userIds.isEmpty())
+        return;
+    QJsonArray ids;
+    for (const QString &userId : userIds)
+        ids.append(userId);
+    const QByteArray payload =
+        QJsonDocument(ids).toJson(QJsonDocument::Compact);
+    const QString result = takeRustString(
+        mx_rust_get_presence(m_rustHandle, payload.constData(), opId));
+    if (!result.isEmpty())
+        qCWarning(lcRust) << "presence request rejected";
+}
+
+void RustSdkMatrixClient::publishPresence(int state)
+{
+    if (!m_loggedIn || !m_rustHandle || state < 0 || state > 2)
+        return;
+    const QString result = takeRustString(mx_rust_set_presence(
+        m_rustHandle, static_cast<unsigned int>(state)));
+    if (!result.isEmpty())
+        qCWarning(lcRust) << "presence publish rejected";
+}
+
 void RustSdkMatrixClient::clearRoomNotificationMode(const QString &roomId)
 {
     if (!m_rustHandle || roomId.isEmpty()) return;
@@ -5160,6 +5186,54 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             event.value(QStringLiteral("truncated")).toBool());
         return true;
     }
+    if (type == QLatin1String("presence_batch")) {
+        // Presentation-safe rows only (state string, activity flag, coarse
+        // last-active age). ok=false entries carry a category and mean
+        // UNKNOWN for that user — PresenceManager decides what to do with
+        // them; nothing here fabricates an offline.
+        QVariantList entries;
+        const QJsonArray rows = event.value(QStringLiteral("entries")).toArray();
+        for (const QJsonValue &row : rows) {
+            const QJsonObject obj = row.toObject();
+            QVariantMap entry{
+                { QStringLiteral("userId"),
+                  obj.value(QStringLiteral("user_id")).toString() },
+                { QStringLiteral("ok"),
+                  obj.value(QStringLiteral("ok")).toBool(false) },
+            };
+            if (entry.value(QStringLiteral("ok")).toBool()) {
+                entry.insert(QStringLiteral("state"),
+                             obj.value(QStringLiteral("state")).toString());
+                entry.insert(QStringLiteral("currentlyActive"),
+                             obj.value(QStringLiteral("currently_active"))
+                                 .toBool(false));
+                // Type-checked default (the .toInt(-1) idiom below): an
+                // absent OR null last_active_ago_ms is -1 = "server sent
+                // none". contains() is true for an explicit JSON null and
+                // no-argument toDouble() turns null into 0, which the
+                // popover would render as "active just now" — a fabricated
+                // activity claim (review H1).
+                entry.insert(
+                    QStringLiteral("lastActiveAgoMs"),
+                    static_cast<qlonglong>(
+                        obj.value(QStringLiteral("last_active_ago_ms"))
+                            .toDouble(-1.0)));
+            } else {
+                entry.insert(QStringLiteral("category"),
+                             obj.value(QStringLiteral("category")).toString());
+            }
+            entries.append(entry);
+        }
+        Q_EMIT presenceReceived(opId(), entries);
+        return true;
+    }
+
+    if (type == QLatin1String("presence_publish_failed")) {
+        Q_EMIT presencePublishFailed(
+            event.value(QStringLiteral("category")).toString());
+        return true;
+    }
+
     if (type == QLatin1String("room_members")) {
         QVariantMap snapshot;
         snapshot.insert(QStringLiteral("ok"),

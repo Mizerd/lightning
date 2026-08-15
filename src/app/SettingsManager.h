@@ -70,6 +70,13 @@ class SettingsManager : public QObject
                    NOTIFY loadPreviewsInEncryptedRoomsChanged)
     Q_PROPERTY(bool animateGifPreviews READ animateGifPreviews
                    WRITE setAnimateGifPreviews NOTIFY animateGifPreviewsChanged)
+    // v0.7.x Matrix presence: publish this account's own online/idle state
+    // to its homeserver. Default ON (the Matrix ecosystem norm — Element
+    // publishes presence wherever the server enables it); disclosed and
+    // switchable under Privacy & security. Viewing OTHERS' presence is
+    // passive (reads against the user's own homeserver) and has no toggle.
+    Q_PROPERTY(bool sharePresence READ sharePresence
+                   WRITE setSharePresence NOTIFY sharePresenceChanged)
     // v0.6.1: GIF browser policy. gifAutoplay: 0=Always (while visible),
     // 1=OnHover, 2=Never. gifSafeSearch is a gif::Rating id (0=g,1=pg,2=pg-13,
     // 3=r). storeRecentGifs toggles Recents recording. gifPreferredProvider is
@@ -247,6 +254,8 @@ public:
     void setLoadPreviewsInEncryptedRooms(bool v);
     bool animateGifPreviews() const;
     void setAnimateGifPreviews(bool v);
+    bool sharePresence() const;
+    void setSharePresence(bool v);
     // v0.6.1: GIF browser policy.
     int gifAutoplay() const;
     void setGifAutoplay(int mode);
@@ -468,6 +477,7 @@ Q_SIGNALS:
     void autoLoadLinkPreviewsChanged();
     void loadPreviewsInEncryptedRoomsChanged();
     void animateGifPreviewsChanged();
+    void sharePresenceChanged();
     void gifAutoplayChanged();
     void gifSafeSearchChanged();
     void storeRecentGifsChanged();

@@ -584,6 +584,28 @@ Rectangle {
                                   ? modelData.displayName : modelData.userId
                             mxc: modelData.avatarUrl || ""
                             colorKey: modelData.userId || ""
+
+                            // v0.7.x Matrix presence. Banned members are
+                            // not IN the room — polling them would be
+                            // noise, so they get no dot. The userId is
+                            // additionally gated on the panel actually
+                            // showing People (the MemberProfilePopover
+                            // `opened` idiom): this panel is never behind
+                            // a Loader and the ListView keeps cached
+                            // delegates alive, so without the gate a
+                            // closed panel kept watching members
+                            // (review L4).
+                            PresenceDot {
+                                anchors.right: parent.right
+                                anchors.bottom: parent.bottom
+                                anchors.margins: -1
+                                dotSize: 10
+                                ring: AppTheme.sidebar
+                                userId: root.visible
+                                        && root.section === "people"
+                                        && modelData.membership !== "banned"
+                                        ? (modelData.userId || "") : ""
+                            }
                         }
                         ColumnLayout {
                             Layout.fillWidth: true

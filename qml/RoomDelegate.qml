@@ -97,6 +97,22 @@ Item {
             Layout.alignment: model.membership === "invited"
                               ? Qt.AlignTop : Qt.AlignVCenter
             Layout.topMargin: model.membership === "invited" ? 2 : 0
+
+            // v0.7.x Matrix presence on DM rows. Only an unambiguous 1:1
+            // DM shows a dot — identityColorKey is the partner's MXID
+            // exactly in that case (see RoomInfo::identityColorKey), so
+            // reusing it here keeps "whose presence" and "whose colour"
+            // the same decision. Unknown presence renders nothing.
+            PresenceDot {
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                anchors.margins: -1
+                dotSize: 10
+                ring: AppTheme.surface
+                userId: model.isDirect === true
+                        && (model.identityColorKey || "").charAt(0) === "@"
+                        ? model.identityColorKey : ""
+            }
         }
 
         ColumnLayout {

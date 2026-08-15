@@ -253,6 +253,12 @@ public:
     void clearRoomNotificationMode(const QString &roomId) override;
     void requestThreadParticipants(const QString &roomId,
                                    const QString &rootEventId) override;
+    // v0.7.x Matrix presence: bounded polling (Sliding Sync carries no
+    // presence events) + own-state publication. Policy lives in
+    // PresenceManager; these are thin command wrappers.
+    bool supportsPresence() const override { return true; }
+    void requestPresence(const QStringList &userIds, quint64 opId) override;
+    void publishPresence(int state) override;
     void requestRoomNotificationMode(const QString &roomId) override;
     void acceptInvite(const QString &roomId) override;
     void rejectInvite(const QString &roomId) override;

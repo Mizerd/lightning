@@ -8,11 +8,12 @@ import MatrixClient
 // Presentation (centred-modal Popup, `openFor()` contract) is unchanged
 // (R12): callers still do `parent: Overlay.overlay; anchors.centerIn: parent`.
 // Shows the member's avatar, display name, full Matrix ID, membership/role,
-// and offers Start/Open Direct Message (existing DMs are reused, never
-// silently duplicated) + Copy ID. Deliberately OMITS call/videocam, a
-// Verified chip, a status line, presence, the SHARED-rooms section, View
-// full profile, and Ignore — none of those have a real backend today, and
-// this component never renders a disabled placeholder in their place.
+// real Matrix presence (dot + status line, v0.7.x — unknown renders
+// nothing), and offers Start/Open Direct Message (existing DMs are reused,
+// never silently duplicated) + Copy ID. Deliberately OMITS call/videocam, a
+// Verified chip, the SHARED-rooms section, View full profile, and Ignore —
+// none of those have a real backend today, and this component never
+// renders a disabled placeholder in their place.
 Popup {
     id: root
     modal: true
@@ -90,6 +91,36 @@ Popup {
         else
             app.conversations.startDirectMessage(userId)
         close()
+    }
+
+    // v0.7.x Matrix presence status line. Pure reads re-evaluated on
+    // PresenceManager's revision; unknown presence yields "" and the label
+    // collapses — never a placeholder.
+    readonly property string presenceLine: {
+        if (!root.opened || root.userId === "" || !app.presence)
+            return ""
+        var rev = app.presence.revision // re-evaluation dependency
+        var info = app.presence.infoFor(root.userId)
+        if (!info || info.state === undefined)
+            return ""
+        if (info.state === "online")
+            return qsTr("Online")
+        if (info.state === "unavailable")
+            return qsTr("Away")
+        if (info.state !== "offline")
+            return ""
+        var ago = info.lastActiveAgoMs
+        if (ago === undefined || ago < 0)
+            return qsTr("Offline")
+        var mins = Math.floor(ago / 60000)
+        if (mins < 1)
+            return qsTr("Offline — active just now")
+        if (mins < 60)
+            return qsTr("Offline — active %1 min ago").arg(mins)
+        var hours = Math.floor(mins / 60)
+        if (hours < 24)
+            return qsTr("Offline — active %1 h ago").arg(hours)
+        return qsTr("Offline — active %1 d ago").arg(Math.floor(hours / 24))
     }
 
     // v0.6.5 (R14): this popover is already centred-modal (R12) — the
@@ -224,6 +255,17 @@ Popup {
                     name: root.visibleName
                     colorKey: root.userId
                 }
+                // v0.7.x Matrix presence. Watched only while the popover
+                // is open (the userId gate), so a closed popover holds no
+                // polling reference.
+                PresenceDot {
+                    anchors.right: parent.right
+                    anchors.bottom: parent.bottom
+                    anchors.margins: 2
+                    dotSize: 12
+                    ring: AppTheme.stormPanel
+                    userId: root.opened ? root.userId : ""
+                }
             }
         }
 
@@ -251,6 +293,14 @@ Popup {
                 font.family: AppTheme.monoFont
                 font.pixelSize: AppTheme.fontMonoXS
                 elide: Label.ElideMiddle
+            }
+            Label {
+                Layout.fillWidth: true
+                visible: root.presenceLine.length > 0
+                text: root.presenceLine
+                color: AppTheme.stormTextMuted
+                font.pixelSize: AppTheme.fontSecondary
+                elide: Label.ElideRight
             }
 
             RowLayout {

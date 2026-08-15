@@ -492,6 +492,28 @@ char *mx_rust_get_user_profile(void *client,
                                const char *user_id,
                                unsigned long long op_id);
 /*
+ * v0.7.x Matrix presence: one bounded polling round. `user_ids_json` is a
+ * JSON array of user-id strings (invalid entries dropped, batch capped at
+ * 40 in Rust). Sliding Sync carries no presence, so C++ polls exactly the
+ * users on screen. Answers as ONE event:
+ *   {"type":"presence_batch","op_id",…,"entries":[
+ *     {"user_id","ok":true,"state":"online|unavailable|offline|unknown",
+ *      "currently_active":bool,"last_active_ago_ms":n}
+ *   | {"user_id","ok":false,"category":"forbidden|not_found|…"}]}
+ * last_active_ago_ms is OMITTED (never null) when the server sent none;
+ * C++ must decode absent as -1 = unknown, never as 0.
+ * Only presentation-safe fields cross; status messages do not.
+ */
+char *mx_rust_get_presence(void *client,
+                           const char *user_ids_json,
+                           unsigned long long op_id);
+/*
+ * v0.7.x Matrix presence: publish the local user's own state
+ * (0 online, 1 unavailable, 2 offline). Fire-and-forget: success emits
+ * nothing, failure emits {"type":"presence_publish_failed","category"}.
+ */
+char *mx_rust_set_presence(void *client, unsigned int state);
+/*
  * v0.5.12: secure client-side HTTPS preview. Rust validates DNS and every
  * redirect, blocks local/private destinations, bounds responses and parses
  * metadata without executing page content. The URL is never logged:

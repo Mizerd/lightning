@@ -81,6 +81,10 @@ Item {
           keywords: qsTr("notification sound mute"), section: "notifications",
           breadcrumb: qsTr("Notifications") },
 
+        { title: qsTr("Share my online status"),
+          keywords: qsTr("presence online idle offline status share"),
+          section: "privacy", breadcrumb: qsTr("Privacy & security · Presence") },
+
         { title: qsTr("Automatically load previews in unencrypted rooms"),
           keywords: qsTr("link preview privacy"), section: "privacy",
           breadcrumb: qsTr("Privacy & security · Link previews"),
@@ -1758,6 +1762,52 @@ Item {
                             color: AppTheme.stormTextMuted
                             font.pixelSize: AppTheme.fontSecondary
                             wrapMode: Text.WordWrap
+                        }
+
+                        // v0.7.x Matrix presence: own-state publication.
+                        // Offered only on a backend that owns presence
+                        // (the server push-rules precedent); viewing
+                        // others' presence is passive reads against the
+                        // user's own homeserver and needs no toggle.
+                        // Gated on backend CAPABILITY (supported), not on
+                        // the read-refusal latch (active): publication
+                        // keeps running when the server refuses reads, so
+                        // the only control that stops it must never
+                        // disappear (review M1).
+                        Label {
+                            visible: app.presence && app.presence.supported
+                            text: qsTr("Presence")
+                            color: AppTheme.stormText
+                            font.pixelSize: AppTheme.fontSectionTitle
+                            font.weight: Font.DemiBold
+                            Layout.topMargin: AppTheme.spacing8
+                        }
+                        SettingsCard {
+                            visible: app.presence && app.presence.supported
+                            ColumnLayout {
+                                width: parent.width
+                                spacing: AppTheme.spacing8
+
+                                CheckBox {
+                                    palette.windowText: AppTheme.stormText
+                                    text: qsTr("Share my online status")
+                                    checked: app.settings.sharePresence
+                                    onToggled: app.settings.sharePresence = checked
+                                }
+                                Label {
+                                    Layout.fillWidth: true
+                                    Layout.leftMargin: AppTheme.spacing4
+                                    wrapMode: Text.WordWrap
+                                    color: AppTheme.stormTextSecondary
+                                    font.pixelSize: AppTheme.fontCaption
+                                    text: qsTr("Tells your homeserver when you are online or "
+                                               + "idle, so people you share rooms with can see "
+                                               + "it. Turning this off publishes offline once "
+                                               + "and stops updates; whether others' status is "
+                                               + "visible to you is decided by their servers, "
+                                               + "not by this switch.")
+                                }
+                            }
                         }
 
                         // v0.5.11: link-preview and GIF policy.

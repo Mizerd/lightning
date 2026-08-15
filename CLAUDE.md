@@ -411,6 +411,10 @@ backend capability checks and honest live-test status.
 - Quick switching across rooms, direct messages, Spaces, invites, and threads
 - Activity ordering, unread state/navigation, first-unread and latest jumps,
   threaded receipts, and local marked-unread behavior
+- Matrix presence indicators (2026-08-15) on unambiguous 1:1 DM rows, the
+  People list and the member profile popover, via bounded client polling —
+  Sliding Sync has no presence extension. See §16 for the full mechanism
+  and honesty rules; live validation NOT TESTED
 
 ### Timeline and media
 
@@ -1058,7 +1062,33 @@ Keep this list grounded in source and recent history:
   real account (the lazy Latest-Events registration landed with the 0.7 UI
   checkpoints), and the design shell on a real desktop (KDE Wayland taskbar
   icon association included).
-- Remaining design-handoff follow-up: Matrix presence. Thread participant
+- Matrix presence LANDED 2026-08-15, closing the design-handoff follow-up
+  list. Sliding Sync delivers NO presence events (MSC4186 has no presence
+  extension), so it is a bounded polling loop, stateless on the Rust side:
+  `rust/src/presence.rs` answers one `presence_batch` poll event per round
+  (raw ruma `get_presence` through `Client::send`, ≤40 users, 10 s
+  no-retry timeout so sign-out's task join cannot stall) and publishes own
+  state via `set_presence`. ALL policy lives in
+  `src/presence/PresenceManager`: only watch()ed on-screen users are ever
+  polled (DM rows via the identityColorKey 1:1 gate, People rows, an OPEN
+  profile popover — one shared `qml/PresenceDot.qml` owns the
+  watch/unwatch lifecycle), 30 s rounds with rotation past the cap plus a
+  400 ms debounced burst for new unknowns, transient failures KEEP the
+  last known state, forbidden/not_found erase it, and two consecutive
+  all-forbidden batches of at least two distinct users each latch "server
+  has presence disabled" for the session (reset on sign-out/switch; a
+  single user's 403 never latches — smaller batches neither advance nor
+  reset the count). Unknown renders NOTHING — never a
+  fabricated offline. Own presence (online, or unavailable after 10 min in
+  the background; 4 min keep-alive PUT) is gated by the APPLICATION-WIDE
+  Privacy & security setting `sharePresence` (default ON, ecosystem norm;
+  global like the link-preview switches, not per-account; disabling
+  publishes ONE final offline — deferred to the next Syncing edge when
+  the session is not live). The popover contract test
+  flipped from "presence absent" to "presence via the shared component".
+  Live homeserver validation (real dots, latch behavior on a
+  presence-disabled server, Element interop): NOT TESTED.
+  Prior text for this entry follows. Thread participant
   facepiles LANDED 2026-08-13 (see §7 Threads) — the entry that said they
   "need participant data in the thread-summary bridge payload" was
   misleading: the SDK has no such payload to extend. Voice messages LANDED

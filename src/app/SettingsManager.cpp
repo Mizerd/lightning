@@ -30,6 +30,7 @@ constexpr auto kPreferredEmojiTone  = "emoji/preferredTone";
 constexpr auto kPreviewsUnencrypted = "previews/autoLoadUnencrypted";
 constexpr auto kPreviewsEncrypted   = "previews/loadInEncryptedRooms";
 constexpr auto kPreviewsAnimateGifs = "previews/animateGifs";
+constexpr auto kSharePresence = "presence/shareOwn";
 // v0.6.1: GIF browser policy.
 constexpr auto kGifAutoplay         = "gif/autoplay";       // 0/1/2
 constexpr auto kGifSafeSearch       = "gif/safeSearch";     // gif::Rating id
@@ -1127,6 +1128,23 @@ void SettingsManager::setAnimateGifPreviews(bool v)
         return;
     m_store->setValue(kPreviewsAnimateGifs, v);
     Q_EMIT animateGifPreviewsChanged();
+}
+
+bool SettingsManager::sharePresence() const
+{
+    // Default ON: publishing presence where the homeserver enables it is
+    // the Matrix ecosystem norm, and a client that only ever reads
+    // presence would render every contact's dot while hiding its own
+    // user from theirs. Disclosed under Privacy & security.
+    return m_store->value(kSharePresence, true).toBool();
+}
+
+void SettingsManager::setSharePresence(bool v)
+{
+    if (sharePresence() == v)
+        return;
+    m_store->setValue(kSharePresence, v);
+    Q_EMIT sharePresenceChanged();
 }
 
 int SettingsManager::gifAutoplay() const
