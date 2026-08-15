@@ -20,6 +20,25 @@
             ninja
             pkg-config
             gcc
+            # ---- Local build accelerators (OPT-IN) ----
+            # Present in the shell so a contributor never has to install
+            # anything, but deliberately NOT wired up by default: nothing
+            # here changes how a build behaves unless the developer asks
+            # for it at configure time (see the hints printed below).
+            #
+            # They are kept out of CMakeLists.txt on purpose. The
+            # lightning-deploy packaging pipeline and every official build
+            # must be byte-for-byte unaffected by a local convenience, and
+            # a hardcoded compiler launcher would make the build FAIL on
+            # any machine without the tool. Opting in writes the choice
+            # into the tree's own CMakeCache.txt, which is untracked.
+            #
+            # Why they are worth opting into here: this project rebuilds
+            # ~6100 objects and relinks ~40 executables whenever a widely
+            # included header (MatrixClient.h, AppController.h) or the
+            # target list changes, and the debug binaries are large.
+            ccache
+            mold
             qt.qttools
             qt.wrapQtAppsHook
             # Rust toolchain — only used when ENABLE_RUST_SDK_BACKEND=ON.
@@ -106,6 +125,8 @@
             echo "Configure (+rust):      cmake -S . -B build-rust -G Ninja -DENABLE_RUST_SDK_BACKEND=ON"
             echo "Build:                  cmake --build build"
             echo "Run:                    ./build/matrix-client [--backend={mock,http,rust}]"
+            echo "Faster local rebuilds (opt-in, add to any configure line):"
+            echo "                        -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_LINKER_TYPE=MOLD"
           '';
         };
       });

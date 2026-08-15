@@ -337,6 +337,20 @@ The Rust backend is required for real Matrix, encryption, and thread features.
 Release binaries are Rust-only (`-DLIGHTNING_RUST_ONLY=ON`); the mock and HTTP
 backends are development-only and are compiled out of release builds.
 
+**Faster local rebuilds (optional).** `ccache` and `mold` are in the dev shell,
+but nothing uses them unless you ask at configure time:
+
+```sh
+nix develop -c cmake -S . -B build-rust -G Ninja -DENABLE_RUST_SDK_BACKEND=ON \
+  -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_LINKER_TYPE=MOLD
+```
+
+This is worth it because changing a widely included header, or adding a target,
+makes CMake recompile ~6100 objects and relink ~40 executables. The choice is
+written into that tree's own `CMakeCache.txt`, which is untracked — it is
+purely local, it changes nothing about the produced binaries, and official
+packages are built without it.
+
 See [`docs/build-and-test.md`](docs/build-and-test.md) for the full details.
 
 ## Screenshot-demo mode
