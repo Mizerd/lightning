@@ -57,6 +57,41 @@ if(NOT LIGHTNING_DISABLE_CCACHE
     endif()
 endif()
 
+# Update-manifest signature verification. Ed25519 through OpenSSL 3's EVP API;
+# Lightning implements no signature algorithm of its own. REQUIRED on purpose:
+# an updater that silently loses its ability to verify a signature would be far
+# worse than one that fails to configure. Only libcrypto is used, never libssl
+# (TLS stays Qt's job). Every packaging target already provides it --
+# mingw64-openssl in the Windows cross image, libssl-dev on Debian, and
+# openssl-devel on Fedora.
+find_package(OpenSSL 3.0 REQUIRED COMPONENTS Crypto)
+
+# zlib for the updater helper's ZIP reader (portable Windows archives are
+# deflate). Declared HERE, before the test targets below, because CMake is
+# sequential: when this ran after them, ZLIB::ZLIB did not yet exist and
+# updater-zip-safety-test was built WITHOUT LIGHTNING_UPDATER_HAVE_ZLIB. The
+# suite then exercised only stored entries and silently skipped the inflate
+# path that every real portable ZIP uses -- the shipped configuration was the
+# untested one. Optional: without zlib the helper still handles stored entries
+# and refuses deflated ones with a typed error.
+find_package(ZLIB)
+
+# The install/package type this build will report to the updater. Packaging
+# sets it per artifact (windows-msi, linux-deb, ...); a source build stays
+# "development", which can never install an update automatically.
+set(LIGHTNING_INSTALL_TYPE "development" CACHE STRING
+    "Package type reported to the updater (see src/update/InstallType.h)")
+
+# Update-manifest trust root. Empty by default, and an empty key means
+# verification fails closed -- a build with no key compiled in can check for
+# updates but can never accept one. Official builds pass the real value.
+set(LIGHTNING_UPDATE_PUBKEY_2026A "" CACHE STRING
+    "Base64 Ed25519 public key for update-manifest key id lightning-release-2026a")
+set(LIGHTNING_UPDATE_HOST "gitlab.smetonis.net" CACHE STRING
+    "Canonical host Lightning will accept update artifacts from")
+set(LIGHTNING_UPDATE_PROJECT_ID "6" CACHE STRING
+    "GitLab project id hosting the update package registry")
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -357,6 +392,26 @@ set(APP_SOURCES
     src/threads/ThreadController.cpp
     src/presence/PresenceManager.h
     src/presence/PresenceManager.cpp
+
+    # Application updates. Deliberately free of every Matrix dependency: the
+    # updater is a separate trust boundary and must not be able to reach an
+    # account, a token or a store. See docs/updates.md.
+    src/update/Version.h
+    src/update/Version.cpp
+    src/update/InstallType.h
+    src/update/InstallType.cpp
+    src/update/UpdateTrustStore.h
+    src/update/UpdateTrustStore.cpp
+    src/update/SignatureVerifier.h
+    src/update/SignatureVerifier.cpp
+    src/update/UpdateEndpoints.h
+    src/update/UpdateEndpoints.cpp
+    src/update/UpdateManifest.h
+    src/update/UpdateManifest.cpp
+    src/update/UpdateDownloader.h
+    src/update/UpdateDownloader.cpp
+    src/update/UpdateManager.h
+    src/update/UpdateManager.cpp
 )
 
 if(ENABLE_RUST_SDK_BACKEND)
@@ -397,6 +452,8 @@ set(APP_QML_FILES
     qml/AppSwitch.qml
     qml/LoginScreen.qml
     qml/SettingsScreen.qml
+    qml/UpdatesSettingsSection.qml
+    qml/UpdateAvailableDialog.qml
     qml/MainScreen.qml
     qml/HomePane.qml
     qml/SpacesRail.qml
@@ -562,7 +619,7 @@ function(_lightning_configure_qml_module target _scope)
     # bare filename, not the "models/HeaderName.h" path used by quoted
     # includes elsewhere. Add each subdirectory holding a QML-registered type
     # so that angle-bracket lookup resolves.
-    target_include_directories(${target} ${_scope} src/models src/threads src/crypto src/gif)
+    target_include_directories(${target} ${_scope} src/models src/threads src/crypto src/gif src/update)
     # Build-only GIF key header (may be keyless); include path only, no values.
     target_include_directories(${target} ${_scope} "${LIGHTNING_GENERATED_DIR}")
 
@@ -576,6 +633,17 @@ function(_lightning_configure_qml_module target _scope)
         Qt6::Sql
         Qt6::Widgets
         Qt6::Multimedia
+        OpenSSL::Crypto
+    )
+
+    # Update trust configuration. These are the ONLY values the updater takes
+    # from the build; everything else about an update is decided by compiled-in
+    # code, never by remote metadata.
+    target_compile_definitions(${target} ${_scope}
+        LIGHTNING_INSTALL_TYPE="${LIGHTNING_INSTALL_TYPE}"
+        LIGHTNING_UPDATE_PUBKEY_2026A="${LIGHTNING_UPDATE_PUBKEY_2026A}"
+        LIGHTNING_UPDATE_HOST="${LIGHTNING_UPDATE_HOST}"
+        LIGHTNING_UPDATE_PROJECT_ID="${LIGHTNING_UPDATE_PROJECT_ID}"
     )
     # DBus is a Linux/BSD desktop concept: freedesktop notifications and the
     # session bus. Gate on platform as well as availability, so a Windows Qt
@@ -2563,9 +2631,113 @@ if(BUILD_TESTING)
         COMMAND quick-switcher-modes-qml-test)
     set_tests_properties(quick-switcher-modes-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    # ------------------------------------------------------------------
+    # Update system. Every one of these links only the handful of sources it
+    # exercises -- never the application -- so they compile in seconds and an
+    # updater change does not drag the whole app graph with it.
+    set(_update_crypto_sources
+        src/update/Version.cpp
+        src/update/InstallType.cpp
+        src/update/UpdateTrustStore.cpp
+        src/update/SignatureVerifier.cpp
+        src/update/UpdateEndpoints.cpp
+        src/update/UpdateManifest.cpp)
+
+    qt_add_executable(update-version-test
+        tests/UpdateVersionTest.cpp src/update/Version.cpp)
+    target_include_directories(update-version-test PRIVATE src)
+    target_link_libraries(update-version-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME update-version COMMAND update-version-test)
+
+    qt_add_executable(update-install-type-test
+        tests/UpdateInstallTypeTest.cpp src/update/InstallType.cpp)
+    target_include_directories(update-install-type-test PRIVATE src)
+    target_link_libraries(update-install-type-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME update-install-type COMMAND update-install-type-test)
+
+    # Signature and hash verification: the tests generate a throwaway Ed25519
+    # keypair at run time, so no key material is committed anywhere.
+    qt_add_executable(update-manifest-test
+        tests/UpdateManifestTest.cpp ${_update_crypto_sources})
+    target_include_directories(update-manifest-test PRIVATE src)
+    target_link_libraries(update-manifest-test
+        PRIVATE Qt6::Core Qt6::Test OpenSSL::Crypto)
+    add_test(NAME update-manifest COMMAND update-manifest-test)
+
+    qt_add_executable(update-manager-state-test
+        tests/UpdateManagerStateTest.cpp
+        ${_update_crypto_sources}
+        src/update/UpdateDownloader.cpp
+        src/update/UpdateManager.cpp)
+    target_include_directories(update-manager-state-test PRIVATE src)
+    target_link_libraries(update-manager-state-test
+        PRIVATE Qt6::Core Qt6::Network Qt6::Qml Qt6::Test OpenSSL::Crypto)
+    add_test(NAME update-manager-state COMMAND update-manager-state-test)
+
+    qt_add_executable(updater-helper-args-test
+        tests/UpdaterHelperArgsTest.cpp
+        src/updater/UpdaterArgs.cpp src/updater/InstallStrategies.cpp)
+    target_include_directories(updater-helper-args-test PRIVATE src)
+    target_link_libraries(updater-helper-args-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME updater-helper-args COMMAND updater-helper-args-test)
+
+    qt_add_executable(updater-zip-safety-test
+        tests/UpdaterZipSafetyTest.cpp src/updater/SafeArchive.cpp)
+    target_include_directories(updater-zip-safety-test PRIVATE src)
+    target_link_libraries(updater-zip-safety-test PRIVATE Qt6::Core Qt6::Test)
+    if(TARGET ZLIB::ZLIB)
+        target_link_libraries(updater-zip-safety-test PRIVATE ZLIB::ZLIB)
+        target_compile_definitions(updater-zip-safety-test
+            PRIVATE LIGHTNING_UPDATER_HAVE_ZLIB=1)
+    endif()
+    add_test(NAME updater-zip-safety COMMAND updater-zip-safety-test)
+
+    qt_add_executable(updater-portable-swap-test
+        tests/UpdaterPortableSwapTest.cpp src/updater/AtomicReplace.cpp)
+    target_include_directories(updater-portable-swap-test PRIVATE src)
+    target_link_libraries(updater-portable-swap-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME updater-portable-swap COMMAND updater-portable-swap-test)
+
+    # QML contract scan for the Updates settings surface. Needs no app graph.
+    qt_add_executable(updates-ui-contract-test tests/UpdatesUiContractTest.cpp)
+    target_link_libraries(updates-ui-contract-test PRIVATE Qt6::Core Qt6::Test)
+    target_compile_definitions(updates-ui-contract-test PRIVATE
+        QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
+    add_test(NAME updates-ui-contract COMMAND updates-ui-contract-test)
 endif()
 
-install(TARGETS matrix-client
+# ----------------------------------------------------------------------
+# The update helper. A deliberately tiny, separate binary: it performs the one
+# step that cannot happen while Lightning is running, and its link line IS its
+# isolation guarantee. Qt6::Core only -- no Network (it never downloads), no
+# Qml/Gui, and none of src/matrix, src/app or src/storage, so it cannot reach a
+# Matrix account, a token or a store even by mistake. It only ever receives an
+# artifact Lightning has already verified.
+qt_add_executable(lightning-updater
+    src/updater/main.cpp
+    src/updater/UpdaterArgs.h        src/updater/UpdaterArgs.cpp
+    src/updater/ProcessWaiter.h      src/updater/ProcessWaiter.cpp
+    src/updater/SafeArchive.h        src/updater/SafeArchive.cpp
+    src/updater/InstallStrategies.h  src/updater/InstallStrategies.cpp
+    src/updater/AtomicReplace.h      src/updater/AtomicReplace.cpp
+)
+target_include_directories(lightning-updater PRIVATE src)
+target_link_libraries(lightning-updater PRIVATE Qt6::Core)
+if(TARGET ZLIB::ZLIB)
+    target_link_libraries(lightning-updater PRIVATE ZLIB::ZLIB)
+    target_compile_definitions(lightning-updater PRIVATE LIGHTNING_UPDATER_HAVE_ZLIB=1)
+else()
+    message(STATUS "zlib not found: the updater will refuse deflated portable archives")
+endif()
+if(MSVC)
+    target_compile_options(lightning-updater PRIVATE /W4 /permissive-)
+else()
+    target_compile_options(lightning-updater PRIVATE
+        -Wall -Wextra -Wpedantic -Wno-unused-parameter)
+endif()
+
+install(TARGETS matrix-client lightning-updater
     BUNDLE  DESTINATION .
     RUNTIME DESTINATION bin
 )

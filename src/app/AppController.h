@@ -35,6 +35,7 @@
 #include "spaces/SpaceManager.h"
 #include "threads/ThreadController.h"
 #include "presence/PresenceManager.h"
+#include "update/UpdateManager.h"
 #include "threads/ThreadManager.h"
 
 #include <QObject>
@@ -254,6 +255,10 @@ class AppController : public QObject
     // v0.6.1: multi-provider client-side GIF browser (app.gif) + send pipeline.
     Q_PROPERTY(GifSearchController* gif READ gif CONSTANT)
     Q_PROPERTY(GifSendController* gifSend READ gifSend CONSTANT)
+    // Application updates (app.updateManager). Deliberately owns no Matrix
+    // state: it is constructed once, never re-created on sign-in or account
+    // switch, and nothing about it is account-scoped. See docs/updates.md.
+    Q_PROPERTY(lightning::update::UpdateManager* updateManager READ updateManager CONSTANT)
     // v0.5.19: device-aware timeline wheel-scroll policy.
     Q_PROPERTY(TimelineScrollController* timelineScroll READ timelineScroll CONSTANT)
     // v0.6.0 checkpoint 6: the thread panel's OWN wheel motion engine.
@@ -452,6 +457,7 @@ public:
     ReadReceiptCoordinator *readReceipts() const { return m_readReceipts.get(); }
     LinkPreviewController *linkPreviews() const { return m_linkPreviews.get(); }
     GifSearchController *gif() const { return m_gif.get(); }
+    lightning::update::UpdateManager *updateManager() const { return m_updateManager.get(); }
     GifSendController *gifSend() const { return m_gifSend.get(); }
     TimelineScrollController *timelineScroll() const { return m_timelineScroll.get(); }
     TimelineScrollController *threadScroll() const { return m_threadScroll.get(); }
@@ -886,6 +892,7 @@ private:
     std::unique_ptr<LinkPreviewController> m_linkPreviews;
     std::unique_ptr<MatrixGifTransport> m_gifTransport;
     std::unique_ptr<GifSearchController> m_gif;
+    std::unique_ptr<lightning::update::UpdateManager> m_updateManager;
     std::unique_ptr<GifSendController> m_gifSend;
     std::unique_ptr<TimelineScrollController> m_timelineScroll;
     std::unique_ptr<TimelineScrollController> m_threadScroll;

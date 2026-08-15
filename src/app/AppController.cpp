@@ -47,12 +47,31 @@
 #include <QIcon>
 #include <QSaveFile>
 #include <QSysInfo>
+#include <QTimer>
 #include <QPalette>
 #include <QStyleHints>
 #include <QUuid>
 #include <QLoggingCategory>
 
 Q_LOGGING_CATEGORY(lcApp, "matrix.app")
+
+namespace {
+// How long after startup the optional automatic update check may run. The
+// privacy documentation states nothing is contacted in the first 30 seconds,
+// and startup must never wait on the network; the rate limit itself lives in
+// UpdateManager::maybeCheckAutomatically().
+//
+// DERIVED from the manager's own quiet period, with a margin, and not simply
+// written as 30s again. maybeCheckAutomatically() refuses while the process is
+// younger than kStartupQuietPeriodMs, and QTimer::singleShot uses a coarse
+// timer at this scale, which is allowed to fire EARLY. With the two values
+// equal, one early millisecond made this one-shot a no-op and the user's
+// enabled preference did nothing for the whole session -- silently, since a
+// refusal is not an error. The margin also keeps the two from drifting apart
+// if the quiet period is ever changed.
+constexpr int kAutomaticUpdateCheckDelayMs =
+    int(lightning::update::UpdateManager::kStartupQuietPeriodMs) + 5 * 1000;
+} // namespace
 
 bool AppController::isBackendCompiled(Backend backend)
 {
@@ -162,6 +181,27 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_threads      = std::make_unique<ThreadManager>(this);
     m_presence     = std::make_unique<PresenceManager>(this);
     m_presence->setSettings(m_settings.get());
+    // Application updates. Constructed once and never rebuilt: it holds no
+    // Matrix state, is not account-scoped, and signing in, signing out or
+    // switching account must not disturb an update check or download.
+    m_updateManager = std::make_unique<lightning::update::UpdateManager>(this);
+    // The automatic check, if the user enabled it. Deliberately delayed: an
+    // update check must never sit between the user and a usable application,
+    // and the privacy documentation promises nothing happens in the first 30
+    // seconds. maybeCheckAutomatically() itself enforces the preference and
+    // the once-per-24h rate limit, so this is only the trigger -- and it is a
+    // ONE-SHOT, never re-armed on room or account changes.
+    QTimer::singleShot(kAutomaticUpdateCheckDelayMs, m_updateManager.get(), [this] {
+        m_updateManager->maybeCheckAutomatically();
+    });
+    connect(m_updateManager.get(), &lightning::update::UpdateManager::quitRequested,
+            this, [] {
+                // installAndRestart() has staged a verified artifact and handed
+                // it to the helper, which waits for this process to exit before
+                // touching anything. Quit through the event loop so normal
+                // shutdown still runs; the helper relaunches us afterwards.
+                QCoreApplication::quit();
+            });
     m_pinned       = std::make_unique<PinnedMessagesController>(this);
     m_thread       = std::make_unique<ThreadController>(this);
     m_conversations= std::make_unique<ConversationController>(this);

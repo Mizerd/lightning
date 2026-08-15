@@ -147,6 +147,13 @@ Item {
 
         { title: qsTr("About"), keywords: qsTr("about version license"),
           section: "about", breadcrumb: qsTr("About") },
+
+        { title: qsTr("Updates"),
+          keywords: qsTr("update version upgrade check download install"),
+          section: "updates", breadcrumb: qsTr("Updates") },
+        { title: qsTr("Automatically check for updates"),
+          keywords: qsTr("update automatic check background"),
+          section: "updates", breadcrumb: qsTr("Updates · Automatic checks") },
     ]
     readonly property var matchedSearchResults: {
         var q = root.settingsSearchQuery.trim().toLowerCase()
@@ -308,6 +315,7 @@ Item {
         if (key === "privacy") return qsTr("Privacy & security")
         if (key === "sessions") return qsTr("Sessions")
         if (key === "labs") return qsTr("Labs")
+        if (key === "updates") return qsTr("Updates")
         if (key === "about") return qsTr("About")
         return key
     }
@@ -318,6 +326,10 @@ Item {
         if (key === "privacy") return "verified_user"
         if (key === "sessions") return "devices"
         if (key === "labs") return "science"
+        // Reuses the existing verified "download" glyph (Icon.qml) rather
+        // than inventing an unverified codepoint — see the round's
+        // completion report.
+        if (key === "updates") return "download"
         if (key === "about") return "info"
         return "settings"
     }
@@ -761,6 +773,11 @@ Item {
                         sectionKey: "labs"
                         iconName: "science"
                         navLabel: qsTr("Labs")
+                    }
+                    SettingsNavRow {
+                        sectionKey: "updates"
+                        iconName: "download"
+                        navLabel: qsTr("Updates")
                     }
                     Item { Layout.fillHeight: true }
 
@@ -3825,6 +3842,19 @@ Item {
                                 }
                             }
                         }
+                    }
+
+                    // ════════════ Updates ════════════
+                    // Own file (UpdatesSettingsSection.qml) rather than an
+                    // inline block: it is a substantial, independently
+                    // ownable surface. Visibility-toggled like every other
+                    // pane here (never a Loader — see the file header
+                    // comment), so its own local state (the failure-banner
+                    // dismissal) survives switching to another category and
+                    // back.
+                    UpdatesSettingsSection {
+                        visible: root.section === "updates"
+                        Layout.fillWidth: true
                     }
 
                     // ════════════ About ════════════

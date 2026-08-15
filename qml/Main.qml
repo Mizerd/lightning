@@ -398,6 +398,16 @@ ApplicationWindow {
         parent: Overlay.overlay
     }
 
+    // The ONE update-available prompt. Like the dialogs above it opens itself
+    // off UpdateManager's state and closes when the version is dismissed, so
+    // it needs no wiring here beyond existing — but it does need to exist:
+    // without this instance the update-available state has no prompt at all
+    // and the only way to learn about an update is to open Settings.
+    UpdateAvailableDialog {
+        id: updateAvailableDialog
+        parent: Overlay.overlay
+    }
+
     // First-run nudge. Deliberately a corner card rather than a modal: an
     // unverified session still works, so this must not block the app.
     VerifySessionPrompt {
