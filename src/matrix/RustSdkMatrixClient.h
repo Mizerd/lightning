@@ -332,6 +332,18 @@ public:
                     const QString &reason) override;
     quint64 unbanUser(const QString &roomId, const QString &userId,
                       const QString &reason) override;
+    // v0.7.x room administration + pinned messages.
+    quint64 setMemberPowerLevel(const QString &roomId, const QString &userId,
+                                qlonglong level) override;
+    quint64 setRoomJoinRule(const QString &roomId,
+                            const QString &rule) override;
+    quint64 setRoomCanonicalAlias(const QString &roomId,
+                                  const QString &alias) override;
+    bool supportsPinnedMessages() const override { return true; }
+    quint64 requestPinnedMessages(const QString &roomId,
+                                  bool allowRemote) override;
+    quint64 setEventPinned(const QString &roomId, const QString &eventId,
+                           bool pin) override;
     quint64 addRoomToSpace(const QString &spaceId, const QString &roomId) override;
     quint64 removeRoomFromSpace(const QString &spaceId,
                                 const QString &roomId) override;

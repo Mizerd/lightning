@@ -33,6 +33,15 @@
 
 namespace {
 
+// v0.7.x: the verification FLOW (status line, QR panel, emoji, buttons)
+// moved out of the Settings page and into the shared focused modal declared
+// once in Main.qml — a two-device emoji comparison buried at the bottom of a
+// scrolled settings page could put the emojis off-screen at the moment they
+// mattered. The panel itself is unchanged, so this scene keeps SettingsScreen
+// (the section this surface belongs to, and the source of the Verify entry
+// point) and adds the dialog beside it, exactly as the real shell does. The
+// dialog opens itself off AppController's verification state, so nothing here
+// has to drive its visibility by hand.
 const char *kScene = R"QML(
 import QtQuick
 import QtQuick.Controls
@@ -46,6 +55,11 @@ ApplicationWindow {
         objectName: "settingsScreen"
         anchors.fill: parent
         section: "sessions"
+    }
+    VerificationDialog {
+        objectName: "verificationDialog"
+        parent: Overlay.overlay
+        anchors.centerIn: parent
     }
 }
 )QML";

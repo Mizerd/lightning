@@ -235,12 +235,38 @@ Rectangle {
             // clicking again returns to chat.
             active: app.currentScreen === 2
             visible: app.loggedIn
-            Accessible.name: qsTr("Settings")
-            ToolTip.text: qsTr("Settings")
+            // v0.7.x: the badge names WHY the cog wants attention, so a
+            // screen reader is not left with a bare "Settings" while a red
+            // dot sits on it.
+            Accessible.name: app.sessionVerificationWarning
+                             ? qsTr("Settings — this session is not verified")
+                             : qsTr("Settings")
+            ToolTip.text: app.sessionVerificationWarning
+                          ? qsTr("Settings — this session is not verified")
+                          : qsTr("Settings")
             ToolTip.visible: hovered
             ToolTip.delay: 500
             onClicked: app.currentScreen === 2 ? app.showMain()
                                                : app.showSettings()
+
+            // Attention badge: this session is not verified AND the user
+            // has not dismissed the reminder. A dot, not a full "!" glyph —
+            // the rail is 68px of chrome and the tooltip carries the words.
+            // Ringed in the rail colour so it reads as a badge sitting ON
+            // the cog rather than part of the glyph.
+            Rectangle {
+                objectName: "railSettingsAlertBadge"
+                visible: app.sessionVerificationWarning
+                anchors.right: parent.right
+                anchors.top: parent.top
+                anchors.margins: 6
+                width: 10
+                height: 10
+                radius: 5
+                color: AppTheme.danger
+                border.color: AppTheme.rail
+                border.width: 2
+            }
         }
 
         Item { implicitHeight: AppTheme.spacing8; visible: app.loggedIn }
@@ -290,9 +316,17 @@ Rectangle {
                 // recoloured on rename.
                 colorKey: app.accounts ? app.accounts.activeUserId : ""
             }
-            // Presence: Lightning shows its own connection state on the
-            // self avatar (Matrix presence is not surfaced yet).
+            // LOCAL CONNECTIVITY, not Matrix presence. Matrix presence
+            // landed in v0.7.x (PresenceDot.qml) and is shown for OTHER
+            // users — on DM rows, the People list and the profile popover.
+            // This dot deliberately stays a sync-connection indicator: it
+            // answers "is this client talking to the homeserver", which is
+            // a different question from "what state has this account
+            // published", and conflating the two would let a network blip
+            // read as the user going away. It uses the presence palette
+            // only because those are the app's online/away inks.
             Rectangle {
+                objectName: "railConnectionDot"
                 anchors.right: parent.right
                 anchors.bottom: parent.bottom
                 width: 11; height: 11; radius: 5.5
@@ -300,6 +334,10 @@ Rectangle {
                 border.width: 2
                 color: app.connectionStatus === qsTr("Connected")
                        ? AppTheme.presenceOnline : AppTheme.presenceAway
+                Accessible.role: Accessible.Indicator
+                Accessible.name: app.connectionStatus === qsTr("Connected")
+                                 ? qsTr("Connected to your homeserver")
+                                 : qsTr("Not connected to your homeserver")
             }
 
             HoverHandler { id: accountHover }

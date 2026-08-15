@@ -25,6 +25,7 @@
 #include "models/ReadReceiptCoordinator.h"
 #include "models/RoomListModel.h"
 #include "models/TimelineModel.h"
+#include "app/PinnedMessagesController.h"
 #include "models/TimelineScrollController.h"
 #include "spaces/SpaceManager.h"
 #include "threads/ThreadController.h"
@@ -122,6 +123,21 @@ class AppController : public QObject
     Q_PROPERTY(QString sessionDeviceId READ sessionDeviceId NOTIFY securityStateChanged)
     Q_PROPERTY(bool ownIdentityAvailable READ ownIdentityAvailable NOTIFY securityStateChanged)
     Q_PROPERTY(bool crossSigningAvailable READ crossSigningAvailable NOTIFY securityStateChanged)
+    // v0.7.x verification prompts. TRUE only for the one state the user can
+    // actually act on: signed in, on a crypto-capable backend, with a
+    // cross-signing identity that has NOT signed this device.
+    //   * "Unknown"                    — not determined yet; warning off.
+    //   * "Cross-signing unavailable"  — there is no identity to verify
+    //                                    against, so "verify this session"
+    //                                    would be advice that cannot be
+    //                                    followed; warning off.
+    // The dismissal is applied by sessionVerificationWarning (the badges),
+    // never by this property — the Sessions page still states the fact.
+    Q_PROPERTY(bool sessionVerificationNeeded READ sessionVerificationNeeded
+                   NOTIFY securityStateChanged)
+    // sessionVerificationNeeded AND the user has not dismissed the badges.
+    Q_PROPERTY(bool sessionVerificationWarning READ sessionVerificationWarning
+                   NOTIFY sessionVerificationWarningChanged)
 
     // v0.5.6 Encrypted room-key import.
     Q_PROPERTY(QString roomKeyImportState READ roomKeyImportState NOTIFY roomKeyImportStateChanged)
@@ -182,6 +198,10 @@ class AppController : public QObject
     Q_PROPERTY(SpaceManager* spaces READ spaces CONSTANT)
     Q_PROPERTY(ThreadManager* threads READ threads CONSTANT)
     Q_PROPERTY(PresenceManager* presence READ presence CONSTANT)
+    // v0.7.x pinned messages for the ACTIVE room (not the Room Information
+    // panel's room): the message-action menu asks it whether the message
+    // under the cursor is pinned.
+    Q_PROPERTY(PinnedMessagesController* pinned READ pinned CONSTANT)
     // v0.6.0: the single open SDK-backed thread panel (app.thread).
     Q_PROPERTY(ThreadController* thread READ thread CONSTANT)
     // v0.5.9: conversation creation (DMs, rooms, invites), Room Information
@@ -368,6 +388,7 @@ public:
     SpaceManager *spaces() const;
     ThreadManager *threads() const;
     PresenceManager *presence() const;
+    PinnedMessagesController *pinned() const { return m_pinned.get(); }
     ThreadController *thread() const { return m_thread.get(); }
     ConversationController *conversations() const { return m_conversations.get(); }
     RoomInfoController *roomInfo() const { return m_roomInfo.get(); }
@@ -625,6 +646,12 @@ public Q_SLOTS:
 
     // v0.5.6 Security & Recovery accessors.
     QString sessionTrustState() const { return m_sessionTrustState; }
+    bool sessionVerificationNeeded() const;
+    bool sessionVerificationWarning() const;
+    // Dismiss the verification badges for the active account (persisted).
+    // The Sessions page keeps stating the fact — dismissal silences the
+    // nagging, it does not claim the session is verified.
+    Q_INVOKABLE void dismissVerificationWarning();
     QString sessionDeviceId() const { return m_sessionDeviceId; }
     bool ownIdentityAvailable() const { return m_ownIdentityAvailable; }
     bool crossSigningAvailable() const { return m_crossSigningAvailable; }
@@ -673,6 +700,7 @@ Q_SIGNALS:
 
     // v0.5.0 SAS verification.
     void verificationStateChanged();
+    void sessionVerificationWarningChanged();
     void sessionDevicesChanged();
     void activeRoomAtLatestChanged();
     // v0.6.0 checkpoint 11: a notification was clicked — QML raises the
@@ -803,6 +831,7 @@ private:
     std::unique_ptr<SpaceManager> m_spaces;
     std::unique_ptr<ThreadManager> m_threads;
     std::unique_ptr<PresenceManager> m_presence;
+    std::unique_ptr<PinnedMessagesController> m_pinned;
     std::unique_ptr<ThreadController> m_thread;
     std::unique_ptr<ConversationController> m_conversations;
     std::unique_ptr<RoomInfoController> m_roomInfo;

@@ -2868,6 +2868,15 @@ Rectangle {
             saveMediaDialog.currentFile = "file:///" + filename
             saveMediaDialog.open()
         }
+        // v0.7.x pinned messages: a pin is very often outside the loaded
+        // window, which is exactly what PaginationController::jumpToEvent
+        // already handles for replies, permalinks and search hits. Reusing
+        // it means pins hydrate through the ONE navigation path instead of
+        // a second one that would have to re-learn anchoring.
+        onJumpToEventRequested: (eventId) => {
+            if (eventId !== "")
+                app.pagination.jumpToEvent(eventId)
+        }
     }
 
     } // RowLayout

@@ -1877,6 +1877,35 @@ Item {
                     root.menuEventId)
             }
             AppMenuSeparator {}
+            // v0.7.x pinned messages. Exactly ONE of these is ever offered:
+            // canTogglePin() answers false for the action that does not
+            // apply, for a viewer without the room's real
+            // m.room.pinned_events power level, and while a write is in
+            // flight. It also fails closed before the first snapshot, so
+            // the menu never offers a pin it cannot honour.
+            //
+            // Deliberately hidden in the thread panel: a thread reply is
+            // pinnable Matrix-wise, but the pinned surface lives in Room
+            // Information and pinning from a thread would put the message
+            // somewhere the user is not looking.
+            AppMenuItem {
+                iconName: "push_pin"
+                text: qsTr("Pin message")
+                // `revision` is the re-evaluation dependency: canTogglePin
+                // is a Q_INVOKABLE and a binding cannot observe its inputs.
+                visible: !root.inThreadPanel && app.pinned
+                         && app.pinned.revision >= 0
+                         && app.pinned.canTogglePin(root.menuEventId, true)
+                onTriggered: app.pinned.pin(root.menuEventId)
+            }
+            AppMenuItem {
+                iconName: "close"
+                text: qsTr("Unpin message")
+                visible: !root.inThreadPanel && app.pinned
+                         && app.pinned.revision >= 0
+                         && app.pinned.canTogglePin(root.menuEventId, false)
+                onTriggered: app.pinned.unpin(root.menuEventId)
+            }
             AppMenuItem {
                 iconName: "content_copy"
                 text: qsTr("Copy text")

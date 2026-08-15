@@ -77,6 +77,17 @@ class SettingsManager : public QObject
     // passive (reads against the user's own homeserver) and has no toggle.
     Q_PROPERTY(bool sharePresence READ sharePresence
                    WRITE setSharePresence NOTIFY sharePresenceChanged)
+    // v0.7.x: the user dismissed the "verify this session" warning badges.
+    // STRICTLY account-scoped — dismissing on one account must not silence
+    // the warning for another, so this deliberately does NOT use
+    // appearanceValue(), which mirrors into a shared global fallback.
+    // Cleared automatically the moment the session becomes verified, so a
+    // later unverified session warns again instead of inheriting a
+    // dismissal that answered a different question.
+    Q_PROPERTY(bool verificationWarningDismissed
+                   READ verificationWarningDismissed
+                   WRITE setVerificationWarningDismissed
+                   NOTIFY verificationWarningDismissedChanged)
     // v0.6.1: GIF browser policy. gifAutoplay: 0=Always (while visible),
     // 1=OnHover, 2=Never. gifSafeSearch is a gif::Rating id (0=g,1=pg,2=pg-13,
     // 3=r). storeRecentGifs toggles Recents recording. gifPreferredProvider is
@@ -255,6 +266,8 @@ public:
     bool animateGifPreviews() const;
     void setAnimateGifPreviews(bool v);
     bool sharePresence() const;
+    bool verificationWarningDismissed() const;
+    void setVerificationWarningDismissed(bool v);
     void setSharePresence(bool v);
     // v0.6.1: GIF browser policy.
     int gifAutoplay() const;
@@ -478,6 +491,7 @@ Q_SIGNALS:
     void loadPreviewsInEncryptedRoomsChanged();
     void animateGifPreviewsChanged();
     void sharePresenceChanged();
+    void verificationWarningDismissedChanged();
     void gifAutoplayChanged();
     void gifSafeSearchChanged();
     void storeRecentGifsChanged();

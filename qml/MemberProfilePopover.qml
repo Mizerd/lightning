@@ -9,7 +9,10 @@ import MatrixClient
 // (R12): callers still do `parent: Overlay.overlay; anchors.centerIn: parent`.
 // Shows the member's avatar, display name, full Matrix ID, membership/role,
 // real Matrix presence (dot + status line, v0.7.x — unknown renders
-// nothing), and offers Start/Open Direct Message (existing DMs are reused,
+// nothing), and the member's real power level (v0.7.x — rendered as its
+// number when the room uses an unconventional value, changeable only to
+// levels the viewer may actually set),
+// and offers Start/Open Direct Message (existing DMs are reused,
 // never silently duplicated) + Copy ID. Deliberately OMITS call/videocam, a
 // Verified chip, the SHARED-rooms section, View full profile, and Ignore —
 // none of those have a real backend today, and this component never
@@ -46,6 +49,14 @@ Popup {
     property bool showBan: false
     property bool showUnban: false
 
+    // v0.7.x room administration: the member's real numeric power level and
+    // the role changes the viewer may actually make. Same discipline as the
+    // moderation flags — captured at openFor()/refresh time for
+    // presentation, re-checked by the controller at dispatch.
+    property string roleLabel: ""
+    property var roleOptions: []
+    property string roleError: ""
+
     function _refreshModeration() {
         var scoped = app.roomInfo
                      && app.roomInfo.roomId === app.currentRoomId
@@ -53,6 +64,37 @@ Popup {
         showKick = scoped ? app.roomInfo.canModerate(userId, "kick") : false
         showBan = scoped ? app.roomInfo.canModerate(userId, "ban") : false
         showUnban = scoped ? app.roomInfo.canModerate(userId, "unban") : false
+        _refreshRole(scoped)
+    }
+
+    function _refreshRole(scoped) {
+        if (!scoped) {
+            roleLabel = ""
+            roleOptions = []
+            return
+        }
+        var current = app.roomInfo.powerLevelFor(userId)
+        roleLabel = app.roomInfo.roleLabelForLevel(current)
+        // The conventional presets plus the room's own default. A room may
+        // set users_default to anything, so it is included rather than
+        // assumed to be 0 — and duplicates collapse.
+        var candidates = [app.roomInfo.usersDefaultPowerLevel, 50, 100]
+        var seen = {}
+        var out = []
+        for (var i = 0; i < candidates.length; ++i) {
+            var level = candidates[i]
+            if (seen[level] === true)
+                continue
+            seen[level] = true
+            // Offer ONLY what the viewer may actually set: canSetPowerLevel
+            // applies the room's real permission plus the Matrix rules
+            // about acting on peers at or above your own level.
+            if (!app.roomInfo.canSetPowerLevel(userId, level))
+                continue
+            out.push({ level: level,
+                       label: app.roomInfo.roleLabelForLevel(level) })
+        }
+        roleOptions = out
     }
 
     // The same room-member profile the list row shows — one resolution
@@ -75,6 +117,7 @@ Popup {
         isOwn = member.isOwn === true
         modAction = ""
         modError = ""
+        roleError = ""
         modReasonField.text = ""
         inviteBackChecked = true
         _refreshModeration()
@@ -463,6 +506,99 @@ Popup {
                     }
                 }
             }
+            // --- Role / power level (v0.7.x) ---
+            // The label always shows the member's REAL level: a room using
+            // a value that is not one of the conventional presets renders
+            // as "Custom (N)", never rounded into a preset. The buttons
+            // offer only levels the viewer may actually set, and a
+            // rejection from the server surfaces here rather than being
+            // swallowed by an optimistic repaint.
+            ColumnLayout {
+                objectName: "profileRoleBlock"
+                visible: root.roleLabel.length > 0 && root.modAction === ""
+                Layout.fillWidth: true
+                spacing: AppTheme.spacing6
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: AppTheme.spacing6
+                    Label {
+                        text: qsTr("Role")
+                        color: AppTheme.stormTextMuted
+                        font.pixelSize: 11
+                        font.weight: Font.Bold
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        text: root.roleLabel
+                        color: AppTheme.stormText
+                        font.pixelSize: AppTheme.fontSecondary
+                        font.weight: Font.Bold
+                        elide: Label.ElideRight
+                    }
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: AppTheme.spacing8
+                    visible: root.roleOptions.length > 0
+
+                    Repeater {
+                        model: root.roleOptions
+                        delegate: AbstractButton {
+                            id: roleButton
+                            required property var modelData
+                            objectName: "profileRoleButton_"
+                                        + modelData.level
+                            Layout.fillWidth: true
+                            implicitHeight: 30
+                            hoverEnabled: true
+                            focusPolicy: Qt.TabFocus
+                            enabled: app.roomInfo
+                                     && !app.roomInfo.powerLevelPending
+                            Accessible.role: Accessible.Button
+                            Accessible.name:
+                                qsTr("Set %1 to %2")
+                                    .arg(root.visibleName)
+                                    .arg(modelData.label)
+                            contentItem: Label {
+                                text: roleButton.modelData.label
+                                horizontalAlignment: Text.AlignHCenter
+                                color: roleButton.enabled
+                                       ? AppTheme.stormTextSecondary
+                                       : AppTheme.stormTextFaint
+                                font.family: AppTheme.menuFont
+                                font.pixelSize: 12
+                                font.weight: Font.Bold
+                                elide: Label.ElideRight
+                            }
+                            background: Rectangle {
+                                radius: AppTheme.radiusTile
+                                color: (roleButton.hovered || roleButton.down)
+                                       ? AppTheme.stormSelection : "transparent"
+                                border.width: 1
+                                border.color: AppTheme.stormBorderStrong
+                            }
+                            onClicked: {
+                                root.roleError = ""
+                                app.roomInfo.setMemberPowerLevel(
+                                    root.userId, modelData.level)
+                            }
+                        }
+                    }
+                }
+
+                Label {
+                    visible: root.roleError.length > 0
+                    Layout.fillWidth: true
+                    text: root.roleError
+                    color: AppTheme.danger
+                    font.pixelSize: 11
+                    wrapMode: Text.Wrap
+                    Accessible.name: text
+                }
+            }
+
             // --- Moderation row (kick / ban / unban) ---
             // Kick/ban are outline-danger secondaries; unban is an
             // ordinary outline secondary (it restores access, it does not
@@ -651,6 +787,17 @@ Popup {
                 // action elsewhere) can change what may be offered.
                 function onMembersChanged() {
                     root._refreshModeration()
+                }
+                // v0.7.x: a power-level write finished. The authoritative
+                // level arrives with the roster refresh the controller
+                // triggers; this only reports a failure. The popover stays
+                // OPEN on success — unlike kick/ban, the member is still
+                // here and the user may well want to see the new role.
+                function onPowerLevelActionFinished(roomId, userId, level, ok,
+                                                    message) {
+                    if (userId !== root.userId)
+                        return
+                    root.roleError = ok ? "" : message
                 }
             }
 

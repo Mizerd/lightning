@@ -492,6 +492,37 @@ public:
     virtual quint64 unbanUser(const QString &roomId, const QString &userId,
                               const QString &reason)
     { Q_UNUSED(roomId); Q_UNUSED(userId); Q_UNUSED(reason); return 0; }
+    // v0.7.x room administration. Set ONE member's power level; the SDK
+    // preserves every other user's level, including arbitrary custom
+    // numbers. Answers on powerLevelChangeFinished. The SERVER enforces
+    // permission — the client only avoids offering an action that must fail.
+    virtual quint64 setMemberPowerLevel(const QString &roomId,
+                                        const QString &userId,
+                                        qlonglong level)
+    { Q_UNUSED(roomId); Q_UNUSED(userId); Q_UNUSED(level); return 0; }
+    // "invite" | "public" | "knock". Rules that carry an allow-rule list
+    // (restricted) are deliberately not settable. Answers on
+    // roomEditFinished with field "join_rule".
+    virtual quint64 setRoomJoinRule(const QString &roomId, const QString &rule)
+    { Q_UNUSED(roomId); Q_UNUSED(rule); return 0; }
+    // An empty alias clears the canonical alias. Answers on
+    // roomEditFinished with field "canonical_alias".
+    virtual quint64 setRoomCanonicalAlias(const QString &roomId,
+                                          const QString &alias)
+    { Q_UNUSED(roomId); Q_UNUSED(alias); return 0; }
+    // v0.7.x pinned messages (m.room.pinned_events). Backends without pin
+    // support keep the false default; the UI then offers no pin actions and
+    // shows no pinned surface, exactly like the thread facepile.
+    virtual bool supportsPinnedMessages() const { return false; }
+    // Read the room's pinned list and resolve each id into a displayable
+    // row. `allowRemote` permits the /state fallback taken only when the
+    // room carries no pinned-events state at all. Answers on pinnedReceived.
+    virtual quint64 requestPinnedMessages(const QString &roomId,
+                                          bool allowRemote)
+    { Q_UNUSED(roomId); Q_UNUSED(allowRemote); return 0; }
+    virtual quint64 setEventPinned(const QString &roomId,
+                                   const QString &eventId, bool pin)
+    { Q_UNUSED(roomId); Q_UNUSED(eventId); Q_UNUSED(pin); return 0; }
     virtual quint64 addRoomToSpace(const QString &spaceId, const QString &roomId)
     { Q_UNUSED(spaceId); Q_UNUSED(roomId); return 0; }
     // v0.7: MSC1772 child removal (empty-via m.space.child). Never leaves
@@ -822,6 +853,30 @@ Q_SIGNALS:
     void moderationFinished(quint64 opId, const QString &roomId,
                             const QString &userId, const QString &op,
                             bool ok, const QString &category);
+    // v0.7.x room administration: one member's power-level write completed.
+    // `level` echoes what was REQUESTED, never what the room now holds —
+    // the authoritative value comes from the roster refresh that follows.
+    void powerLevelChangeFinished(quint64 opId, const QString &roomId,
+                                  const QString &userId, qlonglong level,
+                                  bool ok, const QString &category);
+    // v0.7.x pinned messages: one resolved snapshot. `snapshot` carries
+    // ok, canPin, total, truncated and entries (a QVariantList of maps —
+    // eventId, available, and when available sender, senderDisplayName,
+    // senderAvatarUrl, timestampMs, kind, preview). Entry previews are
+    // decrypted message text in an encrypted room: memory only, never
+    // CacheStore.
+    void pinnedReceived(quint64 opId, const QString &roomId,
+                        const QVariantMap &snapshot);
+    // A pin/unpin write completed. `changed` is false for a no-op (the
+    // event was already in the requested state) — reported as a no-op
+    // rather than as a success that did something.
+    void pinChangeFinished(quint64 opId, const QString &roomId,
+                           const QString &eventId, bool pin, bool ok,
+                           bool changed, const QString &category);
+    // Sync saw m.room.pinned_events change in this room (another client,
+    // or another of this user's devices). Carries no payload: consumers
+    // re-read the authoritative list through requestPinnedMessages.
+    void pinnedEventsChanged(const QString &roomId);
     void spaceChildFinished(quint64 opId, const QString &spaceId,
                             const QString &roomId, bool ok);
     void spaceChildRemoveFinished(quint64 opId, const QString &spaceId,

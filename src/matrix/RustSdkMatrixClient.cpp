@@ -3013,13 +3013,30 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
     if (type == QLatin1String("room_members_changed")) {
         // Sync membership poke: reaches ONLY the roster-refetch consumers
         // via roomMemberEventSeen — never membersChanged, whose timeline
-        // consumer repaints every loaded row (review H1). Rust already
-        // rate-limits the event per room. Without this poke the People
-        // panel only refreshed when it was reopened (live report
+        // consumer repaints every loaded row (review H1). Without this poke
+        // the People panel only refreshed when it was reopened (live report
         // 2026-08-14).
+        //
+        // Rate limiting: the m.room.member handler in Rust limits itself to
+        // one poke per room per second. The v0.7.x m.room.power_levels
+        // handler reuses this SAME event type and is NOT rate-limited —
+        // power-level changes are human-paced, and the consumer is
+        // single-flighted anyway (RoomInfoController refetches only when no
+        // members op is pending), so the cost of a spamming room is
+        // serialized refetches rather than a flood.
         const QString roomId = event.value(QStringLiteral("room_id")).toString();
         if (m_rooms.contains(roomId))
             Q_EMIT roomMemberEventSeen(roomId);
+        return;
+    }
+
+    if (type == QLatin1String("room_pinned_changed")) {
+        // v0.7.x: m.room.pinned_events changed remotely. No payload — the
+        // consumer re-reads the authoritative list, so a remote pin and a
+        // local one converge on one code path.
+        const QString roomId = event.value(QStringLiteral("room_id")).toString();
+        if (m_rooms.contains(roomId))
+            Q_EMIT pinnedEventsChanged(roomId);
         return;
     }
 
@@ -4644,6 +4661,79 @@ quint64 RustSdkMatrixClient::moderateUser(const QString &roomId,
     return result.isEmpty() ? opId : 0;
 }
 
+quint64 RustSdkMatrixClient::setMemberPowerLevel(const QString &roomId,
+                                                 const QString &userId,
+                                                 qlonglong level)
+{
+    if (!m_rustHandle || roomId.isEmpty() || userId.isEmpty())
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray room = roomId.toUtf8();
+    const QByteArray user = userId.toUtf8();
+    const QString result = takeRustString(mx_rust_set_member_power_level(
+        m_rustHandle, room.constData(), user.constData(),
+        static_cast<long long>(level), opId));
+    return result.isEmpty() ? opId : 0;
+}
+
+quint64 RustSdkMatrixClient::setRoomJoinRule(const QString &roomId,
+                                             const QString &rule)
+{
+    if (!m_rustHandle || roomId.isEmpty() || rule.isEmpty())
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray room = roomId.toUtf8();
+    const QByteArray value = rule.toUtf8();
+    const QString result = takeRustString(mx_rust_set_room_join_rule(
+        m_rustHandle, room.constData(), value.constData(), opId));
+    return result.isEmpty() ? opId : 0;
+}
+
+quint64 RustSdkMatrixClient::setRoomCanonicalAlias(const QString &roomId,
+                                                   const QString &alias)
+{
+    // An EMPTY alias is meaningful here (it clears the canonical alias), so
+    // unlike every other setter this one must not reject the empty string.
+    if (!m_rustHandle || roomId.isEmpty())
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray room = roomId.toUtf8();
+    const QByteArray value = alias.toUtf8();
+    const QString result = takeRustString(mx_rust_set_room_canonical_alias(
+        m_rustHandle, room.constData(), value.constData(), opId));
+    return result.isEmpty() ? opId : 0;
+}
+
+quint64 RustSdkMatrixClient::requestPinnedMessages(const QString &roomId,
+                                                   bool allowRemote)
+{
+    if (!m_rustHandle || roomId.isEmpty())
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray room = roomId.toUtf8();
+    const QString result = takeRustString(mx_rust_room_pinned(
+        m_rustHandle, room.constData(),
+        allowRemote ? static_cast<unsigned char>(1)
+                    : static_cast<unsigned char>(0),
+        opId));
+    return result.isEmpty() ? opId : 0;
+}
+
+quint64 RustSdkMatrixClient::setEventPinned(const QString &roomId,
+                                            const QString &eventId, bool pin)
+{
+    if (!m_rustHandle || roomId.isEmpty() || eventId.isEmpty())
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray room = roomId.toUtf8();
+    const QByteArray event = eventId.toUtf8();
+    const QString result = takeRustString(mx_rust_set_room_pinned(
+        m_rustHandle, room.constData(), event.constData(),
+        pin ? static_cast<unsigned char>(1) : static_cast<unsigned char>(0),
+        opId));
+    return result.isEmpty() ? opId : 0;
+}
+
 quint64 RustSdkMatrixClient::addRoomToSpace(const QString &spaceId,
                                             const QString &roomId)
 {
@@ -5262,6 +5352,29 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             QStringLiteral("ownPowerLevel"),
             static_cast<qlonglong>(
                 event.value(QStringLiteral("own_power_level")).toDouble()));
+        // v0.7.x room administration: the remaining SDK-derived permissions
+        // plus the room state the admin surface renders.
+        snapshot.insert(
+            QStringLiteral("canChangePowerLevels"),
+            event.value(QStringLiteral("own_can_change_power_levels")).toBool());
+        snapshot.insert(QStringLiteral("canPinMessages"),
+                        event.value(QStringLiteral("own_can_pin")).toBool());
+        snapshot.insert(
+            QStringLiteral("canChangeJoinRule"),
+            event.value(QStringLiteral("own_can_change_join_rule")).toBool());
+        snapshot.insert(
+            QStringLiteral("canChangeAlias"),
+            event.value(QStringLiteral("own_can_change_alias")).toBool());
+        snapshot.insert(
+            QStringLiteral("usersDefaultPowerLevel"),
+            static_cast<qlonglong>(
+                event.value(QStringLiteral("users_default_power_level"))
+                    .toDouble()));
+        snapshot.insert(QStringLiteral("joinRule"),
+                        event.value(QStringLiteral("join_rule")).toString());
+        snapshot.insert(
+            QStringLiteral("canonicalAlias"),
+            event.value(QStringLiteral("canonical_alias")).toString());
         snapshot.insert(QStringLiteral("category"),
                         event.value(QStringLiteral("category")).toString());
         // A cache-only snapshot that precedes the synced roster under the
@@ -5355,6 +5468,97 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             event.value(QStringLiteral("user_id")).toString(),
             event.value(QStringLiteral("op")).toString(),
             event.value(QStringLiteral("ok")).toBool(),
+            event.value(QStringLiteral("category")).toString());
+        return true;
+    }
+
+    if (type == QLatin1String("room_power_level_result")) {
+        Q_EMIT powerLevelChangeFinished(
+            opId(),
+            event.value(QStringLiteral("room_id")).toString(),
+            event.value(QStringLiteral("user_id")).toString(),
+            // This payload is a QJsonObject, so value() yields QJsonValue —
+            // no toLongLong(). Via toDouble(), matching own_power_level
+            // above; real Matrix power levels are far inside the exactly
+            // representable range.
+            static_cast<qlonglong>(
+                event.value(QStringLiteral("level")).toDouble()),
+            event.value(QStringLiteral("ok")).toBool(),
+            event.value(QStringLiteral("category")).toString());
+        return true;
+    }
+
+    if (type == QLatin1String("room_pinned")) {
+        // Re-shaped into camelCase here, exactly like the member snapshot,
+        // so nothing downstream has to know the bridge's JSON naming.
+        QVariantList entries;
+        const QJsonArray raw =
+            event.value(QStringLiteral("entries")).toArray();
+        entries.reserve(raw.size());
+        for (const QJsonValue &value : raw) {
+            const QJsonObject row = value.toObject();
+            QVariantMap entry;
+            entry.insert(QStringLiteral("eventId"),
+                         row.value(QStringLiteral("event_id")).toString());
+            const bool available =
+                row.value(QStringLiteral("available")).toBool();
+            entry.insert(QStringLiteral("available"), available);
+            if (available) {
+                entry.insert(QStringLiteral("sender"),
+                             row.value(QStringLiteral("sender")).toString());
+                entry.insert(
+                    QStringLiteral("senderDisplayName"),
+                    row.value(QStringLiteral("sender_display_name")).toString());
+                entry.insert(
+                    QStringLiteral("senderAvatarUrl"),
+                    row.value(QStringLiteral("sender_avatar_url")).toString());
+                entry.insert(
+                    QStringLiteral("timestampMs"),
+                    static_cast<qlonglong>(
+                        row.value(QStringLiteral("timestamp_ms")).toDouble()));
+                entry.insert(QStringLiteral("kind"),
+                             row.value(QStringLiteral("kind")).toString());
+                entry.insert(QStringLiteral("preview"),
+                             row.value(QStringLiteral("preview")).toString());
+            }
+            entries.append(entry);
+        }
+        QVariantMap snapshot;
+        snapshot.insert(QStringLiteral("ok"),
+                        event.value(QStringLiteral("ok")).toBool());
+        snapshot.insert(QStringLiteral("canPin"),
+                        event.value(QStringLiteral("can_pin")).toBool());
+        snapshot.insert(QStringLiteral("total"),
+                        event.value(QStringLiteral("total")).toInt());
+        snapshot.insert(QStringLiteral("truncated"),
+                        event.value(QStringLiteral("truncated")).toBool());
+        snapshot.insert(QStringLiteral("category"),
+                        event.value(QStringLiteral("category")).toString());
+        // The complete, uncapped id list — what answers "is this pinned?".
+        QStringList ids;
+        const QJsonArray rawIds = event.value(QStringLiteral("ids")).toArray();
+        ids.reserve(rawIds.size());
+        for (const QJsonValue &value : rawIds) {
+            const QString id = value.toString();
+            if (!id.isEmpty())
+                ids.append(id);
+        }
+        snapshot.insert(QStringLiteral("ids"), ids);
+        snapshot.insert(QStringLiteral("entries"), entries);
+        Q_EMIT pinnedReceived(opId(),
+                              event.value(QStringLiteral("room_id")).toString(),
+                              snapshot);
+        return true;
+    }
+
+    if (type == QLatin1String("room_pin_result")) {
+        Q_EMIT pinChangeFinished(
+            opId(),
+            event.value(QStringLiteral("room_id")).toString(),
+            event.value(QStringLiteral("event_id")).toString(),
+            event.value(QStringLiteral("pin")).toBool(),
+            event.value(QStringLiteral("ok")).toBool(),
+            event.value(QStringLiteral("changed")).toBool(),
             event.value(QStringLiteral("category")).toString());
         return true;
     }

@@ -60,7 +60,7 @@ pub(crate) fn require_client(bridge: &RustClient) -> Result<matrix_sdk::Client, 
         .ok_or_else(|| "no active Matrix session".to_owned())
 }
 
-fn joined_room(
+pub(crate) fn joined_room(
     client: &matrix_sdk::Client,
     room_id: &str,
 ) -> Result<matrix_sdk::Room, String> {
@@ -1300,6 +1300,33 @@ async fn members_snapshot_json(
             .as_ref()
             .map(|m| power_level_int(m.power_level()))
             .unwrap_or(0);
+        // v0.7.x room administration. Each of these is the SDK's own
+        // power-level check against the REAL required level for that state
+        // event — a room may define any level it likes for any of them, so
+        // nothing here assumes "admin only".
+        let can_change_power_levels = own_member
+            .as_ref()
+            .is_some_and(|m| m.can_send_state(StateEventType::RoomPowerLevels));
+        let can_pin = own_member
+            .as_ref()
+            .is_some_and(|m| m.can_send_state(StateEventType::RoomPinnedEvents));
+        let can_change_join_rule = own_member
+            .as_ref()
+            .is_some_and(|m| m.can_send_state(StateEventType::RoomJoinRules));
+        let can_change_alias = own_member
+            .as_ref()
+            .is_some_and(|m| m.can_send_state(StateEventType::RoomCanonicalAlias));
+        // The room's default user level: without it the UI cannot tell a
+        // member sitting AT the default from one explicitly pinned to the
+        // same number, and `update_power_levels` treats a set-to-default as
+        // a removal from the users map. Rooms may set it to any value.
+        let users_default: i64 =
+            i64::from(room.power_levels_or_default().await.users_default);
+        let join_rule = join_rule_str(room.join_rule().as_ref());
+        let canonical_alias = room
+            .canonical_alias()
+            .map(|a| a.to_string())
+            .unwrap_or_default();
 
         json!({
             "type": "room_members",
@@ -1321,7 +1348,14 @@ async fn members_snapshot_json(
             "own_can_kick": can_kick,
             "own_can_ban": can_ban,
             "own_can_unban": can_unban,
+            "own_can_change_power_levels": can_change_power_levels,
+            "own_can_pin": can_pin,
+            "own_can_change_join_rule": can_change_join_rule,
+            "own_can_change_alias": can_change_alias,
             "own_power_level": own_power_level,
+            "users_default_power_level": users_default,
+            "join_rule": join_rule,
+            "canonical_alias": canonical_alias,
             "members": rows,
         })
     }
@@ -1407,6 +1441,196 @@ pub(crate) fn moderate_member(
                 .map(|err| classify_room_error(&err.to_string()))
                 .unwrap_or(""),
         }));
+    });
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Room administration (v0.7.x): member power levels, join rule, alias
+// ---------------------------------------------------------------------------
+
+/// Coarse join-rule label for the bridge. `restricted` / `knock_restricted`
+/// cross so the UI can DISPLAY them honestly; Lightning does not offer to
+/// SET them (they carry an allow-rule list that needs a space picker — a
+/// documented follow-up, not something to fake with an empty list, which
+/// would lock the room to invite-only while claiming otherwise).
+fn join_rule_str(rule: Option<&matrix_sdk::ruma::room::JoinRule>) -> &'static str {
+    use matrix_sdk::ruma::room::JoinRule;
+    match rule {
+        Some(JoinRule::Invite) => "invite",
+        Some(JoinRule::Public) => "public",
+        Some(JoinRule::Knock) => "knock",
+        Some(JoinRule::Private) => "private",
+        Some(JoinRule::Restricted(_)) => "restricted",
+        Some(JoinRule::KnockRestricted(_)) => "knock_restricted",
+        // Unknown/custom or not yet synced: the UI renders nothing rather
+        // than guessing a rule the room may not have.
+        _ => "",
+    }
+}
+
+/// Set ONE member's power level through the SDK's `update_power_levels`,
+/// which reads the room's real `m.room.power_levels`, applies exactly this
+/// user's change and sends the whole content back. Every other user's level
+/// — including arbitrary custom numbers — is carried through untouched, and
+/// a level equal to the room's `users_default` is REMOVED from the users map
+/// rather than written redundantly (SDK behaviour, and the correct Matrix
+/// semantics).
+///
+/// Permission is the SERVER'S to enforce; the client only avoids offering an
+/// action that must fail. Result event: room_power_level_result.
+pub(crate) fn set_member_power_level(
+    bridge: &RustClient,
+    room_id: String,
+    user_id: String,
+    level: i64,
+    op_id: u64,
+) -> Result<(), String> {
+    use matrix_sdk::ruma::Int;
+
+    let client = require_client(bridge)?;
+    let room = joined_room(&client, &room_id)?;
+    let uid = UserId::parse(&user_id).map_err(|_| "invalid user id".to_owned())?;
+    // Refuse out-of-range before spawning: `Int` is the JSON-safe integer
+    // range, and a value outside it cannot be a real Matrix power level.
+    let target_level =
+        Int::try_from(level).map_err(|_| "power level out of range".to_owned())?;
+    let events = Arc::clone(&bridge.events);
+    let timelines = Arc::clone(&bridge.timelines);
+    let lifecycle = timelines.lifecycle();
+    bridge.spawn_room_action(async move {
+        let result = room
+            .update_power_levels(vec![(uid.as_ref(), target_level)])
+            .await;
+        if !timelines.lifecycle_current(lifecycle) {
+            return;
+        }
+        enqueue(&events, json!({
+            "type": "room_power_level_result",
+            "op_id": op_id,
+            "lifecycle": lifecycle,
+            "room_id": room_id,
+            "user_id": user_id,
+            "level": level,
+            "ok": result.is_ok(),
+            "category": result
+                .err()
+                .map(|err| classify_room_error(&err.to_string()))
+                .unwrap_or(""),
+        }));
+    });
+    Ok(())
+}
+
+/// Set the room's join rule. Only the three rules that carry no additional
+/// configuration are accepted — see `join_rule_str` for why `restricted` is
+/// deliberately not settable here.
+pub(crate) fn set_room_join_rule(
+    bridge: &RustClient,
+    room_id: String,
+    rule: String,
+    op_id: u64,
+) -> Result<(), String> {
+    use matrix_sdk::ruma::events::room::join_rules::RoomJoinRulesEventContent;
+    use matrix_sdk::ruma::room::JoinRule;
+
+    let client = require_client(bridge)?;
+    let room = joined_room(&client, &room_id)?;
+    let join_rule = match rule.as_str() {
+        "invite" => JoinRule::Invite,
+        "public" => JoinRule::Public,
+        "knock" => JoinRule::Knock,
+        _ => return Err("unsupported join rule".to_owned()),
+    };
+    let events = Arc::clone(&bridge.events);
+    let timelines = Arc::clone(&bridge.timelines);
+    let lifecycle = timelines.lifecycle();
+    bridge.spawn_room_action(async move {
+        let result = room
+            .send_state_event(RoomJoinRulesEventContent::new(join_rule))
+            .await
+            .map(|_| ())
+            .map_err(|err| classify_room_error(&err.to_string()).to_owned());
+        if !timelines.lifecycle_current(lifecycle) {
+            return;
+        }
+        emit_edit_result(&events, op_id, lifecycle, &room_id, "join_rule", result);
+    });
+    Ok(())
+}
+
+/// Set (or clear, with an empty `alias`) the room's canonical alias.
+///
+/// Two steps, because Matrix separates the directory MAPPING from the room's
+/// own state: the alias must resolve to this room on the server before
+/// `m.room.canonical_alias` may name it (a server rejects a canonical alias
+/// it cannot resolve). So an alias that does not already point here is
+/// published first via `Client::create_room_alias`, and only then does the
+/// state event go out. Clearing sends the state event with no alias and
+/// deliberately does NOT delete the directory mapping — removing a published
+/// alias is a separate, more destructive action than demoting it.
+pub(crate) fn set_room_canonical_alias(
+    bridge: &RustClient,
+    room_id: String,
+    alias: String,
+    op_id: u64,
+) -> Result<(), String> {
+    use matrix_sdk::ruma::events::room::canonical_alias::RoomCanonicalAliasEventContent;
+    use matrix_sdk::ruma::RoomAliasId;
+
+    let client = require_client(bridge)?;
+    let room = joined_room(&client, &room_id)?;
+    let trimmed = alias.trim().to_owned();
+    let parsed = if trimmed.is_empty() {
+        None
+    } else {
+        Some(
+            RoomAliasId::parse(&trimmed)
+                .map_err(|_| "invalid room alias".to_owned())?,
+        )
+    };
+    let events = Arc::clone(&bridge.events);
+    let timelines = Arc::clone(&bridge.timelines);
+    let lifecycle = timelines.lifecycle();
+    let room_id_for_task = room_id.clone();
+    bridge.spawn_room_action(async move {
+        let result = async {
+            // Keep every alternative alias the room already advertises; this
+            // action promotes one alias, it does not rewrite the list.
+            let alt_aliases = room.alt_aliases();
+            if let Some(alias) = parsed.as_deref() {
+                let already_here = match client.resolve_room_alias(alias).await {
+                    Ok(response) => response.room_id.as_str() == room_id_for_task,
+                    // Not resolvable yet: publish it below. Any other
+                    // failure also falls through to the create attempt,
+                    // whose own error is what gets reported.
+                    Err(_) => false,
+                };
+                if !already_here {
+                    let room_id_parsed = room.room_id();
+                    client
+                        .create_room_alias(alias, room_id_parsed)
+                        .await
+                        .map_err(|err| {
+                            classify_room_error(&err.to_string()).to_owned()
+                        })?;
+                }
+            }
+            let mut content = RoomCanonicalAliasEventContent::new();
+            content.alias = parsed.clone();
+            content.alt_aliases = alt_aliases;
+            room.send_state_event(content)
+                .await
+                .map(|_| ())
+                .map_err(|err| classify_room_error(&err.to_string()).to_owned())
+        }
+        .await;
+        if !timelines.lifecycle_current(lifecycle) {
+            return;
+        }
+        emit_edit_result(
+            &events, op_id, lifecycle, &room_id, "canonical_alias", result,
+        );
     });
     Ok(())
 }

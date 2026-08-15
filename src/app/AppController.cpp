@@ -157,6 +157,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_threads      = std::make_unique<ThreadManager>(this);
     m_presence     = std::make_unique<PresenceManager>(this);
     m_presence->setSettings(m_settings.get());
+    m_pinned       = std::make_unique<PinnedMessagesController>(this);
     m_thread       = std::make_unique<ThreadController>(this);
     m_conversations= std::make_unique<ConversationController>(this);
     m_roomInfo     = std::make_unique<RoomInfoController>(this);
@@ -214,6 +215,14 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             [this] {
                 m_gif->recent()->setRecordingEnabled(m_settings->storeRecentGifs());
             });
+    // v0.7.x verification badges: the warning is a function of BOTH the
+    // trust state and the per-account dismissal, so it has to re-notify on
+    // either. securityStateChanged also drives it (see below).
+    connect(m_settings.get(),
+            &SettingsManager::verificationWarningDismissedChanged, this,
+            [this] { Q_EMIT sessionVerificationWarningChanged(); });
+    connect(this, &AppController::securityStateChanged, this,
+            [this] { Q_EMIT sessionVerificationWarningChanged(); });
     m_timelineScroll = std::make_unique<TimelineScrollController>(this);
     m_threadScroll   = std::make_unique<TimelineScrollController>(this);
 
@@ -392,6 +401,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_spaces->setClient(m_client.get());
     m_threads->setClient(m_client.get());
     m_presence->setClient(m_client.get());
+    m_pinned->setClient(m_client.get());
     m_thread->setClient(m_client.get());
     m_roomList->setClient(m_client.get());
     m_roomList->setSpaceManager(m_spaces.get());
@@ -961,6 +971,12 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                 m_sessionTrustState = QStringLiteral("Cross-signing unavailable");
             } else if (deviceCrossSigned) {
                 m_sessionTrustState = QStringLiteral("Verified");
+                // v0.7.x: a dismissal answered "I know this session is
+                // unverified". Once it IS verified that answer is spent —
+                // clearing it here means a future unverified session warns
+                // again instead of inheriting silence from an old dismissal.
+                if (m_settings)
+                    m_settings->setVerificationWarningDismissed(false);
             } else {
                 m_sessionTrustState = QStringLiteral("Not verified");
             }
@@ -1403,6 +1419,28 @@ SpaceManager *AppController::spaces() const { return m_spaces.get(); }
 ThreadManager *AppController::threads() const { return m_threads.get(); }
 PresenceManager *AppController::presence() const { return m_presence.get(); }
 
+bool AppController::sessionVerificationNeeded() const
+{
+    // Exactly one actionable state. "Unknown" is not yet determined, and
+    // "Cross-signing unavailable" means there is no identity to verify
+    // against — prompting there would be advice the user cannot follow.
+    return m_client && m_client->isLoggedIn()
+        && m_cryptoHealth && m_cryptoHealth->cryptoSupported()
+        && m_sessionTrustState == QLatin1String("Not verified");
+}
+
+bool AppController::sessionVerificationWarning() const
+{
+    return sessionVerificationNeeded() && m_settings
+        && !m_settings->verificationWarningDismissed();
+}
+
+void AppController::dismissVerificationWarning()
+{
+    if (m_settings)
+        m_settings->setVerificationWarningDismissed(true);
+}
+
 bool AppController::initialSyncDone() const
 {
     return m_client && m_client->initialSyncDone();
@@ -1490,6 +1528,14 @@ void AppController::setCurrentRoomId(const QString &roomId)
     m_timeline->setRoomId(roomId);
     m_composer->setRoomId(roomId);
     m_pagination->setRoomId(roomId);
+    // v0.7.x pinned messages follow the ACTIVE room: the message-action menu
+    // needs the answer for the room the user is reading, and the previous
+    // room's list must not survive the switch.
+    m_pinned->setRoomId(roomId);
+    // v0.7.x: drop QUEUED thread-participant fetches for the room we just
+    // left. Those summary cards are gone; letting their fetches run would
+    // make the new room's facepiles wait behind answers nothing will read.
+    m_threads->setActiveRoom(roomId);
     // The Unreads list filter keeps the open room visible (reading it
     // must not remove the row the selection sits on).
     m_roomList->setPinnedRoomId(roomId);

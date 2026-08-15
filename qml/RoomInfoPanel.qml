@@ -22,9 +22,28 @@ Rectangle {
     signal openImageRequested(string mediaKey, var httpUrl)
     signal saveMediaRequested(string mediaKey, string filename)
 
-    // "overview" | "people" | "media"
+    // "overview" | "pinned" | "people" | "media"
     property string section: "overview"
     property string memberFilter: ""
+
+    // v0.7.x pinned messages. PinnedMessagesController follows the ACTIVE
+    // room, while this panel can be opened for another room entirely (a
+    // Space home). Rendering its list under a different room's header would
+    // be a lie, so the tab only exists when the two agree.
+    readonly property bool pinnedAvailable:
+        app.pinned && app.pinned.supported
+        && app.roomInfo.roomId !== ""
+        && app.roomInfo.roomId === app.pinned.roomId
+    // A tab that disappears must not leave the panel on a blank section.
+    onPinnedAvailableChanged: {
+        if (!pinnedAvailable && section === "pinned")
+            section = "overview"
+    }
+    // Jump to a pinned event in the timeline. The panel does not own
+    // navigation; TimelinePane does, exactly as it does for search results
+    // and permalinks, so out-of-window pins hydrate through the ONE
+    // existing path rather than a second one built here.
+    signal jumpToEventRequested(string eventId)
 
     // Looks up avatar/name/topic itself (rather than taking a caller-passed
     // snapshot) so it stays live: an avatar that arrives asynchronously
@@ -155,11 +174,22 @@ Rectangle {
             objectName: "roomInfoTabs"
             storm: true
             Layout.margins: AppTheme.spacing8
-            model: [
-                { label: qsTr("Overview"), value: "overview" },
-                { label: qsTr("People"), value: "people" },
-                { label: qsTr("Media"), value: "media" },
-            ]
+            // The Pinned tab appears only when the backend supports pinned
+            // messages AND the panel is showing the room the pin controller
+            // is tracking (the panel can be opened for a Space home, which
+            // is not the active room).
+            model: root.pinnedAvailable
+                ? [
+                    { label: qsTr("Overview"), value: "overview" },
+                    { label: qsTr("Pinned"), value: "pinned" },
+                    { label: qsTr("People"), value: "people" },
+                    { label: qsTr("Media"), value: "media" },
+                  ]
+                : [
+                    { label: qsTr("Overview"), value: "overview" },
+                    { label: qsTr("People"), value: "people" },
+                    { label: qsTr("Media"), value: "media" },
+                  ]
             current: root.section
             onActivated: (value) => root.section = value
         }
@@ -478,6 +508,180 @@ Rectangle {
                     }
                 }
 
+                Rectangle {
+                    Layout.fillWidth: true
+                    implicitHeight: 1
+                    color: AppTheme.border
+                    visible: roomAdminBlock.visible
+                }
+
+                // v0.7.x room administration: who may join, and the room's
+                // published address. Both are ordinary Matrix room state and
+                // both are gated on the SDK's own power-level check for that
+                // state event — never on a role label.
+                ColumnLayout {
+                    id: roomAdminBlock
+                    objectName: "roomAdminBlock"
+                    Layout.fillWidth: true
+                    Layout.margins: AppTheme.spacing12
+                    spacing: AppTheme.spacing8
+                    visible: app.roomInfo.canChangeJoinRule
+                             || app.roomInfo.canChangeAlias
+
+                    Label {
+                        text: qsTr("Access")
+                        color: AppTheme.textSecondary
+                        font.pixelSize: AppTheme.fontSizeS
+                        font.weight: Font.DemiBold
+                    }
+
+                    // Join rule. The three settable rules are the ones that
+                    // carry no extra configuration; a room already using a
+                    // space-restricted rule is shown honestly and left
+                    // alone, because changing it needs an allow-rule list
+                    // this panel has no way to build.
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 4
+                        visible: app.roomInfo.canChangeJoinRule
+                        readonly property bool restricted:
+                            app.roomInfo.joinRule === "restricted"
+                            || app.roomInfo.joinRule === "knock_restricted"
+                        Label {
+                            text: qsTr("Who can join")
+                            color: AppTheme.textMuted
+                            font.pixelSize: AppTheme.fontCaption
+                        }
+                        AppComboBox {
+                            id: joinRuleCombo
+                            objectName: "roomJoinRuleCombo"
+                            Layout.fillWidth: true
+                            visible: !parent.restricted
+                            // Index order must match ruleValues below.
+                            model: [
+                                qsTr("Invited people only"),
+                                qsTr("Anyone with the link"),
+                                qsTr("Ask to join (knock)")
+                            ]
+                            readonly property var ruleValues:
+                                ["invite", "public", "knock"]
+                            // Explicit mirror rather than a two-way binding:
+                            // a rejected write must snap back to what the
+                            // room actually holds, and a binding that the
+                            // user's own selection has already broken
+                            // cannot do that.
+                            property int displayedIndex: 0
+                            function refreshRule() {
+                                var idx = ruleValues.indexOf(
+                                    app.roomInfo.joinRule)
+                                displayedIndex = idx >= 0 ? idx : 0
+                            }
+                            Component.onCompleted: refreshRule()
+                            currentIndex: displayedIndex
+                            enabled: !app.roomInfo.editPending
+                            Connections {
+                                target: app.roomInfo
+                                function onMembersChanged() {
+                                    joinRuleCombo.refreshRule()
+                                }
+                            }
+                            onActivated: (index) => {
+                                app.roomInfo.setJoinRule(
+                                    joinRuleCombo.ruleValues[index])
+                            }
+                        }
+                        Label {
+                            Layout.fillWidth: true
+                            visible: parent.restricted
+                            wrapMode: Text.WordWrap
+                            color: AppTheme.textMuted
+                            font.pixelSize: AppTheme.fontCaption
+                            text: qsTr("Members of a space can join. "
+                                       + "Lightning can't change "
+                                       + "space-restricted access yet.")
+                        }
+                    }
+
+                    // Canonical alias. A bare localpart is completed with
+                    // the account's own server by the controller.
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 4
+                        visible: app.roomInfo.canChangeAlias
+                        Label {
+                            text: qsTr("Published address")
+                            color: AppTheme.textMuted
+                            font.pixelSize: AppTheme.fontCaption
+                        }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: AppTheme.spacing8
+                            AppTextField {
+                                id: editAlias
+                                objectName: "roomAliasField"
+                                Layout.fillWidth: true
+                                placeholderText: qsTr("#room-name")
+                                // Explicit mirror, NOT `text: app.roomInfo
+                                // .canonicalAlias` — the first keystroke
+                                // breaks that binding permanently, and this
+                                // panel outlives a room change. Typed text
+                                // from room A then sat in the field with
+                                // Save enabled against room B's alias, one
+                                // click from publishing A's address onto B.
+                                // Same discipline as joinRuleCombo above.
+                                property string authoritative: ""
+                                // A room change ALWAYS wins, even mid-edit:
+                                // the half-typed value belongs to the room
+                                // that is no longer on screen.
+                                function resetForRoom() {
+                                    authoritative =
+                                        app.roomInfo.canonicalAlias
+                                    text = authoritative
+                                }
+                                // A roster refresh only resnaps when the
+                                // user has not edited, so a remote change
+                                // (or a rejected write) lands without
+                                // destroying an edit in progress.
+                                function refreshAlias() {
+                                    var next = app.roomInfo.canonicalAlias
+                                    if (text === authoritative)
+                                        text = next
+                                    authoritative = next
+                                }
+                                Component.onCompleted: resetForRoom()
+                                Connections {
+                                    target: app.roomInfo
+                                    function onRoomIdChanged() {
+                                        editAlias.resetForRoom()
+                                    }
+                                    function onMembersChanged() {
+                                        editAlias.refreshAlias()
+                                    }
+                                }
+                            }
+                            AppButton {
+                                kind: "primary"
+                                text: qsTr("Save")
+                                enabled: !app.roomInfo.editPending
+                                         && editAlias.text.trim()
+                                            !== app.roomInfo.canonicalAlias
+                                onClicked:
+                                    app.roomInfo.setCanonicalAlias(
+                                        editAlias.text)
+                            }
+                        }
+                        Label {
+                            Layout.fillWidth: true
+                            wrapMode: Text.WordWrap
+                            color: AppTheme.textMuted
+                            font.pixelSize: AppTheme.fontCaption
+                            text: qsTr("Publishing an address lets people "
+                                       + "find and join this room by name. "
+                                       + "Leave it empty to remove it.")
+                        }
+                    }
+                }
+
                 Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: AppTheme.border }
 
                 // Leave room.
@@ -502,6 +706,232 @@ Rectangle {
                     }
                 }
                 Item { Layout.preferredHeight: AppTheme.spacing16 }
+            }
+        }
+
+        // ── Pinned ───────────────────────────────────────────────────────
+        // v0.7.x. The list IS `m.room.pinned_events`: nothing is stored
+        // locally, remote changes arrive through the controller's re-read,
+        // and an entry the server could not resolve renders as an honest
+        // unavailable row rather than being hidden or linked anywhere.
+        ColumnLayout {
+            visible: root.section === "pinned" && root.pinnedAvailable
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            spacing: AppTheme.spacing8
+
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.margins: AppTheme.spacing12
+                Layout.bottomMargin: 0
+                spacing: AppTheme.spacing8
+                Label {
+                    Layout.fillWidth: true
+                    text: app.pinned.total === 0
+                          ? qsTr("No pinned messages")
+                          : qsTr("%n pinned message(s)", "", app.pinned.total)
+                    color: AppTheme.textSecondary
+                    font.pixelSize: AppTheme.fontSizeS
+                    font.weight: Font.DemiBold
+                }
+                BusyIndicator {
+                    visible: app.pinned.loading || app.pinned.pending
+                    running: visible
+                    implicitWidth: 16; implicitHeight: 16
+                }
+            }
+
+            Label {
+                Layout.fillWidth: true
+                Layout.leftMargin: AppTheme.spacing12
+                Layout.rightMargin: AppTheme.spacing12
+                visible: app.pinned.truncated
+                wrapMode: Text.WordWrap
+                color: AppTheme.textMuted
+                font.pixelSize: AppTheme.fontCaption
+                text: qsTr("Showing the most recent pins. This room pins "
+                           + "more than Lightning loads at once.")
+            }
+
+            Label {
+                Layout.fillWidth: true
+                Layout.leftMargin: AppTheme.spacing12
+                Layout.rightMargin: AppTheme.spacing12
+                visible: app.pinned.error.length > 0
+                wrapMode: Text.WordWrap
+                text: app.pinned.error
+                color: AppTheme.danger
+                font.pixelSize: AppTheme.fontSizeS
+            }
+
+            ListView {
+                objectName: "pinnedMessagesList"
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                clip: true
+                spacing: 2
+                // Newest pin first: Matrix appends, so the bridge's list is
+                // oldest-first and the useful end is the tail.
+                model: {
+                    var out = []
+                    var src = app.pinned.entries
+                    for (var i = src.length - 1; i >= 0; --i)
+                        out.push(src[i])
+                    return out
+                }
+                delegate: Item {
+                    id: pinDelegate
+                    width: ListView.view.width
+                    height: pinRow.implicitHeight + AppTheme.spacing16
+
+                    required property var modelData
+
+                    readonly property bool resolved:
+                        pinDelegate.modelData.available === true
+                    readonly property string senderName:
+                        pinDelegate.modelData.senderDisplayName
+                        || (pinDelegate.modelData.sender || "")
+                    readonly property string kind:
+                        pinDelegate.modelData.kind || ""
+
+                    HoverHandler { id: pinHover }
+                    Rectangle {
+                        anchors.fill: parent
+                        color: AppTheme.hover
+                        visible: pinHover.hovered && pinDelegate.resolved
+                    }
+                    // Only a resolved pin is clickable. An unavailable one
+                    // must never navigate: there is nothing to navigate to,
+                    // and jumping "near" it would land on an unrelated
+                    // message.
+                    TapHandler {
+                        enabled: pinDelegate.resolved
+                        onTapped: root.jumpToEventRequested(
+                                      pinDelegate.modelData.eventId)
+                    }
+
+                    RowLayout {
+                        id: pinRow
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.leftMargin: AppTheme.spacing12
+                        anchors.rightMargin: AppTheme.spacing8
+                        spacing: AppTheme.spacing8
+
+                        Avatar {
+                            size: 28
+                            circle: true
+                            visible: pinDelegate.resolved
+                            name: pinDelegate.senderName
+                            mxc: pinDelegate.modelData.senderAvatarUrl || ""
+                            colorKey: pinDelegate.modelData.sender || ""
+                        }
+                        Icon {
+                            visible: !pinDelegate.resolved
+                            name: "warning"
+                            size: 20
+                            color: AppTheme.textMuted
+                        }
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 1
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: AppTheme.spacing8
+                                Label {
+                                    Layout.fillWidth: true
+                                    elide: Label.ElideRight
+                                    text: pinDelegate.resolved
+                                          ? pinDelegate.senderName
+                                          : qsTr("Message unavailable")
+                                    color: AppTheme.textPrimary
+                                    font.pixelSize: AppTheme.fontSizeS
+                                    font.weight: Font.DemiBold
+                                }
+                                Label {
+                                    visible: pinDelegate.resolved
+                                             && pinDelegate.modelData
+                                                .timestampMs > 0
+                                    text: new Date(pinDelegate.modelData
+                                                   .timestampMs)
+                                          .toLocaleDateString(
+                                              Qt.locale(), Locale.ShortFormat)
+                                    color: AppTheme.textMuted
+                                    font.pixelSize: AppTheme.fontCaption
+                                }
+                            }
+                            Label {
+                                Layout.fillWidth: true
+                                elide: Label.ElideRight
+                                maximumLineCount: 2
+                                wrapMode: Text.WordWrap
+                                color: AppTheme.textSecondary
+                                font.pixelSize: AppTheme.fontSizeS
+                                // Media and non-text pins get a typed label
+                                // instead of a body that would read as
+                                // nothing; a deleted or still-encrypted pin
+                                // says exactly that.
+                                text: {
+                                    if (!pinDelegate.resolved) {
+                                        return qsTr("It may have been deleted, "
+                                                    + "or this account cannot "
+                                                    + "see it.")
+                                    }
+                                    var k = pinDelegate.kind
+                                    if (k === "redacted")
+                                        return qsTr("Message deleted")
+                                    if (k === "encrypted")
+                                        return qsTr("Can't decrypt this yet")
+                                    var p = pinDelegate.modelData.preview || ""
+                                    if (k === "image")
+                                        return p.length > 0
+                                            ? qsTr("Image · %1").arg(p)
+                                            : qsTr("Image")
+                                    if (k === "video")
+                                        return p.length > 0
+                                            ? qsTr("Video · %1").arg(p)
+                                            : qsTr("Video")
+                                    if (k === "audio")
+                                        return p.length > 0
+                                            ? qsTr("Audio · %1").arg(p)
+                                            : qsTr("Audio")
+                                    if (k === "file")
+                                        return p.length > 0
+                                            ? qsTr("File · %1").arg(p)
+                                            : qsTr("File")
+                                    if (k === "sticker")
+                                        return p.length > 0
+                                            ? qsTr("Sticker · %1").arg(p)
+                                            : qsTr("Sticker")
+                                    return p.length > 0 ? p : qsTr("Message")
+                                }
+                            }
+                        }
+
+                        // Unpin stays available for an UNAVAILABLE pin too:
+                        // a dangling id is exactly the entry a moderator
+                        // most wants to remove, and unpinning it needs only
+                        // the id, never the event.
+                        IconButton {
+                            iconName: "close"
+                            iconSize: 18
+                            implicitWidth: 28
+                            implicitHeight: 28
+                            visible: app.pinned.canPin
+                                     && (pinHover.hovered
+                                         || !pinDelegate.resolved)
+                            enabled: !app.pinned.pending
+                            Accessible.name: qsTr("Unpin this message")
+                            ToolTip.text: qsTr("Unpin")
+                            ToolTip.visible: hovered
+                            ToolTip.delay: 500
+                            onClicked: app.pinned.unpin(
+                                           pinDelegate.modelData.eventId)
+                        }
+                    }
+                }
             }
         }
 

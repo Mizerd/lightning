@@ -319,6 +319,80 @@ ApplicationWindow {
             onTriggered: zoomNotice.visible = false
         }
     }
+    // v0.7.x pinned messages: a pin/unpin FAILURE has to be visible where the
+    // action was taken. The common path is the message context menu, which
+    // closes on trigger — without this the only report was app.pinned.error
+    // inside Room Information → Pinned, a surface the user is usually not
+    // looking at. Same overlay-parented transient shape as zoomNotice above
+    // (it must sit above any open popup, for the same reason).
+    // Success is silent on purpose: the pinned list updating IS the feedback.
+    Rectangle {
+        id: pinNotice
+        objectName: "pinActionNotice"
+        property string message: ""
+        function show(text) { message = text; visible = true; pinNoticeTimer.restart() }
+        visible: false
+        parent: Overlay.overlay
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.top: parent.top
+        anchors.topMargin: AppTheme.spacing16
+        z: 1000
+        radius: AppTheme.radiusLg
+        color: AppTheme.stormPanel
+        border.color: AppTheme.stormDanger
+        border.width: 1
+        width: Math.min(pinNoticeLabel.implicitWidth + AppTheme.spacing16 * 2,
+                        window.width - AppTheme.spacing16 * 2)
+        height: pinNoticeLabel.implicitHeight + AppTheme.spacing12
+        Accessible.role: Accessible.AlertMessage
+        Accessible.name: pinNotice.message
+        Label {
+            id: pinNoticeLabel
+            anchors.centerIn: parent
+            width: Math.min(implicitWidth, window.width - AppTheme.spacing16 * 4)
+            text: pinNotice.message
+            color: AppTheme.stormText
+            font.pixelSize: AppTheme.fontSecondary
+            wrapMode: Text.WordWrap
+            horizontalAlignment: Text.AlignHCenter
+        }
+        Timer {
+            id: pinNoticeTimer
+            interval: 4000
+            onTriggered: pinNotice.visible = false
+        }
+        Connections {
+            target: app.pinned
+            function onPinActionFinished(roomId, eventId, pin, ok, message) {
+                if (!ok && message.length > 0)
+                    pinNotice.show(message)
+            }
+        }
+    }
+
+    // v0.7.x session verification. ONE dialog for the whole app: it follows
+    // AppController's verification state and opens itself, so Settings, the
+    // corner prompt and an INCOMING request from another client all surface
+    // through the same presentation. Declaring it per-page would give two
+    // instances that both react to the same state.
+    VerificationDialog {
+        id: verificationDialog
+        objectName: "verificationDialog"
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+    }
+
+    // First-run nudge. Deliberately a corner card rather than a modal: an
+    // unverified session still works, so this must not block the app.
+    VerifySessionPrompt {
+        objectName: "verifySessionPromptHost"
+        parent: Overlay.overlay
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        anchors.margins: AppTheme.spacing16
+        z: 900
+    }
+
     Loader {
         active: app.screenshotDemoActive
         anchors.fill: parent

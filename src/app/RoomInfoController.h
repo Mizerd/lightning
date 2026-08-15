@@ -35,6 +35,28 @@ class RoomInfoController : public QObject
     Q_PROPERTY(bool canBan READ canBan NOTIFY membersChanged)
     Q_PROPERTY(bool canUnban READ canUnban NOTIFY membersChanged)
     Q_PROPERTY(qlonglong ownPowerLevel READ ownPowerLevel NOTIFY membersChanged)
+    // v0.7.x room administration. Every flag is the SDK's own power-level
+    // check against the room's REAL required level for that state event —
+    // a room may require any level for any of them, so nothing here assumes
+    // "administrator only".
+    Q_PROPERTY(bool canChangePowerLevels READ canChangePowerLevels
+                   NOTIFY membersChanged)
+    Q_PROPERTY(bool canPinMessages READ canPinMessages NOTIFY membersChanged)
+    Q_PROPERTY(bool canChangeJoinRule READ canChangeJoinRule
+                   NOTIFY membersChanged)
+    Q_PROPERTY(bool canChangeAlias READ canChangeAlias NOTIFY membersChanged)
+    // The room's default user level. Needed to render "Member" honestly:
+    // a room may set it to anything, and update_power_levels treats a
+    // set-to-default as removal from the users map.
+    Q_PROPERTY(qlonglong usersDefaultPowerLevel READ usersDefaultPowerLevel
+                   NOTIFY membersChanged)
+    // "invite" | "public" | "knock" | "private" | "restricted" |
+    // "knock_restricted", or "" when not known. Only the first three are
+    // settable (see setJoinRule).
+    Q_PROPERTY(QString joinRule READ joinRule NOTIFY membersChanged)
+    Q_PROPERTY(QString canonicalAlias READ canonicalAlias NOTIFY membersChanged)
+    Q_PROPERTY(bool powerLevelPending READ powerLevelPending
+                   NOTIFY powerLevelStateChanged)
     Q_PROPERTY(bool moderationPending READ moderationPending
                    NOTIFY moderationStateChanged)
     Q_PROPERTY(bool editPending READ editPending NOTIFY editStateChanged)
@@ -64,6 +86,14 @@ public:
     bool canBan() const { return m_canBan; }
     bool canUnban() const { return m_canUnban; }
     qlonglong ownPowerLevel() const { return m_ownPowerLevel; }
+    bool canChangePowerLevels() const { return m_canChangePowerLevels; }
+    bool canPinMessages() const { return m_canPinMessages; }
+    bool canChangeJoinRule() const { return m_canChangeJoinRule; }
+    bool canChangeAlias() const { return m_canChangeAlias; }
+    qlonglong usersDefaultPowerLevel() const { return m_usersDefaultPowerLevel; }
+    QString joinRule() const { return m_joinRule; }
+    QString canonicalAlias() const { return m_canonicalAlias; }
+    bool powerLevelPending() const { return m_powerLevelOp != 0; }
     bool moderationPending() const { return m_moderationOp != 0; }
     bool editPending() const { return m_editOp != 0; }
     QString editError() const { return m_editError; }
@@ -114,6 +144,42 @@ public:
                                  const QString &reason,
                                  bool inviteBack = false);
 
+    // ---- v0.7.x room administration ----
+    //
+    // Whether changing `userId`'s level to `level` should be OFFERED. The
+    // Matrix rules the server will apply, checked here so the UI never
+    // dispatches a state event that is known to be unauthorized:
+    //   * the viewer must be permitted to send m.room.power_levels at all;
+    //   * the new level may not exceed the viewer's own level (you cannot
+    //     hand out authority you do not have);
+    //   * the target's CURRENT level must be strictly below the viewer's,
+    //     with the one exception that a user may always demote themselves —
+    //     you may not overrule a peer at your own level;
+    //   * the target must exist in the loaded snapshot. An unknown target
+    //     FAILS CLOSED: levels may legitimately be negative, so absence of
+    //     the row — never a sentinel value — is the unknown state.
+    // The server remains the authority in every case.
+    Q_INVOKABLE bool canSetPowerLevel(const QString &userId,
+                                      qlonglong level) const;
+    // The target's current level, or the room's users_default when the row
+    // exists without one. Returns usersDefaultPowerLevel for an unknown
+    // user — callers should gate on canSetPowerLevel, not on this.
+    Q_INVOKABLE qlonglong powerLevelFor(const QString &userId) const;
+    // Friendly label for a numeric level, WITHOUT flattening it: a level
+    // that is not one of the conventional presets renders as its number.
+    Q_INVOKABLE QString roleLabelForLevel(qlonglong level) const;
+    Q_INVOKABLE void setMemberPowerLevel(const QString &userId,
+                                         qlonglong level);
+    // "invite" | "public" | "knock". Anything else is refused: the
+    // restricted rules carry an allow-rule list that needs a space picker,
+    // and sending one with an empty list would silently lock the room to
+    // invite-only while claiming otherwise.
+    Q_INVOKABLE void setJoinRule(const QString &rule);
+    // An empty alias clears the canonical alias. A bare localpart is
+    // completed with the account's own server so the user does not have to
+    // type "#name:server" by hand.
+    Q_INVOKABLE void setCanonicalAlias(const QString &alias);
+
 Q_SIGNALS:
     void roomIdChanged();
     void membersChanged();
@@ -134,10 +200,20 @@ Q_SIGNALS:
     void moderationActionFinished(const QString &roomId, const QString &userId,
                                   const QString &op, bool ok,
                                   const QString &message);
+    void powerLevelStateChanged();
+    // A member's power-level write finished. `message` is empty on success.
+    // The authoritative level arrives with the roster refresh that follows,
+    // never from this signal — the UI must not treat `level` as applied.
+    void powerLevelActionFinished(const QString &roomId, const QString &userId,
+                                  qlonglong level, bool ok,
+                                  const QString &message);
 
 private Q_SLOTS:
     void onRoomMembersReceived(quint64 opId, const QString &roomId,
                                const QVariantMap &snapshot);
+    void onPowerLevelChangeFinished(quint64 opId, const QString &roomId,
+                                    const QString &userId, qlonglong level,
+                                    bool ok, const QString &category);
     void onRoomEditFinished(quint64 opId, const QString &roomId,
                             const QString &field, bool ok,
                             const QString &category);
@@ -177,6 +253,15 @@ private:
     bool m_canBan = false;
     bool m_canUnban = false;
     qlonglong m_ownPowerLevel = 0;
+    bool m_canChangePowerLevels = false;
+    bool m_canPinMessages = false;
+    bool m_canChangeJoinRule = false;
+    bool m_canChangeAlias = false;
+    qlonglong m_usersDefaultPowerLevel = 0;
+    QString m_joinRule;
+    QString m_canonicalAlias;
+    quint64 m_powerLevelOp = 0;
+    QString m_powerLevelUserId;
     quint64 m_moderationOp = 0;
     // Armed while an unban that should be followed by an invite is in
     // flight; the invite itself is tracked by its own op id.

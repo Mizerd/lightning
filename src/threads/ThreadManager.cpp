@@ -9,6 +9,7 @@
 #include <QTimer>
 
 #include <algorithm>
+#include <utility>
 
 ThreadManager::ThreadManager(QObject *parent)
     : QObject(parent)
@@ -32,7 +33,9 @@ void ThreadManager::setClient(MatrixClient *client)
         Q_UNUSED(distinct);
         Q_UNUSED(truncated);
         const QString key = participantKey(roomId, rootEventId);
-        m_participantsInFlight.remove(key);
+        // Free the slot BEFORE anything else: the queue must advance even
+        // when this answer is a failure we do not cache.
+        releaseParticipantSlot(key);
         // A failed lookup arrives empty. Do NOT cache it: caching would
         // turn a transient failure into a permanent "no participants" for
         // the rest of the session, and the next request would be
@@ -54,10 +57,107 @@ QString ThreadManager::participantKey(const QString &roomId,
     return roomId + QChar(0x1F) + rootEventId;
 }
 
+QString ThreadManager::roomOfParticipantKey(const QString &key)
+{
+    const int sep = key.indexOf(QChar(0x1F));
+    return sep < 0 ? QString() : key.left(sep);
+}
+
 void ThreadManager::clearParticipants()
 {
     m_participants.clear();
     m_participantsInFlight.clear();
+    m_participantGeneration.clear();
+    m_participantQueue.clear();
+    m_participantQueued.clear();
+}
+
+void ThreadManager::setActiveRoom(const QString &roomId)
+{
+    if (m_activeRoomId == roomId)
+        return;
+    m_activeRoomId = roomId;
+    // Discard QUEUED work for other rooms: those cards no longer exist, and
+    // letting them run would make the new room's facepiles wait behind
+    // answers nothing will read. In-flight requests are deliberately left
+    // running — their answers are keyed by room, so they can only ever
+    // populate their own room's cache, and cancelling a fetch already paid
+    // for would just make a return visit slower.
+    if (m_participantQueue.isEmpty())
+        return;
+    QStringList kept;
+    kept.reserve(m_participantQueue.size());
+    for (const QString &key : std::as_const(m_participantQueue)) {
+        if (roomOfParticipantKey(key) == roomId)
+            kept.append(key);
+        else
+            m_participantQueued.remove(key);
+    }
+    m_participantQueue = kept;
+    pumpParticipantQueue();
+}
+
+void ThreadManager::dispatchParticipants(const QString &key)
+{
+    const int sep = key.indexOf(QChar(0x1F));
+    if (!m_client || sep < 0)
+        return;
+    const QString roomId = key.left(sep);
+    const QString rootEventId = key.mid(sep + 1);
+    const quint64 generation = m_nextParticipantGeneration++;
+    m_participantsInFlight.insert(key);
+    m_participantGeneration.insert(key, generation);
+    m_client->requestThreadParticipants(roomId, rootEventId);
+    // Several paths never answer at all: the backend refuses while logged
+    // out, the Rust side returns Err before spawning (unknown room, left
+    // room, unparsable root), the spawned task drops on a lifecycle change,
+    // or the event queue overflows. Without a timeout the key would stay
+    // in-flight forever — that root could never be retried, AND (since the
+    // bound landed) it would hold a concurrency slot for the rest of the
+    // session. The timeout only releases the key; it never caches a result,
+    // so the next request is a genuine retry.
+    const QPointer<ThreadManager> guard(this);
+    QTimer::singleShot(kParticipantRequestTimeoutMs, this,
+                       [guard, key, generation] {
+        if (!guard)
+            return;
+        guard->releaseParticipantSlot(key, generation);
+    });
+}
+
+void ThreadManager::releaseParticipantSlot(const QString &key,
+                                           quint64 generation)
+{
+    if (!m_participantsInFlight.contains(key))
+        return; // already released (answer beat the timeout, or vice versa)
+    // A failed lookup is not cached, so the same root can be dispatched
+    // again long before its first 60 s timer fires. That stale timer must
+    // not release the NEW dispatch's slot: doing so would let the pool
+    // admit past the cap and re-request a root that is already in flight.
+    if (generation != 0
+        && m_participantGeneration.value(key, 0) != generation) {
+        return;
+    }
+    m_participantsInFlight.remove(key);
+    m_participantGeneration.remove(key);
+    pumpParticipantQueue();
+}
+
+void ThreadManager::pumpParticipantQueue()
+{
+    while (!m_participantQueue.isEmpty()
+           && m_participantsInFlight.size()
+                  < kMaxConcurrentParticipantFetches) {
+        const QString key = m_participantQueue.takeFirst();
+        m_participantQueued.remove(key);
+        // It may have been answered while it waited (another card for the
+        // same root, or a cached write): skip rather than re-fetch.
+        if (m_participants.contains(key)
+            || m_participantsInFlight.contains(key)) {
+            continue;
+        }
+        dispatchParticipants(key);
+    }
 }
 
 QVariantList ThreadManager::participants(const QString &roomId,
@@ -74,28 +174,26 @@ void ThreadManager::requestParticipants(const QString &roomId,
     if (!m_client || roomId.isEmpty() || rootEventId.isEmpty())
         return;
     const QString key = participantKey(roomId, rootEventId);
-    // Idempotent: already known, or already asked. This is what makes it
-    // safe for every visible summary card to call on every appearance —
-    // without it, scrolling a timeline full of thread roots would issue a
-    // request per card per scroll.
-    if (m_participants.contains(key) || m_participantsInFlight.contains(key))
+    // Idempotent: already known, already asked, or already waiting. This is
+    // what makes it safe for every visible summary card to call on every
+    // appearance — without it, scrolling a timeline full of thread roots
+    // would issue a request per card per scroll.
+    if (m_participants.contains(key) || m_participantsInFlight.contains(key)
+        || m_participantQueued.contains(key)) {
         return;
-    m_participantsInFlight.insert(key);
-    m_client->requestThreadParticipants(roomId, rootEventId);
-    // Several paths never answer at all: the backend refuses while logged
-    // out, the Rust side returns Err before spawning (unknown room, left
-    // room, unparsable root), the spawned task drops on a lifecycle change,
-    // or the event queue overflows. Without a timeout the key would stay
-    // in-flight forever and that root could never be retried for the rest
-    // of the session — a silent permanent "no facepile". The timeout only
-    // releases the key; it never caches a result, so the next request is a
-    // genuine retry.
-    const QPointer<ThreadManager> guard(this);
-    QTimer::singleShot(kParticipantRequestTimeoutMs, this, [guard, key] {
-        if (!guard)
-            return;
-        guard->m_participantsInFlight.remove(key);
-    });
+    }
+    // Under the concurrency bound: dispatch now. Otherwise queue — the
+    // timeline is not virtualized, so a thread-heavy room asks for every
+    // loaded root on one frame, and dispatching them all at once is exactly
+    // the request storm this bound exists to prevent.
+    if (m_participantsInFlight.size() < kMaxConcurrentParticipantFetches) {
+        dispatchParticipants(key);
+        return;
+    }
+    if (m_participantQueue.size() >= kMaxQueuedParticipantFetches)
+        return; // dropped, and therefore genuinely retryable later
+    m_participantQueue.append(key);
+    m_participantQueued.insert(key);
 }
 
 QStringList ThreadManager::threadRootsInRoom(const QString &roomId) const

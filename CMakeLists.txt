@@ -176,6 +176,8 @@ set(APP_SOURCES
     src/app/StormBandPainter.cpp
     src/app/RoomInfoController.h
     src/app/RoomInfoController.cpp
+    src/app/PinnedMessagesController.h
+    src/app/PinnedMessagesController.cpp
     src/app/SessionDiagnostics.h
     src/app/SessionDiagnostics.cpp
     src/app/SettingsManager.h
@@ -402,6 +404,9 @@ set(APP_QML_FILES
     qml/MenuSectionLabel.qml
     qml/StatusChip.qml
     qml/PresenceDot.qml
+    qml/VerificationPanel.qml
+    qml/VerificationDialog.qml
+    qml/VerifySessionPrompt.qml
     qml/QuickReactionStrip.qml
     qml/IdentityCard.qml
     qml/TrustCard.qml
@@ -633,6 +638,7 @@ if(ENABLE_RUST_SDK_BACKEND)
                 --offline --locked
                 --manifest-path ${_rust_dir}/Cargo.toml
         DEPENDS ${_rust_dir}/src/lib.rs
+                ${_rust_dir}/src/pinned.rs
                 ${_rust_dir}/src/presence.rs
                 ${_rust_dir}/src/rooms.rs
                 ${_rust_dir}/src/timeline.rs
@@ -1418,6 +1424,52 @@ if(BUILD_TESTING)
     target_include_directories(room-info-moderation-test PRIVATE src)
     target_link_libraries(room-info-moderation-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME room-info-moderation COMMAND room-info-moderation-test)
+
+    # v0.7.x room administration: member power levels, join rule and
+    # canonical alias through RoomInfoController — Matrix rule enforcement
+    # before dispatch, custom numeric levels preserved rather than rounded
+    # into presets, no optimistic local write, stale-answer rejection.
+    qt_add_executable(room-power-levels-test
+        tests/RoomPowerLevelsTest.cpp
+        src/app/RoomInfoController.h
+        src/app/RoomInfoController.cpp
+        src/matrix/MatrixClient.h
+        src/matrix/MatrixClient.cpp
+    )
+    target_include_directories(room-power-levels-test PRIVATE src)
+    target_link_libraries(room-power-levels-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME room-power-levels COMMAND room-power-levels-test)
+
+    # v0.7.x pinned messages: PinnedMessagesController policy — snapshot
+    # ingestion, the complete-id-list contract behind isPinned(), offering
+    # exactly the action that applies, no optimistic apply, remote-change
+    # re-read, room-switch and sign-out clearing.
+    qt_add_executable(pinned-messages-test
+        tests/PinnedMessagesTest.cpp
+        src/app/PinnedMessagesController.h
+        src/app/PinnedMessagesController.cpp
+        src/matrix/MatrixClient.h
+        src/matrix/MatrixClient.cpp
+    )
+    target_include_directories(pinned-messages-test PRIVATE src)
+    target_link_libraries(pinned-messages-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME pinned-messages COMMAND pinned-messages-test)
+
+    # v0.7.x: the thread-participant fetch bound — concurrency cap, FIFO
+    # queue, slot release on success AND on a failed (empty) answer,
+    # deduplication against cached/in-flight/queued roots, and room-switch
+    # invalidation of queued-but-not-started work.
+    qt_add_executable(thread-facepile-bound-test
+        tests/ThreadFacepileBoundTest.cpp
+        src/threads/ThreadManager.h
+        src/threads/ThreadManager.cpp
+        src/matrix/MatrixClient.h
+        src/matrix/MatrixClient.cpp
+    )
+    target_include_directories(thread-facepile-bound-test PRIVATE src)
+    target_link_libraries(thread-facepile-bound-test PRIVATE
+        Qt6::Core Qt6::Test)
+    add_test(NAME thread-facepile-bound COMMAND thread-facepile-bound-test)
 
     # v0.6.0: SDK-backed thread foundation — lifecycle (open/close/switch),
     # root/reply identity via the composite timeline id, failure states,

@@ -595,6 +595,46 @@ char *mx_rust_moderate_user(void *client,
                             const char *reason,
                             unsigned char op,
                             unsigned long long op_id);
+/* v0.7.x room administration. Set one member's power level; every other
+ * user's level (including arbitrary custom numbers) is preserved by the
+ * SDK. Result: room_power_level_result
+ * { op_id, room_id, user_id, level, ok, category }. */
+char *mx_rust_set_member_power_level(void *client,
+                                     const char *room_id,
+                                     const char *user_id,
+                                     long long level,
+                                     unsigned long long op_id);
+/* Join rule: "invite", "public" or "knock". Rules carrying an allow-rule
+ * list (restricted / knock_restricted) are refused here on purpose.
+ * Result: room_edit_result with field "join_rule". */
+char *mx_rust_set_room_join_rule(void *client,
+                                 const char *room_id,
+                                 const char *rule,
+                                 unsigned long long op_id);
+/* Canonical alias; an empty alias clears it. Publishes the directory
+ * mapping first when the alias does not already resolve to this room.
+ * Result: room_edit_result with field "canonical_alias". */
+char *mx_rust_set_room_canonical_alias(void *client,
+                                       const char *room_id,
+                                       const char *alias,
+                                       unsigned long long op_id);
+/* v0.7.x pinned messages. Read m.room.pinned_events and resolve each id
+ * into a displayable row (bounded; cache-first, one /event per miss).
+ * `allow_remote` permits the /state fallback used only when the room
+ * carries no pinned-events state at all. Result: room_pinned
+ * { op_id, room_id, ok, can_pin, total, truncated, entries[] }. */
+char *mx_rust_room_pinned(void *client,
+                          const char *room_id,
+                          unsigned char allow_remote,
+                          unsigned long long op_id);
+/* Pin (pin = 1) or unpin (pin = 0) one event; the SDK performs the
+ * read-modify-send of the state event. Result: room_pin_result
+ * { op_id, room_id, event_id, pin, ok, changed, category }. */
+char *mx_rust_set_room_pinned(void *client,
+                              const char *room_id,
+                              const char *event_id,
+                              unsigned char pin,
+                              unsigned long long op_id);
 char *mx_rust_add_room_to_space(void *client,
                                 const char *space_id,
                                 const char *room_id,

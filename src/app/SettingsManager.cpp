@@ -31,6 +31,9 @@ constexpr auto kPreviewsUnencrypted = "previews/autoLoadUnencrypted";
 constexpr auto kPreviewsEncrypted   = "previews/loadInEncryptedRooms";
 constexpr auto kPreviewsAnimateGifs = "previews/animateGifs";
 constexpr auto kSharePresence = "presence/shareOwn";
+// Account-scoped only (accounts/<slug>/security/verifyWarningDismissed);
+// there is deliberately no global fallback key.
+constexpr auto kVerifyWarningDismissed = "security/verifyWarningDismissed";
 // v0.6.1: GIF browser policy.
 constexpr auto kGifAutoplay         = "gif/autoplay";       // 0/1/2
 constexpr auto kGifSafeSearch       = "gif/safeSearch";     // gif::Rating id
@@ -430,6 +433,8 @@ void SettingsManager::setActiveAccountUserId(const QString &userId)
     Q_EMIT messageLayoutChanged();
     Q_EMIT textScaleChanged();
     Q_EMIT uiFontChanged();
+    // Also account-scoped: the switched-to account has its own answer.
+    Q_EMIT verificationWarningDismissedChanged();
 }
 
 void SettingsManager::updateAccountProfile(const QString &userId,
@@ -1145,6 +1150,29 @@ void SettingsManager::setSharePresence(bool v)
         return;
     m_store->setValue(kSharePresence, v);
     Q_EMIT sharePresenceChanged();
+}
+
+bool SettingsManager::verificationWarningDismissed() const
+{
+    // Account-scoped with NO global fallback: a dismissal answers "I know
+    // THIS account's session is unverified", and mirroring it globally
+    // would silence the warning for an account that never asked.
+    const QString slug = slugForSavedAccount(activeAccountUserId());
+    if (slug.isEmpty())
+        return false;
+    return m_store->value(accountKey(slug, kVerifyWarningDismissed), false)
+        .toBool();
+}
+
+void SettingsManager::setVerificationWarningDismissed(bool v)
+{
+    const QString slug = slugForSavedAccount(activeAccountUserId());
+    if (slug.isEmpty())
+        return;
+    if (verificationWarningDismissed() == v)
+        return;
+    m_store->setValue(accountKey(slug, kVerifyWarningDismissed), v);
+    Q_EMIT verificationWarningDismissedChanged();
 }
 
 int SettingsManager::gifAutoplay() const

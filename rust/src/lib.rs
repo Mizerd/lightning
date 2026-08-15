@@ -41,6 +41,8 @@ use matrix_sdk::{
                 encrypted::OriginalSyncRoomEncryptedEvent,
                 member::SyncRoomMemberEvent,
                 message::{MessageType, OriginalSyncRoomMessageEvent, RoomMessageEventContent},
+                pinned_events::SyncRoomPinnedEventsEvent,
+                power_levels::SyncRoomPowerLevelsEvent,
             },
             secret::send::ToDeviceSecretSendEvent,
             typing::SyncTypingEvent,
@@ -64,6 +66,7 @@ use serde_json::json;
 
 mod gifs;
 mod oauth;
+mod pinned;
 mod presence;
 mod rooms;
 mod timeline;
@@ -5447,6 +5450,102 @@ pub unsafe extern "C" fn mx_rust_moderate_user(
     })
 }
 
+/// v0.7.x room administration: set ONE member's power level through the
+/// SDK's `Room::update_power_levels`, which preserves every other user's
+/// level (including arbitrary custom numbers). Result event:
+/// room_power_level_result.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_set_member_power_level(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    user_id: *const c_char,
+    level: i64,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let user_id = unsafe { cstr_arg(user_id) }?;
+        rooms::set_member_power_level(bridge, room_id, user_id, level, op_id)
+            .map(|_| String::new())
+    })
+}
+
+/// v0.7.x room administration: set the room's join rule ("invite",
+/// "public" or "knock"). Result event: room_edit_result, field "join_rule".
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_set_room_join_rule(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    rule: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let rule = unsafe { cstr_arg(rule) }?;
+        rooms::set_room_join_rule(bridge, room_id, rule, op_id).map(|_| String::new())
+    })
+}
+
+/// v0.7.x room administration: set (or clear, with an empty string) the
+/// room's canonical alias. Result event: room_edit_result, field
+/// "canonical_alias".
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_set_room_canonical_alias(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    alias: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let alias = unsafe { cstr_arg(alias) }?;
+        rooms::set_room_canonical_alias(bridge, room_id, alias, op_id)
+            .map(|_| String::new())
+    })
+}
+
+/// v0.7.x pinned messages: read `m.room.pinned_events` and resolve each id
+/// into a displayable row. `allow_remote` (0/1) permits the `/state`
+/// fallback taken only when the room carries no pinned-events state at all.
+/// Result event: room_pinned.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_room_pinned(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    allow_remote: u8,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        pinned::fetch_pinned(bridge, room_id, allow_remote != 0, op_id)
+            .map(|_| String::new())
+    })
+}
+
+/// v0.7.x pinned messages: pin (`pin` = 1) or unpin (`pin` = 0) one event.
+/// The SDK performs the read-modify-send of the state event. Result event:
+/// room_pin_result.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_set_room_pinned(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    event_id: *const c_char,
+    pin: u8,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let event_id = unsafe { cstr_arg(event_id) }?;
+        pinned::set_pinned(bridge, room_id, event_id, pin != 0, op_id)
+            .map(|_| String::new())
+    })
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_add_room_to_space(
     ptr: *mut c_void,
@@ -6259,6 +6358,43 @@ fn install_event_handlers(
             enqueue(&events, json!({
                 "type": "room_members_changed",
                 "room_id": room_id.to_string(),
+            }));
+        }
+    });
+
+    // v0.7.x pinned messages: another client (or another of this user's
+    // devices) changed `m.room.pinned_events`. Only the room id crosses —
+    // the C++ side re-reads the authoritative list through the normal fetch
+    // rather than trusting a payload assembled here, so a remote pin and a
+    // local one converge on exactly the same code path.
+    //
+    // Deliberately NOT rate-limited the way the member poke is: pinning is a
+    // human action at human frequency, and coalescing it would delay the
+    // very update the user is watching for.
+    let pinned_events = Arc::clone(&events);
+    client.add_event_handler(move |_ev: SyncRoomPinnedEventsEvent, room: Room| {
+        let events = Arc::clone(&pinned_events);
+        async move {
+            enqueue(&events, json!({
+                "type": "room_pinned_changed",
+                "room_id": room.room_id().to_string(),
+            }));
+        }
+    });
+
+    // v0.7.x room administration: a power-level change alters who may do
+    // what, so it must invalidate the cached permission flags immediately —
+    // not when the panel is next reopened. It routes through the EXISTING
+    // members poke because the member snapshot is what carries both the
+    // per-member levels and the viewer's own permissions; a second, parallel
+    // refresh path would be able to disagree with it.
+    let power_level_events = Arc::clone(&events);
+    client.add_event_handler(move |_ev: SyncRoomPowerLevelsEvent, room: Room| {
+        let events = Arc::clone(&power_level_events);
+        async move {
+            enqueue(&events, json!({
+                "type": "room_members_changed",
+                "room_id": room.room_id().to_string(),
             }));
         }
     });
