@@ -997,6 +997,15 @@ authoritative flow is:
 11. The release is complete only after source archives and package links
     verify.
 
+The GitHub mirror pushes git REFS only — a GitLab Release never
+propagates. After the pipeline finalizes, create the GitHub Release
+explicitly (v0.7.0 precedent, 2026-08-15): download all assets from the
+project 6 registry, `sha256sum -c` against SHA256SUMS, then
+`gh release create v<version> --verify-tag --title "Lightning <version>"
+--notes-file docs/releases/v<version>.md <assets…>` and verify
+anonymously via the GitHub API. Without this step GitHub shows a bare
+tag and no downloads.
+
 For an existing release that is missing packages, use
 `RELEASE_ACTION=attach-existing` (build, validate, publish, verify, then add
 links to the existing release without altering its tag, notes, or source
