@@ -30,7 +30,8 @@ with open(CI) as fh:
     doc = yaml.safe_load(fh)
 
 # --- stages ---
-required_stages = ["resolve", "build", "validate", "publish", "verify", "release"]
+required_stages = ["resolve", "build", "validate", "publish", "verify",
+                   "sign", "release", "update"]
 stages = doc["stages"]
 idxs = [stages.index(s) for s in required_stages if s in stages]
 check(all(s in stages for s in required_stages), "all required stages present")
@@ -43,6 +44,7 @@ required_jobs = [
     "validate-deb", "validate-rpm",
     "validate-flatpak", "validate-appimage", "validate-snap",
     "publish-packages", "verify-published-packages", "finalize-release",
+    "sign-update-manifest", "publish-update-manifest",
     "windows-package-test", "build-windows", "macos-package-test",
 ]
 for job in required_jobs:
@@ -127,7 +129,8 @@ check(all(len(m) >= 1 for m in group_members.values())
 # --- publish-chain jobs route API requests through the internal endpoint
 # --- (the public host is Cloudflare-proxied with a request-body cap that
 # --- large package files exceed) ---
-for job in ["publish-packages", "verify-published-packages", "finalize-release"]:
+for job in ["publish-packages", "verify-published-packages", "finalize-release",
+            "sign-update-manifest", "publish-update-manifest"]:
     merged = resolve_extends(job)
     base = (merged.get("variables") or {}).get("PUBLISH_API_BASE", "")
     check(base.startswith("http://10.195.35.2"),
@@ -149,7 +152,8 @@ srcs = " ".join(str(r) for r in wf)
 check('"web"' in srcs and '"api"' in srcs and "when: never" in yaml.dump(doc["workflow"]),
       "workflow accepts only web/api pipelines")
 
-publish_jobs = ["publish-packages", "verify-published-packages", "finalize-release"]
+publish_jobs = ["publish-packages", "verify-published-packages", "finalize-release",
+                "sign-update-manifest", "publish-update-manifest"]
 
 # --- publish/verify/release rules: gated on PUBLISH_PACKAGES only ---
 rule_texts = {}
@@ -196,6 +200,102 @@ for job in ["validate-deb", "validate-rpm", "validate-flatpak",
             "validate-appimage", "validate-snap"]:
     check("build-" + job.split("-", 1)[1] in needs_names(job),
           f"{job} depends on its build job")
+
+# --- signed update manifest (UPDATE-SPEC) ------------------------------------
+# The split across two stages is the whole point of these jobs' placement:
+#
+#   sign-update-manifest runs BEFORE the release, so a missing or broken signing
+#   key fails while nothing irreversible has happened. Discovering it afterwards
+#   would leave an immutable tag and release for a version whose update manifest
+#   cannot be produced.
+#
+#   publish-update-manifest runs AFTER the release, because the "latest" slot is
+#   what every installed Lightning polls and the manifest's release_notes_url
+#   points at the release page. Promoting it earlier would advertise an update
+#   whose release does not exist -- and would leave that advertisement standing
+#   if finalize-release then failed.
+check(doc["sign-update-manifest"].get("stage") == "sign",
+      "sign-update-manifest runs in the sign stage")
+check(doc["publish-update-manifest"].get("stage") == "update",
+      "publish-update-manifest runs in the update stage")
+check(stages.index("verify") < stages.index("sign") < stages.index("release")
+      < stages.index("update"),
+      "stage order is verify -> sign -> release -> update")
+check("verify-published-packages" in needs_names("sign-update-manifest"),
+      "sign-update-manifest depends on verify-published-packages "
+      "(a manifest is only built from a verified publication)")
+check("resolve-source" in needs_names("sign-update-manifest"),
+      "sign-update-manifest depends on resolve-source")
+check("sign-update-manifest" in needs_names("finalize-release"),
+      "finalize-release waits for the manifest to be signed "
+      "(no tag is created for a release that cannot be signed)")
+check("finalize-release" in needs_names("publish-update-manifest"),
+      "publish-update-manifest waits for finalize-release "
+      "(the latest slot never advertises an unfinalized release)")
+check("sign-update-manifest" in needs_names("publish-update-manifest"),
+      "publish-update-manifest consumes the signed manifest")
+check("verify-published-packages" in needs_names("publish-update-manifest"),
+      "publish-update-manifest depends on verify-published-packages")
+
+# Alpine ships libcrypto but not the openssl CLI; both update jobs must install
+# it or signing/verification silently has no tool.
+for job in ["sign-update-manifest", "publish-update-manifest"]:
+    before = " ".join(str(x) for x in resolve_extends(job).get("before_script", []))
+    check("openssl" in before, f"{job} installs the openssl CLI")
+    check(resolve_extends(job).get("image") == "alpine:3.22",
+          f"{job} uses the pinned alpine image")
+    check(resolve_extends(job).get("resource_group")
+          == "lightning-project-6-publication",
+          f"{job} shares the project 6 publication resource group")
+
+# The signed manifest and its signature must actually be handed downstream.
+sign_paths = doc["sign-update-manifest"]["artifacts"]["paths"]
+check("dist/update-manifest-v1.json" in sign_paths
+      and "dist/update-manifest-v1.json.sig" in sign_paths,
+      "sign-update-manifest publishes the manifest and its signature as artifacts")
+
+# No update-manifest script may be invoked from a job outside the publish gate.
+UPDATE_SCRIPTS = ("generate-update-manifest.sh", "sign-update-manifest.sh",
+                  "publish-update-manifest.sh")
+for job_name, job_def in doc.items():
+    if not isinstance(job_def, dict):
+        continue
+    script_text = yaml.dump(job_def.get("script", []))
+    if not any(s in script_text for s in UPDATE_SCRIPTS):
+        continue
+    check(job_name in ("sign-update-manifest", "publish-update-manifest"),
+          f"{job_name} is one of the two gated update-manifest jobs")
+    check(job_def.get("extends") == ".publish-rules",
+          f"{job_name} extends the shared publish gate")
+
+# The operator key-generation tool is never run by CI: it writes a private key.
+for job_name, job_def in doc.items():
+    if not isinstance(job_def, dict):
+        continue
+    check("generate-update-signing-key.sh" not in yaml.dump(job_def.get("script", [])),
+          f"{job_name} does not run the operator key-generation tool")
+
+# resolve-source runs validate-release-request.sh, which derives the public half
+# of the update-signing key and compares it with the value every package embeds.
+# Without the openssl CLI that gate cannot run at all, and the mismatch it
+# exists to catch would only surface after every package had already been built
+# around the wrong trust root.
+resolve_before = " ".join(
+    str(x) for x in resolve_extends("resolve-source").get("before_script", []))
+check("openssl" in resolve_before,
+      "resolve-source installs openssl for the update-signing consistency gate")
+
+config_tests = doc["config-tests"]
+config_script = yaml.dump(config_tests.get("script", []))
+check("./tests/test-update-manifest.sh" in config_script,
+      "config-tests runs the update-manifest suite")
+check("openssl" in yaml.dump(config_tests.get("before_script", [])),
+      "config-tests installs openssl for the update-manifest suite")
+check("./tests/test-windows-version-resources.sh" in config_script,
+      "config-tests runs the Windows version-resource suite")
+config_before = yaml.dump(config_tests.get("before_script", []))
+check("cmake" in config_before and "gcc" in config_before,
+      "config-tests installs cmake and a C compiler for that suite")
 
 # The snap repackages the AppImage job's bundled AppDir instead of
 # recompiling Qt + Rust a third time.

@@ -51,8 +51,21 @@ respond() { status="$1"; body="$2"; }
 
 # --- Generic package registry: /packages/generic/<name>/<version>/<file> ---
 if [[ "$url" == *"/packages/generic/"* ]]; then
+    gen_path="${url##*/packages/generic/}"   # <name>/<version>/<file>
+    gen_name="${gen_path%%/*}"
     file="${url##*/}"
-    dest="$REG/$file"
+    if [[ "$gen_name" == "${MOCK_GENERIC_FLAT_PACKAGE:-lightning}" ]]; then
+        # Historic flat layout for the release package: its files live directly
+        # in $REG so the package_files listing below can enumerate them, and so
+        # the existing publication tests keep working unchanged.
+        dest="$REG/$file"
+    else
+        # Any other generic package (today: the update manifest) keeps its full
+        # <name>/<version>/ path, so the immutable per-release copy and the
+        # mutable "latest" slot are genuinely distinct destinations.
+        dest="$STATE/registry-$gen_path"
+        mkdir -p "$(dirname "$dest")"
+    fi
     case "$method" in
         GET)
             if [[ "${MOCK_CONFLICT_FILE:-}" == "$file" && ! -f "$dest" ]]; then

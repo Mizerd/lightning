@@ -5,7 +5,9 @@ stages:
   - validate
   - publish
   - verify
+  - sign
   - release
+  - update
 
 workflow:
   rules:
@@ -136,13 +138,20 @@ config-tests:
     DEBIAN_FRONTEND: "noninteractive"
   before_script:
     - apt-get update
+    # cmake + gcc are for test-windows-version-resources.sh only: it drives the
+    # per-target version-resource injection against a two-executable stand-in
+    # project, which is the one part of the Windows metadata contract that
+    # cannot be checked by reading a file. It needs a real CMake and a working
+    # C compiler for project(LANGUAGES C); it compiles nothing of Lightning's.
     - >-
       apt-get install -y --no-install-recommends
-      bash ca-certificates git jq python3 python3-yaml
+      bash ca-certificates cmake gcc git jq openssl python3 python3-yaml
   script:
     - ./tests/test-version.sh
     - ./tests/test-publication.sh
+    - ./tests/test-update-manifest.sh
     - ./tests/test-gif-key-injection.sh
+    - ./tests/test-windows-version-resources.sh
     - python3 ./tests/test-pipeline-config.py
     - python3 ./tests/test-windows-metadata.py
     - python3 ./tests/test-release-notes-policy.py
@@ -159,7 +168,12 @@ resolve-source:
     DEBIAN_FRONTEND: "noninteractive"
   before_script:
     - apt-get update
-    - apt-get install -y --no-install-recommends ca-certificates coreutils git jq
+    # openssl: validate-release-request.sh derives the public half of the update
+    # signing key here, in the FIRST job, so a key/package mismatch fails before
+    # any build job embeds the wrong trust root into an artifact.
+    - >-
+      apt-get install -y --no-install-recommends
+      ca-certificates coreutils git jq openssl
   script:
     - ./scripts/validate-release-request.sh
     - ./scripts/fetch-lightning-source.sh
@@ -739,6 +753,49 @@ verify-published-packages:
       - dist/manifest.json
       - dist/verification.json
 
+# The signed update manifest is built and signed BEFORE the release is created,
+# and published AFTER it. That split is deliberate; see docs/update-manifest.md.
+#
+#   sign-update-manifest (stage: sign, before release)
+#     Generating and signing touch nothing outside this job, so doing them
+#     before finalize-release turns a missing/broken signing key into a failure
+#     that costs nothing. Discovering it afterwards would mean an immutable tag
+#     and release already exist for a version whose update manifest cannot be
+#     produced.
+#
+#   publish-update-manifest (stage: update, after release)
+#     The `latest` slot is what every installed Lightning polls, and the
+#     manifest's release_notes_url points at the GitLab release page. Promoting
+#     it before finalize-release would advertise an update whose release page
+#     does not exist yet, and would leave that advertisement standing if the
+#     release job then failed. The reverse failure — a finished release whose
+#     update manifest has not been promoted yet — is inert and retryable: users
+#     simply are not notified until the job is re-run.
+#
+# Alpine's base image ships libcrypto but not the openssl CLI, so these jobs add
+# it explicitly. Nothing else in the publish chain needs it.
+sign-update-manifest:
+  extends: .publish-rules
+  stage: sign
+  image: alpine:3.22
+  resource_group: lightning-project-6-publication
+  needs:
+    - job: resolve-source
+      artifacts: true
+    - job: publish-packages
+      artifacts: true
+    - job: verify-published-packages
+      artifacts: true
+  before_script: [apk add --no-cache bash coreutils curl jq openssl]
+  script:
+    - ./scripts/generate-update-manifest.sh
+    - ./scripts/sign-update-manifest.sh
+  artifacts:
+    expire_in: 30 days
+    paths:
+      - dist/update-manifest-v1.json
+      - dist/update-manifest-v1.json.sig
+
 finalize-release:
   extends: .publish-rules
   stage: release
@@ -751,6 +808,10 @@ finalize-release:
       artifacts: true
     - job: verify-published-packages
       artifacts: true
+    # Ordering only: the release must not be created until the update manifest
+    # has been proved signable. finalize-release consumes nothing from it.
+    - job: sign-update-manifest
+      artifacts: false
   before_script: [apk add --no-cache bash coreutils curl jq]
   script: [./scripts/finalize-release.sh]
   artifacts:
@@ -759,3 +820,29 @@ finalize-release:
     paths:
       - dist/manifest.json
       - dist/verification.json
+
+publish-update-manifest:
+  extends: .publish-rules
+  stage: update
+  image: alpine:3.22
+  resource_group: lightning-project-6-publication
+  needs:
+    - job: resolve-source
+      artifacts: true
+    - job: verify-published-packages
+      artifacts: true
+    - job: sign-update-manifest
+      artifacts: true
+    # Ordering only: the `latest` pointer must never advertise a release that
+    # has not been finalized. Nothing is consumed from this job.
+    - job: finalize-release
+      artifacts: false
+  before_script: [apk add --no-cache bash coreutils curl jq openssl]
+  script: [./scripts/publish-update-manifest.sh]
+  artifacts:
+    when: always
+    expire_in: 30 days
+    paths:
+      - dist/update-manifest-v1.json
+      - dist/update-manifest-v1.json.sig
+      - dist/update-publication.json

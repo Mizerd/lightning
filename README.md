@@ -42,6 +42,7 @@ second Lightning source repository — it holds no application code.
 - [Modes](#modes)
 - [Variables](#variables)
 - [Publication manifest](#publication-manifest)
+- [Signed update manifest](#signed-update-manifest)
 - [Registry, verification, and immutability](#registry-verification-and-immutability)
 - [Packages and clean-system validation](#packages-and-clean-system-validation)
 - [Authentication and security](#authentication-and-security)
@@ -113,11 +114,19 @@ Only manually created `web` and `api` pipelines are accepted.
 | validate | `validate-snap` | Structural + payload audit, launcher run (no snapd in fleet) |
 | publish | `publish-packages` | Build the manifest and upload to project 6 |
 | verify | `verify-published-packages` | Re-download and check the registry files |
-| release | `finalize-release` | Attach links / create the release (final action) |
+| sign | `sign-update-manifest` | Build and Ed25519-sign the client update manifest |
+| release | `finalize-release` | Attach links / create the release |
+| update | `publish-update-manifest` | Publish the signed manifest and move the `latest` pointer (final action) |
 
 The graph no longer ends after validation. When `PUBLISH_PACKAGES=true` the
-publish, verify, and release jobs are always included for **both** release
-actions; a build-only pipeline stops after validation by design.
+publish, verify, sign, release, and update jobs are always included for **both**
+release actions; a build-only pipeline stops after validation by design.
+
+The update manifest is deliberately **signed before** the release and
+**published after** it: a broken signing key must fail while nothing
+irreversible has happened, and the `latest` pointer that every installed
+Lightning polls must never advertise a release that was not finalized. See
+[`docs/update-manifest.md`](docs/update-manifest.md).
 
 `resolve-source` resolves the requested ref to a full 40-character commit SHA.
 Every builder refetches and must resolve the same SHA, so no two formats can
@@ -430,6 +439,22 @@ exists with a matching version.
 | `TARGET_PROJECT_ID` / `LIGHTNING_PROJECT_ID` | Fixed to `6`; scripts reject any other value so publication cannot be redirected. |
 | `PACKAGE_NAME` | `lightning`. |
 | `LIGHTNING_REPOSITORY` | Canonical project 6 clone URL, verified in-script. |
+| `UPDATE_SIGNING_KEY_B64` | **Protected + masked.** Base64 PKCS#8 PEM of the Ed25519 update-signing **private** key. Used only by the signing job. Never logged, never in argv, never in an artifact. |
+| `UPDATE_SIGNING_KEY_ID` | **Protected.** Key id written into the signature envelope and matched against Lightning's compiled-in trust table. |
+| `UPDATE_SIGNING_PUBKEY_2026A` | **Protected, not masked** (it is not secret). Base64 raw 32-byte **public** key for key id `lightning-release-2026a`. Every build job compiles it into the package as `-DLIGHTNING_UPDATE_PUBKEY_2026A`; it is the update trust root of the shipped binary. The name is key-id specific — a new key id needs its own variable *and* a new trust-table row in the application source. |
+
+`UPDATE_SIGNING_KEY_*` and `UPDATE_SIGNING_PUBKEY_<id>` are required for a
+publishing pipeline, and `scripts/check-update-signing-keys.sh` (run first, in
+`resolve-source`, and again in `sign-update-manifest`) refuses to publish unless
+the public variable is set **and** is the public half of the configured private
+key. Without that check a pipeline can succeed while publishing a correctly
+signed manifest that every package it just built must reject — a failure nobody
+sees until a user clicks "check for updates", and one that cannot be corrected
+without a new release. The optional `UPDATE_CHANNEL_*`, `UPDATE_RELEASED_AT`,
+`UPDATE_MIN_UPDATER_VERSION`, `UPDATE_INCLUDE_RELEASE_NOTES`, and
+`LIGHTNING_RELEASE_BASE_URL` variables, the rotation procedure, and the
+compromise procedure are in
+[`docs/update-manifest.md`](docs/update-manifest.md).
 
 A publishing pipeline with wrong or missing inputs fails **loudly and early** in
 `resolve-source` (see `scripts/validate-release-request.sh`) rather than
@@ -461,6 +486,48 @@ entry in `write-manifest.sh`; the registry version layout (`lightning/<version>`
 does not change. Checksums, logs, `source-info.json`, `version.json`,
 `build-info.json`, `.sha256` sidecars, reports, and build directories are never
 uploaded.
+
+## Signed update manifest
+
+Separately from the publication manifest above, the pipeline builds, signs, and
+publishes a small **client-facing** document that Lightning's in-app updater
+polls: `update-manifest-v1.json` plus a detached Ed25519 signature envelope
+`update-manifest-v1.json.sig`, under the generic package `lightning-update`.
+
+```text
+${CI_API_V4_URL}/projects/6/packages/generic/lightning-update/latest/update-manifest-v1.json
+${CI_API_V4_URL}/projects/6/packages/generic/lightning-update/<version>/update-manifest-v1.json
+```
+
+- Every filename, size, SHA-256, and URL is **copied** from `dist/manifest.json`
+  after `verify-published-packages` has already re-downloaded and hash-checked
+  those exact bytes. Nothing is re-hashed locally.
+- It advertises only the six **directly downloadable** install types
+  (`windows-msi`, `windows-setup`, `windows-portable`, `linux-appimage`,
+  `linux-deb`, `linux-rpm`). The Flatpak and Snap bundles are published as
+  release files but appear in a `channels` block as `available: false` — a
+  Flatpak or Snap install is updated by its own ecosystem, and offering those
+  users a download would be telling them an action is available that they must
+  not take. There is no Flathub publication, no Snap Store publication, and no
+  APT or DNF repository, and the manifest says so in plain text.
+- The signing key is an Ed25519 private key held only as a protected+masked CI
+  variable; the matching public key is compiled into Lightning — from the
+  `UPDATE_SIGNING_PUBKEY_<id>` variable, by every build job — so **the server
+  can never introduce a trusted key**. That the two really are halves of one
+  keypair, and that the key id is one a shipped client trusts, is asserted
+  before any package is built (`scripts/check-update-signing-keys.sh`).
+- The per-release copy is immutable like every other published file. The
+  `latest/` slot is the pipeline's one deliberate, scoped exception, and it is
+  written only after the versioned copy has been read back and verified.
+
+**Windows Authenticode signing is still not active** (see
+[Code signing](#code-signing)), and there is no signed APT/DNF repository, so
+today this manifest is the actual cryptographic integrity guarantee for an
+in-app update.
+
+Format, signature envelope, key generation, CI variables, the rotation
+procedure, and the emergency compromise procedure are documented in
+[`docs/update-manifest.md`](docs/update-manifest.md).
 
 ## Registry, verification, and immutability
 
@@ -523,11 +590,14 @@ but not exercised against a live snapd in CI — the fleet cannot run snapd).
 Flathub and the Snap Store remain future decisions, not targets of this
 pipeline.
 
-Both install `/usr/bin/matrix-client`, a desktop file, AppStream metadata, the
-GPL-3.0-or-later licence and README, and the packaging copyright. QML and app
-resources are compiled into the executable and the Rust bridge is statically
-linked; native system libraries are dynamically linked and declared via
-`dpkg-shlibdeps` / RPM automatic dependencies. Each package records its exact
+Both install `/usr/bin/matrix-client`, `/usr/bin/lightning-updater` (the small
+Qt6::Core-only update helper — see
+[`docs/package-layout.md`](docs/package-layout.md)), a desktop file, AppStream
+metadata, the GPL-3.0-or-later licence and README, and the packaging copyright.
+QML and app resources are compiled into the application executable and the Rust
+bridge is statically linked; native system libraries are dynamically linked and
+declared via `dpkg-shlibdeps` (run over both executables) / RPM automatic
+dependencies. Each package records its exact
 source SHA in build metadata (Debian changelog, RPM changelog) without changing
 the public version.
 
@@ -644,25 +714,53 @@ or source archives.
 - `tests/test-publication.sh` — request gate, manifest, idempotent uploads,
   conflicts, partial-upload rollback/retry, verification, and both release
   actions against a stateful mock GitLab API.
+- `tests/test-update-manifest.sh` — the signed update manifest: generation from
+  a verified publication manifest, the exact artifact key set and metadata
+  passthrough, refusal without `dist/verification.json`, flatpak/snap absence
+  from the directly-updatable artifacts, channel honesty, deterministic output,
+  an Ed25519 sign→verify round trip with a key generated inside the test, tamper
+  and wrong-key rejection, absence of key material from every captured log,
+  per-release immutability, and the guarantee that the `latest` slot is written
+  only after the versioned copy. It also covers the signing-key consistency
+  gate: a public key that is not the private key's half, an empty or malformed
+  `UPDATE_SIGNING_PUBKEY_<id>`, and a key id no shipped Lightning trusts are
+  each rejected — in the gate itself and through `validate-release-request.sh` —
+  while a build-only pipeline stays unaffected. No key material is committed.
 - `tests/test-gif-key-injection.sh` — the publish-time GIF-key presence gate and
   the safe mapping of CI variables into the build (env, not command line; never
-  logged), using synthetic canary values only.
-- `tests/test-pipeline-config.py` — required stages/jobs, publish/verify/release
-  gating for both actions, dependency wiring, and the two platform test gates:
+  logged), using synthetic canary values only; plus the mandatory, validated
+  `LIGHTNING_INSTALL_TYPE` and the update trust root reaching the build.
+- `tests/test-pipeline-config.py` — required stages/jobs, publish/verify/sign/
+  release/update gating for both actions, dependency wiring (including that the
+  release waits for a signable manifest and the `latest` promotion waits for the
+  release), and the two platform test gates:
   that a macOS-only request creates no Linux or Windows build job, and that no
   macOS job can ever reach the publication chain.
 - `tests/test-windows-metadata.py` — the Windows product-metadata gate, against
-  synthetic PE files with real version resources: correct metadata passes, and a
-  version mismatch, a wrong product name, a missing copyright, a wrong
-  publisher, a missing Lightning-owned binary, and an upstream DLL claiming
-  `ProductName=Lightning` each fail.
+  synthetic PE files with real version resources: correct metadata for both
+  Lightning-owned binaries passes, and a version mismatch, a wrong product name,
+  a missing copyright, a wrong publisher, a missing Lightning-owned binary, a
+  missing update helper, a helper carrying the application's `OriginalFilename`,
+  and an upstream DLL claiming `ProductName=Lightning` each fail.
+- `tests/test-windows-version-resources.sh` — the per-target Windows version
+  resource: driven against a two-executable stand-in CMake project, it asserts
+  that each executable receives its **own** resource, that the update helper
+  never inherits the application's, and that a missing resource object or a
+  renamed target fails the configure by name instead of silently producing
+  binaries with no version resource.
 - `tests/test-release-notes-policy.py` — every created release description
   carries a **Code signing policy** link, idempotently, with the correct
   signed/unsigned wording.
 
-`config-tests` runs all six on every pipeline.
+`config-tests` runs all eight on every pipeline.
 
 ## Code signing
+
+One thing **is** signed: the update manifest. Ed25519, with the public key
+compiled into Lightning — see
+[Signed update manifest](#signed-update-manifest) and
+[`docs/update-manifest.md`](docs/update-manifest.md). That covers the in-app
+update path only; it does nothing for the OS-level trust prompts below.
 
 Windows artifacts are **not signed**. The preparation for SignPath Foundation
 signing — what is already in place, what is blocked on SignPath onboarding for
@@ -691,11 +789,20 @@ model decided first — see [`docs/macos-packaging.md`](docs/macos-packaging.md)
 2. Do **not** manually create the tag or release.
 3. Trigger this pipeline in `RELEASE_ACTION=create` mode.
 4. Resolve and verify the exact project 6 commit.
-5. Build and clean-system-validate both packages.
-6. Publish both to `lightning/<version>` and verify they download.
-7. Create the tag + release as the final action, with package links attached.
-8. The release is complete only after source archives and package links verify.
+5. Build and clean-system-validate every package.
+6. Publish them to `lightning/<version>` and verify they download.
+7. Build and Ed25519-sign the update manifest, and self-verify the signature —
+   **before** anything irreversible happens, so a bad signing key costs nothing.
+8. Create the tag + release, with package links attached.
+9. Publish the signed update manifest to `lightning-update/<version>` (immutable)
+   and only then move the `lightning-update/latest` pointer, as the final action.
+10. The release is complete only after source archives, package links, and both
+    update-manifest slots verify.
 
 For an existing release missing packages, use `RELEASE_ACTION=attach-existing`.
+
+Windows artifacts remain unsigned; the signed update manifest from steps 7 and 9
+is what actually protects an in-app update today. See
+[`docs/update-manifest.md`](docs/update-manifest.md).
 
 See [docs/package-layout.md](docs/package-layout.md) for the installed layout.

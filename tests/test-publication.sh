@@ -18,6 +18,19 @@ fail=0
 note() { printf '  ok: %s\n' "$1"; }
 bad() { printf '  FAIL: %s\n' "$1" >&2; fail=1; }
 
+# validate-release-request.sh also gates the update-signing key triple (the
+# public half is compiled into every package, so a mismatch must fail before any
+# build job runs). The publishing cases below therefore need a consistent triple
+# to reach their own assertions. Generated fresh at run time; nothing is
+# committed, and the gate's own behaviour lives in tests/test-update-manifest.sh.
+command -v openssl >/dev/null 2>&1 || { printf 'error: openssl is required\n' >&2; exit 1; }
+SIGN_KEY="$WORK/update-signing.pem"
+openssl genpkey -algorithm ed25519 -out "$SIGN_KEY" 2>/dev/null
+chmod 600 "$SIGN_KEY"
+SIGN_KEY_B64="$(openssl base64 -A -in "$SIGN_KEY")"
+SIGN_PUB_B64="$(openssl pkey -in "$SIGN_KEY" -pubout -outform DER 2>/dev/null \
+    | tail -c 32 | openssl base64 -A)"
+
 # Fresh project dir with version.env and the two validated package files.
 setup() {
     TR="$WORK/run.$RANDOM.$RANDOM"
@@ -56,6 +69,10 @@ EOF
     export PUBLISH_PACKAGES=true RELEASE_VERSION=$VER
     # Synthetic provider keys so the publish-time presence gate is satisfied.
     export GIPHY_API_KEY="SYNTH_GIPHY_pubtest" KLIPY_API_KEY="SYNTH_KLIPY_pubtest"
+    # ...and a consistent update-signing triple, for the same reason.
+    export UPDATE_SIGNING_KEY_ID=lightning-release-2026a
+    export UPDATE_SIGNING_KEY_B64="$SIGN_KEY_B64"
+    export UPDATE_SIGNING_PUBKEY_2026A="$SIGN_PUB_B64"
     export CURL_BIN="$ROOT/tests/mock-curl.sh"
     export MOCK_STATE_DIR="$MSTATE" MOCK_CURL_LOG="$MLOG"
     export MOCK_SOURCE_SHA="$SHA" MOCK_RELEASE_VERSION="$VER" MOCK_JQ="$JQ"

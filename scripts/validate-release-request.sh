@@ -66,5 +66,12 @@ fi
 printf 'GIPHY_API_KEY is configured\n'
 printf 'KLIPY_API_KEY is configured\n'
 
+# Update-signing consistency. Deliberately here, in the first job, and not only
+# in the signing job: the public key is compiled into every package by the BUILD
+# jobs, so a mismatch discovered after the build is a mismatch discovered after
+# it has already been baked into artifacts that cannot be corrected. Prints no
+# key material.
+"$SCRIPT_DIR/check-update-signing-keys.sh"
+
 printf 'Publishing pipeline accepted: action=%s version=%s ref=%s\n' \
     "$RELEASE_ACTION" "$RELEASE_VERSION" "$SOURCE_REF"
