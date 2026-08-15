@@ -589,10 +589,13 @@ private Q_SLOTS:
         QVERIFY(!delegate.contains(QStringLiteral("model.ciphertext")));
     }
 
-    // v0.6.0 checkpoint 9: the Sessions card lists devices read-only with
-    // honest trust labels, no destructive remote sign-out (limitation is
-    // stated), and never binds token-like fields.
-    void sessionsCardIsReadOnlyAndHonest()
+    // v0.6.0 checkpoint 9 / reshaped for v0.7.x: the Sessions card lists
+    // devices with honest trust labels and — since the UIA round — offers
+    // remote sign-out through the reusable UIA flow (per-device and
+    // all-others), never optimistically (tiles follow the authoritative
+    // refetch), and never binds token-like fields. The old "not supported
+    // yet" disclaimer must be GONE now that the capability is real.
+    void sessionsCardIsHonest()
     {
         const QString settings = read(QStringLiteral("SettingsScreen.qml"));
         QVERIFY(settings.contains(QStringLiteral(
@@ -600,7 +603,13 @@ private Q_SLOTS:
         QVERIFY(settings.contains(QStringLiteral("model: app.sessionDevices")));
         QVERIFY(settings.contains(QStringLiteral("This session")));
         QVERIFY(settings.contains(QStringLiteral("Not verified")));
-        QVERIFY(settings.contains(QStringLiteral("is not supported yet")));
+        QVERIFY(!settings.contains(QStringLiteral("is not supported yet")));
+        QVERIFY(settings.contains(
+            QStringLiteral("signOutOtherSessionsButton")));
+        QVERIFY(settings.contains(QStringLiteral("sessionSignOutButton_")));
+        // The current session is never offered for remote deletion.
+        QVERIFY(settings.contains(QStringLiteral(
+            "visible: modelData.isCurrent !== true")));
         QVERIFY(!settings.contains(QStringLiteral("accessToken")));
         QVERIFY(!settings.contains(QStringLiteral("access_token")));
     }

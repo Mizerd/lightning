@@ -17,6 +17,8 @@ Text {
     readonly property var _codepoints: ({
         "home": "\ue9b2",
         "search": "\uef7a",
+        "explore": "\ue87a",
+        "travel_explore": "\ue2db",
         "add": "\ue145",
         "add_circle": "\ue990",
         "add_reaction": "\ue1d3",

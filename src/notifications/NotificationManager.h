@@ -60,6 +60,12 @@ public:
         // Mock backend and pure-policy tests notify unless told otherwise.
         bool initialSyncComplete = true;
         SoundMode soundMode = SoundMentionsAndDirect;
+        // v0.7.x: the sender is on the account's m.ignored_user_list. The
+        // server stops SENDING an ignored user's events, so this is only
+        // the local belt-and-braces for the race window between the ignore
+        // write and the server applying it — but without it that window
+        // notifies. Supplied by the app layer to keep decide() pure.
+        bool senderIsIgnored = false;
     };
     struct Decision {
         bool notify = false;

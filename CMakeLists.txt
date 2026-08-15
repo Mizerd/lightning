@@ -178,6 +178,14 @@ set(APP_SOURCES
     src/app/RoomInfoController.cpp
     src/app/PinnedMessagesController.h
     src/app/PinnedMessagesController.cpp
+    src/app/RoomDiscoveryController.h
+    src/app/RoomDiscoveryController.cpp
+    src/app/UiaController.h
+    src/app/UiaController.cpp
+    src/app/ModerationController.h
+    src/app/ModerationController.cpp
+    src/app/DraftStore.h
+    src/app/DraftStore.cpp
     src/app/SessionDiagnostics.h
     src/app/SessionDiagnostics.cpp
     src/app/SettingsManager.h
@@ -252,6 +260,10 @@ set(APP_SOURCES
     src/models/AttachmentQueueModel.cpp
     src/models/UserSearchModel.h
     src/models/UserSearchModel.cpp
+    src/models/RoomDirectorySearchModel.h
+    src/models/RoomDirectorySearchModel.cpp
+    src/models/MessageSearchController.h
+    src/models/MessageSearchController.cpp
     src/models/UserLookup.h
     src/models/UserLookup.cpp
     src/models/PaginationController.h
@@ -386,6 +398,8 @@ set(APP_QML_FILES
     qml/VideoViewerOverlay.qml
     qml/UserPicker.qml
     qml/NewConversationDialog.qml
+    qml/DiscoverJoinDialog.qml
+    qml/MessageSearchDialog.qml
     qml/InvitePeopleDialog.qml
     qml/RoomInfoPanel.qml
     qml/ThreadPanel.qml
@@ -406,6 +420,8 @@ set(APP_QML_FILES
     qml/PresenceDot.qml
     qml/VerificationPanel.qml
     qml/VerificationDialog.qml
+    qml/UiaPromptDialog.qml
+    qml/ReportMessageDialog.qml
     qml/VerifySessionPrompt.qml
     qml/QuickReactionStrip.qml
     qml/IdentityCard.qml
@@ -1375,6 +1391,12 @@ if(BUILD_TESTING)
         tests/AttachmentQueueTest.cpp
         src/models/MessageComposer.h
         src/models/MessageComposer.cpp
+        # v0.7.x: the composer's draft hooks pull in the store.
+        src/app/DraftStore.h
+        src/app/DraftStore.cpp
+        src/app/SettingsManager.h
+        src/app/SettingsManager.cpp
+        src/storage/AppDataPaths.cpp
         src/models/MentionTokenizer.h
         src/models/MentionTokenizer.cpp
         src/models/MarkdownFormat.h
@@ -1471,6 +1493,143 @@ if(BUILD_TESTING)
         Qt6::Core Qt6::Test)
     add_test(NAME thread-facepile-bound COMMAND thread-facepile-bound-test)
 
+    # v0.7.x Discover / Join: directory search model (debounce, paging,
+    # stale-op rejection) and the discovery controller (join/knock error
+    # categories, wait-for-room, space children cache, sign-out clears).
+    qt_add_executable(room-discovery-test
+        tests/RoomDiscoveryTest.cpp
+        src/app/RoomDiscoveryController.h
+        src/app/RoomDiscoveryController.cpp
+        src/models/RoomDirectorySearchModel.h
+        src/models/RoomDirectorySearchModel.cpp
+        src/matrix/MatrixClient.h
+        src/matrix/MatrixClient.cpp
+        src/matrix/MockMatrixClient.h
+        src/matrix/MockMatrixClient.cpp
+        src/matrix/MediaHelpers.h
+        src/matrix/MediaHelpers.cpp
+        # MockMatrixClient's registry-backed restore needs these:
+        src/app/SettingsManager.cpp
+        src/storage/AppDataPaths.cpp
+    )
+    target_include_directories(room-discovery-test PRIVATE src)
+    target_link_libraries(room-discovery-test PRIVATE
+        Qt6::Core Qt6::Gui Qt6::Qml Qt6::Test)
+    add_test(NAME room-discovery COMMAND room-discovery-test)
+
+    # v0.7.x server-side message search: debounce, roomName resolution,
+    # paging, stale superseding, scope changes, sign-out clears.
+    qt_add_executable(message-search-test
+        tests/MessageSearchControllerTest.cpp
+        src/models/MessageSearchController.h
+        src/models/MessageSearchController.cpp
+        src/matrix/MatrixClient.h
+        src/matrix/MatrixClient.cpp
+        src/matrix/MockMatrixClient.h
+        src/matrix/MockMatrixClient.cpp
+        src/matrix/MediaHelpers.h
+        src/matrix/MediaHelpers.cpp
+        src/app/SettingsManager.cpp
+        src/storage/AppDataPaths.cpp
+    )
+    target_include_directories(message-search-test PRIVATE src)
+    target_link_libraries(message-search-test PRIVATE
+        Qt6::Core Qt6::Gui Qt6::Qml Qt6::Test)
+    add_test(NAME message-search COMMAND message-search-test)
+
+    # v0.7.x UIA + device sign-out: challenge round-trip, wrong-password
+    # retry, cancel, current-device guard, OAuth console URL. Credentials
+    # never persist — the suite asserts flow state only.
+    qt_add_executable(uia-session-test
+        tests/UiaSessionTest.cpp
+        src/app/UiaController.h
+        src/app/UiaController.cpp
+        src/matrix/MatrixClient.h
+        src/matrix/MatrixClient.cpp
+        src/matrix/MockMatrixClient.h
+        src/matrix/MockMatrixClient.cpp
+        src/matrix/MediaHelpers.h
+        src/matrix/MediaHelpers.cpp
+        src/app/SettingsManager.cpp
+        src/storage/AppDataPaths.cpp
+    )
+    target_include_directories(uia-session-test PRIVATE src)
+    target_link_libraries(uia-session-test PRIVATE
+        Qt6::Core Qt6::Gui Qt6::Qml Qt6::Test)
+    add_test(NAME uia-session COMMAND uia-session-test)
+
+    # v0.7.x personal moderation: ignore/unignore round trips, remote list
+    # pushes, report prompt flow, and the notification ignore guard.
+    qt_add_executable(moderation-test
+        tests/ModerationTest.cpp
+        src/app/ModerationController.h
+        src/app/ModerationController.cpp
+        src/notifications/NotificationManager.h
+        src/notifications/NotificationManager.cpp
+        src/matrix/EventPreview.h
+        src/matrix/EventPreview.cpp
+        src/models/UserLookup.h
+        src/models/UserLookup.cpp
+        src/matrix/MatrixClient.h
+        src/matrix/MatrixClient.cpp
+        src/matrix/MockMatrixClient.h
+        src/matrix/MockMatrixClient.cpp
+        src/matrix/MediaHelpers.h
+        src/matrix/MediaHelpers.cpp
+        src/app/SettingsManager.cpp
+        src/storage/AppDataPaths.cpp
+    )
+    target_include_directories(moderation-test PRIVATE src)
+    target_link_libraries(moderation-test PRIVATE
+        Qt6::Core Qt6::Gui Qt6::Qml Qt6::Test)
+    if(TARGET Qt6::DBus)
+        target_link_libraries(moderation-test PRIVATE Qt6::DBus)
+        target_compile_definitions(moderation-test PRIVATE HAVE_QT_DBUS=1)
+    endif()
+    add_test(NAME moderation COMMAND moderation-test)
+
+    # v0.7.x drafts: scoping, encrypted-room memory-only policy, debounce
+    # staleness, send/clear retirement, account isolation.
+    qt_add_executable(draft-store-test
+        tests/DraftStoreTest.cpp
+        src/app/DraftStore.h
+        src/app/DraftStore.cpp
+        src/models/MessageComposer.h
+        src/models/MessageComposer.cpp
+        src/models/MentionTokenizer.h
+        src/models/MentionTokenizer.cpp
+        src/models/MarkdownFormat.h
+        src/models/MarkdownFormat.cpp
+        src/models/AttachmentQueueModel.h
+        src/models/AttachmentQueueModel.cpp
+        src/media/VideoPosterExtractor.h
+        src/media/VideoPosterExtractor.cpp
+        src/threads/ThreadController.h
+        src/threads/ThreadController.cpp
+        src/models/TimelineModel.h
+        src/models/TimelineModel.cpp
+        src/models/MessageHtml.h
+        src/models/MessageHtml.cpp
+        src/models/UserLookup.h
+        src/models/UserLookup.cpp
+        src/matrix/MatrixClient.h
+        src/matrix/MatrixClient.cpp
+        src/matrix/MockMatrixClient.h
+        src/matrix/MockMatrixClient.cpp
+        src/matrix/MediaHelpers.h
+        src/matrix/MediaHelpers.cpp
+        src/app/SettingsManager.cpp
+        src/storage/AppDataPaths.cpp
+        # Header only (settings-session-test precedent): AUTOMOC supplies
+        # the SecretStore metaobject; the .cpp would drag in the real
+        # backends this suite must not depend on.
+        src/storage/SecretStore.h
+    )
+    target_include_directories(draft-store-test PRIVATE src)
+    target_link_libraries(draft-store-test PRIVATE
+        Qt6::Core Qt6::Gui Qt6::Multimedia Qt6::Qml Qt6::Test)
+    add_test(NAME draft-store COMMAND draft-store-test)
+
     # v0.6.0: SDK-backed thread foundation — lifecycle (open/close/switch),
     # root/reply identity via the composite timeline id, failure states,
     # thread-only send path, encrypted-thread fixtures, participants.
@@ -1503,6 +1662,9 @@ if(BUILD_TESTING)
         # MockMatrixClient's registry-backed restore needs these:
         src/app/SettingsManager.cpp
         src/storage/AppDataPaths.cpp
+        # v0.7.x: ThreadController's draft hooks pull in the store.
+        src/app/DraftStore.h
+        src/app/DraftStore.cpp
     )
     target_include_directories(thread-controller-test PRIVATE src)
     target_link_libraries(thread-controller-test PRIVATE

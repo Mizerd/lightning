@@ -1008,6 +1008,26 @@ Item {
                                 }
                                 return
                             }
+                            // v0.7.x: room-oriented Matrix links open
+                            // IN-APP through the Discover surface (which
+                            // resolves them via the SDK). User links keep
+                            // the web behavior — matrix.to renders a
+                            // profile page there.
+                            var isMatrixLink =
+                                link.indexOf("matrix:") === 0
+                                || link.indexOf("matrix.to/#/") !== -1
+                            // Percent-encoded user permalinks (Element
+                            // emits matrix.to/#/%40user…) are user links
+                            // too (review L2).
+                            var lower = link.toLowerCase()
+                            var isUserLink =
+                                link.indexOf("#/@") !== -1
+                                || lower.indexOf("#/%40") !== -1
+                                || link.indexOf("matrix:u/") === 0
+                            if (isMatrixLink && !isUserLink) {
+                                app.openMatrixLink(link)
+                                return
+                            }
                             app.media.openWebUrl(link)
                         }
 
@@ -2009,6 +2029,24 @@ Item {
             AppMenuSeparator {
                 visible: root.timelineModel.canRedactEvent(
                              root.menuEventId)
+                         || (app.moderation.reportSupported
+                             && model.isOwn !== true)
+            }
+            // v0.7.x: report to the homeserver administrator (stable /v3
+            // event report). Own messages are excluded — deleting them is
+            // the sensible action, and self-reports only add noise.
+            AppMenuItem {
+                iconName: "flag"
+                text: qsTr("Report message")
+                danger: true
+                enabled: app.moderation.reportSupported
+                         && root.menuEventId !== ""
+                         && model.isOwn !== true
+                visible: app.moderation.reportSupported
+                         && model.isOwn !== true
+                onTriggered: app.moderation.beginReport(
+                    root.timelineModel.realRoomIdForEvent(root.menuEventId),
+                    root.menuEventId)
             }
             AppMenuItem {
                 iconName: "delete"

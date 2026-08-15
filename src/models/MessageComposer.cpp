@@ -1,5 +1,6 @@
 #include "models/MessageComposer.h"
 
+#include "app/DraftStore.h"
 #include "matrix/MatrixClient.h"
 #include "models/MarkdownFormat.h"
 
@@ -19,6 +20,10 @@ constexpr int kTypingTimeoutMs = 4000;
 // Clipboard images beyond this edge are scaled down before encoding so a
 // paste can never trigger an unbounded allocation or upload.
 constexpr int kMaxPasteEdge = 4096;
+// Draft-save debounce: long enough to coalesce a typing burst, short
+// enough that a crash loses at most a second of text. Room switches save
+// synchronously regardless.
+constexpr int kDraftSaveMs = 1000;
 }
 
 MessageComposer::MessageComposer(QObject *parent)
@@ -38,6 +43,83 @@ MessageComposer::MessageComposer(QObject *parent)
     // the moment the poster resolves (or definitively fails).
     connect(m_attachments, &AttachmentQueueModel::entryPrepared,
             this, &MessageComposer::dispatchAttachment);
+    m_draftDebounce.setSingleShot(true);
+    m_draftDebounce.setInterval(kDraftSaveMs);
+    connect(&m_draftDebounce, &QTimer::timeout, this,
+            [this] { saveDraftNow(); });
+}
+
+void MessageComposer::saveDraftNow()
+{
+    if (!m_drafts || m_roomId.isEmpty() || m_restoringDraft)
+        return;
+    // Edit mode: the text is the edited event's body. Saving it would
+    // resurrect an old message as a "draft".
+    if (!m_editingEventId.isEmpty())
+        return;
+    QVariantMap draft;
+    draft.insert(QStringLiteral("text"), m_text);
+    if (!m_replyingToEventId.isEmpty()) {
+        draft.insert(QStringLiteral("replyToEventId"), m_replyingToEventId);
+        draft.insert(QStringLiteral("replyToSender"), m_replyingToSender);
+        draft.insert(QStringLiteral("replyToPreview"), m_replyingToPreview);
+    }
+    if (!m_mentionRefs.isEmpty()) {
+        QVariantList refs;
+        for (const mention::MentionRef &ref : m_mentionRefs) {
+            refs.append(QVariantMap{
+                { QStringLiteral("userId"), ref.userId },
+                { QStringLiteral("displayText"), ref.displayText },
+                { QStringLiteral("start"), ref.start },
+                { QStringLiteral("length"), ref.length },
+            });
+        }
+        draft.insert(QStringLiteral("mentions"), refs);
+    }
+    m_drafts->save(m_roomId, m_roomId, draft);
+}
+
+void MessageComposer::restoreDraft()
+{
+    if (!m_drafts || m_roomId.isEmpty())
+        return;
+    const QVariantMap draft = m_drafts->load(m_roomId);
+    if (DraftStore::draftIsEmpty(draft))
+        return;
+    m_restoringDraft = true;
+    m_text = draft.value(QStringLiteral("text")).toString();
+    m_mentionRefs.clear();
+    const QVariantList refs = draft.value(QStringLiteral("mentions")).toList();
+    for (const QVariant &value : refs) {
+        const QVariantMap map = value.toMap();
+        mention::MentionRef ref;
+        ref.userId = map.value(QStringLiteral("userId")).toString();
+        ref.displayText = map.value(QStringLiteral("displayText")).toString();
+        ref.start = map.value(QStringLiteral("start")).toInt();
+        ref.length = map.value(QStringLiteral("length")).toInt();
+        // Fail closed: a ref whose slice no longer matches its display
+        // text contributes nothing rather than mis-tagging someone.
+        if (!ref.userId.isEmpty() && ref.start >= 0 && ref.length > 0
+            && ref.start + ref.length <= m_text.size()
+            && m_text.mid(ref.start, ref.length) == ref.displayText) {
+            m_mentionRefs.append(ref);
+        }
+    }
+    // The reply target is restored tolerantly: if the referenced event was
+    // redacted or is unavailable, the reply still sends (Matrix allows
+    // replying to a redacted event) and the user can always cancel the
+    // chip — a dangling target must never block editing or sending.
+    m_replyingToEventId =
+        draft.value(QStringLiteral("replyToEventId")).toString();
+    m_replyingToSender =
+        draft.value(QStringLiteral("replyToSender")).toString();
+    m_replyingToPreview =
+        draft.value(QStringLiteral("replyToPreview")).toString();
+    m_restoringDraft = false;
+    Q_EMIT textChanged();
+    Q_EMIT mentionRangesChanged();
+    Q_EMIT replyStateChanged();
+    updateCanSend();
 }
 
 void MessageComposer::setClient(MatrixClient *client)
@@ -56,6 +138,23 @@ void MessageComposer::setClient(MatrixClient *client)
             for (const VoiceOp &op : std::as_const(m_voiceOps))
                 QFile::remove(op.localPath);
             m_voiceOps.clear();
+            // Review M2: a pending draft save must die WITH the session —
+            // firing after DraftStore's own loggedOut wipe would re-insert
+            // the signed-out account's plaintext into the store the next
+            // account inherits. The text goes too: it belongs to the
+            // account that typed it.
+            m_draftDebounce.stop();
+            m_roomId.clear();
+            cancelReplyOrEdit(); // may re-arm the debounce — stop it again
+            m_draftDebounce.stop();
+            if (!m_text.isEmpty()) {
+                m_text.clear();
+                Q_EMIT textChanged();
+            }
+            m_mentionRefs.clear();
+            Q_EMIT mentionRangesChanged();
+            Q_EMIT roomIdChanged();
+            updateCanSend();
         });
     }
     updateCanSend();
@@ -284,21 +383,35 @@ void MessageComposer::setText(const QString &t)
     Q_EMIT mentionRangesChanged();
     updateCanSend();
     refreshTypingState();
+    // Coalesced draft persistence; never during a restore (the restore IS
+    // the draft) and never in edit mode (saveDraftNow refuses it anyway).
+    if (m_drafts && !m_restoringDraft && !m_roomId.isEmpty())
+        m_draftDebounce.start();
 }
 
 void MessageComposer::setRoomId(const QString &r)
 {
     if (m_roomId == r)
         return;
+    // The old room's draft is saved BEFORE anything below mutates state:
+    // the debounce is stopped so it cannot fire mid-switch, and the save
+    // reads the still-current room. This also makes the Settings
+    // round-trip (setRoomId("") then back) draft-preserving.
+    m_draftDebounce.stop();
+    saveDraftNow();
     // Cancel typing on the previous room and any pending reply/edit.
     if (!m_roomId.isEmpty()) stopTyping();
     cancelReplyOrEdit();
+    // cancelReplyOrEdit may have re-armed the debounce; nothing may fire
+    // between here and the restore below.
+    m_draftDebounce.stop();
     // Queued attachments belong to the room they were prepared in; entries
     // already dispatched continue in the SDK send queue regardless.
     m_attachments->clearAll();
     m_roomId = r;
     m_text.clear();
     m_mentionRefs.clear();
+    restoreDraft();
     Q_EMIT textChanged();
     Q_EMIT mentionRangesChanged();
     Q_EMIT roomIdChanged();
@@ -349,6 +462,11 @@ void MessageComposer::send()
 
 void MessageComposer::clear()
 {
+    // A successful send and an explicit clear both retire the draft; a
+    // pending debounce must not resurrect the text afterwards.
+    m_draftDebounce.stop();
+    if (m_drafts && !m_roomId.isEmpty())
+        m_drafts->clear(m_roomId);
     m_mentionRefs.clear();
     Q_EMIT mentionRangesChanged();
     if (m_text.isEmpty()) return;
@@ -414,6 +532,9 @@ void MessageComposer::beginReply(const QString &eventId,
     m_replyingToSender  = sender;
     m_replyingToPreview = preview;
     Q_EMIT replyStateChanged();
+    // The reply target is part of the draft.
+    if (m_drafts && !m_restoringDraft && !m_roomId.isEmpty())
+        m_draftDebounce.start();
 }
 
 void MessageComposer::beginEdit(const QString &eventId,
@@ -481,6 +602,11 @@ void MessageComposer::cancelReplyOrEdit()
     if (wasReplying) Q_EMIT replyStateChanged();
     if (wasEditing)  Q_EMIT editStateChanged();
     if (wasInThread) Q_EMIT threadStateChanged();
+    // Dropping the reply chip changes the draft too.
+    if ((wasReplying || wasEditing) && m_drafts && !m_restoringDraft
+        && !m_roomId.isEmpty()) {
+        m_draftDebounce.start();
+    }
 }
 
 void MessageComposer::reactTo(const QString &targetEventId, const QString &key)

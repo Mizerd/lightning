@@ -21,7 +21,31 @@ Item {
         sequences: ["Ctrl+Shift+K"]
         onActivated: quickSwitcher.openCommandMode()
     }
-    QuickSwitcher { id: quickSwitcher }
+    QuickSwitcher {
+        id: quickSwitcher
+        onDiscoverRequested: (startMode) => roomsPanel.openDiscover(startMode)
+        onGlobalSearchRequested: messageSearchDialog.openDialog()
+    }
+
+    // v0.7.x: global server-side message search (Ctrl+Shift+F).
+    Shortcut {
+        sequences: ["Ctrl+Shift+F"]
+        enabled: app.loggedIn && app.messageSearch.supported
+        onActivated: messageSearchDialog.openDialog()
+    }
+    MessageSearchDialog {
+        id: messageSearchDialog
+        parent: Overlay.overlay
+    }
+
+    // v0.7.x: a Matrix room link activated anywhere in the app resolves and
+    // opens through the Discover dialog (joined rooms auto-open from it).
+    Connections {
+        target: app
+        function onMatrixLinkRequested(link) {
+            roomsPanel.openDiscoverForLink(link)
+        }
+    }
 
     // Development-only: locate a descendant by objectName. Popup content
     // (QuickSwitcher's queryField) lives under `contentItem`, not directly

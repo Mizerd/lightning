@@ -4,6 +4,7 @@
 #include <QObject>
 #include <QString>
 #include <QStringList>
+#include <QTimer>
 #include <QUrl>
 #include <QtQmlIntegration/qqmlintegration.h>
 
@@ -88,6 +89,10 @@ public:
     explicit ThreadController(QObject *parent = nullptr);
 
     void setClient(MatrixClient *client);
+    // v0.7.x drafts (per thread, keyed on the internal composite id —
+    // which never leaves the process). Optional; without a store the
+    // composer wipes on switch exactly as before.
+    void setDraftStore(class DraftStore *store) { m_drafts = store; }
 
     bool supported() const;
     State state() const { return m_state; }
@@ -239,6 +244,14 @@ private:
     QString m_text;
     QList<mention::MentionRef> m_mentionRefs;
     void clearComposerText();
+    // v0.7.x drafts: same discipline as MessageComposer — the debounce is
+    // stopped before every thread change and the save reads the current
+    // thread, so a stale timer cannot write across threads.
+    void saveDraftNow();
+    void restoreDraft();
+    class DraftStore *m_drafts = nullptr;
+    QTimer m_draftDebounce;
+    bool m_restoringDraft = false;
     void resetFollowState();
     // Conservative unread hint for a list entry: the loaded room timeline's
     // SDK thread summary for that root, when present.

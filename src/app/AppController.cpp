@@ -146,6 +146,11 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_timelineView = std::make_unique<ReverseListProxyModel>(this);
     m_timelineView->setSourceModel(m_timeline.get());
     m_composer     = std::make_unique<MessageComposer>(this);
+    // v0.7.x drafts: one shared store (room + thread composers), policy in
+    // DraftStore — persisted only for unencrypted rooms.
+    m_draftStore   = std::make_unique<DraftStore>(this);
+    m_draftStore->setSettings(m_settings.get());
+    m_composer->setDraftStore(m_draftStore.get());
     m_mentionSuggestions = std::make_unique<MentionSuggestionModel>(this);
     m_emojiCatalog = std::make_unique<EmojiCatalog>(m_settings.get(), this);
     m_notifications= std::make_unique<NotificationManager>(this);
@@ -160,6 +165,10 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_pinned       = std::make_unique<PinnedMessagesController>(this);
     m_thread       = std::make_unique<ThreadController>(this);
     m_conversations= std::make_unique<ConversationController>(this);
+    m_discovery = std::make_unique<RoomDiscoveryController>(this);
+    m_messageSearch = std::make_unique<MessageSearchController>(this);
+    m_uia = std::make_unique<UiaController>(this);
+    m_moderation = std::make_unique<ModerationController>(this);
     m_roomInfo     = std::make_unique<RoomInfoController>(this);
     m_mediaBridge  = std::make_unique<MediaBridge>(this);
     m_playback     = std::make_unique<MediaPlaybackController>(this);
@@ -256,6 +265,11 @@ AppController::AppController(Backend backend, bool screenshotDemo,
         context.initialSyncComplete = m_client->initialSyncDone();
         context.soundMode = static_cast<NotificationManager::SoundMode>(
             m_settings->notificationSound());
+        // v0.7.x: belt-and-braces for the ignore race window — the server
+        // stops sending an ignored user's events, but ones already in
+        // flight must not notify.
+        context.senderIsIgnored =
+            m_moderation && m_moderation->isIgnored(event.sender);
         m_notifications->processEvent(event, context);
     });
     connect(m_notifications.get(), &NotificationManager::openRequested, this,
@@ -403,6 +417,8 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_presence->setClient(m_client.get());
     m_pinned->setClient(m_client.get());
     m_thread->setClient(m_client.get());
+    m_thread->setDraftStore(m_draftStore.get());
+    m_draftStore->setClient(m_client.get());
     m_roomList->setClient(m_client.get());
     m_roomList->setSpaceManager(m_spaces.get());
     m_quickSwitcher->setClient(m_client.get());
@@ -412,6 +428,10 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_mentionSuggestions->setClient(m_client.get());
     m_media->setClient(m_client.get());
     m_conversations->setClient(m_client.get());
+    m_discovery->setClient(m_client.get());
+    m_messageSearch->setClient(m_client.get());
+    m_uia->setClient(m_client.get());
+    m_moderation->setClient(m_client.get());
     m_roomInfo->setClient(m_client.get());
     m_mediaBridge->setClient(m_client.get());
     m_pagination->setClient(m_client.get());
@@ -497,6 +517,22 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             this, [this](const QString &) {
         Q_EMIT errorReported(
             tr("The room was created, but setting its picture failed."));
+    });
+    // v0.7.x sessions: any terminal sign-out outcome re-reads the
+    // authoritative device list — a tile disappears only when the server
+    // says so, and a failed attempt repaints the truth as well.
+    connect(m_uia.get(), &UiaController::signOutFinished, this,
+            [this](bool, const QString &) { refreshSessionDevices(); });
+    // v0.7.x Discover / Join: a joined room opens once present in the
+    // authoritative list; a joined Space is selected in the rail exactly
+    // like a created one — never given a message timeline.
+    connect(m_discovery.get(), &RoomDiscoveryController::roomJoined,
+            this, &AppController::openRoom);
+    connect(m_discovery.get(), &RoomDiscoveryController::spaceJoined,
+            this, [this](const QString &spaceId) {
+        if (m_spaces)
+            m_spaces->setActiveSpaceId(spaceId);
+        setCurrentRoomId(QString());
     });
     connect(m_roomInfo.get(), &RoomInfoController::roomLeft,
             this, [this](const QString &roomId) {
@@ -2497,6 +2533,11 @@ void AppController::clearCrossAccountCaches()
     m_mediaBridge->clear();
     m_notifications->clearPending();
     m_knownInvites.clear();
+    // Encrypted-room drafts are memory-only and account-scoped; the next
+    // account must never see them. (Persisted drafts live under the
+    // previous account's own settings group.)
+    if (m_draftStore)
+        m_draftStore->clearMemoryDrafts();
     m_sessionDevices.clear();
     m_sessionDevicesLoading = false;
     m_sessionDevicesFailed = false;

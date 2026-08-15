@@ -1,5 +1,6 @@
 #include "threads/ThreadController.h"
 
+#include "app/DraftStore.h"
 #include "matrix/MatrixClient.h"
 #include "models/UserLookup.h"
 
@@ -30,6 +31,66 @@ ThreadController::ThreadController(QObject *parent)
     // the moment the poster resolves (or definitively fails).
     connect(m_attachments, &AttachmentQueueModel::entryPrepared,
             this, &ThreadController::dispatchAttachment);
+    m_draftDebounce.setSingleShot(true);
+    m_draftDebounce.setInterval(1000);
+    connect(&m_draftDebounce, &QTimer::timeout, this,
+            [this] { saveDraftNow(); });
+}
+
+void ThreadController::saveDraftNow()
+{
+    if (!m_drafts || m_restoringDraft)
+        return;
+    const QString key = timelineId();
+    if (key.isEmpty())
+        return;
+    QVariantMap draft;
+    draft.insert(QStringLiteral("text"), m_text);
+    if (!m_mentionRefs.isEmpty()) {
+        QVariantList refs;
+        for (const mention::MentionRef &ref : m_mentionRefs) {
+            refs.append(QVariantMap{
+                { QStringLiteral("userId"), ref.userId },
+                { QStringLiteral("displayText"), ref.displayText },
+                { QStringLiteral("start"), ref.start },
+                { QStringLiteral("length"), ref.length },
+            });
+        }
+        draft.insert(QStringLiteral("mentions"), refs);
+    }
+    m_drafts->save(key, m_roomId, draft);
+}
+
+void ThreadController::restoreDraft()
+{
+    if (!m_drafts)
+        return;
+    const QString key = timelineId();
+    if (key.isEmpty())
+        return;
+    const QVariantMap draft = m_drafts->load(key);
+    if (DraftStore::draftIsEmpty(draft))
+        return;
+    m_restoringDraft = true;
+    m_text = draft.value(QStringLiteral("text")).toString();
+    m_mentionRefs.clear();
+    const QVariantList refs = draft.value(QStringLiteral("mentions")).toList();
+    for (const QVariant &value : refs) {
+        const QVariantMap map = value.toMap();
+        mention::MentionRef ref;
+        ref.userId = map.value(QStringLiteral("userId")).toString();
+        ref.displayText = map.value(QStringLiteral("displayText")).toString();
+        ref.start = map.value(QStringLiteral("start")).toInt();
+        ref.length = map.value(QStringLiteral("length")).toInt();
+        if (!ref.userId.isEmpty() && ref.start >= 0 && ref.length > 0
+            && ref.start + ref.length <= m_text.size()
+            && m_text.mid(ref.start, ref.length) == ref.displayText) {
+            m_mentionRefs.append(ref);
+        }
+    }
+    m_restoringDraft = false;
+    Q_EMIT textChanged();
+    Q_EMIT mentionRangesChanged();
 }
 
 void ThreadController::setClient(MatrixClient *client)
@@ -162,13 +223,20 @@ void ThreadController::openThread(const QString &roomId,
         && m_state != Failed)
         return; // already open/opening — reopening would only reset scroll.
 
+    // v0.7.x: the previous thread's draft is saved BEFORE anything below
+    // mutates the ids the key derives from; the debounce is stopped so a
+    // stale timer cannot write across threads.
+    m_draftDebounce.stop();
+    saveDraftNow();
+
     m_roomId = roomId;
     m_rootEventId = rootEventId;
     m_failureCategory.clear();
     cancelReply();
-    // A thread switch abandons the previous thread's composer draft (and its
-    // mention refs), just like queued attachments below.
+    // A thread switch drops the previous thread's composer text (its draft
+    // was saved above), just like queued attachments below.
     clearComposerText();
+    restoreDraft();
     // Queued attachments belong to the thread they were prepared in; a thread
     // switch must never reroute them into the newly opened thread.
     clearAttachments();
@@ -186,6 +254,10 @@ void ThreadController::openThread(const QString &roomId,
 
 void ThreadController::close()
 {
+    // Closing the panel keeps the draft — it restores when the thread is
+    // reopened.
+    m_draftDebounce.stop();
+    saveDraftNow();
     const bool wasActive = m_state != Closed;
     if (m_client && wasActive)
         m_client->closeThread();
@@ -252,6 +324,11 @@ void ThreadController::sendText(const QString &body)
         m_client->sendThreadReplyTo(m_roomId, m_rootEventId, QString(), outBody,
                                     mentionIds);
     }
+    // A dispatched send retires the draft; a pending debounce must not
+    // resurrect the text (delivery state lives on the SDK local echo).
+    m_draftDebounce.stop();
+    if (m_drafts && !timelineId().isEmpty())
+        m_drafts->clear(timelineId());
     clearComposerText();
 }
 
@@ -263,6 +340,8 @@ void ThreadController::setText(const QString &text)
     m_text = text;
     Q_EMIT textChanged();
     Q_EMIT mentionRangesChanged();
+    if (m_drafts && !m_restoringDraft && !timelineId().isEmpty())
+        m_draftDebounce.start();
 }
 
 void ThreadController::clearComposerText()

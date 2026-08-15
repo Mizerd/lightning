@@ -30,6 +30,13 @@ struct RoomInfo {
     bool markedUnread = false;
     bool hasUnreadMessages = false;
     bool encrypted = false;
+    // v0.7.x: whether `encrypted` is a KNOWN fact rather than a not-yet-
+    // synced default. The Rust bridge sets it from the SDK's tri-state
+    // EncryptionState; Mock/HTTP construct rooms with definitive state, so
+    // the default is true and the Rust payload overrides it explicitly.
+    // Anything security-relevant (draft persistence, server-search offers)
+    // must fail closed while this is false.
+    bool encryptionKnown = true;
     bool isSpace = false;
     bool isDirect = false;
     QString directUserId;
@@ -90,7 +97,9 @@ inline bool operator==(const RoomInfo &a, const RoomInfo &b)
         && a.highlightCount == b.highlightCount
         && a.markedUnread == b.markedUnread
         && a.hasUnreadMessages == b.hasUnreadMessages
-        && a.encrypted == b.encrypted && a.isSpace == b.isSpace
+        && a.encrypted == b.encrypted
+        && a.encryptionKnown == b.encryptionKnown
+        && a.isSpace == b.isSpace
         && a.isDirect == b.isDirect && a.directUserId == b.directUserId
         && a.directUserIds == b.directUserIds
         && a.canonicalAlias == b.canonicalAlias

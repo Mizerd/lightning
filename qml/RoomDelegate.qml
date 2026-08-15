@@ -220,6 +220,28 @@ Item {
                 color: AppTheme.error
                 wrapMode: Text.WordWrap
             }
+
+            // v0.7.x: pending knock. The knocked room flows into the list
+            // via sliding sync; the only honest actions are waiting and
+            // withdrawing the request.
+            RowLayout {
+                visible: model.membership === "knocked"
+                spacing: AppTheme.spacingS
+                Label {
+                    Layout.fillWidth: true
+                    text: qsTr("Join request pending")
+                    color: AppTheme.textMuted
+                    elide: Label.ElideRight
+                }
+                AppButton {
+                    implicitHeight: 26
+                    leftPadding: 10
+                    rightPadding: 10
+                    text: qsTr("Withdraw")
+                    Accessible.name: qsTr("Withdraw the join request")
+                    onClicked: app.discovery.cancelKnock(model.roomId)
+                }
+            }
         }
     }
 

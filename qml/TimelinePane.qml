@@ -75,6 +75,20 @@ Rectangle {
         }
     }
 
+    // Header pin shortcut: opens the same side panel directly on the
+    // Pinned section (mirrors toggleMemberPanel).
+    function togglePinnedPanel() {
+        if (app.currentRoomId === "" || !app.roomInfo.supported)
+            return
+        if (infoOpen && infoPanel.section === "pinned") {
+            infoOpen = false
+            return
+        }
+        infoPanel.openForRoom(app.currentRoomId)
+        infoPanel.section = "pinned"
+        infoOpen = true
+    }
+
     // v0.7 design shell: the header's members button opens the same side
     // panel directly on the People section.
     function toggleMemberPanel() {
@@ -99,9 +113,12 @@ Rectangle {
         }
         function onCurrentRoomIdChanged() {
             refreshCurrentRoom()
-            // A find session belongs to the room it was opened in.
+            // A find session belongs to the room it was opened in — the
+            // history-mode results included (roomId-scoped server search).
             if (root.findOpen) {
                 root.findOpen = false
+                root.findHistoryMode = false
+                app.messageSearch.query = ""
                 findField.text = ""
             }
             // Old-room wheel motion must not continue into the new room.
@@ -119,9 +136,22 @@ Rectangle {
         }
     }
 
-    // v0.6.1: find in loaded messages (this room's currently loaded timeline
-    // only — never a server history search, never a persistent index).
+    // v0.6.1: find in loaded messages (this room's currently loaded
+    // timeline; never a persistent index). v0.7.x adds an explicit History
+    // segment — an honest server /search of this room — in unencrypted
+    // rooms only; the two modes never mix results.
     property bool findOpen: false
+    // v0.7.x: the find bar's second mode — server-side history search of
+    // THIS room. Unavailable in encrypted rooms (the server cannot search
+    // ciphertext; the loaded-messages find remains the only search there).
+    property bool findHistoryMode: false
+    // Review H1: the offer needs an AFFIRMATIVE unencrypted state — a room
+    // whose encryption state has not synced yet gets no History segment.
+    readonly property bool findHistoryAvailable:
+        app.messageSearch.supported
+        && root.currentRoom.encryptionKnown === true
+        && root.currentRoom.encrypted !== true
+
     function openFind() {
         if (app.currentRoomId === "") return
         root.findOpen = true
@@ -131,6 +161,8 @@ Rectangle {
     }
     function closeFind() {
         root.findOpen = false
+        root.findHistoryMode = false
+        app.messageSearch.query = ""
         app.timeline.endSearch()
         // v0.6.5 (C7): the field is about to become invisible/unfocusable
         // (findBar's visible binding follows findOpen) — hand focus back to
@@ -442,6 +474,25 @@ Rectangle {
                 Item { Layout.fillWidth: true }
                 RowLayout {
                     spacing: AppTheme.spacing6
+                    // Pinned-messages shortcut: shown only when the room
+                    // actually has pins, so users reach the list in one
+                    // click instead of Room Information → Pinned.
+                    IconButton {
+                        objectName: "pinnedMessagesButton"
+                        visible: app.currentRoomId !== ""
+                                 && app.roomInfo.supported
+                                 && app.pinned
+                                 && app.pinned.supported
+                                 && app.pinned.roomId === app.currentRoomId
+                                 && app.pinned.total > 0
+                        iconName: "push_pin"
+                        active: root.infoOpen && infoPanel.section === "pinned"
+                        Accessible.name: qsTr("Pinned messages")
+                        ToolTip.text: qsTr("Pinned messages")
+                        ToolTip.visible: hovered
+                        ToolTip.delay: 500
+                        onClicked: root.togglePinnedPanel()
+                    }
                     IconButton {
                         objectName: "threadsViewButton"
                         visible: app.currentRoomId !== "" && app.thread.supported
@@ -518,37 +569,90 @@ Rectangle {
             Layout.topMargin: AppTheme.spacing8
             Layout.bottomMargin: AppTheme.spacing8
             visible: root.findOpen
-            implicitHeight: findRow.implicitHeight + AppTheme.spacingS * 2
+            implicitHeight: findCol.implicitHeight + AppTheme.spacingS * 2
             radius: AppTheme.radiusLg
             color: AppTheme.surface
             border.color: AppTheme.border
             border.width: 1
-            RowLayout {
-                id: findRow
+            ColumnLayout {
+                id: findCol
                 anchors.fill: parent
                 anchors.margins: AppTheme.spacingS
                 spacing: AppTheme.spacingS
+            RowLayout {
+                id: findRow
+                Layout.fillWidth: true
+                spacing: AppTheme.spacingS
+                // Loaded-messages find vs server history search. The
+                // history segment exists only where it can be honest.
+                SegmentedControl {
+                    objectName: "findModeToggle"
+                    visible: root.findHistoryAvailable
+                    dense: true
+                    model: [
+                        { label: qsTr("Loaded"), value: "loaded" },
+                        { label: qsTr("History"), value: "history" }
+                    ]
+                    current: root.findHistoryMode ? "history" : "loaded"
+                    onActivated: (value) => {
+                        var wantHistory = value === "history"
+                        if (wantHistory === root.findHistoryMode)
+                            return
+                        root.findHistoryMode = wantHistory
+                        if (wantHistory) {
+                            app.timeline.endSearch()
+                            app.messageSearch.roomId = app.currentRoomId
+                            app.messageSearch.query = findField.text
+                        } else {
+                            app.messageSearch.query = ""
+                            app.timeline.beginSearch(findField.text)
+                        }
+                        findField.forceActiveFocus()
+                    }
+                }
                 AppTextField {
                     id: findField
                     objectName: "timelineFindField"
                     Layout.fillWidth: true
                     searchIcon: true
                     clearButton: true
-                    placeholderText: qsTr("Search visible messages…")
-                    Accessible.name: qsTr("Find in loaded messages")
-                    onTextChanged: if (root.findOpen)
-                                       app.timeline.updateSearch(text)
+                    placeholderText: root.findHistoryMode
+                                     ? qsTr("Search this room's history…")
+                                     : qsTr("Search visible messages…")
+                    Accessible.name: root.findHistoryMode
+                                     ? qsTr("Search room history")
+                                     : qsTr("Find in loaded messages")
+                    onTextChanged: {
+                        if (!root.findOpen)
+                            return
+                        if (root.findHistoryMode) {
+                            // Review M1: the controller is SHARED with the
+                            // global dialog, which rescopes it to "". Every
+                            // find-bar dispatch re-asserts this room, so a
+                            // dialog round-trip can never make the bar show
+                            // other rooms' results under this room's label.
+                            app.messageSearch.roomId = app.currentRoomId
+                            app.messageSearch.query = text
+                        } else {
+                            app.timeline.updateSearch(text)
+                        }
+                    }
                     Keys.onReturnPressed: (event) => {
-                        if (event.modifiers & Qt.ShiftModifier)
+                        if (root.findHistoryMode) {
+                            app.messageSearch.roomId = app.currentRoomId
+                            app.messageSearch.search()
+                        } else if (event.modifiers & Qt.ShiftModifier) {
                             app.timeline.searchPrev()
-                        else
+                        } else {
                             app.timeline.searchNext()
+                        }
                         event.accepted = true
                     }
                     Keys.onEscapePressed: root.closeFind()
                 }
                 Label {
                     objectName: "timelineFindCount"
+                    visible: !root.findHistoryMode
                     text: app.timeline.searchResultCount > 0
                           ? qsTr("%1 of %2").arg(app.timeline.searchCurrentPosition)
                                             .arg(app.timeline.searchResultCount)
@@ -557,6 +661,7 @@ Rectangle {
                     font.pixelSize: 12
                 }
                 IconButton {
+                    visible: !root.findHistoryMode
                     implicitWidth: 28; implicitHeight: 28
                     radius: 6
                     iconName: "expand_less"
@@ -566,6 +671,7 @@ Rectangle {
                     onClicked: app.timeline.searchPrev()
                 }
                 IconButton {
+                    visible: !root.findHistoryMode
                     implicitWidth: 28; implicitHeight: 28
                     radius: 6
                     iconName: "expand_more"
@@ -582,6 +688,107 @@ Rectangle {
                     Accessible.name: qsTr("Close find")
                     onClicked: root.closeFind()
                 }
+            }
+
+            // v0.7.x: history-mode results (server /search, this room).
+            ListView {
+                id: historyResultsList
+                objectName: "historySearchResultsList"
+                visible: root.findHistoryMode
+                Layout.fillWidth: true
+                Layout.preferredHeight: visible && count > 0
+                                        ? Math.min(280, contentHeight) : 0
+                clip: true
+                spacing: 2
+                model: root.findHistoryMode ? app.messageSearch : null
+                ScrollBar.vertical: ScrollBar {}
+                onAtYEndChanged: {
+                    if (atYEnd && app.messageSearch.canLoadMore)
+                        app.messageSearch.loadMore()
+                }
+                delegate: Rectangle {
+                    id: historyRow
+                    required property int index
+                    required property string eventId
+                    required property string sender
+                    required property string senderDisplayName
+                    required property var timestampMs
+                    required property string body
+                    width: historyResultsList.width
+                    height: historyRowCol.implicitHeight + AppTheme.spacing8
+                    radius: AppTheme.radiusMd
+                    color: historyHover.hovered ? AppTheme.hover : "transparent"
+                    HoverHandler { id: historyHover }
+                    TapHandler {
+                        onTapped: {
+                            // The shared navigation path: paginate until the
+                            // event is loaded, then centre + highlight. Deep
+                            // history past its bounded window reports its
+                            // honest "unavailable" message.
+                            app.pagination.jumpToEvent(historyRow.eventId)
+                        }
+                    }
+                    Accessible.role: Accessible.Button
+                    Accessible.name: qsTr("Jump to message")
+                    ColumnLayout {
+                        id: historyRowCol
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.leftMargin: AppTheme.spacingS
+                        anchors.rightMargin: AppTheme.spacingS
+                        spacing: 1
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Label {
+                                text: historyRow.senderDisplayName.length > 0
+                                      ? historyRow.senderDisplayName
+                                      : historyRow.sender
+                                color: AppTheme.text
+                                font.pixelSize: 12
+                                font.weight: Font.DemiBold
+                                elide: Label.ElideRight
+                                Layout.fillWidth: true
+                            }
+                            Label {
+                                text: {
+                                    var d = new Date(Number(
+                                        historyRow.timestampMs))
+                                    return d.toLocaleDateString(
+                                        Qt.locale(), Locale.ShortFormat)
+                                }
+                                color: AppTheme.textMuted
+                                font.pixelSize: 11
+                            }
+                        }
+                        Label {
+                            Layout.fillWidth: true
+                            text: historyRow.body
+                            color: AppTheme.textSecondary
+                            font.pixelSize: 12
+                            elide: Label.ElideRight
+                            maximumLineCount: 1
+                        }
+                    }
+                }
+            }
+            Label {
+                visible: root.findHistoryMode
+                         && app.messageSearch.state !== "idle"
+                Layout.fillWidth: true
+                text: app.messageSearch.state === "loading"
+                      ? qsTr("Searching…")
+                      : app.messageSearch.state === "loading_more"
+                        ? qsTr("Loading more…")
+                        : app.messageSearch.state === "no_results"
+                          ? qsTr("No messages found in this room's history")
+                          : app.messageSearch.state === "error"
+                            ? qsTr("The search could not be completed.")
+                            : ""
+                color: AppTheme.textMuted
+                font.pixelSize: 11
+                elide: Label.ElideRight
+            }
             }
         }
 
@@ -2896,15 +3103,59 @@ Rectangle {
                 app.spaces ? app.spaces.activeSpaceId : ""
             property var info: ({})
             property var childRooms: []
+            // v0.7.x: /hierarchy children the account has not joined
+            // (join offers). Refreshed through RoomDiscoveryController.
+            property var unjoinedChildren: []
             property string addNotice: ""
             property bool settingsOpen: false
             function refresh() {
                 info = app.spaces ? app.spaces.spaceInfo(spaceId) : {}
                 childRooms = app.spaces
                            ? app.spaces.childRoomsDetailed(spaceId) : []
+                refreshUnjoined()
             }
-            onSpaceIdChanged: { addNotice = ""; refresh() }
-            Component.onCompleted: refresh()
+            function refreshUnjoined() {
+                if (spaceId === "" || !app.discovery.supported) {
+                    unjoinedChildren = []
+                    return
+                }
+                var rows = app.discovery.spaceChildren(spaceId)
+                var out = []
+                for (var i = 0; i < rows.length; ++i) {
+                    if (rows[i].membership !== "joined")
+                        out.push(rows[i])
+                }
+                unjoinedChildren = out
+            }
+            onSpaceIdChanged: {
+                addNotice = ""
+                refresh()
+                if (spaceId !== "" && app.discovery.supported)
+                    app.discovery.refreshSpaceChildren(spaceId)
+            }
+            Component.onCompleted: {
+                refresh()
+                if (spaceId !== "" && app.discovery.supported)
+                    app.discovery.refreshSpaceChildren(spaceId)
+            }
+            Connections {
+                target: app.discovery
+                function onSpaceChildrenChanged(changedSpaceId) {
+                    if (changedSpaceId === spaceHome.spaceId)
+                        spaceHome.refreshUnjoined()
+                }
+                // A join changes a row's membership; the hierarchy answer
+                // is re-read so the offer disappears (the joined list
+                // itself updates through authoritative sync).
+                function onRoomJoined() {
+                    if (spaceHome.spaceId !== "")
+                        app.discovery.refreshSpaceChildren(spaceHome.spaceId)
+                }
+                function onKnockSent() {
+                    if (spaceHome.spaceId !== "")
+                        app.discovery.refreshSpaceChildren(spaceHome.spaceId)
+                }
+            }
             Timer {
                 id: spaceRefreshCoalesce
                 interval: 250
@@ -3288,6 +3539,110 @@ Rectangle {
                             Accessible.name: qsTr("Open %1")
                                 .arg(modelData.name || "")
                         }
+                    }
+
+                    // v0.7.x Discover: children of this Space the account
+                    // has NOT joined, from the server's /hierarchy (SDK
+                    // SpaceRoomList). The joined list above stays
+                    // authoritative sync state; these rows are join offers.
+                    Label {
+                        visible: spaceHome.unjoinedChildren.length > 0
+                        text: qsTr("MORE ROOMS IN THIS SPACE")
+                        color: AppTheme.textMuted
+                        font.pixelSize: 11
+                        font.weight: Font.ExtraBold
+                        font.letterSpacing: 0.8
+                        Layout.topMargin: AppTheme.spacingS
+                    }
+                    Repeater {
+                        model: spaceHome.unjoinedChildren
+                        delegate: Rectangle {
+                            id: unjoinedRow
+                            required property var modelData
+                            readonly property bool rowKnocks:
+                                modelData.joinRule === "knock"
+                                || modelData.joinRule === "knock_restricted"
+                            Layout.fillWidth: true
+                            implicitHeight: 46
+                            radius: AppTheme.radiusMd
+                            color: unjoinedHover.hovered
+                                   ? AppTheme.hover : "transparent"
+                            HoverHandler { id: unjoinedHover }
+                            RowLayout {
+                                anchors.fill: parent
+                                anchors.leftMargin: AppTheme.spacingS
+                                anchors.rightMargin: AppTheme.spacingS
+                                spacing: AppTheme.spacingS
+                                Avatar {
+                                    size: 32
+                                    name: unjoinedRow.modelData.name || ""
+                                    mxc: unjoinedRow.modelData.avatarUrl || ""
+                                    colorKey: unjoinedRow.modelData.roomId || ""
+                                    roomGlyph: true
+                                }
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 0
+                                    Label {
+                                        Layout.fillWidth: true
+                                        text: unjoinedRow.modelData.name
+                                              || qsTr("Room")
+                                        color: AppTheme.text
+                                        font.family: AppTheme.uiFont
+                                        font.pixelSize: AppTheme.scaled(
+                                            AppTheme.fontBody)
+                                        font.weight: Font.Medium
+                                        elide: Label.ElideRight
+                                    }
+                                    Label {
+                                        Layout.fillWidth: true
+                                        text: qsTr("%n member(s)", "",
+                                            Number(unjoinedRow.modelData.members
+                                                   || 0))
+                                        color: AppTheme.textMuted
+                                        font.pixelSize: 11
+                                        elide: Label.ElideRight
+                                    }
+                                }
+                                Label {
+                                    visible: unjoinedRow.modelData.membership
+                                             === "knocked"
+                                    text: qsTr("Request pending")
+                                    color: AppTheme.textMuted
+                                    font.pixelSize: 11
+                                }
+                                AppButton {
+                                    visible: unjoinedRow.modelData.membership
+                                             !== "knocked"
+                                    kind: "primary"
+                                    enabled: !app.discovery.busy
+                                    text: unjoinedRow.rowKnocks
+                                          ? qsTr("Ask to join") : qsTr("Join")
+                                    onClicked: {
+                                        var via = unjoinedRow.modelData.via || []
+                                        if (unjoinedRow.rowKnocks)
+                                            app.discovery.knock(
+                                                unjoinedRow.modelData.roomId,
+                                                via, "")
+                                        else
+                                            app.discovery.join(
+                                                unjoinedRow.modelData.roomId,
+                                                via,
+                                                unjoinedRow.modelData.isSpace
+                                                === true)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Label {
+                        visible: app.discovery.errorMessage.length > 0
+                                 && spaceHome.unjoinedChildren.length > 0
+                        Layout.fillWidth: true
+                        text: app.discovery.errorMessage
+                        color: AppTheme.danger
+                        font.pixelSize: 12
+                        wrapMode: Text.Wrap
                     }
                 }
             }

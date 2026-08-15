@@ -1448,6 +1448,16 @@ QString TimelineModel::sanitizedHtmlForEvent(const QString &eventId) const
                                   m_codeBackgroundColor});
 }
 
+QString TimelineModel::realRoomIdForEvent(const QString &eventId) const
+{
+    const auto *event = eventForId(eventId);
+    if (!event || event->roomId.isEmpty())
+        return {};
+    return MatrixClient::isThreadTimelineId(event->roomId)
+               ? MatrixClient::threadTimelineRoomId(event->roomId)
+               : event->roomId;
+}
+
 QString TimelineModel::messagePermalink(const QString &eventId) const
 {
     const auto *event = eventForId(eventId);

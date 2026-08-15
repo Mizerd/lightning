@@ -895,6 +895,53 @@ QString videoDimsHash(const QString &mediaKey)
 constexpr int kVideoDimsCap = 512;
 } // namespace
 
+namespace {
+constexpr int kDraftCap = 256;
+} // namespace
+
+QVariantMap SettingsManager::roomDraft(const QString &draftKey) const
+{
+    if (draftKey.isEmpty())
+        return {};
+    const QString slug = activeAccountSlugCached();
+    if (slug.isEmpty())
+        return {};
+    const QString key = QLatin1String(kAccountsGroup) + QLatin1Char('/')
+        + slug + QLatin1String("/drafts/") + videoDimsHash(draftKey);
+    return m_store->value(key).toMap();
+}
+
+void SettingsManager::setRoomDraft(const QString &draftKey,
+                                   const QVariantMap &draft)
+{
+    if (draftKey.isEmpty())
+        return;
+    const QString slug = activeAccountSlugCached();
+    if (slug.isEmpty())
+        return; // no account, write NOTHING (verification-dismissal rule)
+    const QString hash = videoDimsHash(draftKey);
+    const QString base = QLatin1String(kAccountsGroup) + QLatin1Char('/')
+        + slug + QLatin1String("/drafts/");
+    const QString indexKey = base + QLatin1String("index");
+    QStringList index = m_store->value(indexKey).toStringList();
+    if (draft.isEmpty()) {
+        m_store->remove(base + hash);
+        if (index.removeAll(hash) > 0)
+            m_store->setValue(indexKey, index);
+        return;
+    }
+    m_store->setValue(base + hash, draft);
+    // LRU touch + bound: an unbounded draft family would grow with every
+    // room ever typed in.
+    index.removeOne(hash);
+    index.append(hash);
+    while (index.size() > kDraftCap) {
+        const QString victim = index.takeFirst();
+        m_store->remove(base + victim);
+    }
+    m_store->setValue(indexKey, index);
+}
+
 QSize SettingsManager::knownVideoDimensions(const QString &mediaKey) const
 {
     if (mediaKey.isEmpty())

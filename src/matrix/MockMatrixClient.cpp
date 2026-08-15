@@ -2624,3 +2624,241 @@ void MockMatrixClient::appendEventForTest(const QString &roomId,
     m_timelines[roomId].append(stamped);
     Q_EMIT eventAppended(roomId, stamped);
 }
+
+// ── v0.7.x Discover / Join, search, UIA, moderation mock surface ─────────
+
+quint64 MockMatrixClient::resolveRoomTarget(const QString &input)
+{
+    if (input.trimmed().isEmpty())
+        return 0;
+    const quint64 op = ++m_opCounter;
+    QVariantMap result = mockResolveResult;
+    if (result.isEmpty()) {
+        result.insert(QStringLiteral("ok"), false);
+        result.insert(QStringLiteral("category"), QStringLiteral("invalid"));
+    }
+    QTimer::singleShot(0, this, [this, op, result] {
+        Q_EMIT roomTargetResolved(op, result);
+    });
+    return op;
+}
+
+quint64 MockMatrixClient::searchPublicRooms(const QString &, const QString &,
+                                            const QString &since, int)
+{
+    const quint64 op = ++m_opCounter;
+    const QVariantList rooms = mockPublicRooms;
+    // A next-page request answers with the same rows unless the test
+    // rescripts them; the token clears so pagination terminates.
+    const QString nextBatch = since.isEmpty() ? mockPublicRoomsNextBatch
+                                              : QString();
+    QTimer::singleShot(0, this, [this, op, rooms, nextBatch] {
+        Q_EMIT publicRoomsReceived(op, true, rooms, nextBatch,
+                                   static_cast<quint64>(rooms.size()),
+                                   QString());
+    });
+    return op;
+}
+
+quint64 MockMatrixClient::joinRoomByIdOrAlias(const QString &target,
+                                              const QStringList &)
+{
+    if (target.trimmed().isEmpty())
+        return 0;
+    const quint64 op = ++m_opCounter;
+    joinedTargets.append(target);
+    const QString category = mockJoinFailCategory;
+    QTimer::singleShot(0, this, [this, op, target, category] {
+        if (!category.isEmpty()) {
+            Q_EMIT roomJoinFinished(op, false, QString(), category);
+            return;
+        }
+        // Materialize the membership like sync would, so wait-for-room
+        // completes: the target (or a scripted room id) appears joined.
+        QString roomId = target;
+        bool exists = false;
+        for (auto &room : m_rooms) {
+            if (room.id == roomId) {
+                room.membership = RoomInfo::Joined;
+                exists = true;
+                break;
+            }
+        }
+        if (!exists) {
+            RoomInfo room;
+            room.id = roomId;
+            room.name = QStringLiteral("Joined room");
+            room.membership = RoomInfo::Joined;
+            // Review H1 fidelity: a freshly joined room's encryption state
+            // has NOT synced yet — exactly the window the draft policy
+            // must fail closed in.
+            room.encryptionKnown = false;
+            m_rooms.append(room);
+        }
+        Q_EMIT roomsChanged();
+        Q_EMIT roomJoinFinished(op, true, roomId, QString());
+    });
+    return op;
+}
+
+quint64 MockMatrixClient::knockRoom(const QString &target,
+                                    const QStringList &, const QString &)
+{
+    if (target.trimmed().isEmpty())
+        return 0;
+    const quint64 op = ++m_opCounter;
+    const QString category = mockKnockFailCategory;
+    QTimer::singleShot(0, this, [this, op, target, category] {
+        if (!category.isEmpty()) {
+            Q_EMIT roomKnockFinished(op, false, QString(), category);
+            return;
+        }
+        Q_EMIT roomKnockFinished(op, true, target, QString());
+    });
+    return op;
+}
+
+quint64 MockMatrixClient::cancelKnock(const QString &roomId)
+{
+    if (roomId.isEmpty())
+        return 0;
+    const quint64 op = ++m_opCounter;
+    QTimer::singleShot(0, this, [this, op, roomId] {
+        Q_EMIT knockCancelFinished(op, true, roomId, QString());
+    });
+    return op;
+}
+
+quint64 MockMatrixClient::requestSpaceChildren(const QString &spaceId)
+{
+    if (spaceId.isEmpty())
+        return 0;
+    const quint64 op = ++m_opCounter;
+    const QVariantList rows = mockSpaceChildren;
+    QTimer::singleShot(0, this, [this, op, spaceId, rows] {
+        Q_EMIT spaceChildrenReceived(op, spaceId, true, rows, false,
+                                     QString());
+    });
+    return op;
+}
+
+quint64 MockMatrixClient::searchMessages(const QString &term, const QString &,
+                                         const QString &since, int)
+{
+    if (term.trimmed().isEmpty())
+        return 0;
+    const quint64 op = ++m_opCounter;
+    const QVariantList rows = mockSearchResults;
+    const QString nextBatch = since.isEmpty() ? mockSearchNextBatch
+                                              : QString();
+    QTimer::singleShot(0, this, [this, op, rows, nextBatch] {
+        Q_EMIT messageSearchFinished(op, true, rows, nextBatch,
+                                     static_cast<quint64>(rows.size()),
+                                     QString());
+    });
+    return op;
+}
+
+quint64 MockMatrixClient::deleteDevices(const QStringList &deviceIds)
+{
+    if (deviceIds.isEmpty())
+        return 0;
+    const quint64 op = ++m_opCounter;
+    lastDeleteOp = op;
+    lastDeletedDevices = deviceIds;
+    const bool challenge = mockUiaRequired;
+    const QString category = mockDeleteFailCategory;
+    QTimer::singleShot(0, this, [this, op, challenge, category] {
+        if (challenge) {
+            Q_EMIT uiaRequired(op, true, false,
+                               { QStringLiteral("m.login.password") });
+            return;
+        }
+        if (!category.isEmpty()) {
+            Q_EMIT deviceDeleteFinished(op, false, category);
+            return;
+        }
+        Q_EMIT deviceDeleteFinished(op, true, QString());
+    });
+    return op;
+}
+
+bool MockMatrixClient::uiaSubmitPassword(quint64 uiaId,
+                                         const QString &password)
+{
+    if (uiaId == 0 || uiaId != lastDeleteOp || password.isEmpty())
+        return false;
+    const bool correct = password == mockUiaPassword;
+    QTimer::singleShot(0, this, [this, uiaId, correct] {
+        if (correct) {
+            lastDeleteOp = 0;
+            Q_EMIT deviceDeleteFinished(uiaId, true, QString());
+        } else {
+            Q_EMIT uiaRequired(uiaId, true, true,
+                               { QStringLiteral("m.login.password") });
+        }
+    });
+    return true;
+}
+
+void MockMatrixClient::uiaCancel(quint64 uiaId)
+{
+    if (uiaId == lastDeleteOp)
+        lastDeleteOp = 0;
+}
+
+quint64 MockMatrixClient::requestOAuthManagementUrl(const QString &)
+{
+    const quint64 op = ++m_opCounter;
+    const QString url = mockManagementUrl;
+    QTimer::singleShot(0, this, [this, op, url] {
+        Q_EMIT oauthManagementUrlReceived(op, !url.isEmpty(), url);
+    });
+    return op;
+}
+
+quint64 MockMatrixClient::setUserIgnored(const QString &userId, bool ignored)
+{
+    if (userId.trimmed().isEmpty())
+        return 0;
+    // Self-ignore is refused synchronously, like the Rust bridge.
+    if (userId == m_userId)
+        return 0;
+    const quint64 op = ++m_opCounter;
+    QTimer::singleShot(0, this, [this, op, userId, ignored] {
+        if (ignored) {
+            if (!mockIgnoredUsers.contains(userId))
+                mockIgnoredUsers.append(userId);
+        } else {
+            mockIgnoredUsers.removeAll(userId);
+        }
+        Q_EMIT ignoreUserFinished(op, userId, ignored, true, QString());
+        Q_EMIT ignoredUsersChanged(mockIgnoredUsers);
+    });
+    return op;
+}
+
+quint64 MockMatrixClient::requestIgnoredUsers()
+{
+    const quint64 op = ++m_opCounter;
+    const QStringList users = mockIgnoredUsers;
+    QTimer::singleShot(0, this, [this, op, users] {
+        Q_EMIT ignoredUsersReceived(op, true, users);
+    });
+    return op;
+}
+
+quint64 MockMatrixClient::reportMessage(const QString &roomId,
+                                        const QString &eventId,
+                                        const QString &)
+{
+    if (roomId.isEmpty() || eventId.isEmpty())
+        return 0;
+    const quint64 op = ++m_opCounter;
+    const QString category = mockReportFailCategory;
+    QTimer::singleShot(0, this, [this, op, roomId, eventId, category] {
+        Q_EMIT reportMessageFinished(op, roomId, eventId, category.isEmpty(),
+                                     category);
+    });
+    return op;
+}

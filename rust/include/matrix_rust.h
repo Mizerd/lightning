@@ -635,6 +635,85 @@ char *mx_rust_set_room_pinned(void *client,
                               const char *event_id,
                               unsigned char pin,
                               unsigned long long op_id);
+/* v0.7.x room discovery / join / knock. One op-id per call; results arrive
+ * as room_target_resolved / public_rooms_result / room_join_result /
+ * room_knock_result / knock_cancel_result / space_children_result events,
+ * each stamped with op_id + lifecycle. */
+/* Resolve #alias / !roomid / matrix: URI / matrix.to permalink into a
+ * normalized join target and preview it where the server allows. ok=false
+ * only for non-room input; a refused preview still resolves. */
+char *mx_rust_resolve_room_target(void *client,
+                                  const char *input,
+                                  unsigned long long op_id);
+/* One page of the public room directory. server: optional remote directory
+ * host; since: pagination token from the previous page ("" for the first). */
+char *mx_rust_search_public_rooms(void *client,
+                                  const char *query,
+                                  const char *server,
+                                  const char *since,
+                                  unsigned long long limit,
+                                  unsigned long long op_id);
+/* Join by id or alias; via is a newline-separated server list (nullable). */
+char *mx_rust_join_room(void *client,
+                        const char *target,
+                        const char *via,
+                        unsigned long long op_id);
+/* Knock by id or alias with an optional reason (nullable). */
+char *mx_rust_knock_room(void *client,
+                         const char *target,
+                         const char *via,
+                         const char *reason,
+                         unsigned long long op_id);
+/* Withdraw a pending knock (leave the Knocked room). */
+char *mx_rust_cancel_knock(void *client,
+                           const char *room_id,
+                           unsigned long long op_id);
+/* v0.7.x ignored users + reporting (SDK account-data / reporting APIs).
+ * Results: ignore_user_result / ignored_users_list / report_message_result;
+ * remote (and local) list changes push ignored_users_changed from sync. */
+char *mx_rust_set_user_ignored(void *client,
+                               const char *user_id,
+                               unsigned char ignored,
+                               unsigned long long op_id);
+char *mx_rust_list_ignored_users(void *client, unsigned long long op_id);
+char *mx_rust_report_message(void *client,
+                             const char *room_id,
+                             const char *event_id,
+                             const char *reason,
+                             unsigned long long op_id);
+/* v0.7.x UIA + device sign-out. delete may raise a uia_required challenge
+ * event ({op_id, flows, completed, has_password_stage, wrong_password});
+ * answer with mx_rust_uia_submit_password (the password transit buffer is
+ * scrubbed inside Rust) or abandon with mx_rust_uia_cancel. Terminal
+ * result: device_delete_result { op_id, ok, category }. */
+char *mx_rust_delete_devices(void *client,
+                             const char *device_ids,
+                             unsigned long long op_id);
+char *mx_rust_uia_submit_password(void *client,
+                                  unsigned long long uia_id,
+                                  const char *password);
+char *mx_rust_uia_cancel(void *client, unsigned long long uia_id);
+/* MAS/OAuth accounts manage sessions in the account console instead of
+ * password UIA. device_id "" = sessions list, else that device's delete
+ * page. Result: oauth_management_url { op_id, ok, url }. */
+char *mx_rust_oauth_management_url(void *client,
+                                   const char *device_id,
+                                   unsigned long long op_id);
+/* v0.7.x server-side message search (POST /_matrix/client/v3/search).
+ * Unencrypted rooms ONLY — the server cannot search ciphertext, and the UI
+ * must disclose that. room_id empty = all rooms; next_batch pages.
+ * Result: message_search_result. */
+char *mx_rust_search_messages(void *client,
+                              const char *term,
+                              const char *room_id,
+                              const char *next_batch,
+                              unsigned long long limit,
+                              unsigned long long op_id);
+/* List a Space's children, joined and unjoined, via the SDK's
+ * /hierarchy-backed SpaceRoomList. Bounded; reports truncated. */
+char *mx_rust_space_children(void *client,
+                             const char *space_id,
+                             unsigned long long op_id);
 char *mx_rust_add_room_to_space(void *client,
                                 const char *space_id,
                                 const char *room_id,

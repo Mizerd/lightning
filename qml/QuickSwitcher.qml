@@ -18,6 +18,11 @@ import MatrixClient
 // slash-command registry.
 Popup {
     id: switcher
+    // v0.7.x: Discover / Join commands are hosted by the main screen (the
+    // dialog lives in RoomsPanel); the switcher only announces the intent.
+    signal discoverRequested(string startMode)
+    // v0.7.x: global message search (dialog hosted by MainScreen).
+    signal globalSearchRequested()
     parent: Overlay.overlay
     modal: true
     dim: true
@@ -105,6 +110,37 @@ Popup {
             iconName: "settings", keywords: "settings preferences",
             enabled: true, run: function() { app.showSettings() }
         })
+        if (app.discovery && app.discovery.supported) {
+            actions.push({
+                kind: "action", id: "discover-rooms",
+                label: qsTr("Discover rooms"),
+                subtitle: qsTr("Browse the public room directory"),
+                iconName: "explore",
+                keywords: "discover explore browse public directory rooms",
+                enabled: true,
+                run: function() { switcher.discoverRequested("browse") }
+            })
+            actions.push({
+                kind: "action", id: "join-room",
+                label: qsTr("Join a room by address…"),
+                subtitle: qsTr("#room:server, !roomid or a Matrix link"),
+                iconName: "tag",
+                keywords: "join room alias address link matrix",
+                enabled: true,
+                run: function() { switcher.discoverRequested("address") }
+            })
+        }
+        if (app.messageSearch && app.messageSearch.supported) {
+            actions.push({
+                kind: "action", id: "search-messages",
+                label: qsTr("Search messages…"),
+                subtitle: qsTr("Server-side history search (Ctrl+Shift+F)"),
+                iconName: "search",
+                keywords: "search messages history find global",
+                enabled: true,
+                run: function() { switcher.globalSearchRequested() }
+            })
+        }
         var sectionDefs = [
             { key: "account", title: qsTr("Account"), icon: "account_circle" },
             { key: "appearance", title: qsTr("Appearance"), icon: "palette" },

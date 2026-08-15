@@ -337,4 +337,53 @@ private:
                                    const QString &rootEventId,
                                    const QString &fileName,
                                    const QString &mime);
+
+public:
+    // ── v0.7.x Discover / Join, search, UIA, moderation, drafts test
+    // surface. Scriptable knobs are plain public members (existing mock
+    // style); every completion is emitted through QTimer::singleShot so
+    // op ids are stored before answers arrive, like the real backend. ──
+    bool supportsRoomDiscovery() const override { return true; }
+    quint64 resolveRoomTarget(const QString &input) override;
+    quint64 searchPublicRooms(const QString &query, const QString &server,
+                              const QString &since, int limit) override;
+    quint64 joinRoomByIdOrAlias(const QString &target,
+                                const QStringList &via) override;
+    quint64 knockRoom(const QString &target, const QStringList &via,
+                      const QString &reason) override;
+    quint64 cancelKnock(const QString &roomId) override;
+    quint64 requestSpaceChildren(const QString &spaceId) override;
+    bool supportsMessageSearch() const override { return true; }
+    quint64 searchMessages(const QString &term, const QString &roomId,
+                           const QString &nextBatch, int limit) override;
+    bool supportsDeviceDeletion() const override { return true; }
+    quint64 deleteDevices(const QStringList &deviceIds) override;
+    bool uiaSubmitPassword(quint64 uiaId, const QString &password) override;
+    void uiaCancel(quint64 uiaId) override;
+    quint64 requestOAuthManagementUrl(const QString &deviceId) override;
+    bool supportsIgnoredUsers() const override { return true; }
+    quint64 setUserIgnored(const QString &userId, bool ignored) override;
+    quint64 requestIgnoredUsers() override;
+    bool supportsEventReporting() const override { return true; }
+    quint64 reportMessage(const QString &roomId, const QString &eventId,
+                          const QString &reason) override;
+
+    // Knobs (read/written by tests directly).
+    QVariantMap mockResolveResult;      // empty → ok=false, category invalid
+    QVariantList mockPublicRooms;       // rows for one directory page
+    QString mockPublicRoomsNextBatch;
+    QString mockJoinFailCategory;       // non-empty → join fails with it
+    QString mockKnockFailCategory;
+    QVariantList mockSpaceChildren;
+    QVariantList mockSearchResults;     // rows for one search page
+    QString mockSearchNextBatch;
+    bool mockUiaRequired = false;       // first delete raises a challenge
+    QString mockUiaPassword;            // accepted password when challenged
+    QString mockDeleteFailCategory;     // non-empty → terminal failure
+    QString mockManagementUrl;
+    QString mockReportFailCategory;
+    QStringList mockIgnoredUsers;
+    quint64 lastDeleteOp = 0;           // pending UIA challenge id
+    QStringList lastDeletedDevices;
+    QStringList joinedTargets;          // every join target dispatched
 };

@@ -18,6 +18,18 @@ Rectangle {
         newConversationDialog.openDialog(mode, options)
     }
 
+    // v0.7.x: open the Discover / Join dialog ("browse" | "address").
+    function openDiscover(startMode) {
+        discoverJoinDialog.openDialog(startMode)
+    }
+
+    // A Matrix room link from a message: resolve it in the Address tab; a
+    // link to an already-joined room auto-opens (and jumps when it carries
+    // an event id).
+    function openDiscoverForLink(link) {
+        discoverJoinDialog.openForLink(link)
+    }
+
     // Development-only: locate a descendant by objectName across both the
     // visual children (Item-derived) and the default-property data list — a
     // Menu/Popup (e.g. RoomDelegate's roomMenu) is not an Item, so it never
@@ -284,6 +296,22 @@ Rectangle {
                     ToolTip.delay: 500
                     onClicked: newConversationDialog.openDialog()
                 }
+                // v0.7.x Discover / Join: browse the public directory or
+                // join by address/link.
+                IconButton {
+                    id: discoverBtn
+                    objectName: "discoverJoinButton"
+                    visible: app.loggedIn && app.discovery.supported
+                    implicitWidth: 30; implicitHeight: 30
+                    radius: AppTheme.radiusMd
+                    iconName: "explore"
+                    iconSize: 18
+                    Accessible.name: qsTr("Discover rooms")
+                    ToolTip.text: qsTr("Discover rooms")
+                    ToolTip.visible: hovered
+                    ToolTip.delay: 500
+                    onClicked: discoverJoinDialog.openDialog()
+                }
             }
         }
 
@@ -327,6 +355,11 @@ Rectangle {
 
         NewConversationDialog {
             id: newConversationDialog
+            parent: Overlay.overlay
+        }
+
+        DiscoverJoinDialog {
+            id: discoverJoinDialog
             parent: Overlay.overlay
         }
 

@@ -1,6 +1,11 @@
 #pragma once
 
 #include "app/ConversationController.h"
+#include "app/RoomDiscoveryController.h"
+#include "app/DraftStore.h"
+#include "app/ModerationController.h"
+#include "app/UiaController.h"
+#include "models/MessageSearchController.h"
 #include "app/RoomInfoController.h"
 #include "app/SettingsManager.h"
 #include "auth/AccountManager.h"
@@ -207,6 +212,10 @@ class AppController : public QObject
     // v0.5.9: conversation creation (DMs, rooms, invites), Room Information
     // (members, permissions, editing, leave) and the media bridge.
     Q_PROPERTY(ConversationController* conversations READ conversations CONSTANT)
+    Q_PROPERTY(RoomDiscoveryController* discovery READ discovery CONSTANT)
+    Q_PROPERTY(MessageSearchController* messageSearch READ messageSearch CONSTANT)
+    Q_PROPERTY(UiaController* uia READ uia CONSTANT)
+    Q_PROPERTY(ModerationController* moderation READ moderation CONSTANT)
     Q_PROPERTY(RoomInfoController* roomInfo READ roomInfo CONSTANT)
     Q_PROPERTY(MediaBridge* mediaBridge READ mediaBridge CONSTANT)
     // v0.7 voice round: microphone capture for MSC3245 voice messages.
@@ -391,6 +400,19 @@ public:
     PinnedMessagesController *pinned() const { return m_pinned.get(); }
     ThreadController *thread() const { return m_thread.get(); }
     ConversationController *conversations() const { return m_conversations.get(); }
+    RoomDiscoveryController *discovery() const { return m_discovery.get(); }
+    MessageSearchController *messageSearch() const { return m_messageSearch.get(); }
+    UiaController *uia() const { return m_uia.get(); }
+    ModerationController *moderation() const { return m_moderation.get(); }
+    // v0.7.x sessions page: MAS/OAuth accounts manage devices in the
+    // account console, never through a password prompt. Invokable (not a
+    // bound property) — the page evaluates it when it opens, matching the
+    // capture-at-open idiom the popovers use.
+    Q_INVOKABLE bool activeAccountIsOAuth() const
+    {
+        return m_settings
+               && m_settings->isOAuthAccount(m_settings->activeAccountUserId());
+    }
     RoomInfoController *roomInfo() const { return m_roomInfo.get(); }
     MediaBridge *mediaBridge() const { return m_mediaBridge.get(); }
     VoiceRecorder *voiceRecorder()
@@ -441,6 +463,11 @@ public Q_SLOTS:
     void showMain();
     void showSettings();
     void openRoom(const QString &roomId);
+    // v0.7.x: a room-oriented Matrix link (matrix.to permalink or matrix:
+    // URI) activated inside the app. Routed to the Discover surface, which
+    // resolves it through the SDK and opens/joins from there — QML never
+    // parses Matrix identifiers itself.
+    void openMatrixLink(const QString &link) { Q_EMIT matrixLinkRequested(link); }
 
     // Space Home: select the Space in the rail AND clear the open room so
     // the Space overview surface becomes visible. The overview pane itself
@@ -681,6 +708,8 @@ Q_SIGNALS:
     void syncModeChanged();
     void systemDarkModeChanged();
     void errorReported(const QString &message);
+    // v0.7.x: see openMatrixLink().
+    void matrixLinkRequested(const QString &link);
     void rustDeviceIdChanged();
     void localRustResetRequiredChanged();
     void localSessionFailureChanged();
@@ -805,6 +834,7 @@ private:
     std::unique_ptr<TimelineModel> m_timeline;
     std::unique_ptr<ReverseListProxyModel> m_timelineView;
     std::unique_ptr<MessageComposer> m_composer;
+    std::unique_ptr<DraftStore> m_draftStore;
     std::unique_ptr<MentionSuggestionModel> m_mentionSuggestions;
     std::unique_ptr<EmojiCatalog> m_emojiCatalog;
     std::unique_ptr<NotificationManager> m_notifications;
@@ -834,6 +864,10 @@ private:
     std::unique_ptr<PinnedMessagesController> m_pinned;
     std::unique_ptr<ThreadController> m_thread;
     std::unique_ptr<ConversationController> m_conversations;
+    std::unique_ptr<RoomDiscoveryController> m_discovery;
+    std::unique_ptr<MessageSearchController> m_messageSearch;
+    std::unique_ptr<UiaController> m_uia;
+    std::unique_ptr<ModerationController> m_moderation;
     std::unique_ptr<RoomInfoController> m_roomInfo;
     std::unique_ptr<MediaBridge> m_mediaBridge;
     std::unique_ptr<VoiceRecorder> m_voiceRecorder; // lazy — see getter

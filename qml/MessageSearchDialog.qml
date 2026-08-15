@@ -1,0 +1,244 @@
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
+import MatrixClient
+
+// v0.7.x global message search: one modal card over the server's /search
+// endpoint (MessageSearchController with an empty roomId scope).
+//
+// HONESTY: the homeserver cannot search ciphertext, so results cover
+// unencrypted rooms only — disclosed inline, always visible. Result rows
+// label their room; activating one opens the room and jumps to the event
+// through the existing navigation path.
+Dialog {
+    id: root
+    objectName: "messageSearchDialog"
+    modal: true
+    focus: true
+    standardButtons: Dialog.NoButton
+    closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+    width: Math.min(560, parent ? parent.width - AppTheme.spacing24 * 2 : 560)
+    height: Math.min(620,
+                     parent ? parent.height - AppTheme.spacing24 * 2 : 620)
+    anchors.centerIn: parent
+    padding: AppTheme.spacing16
+
+    function openDialog() {
+        app.messageSearch.roomId = ""
+        open()
+        Qt.callLater(function() { globalSearchField.forceActiveFocus() })
+    }
+
+    onClosed: {
+        app.messageSearch.query = ""
+        app.messageSearch.clear()
+    }
+
+    function activateResult(row) {
+        var r = app.messageSearch.rowAt(row)
+        if (!r.roomId || !r.eventId)
+            return
+        // Same shape as notification click routing: switch room first, let
+        // it settle one event-loop turn, then jump on the shared path.
+        app.openRoom(r.roomId)
+        var eventId = r.eventId
+        Qt.callLater(function() { app.pagination.jumpToEvent(eventId) })
+        root.close()
+    }
+
+    background: Rectangle {
+        radius: AppTheme.radiusLg
+        color: AppTheme.stormPanel
+        border.color: AppTheme.stormBorder
+        border.width: 1
+    }
+
+    contentItem: ColumnLayout {
+        spacing: AppTheme.spacing12
+
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: AppTheme.spacing8
+            Label {
+                text: qsTr("Search messages")
+                color: AppTheme.stormText
+                font.family: AppTheme.menuFont
+                font.pixelSize: 16
+                font.weight: Font.Bold
+                Layout.fillWidth: true
+            }
+            IconButton {
+                iconName: "close"
+                Accessible.name: qsTr("Close")
+                onClicked: root.close()
+            }
+        }
+
+        AppTextField {
+            id: globalSearchField
+            objectName: "globalMessageSearchField"
+            Layout.fillWidth: true
+            storm: true
+            searchIcon: true
+            clearButton: true
+            placeholderText: qsTr("Search your message history…")
+            text: app.messageSearch.query
+            onTextChanged: app.messageSearch.query = text
+            onAccepted: app.messageSearch.search()
+        }
+
+        Label {
+            Layout.fillWidth: true
+            text: qsTr("Server-side search — messages in end-to-end "
+                       + "encrypted rooms are not included.")
+            color: AppTheme.stormTextMuted
+            font.pixelSize: 11
+            wrapMode: Text.Wrap
+        }
+
+        ListView {
+            id: resultsList
+            objectName: "globalSearchResultsList"
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            clip: true
+            spacing: AppTheme.spacing4
+            model: app.messageSearch
+            ScrollBar.vertical: ScrollBar {}
+            keyNavigationEnabled: true
+            onAtYEndChanged: {
+                if (atYEnd && app.messageSearch.canLoadMore)
+                    app.messageSearch.loadMore()
+            }
+
+            delegate: Rectangle {
+                id: resultRow
+                required property int index
+                required property string roomId
+                required property string roomName
+                required property string eventId
+                required property string sender
+                required property string senderDisplayName
+                required property string senderAvatarUrl
+                required property var timestampMs
+                required property string body
+
+                width: resultsList.width
+                height: resultCol.implicitHeight + AppTheme.spacing8 * 2
+                radius: AppTheme.radiusMd
+                color: resultHover.hovered ? AppTheme.stormSelection
+                                           : "transparent"
+                HoverHandler { id: resultHover }
+                TapHandler {
+                    onTapped: root.activateResult(resultRow.index)
+                }
+                Accessible.role: Accessible.Button
+                Accessible.name: qsTr("Open result in %1").arg(roomName)
+
+                RowLayout {
+                    anchors.fill: parent
+                    anchors.margins: AppTheme.spacing8
+                    spacing: AppTheme.spacing8
+                    Avatar {
+                        mxc: resultRow.senderAvatarUrl
+                        name: resultRow.senderDisplayName.length > 0
+                              ? resultRow.senderDisplayName : resultRow.sender
+                        size: 32
+                        Layout.alignment: Qt.AlignTop
+                    }
+                    ColumnLayout {
+                        id: resultCol
+                        Layout.fillWidth: true
+                        spacing: 2
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: AppTheme.spacing6
+                            Label {
+                                text: resultRow.senderDisplayName.length > 0
+                                      ? resultRow.senderDisplayName
+                                      : resultRow.sender
+                                color: AppTheme.stormText
+                                font.pixelSize: 12
+                                font.weight: Font.DemiBold
+                                elide: Label.ElideRight
+                                Layout.maximumWidth: 180
+                            }
+                            Label {
+                                text: qsTr("in %1").arg(resultRow.roomName)
+                                color: AppTheme.stormTextMuted
+                                font.pixelSize: 11
+                                elide: Label.ElideRight
+                                Layout.fillWidth: true
+                            }
+                            Label {
+                                text: {
+                                    var d = new Date(Number(
+                                        resultRow.timestampMs))
+                                    return d.toLocaleDateString(
+                                        Qt.locale(), Locale.ShortFormat)
+                                }
+                                color: AppTheme.stormTextMuted
+                                font.pixelSize: 11
+                            }
+                        }
+                        Label {
+                            Layout.fillWidth: true
+                            text: resultRow.body
+                            color: AppTheme.stormTextSecondary
+                            font.pixelSize: 12
+                            wrapMode: Text.Wrap
+                            maximumLineCount: 2
+                            elide: Label.ElideRight
+                        }
+                    }
+                }
+            }
+
+            Item {
+                anchors.fill: parent
+                visible: resultsList.count === 0
+                BusyIndicator {
+                    anchors.centerIn: parent
+                    running: app.messageSearch.state === "loading"
+                    visible: running
+                }
+                Label {
+                    anchors.centerIn: parent
+                    visible: app.messageSearch.state === "no_results"
+                    text: qsTr("No messages found")
+                    color: AppTheme.stormTextMuted
+                }
+                ColumnLayout {
+                    anchors.centerIn: parent
+                    spacing: AppTheme.spacing8
+                    visible: app.messageSearch.state === "error"
+                    Label {
+                        Layout.alignment: Qt.AlignHCenter
+                        text: qsTr("The search could not be completed.")
+                        color: AppTheme.stormTextMuted
+                    }
+                    AppButton {
+                        Layout.alignment: Qt.AlignHCenter
+                        storm: true
+                        text: qsTr("Retry")
+                        onClicked: app.messageSearch.search()
+                    }
+                }
+                Label {
+                    anchors.centerIn: parent
+                    visible: app.messageSearch.state === "idle"
+                    text: qsTr("Type to search across your rooms")
+                    color: AppTheme.stormTextMuted
+                }
+            }
+        }
+
+        Label {
+            Layout.alignment: Qt.AlignHCenter
+            visible: app.messageSearch.state === "loading_more"
+            text: qsTr("Loading more…")
+            color: AppTheme.stormTextMuted
+            font.pixelSize: 11
+        }
+    }
+}

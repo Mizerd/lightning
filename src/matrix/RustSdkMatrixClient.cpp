@@ -5,7 +5,6 @@
 #include "crypto/E2eeDiagnostics.h"
 #include "crypto/QrImageProvider.h"
 #include "matrix/EventPreview.h"
-#include "matrix/MediaHelpers.h"
 #include "matrix/RustSessionPolicy.h"
 #include "matrix/RustTimelineIngest.h"
 #include "matrix_rust.h"
@@ -572,11 +571,19 @@ void RustSdkMatrixClient::login(const QString &homeserver,
 
     const QByteArray hsBytes = identity.homeserver.toUtf8();
     const QByteArray userBytes = identity.userId.toUtf8();
-    const QByteArray passwordBytes = password.toUtf8();
+    // Convert once and pass through, then scrub the transit buffer — the
+    // same rule the recovery-key and import-passphrase paths follow. (The
+    // QString original is the caller's; the login form clears its field
+    // right after submitting.)
+    QByteArray passwordBytes = password.toUtf8();
     const QString result = takeRustString(mx_rust_login(m_rustHandle,
                                                         hsBytes.constData(),
                                                         userBytes.constData(),
                                                         passwordBytes.constData()));
+    // volatile so the dead-store optimizer cannot drop the zeroing.
+    volatile char *raw = passwordBytes.data();
+    for (int i = 0; i < passwordBytes.size(); ++i)
+        raw[i] = 0;
     if (!result.isEmpty()) {
         setState(Error);
         Q_EMIT loginFailed(result.startsWith(QLatin1String("error: "))
@@ -1496,17 +1503,23 @@ QStringList RustSdkMatrixClient::typingUsersFor(const QString &roomId) const
     return it == m_rooms.constEnd() ? QStringList() : it->typingUserIds;
 }
 
-QUrl RustSdkMatrixClient::mediaDownloadUrl(const QString &mxcUrl) const
+QUrl RustSdkMatrixClient::mediaDownloadUrl(const QString &) const
 {
-    return matrix::media::downloadUrl(m_homeserver, mxcUrl);
+    // v0.7.x authenticated-media audit: deliberately EMPTY. Every media
+    // byte on the Rust backend flows through the SDK's Media API, which
+    // negotiates the authenticated /_matrix/client/v1/media endpoints
+    // itself. The legacy MediaHelpers URL builders produce UNAUTHENTICATED
+    // /_matrix/media/v3 links that modern servers refuse — the only thing
+    // a non-empty answer here could do is hand such a dead link to the
+    // browser (MediaManager::openExternal). Returning empty makes the
+    // legacy branch structurally unreachable instead of dead-by-invariant.
+    return {};
 }
 
-QUrl RustSdkMatrixClient::mediaThumbnailUrl(const QString &mxcUrl,
-                                            int width,
-                                            int height,
-                                            bool crop) const
+QUrl RustSdkMatrixClient::mediaThumbnailUrl(const QString &, int, int,
+                                            bool) const
 {
-    return matrix::media::thumbnailUrl(m_homeserver, mxcUrl, width, height, crop);
+    return {}; // see mediaDownloadUrl — same audit decision
 }
 
 QString RustSdkMatrixClient::nextTxnId()
@@ -3522,6 +3535,10 @@ RoomInfo RustSdkMatrixClient::roomInfoFromJson(const QJsonObject &obj) const
     room.hasUnreadMessages = obj.value(QStringLiteral("has_unread_messages"))
                                  .toBool(room.hasUnreadMessages || room.unreadCount > 0);
     room.encrypted = obj.value(QStringLiteral("encrypted")).toBool(room.encrypted);
+    // Review H1: EncryptionState::Unknown must never read as "not
+    // encrypted" — absent field defaults to NOT known (fail closed).
+    room.encryptionKnown =
+        obj.value(QStringLiteral("encryption_known")).toBool(false);
     room.isSpace = obj.value(QStringLiteral("is_space")).toBool(room.isSpace);
     room.isDirect = obj.value(QStringLiteral("is_direct")).toBool(false);
     room.directUserId = obj.value(QStringLiteral("direct_user_id")).toString();
@@ -4734,6 +4751,192 @@ quint64 RustSdkMatrixClient::setEventPinned(const QString &roomId,
     return result.isEmpty() ? opId : 0;
 }
 
+quint64 RustSdkMatrixClient::resolveRoomTarget(const QString &input)
+{
+    if (!m_rustHandle || input.trimmed().isEmpty())
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray value = input.toUtf8();
+    const QString result = takeRustString(mx_rust_resolve_room_target(
+        m_rustHandle, value.constData(), opId));
+    return result.isEmpty() ? opId : 0;
+}
+
+quint64 RustSdkMatrixClient::searchPublicRooms(const QString &query,
+                                               const QString &server,
+                                               const QString &since, int limit)
+{
+    if (!m_rustHandle)
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray queryBytes = query.toUtf8();
+    const QByteArray serverBytes = server.toUtf8();
+    const QByteArray sinceBytes = since.toUtf8();
+    const QString result = takeRustString(mx_rust_search_public_rooms(
+        m_rustHandle, queryBytes.constData(), serverBytes.constData(),
+        sinceBytes.constData(),
+        static_cast<unsigned long long>(qMax(1, limit)), opId));
+    return result.isEmpty() ? opId : 0;
+}
+
+quint64 RustSdkMatrixClient::joinRoomByIdOrAlias(const QString &target,
+                                                 const QStringList &via)
+{
+    if (!m_rustHandle || target.trimmed().isEmpty())
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray targetBytes = target.toUtf8();
+    const QByteArray viaBytes = via.join(QLatin1Char('\n')).toUtf8();
+    const QString result = takeRustString(mx_rust_join_room(
+        m_rustHandle, targetBytes.constData(), viaBytes.constData(), opId));
+    return result.isEmpty() ? opId : 0;
+}
+
+quint64 RustSdkMatrixClient::knockRoom(const QString &target,
+                                        const QStringList &via,
+                                        const QString &reason)
+{
+    if (!m_rustHandle || target.trimmed().isEmpty())
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray targetBytes = target.toUtf8();
+    const QByteArray viaBytes = via.join(QLatin1Char('\n')).toUtf8();
+    const QByteArray reasonBytes = reason.toUtf8();
+    const QString result = takeRustString(mx_rust_knock_room(
+        m_rustHandle, targetBytes.constData(), viaBytes.constData(),
+        reasonBytes.constData(), opId));
+    return result.isEmpty() ? opId : 0;
+}
+
+quint64 RustSdkMatrixClient::cancelKnock(const QString &roomId)
+{
+    if (!m_rustHandle || roomId.isEmpty())
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray room = roomId.toUtf8();
+    const QString result = takeRustString(
+        mx_rust_cancel_knock(m_rustHandle, room.constData(), opId));
+    return result.isEmpty() ? opId : 0;
+}
+
+quint64 RustSdkMatrixClient::setUserIgnored(const QString &userId,
+                                            bool ignored)
+{
+    if (!m_rustHandle || userId.trimmed().isEmpty())
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray user = userId.toUtf8();
+    const QString result = takeRustString(mx_rust_set_user_ignored(
+        m_rustHandle, user.constData(),
+        ignored ? static_cast<unsigned char>(1)
+                : static_cast<unsigned char>(0),
+        opId));
+    return result.isEmpty() ? opId : 0;
+}
+
+quint64 RustSdkMatrixClient::requestIgnoredUsers()
+{
+    if (!m_rustHandle)
+        return 0;
+    const quint64 opId = nextOpId();
+    const QString result =
+        takeRustString(mx_rust_list_ignored_users(m_rustHandle, opId));
+    return result.isEmpty() ? opId : 0;
+}
+
+quint64 RustSdkMatrixClient::reportMessage(const QString &roomId,
+                                           const QString &eventId,
+                                           const QString &reason)
+{
+    if (!m_rustHandle || roomId.isEmpty() || eventId.isEmpty())
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray room = roomId.toUtf8();
+    const QByteArray event = eventId.toUtf8();
+    const QByteArray reasonBytes = reason.toUtf8();
+    const QString result = takeRustString(mx_rust_report_message(
+        m_rustHandle, room.constData(), event.constData(),
+        reasonBytes.constData(), opId));
+    return result.isEmpty() ? opId : 0;
+}
+
+quint64 RustSdkMatrixClient::deleteDevices(const QStringList &deviceIds)
+{
+    if (!m_rustHandle || deviceIds.isEmpty())
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray ids = deviceIds.join(QLatin1Char('\n')).toUtf8();
+    const QString result = takeRustString(
+        mx_rust_delete_devices(m_rustHandle, ids.constData(), opId));
+    return result.isEmpty() ? opId : 0;
+}
+
+bool RustSdkMatrixClient::uiaSubmitPassword(quint64 uiaId,
+                                            const QString &password)
+{
+    if (!m_rustHandle || uiaId == 0 || password.isEmpty())
+        return false;
+    // Convert once and pass through — do NOT keep a QString copy of the
+    // password alive in the C++ layer beyond this call; the Rust side
+    // scrubs its own transit buffer the same way (import-passphrase
+    // precedent).
+    QByteArray passwordBytes = password.toUtf8();
+    const QString result = takeRustString(mx_rust_uia_submit_password(
+        m_rustHandle, uiaId, passwordBytes.constData()));
+    // volatile so the dead-store optimizer cannot drop the zeroing.
+    volatile char *raw = passwordBytes.data();
+    for (int i = 0; i < passwordBytes.size(); ++i)
+        raw[i] = 0;
+    return result.isEmpty();
+}
+
+void RustSdkMatrixClient::uiaCancel(quint64 uiaId)
+{
+    if (!m_rustHandle || uiaId == 0)
+        return;
+    takeRustString(mx_rust_uia_cancel(m_rustHandle, uiaId));
+}
+
+quint64 RustSdkMatrixClient::requestOAuthManagementUrl(const QString &deviceId)
+{
+    if (!m_rustHandle)
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray device = deviceId.toUtf8();
+    const QString result = takeRustString(mx_rust_oauth_management_url(
+        m_rustHandle, device.constData(), opId));
+    return result.isEmpty() ? opId : 0;
+}
+
+quint64 RustSdkMatrixClient::searchMessages(const QString &term,
+                                             const QString &roomId,
+                                             const QString &nextBatch,
+                                             int limit)
+{
+    if (!m_rustHandle || term.trimmed().isEmpty())
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray termBytes = term.toUtf8();
+    const QByteArray roomBytes = roomId.toUtf8();
+    const QByteArray batchBytes = nextBatch.toUtf8();
+    const QString result = takeRustString(mx_rust_search_messages(
+        m_rustHandle, termBytes.constData(), roomBytes.constData(),
+        batchBytes.constData(),
+        static_cast<unsigned long long>(qMax(1, limit)), opId));
+    return result.isEmpty() ? opId : 0;
+}
+
+quint64 RustSdkMatrixClient::requestSpaceChildren(const QString &spaceId)
+{
+    if (!m_rustHandle || spaceId.isEmpty())
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray space = spaceId.toUtf8();
+    const QString result = takeRustString(
+        mx_rust_space_children(m_rustHandle, space.constData(), opId));
+    return result.isEmpty() ? opId : 0;
+}
+
 quint64 RustSdkMatrixClient::addRoomToSpace(const QString &spaceId,
                                             const QString &roomId)
 {
@@ -5093,6 +5296,35 @@ void RustSdkMatrixClient::handleMediaReady(const QJsonObject &event)
                       event.value(QStringLiteral("mimetype")).toString(),
                       event.value(QStringLiteral("filename")).toString());
 }
+
+namespace {
+// Shared camelCase reshape for one discovery row (a directory page entry or
+// a Space child) so nothing downstream knows the bridge's snake_case names.
+QVariantMap discoveryRoomRow(const QJsonObject &row)
+{
+    QVariantMap out;
+    out.insert(QStringLiteral("roomId"),
+               row.value(QStringLiteral("room_id")).toString());
+    out.insert(QStringLiteral("name"),
+               row.value(QStringLiteral("name")).toString());
+    out.insert(QStringLiteral("alias"),
+               row.value(QStringLiteral("alias")).toString());
+    out.insert(QStringLiteral("topic"),
+               row.value(QStringLiteral("topic")).toString());
+    out.insert(QStringLiteral("avatarUrl"),
+               row.value(QStringLiteral("avatar_url")).toString());
+    out.insert(QStringLiteral("members"),
+               static_cast<qlonglong>(
+                   row.value(QStringLiteral("members")).toDouble()));
+    out.insert(QStringLiteral("joinRule"),
+               row.value(QStringLiteral("join_rule")).toString());
+    out.insert(QStringLiteral("membership"),
+               row.value(QStringLiteral("membership")).toString());
+    out.insert(QStringLiteral("isSpace"),
+               row.value(QStringLiteral("is_space")).toBool());
+    return out;
+}
+} // namespace
 
 bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
                                                  const QJsonObject &event)
@@ -5577,6 +5809,263 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             event.value(QStringLiteral("space_id")).toString(),
             event.value(QStringLiteral("room_id")).toString(),
             event.value(QStringLiteral("ok")).toBool());
+        return true;
+    }
+
+    if (type == QLatin1String("room_target_resolved")) {
+        QVariantMap result;
+        const bool ok = event.value(QStringLiteral("ok")).toBool();
+        result.insert(QStringLiteral("ok"), ok);
+        result.insert(QStringLiteral("category"),
+                      event.value(QStringLiteral("category")).toString());
+        if (ok) {
+            result.insert(QStringLiteral("target"),
+                          event.value(QStringLiteral("target")).toString());
+            QStringList via;
+            const QJsonArray rawVia =
+                event.value(QStringLiteral("via")).toArray();
+            for (const QJsonValue &value : rawVia) {
+                const QString server = value.toString();
+                if (!server.isEmpty())
+                    via.append(server);
+            }
+            result.insert(QStringLiteral("via"), via);
+            result.insert(QStringLiteral("eventId"),
+                          event.value(QStringLiteral("event_id")).toString());
+            const bool previewOk =
+                event.value(QStringLiteral("preview_ok")).toBool();
+            result.insert(QStringLiteral("previewOk"), previewOk);
+            if (previewOk) {
+                result.insert(QStringLiteral("roomId"),
+                              event.value(QStringLiteral("room_id")).toString());
+                result.insert(QStringLiteral("alias"),
+                              event.value(QStringLiteral("alias")).toString());
+                result.insert(QStringLiteral("name"),
+                              event.value(QStringLiteral("name")).toString());
+                result.insert(QStringLiteral("topic"),
+                              event.value(QStringLiteral("topic")).toString());
+                result.insert(
+                    QStringLiteral("avatarUrl"),
+                    event.value(QStringLiteral("avatar_url")).toString());
+                result.insert(
+                    QStringLiteral("members"),
+                    static_cast<qlonglong>(
+                        event.value(QStringLiteral("members")).toDouble()));
+                result.insert(
+                    QStringLiteral("joinRule"),
+                    event.value(QStringLiteral("join_rule")).toString());
+                result.insert(
+                    QStringLiteral("membership"),
+                    event.value(QStringLiteral("membership")).toString());
+                result.insert(QStringLiteral("isSpace"),
+                              event.value(QStringLiteral("is_space")).toBool());
+            } else {
+                result.insert(
+                    QStringLiteral("previewCategory"),
+                    event.value(QStringLiteral("preview_category")).toString());
+            }
+        }
+        Q_EMIT roomTargetResolved(opId(), result);
+        return true;
+    }
+
+    if (type == QLatin1String("public_rooms_result")) {
+        QVariantList rooms;
+        const QJsonArray raw =
+            event.value(QStringLiteral("results")).toArray();
+        rooms.reserve(raw.size());
+        for (const QJsonValue &value : raw) {
+            const QJsonObject row = value.toObject();
+            QVariantMap entry = discoveryRoomRow(row);
+            entry.insert(QStringLiteral("worldReadable"),
+                         row.value(QStringLiteral("world_readable")).toBool());
+            entry.insert(QStringLiteral("guestCanJoin"),
+                         row.value(QStringLiteral("guest_can_join")).toBool());
+            rooms.append(entry);
+        }
+        Q_EMIT publicRoomsReceived(
+            opId(), event.value(QStringLiteral("ok")).toBool(), rooms,
+            event.value(QStringLiteral("next_batch")).toString(),
+            static_cast<quint64>(
+                event.value(QStringLiteral("total_estimate")).toDouble()),
+            event.value(QStringLiteral("category")).toString());
+        return true;
+    }
+
+    if (type == QLatin1String("room_join_result")) {
+        Q_EMIT roomJoinFinished(
+            opId(), event.value(QStringLiteral("ok")).toBool(),
+            event.value(QStringLiteral("room_id")).toString(),
+            event.value(QStringLiteral("category")).toString());
+        return true;
+    }
+
+    if (type == QLatin1String("room_knock_result")) {
+        Q_EMIT roomKnockFinished(
+            opId(), event.value(QStringLiteral("ok")).toBool(),
+            event.value(QStringLiteral("room_id")).toString(),
+            event.value(QStringLiteral("category")).toString());
+        return true;
+    }
+
+    if (type == QLatin1String("knock_cancel_result")) {
+        Q_EMIT knockCancelFinished(
+            opId(), event.value(QStringLiteral("ok")).toBool(),
+            event.value(QStringLiteral("room_id")).toString(),
+            event.value(QStringLiteral("category")).toString());
+        return true;
+    }
+
+    if (type == QLatin1String("ignore_user_result")) {
+        Q_EMIT ignoreUserFinished(
+            opId(), event.value(QStringLiteral("user_id")).toString(),
+            event.value(QStringLiteral("ignored")).toBool(),
+            event.value(QStringLiteral("ok")).toBool(),
+            event.value(QStringLiteral("category")).toString());
+        return true;
+    }
+
+    if (type == QLatin1String("ignored_users_list")) {
+        QStringList users;
+        const QJsonArray raw = event.value(QStringLiteral("users")).toArray();
+        users.reserve(raw.size());
+        for (const QJsonValue &value : raw) {
+            const QString id = value.toString();
+            if (!id.isEmpty())
+                users.append(id);
+        }
+        Q_EMIT ignoredUsersReceived(
+            opId(), event.value(QStringLiteral("ok")).toBool(), users);
+        return true;
+    }
+
+    if (type == QLatin1String("ignored_users_changed")) {
+        // Sync push (no op id): local and remote list changes both arrive
+        // here, so every consumer converges on one update path.
+        QStringList users;
+        const QJsonArray raw = event.value(QStringLiteral("users")).toArray();
+        users.reserve(raw.size());
+        for (const QJsonValue &value : raw) {
+            const QString id = value.toString();
+            if (!id.isEmpty())
+                users.append(id);
+        }
+        Q_EMIT ignoredUsersChanged(users);
+        return true;
+    }
+
+    if (type == QLatin1String("report_message_result")) {
+        Q_EMIT reportMessageFinished(
+            opId(), event.value(QStringLiteral("room_id")).toString(),
+            event.value(QStringLiteral("event_id")).toString(),
+            event.value(QStringLiteral("ok")).toBool(),
+            event.value(QStringLiteral("category")).toString());
+        return true;
+    }
+
+    if (type == QLatin1String("uia_required")) {
+        // Sanitized challenge: stage NAMES only. Flows flatten into one
+        // list for the honest "unsupported stage" display.
+        QStringList stages;
+        const QJsonArray flows = event.value(QStringLiteral("flows")).toArray();
+        for (const QJsonValue &flow : flows) {
+            const QJsonArray flowStages = flow.toArray();
+            for (const QJsonValue &stage : flowStages) {
+                const QString name = stage.toString();
+                if (!name.isEmpty() && !stages.contains(name))
+                    stages.append(name);
+            }
+        }
+        Q_EMIT uiaRequired(
+            opId(),
+            event.value(QStringLiteral("has_password_stage")).toBool(),
+            event.value(QStringLiteral("wrong_password")).toBool(), stages);
+        return true;
+    }
+
+    if (type == QLatin1String("device_delete_result")) {
+        Q_EMIT deviceDeleteFinished(
+            opId(), event.value(QStringLiteral("ok")).toBool(),
+            event.value(QStringLiteral("category")).toString());
+        return true;
+    }
+
+    if (type == QLatin1String("oauth_management_url")) {
+        Q_EMIT oauthManagementUrlReceived(
+            opId(), event.value(QStringLiteral("ok")).toBool(),
+            event.value(QStringLiteral("url")).toString());
+        return true;
+    }
+
+    if (type == QLatin1String("message_search_result")) {
+        QVariantList results;
+        const QJsonArray raw =
+            event.value(QStringLiteral("results")).toArray();
+        results.reserve(raw.size());
+        for (const QJsonValue &value : raw) {
+            const QJsonObject row = value.toObject();
+            QVariantMap entry;
+            entry.insert(QStringLiteral("roomId"),
+                         row.value(QStringLiteral("room_id")).toString());
+            entry.insert(QStringLiteral("eventId"),
+                         row.value(QStringLiteral("event_id")).toString());
+            entry.insert(QStringLiteral("sender"),
+                         row.value(QStringLiteral("sender")).toString());
+            entry.insert(
+                QStringLiteral("senderDisplayName"),
+                row.value(QStringLiteral("sender_display_name")).toString());
+            entry.insert(
+                QStringLiteral("senderAvatarUrl"),
+                row.value(QStringLiteral("sender_avatar_url")).toString());
+            entry.insert(
+                QStringLiteral("timestampMs"),
+                static_cast<qlonglong>(
+                    row.value(QStringLiteral("timestamp_ms")).toDouble()));
+            entry.insert(QStringLiteral("msgtype"),
+                         row.value(QStringLiteral("msgtype")).toString());
+            entry.insert(QStringLiteral("body"),
+                         row.value(QStringLiteral("body")).toString());
+            results.append(entry);
+        }
+        Q_EMIT messageSearchFinished(
+            opId(), event.value(QStringLiteral("ok")).toBool(), results,
+            event.value(QStringLiteral("next_batch")).toString(),
+            static_cast<quint64>(
+                event.value(QStringLiteral("count")).toDouble()),
+            event.value(QStringLiteral("category")).toString());
+        return true;
+    }
+
+    if (type == QLatin1String("space_children_result")) {
+        QVariantList rooms;
+        const QJsonArray raw =
+            event.value(QStringLiteral("results")).toArray();
+        rooms.reserve(raw.size());
+        for (const QJsonValue &value : raw) {
+            const QJsonObject row = value.toObject();
+            QVariantMap entry = discoveryRoomRow(row);
+            entry.insert(
+                QStringLiteral("childrenCount"),
+                static_cast<qlonglong>(
+                    row.value(QStringLiteral("children_count")).toDouble()));
+            entry.insert(QStringLiteral("suggested"),
+                         row.value(QStringLiteral("suggested")).toBool());
+            QStringList via;
+            const QJsonArray rawVia =
+                row.value(QStringLiteral("via")).toArray();
+            for (const QJsonValue &server : rawVia) {
+                const QString name = server.toString();
+                if (!name.isEmpty())
+                    via.append(name);
+            }
+            entry.insert(QStringLiteral("via"), via);
+            rooms.append(entry);
+        }
+        Q_EMIT spaceChildrenReceived(
+            opId(), event.value(QStringLiteral("space_id")).toString(),
+            event.value(QStringLiteral("ok")).toBool(), rooms,
+            event.value(QStringLiteral("truncated")).toBool(),
+            event.value(QStringLiteral("category")).toString());
         return true;
     }
 

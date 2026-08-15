@@ -222,6 +222,10 @@ public:
     Q_INVOKABLE void searchPrev();
     Q_INVOKABLE void endSearch();
     Q_INVOKABLE QString messagePermalink(const QString &eventId) const;
+    // v0.7.x: the REAL Matrix room id for an event in this model — thread
+    // timelines carry the internal composite id in roomId, which must
+    // never reach a protocol call (reporting included).
+    Q_INVOKABLE QString realRoomIdForEvent(const QString &eventId) const;
     Q_INVOKABLE QVariantMap messageDetails(const QString &eventId) const;
     Q_INVOKABLE bool canEditEvent(const QString &eventId) const;
     Q_INVOKABLE bool canRedactEvent(const QString &eventId) const;

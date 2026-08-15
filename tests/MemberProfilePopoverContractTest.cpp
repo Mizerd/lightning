@@ -149,7 +149,9 @@ private slots:
             QVERIFY2(!text.contains(QStringLiteral("SHARED")), qPrintable(text));
             QVERIFY2(!text.contains(QStringLiteral("View full profile")),
                      qPrintable(text));
-            QVERIFY2(!text.contains(QStringLiteral("Ignore")), qPrintable(text));
+            // "Ignore" left this list in v0.7.x: the account-wide ignore is
+            // now a REAL m.ignored_user_list action on the popover, not an
+            // omitted mock affordance.
         }
     }
 

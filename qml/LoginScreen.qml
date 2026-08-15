@@ -15,6 +15,12 @@ Item {
                            passField.text)
     }
 
+    // The password never outlives this screen: leaving it (successful
+    // login, or navigating away) wipes the field. It deliberately survives
+    // a FAILED attempt so a typo can be corrected — the failure keeps the
+    // user on this screen, with the secret still under their control.
+    onVisibleChanged: if (!visible) passField.text = ""
+
     // The identity that actually failed (from AppController, resolved
     // server-canonically by the C++ layer) — never the raw typed text.
     // Prefilling from it means the repair card always targets and displays

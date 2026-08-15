@@ -523,6 +523,83 @@ public:
     virtual quint64 setEventPinned(const QString &roomId,
                                    const QString &eventId, bool pin)
     { Q_UNUSED(roomId); Q_UNUSED(eventId); Q_UNUSED(pin); return 0; }
+    // v0.7.x room discovery / join / knock. Backends without support keep
+    // the inert defaults; the UI then offers no Discover surface at all.
+    virtual bool supportsRoomDiscovery() const { return false; }
+    // Resolve user input (#alias, !roomid, matrix: URI, matrix.to
+    // permalink) into a normalized join target and preview it where the
+    // server allows. Answers on roomTargetResolved. A refused preview is
+    // NOT a failed resolution — the target still crosses so Join can be
+    // offered.
+    virtual quint64 resolveRoomTarget(const QString &input)
+    { Q_UNUSED(input); return 0; }
+    // One page of the public room directory. `server` optionally targets
+    // another homeserver's directory ("" = own); `since` is the pagination
+    // token from the previous page. Answers on publicRoomsReceived.
+    virtual quint64 searchPublicRooms(const QString &query,
+                                      const QString &server,
+                                      const QString &since, int limit)
+    {
+        Q_UNUSED(query); Q_UNUSED(server); Q_UNUSED(since); Q_UNUSED(limit);
+        return 0;
+    }
+    // Join by room id or alias, optionally routed via the given servers.
+    // Answers on roomJoinFinished.
+    virtual quint64 joinRoomByIdOrAlias(const QString &target,
+                                        const QStringList &via)
+    { Q_UNUSED(target); Q_UNUSED(via); return 0; }
+    // Knock (request access) with an optional reason. Only offered when
+    // the join rule allows knocking; answers on roomKnockFinished.
+    virtual quint64 knockRoom(const QString &target, const QStringList &via,
+                              const QString &reason)
+    { Q_UNUSED(target); Q_UNUSED(via); Q_UNUSED(reason); return 0; }
+    // Withdraw a pending knock (leaves the Knocked room). Answers on
+    // knockCancelFinished.
+    virtual quint64 cancelKnock(const QString &roomId)
+    { Q_UNUSED(roomId); return 0; }
+    // List a Space's children — joined AND unjoined — through the server's
+    // /hierarchy. Bounded; answers on spaceChildrenReceived.
+    virtual quint64 requestSpaceChildren(const QString &spaceId)
+    { Q_UNUSED(spaceId); return 0; }
+    // v0.7.x personal moderation. Ignore state is the Matrix
+    // m.ignored_user_list account data (SDK read-modify-write, never a
+    // Lightning-local database); reporting is the stable /v3 event report.
+    virtual bool supportsIgnoredUsers() const { return false; }
+    virtual quint64 setUserIgnored(const QString &userId, bool ignored)
+    { Q_UNUSED(userId); Q_UNUSED(ignored); return 0; }
+    virtual quint64 requestIgnoredUsers() { return 0; }
+    virtual bool supportsEventReporting() const { return false; }
+    virtual quint64 reportMessage(const QString &roomId,
+                                  const QString &eventId,
+                                  const QString &reason)
+    { Q_UNUSED(roomId); Q_UNUSED(eventId); Q_UNUSED(reason); return 0; }
+    // v0.7.x device sign-out through reusable UIA. The flow: deleteDevices
+    // → (server may answer with a challenge → uiaRequired) →
+    // uiaSubmitPassword / uiaCancel → deviceDeleteFinished. Credentials
+    // pass through transiently and are scrubbed; they are never stored,
+    // logged, or echoed back.
+    virtual bool supportsDeviceDeletion() const { return false; }
+    virtual quint64 deleteDevices(const QStringList &deviceIds)
+    { Q_UNUSED(deviceIds); return 0; }
+    virtual bool uiaSubmitPassword(quint64 uiaId, const QString &password)
+    { Q_UNUSED(uiaId); Q_UNUSED(password); return false; }
+    virtual void uiaCancel(quint64 uiaId) { Q_UNUSED(uiaId); }
+    // MAS/OAuth accounts manage sessions in the account web console
+    // instead of password UIA. deviceId "" = sessions list, else that
+    // device's delete page. Answers on oauthManagementUrlReceived.
+    virtual quint64 requestOAuthManagementUrl(const QString &deviceId)
+    { Q_UNUSED(deviceId); return 0; }
+    // v0.7.x server-side message search. Covers UNENCRYPTED rooms only —
+    // the server cannot search ciphertext, and every UI surface must say
+    // so. `roomId` empty = all rooms; `nextBatch` pages. Answers on
+    // messageSearchFinished.
+    virtual bool supportsMessageSearch() const { return false; }
+    virtual quint64 searchMessages(const QString &term, const QString &roomId,
+                                   const QString &nextBatch, int limit)
+    {
+        Q_UNUSED(term); Q_UNUSED(roomId); Q_UNUSED(nextBatch); Q_UNUSED(limit);
+        return 0;
+    }
     virtual quint64 addRoomToSpace(const QString &spaceId, const QString &roomId)
     { Q_UNUSED(spaceId); Q_UNUSED(roomId); return 0; }
     // v0.7: MSC1772 child removal (empty-via m.space.child). Never leaves
@@ -877,6 +954,53 @@ Q_SIGNALS:
     // or another of this user's devices). Carries no payload: consumers
     // re-read the authoritative list through requestPinnedMessages.
     void pinnedEventsChanged(const QString &roomId);
+    // v0.7.x discovery. `result` carries ok / category and, when ok:
+    // target, via (QStringList), eventId, previewOk and — when previewed —
+    // roomId, alias, name, topic, avatarUrl, members, joinRule, membership,
+    // isSpace (else previewCategory).
+    void roomTargetResolved(quint64 opId, const QVariantMap &result);
+    // One directory page. Each row: roomId, name, alias, topic, avatarUrl,
+    // members, joinRule, membership, worldReadable, guestCanJoin, isSpace.
+    void publicRoomsReceived(quint64 opId, bool ok, const QVariantList &rooms,
+                             const QString &nextBatch, quint64 totalEstimate,
+                             const QString &category);
+    void roomJoinFinished(quint64 opId, bool ok, const QString &roomId,
+                          const QString &category);
+    void roomKnockFinished(quint64 opId, bool ok, const QString &roomId,
+                           const QString &category);
+    void knockCancelFinished(quint64 opId, bool ok, const QString &roomId,
+                             const QString &category);
+    // v0.7.x personal moderation results. `ignored` echoes the requested
+    // direction; ignoredUsersChanged is the sync push (local AND remote
+    // changes — both converge on a re-read by the consumer).
+    void ignoreUserFinished(quint64 opId, const QString &userId, bool ignored,
+                            bool ok, const QString &category);
+    void ignoredUsersReceived(quint64 opId, bool ok, const QStringList &users);
+    void ignoredUsersChanged(const QStringList &users);
+    void reportMessageFinished(quint64 opId, const QString &roomId,
+                               const QString &eventId, bool ok,
+                               const QString &category);
+    // v0.7.x UIA: the server requires interactive auth before the pending
+    // privileged operation completes. `stages` carries the flow stage
+    // names for the honest "unsupported stage" surface; only the password
+    // stage is renderable today. wrongPassword = a previous answer was
+    // rejected (offer retry).
+    void uiaRequired(quint64 uiaId, bool hasPasswordStage,
+                     bool wrongPassword, const QStringList &stages);
+    void deviceDeleteFinished(quint64 opId, bool ok, const QString &category);
+    void oauthManagementUrlReceived(quint64 opId, bool ok, const QString &url);
+    // One server-search page. Each row: roomId, eventId, sender,
+    // senderDisplayName, senderAvatarUrl, timestampMs, msgtype, body.
+    void messageSearchFinished(quint64 opId, bool ok,
+                               const QVariantList &results,
+                               const QString &nextBatch, quint64 count,
+                               const QString &category);
+    // Space children incl. unjoined rows. Each row: roomId, name, alias,
+    // topic, avatarUrl, members, joinRule, membership, isSpace,
+    // childrenCount, suggested, via (QStringList).
+    void spaceChildrenReceived(quint64 opId, const QString &spaceId, bool ok,
+                               const QVariantList &rooms, bool truncated,
+                               const QString &category);
     void spaceChildFinished(quint64 opId, const QString &spaceId,
                             const QString &roomId, bool ok);
     void spaceChildRemoveFinished(quint64 opId, const QString &spaceId,

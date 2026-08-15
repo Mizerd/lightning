@@ -85,6 +85,15 @@ Item {
           keywords: qsTr("presence online idle offline status share"),
           section: "privacy", breadcrumb: qsTr("Privacy & security · Presence") },
 
+        { title: qsTr("Ignored users"),
+          keywords: qsTr("ignore ignored block user mute person hide"),
+          section: "privacy",
+          breadcrumb: qsTr("Privacy & security · Ignored users") },
+        { title: qsTr("Sign out other sessions"),
+          keywords: qsTr("sessions devices sign out remove device delete"),
+          section: "sessions",
+          breadcrumb: qsTr("Sessions") },
+
         { title: qsTr("Automatically load previews in unencrypted rooms"),
           keywords: qsTr("link preview privacy"), section: "privacy",
           breadcrumb: qsTr("Privacy & security · Link previews"),
@@ -1823,6 +1832,79 @@ Item {
                             }
                         }
 
+                        // v0.7.x: ignored users (m.ignored_user_list —
+                        // Matrix account data, shared with every client).
+                        Label {
+                            visible: app.moderation.supported
+                            text: qsTr("Ignored users")
+                            color: AppTheme.stormText
+                            font.pixelSize: AppTheme.fontSectionTitle
+                            font.weight: Font.DemiBold
+                            Layout.topMargin: AppTheme.spacing8
+                        }
+                        SettingsCard {
+                            visible: app.moderation.supported
+                            ColumnLayout {
+                                width: parent.width
+                                spacing: AppTheme.spacing8
+
+                                Label {
+                                    visible: app.moderation.ignoredUsers.length === 0
+                                    Layout.fillWidth: true
+                                    wrapMode: Text.WordWrap
+                                    color: AppTheme.stormTextMuted
+                                    font.pixelSize: AppTheme.fontSecondary
+                                    text: qsTr("Nobody is ignored. Ignore a "
+                                               + "person from their profile "
+                                               + "to hide their messages "
+                                               + "everywhere, on every "
+                                               + "device.")
+                                }
+                                Repeater {
+                                    model: app.moderation.ignoredUsers
+                                    delegate: RowLayout {
+                                        required property string modelData
+                                        Layout.fillWidth: true
+                                        spacing: AppTheme.spacing8
+                                        Label {
+                                            Layout.fillWidth: true
+                                            text: modelData
+                                            color: AppTheme.stormText
+                                            font.family: AppTheme.monoFont
+                                            font.pixelSize: AppTheme.fontSecondary
+                                            elide: Label.ElideRight
+                                        }
+                                        AppButton {
+                                            storm: true
+                                            implicitHeight: 26
+                                            leftPadding: 10
+                                            rightPadding: 10
+                                            enabled: !app.moderation.busy
+                                            text: qsTr("Stop ignoring")
+                                            Accessible.name:
+                                                qsTr("Stop ignoring %1")
+                                                    .arg(modelData)
+                                            onClicked: app.moderation
+                                                .unignoreUser(modelData)
+                                        }
+                                    }
+                                }
+                                Label {
+                                    visible: app.moderation.ignoredUsers.length > 0
+                                    Layout.fillWidth: true
+                                    wrapMode: Text.WordWrap
+                                    color: AppTheme.stormTextMuted
+                                    font.pixelSize: AppTheme.fontCaption
+                                    text: qsTr("Ignoring hides a person's "
+                                               + "messages and invites in "
+                                               + "every room. The list is "
+                                               + "stored in your Matrix "
+                                               + "account and applies on "
+                                               + "all your clients.")
+                                }
+                            }
+                        }
+
                         // v0.5.11: link-preview and GIF policy.
                         Label {
                             text: qsTr("Link previews & media")
@@ -2831,15 +2913,73 @@ Item {
 
                         // v0.6.0 checkpoint 9: the account's Matrix
                         // devices/sessions — server metadata merged with SDK
-                        // crypto trust. Read-only: removing other sessions
-                        // requires interactive re-authentication, which
-                        // Lightning does not implement yet (limitation shown
-                        // honestly below).
+                        // crypto trust. v0.7.x: other sessions can be signed
+                        // out through the reusable UIA flow (password
+                        // accounts) or the account console (OAuth/MAS
+                        // accounts, which have no password stage). A tile
+                        // disappears only when the authoritative refetch
+                        // confirms the deletion.
                         SettingsCard {
                             visible: app.backendName === "rust"
                             ColumnLayout {
+                                id: sessionsListCard
                                 width: parent.width
                                 spacing: AppTheme.spacing8
+
+                                // Sign-out outcome notice + OAuth console
+                                // routing. The card is visibility-toggled
+                                // (never unloaded), so a result arriving
+                                // while another section is shown still
+                                // lands here.
+                                property string actionNotice: ""
+                                property bool actionNoticeError: false
+                                function currentDeviceId() {
+                                    for (var i = 0; i < app.sessionDevices.length; ++i) {
+                                        if (app.sessionDevices[i].isCurrent === true)
+                                            return app.sessionDevices[i].deviceId
+                                    }
+                                    return ""
+                                }
+                                function signOutOne(deviceId) {
+                                    actionNotice = ""
+                                    if (app.activeAccountIsOAuth())
+                                        app.uia.requestManagementUrl(deviceId)
+                                    else
+                                        app.uia.signOutDevices(
+                                            [deviceId], currentDeviceId())
+                                }
+                                function signOutAllOthers() {
+                                    actionNotice = ""
+                                    if (app.activeAccountIsOAuth()) {
+                                        app.uia.requestManagementUrl("")
+                                        return
+                                    }
+                                    var ids = []
+                                    for (var i = 0; i < app.sessionDevices.length; ++i) {
+                                        var d = app.sessionDevices[i]
+                                        if (d.isCurrent !== true)
+                                            ids.push(d.deviceId)
+                                    }
+                                    app.uia.signOutDevices(ids, currentDeviceId())
+                                }
+                                Connections {
+                                    target: app.uia
+                                    function onSignOutFinished(ok, message) {
+                                        sessionsListCard.actionNotice = message
+                                        sessionsListCard.actionNoticeError = !ok
+                                    }
+                                    function onManagementUrlReady(url) {
+                                        // The account console owns OAuth
+                                        // session management; open it and
+                                        // let Refresh pick up the result.
+                                        app.media.openWebUrl(url)
+                                        sessionsListCard.actionNotice = qsTr(
+                                            "Manage this in the account "
+                                            + "page that just opened, then "
+                                            + "press Refresh here.")
+                                        sessionsListCard.actionNoticeError = false
+                                    }
+                                }
                                 RowLayout {
                                     Layout.fillWidth: true
                                     // Mono-caption module header — the trust
@@ -2989,18 +3129,68 @@ Item {
                                                     }
                                                 }
                                             }
+
+                                            // v0.7.x: sign out THIS OTHER
+                                            // session. Never offered for the
+                                            // current one — that is the
+                                            // normal Sign out flow with its
+                                            // store cleanup.
+                                            AppButton {
+                                                objectName: "sessionSignOutButton_"
+                                                            + modelData.deviceId
+                                                visible: modelData.isCurrent !== true
+                                                         && app.uia.supported
+                                                storm: true
+                                                kind: "danger"
+                                                implicitHeight: 26
+                                                leftPadding: 10
+                                                rightPadding: 10
+                                                enabled: !app.uia.busy
+                                                         && !app.uia.challengeActive
+                                                text: qsTr("Sign out")
+                                                Accessible.name:
+                                                    qsTr("Sign out session %1")
+                                                        .arg(modelData.deviceId)
+                                                onClicked:
+                                                    sessionsListCard.signOutOne(
+                                                        modelData.deviceId)
+                                            }
                                         }
                                     }
+                                }
+                                Label {
+                                    visible: sessionsListCard.actionNotice.length > 0
+                                    Layout.fillWidth: true
+                                    wrapMode: Text.WordWrap
+                                    color: sessionsListCard.actionNoticeError
+                                           ? AppTheme.stormDanger
+                                           : AppTheme.stormTextMuted
+                                    font.pixelSize: AppTheme.fontSecondary
+                                    text: sessionsListCard.actionNotice
+                                    Accessible.name: text
+                                }
+                                AppButton {
+                                    objectName: "signOutOtherSessionsButton"
+                                    visible: app.uia.supported
+                                             && app.sessionDevices.length > 1
+                                    storm: true
+                                    kind: "danger"
+                                    Layout.alignment: Qt.AlignLeft
+                                    enabled: !app.uia.busy
+                                             && !app.uia.challengeActive
+                                    text: qsTr("Sign out all other sessions")
+                                    Accessible.name: text
+                                    onClicked: sessionsListCard.signOutAllOthers()
                                 }
                                 Label {
                                     Layout.fillWidth: true
                                     wrapMode: Text.WordWrap
                                     color: AppTheme.stormTextMuted
                                     font.pixelSize: AppTheme.fontSecondary
-                                    text: qsTr("Signing out other sessions from Lightning "
-                                               + "is not supported yet — use another "
-                                               + "client for that. Verification below "
-                                               + "always requires explicit confirmation "
+                                    text: qsTr("Signing out a session may require "
+                                               + "your account password. "
+                                               + "Verification below always "
+                                               + "requires explicit confirmation "
                                                + "on both sessions.")
                                 }
                             }

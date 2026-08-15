@@ -52,6 +52,10 @@ NotificationManager::decide(const TimelineEvent &event, const Context &context)
         return decision;
     if (context.roomMode == Muted)
         return decision;
+    // An ignored sender must not notify even in the window before the
+    // server applies the ignore and stops delivering their events.
+    if (context.senderIsIgnored)
+        return decision;
     if (event.isVirtual() || event.type == TimelineEvent::StateChange)
         return decision;
     if (event.isLocalEcho || event.status != TimelineEvent::Sent)

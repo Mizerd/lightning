@@ -216,6 +216,16 @@ public:
     Q_INVOKABLE int roomNotificationMode(const QString &roomId) const;
     Q_INVOKABLE void setRoomNotificationMode(const QString &roomId, int mode);
 
+    // v0.7.x composer drafts, UNENCRYPTED rooms only — DraftStore enforces
+    // that policy and never routes encrypted-room plaintext here (QSettings
+    // is weaker than even the CacheStore this project already refuses to
+    // put such plaintext in). Strictly account-scoped keys with NO global
+    // fallback (`accounts/<slug>/drafts/<sha16>`), bounded by an LRU index
+    // (the videoDims discipline); the whole family is wiped with the
+    // account group on removal/sign-out. An empty map removes the entry.
+    QVariantMap roomDraft(const QString &draftKey) const;
+    void setRoomDraft(const QString &draftKey, const QVariantMap &draft);
+
     // v0.7: learned video dimensions for events whose Matrix metadata
     // declares none (every Lightning-sent video before the send-metadata
     // fix). Recorded when the poster extractor sees the real frame, so the

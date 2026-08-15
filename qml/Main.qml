@@ -382,6 +382,22 @@ ApplicationWindow {
         anchors.centerIn: parent
     }
 
+    // v0.7.x: the ONE UIA prompt. Opens itself off UiaController's
+    // challenge state, so every privileged operation that hits a server
+    // challenge surfaces through the same presentation — never a per-page
+    // password dialog.
+    UiaPromptDialog {
+        id: uiaPromptDialog
+        parent: Overlay.overlay
+    }
+
+    // v0.7.x: the ONE report-message prompt (opens itself off
+    // ModerationController's pending-report state).
+    ReportMessageDialog {
+        id: reportMessageDialog
+        parent: Overlay.overlay
+    }
+
     // First-run nudge. Deliberately a corner card rather than a modal: an
     // unverified session still works, so this must not block the app.
     VerifySessionPrompt {

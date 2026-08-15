@@ -57,16 +57,20 @@ use matrix_sdk::{
 use futures_util::StreamExt;
 use matrix_sdk_ui::{
     eyeball_im::VectorDiff,
-    room_list_service::{filters, RoomListItem},
+    room_list_service::{filters, RoomListItem, RoomListService},
     spaces::SpaceService,
     sync_service::{Error as UnifiedSyncError, State as UnifiedSyncState, SyncService},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
+mod discover;
 mod gifs;
+mod ignore;
 mod oauth;
 mod pinned;
+mod search;
+mod uia;
 mod presence;
 mod rooms;
 mod timeline;
@@ -134,6 +138,24 @@ struct RustClient {
     runtime: Arc<tokio::runtime::Runtime>,
     // v0.5.7: live timeline registry (single active room timeline).
     timelines: Arc<timeline::TimelineRegistry>,
+    // v0.7.x: the sliding-sync RoomListService, published by the running
+    // modern sync loop and withdrawn on every exit path (RAII guard in
+    // `run_modern_sync`). Room opens use it to carry exactly ONE room
+    // subscription — the active room — because subscription-only required
+    // state (`m.room.pinned_events`) never reaches the store otherwise:
+    // a pin made this session, or by another client, would stay invisible
+    // until the once-per-room `/state` probe ran again after a restart.
+    room_list_service: Arc<Mutex<Option<Arc<RoomListService>>>>,
+    // The room the user currently has open — the single subscription the
+    // sliding sync should carry. Remembered separately from the service so
+    // a room opened before the sync loop is up is subscribed as soon as
+    // the service appears, and cleared in `stop_sync_and_wait` so a stale
+    // room id can never be subscribed under a later account's sync.
+    active_room_subscription: Arc<Mutex<Option<OwnedRoomId>>>,
+    // v0.7.x UIA: at most ONE privileged operation parked between a UIA
+    // challenge and the user's answer (uia.rs). Cleared on teardown so a
+    // stale challenge can never be answered under a later account.
+    uia_pending: Arc<Mutex<Option<uia::UiaPending>>>,
     // v0.5.7: managed room-key import task so sign-out can join it
     // deterministically instead of polling a flag with a timeout.
     import_task: Mutex<Option<tokio::task::JoinHandle<()>>>,
@@ -255,6 +277,9 @@ impl RustClient {
             sync_mode: Arc::new(Mutex::new(SyncMode::Stopped)),
             runtime: Arc::new(runtime),
             timelines: Arc::new(timeline::TimelineRegistry::new(events)),
+            room_list_service: Arc::new(Mutex::new(None)),
+            active_room_subscription: Arc::new(Mutex::new(None)),
+            uia_pending: Arc::new(Mutex::new(None)),
             import_task: Mutex::new(None),
             room_action_tasks: Mutex::new(Vec::new()),
             active_typing_room: Arc::new(Mutex::new(None)),
@@ -285,6 +310,17 @@ impl RustClient {
     }
 
     fn stop_sync_and_wait(&self) -> bool {
+        // The active-room subscription is user intent scoped to THIS
+        // session; forget it before the sync goes down so a later account's
+        // sync can never inherit — and subscribe — another account's room.
+        if let Ok(mut guard) = self.active_room_subscription.lock() {
+            guard.take();
+        }
+        // A UIA challenge belongs to the session that raised it; a later
+        // account must never be able to answer it.
+        if let Ok(mut guard) = self.uia_pending.lock() {
+            guard.take();
+        }
         // The crypto-bootstrap observer shares the sync session's lifetime;
         // stop it first so no status event can be emitted for a session
         // that is going away. Dropping the nudge sender first guarantees no
@@ -1111,6 +1147,8 @@ pub unsafe extern "C" fn mx_rust_start_sync(ptr: *mut c_void) {
 
         let events = Arc::clone(&bridge.events);
         let sync_mode = Arc::clone(&bridge.sync_mode);
+        let room_list_slot = Arc::clone(&bridge.room_list_service);
+        let active_subscription = Arc::clone(&bridge.active_room_subscription);
         bridge.enqueue(json!({ "type": "status", "state": "syncing" }));
 
         let (cancel, cancel_rx) = tokio::sync::oneshot::channel::<()>();
@@ -1118,7 +1156,10 @@ pub unsafe extern "C" fn mx_rust_start_sync(ptr: *mut c_void) {
         let thread = std::thread::spawn(move || {
             let runtime_events = Arc::clone(&events);
             run_async(runtime_events, "sync", async move {
-                run_authoritative_sync(sync_client, events, sync_mode, cancel_rx).await;
+                run_authoritative_sync(
+                    sync_client, events, sync_mode, room_list_slot,
+                    active_subscription, cancel_rx,
+                ).await;
             });
         });
         *task_slot = Some(SyncTask {
@@ -4578,7 +4619,17 @@ pub unsafe extern "C" fn mx_rust_timeline_open(
         let Some(client) = bridge.client.lock().ok().and_then(|g| g.clone()) else {
             return Err("Rust SDK session is not logged in.".to_owned());
         };
-        bridge.timelines.open_room(&bridge.runtime, client, room_id);
+        bridge.timelines.open_room(&bridge.runtime, client, room_id.clone());
+        // The open room is the ONE sliding-sync room subscription, which is
+        // the only way subscription-only required state (m.room.pinned_events)
+        // reaches the store. An unparseable id cannot be subscribed and the
+        // timeline open above stands on its own.
+        if let Ok(parsed) = OwnedRoomId::try_from(room_id.as_str()) {
+            if let Ok(mut guard) = bridge.active_room_subscription.lock() {
+                *guard = Some(parsed);
+            }
+            apply_room_subscription(bridge);
+        }
         Ok(String::new())
     })
 }
@@ -4588,8 +4639,43 @@ pub unsafe extern "C" fn mx_rust_timeline_close(ptr: *mut c_void) -> *mut c_char
     ffi_string(|| {
         let bridge = unsafe { bridge(ptr)? };
         bridge.timelines.close();
+        // No open room, no room subscription.
+        if let Ok(mut guard) = bridge.active_room_subscription.lock() {
+            guard.take();
+        }
+        apply_room_subscription(bridge);
         Ok(String::new())
     })
+}
+
+/// (Re)apply the single active-room subscription to the running sliding
+/// sync, when there is one. Fire-and-forget by design: the subscription is
+/// an optimisation of WHAT sync delivers, never a gate on opening the room,
+/// and `subscribe_to_rooms` replaces the previous subscription set wholesale
+/// so repeated calls converge on exactly the desired state.
+fn apply_room_subscription(bridge: &RustClient) {
+    let Some(service) = bridge
+        .room_list_service
+        .lock()
+        .ok()
+        .and_then(|guard| guard.clone())
+    else {
+        return; // No modern sync running; the sync loop applies it on start.
+    };
+    let desired = bridge
+        .active_room_subscription
+        .lock()
+        .ok()
+        .and_then(|guard| guard.clone());
+    // Managed (review L3): this future holds an Arc<RoomListService> and
+    // through it a strong Client; an untracked task could keep the crypto
+    // store open across sign-out teardown.
+    bridge.spawn_room_action(async move {
+        match desired {
+            Some(room_id) => service.subscribe_to_rooms(&[&room_id]).await,
+            None => service.subscribe_to_rooms(&[]).await,
+        }
+    });
 }
 
 #[no_mangle]
@@ -5543,6 +5629,239 @@ pub unsafe extern "C" fn mx_rust_set_room_pinned(
         let event_id = unsafe { cstr_arg(event_id) }?;
         pinned::set_pinned(bridge, room_id, event_id, pin != 0, op_id)
             .map(|_| String::new())
+    })
+}
+
+// ---------------------------------------------------------------------------
+// v0.7.x room discovery / join / knock (discover.rs). One op-id per call;
+// results arrive as room_target_resolved / public_rooms_result /
+// room_join_result / room_knock_result / knock_cancel_result /
+// space_children_result events.
+// ---------------------------------------------------------------------------
+
+/// Resolve user input (#alias, !roomid, matrix: URI, matrix.to permalink)
+/// into a normalized join target and preview it where the server allows.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_resolve_room_target(
+    ptr: *mut c_void,
+    input: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let input = unsafe { cstr_arg(input) }?;
+        discover::resolve_room_target(bridge, input, op_id).map(|_| String::new())
+    })
+}
+
+/// One page of the public room directory. `server` optionally targets
+/// another homeserver's directory; `since` is the pagination token from the
+/// previous page's result.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_search_public_rooms(
+    ptr: *mut c_void,
+    query: *const c_char,
+    server: *const c_char,
+    since: *const c_char,
+    limit: u64,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let query = unsafe { cstr_arg(query) }?;
+        let server = unsafe { thread_root_arg(server) }?;
+        let since = unsafe { thread_root_arg(since) }?;
+        discover::search_public_rooms(bridge, query, server, since, limit, op_id)
+            .map(|_| String::new())
+    })
+}
+
+/// Join a room by id or alias. `via` is a newline-separated server list
+/// (may be NULL/empty).
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_join_room(
+    ptr: *mut c_void,
+    target: *const c_char,
+    via: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let target = unsafe { cstr_arg(target) }?;
+        let via = unsafe { cstr_list_arg(via) }?;
+        discover::join_room(bridge, target, via, op_id).map(|_| String::new())
+    })
+}
+
+/// Knock on a room by id or alias with an optional reason.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_knock_room(
+    ptr: *mut c_void,
+    target: *const c_char,
+    via: *const c_char,
+    reason: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let target = unsafe { cstr_arg(target) }?;
+        let via = unsafe { cstr_list_arg(via) }?;
+        let reason = unsafe { thread_root_arg(reason) }?;
+        discover::knock_room(bridge, target, via, reason, op_id).map(|_| String::new())
+    })
+}
+
+/// Withdraw a pending knock (leave a Knocked room).
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_cancel_knock(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        discover::cancel_knock(bridge, room_id, op_id).map(|_| String::new())
+    })
+}
+
+// ---------------------------------------------------------------------------
+// v0.7.x ignored users + reporting (ignore.rs). SDK account-data and
+// reporting APIs only. Events: ignore_user_result / ignored_users_list /
+// ignored_users_changed (sync push) / report_message_result.
+// ---------------------------------------------------------------------------
+
+/// Ignore (`ignored` = 1) or unignore (0) one user via the SDK's
+/// m.ignored_user_list read-modify-write.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_set_user_ignored(
+    ptr: *mut c_void,
+    user_id: *const c_char,
+    ignored: u8,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let user_id = unsafe { cstr_arg(user_id) }?;
+        ignore::set_user_ignored(bridge, user_id, ignored != 0, op_id)
+            .map(|_| String::new())
+    })
+}
+
+/// Read the authoritative ignored-user list from account data.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_list_ignored_users(
+    ptr: *mut c_void,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        ignore::list_ignored_users(bridge, op_id).map(|_| String::new())
+    })
+}
+
+/// Report one event to the homeserver administrator (stable /v3 endpoint).
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_report_message(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    event_id: *const c_char,
+    reason: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let event_id = unsafe { cstr_arg(event_id) }?;
+        let reason = unsafe { thread_root_arg(reason) }?;
+        ignore::report_message(bridge, room_id, event_id, reason, op_id)
+            .map(|_| String::new())
+    })
+}
+
+// ---------------------------------------------------------------------------
+// v0.7.x UIA + device sign-out (uia.rs). The SDK surfaces the server's UIA
+// challenge; Lightning parks the operation and answers with the password
+// stage. Events: uia_required / device_delete_result.
+// ---------------------------------------------------------------------------
+
+/// Delete own devices (newline-separated ids). May raise `uia_required`.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_delete_devices(
+    ptr: *mut c_void,
+    device_ids: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let ids = unsafe { cstr_list_arg(device_ids) }?;
+        uia::delete_devices(bridge, ids, op_id).map(|_| String::new())
+    })
+}
+
+/// Answer the pending UIA challenge with the account password and retry
+/// the parked operation. The transit buffer is scrubbed inside.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_uia_submit_password(
+    ptr: *mut c_void,
+    uia_id: u64,
+    password: *const c_char,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let password = unsafe { cstr_arg(password) }?;
+        uia::uia_submit_password(bridge, uia_id, password).map(|_| String::new())
+    })
+}
+
+/// Abandon the pending UIA challenge (dialog cancelled).
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_uia_cancel(
+    ptr: *mut c_void,
+    uia_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        uia::uia_cancel(bridge, uia_id);
+        Ok(String::new())
+    })
+}
+
+/// v0.7.x server-side message search (POST /_matrix/client/v3/search via
+/// raw ruma — matrix-sdk has no wrapper). Covers unencrypted rooms ONLY;
+/// the server cannot search ciphertext. `room_id` empty = all rooms;
+/// `next_batch` pages. Result event: message_search_result.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_search_messages(
+    ptr: *mut c_void,
+    term: *const c_char,
+    room_id: *const c_char,
+    next_batch: *const c_char,
+    limit: u64,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let term = unsafe { cstr_arg(term) }?;
+        let room_id = unsafe { thread_root_arg(room_id) }?;
+        let next_batch = unsafe { thread_root_arg(next_batch) }?;
+        search::search_messages(bridge, term, room_id, next_batch, limit, op_id)
+            .map(|_| String::new())
+    })
+}
+
+/// List a Space's children (joined and unjoined) via the SDK's
+/// /hierarchy-backed SpaceRoomList. Bounded; reports `truncated`.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_space_children(
+    ptr: *mut c_void,
+    space_id: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let space_id = unsafe { cstr_arg(space_id) }?;
+        discover::space_children(bridge, space_id, op_id).map(|_| String::new())
     })
 }
 
@@ -6509,6 +6828,8 @@ async fn run_authoritative_sync(
     client: Client,
     events: Arc<Mutex<VecDeque<String>>>,
     sync_mode: Arc<Mutex<SyncMode>>,
+    room_list_slot: Arc<Mutex<Option<Arc<RoomListService>>>>,
+    active_subscription: Arc<Mutex<Option<OwnedRoomId>>>,
     mut cancel: tokio::sync::oneshot::Receiver<()>,
 ) {
     set_sync_mode(&sync_mode, &events, SyncMode::Probing, None);
@@ -6539,7 +6860,8 @@ async fn run_authoritative_sync(
 
     if modern_supported {
         if let Some(cancel) = run_modern_sync(
-            client.clone(), Arc::clone(&events), Arc::clone(&sync_mode), cancel
+            client.clone(), Arc::clone(&events), Arc::clone(&sync_mode),
+            room_list_slot, active_subscription, cancel
         ).await {
             set_sync_mode(
                 &sync_mode, &events, SyncMode::ClassicSyncFallback, Some("unsupported")
@@ -6583,8 +6905,28 @@ async fn run_modern_sync(
     client: Client,
     events: Arc<Mutex<VecDeque<String>>>,
     sync_mode: Arc<Mutex<SyncMode>>,
+    room_list_slot: Arc<Mutex<Option<Arc<RoomListService>>>>,
+    active_subscription: Arc<Mutex<Option<OwnedRoomId>>>,
     mut cancel: tokio::sync::oneshot::Receiver<()>,
 ) -> Option<tokio::sync::oneshot::Receiver<()>> {
+    // Withdraws the published RoomListService on EVERY exit path of this
+    // function — a handle outliving its sync loop would accept subscription
+    // calls that can never reach a server again.
+    struct RoomListPublication(Arc<Mutex<Option<Arc<RoomListService>>>>);
+    impl RoomListPublication {
+        fn set(&self, service: Option<Arc<RoomListService>>) {
+            if let Ok(mut guard) = self.0.lock() {
+                *guard = service;
+            }
+        }
+    }
+    impl Drop for RoomListPublication {
+        fn drop(&mut self) {
+            self.set(None);
+        }
+    }
+    let publication = RoomListPublication(room_list_slot);
+
     loop {
         let service = match SyncService::builder(client.clone()).build().await {
             Ok(service) => service,
@@ -6623,9 +6965,29 @@ async fn run_modern_sync(
         let space_service = SpaceService::new(client.clone()).await;
         let mut unified_state = service.state();
         let mut list_state = room_list_service.state();
+        // v0.7.x ignored users: the SDK diffs m.ignored_user_list on every
+        // sync and publishes only real changes, so this stream is safe to
+        // forward directly. Local ignores and remote ones (another client)
+        // both arrive here — C++ re-reads through one path.
+        let mut ignore_list_sub = client.subscribe_to_ignore_user_list_changes();
         // Bounded latest-event registration state for this sync session.
         let latest_events = client.latest_events().await;
         let mut watched_latest: BTreeSet<OwnedRoomId> = BTreeSet::new();
+
+        // Publish the service so room opens can (re)target the single
+        // active-room subscription, then apply the room that is ALREADY
+        // open: on a restored session the user's room opens before this
+        // loop reaches here, and without this catch-up its
+        // subscription-only required state (m.room.pinned_events) would
+        // wait for the next room switch.
+        publication.set(Some(Arc::clone(&room_list_service)));
+        if let Some(room_id) = active_subscription
+            .lock()
+            .ok()
+            .and_then(|guard| guard.clone())
+        {
+            room_list_service.subscribe_to_rooms(&[&room_id]).await;
+        }
 
         set_sync_mode(&sync_mode, &events, SyncMode::SlidingSync, None);
         enqueue(&events, json!({ "type": "room_list_sync_state", "state": "starting" }));
@@ -6642,6 +7004,14 @@ async fn run_modern_sync(
                     forward_room_list_diffs(&events, batch, latest_events,
                                             &mut watched_latest).await;
                     enqueue_spaces(&events, &space_service, &client).await;
+                }
+                changed = ignore_list_sub.next() => {
+                    if let Some(users) = changed {
+                        enqueue(&events, json!({
+                            "type": "ignored_users_changed",
+                            "users": users,
+                        }));
+                    }
                 }
                 state = list_state.next() => {
                     if let Some(matrix_sdk_ui::room_list_service::State::Running) = state {
@@ -6915,6 +7285,11 @@ async fn room_payload(room: &Room) -> serde_json::Value {
         "marked_unread": room.is_marked_unread(),
         "has_unread_messages": room.num_unread_messages() > 0,
         "encrypted": room.encryption_state().is_encrypted(),
+        // v0.7.x (review H1): the SDK's EncryptionState is a TRI-state and
+        // Unknown must not flatten into "not encrypted" — draft persistence
+        // and server-search offers fail closed on it. False until the
+        // m.room.encryption state has actually synced for this room.
+        "encryption_known": !room.encryption_state().is_unknown(),
         "is_space": room.is_space(),
         "is_direct": !direct_targets.is_empty(),
         "direct_user_id": direct_targets.first().cloned().unwrap_or_default(),

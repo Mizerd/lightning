@@ -44,6 +44,9 @@ public:
     explicit MessageComposer(QObject *parent = nullptr);
 
     void setClient(MatrixClient *client);
+    // v0.7.x drafts: injected by AppController. Optional — without a store
+    // the composer behaves exactly as before (wipe on switch).
+    void setDraftStore(class DraftStore *store) { m_drafts = store; }
 
     QString text() const { return m_text; }
     void setText(const QString &t);
@@ -207,4 +210,14 @@ private:
     bool    m_canSend = false;
     bool    m_typingActive = false;
     QTimer  m_typingRefresh;
+
+    // v0.7.x drafts. The debounce is stopped BEFORE every room change and
+    // the save reads the CURRENT room, so a stale timer can never write
+    // one room's text under another's key. Edit mode never saves — the
+    // text then is the edited event's body, not a draft.
+    void saveDraftNow();
+    void restoreDraft();
+    class DraftStore *m_drafts = nullptr;
+    QTimer m_draftDebounce;
+    bool m_restoringDraft = false;
 };

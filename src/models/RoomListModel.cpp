@@ -176,6 +176,9 @@ QVariantMap RoomListModel::findRoom(const QString &roomId) const
                 { QStringLiteral("topic"),     r.topic },
                 { QStringLiteral("avatarUrl"), effectiveAvatarUrl(r) },
                 { QStringLiteral("encrypted"), r.encrypted },
+                // Review H1: whether `encrypted` is a synced fact. The
+                // find bar's History offer fails closed on false.
+                { QStringLiteral("encryptionKnown"), r.encryptionKnown },
                 { QStringLiteral("unreadCount"), r.unreadCount },
                 { QStringLiteral("isSpace"),   r.isSpace },
                 // v0.6.5: the invite dialog's room header prefers the

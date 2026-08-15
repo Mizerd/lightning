@@ -733,3 +733,62 @@ mod tests {
                 "device_code grant must not be requested: {grants:?}");
     }
 }
+
+/// v0.7.x session management for MAS/OAuth accounts. Password UIA does not
+/// exist for them — device sign-out happens in the account-management web
+/// console. Answers with the console URL for one action:
+/// `device_id` empty → the sessions list, otherwise the delete page for
+/// that device. Result event: `oauth_management_url { op_id, ok, url }`.
+/// The URL is the user's own account console; it carries no secret, and it
+/// is never logged here.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_oauth_management_url(
+    ptr: *mut c_void,
+    device_id: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let handle = unsafe { bridge(ptr)? };
+        let device = unsafe { cstr_arg(device_id) }?.trim().to_owned();
+        let Some(client) = handle.client.lock().ok().and_then(|g| g.clone()) else {
+            return Err("no active Matrix session".to_owned());
+        };
+        let events = Arc::clone(&handle.events);
+        let timelines = Arc::clone(&handle.timelines);
+        let lifecycle = timelines.lifecycle();
+        handle.spawn_room_action(async move {
+            use matrix_sdk::ruma::api::client::discovery::get_authorization_server_metadata::v1::{
+                AccountManagementActionData, DeviceDeleteData,
+            };
+            let result = client.oauth().server_metadata().await;
+            if !timelines.lifecycle_current(lifecycle) {
+                return;
+            }
+            let url = match result {
+                Ok(metadata) => {
+                    if device.is_empty() {
+                        metadata.account_management_url_with_action(
+                            AccountManagementActionData::DevicesList,
+                        )
+                    } else {
+                        let owned = OwnedDeviceId::from(device.as_str());
+                        metadata.account_management_url_with_action(
+                            AccountManagementActionData::DeviceDelete(
+                                DeviceDeleteData::new(&owned),
+                            ),
+                        )
+                    }
+                }
+                Err(_) => None,
+            };
+            enqueue(&events, json!({
+                "type": "oauth_management_url",
+                "op_id": op_id,
+                "lifecycle": lifecycle,
+                "ok": url.is_some(),
+                "url": url.map(|u| u.to_string()).unwrap_or_default(),
+            }));
+        });
+        Ok(String::new())
+    })
+}

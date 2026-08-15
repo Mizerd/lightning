@@ -22,7 +22,7 @@ pause stop volume_up volume_off open_in_full close_fullscreen graphic_eq \
 speed zoom_in zoom_out fit_screen chevron_left chevron_right \
 account_circle radio_button_checked radio_button_unchecked bolt keyboard_tab \
 group_add person_search pets restaurant sports_esports flight lightbulb \
-emoji_symbols flag"
+emoji_symbols flag explore travel_explore"
 
 work=$(mktemp -d); trap 'rm -rf "$work"' EXIT
 base="https://github.com/google/material-design-icons/raw/master/variablefont"

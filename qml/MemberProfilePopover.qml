@@ -118,10 +118,35 @@ Popup {
         modAction = ""
         modError = ""
         roleError = ""
+        ignoreNotice = ""
         modReasonField.text = ""
         inviteBackChecked = true
         _refreshModeration()
+        _refreshIgnored()
         open()
+    }
+
+    // v0.7.x account-wide ignore (m.ignored_user_list). Recomputed on the
+    // controller's revision because a plain binding cannot observe a
+    // Q_INVOKABLE's inputs; remote changes land while the popover is open.
+    property bool userIgnored: false
+    property string ignoreNotice: ""
+    property bool ignoreNoticeError: false
+    function _refreshIgnored() {
+        userIgnored = !isOwn && app.moderation.supported
+                      && userId.length > 0
+                      && app.moderation.isIgnored(userId)
+    }
+    Connections {
+        target: app.moderation
+        function onStateChanged() { root._refreshIgnored() }
+        function onIgnoreActionFinished(userId, ignored, ok, message) {
+            if (userId !== root.userId)
+                return
+            root.ignoreNotice = message
+            root.ignoreNoticeError = !ok
+            root._refreshIgnored()
+        }
     }
 
     function startOrOpenDm() {
@@ -564,6 +589,10 @@ Popup {
                             contentItem: Label {
                                 text: roleButton.modelData.label
                                 horizontalAlignment: Text.AlignHCenter
+                                // A bare Label contentItem fills the button,
+                                // and Text defaults to top alignment — the
+                                // label rides high without this.
+                                verticalAlignment: Text.AlignVCenter
                                 color: roleButton.enabled
                                        ? AppTheme.stormTextSecondary
                                        : AppTheme.stormTextFaint
@@ -673,6 +702,76 @@ Popup {
                             root.modAction = modelData.op
                         }
                     }
+                }
+            }
+
+            // v0.7.x: account-wide ignore. Visually separate from the
+            // room-scoped moderation row above — ignoring needs no power
+            // level and applies to every room. One click, reversible.
+            ColumnLayout {
+                visible: !root.isOwn && app.moderation.supported
+                         && root.modAction === ""
+                Layout.fillWidth: true
+                spacing: AppTheme.spacing6
+
+                AbstractButton {
+                    id: ignoreButton
+                    objectName: "profileIgnoreButton"
+                    Layout.fillWidth: true
+                    implicitHeight: 32
+                    hoverEnabled: true
+                    focusPolicy: Qt.TabFocus
+                    enabled: !app.moderation.busy
+                    Accessible.role: Accessible.Button
+                    Accessible.name: root.userIgnored
+                        ? qsTr("Stop ignoring %1").arg(root.visibleName)
+                        : qsTr("Ignore %1 everywhere").arg(root.visibleName)
+                    contentItem: RowLayout {
+                        spacing: AppTheme.spacing6
+                        Item { Layout.fillWidth: true }
+                        Icon {
+                            name: root.userIgnored ? "visibility" : "visibility_off"
+                            size: 16
+                            color: root.userIgnored ? AppTheme.stormTextSecondary
+                                                    : AppTheme.danger
+                        }
+                        Label {
+                            text: root.userIgnored ? qsTr("Stop ignoring")
+                                                   : qsTr("Ignore")
+                            color: root.userIgnored ? AppTheme.stormTextSecondary
+                                                    : AppTheme.danger
+                            font.family: AppTheme.menuFont
+                            font.pixelSize: 13
+                            font.weight: Font.Bold
+                        }
+                        Item { Layout.fillWidth: true }
+                    }
+                    background: Rectangle {
+                        radius: AppTheme.radiusTile
+                        color: (ignoreButton.hovered || ignoreButton.down)
+                               ? AppTheme.stormSelection : "transparent"
+                        border.width: 1
+                        border.color: root.userIgnored
+                                      ? AppTheme.stormBorderStrong
+                                      : AppTheme.danger
+                    }
+                    onClicked: {
+                        root.ignoreNotice = ""
+                        if (root.userIgnored)
+                            app.moderation.unignoreUser(root.userId)
+                        else
+                            app.moderation.ignoreUser(root.userId)
+                    }
+                }
+                Label {
+                    visible: root.ignoreNotice.length > 0
+                    Layout.fillWidth: true
+                    text: root.ignoreNotice
+                    color: root.ignoreNoticeError ? AppTheme.danger
+                                                  : AppTheme.stormTextMuted
+                    font.pixelSize: 11
+                    wrapMode: Text.Wrap
+                    Accessible.name: text
                 }
             }
 
