@@ -38,6 +38,25 @@ endif()
 # "unsigned-test", "release", or "source" (default). Packaging sets this.
 set(LIGHTNING_ARTIFACT_KIND "source" CACHE STRING "Artifact kind for --build-info")
 
+# Optional compiler cache for local development. Packaging passes its own
+# -DCMAKE_<LANG>_COMPILER_LAUNCHER when it wants one (lightning-deploy's
+# configure-build.sh does), and an explicit setting always wins over this
+# block. It is deliberately confined to source builds -- an official package
+# sets LIGHTNING_ARTIFACT_KIND to something other than "source", so no release
+# artifact can silently pick up a developer's cache. Absent ccache is not an
+# error: the build simply proceeds uncached.
+option(LIGHTNING_DISABLE_CCACHE "Never auto-enable ccache, even for source builds" OFF)
+if(NOT LIGHTNING_DISABLE_CCACHE
+        AND NOT CMAKE_CXX_COMPILER_LAUNCHER
+        AND LIGHTNING_ARTIFACT_KIND STREQUAL "source")
+    find_program(LIGHTNING_CCACHE_PROGRAM ccache)
+    if(LIGHTNING_CCACHE_PROGRAM)
+        set(CMAKE_CXX_COMPILER_LAUNCHER "${LIGHTNING_CCACHE_PROGRAM}")
+        set(CMAKE_C_COMPILER_LAUNCHER "${LIGHTNING_CCACHE_PROGRAM}")
+        message(STATUS "ccache enabled for this source build (${LIGHTNING_CCACHE_PROGRAM})")
+    endif()
+endif()
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -500,7 +519,7 @@ endif()
 # auto-import to run reliably across target boundaries, so each Qt-executable
 # target instead calls qt_add_qml_module on itself directly (the arrangement
 # Qt documents and the one that's actually verified to work).
-function(lightning_configure_qml_app target)
+function(_lightning_configure_qml_module target _scope)
     qt_add_qml_module(${target}
         URI MatrixClient
         VERSION 1.0
@@ -537,17 +556,17 @@ function(lightning_configure_qml_app target)
         OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/qml-modules/${target}"
     )
 
-    target_include_directories(${target} PRIVATE src)
+    target_include_directories(${target} ${_scope} src)
     # qmltyperegistrar's generated qml_register_types_MatrixClient() probes
     # for each QML_ELEMENT header with #if __has_include(<HeaderName.h>) — a
     # bare filename, not the "models/HeaderName.h" path used by quoted
     # includes elsewhere. Add each subdirectory holding a QML-registered type
     # so that angle-bracket lookup resolves.
-    target_include_directories(${target} PRIVATE src/models src/threads src/crypto src/gif)
+    target_include_directories(${target} ${_scope} src/models src/threads src/crypto src/gif)
     # Build-only GIF key header (may be keyless); include path only, no values.
-    target_include_directories(${target} PRIVATE "${LIGHTNING_GENERATED_DIR}")
+    target_include_directories(${target} ${_scope} "${LIGHTNING_GENERATED_DIR}")
 
-    target_link_libraries(${target} PRIVATE
+    target_link_libraries(${target} ${_scope}
         Qt6::Core
         Qt6::Gui
         Qt6::Qml
@@ -564,11 +583,11 @@ function(lightning_configure_qml_app target)
     # and try to autolaunch a session bus at startup (the "dbus-1" lookup noise
     # observed on native Windows). NotificationManager degrades to a no-op.
     if(TARGET Qt6::DBus AND NOT WIN32 AND NOT APPLE)
-        target_link_libraries(${target} PRIVATE Qt6::DBus)
-        target_compile_definitions(${target} PRIVATE HAVE_QT_DBUS=1)
+        target_link_libraries(${target} ${_scope} Qt6::DBus)
+        target_compile_definitions(${target} ${_scope} HAVE_QT_DBUS=1)
     endif()
 
-    target_compile_definitions(${target} PRIVATE
+    target_compile_definitions(${target} ${_scope}
         APP_VERSION="${APP_VERSION_LABEL}"
         LIGHTNING_SOURCE_SHA="${LIGHTNING_SOURCE_SHA}"
         LIGHTNING_BUILD_TARGET="${LIGHTNING_BUILD_TARGET}"
@@ -578,38 +597,70 @@ function(lightning_configure_qml_app target)
     )
 
     if(HAVE_LIBSECRET)
-        target_link_libraries(${target} PRIVATE PkgConfig::LIBSECRET)
-        target_compile_definitions(${target} PRIVATE HAVE_LIBSECRET=1)
+        target_link_libraries(${target} ${_scope} PkgConfig::LIBSECRET)
+        target_compile_definitions(${target} ${_scope} HAVE_LIBSECRET=1)
     endif()
 
     # Windows Credential Manager backend for SecretStore (CredWriteW/ReadW/
     # DeleteW/EnumerateW live in advapi32). WIN32 is true for both MSVC and the
     # MinGW cross-build; off Windows WinCredStore compiles as a no-op stub.
     if(WIN32)
-        target_link_libraries(${target} PRIVATE advapi32)
-        target_compile_definitions(${target} PRIVATE HAVE_WINCRED=1)
+        target_link_libraries(${target} ${_scope} advapi32)
+        target_compile_definitions(${target} ${_scope} HAVE_WINCRED=1)
     endif()
 
     if(ENABLE_RUST_SDK_BACKEND)
         add_dependencies(${target} matrix-client-rust-build)
-        target_link_libraries(${target} PRIVATE matrix-client-rust SQLite::SQLite3)
+        target_link_libraries(${target} ${_scope} matrix-client-rust SQLite::SQLite3)
         if(UNIX AND NOT APPLE)
             # Rust static libs typically pull in libdl / libpthread / libm at
             # some scale — link them defensively so growing the Rust surface
             # later does not surprise us with link-time failures.
-            target_link_libraries(${target} PRIVATE dl pthread m)
+            target_link_libraries(${target} ${_scope} dl pthread m)
         endif()
 
-        target_compile_definitions(${target} PRIVATE ENABLE_RUST_SDK_BACKEND=1)
+        target_compile_definitions(${target} ${_scope} ENABLE_RUST_SDK_BACKEND=1)
 
         # v0.5.0-prep+9: initial E2EE gate. Both directions verified live
         # against matrix.smetonis.net (Element Classic ↔ Lightning marker
         # round-trip: expect_text=seen + encrypted_send=ok). Flip so
         # CryptoManager::supportsE2ee() returns true for the Rust backend.
         # HTTP and Mock still return false regardless.
-        target_compile_definitions(${target} PRIVATE RUST_SDK_E2EE_WIRED=1)
+        target_compile_definitions(${target} ${_scope} RUST_SDK_E2EE_WIRED=1)
     endif()
 
+    if(MSVC)
+        target_compile_options(${target} PRIVATE /W4 /permissive-)
+    else()
+        target_compile_options(${target} PRIVATE
+            -Wall -Wextra -Wpedantic -Wno-unused-parameter)
+    endif()
+endfunction()
+
+# The shipped executable keeps everything target-private; the shared test
+# library (below) needs the same configuration to PROPAGATE to the test
+# executables that link it, so the visibility is a parameter.
+function(lightning_configure_qml_app target)
+    _lightning_configure_qml_module(${target} PRIVATE)
+endfunction()
+
+# Test executables link the one prebuilt copy of the application instead of
+# recompiling all of APP_LIB_SOURCES per target. Linking the generated
+# ...plugin target is what runs the static QML module's type registration.
+function(lightning_configure_qml_test target)
+    # Qt runs qmlimportscanner once per QML-linking executable AT CONFIGURE
+    # TIME, serially: 51 invocations cost 119.6s of a 121s configure here
+    # (measured with cmake --profiling-format=google-trace). The scan exists to
+    # link static QML plugins; against a SHARED Qt build the plugins are
+    # resolved at runtime instead, which is why Qt itself skips the scan for
+    # its own test executables in shared builds. Our tests are never deployed,
+    # so skipping it changes nothing they rely on -- the MatrixClient module is
+    # linked explicitly through lightning-app-testlibplugin above.
+    set_target_properties(${target} PROPERTIES QT_QML_MODULE_NO_IMPORT_SCAN TRUE)
+    target_link_libraries(${target} PRIVATE
+        lightning-app-testlib
+        lightning-app-testlibplugin
+        Qt6::Test)
     if(MSVC)
         target_compile_options(${target} PRIVATE /W4 /permissive-)
     else()
@@ -646,6 +697,13 @@ if(ENABLE_RUST_SDK_BACKEND)
     set(_rust_out_dir "${CMAKE_BINARY_DIR}/rust")
     set(_rust_staticlib "${_rust_out_dir}/${_cargo_profile}/libmatrix_client_rust.a")
 
+    # Enumerate the crate's sources instead of hand-listing them. The previous
+    # explicit list named 5 of the 11 files in rust/src, so editing oauth.rs,
+    # search.rs, uia.rs, discover.rs, ignore.rs or gifs.rs did NOT re-run cargo
+    # and the build silently linked a stale libmatrix_client_rust.a.
+    # CONFIGURE_DEPENDS re-runs the glob when a source is added or removed.
+    file(GLOB_RECURSE _rust_sources CONFIGURE_DEPENDS "${_rust_dir}/src/*.rs")
+
     add_custom_command(
         OUTPUT ${_rust_staticlib}
         COMMAND ${CMAKE_COMMAND} -E env
@@ -653,11 +711,7 @@ if(ENABLE_RUST_SDK_BACKEND)
             ${CARGO_EXECUTABLE} build ${_cargo_profile_flag}
                 --offline --locked
                 --manifest-path ${_rust_dir}/Cargo.toml
-        DEPENDS ${_rust_dir}/src/lib.rs
-                ${_rust_dir}/src/pinned.rs
-                ${_rust_dir}/src/presence.rs
-                ${_rust_dir}/src/rooms.rs
-                ${_rust_dir}/src/timeline.rs
+        DEPENDS ${_rust_sources}
                 ${_rust_dir}/include/matrix_rust.h
                 ${_rust_dir}/Cargo.toml
                 ${_rust_dir}/Cargo.lock
@@ -731,6 +785,33 @@ endif()
 
 if(BUILD_TESTING)
     find_package(Qt6 6.5 REQUIRED COMPONENTS Test)
+
+    # ------------------------------------------------------------------
+    # One prebuilt copy of the application for the Qt-executable tests.
+    #
+    # Every one of these tests used to list ${APP_LIB_SOURCES} directly, so
+    # each test executable recompiled all ~150 application translation units
+    # and registered its own private copy of the MatrixClient QML module.
+    # Measured from build-rust/.ninja_log: that was 601 of the 621 CPU-minutes
+    # of compilation in a full build (32 targets x ~18.6 min each), against
+    # 19.6 CPU-minutes for matrix-client itself.
+    #
+    # Building it once as a static QML module library and linking it keeps
+    # every test's behaviour identical -- same sources, same defines, same
+    # module URI -- while compiling them once. This lives entirely inside
+    # BUILD_TESTING, and every packaging build configures with
+    # -DBUILD_TESTING=OFF, so no release artifact is affected.
+    qt_add_library(lightning-app-testlib STATIC ${APP_LIB_SOURCES})
+    _lightning_configure_qml_module(lightning-app-testlib PUBLIC)
+    target_link_libraries(lightning-app-testlib PUBLIC Qt6::Test)
+
+    # Consumed above. Blanking it here is what makes every `${APP_LIB_SOURCES}`
+    # in the test targets below expand to NOTHING, so each of those
+    # qt_add_executable() calls compiles only the test's own translation unit
+    # and picks the application up by linking lightning-app-testlib. If you are
+    # reading one of those targets and wondering where its ~150 sources went:
+    # this line is the answer.
+    set(APP_LIB_SOURCES "")
 
     # SignPath Foundation OSS code-signing prerequisites that live in this
     # repository: the Code signing policy document and its required attribution
@@ -845,7 +926,7 @@ if(BUILD_TESTING)
         tests/StormBandQmlTest.cpp
         ${APP_LIB_SOURCES}
     )
-    lightning_configure_qml_app(storm-band-qml-test)
+    lightning_configure_qml_test(storm-band-qml-test)
     target_compile_definitions(storm-band-qml-test PRIVATE
         QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
     target_link_libraries(storm-band-qml-test PRIVATE Qt6::Test)
@@ -993,7 +1074,7 @@ if(BUILD_TESTING)
         tests/ThreadPanelPaginationAnchorQmlTest.cpp
         ${APP_LIB_SOURCES}
     )
-    lightning_configure_qml_app(thread-panel-pagination-anchor-qml-test)
+    lightning_configure_qml_test(thread-panel-pagination-anchor-qml-test)
     target_link_libraries(thread-panel-pagination-anchor-qml-test PRIVATE Qt6::Test)
     add_test(NAME thread-panel-pagination-anchor-qml
              COMMAND thread-panel-pagination-anchor-qml-test)
@@ -1209,7 +1290,7 @@ if(BUILD_TESTING)
         tests/TimelinePaneQmlTest.cpp
         ${APP_LIB_SOURCES}
     )
-    lightning_configure_qml_app(timeline-pane-qml-test)
+    lightning_configure_qml_test(timeline-pane-qml-test)
     target_link_libraries(timeline-pane-qml-test PRIVATE Qt6::Test)
     add_test(NAME timeline-pane-qml COMMAND timeline-pane-qml-test)
     set_tests_properties(timeline-pane-qml PROPERTIES
@@ -1223,7 +1304,7 @@ if(BUILD_TESTING)
         tests/TimelineHydrationQmlTest.cpp
         ${APP_LIB_SOURCES}
     )
-    lightning_configure_qml_app(timeline-hydration-qml-test)
+    lightning_configure_qml_test(timeline-hydration-qml-test)
     target_link_libraries(timeline-hydration-qml-test PRIVATE Qt6::Test)
     add_test(NAME timeline-hydration-qml COMMAND timeline-hydration-qml-test)
     set_tests_properties(timeline-hydration-qml PROPERTIES
@@ -1236,7 +1317,7 @@ if(BUILD_TESTING)
         tests/MediaPlaceholderQmlTest.cpp
         ${APP_LIB_SOURCES}
     )
-    lightning_configure_qml_app(media-placeholder-qml-test)
+    lightning_configure_qml_test(media-placeholder-qml-test)
     target_link_libraries(media-placeholder-qml-test PRIVATE Qt6::Test)
     add_test(NAME media-placeholder-qml COMMAND media-placeholder-qml-test)
     set_tests_properties(media-placeholder-qml PROPERTIES
@@ -1250,7 +1331,7 @@ if(BUILD_TESTING)
         tests/AvatarPipelineQmlTest.cpp
         ${APP_LIB_SOURCES}
     )
-    lightning_configure_qml_app(avatar-pipeline-qml-test)
+    lightning_configure_qml_test(avatar-pipeline-qml-test)
     target_link_libraries(avatar-pipeline-qml-test PRIVATE Qt6::Test)
     add_test(NAME avatar-pipeline-qml COMMAND avatar-pipeline-qml-test)
     set_tests_properties(avatar-pipeline-qml PROPERTIES
@@ -1263,7 +1344,7 @@ if(BUILD_TESTING)
         tests/GifPickerSelectionQmlTest.cpp
         ${APP_LIB_SOURCES}
     )
-    lightning_configure_qml_app(gif-picker-selection-qml-test)
+    lightning_configure_qml_test(gif-picker-selection-qml-test)
     target_link_libraries(gif-picker-selection-qml-test PRIVATE Qt6::Test)
     add_test(NAME gif-picker-selection-qml
              COMMAND gif-picker-selection-qml-test)
@@ -1277,7 +1358,7 @@ if(BUILD_TESTING)
         tests/StartupSessionTest.cpp
         ${APP_LIB_SOURCES}
     )
-    lightning_configure_qml_app(startup-session-test)
+    lightning_configure_qml_test(startup-session-test)
     target_link_libraries(startup-session-test PRIVATE Qt6::Test)
     add_test(NAME startup-session COMMAND startup-session-test)
     set_tests_properties(startup-session PROPERTIES
@@ -1290,7 +1371,7 @@ if(BUILD_TESTING)
         tests/AccountSwitchTest.cpp
         ${APP_LIB_SOURCES}
     )
-    lightning_configure_qml_app(account-switch-test)
+    lightning_configure_qml_test(account-switch-test)
     target_link_libraries(account-switch-test PRIVATE Qt6::Test)
     add_test(NAME account-switch COMMAND account-switch-test)
     set_tests_properties(account-switch PROPERTIES
@@ -1306,7 +1387,7 @@ if(BUILD_TESTING)
         tests/AppControllerChatGifStarredTest.cpp
         ${APP_LIB_SOURCES}
     )
-    lightning_configure_qml_app(app-controller-chat-gif-starred-test)
+    lightning_configure_qml_test(app-controller-chat-gif-starred-test)
     target_link_libraries(app-controller-chat-gif-starred-test PRIVATE Qt6::Test)
     add_test(NAME app-controller-chat-gif-starred
              COMMAND app-controller-chat-gif-starred-test)
@@ -1706,7 +1787,7 @@ if(BUILD_TESTING)
         tests/VerificationFlowTest.cpp
         ${APP_LIB_SOURCES}
     )
-    lightning_configure_qml_app(verification-flow-test)
+    lightning_configure_qml_test(verification-flow-test)
     target_link_libraries(verification-flow-test PRIVATE Qt6::Test)
     add_test(NAME verification-flow COMMAND verification-flow-test)
     set_tests_properties(verification-flow PROPERTIES
@@ -1736,7 +1817,7 @@ if(BUILD_TESTING)
         tests/VerificationQrQmlTest.cpp
         ${APP_LIB_SOURCES}
     )
-    lightning_configure_qml_app(verification-qr-qml-test)
+    lightning_configure_qml_test(verification-qr-qml-test)
     target_link_libraries(verification-qr-qml-test PRIVATE Qt6::Test)
     add_test(NAME verification-qr-qml COMMAND verification-qr-qml-test)
     set_tests_properties(verification-qr-qml PROPERTIES
@@ -1754,7 +1835,7 @@ if(BUILD_TESTING)
         tests/RoomNotificationModeTest.cpp
         ${APP_LIB_SOURCES}
     )
-    lightning_configure_qml_app(room-notification-mode-test)
+    lightning_configure_qml_test(room-notification-mode-test)
     target_link_libraries(room-notification-mode-test PRIVATE Qt6::Test)
     add_test(NAME room-notification-mode COMMAND room-notification-mode-test)
 
@@ -1765,7 +1846,7 @@ if(BUILD_TESTING)
         tests/VoiceOwnershipTest.cpp
         ${APP_LIB_SOURCES}
     )
-    lightning_configure_qml_app(voice-ownership-test)
+    lightning_configure_qml_test(voice-ownership-test)
     target_link_libraries(voice-ownership-test PRIVATE Qt6::Test)
     add_test(NAME voice-ownership COMMAND voice-ownership-test)
     set_tests_properties(room-notification-mode PROPERTIES
@@ -2051,7 +2132,7 @@ if(BUILD_TESTING)
         tests/ThemeSnapshotTest.cpp
         ${APP_LIB_SOURCES}
     )
-    lightning_configure_qml_app(theme-snapshot-test)
+    lightning_configure_qml_test(theme-snapshot-test)
     target_link_libraries(theme-snapshot-test PRIVATE Qt6::Test)
     add_test(NAME theme-snapshot COMMAND theme-snapshot-test)
     set_tests_properties(theme-snapshot PROPERTIES
@@ -2066,7 +2147,7 @@ if(BUILD_TESTING)
         tests/DesignAcceptanceTest.cpp
         ${APP_LIB_SOURCES}
     )
-    lightning_configure_qml_app(design-acceptance-test)
+    lightning_configure_qml_test(design-acceptance-test)
     target_link_libraries(design-acceptance-test PRIVATE Qt6::Test)
     add_test(NAME design-acceptance COMMAND design-acceptance-test)
     set_tests_properties(design-acceptance PROPERTIES
@@ -2080,7 +2161,7 @@ if(BUILD_TESTING)
         tests/SettingsShellQmlTest.cpp
         ${APP_LIB_SOURCES}
     )
-    lightning_configure_qml_app(settings-shell-qml-test)
+    lightning_configure_qml_test(settings-shell-qml-test)
     target_link_libraries(settings-shell-qml-test PRIVATE Qt6::Test)
     add_test(NAME settings-shell-qml COMMAND settings-shell-qml-test)
     set_tests_properties(settings-shell-qml PROPERTIES
@@ -2096,7 +2177,7 @@ if(BUILD_TESTING)
         tests/LoginRepairQmlTest.cpp
         ${APP_LIB_SOURCES}
     )
-    lightning_configure_qml_app(login-repair-qml-test)
+    lightning_configure_qml_test(login-repair-qml-test)
     target_compile_definitions(login-repair-qml-test PRIVATE
         QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
     target_link_libraries(login-repair-qml-test PRIVATE Qt6::Test)
@@ -2111,7 +2192,7 @@ if(BUILD_TESTING)
         tests/ComposerQmlTest.cpp
         ${APP_LIB_SOURCES}
     )
-    lightning_configure_qml_app(composer-qml-test)
+    lightning_configure_qml_test(composer-qml-test)
     target_link_libraries(composer-qml-test PRIVATE Qt6::Test)
     add_test(NAME composer-qml COMMAND composer-qml-test)
     set_tests_properties(composer-qml PROPERTIES
@@ -2126,7 +2207,7 @@ if(BUILD_TESTING)
         tests/CreationDialogQmlTest.cpp
         ${APP_LIB_SOURCES}
     )
-    lightning_configure_qml_app(creation-dialog-qml-test)
+    lightning_configure_qml_test(creation-dialog-qml-test)
     target_link_libraries(creation-dialog-qml-test PRIVATE Qt6::Test)
     add_test(NAME creation-dialog-qml COMMAND creation-dialog-qml-test)
     set_tests_properties(creation-dialog-qml PROPERTIES
@@ -2209,7 +2290,7 @@ if(BUILD_TESTING)
             tests/ScreenshotDemoAccountsTest.cpp
             ${APP_LIB_SOURCES}
         )
-        lightning_configure_qml_app(screenshot-demo-accounts-test)
+        lightning_configure_qml_test(screenshot-demo-accounts-test)
         target_compile_definitions(screenshot-demo-accounts-test PRIVATE
             LIGHTNING_ENABLE_SCREENSHOT_DEMO=1)
         target_link_libraries(screenshot-demo-accounts-test PRIVATE Qt6::Test)
@@ -2270,7 +2351,7 @@ if(BUILD_TESTING)
             tests/ScreenshotDemoScenarioTest.cpp
             ${APP_LIB_SOURCES}
         )
-        lightning_configure_qml_app(screenshot-demo-scenario-test)
+        lightning_configure_qml_test(screenshot-demo-scenario-test)
         target_compile_definitions(screenshot-demo-scenario-test PRIVATE
             LIGHTNING_ENABLE_SCREENSHOT_DEMO=1)
         target_link_libraries(screenshot-demo-scenario-test PRIVATE Qt6::Test)
@@ -2287,7 +2368,7 @@ if(BUILD_TESTING)
             tests/ScreenshotDemoPanelQmlTest.cpp
             ${APP_LIB_SOURCES}
         )
-        lightning_configure_qml_app(screenshot-demo-panel-qml-test)
+        lightning_configure_qml_test(screenshot-demo-panel-qml-test)
         target_compile_definitions(screenshot-demo-panel-qml-test PRIVATE
             LIGHTNING_ENABLE_SCREENSHOT_DEMO=1)
         target_link_libraries(screenshot-demo-panel-qml-test PRIVATE Qt6::Test)
@@ -2362,7 +2443,7 @@ if(BUILD_TESTING)
         tests/ControlSystemTest.cpp
         ${APP_LIB_SOURCES}
     )
-    lightning_configure_qml_app(control-system-test)
+    lightning_configure_qml_test(control-system-test)
     target_link_libraries(control-system-test PRIVATE Qt6::Test)
     add_test(NAME control-system COMMAND control-system-test)
     set_tests_properties(control-system PROPERTIES
@@ -2375,7 +2456,7 @@ if(BUILD_TESTING)
         tests/ButtonSystemTest.cpp
         ${APP_LIB_SOURCES}
     )
-    lightning_configure_qml_app(button-system-test)
+    lightning_configure_qml_test(button-system-test)
     target_link_libraries(button-system-test PRIVATE Qt6::Test)
     add_test(NAME button-system COMMAND button-system-test)
     set_tests_properties(button-system PROPERTIES
@@ -2388,7 +2469,7 @@ if(BUILD_TESTING)
         tests/MenuSystemQmlTest.cpp
         ${APP_LIB_SOURCES}
     )
-    lightning_configure_qml_app(menu-system-qml-test)
+    lightning_configure_qml_test(menu-system-qml-test)
     target_link_libraries(menu-system-qml-test PRIVATE Qt6::Test)
     add_test(NAME menu-system-qml COMMAND menu-system-qml-test)
     set_tests_properties(menu-system-qml PROPERTIES
@@ -2400,7 +2481,7 @@ if(BUILD_TESTING)
         tests/MentionPopupContractTest.cpp
         ${APP_LIB_SOURCES}
     )
-    lightning_configure_qml_app(mention-popup-contract-test)
+    lightning_configure_qml_test(mention-popup-contract-test)
     target_compile_definitions(mention-popup-contract-test PRIVATE
         QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
     target_link_libraries(mention-popup-contract-test PRIVATE Qt6::Test)
@@ -2414,7 +2495,7 @@ if(BUILD_TESTING)
         tests/IdentityCardAccountMenuTest.cpp
         ${APP_LIB_SOURCES}
     )
-    lightning_configure_qml_app(identity-card-account-menu-test)
+    lightning_configure_qml_test(identity-card-account-menu-test)
     target_compile_definitions(identity-card-account-menu-test PRIVATE
         QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
     target_link_libraries(identity-card-account-menu-test PRIVATE Qt6::Test)
@@ -2429,7 +2510,7 @@ if(BUILD_TESTING)
         tests/MemberProfilePopoverContractTest.cpp
         ${APP_LIB_SOURCES}
     )
-    lightning_configure_qml_app(member-profile-popover-contract-test)
+    lightning_configure_qml_test(member-profile-popover-contract-test)
     target_compile_definitions(member-profile-popover-contract-test PRIVATE
         QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
     target_link_libraries(member-profile-popover-contract-test PRIVATE
@@ -2445,7 +2526,7 @@ if(BUILD_TESTING)
         tests/TrustCardTest.cpp
         ${APP_LIB_SOURCES}
     )
-    lightning_configure_qml_app(trust-card-test)
+    lightning_configure_qml_test(trust-card-test)
     target_compile_definitions(trust-card-test PRIVATE
         QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
     target_link_libraries(trust-card-test PRIVATE Qt6::Test)
@@ -2459,7 +2540,7 @@ if(BUILD_TESTING)
         tests/InvitePeopleDialogQmlTest.cpp
         ${APP_LIB_SOURCES}
     )
-    lightning_configure_qml_app(invite-people-dialog-qml-test)
+    lightning_configure_qml_test(invite-people-dialog-qml-test)
     target_compile_definitions(invite-people-dialog-qml-test PRIVATE
         QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
     target_link_libraries(invite-people-dialog-qml-test PRIVATE Qt6::Test)
@@ -2474,7 +2555,7 @@ if(BUILD_TESTING)
         tests/QuickSwitcherModesQmlTest.cpp
         ${APP_LIB_SOURCES}
     )
-    lightning_configure_qml_app(quick-switcher-modes-qml-test)
+    lightning_configure_qml_test(quick-switcher-modes-qml-test)
     target_compile_definitions(quick-switcher-modes-qml-test PRIVATE
         QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
     target_link_libraries(quick-switcher-modes-qml-test PRIVATE Qt6::Test)
