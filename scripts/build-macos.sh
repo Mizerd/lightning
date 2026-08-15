@@ -76,6 +76,13 @@ load_versions
 # through a 30-minute build.
 BREW_PREFIX="${BREW_PREFIX:-/opt/homebrew}"
 QT_PREFIX="${QT_PREFIX:-$BREW_PREFIX/opt/qt}"
+# Lightning verifies update-manifest signatures with OpenSSL 3's EVP API and its
+# CMake does find_package(OpenSSL 3.0 REQUIRED COMPONENTS Crypto). macOS ships
+# no OpenSSL 3 headers at all (only the legacy LibreSSL-backed libssl stubs),
+# and Homebrew keg-onlys openssl@3 — it is deliberately NOT symlinked into
+# $BREW_PREFIX, so CMake cannot find it without being told where it is. Same
+# discovered-not-assumed idiom as QT_PREFIX above.
+OPENSSL_PREFIX="${OPENSSL_PREFIX:-$BREW_PREFIX/opt/openssl@3}"
 CARGO_BIN="${CARGO_BIN:-$HOME/.cargo/bin}"
 export PATH="$CARGO_BIN:$QT_PREFIX/bin:$BREW_PREFIX/bin:$PATH"
 
@@ -90,6 +97,16 @@ for tool in cmake ninja cargo rustc macdeployqt xcrun clang iconutil sips codesi
     command -v "$tool" >/dev/null 2>&1 || die "required tool not found on the runner: $tool"
 done
 [[ -d "$QT_PREFIX/lib/cmake/Qt6" ]] || die "Qt 6 not found at $QT_PREFIX"
+
+# `command -v openssl` is NOT the check: it finds Apple's /usr/bin/openssl,
+# which is LibreSSL and has no development headers. What the build needs is the
+# Homebrew keg's headers and the static libcrypto archive, so assert exactly
+# those. `brew install openssl@3` provides them.
+[[ -f "$OPENSSL_PREFIX/include/openssl/evp.h" ]] || \
+    die "OpenSSL 3 headers not found at $OPENSSL_PREFIX (run: brew install openssl@3)"
+[[ -f "$OPENSSL_PREFIX/lib/libcrypto.a" ]] || \
+    die "libcrypto.a not found at $OPENSSL_PREFIX/lib (run: brew install openssl@3)"
+OPENSSL_VERSION="$("$OPENSSL_PREFIX/bin/openssl" version 2>/dev/null || echo unknown)"
 
 QT_VERSION="$("$QT_PREFIX/bin/qmake" -query QT_VERSION)"
 
@@ -124,9 +141,9 @@ SDK_PATH="$(xcrun --show-sdk-path 2>/dev/null || true)"
 SDK_VERSION="$(xcrun --show-sdk-version 2>/dev/null || true)"
 [[ -n "$SDK_PATH" ]] || die "no macOS SDK is available (xcrun --show-sdk-path failed)"
 
-printf 'macOS %s | SDK %s | %s | Qt %s | %s | %s\n' \
+printf 'macOS %s | SDK %s | %s | Qt %s | %s | %s | %s\n' \
     "$MACOS_VERSION" "${SDK_VERSION:-unknown}" "$XCODE_VERSION" \
-    "$QT_VERSION" "$RUST_VERSION" "$CMAKE_VERSION"
+    "$QT_VERSION" "$RUST_VERSION" "$CMAKE_VERSION" "$OPENSSL_VERSION"
 printf 'developer dir: %s\n' "${DEVELOPER_DIR_ACTIVE:-unknown}"
 
 # --- clean output paths ------------------------------------------------------
@@ -200,9 +217,20 @@ cargo fetch --locked --manifest-path "$SOURCE_DIR/rust/Cargo.toml"
 # linker inputs.
 MACOS_LINK_FRAMEWORKS="-framework Security -framework CoreFoundation"
 
+# libcrypto is linked STATICALLY on macOS, on purpose. Homebrew's openssl@3 is
+# keg-only, so a dynamically linked bundle would carry an absolute
+# /opt/homebrew/opt/openssl@3/... load command; macdeployqt only relocates what
+# it walks from the Qt frameworks, and the load-command repair pass below would
+# then die because libcrypto.3.dylib was never bundled. Static linking removes
+# the deployment question entirely and keeps the .app self-contained, which is
+# what every other non-Qt dependency in this bundle already is. (If a future
+# Homebrew stops shipping libcrypto.a, drop OPENSSL_USE_STATIC_LIBS and add
+# libcrypto to the bundling pass — do not leave the host path in the binary.)
 cmake -S "$SOURCE_DIR" -B "$BUILD_DIR" -G Ninja \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_PREFIX_PATH="$QT_PREFIX" \
+    -DOPENSSL_ROOT_DIR="$OPENSSL_PREFIX" \
+    -DOPENSSL_USE_STATIC_LIBS=TRUE \
     -DCMAKE_OSX_DEPLOYMENT_TARGET="$MACOS_DEPLOYMENT_TARGET" \
     -DCMAKE_OSX_ARCHITECTURES=arm64 \
     -DCMAKE_EXE_LINKER_FLAGS="$MACOS_LINK_FRAMEWORKS" \

@@ -30,6 +30,13 @@ appstreamcli validate --no-net %{buildroot}%{_datadir}/metainfo/lightning.metain
 
 %files
 %{_bindir}/matrix-client
+# The update helper, installed alongside the application by cmake --install.
+# %install copies the WHOLE staged tree and rpm's default
+# _unpackaged_files_terminate_build is 1, so omitting this line does not ship a
+# smaller package — it aborts build-rpm with "Installed (but unpackaged)
+# file(s) found: /usr/bin/lightning-updater", exactly as the missing scalable
+# icon broke pipeline 97.
+%{_bindir}/lightning-updater
 %{_datadir}/applications/lightning.desktop
 %{_datadir}/icons/hicolor/*/apps/lightning.png
 %{_datadir}/icons/hicolor/scalable/apps/lightning.svg

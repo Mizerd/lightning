@@ -31,8 +31,12 @@ trap cleanup EXIT
 rpm2cpio "$package" | (cd "$audit_root" && cpio -idm --quiet)
 binary="$audit_root/usr/bin/matrix-client"
 [[ -x "$binary" ]] || die "packaged executable is missing"
-file "$binary" | tee "$ROOT/dist/rpm-file.txt"
-readelf -d "$binary" | tee "$ROOT/dist/rpm-readelf.txt"
+# The update helper ships beside the application in every format. Without it the
+# in-app updater has nothing to hand a verified .rpm to and the feature is inert.
+updater="$audit_root/usr/bin/lightning-updater"
+[[ -x "$updater" ]] || die "packaged update helper is missing"
+file "$binary" "$updater" | tee "$ROOT/dist/rpm-file.txt"
+readelf -d "$binary" "$updater" | tee "$ROOT/dist/rpm-readelf.txt"
 if grep -E '(RPATH|RUNPATH)' "$ROOT/dist/rpm-readelf.txt"; then
     die "RPM executable contains an RPATH or RUNPATH"
 fi
@@ -52,6 +56,7 @@ fi
 
 dnf install -y "$package"
 test -x /usr/bin/matrix-client
+test -x /usr/bin/lightning-updater
 desktop-file-validate /usr/share/applications/lightning.desktop
 appstreamcli validate --no-net /usr/share/metainfo/lightning.metainfo.xml
 version_output="$(cd /tmp && /usr/bin/matrix-client --version)"

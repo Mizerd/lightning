@@ -7,7 +7,7 @@ source "$SCRIPT_DIR/lib.sh"
 ROOT="$(project_dir)"
 load_versions
 
-"$SCRIPT_DIR/configure-build.sh"
+LIGHTNING_INSTALL_TYPE=linux-deb "$SCRIPT_DIR/configure-build.sh"
 
 STAGE="$ROOT/work/stage"
 PKGROOT="$ROOT/work/deb-root"
@@ -15,8 +15,11 @@ CONTROL="$PKGROOT/DEBIAN"
 mkdir -p "$CONTROL" "$ROOT/dist" "$ROOT/work/debian"
 cp -a "$STAGE/." "$PKGROOT/"
 
-# Strip the release binary (lintian error: unstripped-binary-or-object).
+# Strip the release binaries (lintian error: unstripped-binary-or-object).
+# The update helper is a second shipped ELF and lintian holds it to the same
+# rule, so leaving it unstripped would fail validate-deb's --fail-on error.
 strip "$PKGROOT/usr/bin/matrix-client"
+strip "$PKGROOT/usr/bin/lightning-updater"
 
 install -Dm0644 "$ROOT/packaging/common/copyright" \
     "$PKGROOT/usr/share/doc/lightning/copyright"
@@ -44,8 +47,14 @@ Architecture: amd64
 EOF
 # Run dpkg-shlibdeps from work/ and keep its diagnostics visible so a
 # resolution failure is not silently swallowed.
+# Both shipped ELF executables are analysed. The helper links only Qt6Core (and
+# zlib), a subset of what the application already needs — but deriving that from
+# the binary is what makes it true rather than assumed, and it is what would
+# catch a helper that grows a dependency the package does not declare.
 SHLIBS_OUT="$ROOT/work/shlibdeps.out"
-if ! ( cd "$ROOT/work" && dpkg-shlibdeps -O -e "$PKGROOT/usr/bin/matrix-client" ) >"$SHLIBS_OUT" 2>&1; then
+if ! ( cd "$ROOT/work" && dpkg-shlibdeps -O \
+        -e "$PKGROOT/usr/bin/matrix-client" \
+        -e "$PKGROOT/usr/bin/lightning-updater" ) >"$SHLIBS_OUT" 2>&1; then
     printf 'dpkg-shlibdeps failed:\n' >&2
     cat "$SHLIBS_OUT" >&2
     die "dpkg-shlibdeps could not resolve runtime dependencies"

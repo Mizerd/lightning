@@ -9,6 +9,13 @@
     "certificate. Everything matched by upstream_patterns ships exactly as its",
     "project built it and is never re-signed or re-labelled as Lightning.",
     "",
+    "Two files are Lightning's own work: the application (Lightning.exe) and",
+    "the update helper (lightning-updater.exe), the small Qt6::Core-only",
+    "binary that replaces the application on disk. The helper is signed for",
+    "the same reason the application is -- an unsigned installer beside a",
+    "signed app is the weakest link -- and it carries its own version",
+    "resource, so its OriginalFilename names itself and not the application.",
+    "",
     "Operating-system libraries are not listed at all: they are never",
     "redistributed (see the SYSTEM_DLLS set in scripts/stage-windows-runtime.py)",
     "and are resolved from Windows itself.",
@@ -25,7 +32,8 @@
   ],
   "product_name": "Lightning",
   "lightning_owned": [
-    "Lightning.exe"
+    "Lightning.exe",
+    "lightning-updater.exe"
   ],
   "upstream_patterns": [
     "Qt6*.dll",

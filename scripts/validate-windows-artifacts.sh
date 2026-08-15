@@ -19,6 +19,11 @@ msi="${msis[0]}"
 setup="${setups[0]}"
 portable="${portables[0]}"
 [[ -f "$STAGE/Lightning.exe" ]] || die "staged Lightning.exe is missing"
+# The update helper ships beside the application in all three Windows packages.
+# Without it the in-app updater has nothing to hand a verified artifact to, and
+# the whole update feature is inert on Windows — a silent, shipped no-op, which
+# is exactly the class of regression this check exists to catch.
+[[ -f "$STAGE/lightning-updater.exe" ]] || die "staged lightning-updater.exe is missing"
 version="$(jq -er '.version' "$STAGE/build-info.json")"
 
 mapfile -t pe_files < <(find "$STAGE" -type f \( -iname '*.exe' -o -iname '*.dll' \) -print | LC_ALL=C sort)
@@ -42,6 +47,11 @@ done
 # print to a parent console (main.cpp attaches to it).
 x86_64-w64-mingw32-objdump -p "$STAGE/Lightning.exe" | \
     grep -F '(Windows GUI)' >/dev/null || die "application subsystem is not the expected Windows GUI"
+# The helper is a console program on purpose: it is started by Lightning with a
+# fixed argument vector, writes a status file, and must be able to report to a
+# parent console. It is never double-clicked.
+x86_64-w64-mingw32-objdump -p "$STAGE/lightning-updater.exe" | \
+    grep -F '(Windows CUI)' >/dev/null || die "update helper subsystem is not the expected console"
 
 for required in \
     "$STAGE/Qt6Core.dll" \
@@ -135,6 +145,16 @@ grep -Fq $'Manufacturer\t'"$msi_manufacturer" "$REPORTS/msi-Property.idt" || \
     die "MSI manufacturer is not the declared publisher: $msi_manufacturer"
 grep -Eq 'x64|Intel64' "$REPORTS/msi-summary.txt" || die "MSI summary does not declare x64"
 grep -Fq 'Lightning.exe' "$REPORTS/msi-File.idt" || die "MSI does not contain Lightning.exe"
+grep -Fq 'lightning-updater.exe' "$REPORTS/msi-File.idt" || \
+    die "MSI does not contain lightning-updater.exe"
+# The install marker is how an MSI installation identifies itself to the
+# updater. All three Windows packages come from one build whose compiled-in
+# type says windows-portable, so if wixl ever drops this file an MSI install
+# would detect as portable and the helper would swap a whole directory that
+# Windows Installer owns, leaving its component state describing files it did
+# not write. Nothing else in the pipeline would notice.
+grep -Fq '.lightning-install-type' "$REPORTS/msi-File.idt" || \
+    die "MSI does not contain the .lightning-install-type marker"
 grep -Fq 'StartMenuShortcut' "$REPORTS/msi-Shortcut.idt" || die "MSI shortcut is missing"
 upgrade_code="$(jq -er '.upgrade_code' "$REPORTS/msi-identity.json")"
 grep -Fq "$upgrade_code" "$REPORTS/msi-Upgrade.idt" || die "MSI UpgradeCode mismatch"
@@ -143,10 +163,23 @@ file -b "$setup" | grep -Eq '^PE32\+ executable.*\(GUI\), x86-64' || \
     die "NSIS setup is not an x86-64 GUI PE installer"
 { strings -a "$setup"; strings -a -el "$setup"; } | grep -F Lightning >/dev/null || \
     die "NSIS setup metadata does not contain the product name"
+# The setup EXE takes the whole stage with `File /r`, so the helper's presence
+# is implied rather than declared. Assert it against the compressed payload so a
+# staging change cannot quietly drop it from this one format alone.
+{ strings -a "$setup"; strings -a -el "$setup"; } | grep -Fq 'lightning-updater.exe' || \
+    die "NSIS setup payload does not reference lightning-updater.exe"
 
 unzip -l "$portable" >"$REPORTS/portable-contents.txt"
 grep -Fq 'Lightning/Lightning.exe' "$REPORTS/portable-contents.txt" || \
     die "portable ZIP does not contain Lightning.exe"
+grep -Fq 'Lightning/lightning-updater.exe' "$REPORTS/portable-contents.txt" || \
+    die "portable ZIP does not contain lightning-updater.exe"
+# ...and the portable ZIP must NOT carry it: the portable build relies on the
+# compiled-in windows-portable value, and an inherited windows-msi marker
+# would send a portable user through msiexec against a directory no MSI owns.
+if grep -Fq '.lightning-install-type' "$REPORTS/portable-contents.txt"; then
+    die "portable ZIP must not contain an install-type marker"
+fi
 grep -Fq 'Lightning/plugins/platforms/qwindows.dll' "$REPORTS/portable-contents.txt" || \
     die "portable ZIP does not contain qwindows.dll"
 
@@ -154,17 +187,22 @@ grep -Fq 'Lightning/plugins/platforms/qwindows.dll' "$REPORTS/portable-contents.
 # exist on its own, with a checksum, so a future signing job has a deterministic
 # single file to submit as a GitLab pipeline artifact.
 signing_payload="$DIST/signing-payload"
-[[ -f "$signing_payload/Lightning.exe" ]] || \
-    die "signing payload is missing: signing-payload/Lightning.exe"
-[[ -f "$signing_payload/Lightning.exe.sha256" ]] || \
-    die "signing payload checksum is missing"
-( cd "$signing_payload" && sha256sum -c Lightning.exe.sha256 >/dev/null ) || \
-    die "signing payload checksum does not verify"
+for owned in Lightning.exe lightning-updater.exe; do
+    [[ -f "$signing_payload/$owned" ]] || \
+        die "signing payload is missing: signing-payload/$owned"
+    [[ -f "$signing_payload/$owned.sha256" ]] || \
+        die "signing payload checksum is missing: $owned.sha256"
+    ( cd "$signing_payload" && sha256sum -c "$owned.sha256" >/dev/null ) || \
+        die "signing payload checksum does not verify: $owned"
+done
 [[ -f "$REPORTS/windows-signing-inventory.json" ]] || \
     die "windows signing inventory report is missing"
-jq -e '.lightning_owned == ["Lightning.exe"]' \
+# Exactly the two Lightning-owned PE files: the application and the update
+# helper that replaces it. Everything else in the payload is upstream and is
+# never re-signed as ours. jq sorts the report's list, so this is order-stable.
+jq -e '.lightning_owned == ["Lightning.exe", "lightning-updater.exe"]' \
     "$REPORTS/windows-signing-inventory.json" >/dev/null || \
-    die "signing inventory does not list exactly the Lightning-owned executable"
+    die "signing inventory does not list exactly the Lightning-owned executables"
 
 ( cd "$DIST" && sha256sum "$(basename "$msi")" "$(basename "$setup")" \
     "$(basename "$portable")" >SHA256SUMS-windows.txt )

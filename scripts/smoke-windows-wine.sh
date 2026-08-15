@@ -96,6 +96,10 @@ timeout 120s wine64 msiexec /i "$msi_windows" /qn /norestart \
 wineserver -w
 msi_exe="$(find "$WINEPREFIX/drive_c/users" -type f -path '*/AppData/Local/Programs/Lightning/Lightning.exe' -print -quit)"
 [[ -n "$msi_exe" ]] || die "MSI Wine install did not create Lightning.exe"
+# End-to-end proof that the update helper is actually DELIVERED by the
+# installer, not merely present in the stage the installer was built from.
+[[ -f "$(dirname "$msi_exe")/lightning-updater.exe" ]] || \
+    die "MSI Wine install did not create lightning-updater.exe"
 run_version "$msi_exe" "$REPORTS/wine-msi-version.log"
 run_build_info "$msi_exe" "$REPORTS/wine-msi-build-info.log"
 timeout 120s wine64 msiexec /x "$msi_windows" /qn /norestart \
@@ -113,6 +117,8 @@ timeout 180s wine64 "$setup" /S >"$REPORTS/wine-nsis-install.log" 2>&1
 wineserver -w
 nsis_exe="$(find "$WINEPREFIX/drive_c/users" -type f -path '*/AppData/Local/Programs/Lightning/Lightning.exe' -print -quit)"
 [[ -n "$nsis_exe" ]] || die "NSIS Wine install did not create Lightning.exe"
+[[ -f "$(dirname "$nsis_exe")/lightning-updater.exe" ]] || \
+    die "NSIS Wine install did not create lightning-updater.exe"
 run_version "$nsis_exe" "$REPORTS/wine-nsis-version.log"
 uninstaller="$(find "$(dirname "$nsis_exe")" -maxdepth 1 -type f -iname 'Uninstall.exe' -print -quit)"
 [[ -n "$uninstaller" ]] || die "NSIS uninstaller is missing"
@@ -131,6 +137,7 @@ jq -n \
       gif_keys_embedded:$gif_embedded,
       gif_status_embedded_key_ok:$gif_embedded,
       native_windows_tested:false,
+      update_helper_installed_by_msi_and_nsis:true,
       application_version:$version, portable_version:true,
       msi_install_version_uninstall:true, nsis_install_version_uninstall:true,
       simulated_user_data_preserved:true}' >"$REPORTS/wine-smoke.json"

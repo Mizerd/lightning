@@ -20,11 +20,12 @@ per-file inventory in `docs/windows-signing-inventory.md`.
 
 | Requirement | Where |
 |---|---|
-| Exactly one Lightning-owned PE, declared explicitly | `packaging/windows/signing-inventory.json` |
+| Exactly two Lightning-owned PE files — the application and the update helper — declared explicitly | `packaging/windows/signing-inventory.json` |
+| Each Lightning-owned PE carries its OWN version resource, so `OriginalFilename` names the file it is actually in | `write_version_rc` + `packaging/windows/version-resources.cmake` |
 | Product metadata generated from one canonical version and verified | `scripts/build-windows.sh`, `scripts/verify-windows-metadata.py` |
 | Upstream binaries classified, never signed, never relabelled | same, plus `scripts/validate-windows-artifacts.sh` |
-| A deterministic unsigned payload with a checksum | `dist/windows/signing-payload/` |
-| The application payload is signed **before** the ZIP/MSI/setup consume it | `sign_windows_file` call order in `scripts/build-windows.sh` |
+| A deterministic unsigned payload with a checksum per owned file | `dist/windows/signing-payload/` |
+| Both payloads are signed **before** the ZIP/MSI/setup consume them | `sign_windows_file` call order in `scripts/build-windows.sh` |
 | One switch for signed/unsigned wording everywhere | `windows_signed` in `scripts/lib.sh` |
 | A `Code signing policy` link on every future release page | `append_policy_footer` in `scripts/finalize-release.sh` |
 | Tests for all of the above | `tests/test-windows-metadata.py`, `tests/test-release-notes-policy.py` |
@@ -90,11 +91,14 @@ versioned and these names can change.
 Shape of the eventual job:
 
 ```text
-build-windows-payload   → artifact: dist/windows/signing-payload/Lightning.exe
+build-windows-payload   → artifact: dist/windows/signing-payload/
+                          (Lightning.exe + lightning-updater.exe, each with
+                           its .sha256; the helper is the process that replaces
+                           the application on disk, so it is signed too)
         ↓
 submit-signing-request  → SignPath component, inputs above
         ↓  (maintainer approves the request in SignPath — no auto-approval)
-package-windows         → signed Lightning.exe → portable ZIP / MSI / setup EXE
+package-windows         → signed payloads → portable ZIP / MSI / setup EXE
                           then Authenticode-sign the MSI and the setup EXE
         ↓
 validate → publish → release

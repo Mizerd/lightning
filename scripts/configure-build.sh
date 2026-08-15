@@ -18,6 +18,27 @@ BUILD_JOBS="${BUILD_JOBS:-2}"
 [[ -f "$SOURCE_DIR/LICENSE" && -f "$SOURCE_DIR/README.md" ]] || \
     die "Lightning source must include its licence and README"
 
+# Which package this build will become. The binary reports it to the updater,
+# which uses it to pick a compiled-in install strategy -- so a wrong value here
+# means a user is offered the wrong kind of update. Callers must set it; there
+# is deliberately no default, because guessing would be worse than failing.
+: "${LIGHTNING_INSTALL_TYPE:?must be set by the per-format build script}"
+case "$LIGHTNING_INSTALL_TYPE" in
+    linux-appimage|linux-deb|linux-rpm|linux-flatpak|linux-snap) ;;
+    *) die "unsupported LIGHTNING_INSTALL_TYPE for a Linux package: $LIGHTNING_INSTALL_TYPE" ;;
+esac
+
+# Public half of the update-manifest signing key, embedded so the client can
+# verify a manifest. Empty is allowed and fails CLOSED: such a build can check
+# for updates but can never accept one. Never the private key -- that stays a
+# protected CI variable and is only ever used by the signing job.
+if [[ -n "${UPDATE_SIGNING_PUBKEY_2026A:-}" ]]; then
+    printf 'Update signing public key: embedded (key id %s)\n' \
+        "${UPDATE_SIGNING_KEY_ID:-lightning-release-2026a}"
+else
+    printf 'Update signing public key: NOT set — this build cannot accept updates\n'
+fi
+
 # Official release packages embed application GIF provider keys so installed
 # clients work without user configuration. Values come from the protected CI
 # variables GIPHY_API_KEY / KLIPY_API_KEY and are mapped to the build-only
@@ -100,6 +121,8 @@ cmake -S "$SOURCE_DIR" -B "$BUILD_DIR" -G Ninja \
     -DLIGHTNING_RUST_ONLY=ON \
     -DLIGHTNING_REQUIRE_GIF_KEYS="$REQUIRE_GIF_KEYS" \
     -DLIGHTNING_ARTIFACT_KIND=release \
+    -DLIGHTNING_INSTALL_TYPE="$LIGHTNING_INSTALL_TYPE" \
+    -DLIGHTNING_UPDATE_PUBKEY_2026A="${UPDATE_SIGNING_PUBKEY_2026A:-}" \
     -DLIGHTNING_SOURCE_SHA="${SOURCE_SHA:-}" \
     "${CCACHE_ARGS[@]}"
 cmake --build "$BUILD_DIR" --parallel "$BUILD_JOBS"
@@ -111,9 +134,18 @@ DESTDIR="$STAGE_DIR" cmake --install "$BUILD_DIR"
 scrub_gif_header
 unset LIGHTNING_BUILD_GIPHY_API_KEY LIGHTNING_BUILD_KLIPY_API_KEY 2>/dev/null || true
 
+# Every Linux format is assembled from this staged tree, so a helper that is not
+# installed here is a helper that ships in none of them — and Lightning's in-app
+# updater has nothing to hand a verified artifact to. Fail here, where the cause
+# is obvious, rather than in one format's payload audit (or, for the RPM, in an
+# "installed but unpackaged file" abort).
+[[ -x "$STAGE_DIR/usr/bin/lightning-updater" ]] || \
+    die "the update helper was not installed: $STAGE_DIR/usr/bin/lightning-updater"
+
 # Native packages use system libraries in standard paths. Remove the
-# build-generated RPATH from the staged executable for both formats.
+# build-generated RPATH from both staged executables for every format.
 patchelf --remove-rpath "$STAGE_DIR/usr/bin/matrix-client"
+patchelf --remove-rpath "$STAGE_DIR/usr/bin/lightning-updater"
 
 # Since Lightning 0.7 the source installs its own desktop entry and hicolor
 # icons via cmake --install; the copy here is only a fallback so older

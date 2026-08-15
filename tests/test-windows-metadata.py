@@ -131,6 +131,22 @@ LIGHTNING_STRINGS = {
     "ProductVersion": "0.6.6",
 }
 
+# The update helper is Lightning-owned too, and it carries its OWN version
+# resource. It must not inherit the application's, or its OriginalFilename would
+# name a file it is not — which is what a single global CMAKE_EXE_LINKER_FLAGS
+# resource produced, and what packaging/windows/version-resources.cmake exists
+# to prevent.
+UPDATER_STRINGS = {
+    "CompanyName": "Rokas Smetonis",
+    "FileDescription": "Lightning update helper",
+    "FileVersion": "0.6.6",
+    "InternalName": "lightning-updater",
+    "LegalCopyright": "Copyright (C) 2026 Rokas Smetonis. GPL-3.0-or-later.",
+    "OriginalFilename": "lightning-updater.exe",
+    "ProductName": "Lightning",
+    "ProductVersion": "0.6.6",
+}
+
 QT_STRINGS = {
     "CompanyName": "The Qt Company Ltd.",
     "FileDescription": "C++ Application Development Framework",
@@ -141,10 +157,14 @@ QT_STRINGS = {
 
 
 def build_stage(root: pathlib.Path, lightning: dict[str, str] = LIGHTNING_STRINGS,
-                qt: dict[str, str] | None = QT_STRINGS) -> pathlib.Path:
+                qt: dict[str, str] | None = QT_STRINGS,
+                updater: dict[str, str] | None = UPDATER_STRINGS) -> pathlib.Path:
     stage = root / "Lightning"
     (stage / "plugins" / "platforms").mkdir(parents=True)
     write_pe(stage / "Lightning.exe", version_resource(lightning, (0, 6, 6)))
+    if updater is not None:
+        write_pe(stage / "lightning-updater.exe",
+                 version_resource(updater, (0, 6, 6)))
     if qt is not None:
         write_pe(stage / "Qt6Core.dll", version_resource(qt, (6, 11, 1)))
         write_pe(stage / "plugins" / "platforms" / "qwindows.dll",
@@ -173,13 +193,14 @@ def main() -> int:
         check(result.returncode == 0, f"correct stage accepted ({result.stderr.strip()})")
         if report.exists():
             data = json.loads(report.read_text())
-            check(data["lightning_owned"] == ["Lightning.exe"],
-                  "exactly one Lightning-owned PE recorded")
+            check(data["lightning_owned"] == ["Lightning.exe",
+                                              "lightning-updater.exe"],
+                  "both Lightning-owned PE files recorded")
             check(data["upstream_count"] == 2, "both upstream PE files recorded")
             check(data["unclassified"] == [], "nothing unclassified in a known tree")
-            owned = [f for f in data["files"] if f["sign_as_lightning"]]
-            check(len(owned) == 1 and owned[0]["path"] == "Lightning.exe",
-                  "only Lightning.exe is marked for signing")
+            owned = [f["path"] for f in data["files"] if f["sign_as_lightning"]]
+            check(owned == ["Lightning.exe", "lightning-updater.exe"],
+                  "exactly the application and the update helper are marked for signing")
             qt = [f for f in data["files"] if f["path"] == "Qt6Core.dll"][0]
             check(qt["sign_as_lightning"] is False,
                   "an upstream Qt DLL is never marked for signing")
@@ -220,6 +241,25 @@ def main() -> int:
         (stage / "Lightning.exe").unlink()
         result = run_verifier(stage, root / "missing-report.json")
         check(result.returncode != 0, "absent Lightning.exe rejected")
+
+        # H3: every Windows package is built from this one stage, so a helper
+        # that is not staged ships in none of them and the update feature is a
+        # silent no-op. That must be a build failure, not a smaller package.
+        print("a missing update helper fails")
+        stage = build_stage(root / "noupdater", updater=None)
+        result = run_verifier(stage, root / "noupdater-report.json")
+        check(result.returncode != 0, "absent lightning-updater.exe rejected")
+        check("lightning-updater.exe" in result.stderr,
+              "the missing helper is named")
+
+        # The exact defect a single global version resource produced: the helper
+        # linked with the application's VERSIONINFO, claiming to be Lightning.exe.
+        print("the update helper may not carry the application's OriginalFilename")
+        stage = build_stage(root / "sharedres", updater=LIGHTNING_STRINGS)
+        result = run_verifier(stage, root / "sharedres-report.json")
+        check(result.returncode != 0,
+              "a helper carrying OriginalFilename=Lightning.exe is rejected")
+        check("OriginalFilename" in result.stderr, "the failing field is named")
 
         print("a publisher mismatch fails")
         stage = build_stage(root / "badpublisher",

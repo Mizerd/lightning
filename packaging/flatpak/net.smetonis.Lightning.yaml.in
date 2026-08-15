@@ -55,6 +55,12 @@ modules:
     # be fetched into the sandbox CARGO_HOME first (the manifest grants the
     # build network access for exactly this step). BUILD_TESTING is off —
     # the bundle ships the application, not the test suite.
+    #
+    # LIGHTNING_ARTIFACT_KIND=release is explicit and load-bearing. This is the
+    # ONE packaging build that does not go through configure-build.sh, and the
+    # source's default is "source" — which would make a released Flatpak report
+    # artifact_kind: source in --build-info (untrue) and would also auto-enable
+    # ccache inside the sandbox for a key-embedding build.
     buildsystem: simple
     build-commands:
       - curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs
@@ -66,6 +72,9 @@ modules:
         -DCMAKE_INSTALL_PREFIX=/app -DBUILD_TESTING=OFF
         -DENABLE_RUST_SDK_BACKEND=ON
         -DLIGHTNING_REQUIRE_GIF_KEYS=@REQUIRE_GIF_KEYS@
+        -DLIGHTNING_INSTALL_TYPE=linux-flatpak
+        -DLIGHTNING_UPDATE_PUBKEY_2026A=@UPDATE_SIGNING_PUBKEY_2026A@
+        -DLIGHTNING_ARTIFACT_KIND=release
       - cmake --build build
       - cmake --install build
     sources:

@@ -72,11 +72,19 @@ def main() -> None:
     executable = args.build / "matrix-client.exe"
     if not executable.is_file():
         raise SystemExit(f"Windows application executable is missing: {executable}")
+    # The update helper ships beside the application in every Windows package
+    # (all three are built from this one stage). Without it the in-app updater
+    # has nothing to hand the verified artifact to and the feature is inert, so
+    # a missing helper is a build failure rather than a silently smaller stage.
+    updater = args.build / "lightning-updater.exe"
+    if not updater.is_file():
+        raise SystemExit(f"Windows update helper is missing: {updater}")
 
     if args.stage.exists():
         shutil.rmtree(args.stage)
     args.stage.mkdir(parents=True)
     shutil.copy2(executable, args.stage / "Lightning.exe")
+    shutil.copy2(updater, args.stage / "lightning-updater.exe")
 
     # Lightning embeds its own QML but imports Qt's runtime modules. Copy the
     # selected target import families (not the Qt SDK or QtTest imports) so
@@ -130,7 +138,16 @@ def main() -> None:
 
     available = {p.name.lower(): p for p in (SYSROOT / "bin").glob("*.dll")}
     copied = {p.name.lower() for p in args.stage.rglob("*.dll")}
-    queue = sorted([args.stage / "Lightning.exe", *args.stage.rglob("*.dll")])
+    # Both Lightning-owned executables seed the dependency walk. The helper links
+    # only Qt6::Core (plus zlib), so it adds nothing the application does not
+    # already pull in — but seeding it is what MAKES that true rather than
+    # assumed, and it is what would catch a future helper that grows a new
+    # dependency the stage does not carry.
+    queue = sorted([
+        args.stage / "Lightning.exe",
+        args.stage / "lightning-updater.exe",
+        *args.stage.rglob("*.dll"),
+    ])
     scanned: set[pathlib.Path] = set()
     unresolved: dict[str, list[str]] = {}
     graph: dict[str, list[str]] = {}
@@ -161,6 +178,7 @@ def main() -> None:
     manifest = {
         "target": "x86_64-pc-windows-gnu",
         "application": "Lightning.exe",
+        "update_helper": "lightning-updater.exe",
         "pe_files": sorted(str(p.relative_to(args.stage)) for p in scanned),
         "imports": dict(sorted(graph.items())),
     }

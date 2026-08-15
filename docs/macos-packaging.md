@@ -36,6 +36,7 @@ Installed on the Mac, not by this pipeline:
 | Component | Source | Notes |
 | --- | --- | --- |
 | Qt 6.11.1 | Homebrew `qt` (`/opt/homebrew/opt/qt`) | arm64-only bottle; sets the deployment floor |
+| OpenSSL 3 | Homebrew `openssl@3` (`/opt/homebrew/opt/openssl@3`) | **required** since the update-manifest verifier; keg-only, so it is passed explicitly (see below) |
 | CMake, Ninja, pkg-config | Homebrew | |
 | Rust 1.93.0 | rustup, in the `runner` account (`~/.cargo`) | matches the pinned toolchain the Linux `deb`/`rpm` builds use |
 | clang + macOS SDK | Xcode / Command Line Tools | either works; see below |
@@ -43,6 +44,33 @@ Installed on the Mac, not by this pipeline:
 
 `build-macos.sh` fails fast with a named tool if any of these is missing, rather
 than dying halfway through a long build.
+
+### OpenSSL 3
+
+Lightning verifies update-manifest signatures through OpenSSL 3's EVP API, and
+its CMake does `find_package(OpenSSL 3.0 REQUIRED COMPONENTS Crypto)`. macOS
+ships **no** OpenSSL 3 development headers — `/usr/bin/openssl` is LibreSSL and
+has no `openssl/evp.h` — and Homebrew keg-onlys `openssl@3`, meaning it is
+deliberately not symlinked into `/opt/homebrew`. So CMake cannot find it by
+itself:
+
+```sh
+brew install openssl@3
+```
+
+`build-macos.sh` asserts the keg's `include/openssl/evp.h` and `lib/libcrypto.a`
+(not `command -v openssl`, which finds Apple's LibreSSL) and passes
+`-DOPENSSL_ROOT_DIR` plus `-DOPENSSL_USE_STATIC_LIBS=TRUE`.
+
+**libcrypto is linked statically here on purpose.** A dynamic link against a
+keg-only formula leaves an absolute `/opt/homebrew/opt/openssl@3/...` load
+command in the binary. `macdeployqt` walks the Qt frameworks and their
+dependencies; it would not bundle libcrypto, and the load-command repair pass
+then fails closed with "needs …, which macdeployqt did not bundle" rather than
+shipping a bundle that only runs on the build machine. Static linking removes
+the question. If a future Homebrew stops shipping `libcrypto.a`, drop the static
+flag and add libcrypto to the bundling pass — do not leave a host path in the
+binary.
 
 ### Xcode vs Command Line Tools
 
@@ -123,8 +151,14 @@ ld: symbol(s) not found for architecture arm64
 
 This is packaging configuration, not a source patch — the Lightning source is
 unmodified, exactly as the Windows cross-build supplies its own linker inputs
-(`lightning-version.o`). If a future SDK bump pulls in another Apple framework,
-add it here rather than editing project 6.
+(its per-target version resources). If a future SDK bump pulls in another Apple
+framework, add it here rather than editing project 6.
+
+Note that this global flag stays global on macOS on purpose: the bundle contains
+only `matrix-client`, so there is no second executable it could wrongly apply
+to. (Lightning's `lightning-updater` is not built here — the macOS bundle is an
+unsigned, un-notarized TEST artifact that is never published, and its install
+type stays `development`, which refuses automatic installation outright.)
 
 ## Bundle assembly
 

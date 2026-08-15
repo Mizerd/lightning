@@ -57,6 +57,39 @@ NSIS inspection. Separate clean Wine prefixes pass portable/MSI/NSIS
 and `secret_store=windows-credential-manager`. Those are cross-platform and Wine
 results only, not native Windows acceptance.
 
+## The update helper
+
+Beside the application the build stages `lightning-updater.exe`: a small
+**console-subsystem** helper (Qt6::Core only — no network, no Matrix, no store)
+that performs the one step of an update that cannot happen while Lightning is
+running. All three Windows packages are produced from the one staged tree, so it
+ships in the portable ZIP, the MSI and the setup EXE alike; without it the
+in-app updater has nothing to hand a verified download to and the feature is a
+silent no-op.
+
+Two consequences worth knowing:
+
+- **It carries its own version resource.** The build used to pass one compiled
+  `VERSIONINFO` object through the global `CMAKE_EXE_LINKER_FLAGS`, which with a
+  second executable would stamp the helper with `OriginalFilename
+  "Lightning.exe"` — false metadata, of exactly the kind SignPath's file
+  restrictions apply to. `build-windows.sh` now compiles one resource per
+  executable and attaches them per target through
+  `packaging/windows/version-resources.cmake` (injected with
+  `-DCMAKE_PROJECT_INCLUDE`; the Lightning source is not patched).
+  `verify-windows-metadata.py` rejects both failure directions.
+- **It is Lightning-owned and is signed.** It appears in
+  `packaging/windows/signing-inventory.json`, in `dist/windows/signing-payload/`
+  with its own checksum, and is passed to `sign_windows_file` before the
+  packages consume it. An unsigned helper beside a signed application would be
+  the weakest link, not a detail — it is the process that replaces the
+  application on disk.
+
+Validation asserts the helper's presence in the stage, its console subsystem,
+its row in the MSI `File` table, the portable ZIP entry, and a reference in the
+NSIS payload; the Wine prefixes additionally assert that an MSI install and an
+NSIS install each actually place it next to `Lightning.exe`.
+
 An earlier pre-runner feasibility pass had built the source as a 62 MiB
 console-subsystem application; that subsystem and the earlier HTTP/insecure
 defaults were the defects this pass corrected.

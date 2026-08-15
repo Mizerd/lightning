@@ -101,8 +101,19 @@ elif [[ -n "${WINDOWS_SIGNING_PFX_B64:-}" ]]; then
 fi
 
 IFS=. read -r version_major version_minor version_patch <<<"$BASE_VERSION"
-cat >"$BUILD_DIR/lightning-version.rc" <<EOF
-1 ICON "Lightning.ico"
+# One resource per Lightning-owned executable. They must NOT share one: the
+# metadata gate requires OriginalFilename to name the file it is actually in
+# (SignPath applies file-metadata restrictions to signed artifacts), and a
+# second binary carrying "Lightning.exe" would be a false claim about which file
+# a user is looking at. The resources are attached per target through
+# packaging/windows/version-resources.cmake, not through the global
+# CMAKE_EXE_LINKER_FLAGS this used to use.
+write_version_rc() { # $1 = rc path, $2 = OriginalFilename, $3 = InternalName,
+                     # $4 = FileDescription, $5 = "icon" to embed the app icon
+    local icon_line=""
+    [[ "${5:-}" == icon ]] && icon_line='1 ICON "Lightning.ico"'
+    cat >"$1" <<EOF
+${icon_line}
 1 VERSIONINFO
 FILEVERSION ${version_major},${version_minor},${version_patch},0
 PRODUCTVERSION ${version_major},${version_minor},${version_patch},0
@@ -114,11 +125,11 @@ BEGIN
     BLOCK "040904E4"
     BEGIN
       VALUE "CompanyName", "${WIN_PUBLISHER}"
-      VALUE "FileDescription", "Lightning Matrix client"
+      VALUE "FileDescription", "$4"
       VALUE "FileVersion", "${BASE_VERSION}"
-      VALUE "InternalName", "Lightning"
+      VALUE "InternalName", "$3"
       VALUE "LegalCopyright", "${WIN_COPYRIGHT}"
-      VALUE "OriginalFilename", "Lightning.exe"
+      VALUE "OriginalFilename", "$2"
       VALUE "ProductName", "Lightning"
       VALUE "ProductVersion", "${BASE_VERSION}"
       VALUE "Comments", "Built from Lightning source ${SOURCE_SHA:0:7} (${WIN_SIGNING_STATE})"
@@ -130,7 +141,15 @@ BEGIN
   END
 END
 EOF
+}
+write_version_rc "$BUILD_DIR/lightning-version.rc" \
+    "Lightning.exe" "Lightning" "Lightning Matrix client" icon
+# The helper deliberately carries no icon: it is never launched by a user and
+# never appears in a shell that would show one.
+write_version_rc "$BUILD_DIR/lightning-updater-version.rc" \
+    "lightning-updater.exe" "lightning-updater" "Lightning update helper"
 ( cd "$BUILD_DIR" && x86_64-w64-mingw32-windres lightning-version.rc lightning-version.o )
+( cd "$BUILD_DIR" && x86_64-w64-mingw32-windres lightning-updater-version.rc lightning-updater-version.o )
 
 # Populate the complete lockfile cache first because project 6 deliberately
 # invokes its actual build with --offline --locked.
@@ -179,21 +198,32 @@ cmake -S "$SOURCE_DIR" -B "$BUILD_DIR" -G Ninja \
     -DCMAKE_TOOLCHAIN_FILE="$ROOT/packaging/windows/toolchain-mingw64.cmake" \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_CXX_FLAGS_RELEASE="-O3 -DNDEBUG -ffile-prefix-map=$SOURCE_DIR=/usr/src/lightning -ffile-prefix-map=$ROOT=/usr/src/lightning-deploy" \
-    -DCMAKE_EXE_LINKER_FLAGS="$BUILD_DIR/lightning-version.o" \
+    -DCMAKE_PROJECT_INCLUDE="$ROOT/packaging/windows/version-resources.cmake" \
+    -DLIGHTNING_APP_VERSION_OBJECT="$BUILD_DIR/lightning-version.o" \
+    -DLIGHTNING_UPDATER_VERSION_OBJECT="$BUILD_DIR/lightning-updater-version.o" \
     -DBUILD_TESTING=OFF \
     -DENABLE_RUST_SDK_BACKEND=ON \
     -DLIGHTNING_RUST_ONLY=ON \
     -DLIGHTNING_REQUIRE_GIF_KEYS="$gif_require" \
     -DLIGHTNING_SOURCE_SHA="$SOURCE_SHA" \
     -DLIGHTNING_BUILD_TARGET="x86_64-pc-windows-gnu" \
-    -DLIGHTNING_ARTIFACT_KIND="$WIN_ARTIFACT_KIND"
+    -DLIGHTNING_ARTIFACT_KIND="$WIN_ARTIFACT_KIND" \
+    -DLIGHTNING_INSTALL_TYPE=windows-portable \
+    -DLIGHTNING_UPDATE_PUBKEY_2026A="${UPDATE_SIGNING_PUBKEY_2026A:-}"
 # The generator has written the header; drop the key values from the build
 # environment so nothing downstream (compile, staging, packaging) sees them.
 unset LIGHTNING_BUILD_GIPHY_API_KEY LIGHTNING_BUILD_KLIPY_API_KEY 2>/dev/null || true
 # The production matrix-client is a GUI-subsystem PE on Windows (WIN32_EXECUTABLE
 # set in the app CMake); --version / --help / --build-info still print to a
 # parent console. No subsystem flag is passed here.
-cmake --build "$BUILD_DIR" --parallel "${BUILD_JOBS:-4}" --target matrix-client
+#
+# lightning-updater is built explicitly alongside it. It is a separate, tiny
+# console executable (Qt6::Core only) that performs the one install step that
+# cannot happen while Lightning is running. Every Windows package is assembled
+# from the staged tree below, so a helper that is not built here is a helper
+# that ships in none of the three packages -- and the update feature is inert.
+cmake --build "$BUILD_DIR" --parallel "${BUILD_JOBS:-4}" \
+    --target matrix-client lightning-updater
 
 python3 "$SCRIPT_DIR/stage-windows-runtime.py" \
     --source "$SOURCE_DIR" --build "$BUILD_DIR" --stage "$STAGE_DIR"
@@ -230,24 +260,40 @@ python3 "$SCRIPT_DIR/verify-windows-metadata.py" \
 
 # The deterministic signing payload boundary (SignPath needs the artifact to
 # exist as a pipeline artifact, by itself, before a signing request). This
-# directory holds exactly the Lightning-owned PE and its checksum — no Qt
-# runtime, no installers, no logs. A future signing job submits this path and
-# writes the signed binary back over the staged copy before packaging.
+# directory holds exactly the Lightning-owned PE files and their checksums — no
+# Qt runtime, no installers, no logs. A future signing job submits this path and
+# writes the signed binaries back over the staged copies before packaging.
 SIGNING_DIR="$WINDOWS_DIST/signing-payload"
 mkdir -p "$SIGNING_DIR"
-cp "$STAGE_DIR/Lightning.exe" "$SIGNING_DIR/Lightning.exe"
+for owned in Lightning.exe lightning-updater.exe; do
+    cp "$STAGE_DIR/$owned" "$SIGNING_DIR/$owned"
+    ( cd "$SIGNING_DIR" && sha256sum "$owned" >"$owned.sha256" )
+done
 cp "$STAGE_DIR/build-info.json" "$SIGNING_DIR/build-info.json"
-( cd "$SIGNING_DIR" && sha256sum Lightning.exe >Lightning.exe.sha256 )
 
-# Sign the staged executable BEFORE it is captured into the portable ZIP / MSI /
-# NSIS payloads, so a signed build signs the app itself, not just the installers.
+# Sign the staged executables BEFORE they are captured into the portable ZIP /
+# MSI / NSIS payloads, so a signed build signs the app itself, not just the
+# installers. The updater is signed for the same reason it is signed at all: it
+# is the process that replaces the application on disk, and an unsigned helper
+# beside a signed app is the weakest link, not a detail.
 sign_windows_file "$STAGE_DIR/Lightning.exe"
+sign_windows_file "$STAGE_DIR/lightning-updater.exe"
 
 short_sha="${SOURCE_SHA:0:7}"
 artifact_base="Lightning-${BASE_VERSION}-${short_sha}-windows-x86_64"
 portable="$WINDOWS_DIST/${artifact_base}-portable.zip"
 ( cd "$WINDOWS_DIST" && find Lightning -type f -print0 | LC_ALL=C sort -z \
     | xargs -0 zip -X -q "$portable" )
+
+# All three Windows packages come from this one staged tree, so the compiled-in
+# install type can only describe one of them. It says windows-portable, which is
+# correct for the ZIP just created above -- the ZIP has no installer to tell it
+# otherwise. The MSI carries an explicit marker file instead, and the NSIS
+# installer writes its own at install time (packaging/windows/installer.nsi).
+# The updater reads this marker to choose which compiled-in install strategy to
+# use; it can never introduce a new one.
+install_marker="$STAGE_DIR/.lightning-install-type"
+printf 'windows-msi\n' >"$install_marker"
 
 wxs="$BUILD_DIR/Lightning.wxs"
 python3 "$SCRIPT_DIR/generate-windows-wix.py" \
@@ -257,6 +303,11 @@ python3 "$SCRIPT_DIR/generate-windows-wix.py" \
 msi="$WINDOWS_DIST/${artifact_base}.msi"
 wixl --arch x64 --output "$msi" "$wxs" 2>&1 | tee "$REPORT_DIR/wixl.log"
 sign_windows_file "$msi"
+
+# The setup EXE writes its own marker on install, so the MSI's copy must not be
+# baked into it -- otherwise an NSIS install would claim to be an MSI install
+# and the updater would hand a .msi to a directory the MSI does not own.
+rm -f "$install_marker"
 
 setup="$WINDOWS_DIST/${artifact_base}-setup.exe"
 makensis '-XTarget amd64-unicode' \

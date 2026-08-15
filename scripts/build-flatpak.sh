@@ -74,10 +74,11 @@ mkdir -p "$FLATPAK_WORK" dist
 # ephemeral CI workspace path into the payload (the clean-bundle audit
 # rejects /builds/).
 sed -e "s|@REQUIRE_GIF_KEYS@|$REQUIRE_GIF_KEYS|" \
+    -e "s|@UPDATE_SIGNING_PUBKEY_2026A@|${UPDATE_SIGNING_PUBKEY_2026A:-}|" \
     -e "s|@SOURCE_DIR@|../lightning|" \
     -e "s|@METAINFO_PATH@|../../packaging/common/lightning.metainfo.xml|" \
     "$MANIFEST_TEMPLATE" > "$MANIFEST"
-grep -Eq '@(REQUIRE_GIF_KEYS|SOURCE_DIR|METAINFO_PATH)@' "$MANIFEST" \
+grep -Eq '@(REQUIRE_GIF_KEYS|SOURCE_DIR|METAINFO_PATH|UPDATE_SIGNING_PUBKEY_2026A)@' "$MANIFEST" \
     && die "unsubstituted placeholder in manifest"
 
 flatpak remote-add --user --if-not-exists flathub "$FLATHUB_REPO"

@@ -62,6 +62,14 @@ Section "Lightning application (required)" SEC_APP
   FileOpen $0 "$INSTDIR\.lightning-install-root" w
   FileWrite $0 "Lightning ${PRODUCT_VERSION}$\r$\n"
   FileClose $0
+  ; Tell the updater which of the three Windows packages this installation is.
+  ; All three are built from one staged tree, so the compiled-in value says
+  ; windows-portable and only the installer that actually placed these files can
+  ; correct it. Without this, an EXE installation would be offered an MSI
+  ; upgrade for a directory the Windows Installer does not own.
+  FileOpen $0 "$INSTDIR\.lightning-install-type" w
+  FileWrite $0 "windows-setup$\r$\n"
+  FileClose $0
   WriteUninstaller "$INSTDIR\Uninstall.exe"
   WriteRegStr HKCU "Software\Mizerd\Lightning" "InstallDir" "$INSTDIR"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Lightning" "DisplayName" "Lightning"

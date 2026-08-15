@@ -76,6 +76,11 @@ fi
 # Leak audit inside the mounted app tree.
 appdir="$FLATPAK_USER_DIR/app/$APP_ID/current/active/files"
 test -d "$appdir" || die "installed app files missing"
+# The update helper comes from the source's own install(TARGETS ...) rule. A
+# Flatpak is updated by Flatpak, so Lightning never RUNS the helper here — but
+# its presence proves the install rule placed BOTH executables, and its absence
+# would mean that rule had failed in every format built the same way.
+test -x "$appdir/bin/lightning-updater" || die "update helper missing from the app tree"
 grep -RIl -e /nix/store -e /home/roksme -e /builds/ \
     -e 'LIGHTNING_GIPHY_API_KEY=' -e 'LIGHTNING_KLIPY_API_KEY=' \
     -e 'PRIVATE-TOKEN:' -e 'recovery_key=' "$appdir" \

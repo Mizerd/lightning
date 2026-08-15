@@ -65,12 +65,25 @@ trap cleanup EXIT
 ( cd "$audit" && "$ROOT/$app" --appimage-extract >/dev/null )
 tree="$audit/squashfs-root"
 test -x "$tree/usr/bin/matrix-client" || die "binary missing in payload"
+# The update helper ships beside the application. Without it the in-app updater
+# has nothing to hand a verified AppImage to and the feature is inert.
+test -x "$tree/usr/bin/lightning-updater" || die "update helper missing in payload"
 # Self-containment: Qt must be bundled, not expected from the host.
 find "$tree/usr/lib" -name 'libQt6Core.so*' | grep -q . || die "Qt not bundled"
 find "$tree/usr" -name 'libqoffscreen.so' | grep -q . || die "offscreen platform plugin missing"
 find "$tree/usr/qml" -maxdepth 1 -name 'QtQuick' | grep -q . || die "QML modules missing"
 readelf -d "$tree/usr/bin/matrix-client" | grep -E 'RPATH|RUNPATH' \
     | grep -vE '\$ORIGIN' | grep -q . && die "non-relative RPATH in payload binary"
+readelf -d "$tree/usr/bin/lightning-updater" | grep -E 'RPATH|RUNPATH' \
+    | grep -vE '\$ORIGIN' | grep -q . && die "non-relative RPATH in the update helper"
+# linuxdeploy rewrites the RPATH only of the executables it was told about, so a
+# relative $ORIGIN entry here is the evidence that --executable was actually
+# passed for the helper. Without it the helper resolves Qt from the host and
+# fails to start on exactly the machines an AppImage exists for — at the last
+# step of an update, after the download has already been verified.
+readelf -d "$tree/usr/bin/lightning-updater" | grep -E 'RPATH|RUNPATH' \
+    | grep -q '\$ORIGIN' \
+    || die "the update helper has no \$ORIGIN RPATH; linuxdeploy did not bundle it"
 grep -RIl -e /nix/store -e /home/roksme -e /builds/ \
     -e 'LIGHTNING_GIPHY_API_KEY=' -e 'LIGHTNING_KLIPY_API_KEY=' \
     -e 'PRIVATE-TOKEN:' -e 'recovery_key=' "$tree/usr/bin" \

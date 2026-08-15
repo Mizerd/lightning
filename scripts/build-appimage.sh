@@ -17,7 +17,7 @@ SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 ROOT=$(project_dir)
 cd "$ROOT"
 
-"$SCRIPT_DIR/configure-build.sh"
+LIGHTNING_INSTALL_TYPE=linux-appimage "$SCRIPT_DIR/configure-build.sh"
 load_versions
 
 STAGE="$ROOT/work/stage"
@@ -47,6 +47,8 @@ rm -rf "$APPDIR"
 mkdir -p "$APPDIR"
 cp -a "$STAGE/usr" "$APPDIR/usr"
 strip --strip-unneeded "$APPDIR/usr/bin/matrix-client"
+test -x "$APPDIR/usr/bin/lightning-updater" || die "update helper missing from the staged tree"
+strip --strip-unneeded "$APPDIR/usr/bin/lightning-updater"
 
 # The QML runtime modules ELF scanning cannot discover. Keep aligned with
 # the deb QML_DEPENDS list in build-deb.sh (source of both: the production
@@ -68,10 +70,17 @@ export QMAKE=$(command -v qmake6)
 # gpgrt_* symbols older distros lack — seen live on Ubuntu 24.04 in
 # validate-snap). Ship the exact libgpg-error the bundled libgcrypt was
 # built against.
+# BOTH executables are declared. linuxdeploy only resolves libraries for, and
+# rewrites the RPATH of, the executables it is told about — an unlisted binary
+# is copied along by the usr/ tree and then fails to start on any host without
+# Qt6, which is precisely the host an AppImage exists for. The helper is the
+# process that installs the update, so a helper that cannot start turns the
+# whole feature into a silent failure at the last step.
 "$TOOLS/linuxdeploy" --appdir "$APPDIR" \
     --desktop-file "$APPDIR/usr/share/applications/lightning.desktop" \
     --icon-file "$APPDIR/usr/share/icons/hicolor/192x192/apps/lightning.png" \
     --executable "$APPDIR/usr/bin/matrix-client" \
+    --executable "$APPDIR/usr/bin/lightning-updater" \
     --library /lib/x86_64-linux-gnu/libgpg-error.so.0 \
     --plugin qt \
     --output appimage

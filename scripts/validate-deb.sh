@@ -26,8 +26,12 @@ trap cleanup EXIT
 dpkg-deb --extract "$package" "$audit_root"
 binary="$audit_root/usr/bin/matrix-client"
 [[ -x "$binary" ]] || die "packaged executable is missing"
-file "$binary" | tee "$ROOT/dist/deb-file.txt"
-readelf -d "$binary" | tee "$ROOT/dist/deb-readelf.txt"
+# The update helper ships beside the application in every format. Without it the
+# in-app updater has nothing to hand a verified .deb to and the feature is inert.
+updater="$audit_root/usr/bin/lightning-updater"
+[[ -x "$updater" ]] || die "packaged update helper is missing"
+file "$binary" "$updater" | tee "$ROOT/dist/deb-file.txt"
+readelf -d "$binary" "$updater" | tee "$ROOT/dist/deb-readelf.txt"
 if grep -E '(RPATH|RUNPATH)' "$ROOT/dist/deb-readelf.txt"; then
     die "DEB executable contains an RPATH or RUNPATH"
 fi
@@ -47,6 +51,7 @@ fi
 
 apt-get install -y "$package"
 test -x /usr/bin/matrix-client
+test -x /usr/bin/lightning-updater
 desktop-file-validate /usr/share/applications/lightning.desktop
 appstreamcli validate --no-net /usr/share/metainfo/lightning.metainfo.xml
 version_output="$(cd /tmp && /usr/bin/matrix-client --version)"

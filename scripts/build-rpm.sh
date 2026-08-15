@@ -7,7 +7,7 @@ source "$SCRIPT_DIR/lib.sh"
 ROOT="$(project_dir)"
 load_versions
 
-"$SCRIPT_DIR/configure-build.sh"
+LIGHTNING_INSTALL_TYPE=linux-rpm "$SCRIPT_DIR/configure-build.sh"
 
 TOPDIR="$ROOT/work/rpmbuild"
 mkdir -p "$TOPDIR"/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}

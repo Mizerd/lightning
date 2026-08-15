@@ -43,6 +43,11 @@ for plug in ("network", "wayland", "x11", "desktop",
     assert plug in app["plugs"], plug
 print("snap.yaml valid")
 EOF
+test -x "$audit/prime/usr/bin/matrix-client" || die "snap application binary missing"
+# A snap is refreshed by snapd, so Lightning never RUNS the helper here — but
+# the snap is repacked from the AppImage job's AppDir, so a helper missing from
+# this payload means it was also missing from the AppImage, where it IS used.
+test -x "$audit/prime/usr/bin/lightning-updater" || die "update helper missing from the snap payload"
 test -f "$audit/prime/meta/gui/lightning.desktop" || die "snap desktop file missing"
 test -f "$audit/prime/meta/gui/lightning.png" || die "snap icon missing"
 test -x "$audit/prime/bin/lightning-launch" || die "launcher missing"
