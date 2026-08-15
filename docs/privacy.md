@@ -1,6 +1,6 @@
 # Lightning privacy policy
 
-**Last reviewed: 2026-08-12, against Lightning 0.6.6.**
+**Last reviewed: 2026-08-16, against Lightning 0.7.0.**
 
 This document is derived from the source code, not from marketing copy. Every
 claim below names the file that implements it, so it can be checked and so it can
@@ -15,8 +15,11 @@ service the user explicitly invoked.
 ## Summary
 
 - **Lightning collects nothing.** There is no analytics, no telemetry, no crash
-  reporting, no usage measurement, no advertising identifier, and no update
-  check. The project receives no data from installed clients, by any route.
+  reporting, no usage measurement, and no advertising identifier. The project
+  receives no personal data from installed clients, by any route.
+- **Lightning can check for its own updates, and that is off by default.** The
+  check is an anonymous request for two small public files and carries no
+  account, device or usage information — see section 5a.
 - The **Matrix homeserver the user chooses** receives normal Matrix protocol
   traffic, because that is what a Matrix client does.
 - **Third parties** are contacted in exactly two situations, both listed below,
@@ -149,9 +152,9 @@ corresponding integrations — there are none:
 
 - **No analytics or telemetry** of any kind.
 - **No crash reporting** — no Sentry, Crashpad, Breakpad, or equivalent.
-- **No update check.** Lightning never contacts the project to ask whether a
-  newer version exists; updates come from the user's package manager or from the
-  Releases page.
+- **No silent update check.** Automatic update checks are **off by default**.
+  When enabled they run at most once every 24 hours; a manual check is always
+  available in Settings → Updates. See section 5a for exactly what is sent.
 - **No advertising, tracking, or fingerprinting services.**
 - **No hard-coded third-party endpoint other than the two GIF providers above.**
   The only other external hostnames in the source are `matrix.to` (used to
@@ -159,6 +162,42 @@ corresponding integrations — there are none:
 - **No QML component fetches an arbitrary remote URL.** Every image shown in the
   interface is routed through the C++ media bridge; there is no
   `Image { source: "https://…" }` anywhere in `qml/`.
+
+## 5a. Update checks — the project's own GitLab, off by default
+
+Lightning can ask whether a newer release exists. This is the only route by
+which the project itself receives any request from an installed client, and it
+is disabled until the user enables it.
+
+**When it happens.** Never automatically unless the user turns on *Automatic
+update checks* in Settings → Updates (default off). When enabled: at most once
+per 24 hours, never within the first 30 seconds of launch, and never triggered
+by switching room or account. A manual *Check for updates* button is always
+available and is always an explicit user action.
+
+**What is contacted.** One host, `gitlab.smetonis.net`, over HTTPS, anonymously
+and without credentials — two small public files from the project's package
+registry (`update-manifest-v1.json` and its detached signature).
+
+**What is sent.** The URL and the update user agent, which is exactly
+`Lightning/<version>` — the application version and nothing more, not even the
+operating system. Nothing else is sent. In particular the request never
+contains, and Lightning has no code to add: the Matrix user ID,
+display name, homeserver, device or session ID, access or refresh token, room,
+message or contact data, an installation ID, or any analytics identifier. **No
+updater tracking identifier exists** — none is generated, stored or transmitted,
+so repeated checks are not linkable by anything Lightning provides.
+
+**What is stored locally.** Only the automatic-check preference, the time of the
+last successful check, and the version the user last dismissed. These live
+outside every account and contain no Matrix data.
+
+**Downloads.** If the user chooses to install an update, the artifact is fetched
+from the same host. It is verified against an Ed25519 signature over the
+manifest and the SHA-256 recorded there before anything is installed, and a
+failure of either check stops the update with no way to override it. Flatpak and
+Snap installations are never downloaded by Lightning — those package managers
+own their own updates.
 
 ## 6. What is stored on the device
 
@@ -217,10 +256,11 @@ offering an opt-out is required of software that transfers user data to systems
 the user did not specify. Lightning does not: the homeserver is the one the user
 types in when signing in, GIF providers are contacted only while the user is
 using the GIF picker, link previews are off by default and each one is a
-deliberate action, and there is no telemetry, analytics, crash reporting, or
-update check to opt out of. Adding a consent dialog for transfers that do not
-happen would be noise, not disclosure. The policy is instead linked from the
-project home page and from every release page, and the controls that do matter
+deliberate action, there is no telemetry, analytics or crash reporting to opt
+out of, and update checks are off until the user switches them on. Adding a
+consent dialog for transfers that do not happen would be noise, not disclosure.
+The policy is instead linked from the project home page and from every release
+page, and the controls that do matter
 live in **Settings → Privacy & security**. If Lightning ever gains a background
 transfer to a service the user did not choose, this reasoning stops holding and
 the installers must change with it.

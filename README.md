@@ -405,15 +405,29 @@ matrix-rust-sdk  ──  login/sync, timelines, threads, event cache, media,
 - The screenshot-demo mode never touches real accounts, stores, libsecret, or the
   network, and cannot exist in a release binary.
 
-Lightning collects nothing: there is no analytics, telemetry, crash reporting, or
-update check, and the project operates no server. Apart from the homeserver you
-sign in to, the only third parties Lightning can contact are the GIF providers,
-and only while you are using the GIF picker. Automatic link-preview fetching is
-**off by default**, because Lightning fetches previews itself rather than through
-your homeserver, which would expose your IP address to a site the sender chose.
+Lightning collects nothing: there is no analytics, telemetry or crash reporting,
+and the project operates no server. Apart from the homeserver you sign in to,
+the only third parties Lightning can contact are the GIF providers, and only
+while you are using the GIF picker. Automatic link-preview fetching is **off by
+default**, because Lightning fetches previews itself rather than through your
+homeserver, which would expose your IP address to a site the sender chose.
+
+Lightning can check for its own updates, and that check is **off by default**.
+A check is an anonymous HTTPS request for two small public files from the
+project's own GitLab — it never sends your Matrix ID, homeserver, device ID,
+tokens, room data, or any analytics or updater identifier, and no tracking ID
+of any kind is generated. You can also check manually at any time from
+Settings → Updates. Updates are only ever installed from immutable published
+release artifacts, verified against an Ed25519-signed manifest and a SHA-256
+hash before anything is installed; a failed check of either is terminal, with
+no way to proceed. Flatpak and Snap installations are left to their own package
+managers. See **[Application updates](docs/updates.md)** for the full trust
+chain, the per-package behaviour, and the honest signing status.
 
 - **[Privacy policy](docs/privacy.md)** — every network path, derived from the
   source, with what is sent and how to disable it.
+- **[Application updates](docs/updates.md)** — what is contacted, what is never
+  sent, how an update is verified, and what each package format does.
 - **[Code signing policy](docs/code-signing-policy.md)** — signing roles,
   approval, and current (unsigned) status.
 - **[Third-party notices](docs/third-party-notices.md)** — what is shipped

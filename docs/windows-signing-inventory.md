@@ -31,9 +31,10 @@ the staged executable before the ZIP, MSI, and NSIS steps run.
 | File | What it is |
 |---|---|
 | `Lightning.exe` | The application. Built from this repository by CMake as `matrix-client.exe` and staged under its shipped name `Lightning.exe`. Its version resource declares `ProductName=Lightning` and the canonical release version |
+| `lightning-updater.exe` | The update helper. A separate minimal executable that performs the one installation step that cannot happen while Lightning is running; it links Qt Core and zlib only, has no network stack, and reaches no Matrix code. Its own version resource declares `ProductName=Lightning` and the same release version, and it is signed alongside the application |
 
-That is the whole list. Lightning ships **no** helper executables and **no**
-Lightning-authored DLLs on Windows: the C++ application, the QML, and the Rust
+That is the whole list. Lightning ships **no** Lightning-authored DLLs on
+Windows: the C++ application, the QML, and the Rust
 bridge are all linked into that single PE.
 
 ## Upstream / system — never signed as Lightning
@@ -69,7 +70,8 @@ canonical GitLab source commit (Mizerd/lightning)
         ▼
 automated GitLab Windows build          ← no developer workstation, ever
         │
-        ├── Lightning.exe               ← the ONLY Lightning-owned PE
+        ├── Lightning.exe               ← Lightning-owned PE
+        ├── lightning-updater.exe       ← Lightning-owned PE
         │
         ▼
 GitLab pipeline artifact (unsigned payload, checksummed)
@@ -78,7 +80,7 @@ GitLab pipeline artifact (unsigned payload, checksummed)
 SignPath signing request  ── manual approval by the maintainer
         │
         ▼
-signed Lightning.exe
+signed Lightning.exe + lightning-updater.exe
         │
         ├─► portable ZIP        (container; signed payload inside)
         ├─► MSI                 (signed payload inside, then MSI signed)
