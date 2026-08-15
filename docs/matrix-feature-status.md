@@ -1,8 +1,15 @@
-# Matrix feature status (v0.5.10)
+# Matrix feature status (v0.5.10 table — see note)
 
-Honest per-feature status per backend. Ground truth for anything the UI
-claims about support. Do not check anything as "done" here that is not
-actually done in code.
+> **Staleness note (2026-08-15):** this table dates from v0.5.10 and has
+> not tracked the releases since. CLAUDE.md §7 is the current feature
+> inventory; treat rows below as historical. Corrected here because they
+> were actively wrong: authenticated media (the Rust backend's SDK media
+> path negotiates `/_matrix/client/v1/media/*` itself since the media
+> bridge landed; audited v0.7.x), multi-account switching (landed 0.6.x),
+> and OIDC/OAuth login (landed and live-validated 0.7.0).
+
+Honest per-feature status per backend. Do not check anything as "done"
+here that is not actually done in code.
 
 Legend:
 
@@ -36,7 +43,7 @@ Legend:
 | Room member list + roles | ❌ | ❌ | ✅ (v0.5.9) bounded snapshot (500), joined/invited, role labels, ambiguity flags |
 | Room profile edit (name/topic/avatar) | ❌ | ❌ | ✅ (v0.5.9) gated on `can_send_state`; avatar via SDK `upload_avatar` |
 | Leave joined room | ❌ | ❌ | ✅ (v0.5.9) with confirmation; list updates via authoritative sync |
-| Authenticated media (`/client/v1/media/*`) | ❌ | ❌ | ❌ |
+| Authenticated media (`/client/v1/media/*`) | ❌ | ❌ | ✅ SDK Media API negotiates it (v0.7.x audit; legacy URL builders return empty on Rust) |
 | Local SQLite cache | n/a | ✅ | 🟡 Rust SDK store only; no C++ CacheStore timeline cache; encrypted `TimelineEvent` rows are skipped so decrypted encrypted-room plaintext is not cached in `cache.sqlite` |
 | **Spaces — recognise `m.room.create type:m.space`** | ✅ seeded | ✅ (v0.4.2) | 🟡 SDK `room.is_space()` surfaced |
 | **Spaces — `m.space.child` hierarchy** | ✅ seeded | ✅ (v0.4.2) | ✅ SpaceService nested/cycle-safe filters |

@@ -1122,6 +1122,109 @@ direct merge-request submission may not be enabled on this GitLab instance.
 
 Keep this list grounded in source and recent history:
 
+**2026-08-15 discovery / search / UIA / moderation / drafts round.** Landed
+in one pass after the pins/admin round:
+- **Active-room sliding-sync subscription** (user-report fix): sliding sync
+  delivers `m.room.pinned_events` ONLY inside a room SUBSCRIPTION's
+  required state, and Lightning never subscribed — so a pin (local or from
+  another client) stayed invisible until a restart re-ran the once-per-room
+  `/state` probe. `mx_rust_timeline_open` now records the open room as THE
+  one subscription (`RoomListService::subscribe_to_rooms`, replacing the
+  previous set), the modern sync loop applies it on start for restored
+  sessions and publishes the service behind an RAII guard, and
+  `stop_sync_and_wait` forgets the room so a later account can never
+  inherit it. Bonus: the active room gets subscription timeline batches
+  (20) instead of the list's 1. Also from that report: a `push_pin` header
+  shortcut appears when the room has pins (opens Room Info → Pinned), and
+  the profile role buttons' labels are vertically centred.
+- **Discover / Join Room** (`discover.rs`, `RoomDiscoveryController`,
+  `RoomDirectorySearchModel`, `DiscoverJoinDialog`): directory browse/
+  search with `next_batch` paging, identifier/link resolution through ruma
+  `MatrixUri`/`MatrixToUri` + `get_room_preview` (a refused preview still
+  resolves — Join stays offered), joins via `join_room_by_id_or_alias`
+  (+ via servers), knocking via `Client::knock` with optional reason,
+  knock withdrawal (a Knocked-state `Room::leave` — the normal leave path
+  deliberately filters to Joined), the room-list knocked row with
+  Withdraw, Space Home "More rooms in this space" from the SDK's
+  `/hierarchy`-backed `SpaceRoomList` (bounded 10 pages/200 rows), room
+  matrix.to/`matrix:` links in messages open IN-APP through the dialog
+  (joined rooms auto-open and jump to the linked event; user links keep
+  the browser), and Quick Switcher commands. Join errors map to honest
+  categories — banned / invite-only / restricted (`restricted_denied` is
+  classified separately, never presented as plain invite-only).
+- **Message history search** (`search.rs`, `MessageSearchController`,
+  `MessageSearchDialog`, find-bar History segment): the server `/search`
+  endpoint through raw `Client::send` (matrix-sdk has no wrapper), Recent
+  order, `content.body` key only, zero-context + historic profiles,
+  `next_batch` paging. E2EE POLICY (deliberate): the server cannot search
+  ciphertext, so server search covers UNENCRYPTED rooms only and every
+  surface says so; inside an encrypted room the loaded-timeline find is
+  the only search, and the find bar offers no History segment there. The
+  only content sent is the typed search term. Result navigation reuses
+  `PaginationController::jumpToEvent` unchanged (bounded; deep history
+  reports its honest unavailable message). Global search: Ctrl+Shift+F.
+- **Reusable UIA + session sign-out** (`uia.rs`, `UiaController`,
+  `UiaPromptDialog`, Sessions page): the privileged call runs WITHOUT auth
+  first; a real 401 challenge (`as_uiaa_response`) parks the operation in
+  the bridge's single UIA slot (the SDK's own `CrossSigningResetHandle`
+  shape), surfaces sanitized stage NAMES only, and the password answer's
+  transit buffers are scrubbed BEST-EFFORT (QML field wiped on dispatch,
+  C++ QByteArray + Rust String zeroed with volatile writes). Honesty
+  (review L1): on the success path the String moves into ruma's
+  `uiaa::Password`, which serializes and drops it without zeroing — that
+  memory is not scrubbable without patching ruma, so this is transit
+  hygiene, never a guarantee. Wrong password re-parks with the refreshed
+  session and offers retry; unsupported stages surface honestly. Sessions
+  tiles get per-device Sign out + "Sign out all other sessions"; the
+  current device is guarded out (that is the logout flow's job); tiles
+  only disappear on the authoritative refetch. OAuth/MAS accounts have NO
+  password stage: their buttons open the account console
+  (`account_management_url_with_action` DeviceDelete/DevicesList) in the
+  browser instead — never a fake password prompt. The old "not supported
+  yet" disclaimer is gone. The login path's password transit buffer is now
+  scrubbed too (it never was), and the login form wipes its field when the
+  screen is left — deliberately not on a failed attempt.
+- **Ignore + report** (`ignore.rs`, `ModerationController`,
+  `ReportMessageDialog`): SDK `Account::ignore_user`/`unignore_user`
+  (m.ignored_user_list read-modify-write — never a Lightning-local
+  database), list read from account data (0.18 has no accessor), remote
+  AND local changes forwarded from the sync loop's
+  `subscribe_to_ignore_user_list_changes` arm so everything converges on
+  one path. The SDK clears the whole event cache on a list change —
+  timelines reset and refetch; that is expected. NotificationManager takes
+  `senderIsIgnored` to close the race window before the server stops
+  sending an ignored user's events. Report = `Room::report_content`
+  (stable /v3, requires Joined, reason optional, no score field in 0.18);
+  `report_room` (unstable MSC4151) and `report_user` (absent from the SDK)
+  are deliberately NOT offered. Surfaces: profile popover Ignore row
+  (account-wide, below room moderation), message menu "Report message"
+  (own messages excluded; real room id via
+  `TimelineModel::realRoomIdForEvent`, never the thread composite),
+  Settings → Privacy "Ignored users" card.
+- **Drafts** (`DraftStore`, SettingsManager `roomDraft`/`setRoomDraft`,
+  composer/thread hooks): POLICY (maintainer-confirmed 2026-08-15) —
+  unencrypted rooms persist drafts locally (strictly account-scoped
+  QSettings keys `accounts/<slug>/drafts/<sha16>`, LRU cap 256, wiped with
+  the account group); ENCRYPTED rooms are memory-only (survive switches
+  and the Settings round-trip, never restart; a room with UNKNOWN
+  encryption state fails closed to memory). Payload = text + mention refs
+  (restored fail-closed against the text slice) + reply target (restored
+  tolerantly — a dangling target never blocks sending); edit state and
+  attachments deliberately excluded. Saves are 1 s debounced; the debounce
+  is STOPPED before every room/thread change and the save reads the
+  still-current key, so a stale timer can never write across rooms;
+  send-success and explicit clear retire the draft and stop the timer.
+  Memory drafts clear in `clearCrossAccountCaches` and on `loggedOut`.
+  The old `Main.qml` "drafts survive" comment is now actually true.
+- **Authenticated media hygiene**: the audit confirmed every Rust-backend
+  media byte already flows through the SDK Media API (which negotiates
+  `/_matrix/client/v1/media` itself); the ONLY reachable legacy surface
+  was `RustSdkMatrixClient::mediaDownloadUrl`/`mediaThumbnailUrl` handing
+  unauthenticated `/media/v3` links to the browser. Both now return empty
+  on the Rust backend.
+Everything user-visible in this round is **NOT TESTED** live until the
+round's own live-validation pass says otherwise; see the completion report.
+
 **2026-08-15 pins / admin / verification-UX round.** Landed: pinned
 messages (§7 Timeline and media), member power levels + join rule +
 canonical alias (§7 Rooms and navigation), the bounded thread-participant
