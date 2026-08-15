@@ -182,6 +182,99 @@ private:
         return result;
     }
 
+    // ── Row addressing on the solid timeline (1e50f6a) ──────────────────
+    //
+    // The timeline stopped being a ListView: it is a rotated Flickable +
+    // Column, every loaded row is instantiated, and its row API is VIEW-row
+    // based (view row 0 = the newest message, at content y 0, which the
+    // rotation puts at the physical bottom). The old ListView API these
+    // tests used — positionViewAtIndex / positionViewAtBeginning /
+    // itemAtIndex — no longer exists, and invoking it silently returned
+    // false, which is what these cases were actually failing on.
+    //
+    // Model (SOURCE) row 0 is the OLDEST message; the pre-rewrite ListView
+    // bound `model: app.timeline` directly, so its indices WERE source rows.
+    // These helpers keep that meaning at the call sites and do the one
+    // conversion in a single place.
+
+    // Source row -> view row, through the pane's own mapping (which is
+    // anchored on the model total, not on `count` — the two differ while a
+    // paginated page is still draining out).
+    static int viewRowForSourceRow(QQuickItem *timeline, int sourceRow)
+    {
+        QVariant out;
+        if (!QMetaObject::invokeMethod(timeline, "viewRowForSourceRow",
+                                       Q_RETURN_ARG(QVariant, out),
+                                       Q_ARG(QVariant, QVariant(sourceRow))))
+            return -1;
+        return out.toInt();
+    }
+
+    // The instantiated delegate for a SOURCE row, or nullptr.
+    static QQuickItem *itemForSourceRow(QQuickItem *timeline, int sourceRow)
+    {
+        const int viewRow = viewRowForSourceRow(timeline, sourceRow);
+        if (viewRow < 0)
+            return nullptr;
+        QVariant out;
+        if (!QMetaObject::invokeMethod(timeline, "itemAtViewRow",
+                                       Q_RETURN_ARG(QVariant, out),
+                                       Q_ARG(QVariant, QVariant(viewRow))))
+            return nullptr;
+        return out.value<QQuickItem *>();
+    }
+
+    // Park a SOURCE row at the viewport's physical top — the intent the old
+    // positionViewAtIndex(row, ListView.Beginning) carried.
+    static bool positionAtSourceRow(QQuickItem *timeline, int sourceRow)
+    {
+        const int viewRow = viewRowForSourceRow(timeline, sourceRow);
+        if (viewRow < 0)
+            return false;
+        return QMetaObject::invokeMethod(timeline, "positionViewAtViewRow",
+                                         Q_ARG(QVariant, QVariant(viewRow)),
+                                         Q_ARG(QVariant, QVariant(false)));
+    }
+
+    // Park the reader at the TOP EDGE — the oldest loaded row — which is
+    // where near-top backfill fires. This is what positionViewAtBeginning()
+    // meant on the old top-to-bottom ListView (contentY 0). On the rotated
+    // view the oldest end is the HIGH end of the scroll range, so it is
+    // wheelMaxY(). Deliberately a direct contentY write rather than
+    // goToEarliestLoaded(), which additionally re-runs pagination and
+    // restarts the settle timer — side effects the old call did not have
+    // and which several of these fixtures are specifically controlling.
+    static bool positionAtTopEdge(QQuickItem *timeline)
+    {
+        QVariant maxY;
+        if (!QMetaObject::invokeMethod(timeline, "wheelMaxY",
+                                       Q_RETURN_ARG(QVariant, maxY)))
+            return false;
+        return timeline->setProperty("contentY", maxY.toDouble());
+    }
+
+    // QML warnings that are properties of the MOCK FIXTURE, not of the code
+    // under test. On the mock backend `mediaThumbUrl` is a plain http URL
+    // (the media bridge is the Rust path), so any row carrying an image asks
+    // Qt to resolve `mock.local` and Qt logs one host-not-found warning.
+    // That is a DNS fact about the test host, not a QML defect — and every
+    // other warning still fails the assertion it appears in.
+    // Pinned to the MOCK host specifically: a fixture that accidentally
+    // reached a real remote host must still fail, so this cannot be a
+    // blanket "any unresolvable image host" filter.
+    static QStringList realWarnings(const QStringList &warnings)
+    {
+        QStringList out;
+        for (const QString &w : warnings) {
+            if (w.contains(QLatin1String("QQuickImage: Host mock.local"))
+                && w.contains(QLatin1String("not found"))) {
+                continue;
+            }
+            out << w;
+        }
+        return out;
+    }
+
 private Q_SLOTS:
     // The actual room-activity component must materialize typed child rows,
     // not merely toggle an expansion bit in the containing ListView.
@@ -242,7 +335,7 @@ private Q_SLOTS:
         QVERIFY(root->setProperty("expanded", false));
         QTRY_VERIFY_WITH_TIMEOUT(!expanded->isVisible(), kSignalTimeoutMs);
         QTRY_COMPARE_WITH_TIMEOUT(expanded->height(), 0.0, kSignalTimeoutMs);
-        QCOMPARE(warnings, QStringList{});
+        QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
     // Defect A (0.5.14 checkpoint 1): instantiating the real TimelinePane.qml
@@ -270,7 +363,7 @@ private Q_SLOTS:
             QVERIFY(createdSpy.wait(kSignalTimeoutMs));
         QVERIFY(!createdSpy.isEmpty());
         QVERIFY(createdSpy.at(0).at(0).value<QObject *>() != nullptr);
-        QCOMPARE(warnings, QStringList{});
+        QCOMPARE(realWarnings(warnings), QStringList{});
 
         auto *root = qobject_cast<QQuickItem *>(
             createdSpy.at(0).at(0).value<QObject *>());
@@ -308,7 +401,7 @@ private Q_SLOTS:
         auto *root = qobject_cast<QQuickItem *>(
             createdSpy.at(0).at(0).value<QObject *>());
         QVERIFY(root != nullptr);
-        QCOMPARE(warnings, QStringList{});
+        QCOMPARE(realWarnings(warnings), QStringList{});
 
         auto *home = root->findChild<QQuickItem *>(QStringLiteral("homePane"));
         auto *composer =
@@ -323,7 +416,7 @@ private Q_SLOTS:
         QCoreApplication::processEvents();
         QVERIFY(!home->isVisible());
         QVERIFY(composer->isVisible());
-        QCOMPARE(warnings, QStringList{});
+        QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
     // Defect A: loading presentation state must render the header visibly,
@@ -394,7 +487,7 @@ private Q_SLOTS:
         QTRY_COMPARE_WITH_TIMEOUT(controller.pagination()->presentationState(),
                                   PaginationController::Hidden, 5000);
         QTRY_COMPARE_WITH_TIMEOUT(header->height(), 0.0, 5000);
-        QCOMPARE(warnings, QStringList{});
+        QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
     // 0.5.17: controller state changes alter the pagination header height,
@@ -473,7 +566,7 @@ private Q_SLOTS:
         QVERIFY2(stateSpy.count() < 40,
                  qPrintable(QStringLiteral("pagination state storm: %1")
                                 .arg(stateSpy.count())));
-        QCOMPARE(warnings, QStringList{});
+        QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
     // A transient first viewport-fill failure must stay internal and retry
@@ -510,7 +603,7 @@ private Q_SLOTS:
         QVERIFY(!controller.pagination()->failed());
         QVERIFY(controller.timeline()->rowCount() > 0);
         QVERIFY2(completedSpy.count() < 10, "initial history request storm");
-        QCOMPARE(warnings, QStringList{});
+        QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
     // 0.5.17: a populated encrypted timeline containing a long decrypted
@@ -573,7 +666,7 @@ private Q_SLOTS:
         QVERIFY2(heartbeatSpy.wait(kSignalTimeoutMs),
                  "room switch left timeline layout unresponsive");
         QVERIFY(window.isVisible());
-        QCOMPARE(warnings, QStringList{});
+        QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
     // The offscreen test QPA does not polish ListView delegates, so create
@@ -643,7 +736,7 @@ private Q_SLOTS:
         QVERIFY(body->height() > 0.0);
         QVERIFY(body->height() < 20000.0);
         QVERIFY(root->implicitHeight() < 20000.0);
-        QCOMPARE(warnings, QStringList{});
+        QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
     // v0.6.5 (C6, reviewer M4): a runtime guard for the reaction-chip
@@ -742,7 +835,7 @@ private Q_SLOTS:
         QVERIFY2(chips.at(0)->height() >= 22.0,
                  "chip height below the 22px design floor");
         QCOMPARE(chips.at(0)->height(), chips.at(1)->height());
-        QCOMPARE(warnings, QStringList{});
+        QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
     void rightClickMenuSnapshotsStableEventAndClosesOnRoomSwitch()
@@ -833,7 +926,7 @@ private Q_SLOTS:
         QTRY_VERIFY_WITH_TIMEOUT(!menu->property("opened").toBool(),
                                  kSignalTimeoutMs);
         QCOMPARE(root->property("menuEventId").toString(), QString{});
-        QCOMPARE(warnings, QStringList{});
+        QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
     // v0.7: the timeline ListView pools MessageDelegates (reuseItems). This
@@ -900,7 +993,7 @@ private Q_SLOTS:
         QCOMPARE(root->property("menuEventId").toString(), QString{});
         // No engine warnings means resetForReuse() resolved every id it
         // touches (details dialog, popups, preview refresh) cleanly.
-        QCOMPARE(warnings, QStringList{});
+        QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
     void roomActivitySettingCollapsesOnlyActivityDelegates()
@@ -971,7 +1064,7 @@ private Q_SLOTS:
         QTRY_VERIFY_WITH_TIMEOUT(activity->isVisible(), kSignalTimeoutMs);
         QVERIFY(activity->implicitHeight() > 0.0);
         QCOMPARE(controller.timeline()->rowCount(), underlyingCount);
-        QCOMPARE(warnings, QStringList{});
+        QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
     void settingsControlTracksRoomActivityPreference()
@@ -1010,7 +1103,7 @@ private Q_SLOTS:
         QTRY_COMPARE_WITH_TIMEOUT(controller.settings()->showRoomActivity(),
                                   false, kSignalTimeoutMs);
         QCOMPARE(settingSpy.count(), 1);
-        QCOMPARE(warnings, QStringList{});
+        QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
     // v0.5.19: the Settings mouse-wheel-speed control reflects the persisted
@@ -1062,7 +1155,7 @@ private Q_SLOTS:
         QTRY_COMPARE_WITH_TIMEOUT(combo->property("currentValue").toInt(), 0,
                                   kSignalTimeoutMs);
         QCOMPARE(scroll->wheelSpeed(), TimelineScrollController::Standard);
-        QCOMPARE(warnings, QStringList{});
+        QCOMPARE(realWarnings(warnings), QStringList{});
         // Leave the persisted store back at the default for other runs/tests.
         controller.settings()->setTimelineWheelSpeed(1);
     }
@@ -1137,7 +1230,7 @@ private Q_SLOTS:
         QVERIFY(label != nullptr);
         QCOMPARE(label->property("text").toString(),
                  QStringLiteral("New messages"));
-        QCOMPARE(warnings, QStringList{});
+        QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
     void jumpToLatestPreservesReaderUntilExplicitClick()
@@ -1185,7 +1278,7 @@ private Q_SLOTS:
                                   true, kSignalTimeoutMs);
         QTRY_COMPARE_WITH_TIMEOUT(jump->property("visible").toBool(), false,
                                   kSignalTimeoutMs);
-        QCOMPARE(warnings, QStringList{});
+        QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
     // v0.5.19: the timeline wheel handler exists, is scoped to the timeline
@@ -1222,7 +1315,7 @@ private Q_SLOTS:
         QObject *handler = timeline->findChild<QObject *>(
             QStringLiteral("timelineWheelHandler"));
         QVERIFY(handler != nullptr);
-        QCOMPARE(warnings, QStringList{});
+        QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
     // v0.5.19: a wheel movement upward through beginWheelTo() must leave
@@ -1255,11 +1348,18 @@ private Q_SLOTS:
 
         QVERIFY(timeline->setProperty("stickToBottom", true));
         const double startY = timeline->property("contentY").toDouble();
-        // Target above the current position (upward = toward the top).
+        // Target above the current position. The timeline is ROTATED since
+        // 1e50f6a: view row 0 (the newest message) sits at content y 0, so
+        // moving physically UPWARD — toward older history — INCREASES
+        // contentY. The pane's own keyboardPage() encodes the same sign
+        // (`beginWheelTo(contentY - direction * height * 0.9)` with
+        // direction -1 for up). The old `startY - 200.0` was the
+        // pre-rotation direction and now scrolls toward the newest end,
+        // which correctly leaves follow-latest engaged — hence the failure.
         QVERIFY(QMetaObject::invokeMethod(timeline, "beginWheelTo",
-                                          Q_ARG(QVariant, startY - 200.0)));
+                                          Q_ARG(QVariant, startY + 200.0)));
         QCOMPARE(timeline->property("stickToBottom").toBool(), false);
-        QCOMPARE(warnings, QStringList{});
+        QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
     // v0.5.19: Jump to latest must cancel an in-flight coalesced wheel motion
@@ -1305,7 +1405,7 @@ private Q_SLOTS:
         QTRY_COMPARE_WITH_TIMEOUT(scroll->motionActive(), false,
                                   kSignalTimeoutMs);
         QCOMPARE(timeline->property("wheelAnimating").toBool(), false);
-        QCOMPARE(warnings, QStringList{});
+        QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
     // v0.5.19: switching rooms cancels the previous room's wheel motion.
@@ -1343,7 +1443,7 @@ private Q_SLOTS:
         QTRY_COMPARE_WITH_TIMEOUT(scroll->motionActive(), false,
                                   kSignalTimeoutMs);
         QCOMPARE(timeline->property("wheelAnimating").toBool(), false);
-        QCOMPARE(warnings, QStringList{});
+        QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
     // v0.5.19: a REAL discrete wheel event delivered over the pane must route
@@ -1420,7 +1520,7 @@ private Q_SLOTS:
         warnings.removeIf([](const QString &w) {
             return w.contains(QStringLiteral("Host mock.local not found"));
         });
-        QCOMPARE(warnings, QStringList{});
+        QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
     // Regression: a TOUCHPAD (pixelDelta) upward scroll must leave
@@ -1658,7 +1758,7 @@ private Q_SLOTS:
             QCOMPARE(timeline->property("stickToBottom").toBool(), false);
         }
         QCOMPARE(jump->property("visible").toBool(), true);
-        QCOMPARE(warnings, QStringList{});
+        QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
     // ── v0.5.19 checkpoint 3: keyboard timeline navigation ───────────────
@@ -1705,7 +1805,7 @@ private Q_SLOTS:
         QTest::keyClick(&window, Qt::Key_End);
         QTRY_COMPARE_WITH_TIMEOUT(timeline->property("stickToBottom").toBool(),
                                   true, kSignalTimeoutMs);
-        QCOMPARE(warnings, QStringList{});
+        QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
     // Page Up, Home, Space and Shift+Space route to the timeline and start
@@ -1769,17 +1869,21 @@ private Q_SLOTS:
         QTest::keyClick(&window, Qt::Key_Home, Qt::NoModifier);
         QVERIFY2(!timeline->property("wheelAnimating").toBool(),
                  "Home must jump instantly, not start wheel motion");
-        // Home lands on the earliest loaded position (contentY == wheelMinY()).
-        // Pagination can grow content asynchronously (moving wheelMinY) between
-        // the keypress and a later read, so assert race-free: re-run the exact
-        // jump goToEarliestLoaded performs and read contentY + wheelMinY in the
-        // SAME event-loop turn (neither call spins the loop), which cannot race
-        // an async prepend.
+        // Home lands on the earliest loaded position. On the ROTATED
+        // timeline (1e50f6a) the earliest — oldest — end is the HIGH end of
+        // the scroll range, so that position is wheelMaxY(), not wheelMinY()
+        // as it was on the old top-to-bottom ListView. goToEarliestLoaded()
+        // is literally `contentY = wheelMaxY()`.
+        // Pagination can grow content asynchronously (moving wheelMaxY)
+        // between the keypress and a later read, so assert race-free: re-run
+        // the exact jump goToEarliestLoaded performs and read contentY +
+        // wheelMaxY in the SAME event-loop turn (neither call spins the
+        // loop), which cannot race an async prepend.
         QVERIFY(QMetaObject::invokeMethod(timeline, "goToEarliestLoaded"));
-        QVariant minY;
-        QVERIFY(QMetaObject::invokeMethod(timeline, "wheelMinY",
-                                          Q_RETURN_ARG(QVariant, minY)));
-        QCOMPARE(timeline->property("contentY").toDouble(), minY.toDouble());
+        QVariant maxY;
+        QVERIFY(QMetaObject::invokeMethod(timeline, "wheelMaxY",
+                                          Q_RETURN_ARG(QVariant, maxY)));
+        QCOMPARE(timeline->property("contentY").toDouble(), maxY.toDouble());
         QVERIFY(QMetaObject::invokeMethod(timeline, "cancelWheelMotion"));
     }
 
@@ -1831,7 +1935,7 @@ private Q_SLOTS:
         QCoreApplication::processEvents();
         QCOMPARE(timeline->property("stickToBottom").toBool(), false);
         QCOMPARE(timeline->property("wheelAnimating").toBool(), false);
-        QCOMPARE(warnings, QStringList{});
+        QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
     // v0.6.5 (C7): the find bar is now a floating composer-family card,
@@ -1925,7 +2029,7 @@ private Q_SLOTS:
         QVERIFY(timeline != nullptr);
         QTRY_VERIFY_WITH_TIMEOUT(timeline->hasActiveFocus(), kSignalTimeoutMs);
 
-        QCOMPARE(warnings, QStringList{});
+        QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
     // Defect A: switching rooms must not leak the previous room's
@@ -2031,7 +2135,7 @@ private Q_SLOTS:
         controller.setCurrentRoomId(generalId);
         QVERIFY(!isExpanded());
 
-        QCOMPARE(warnings, QStringList{});
+        QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
     // ── v0.6.0 checkpoint 3: thread panel ─────────────────────────────────
@@ -2090,7 +2194,7 @@ private Q_SLOTS:
                                   ThreadController::Closed, kSignalTimeoutMs);
         QTRY_COMPARE_WITH_TIMEOUT(panel->property("visible").toBool(), false,
                                   kSignalTimeoutMs);
-        QCOMPARE(warnings, QStringList{});
+        QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
     void roomSwitchClosesThreadPanel()
@@ -2127,7 +2231,7 @@ private Q_SLOTS:
         QCOMPARE(controller.thread()->state(), ThreadController::Closed);
         QTRY_COMPARE_WITH_TIMEOUT(panel->property("visible").toBool(), false,
                                   kSignalTimeoutMs);
-        QCOMPARE(warnings, QStringList{});
+        QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
     // The panel composer sends through ThreadController.sendText — the
@@ -2182,7 +2286,7 @@ private Q_SLOTS:
                      ->data(last, TimelineModel::ThreadRootIdRole).toString(),
                  rootId);
         QCOMPARE(input->property("text").toString(), QString{});
-        QCOMPARE(warnings, QStringList{});
+        QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
     // Deliberate narrow fallback (< 660 pane width): the open panel takes
@@ -2254,7 +2358,7 @@ private Q_SLOTS:
         controller.thread()->close();
         QTRY_COMPARE_WITH_TIMEOUT(panel->property("visible").toBool(), false,
                                   kSignalTimeoutMs);
-        QCOMPARE(warnings, QStringList{});
+        QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
     // ── v0.6.0 checkpoint 6: isolated thread scroll motion ───────────────
@@ -2366,7 +2470,7 @@ private Q_SLOTS:
         QCOMPARE(panelObject->property("visible").toBool(), false);
         QCOMPARE(forumButton->property("active").toBool(), false);
         QCOMPARE(groupButton->property("active").toBool(), false);
-        QCOMPARE(warnings, QStringList{});
+        QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
     // Settings → Appearance → Message layout: Compact tightens the row and
@@ -2487,7 +2591,7 @@ private Q_SLOTS:
                                   QStringLiteral("AppTheme.textScale = 1.0"));
         resetScale.evaluate();
 
-        QCOMPARE(warnings, QStringList{});
+        QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
     // Read-receipt chips: empty list = zero footprint (the strip stays
@@ -2668,7 +2772,7 @@ private Q_SLOTS:
                          .arg(chipsRight).arg(stripRight)));
         }
 
-        QCOMPARE(warnings, QStringList{});
+        QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
     // 2026-08-14 (maintainer request, Element parity): read-receipt chips
@@ -2822,7 +2926,7 @@ private Q_SLOTS:
                      .arg(railOffsets[0]).arg(railOffsets[1])
                      .arg(railOffsets[2])));
 
-        QCOMPARE(warnings, QStringList{});
+        QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
     // Live-bug reproduction (2026-08 report: "receipts dont show avatars" —
@@ -2957,9 +3061,7 @@ private Q_SLOTS:
         // reach the decoded bitmap through the real provider path.
         QQuickItem *carolRow = nullptr;
         QTRY_VERIFY_WITH_TIMEOUT(
-            (QMetaObject::invokeMethod(timeline, "itemAtIndex",
-                                       Q_RETURN_ARG(QQuickItem *, carolRow),
-                                       Q_ARG(int, 0)),
+            (((carolRow = itemForSourceRow(timeline, 0)) != nullptr),
              carolRow != nullptr),
             kSignalTimeoutMs);
         QQuickItem *carolAvatar = chipAvatar(carolRow);
@@ -2988,9 +3090,7 @@ private Q_SLOTS:
         // member-cache hydration alone must then promote the chip.
         QQuickItem *daveRow = nullptr;
         QTRY_VERIFY_WITH_TIMEOUT(
-            (QMetaObject::invokeMethod(timeline, "itemAtIndex",
-                                       Q_RETURN_ARG(QQuickItem *, daveRow),
-                                       Q_ARG(int, 1)),
+            (((daveRow = itemForSourceRow(timeline, 1)) != nullptr),
              daveRow != nullptr),
             kSignalTimeoutMs);
         QQuickItem *daveAvatar = chipAvatar(daveRow);
@@ -3014,7 +3114,7 @@ private Q_SLOTS:
             daveAvatar->property("presentationState").toString(),
             QStringLiteral("ready"), kSignalTimeoutMs);
 
-        QCOMPARE(warnings, QStringList{});
+        QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
     // SDK receipt tracking (required for the receipt chips) also revives
@@ -3093,9 +3193,7 @@ private Q_SLOTS:
 
         QQuickItem *markerItem = nullptr;
         QTRY_VERIFY_WITH_TIMEOUT(
-            (QMetaObject::invokeMethod(timeline, "itemAtIndex",
-                                       Q_RETURN_ARG(QQuickItem *, markerItem),
-                                       Q_ARG(int, 3)),
+            (((markerItem = itemForSourceRow(timeline, 3)) != nullptr),
              markerItem != nullptr),
             5000);
         auto *divider = markerItem->findChild<QQuickItem *>(
@@ -3119,7 +3217,7 @@ private Q_SLOTS:
         QTRY_VERIFY_WITH_TIMEOUT(!divider->isVisible(), 2000);
         QCOMPARE(markerItem->implicitHeight(), 0.0);
 
-        QCOMPARE(warnings, QStringList{});
+        QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
     void threadScrollMotionIsIsolatedFromRoomTimeline()
@@ -3180,7 +3278,7 @@ private Q_SLOTS:
         controller.thread()->close();
         QTRY_COMPARE_WITH_TIMEOUT(threadScroll->motionActive(), false,
                                   kSignalTimeoutMs);
-        QCOMPARE(warnings, QStringList{});
+        QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
     // v0.7.2: the pagination-specific anchor (anchorStableId, captureAnchor/
@@ -3253,9 +3351,7 @@ private Q_SLOTS:
 
         const int anchorRow = 15;
         QVERIFY(timeline->setProperty("stickToBottom", false));
-        QVERIFY(QMetaObject::invokeMethod(timeline, "positionViewAtIndex",
-                                          Q_ARG(int, anchorRow),
-                                          Q_ARG(int, 0 /*ListView.Beginning*/)));
+        QVERIFY(positionAtSourceRow(timeline, anchorRow));
         QCoreApplication::processEvents();
         QVERIFY(QMetaObject::invokeMethod(timeline, "captureViewAnchor"));
         const QString anchorId = timeline->property("viewAnchorId").toString();
@@ -3293,9 +3389,7 @@ private Q_SLOTS:
         QVERIFY(newRow >= 0);
         QQuickItem *anchorItem = nullptr;
         QTRY_VERIFY_WITH_TIMEOUT(
-            (QMetaObject::invokeMethod(timeline, "itemAtIndex",
-                                       Q_RETURN_ARG(QQuickItem *, anchorItem),
-                                       Q_ARG(int, newRow)),
+            (((anchorItem = itemForSourceRow(timeline, newRow)) != nullptr),
              anchorItem != nullptr),
             kSignalTimeoutMs);
 
@@ -3313,7 +3407,7 @@ private Q_SLOTS:
                      "give %3)")
                      .arg(actual).arg(expected)
                      .arg(expected + simulatedScrollDelta)));
-        QCOMPARE(warnings, QStringList{});
+        QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
     // Discrete-wheel path end to end: the old restore cancelled an in-flight
@@ -3377,9 +3471,7 @@ private Q_SLOTS:
                                  kSignalTimeoutMs);
 
         QVERIFY(timeline->setProperty("stickToBottom", false));
-        QVERIFY(QMetaObject::invokeMethod(timeline, "positionViewAtIndex",
-                                          Q_ARG(int, 15),
-                                          Q_ARG(int, 0 /*ListView.Beginning*/)));
+        QVERIFY(positionAtSourceRow(timeline, 15));
         QCoreApplication::processEvents();
         QVERIFY(QMetaObject::invokeMethod(timeline, "captureViewAnchor"));
         QVERIFY(!timeline->property("viewAnchorId").toString().isEmpty());
@@ -3420,7 +3512,7 @@ private Q_SLOTS:
                 < beforeCompletionY - 20.0,
             kSignalTimeoutMs);
         QTRY_VERIFY_WITH_TIMEOUT(!scroll->motionActive(), kSignalTimeoutMs);
-        QCOMPARE(warnings, QStringList{});
+        QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
     // THE load-bearing test for the unification, driven from the TOP EDGE
@@ -3524,7 +3616,7 @@ private Q_SLOTS:
         // Put the reader AT THE TOP EDGE, which is where near-top backfill
         // fires and where an upward glide parks against StopAtBounds.
         QVERIFY(timeline->setProperty("stickToBottom", false));
-        QVERIFY(QMetaObject::invokeMethod(timeline, "positionViewAtBeginning"));
+        QVERIFY(positionAtTopEdge(timeline));
         QCoreApplication::processEvents();
         QVERIFY(QMetaObject::invokeMethod(timeline, "captureViewAnchor"));
         const QString anchorId = timeline->property("viewAnchorId").toString();
@@ -3534,9 +3626,7 @@ private Q_SLOTS:
         const int rowBefore = controller.timeline()->rowForStableId(anchorId);
         QVERIFY(rowBefore >= 0);
         QQuickItem *itemBefore = nullptr;
-        QVERIFY(QMetaObject::invokeMethod(
-            timeline, "itemAtIndex", Q_RETURN_ARG(QQuickItem *, itemBefore),
-            Q_ARG(int, rowBefore)));
+        QVERIFY(((itemBefore = itemForSourceRow(timeline, rowBefore)) != nullptr));
         QVERIFY(itemBefore != nullptr);
         const double offsetBefore =
             itemBefore->y() - timeline->property("contentY").toDouble();
@@ -3587,9 +3677,7 @@ private Q_SLOTS:
         QTRY_VERIFY_WITH_TIMEOUT(
             ([&] {
                 QQuickItem *itemAfter = nullptr;
-                QMetaObject::invokeMethod(
-                    timeline, "itemAtIndex",
-                    Q_RETURN_ARG(QQuickItem *, itemAfter), Q_ARG(int, rowAfter));
+                ((itemAfter = itemForSourceRow(timeline, rowAfter)) != nullptr);
                 if (!itemAfter)
                     return false;
                 offsetAfter = itemAfter->y()
@@ -3602,7 +3690,7 @@ private Q_SLOTS:
                      "a top-edge prepend moved the reader off their row "
                      "mid-gesture: viewport offset %1 -> %2 (the teleport "
                      "cascade)").arg(offsetBefore).arg(offsetAfter)));
-        QCOMPARE(warnings, QStringList{});
+        QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
     // v0.6.6 regression fix: reverted to its pre-M5 shape (formerly
@@ -3710,7 +3798,7 @@ private Q_SLOTS:
                                  kSignalTimeoutMs);
 
         QVERIFY(timeline->setProperty("stickToBottom", false));
-        QVERIFY(QMetaObject::invokeMethod(timeline, "positionViewAtBeginning"));
+        QVERIFY(positionAtTopEdge(timeline));
         QCoreApplication::processEvents();
         QVERIFY(QMetaObject::invokeMethod(timeline, "captureViewAnchor"));
         const QString anchorId = timeline->property("viewAnchorId").toString();
@@ -3719,9 +3807,7 @@ private Q_SLOTS:
         int rowBefore = controller.timeline()->rowForStableId(anchorId);
         QVERIFY(rowBefore >= 0);
         QQuickItem *itemBefore = nullptr;
-        QVERIFY(QMetaObject::invokeMethod(
-            timeline, "itemAtIndex", Q_RETURN_ARG(QQuickItem *, itemBefore),
-            Q_ARG(int, rowBefore)));
+        QVERIFY(((itemBefore = itemForSourceRow(timeline, rowBefore)) != nullptr));
         QVERIFY(itemBefore != nullptr);
         double offsetBefore =
             itemBefore->y() - timeline->property("contentY").toDouble();
@@ -3781,10 +3867,7 @@ private Q_SLOTS:
             QTRY_VERIFY_WITH_TIMEOUT(
                 ([&] {
                     QQuickItem *itemAfter = nullptr;
-                    QMetaObject::invokeMethod(
-                        timeline, "itemAtIndex",
-                        Q_RETURN_ARG(QQuickItem *, itemAfter),
-                        Q_ARG(int, rowAfter));
+                    ((itemAfter = itemForSourceRow(timeline, rowAfter)) != nullptr);
                     if (!itemAfter)
                         return false;
                     offsetAfter = itemAfter->y()
@@ -3803,7 +3886,7 @@ private Q_SLOTS:
             rowBefore = rowAfter;
             offsetBefore = offsetAfter;
         }
-        QCOMPARE(warnings, QStringList{});
+        QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
     // The IMMEDIATE per-batch correction path — maintainViewAnchor()'s
@@ -3910,9 +3993,7 @@ private Q_SLOTS:
         // enough the top for a big prepend to displace it past the cache
         // buffer, but with enough headroom that atYBeginning never
         // triggers.
-        QVERIFY(QMetaObject::invokeMethod(
-            timeline, "positionViewAtIndex",
-            Q_ARG(int, 5), Q_ARG(int, 0 /* ListView.Beginning */)));
+        QVERIFY(positionAtSourceRow(timeline, 5));
         QCoreApplication::processEvents();
         QVERIFY(QMetaObject::invokeMethod(timeline, "captureViewAnchor"));
         const QString anchorId = timeline->property("viewAnchorId").toString();
@@ -3924,9 +4005,7 @@ private Q_SLOTS:
         int rowBefore = controller.timeline()->rowForStableId(anchorId);
         QVERIFY(rowBefore >= 0);
         QQuickItem *itemBefore = nullptr;
-        QVERIFY(QMetaObject::invokeMethod(
-            timeline, "itemAtIndex", Q_RETURN_ARG(QQuickItem *, itemBefore),
-            Q_ARG(int, rowBefore)));
+        QVERIFY(((itemBefore = itemForSourceRow(timeline, rowBefore)) != nullptr));
         QVERIFY(itemBefore != nullptr);
         double offsetBefore =
             itemBefore->y() - timeline->property("contentY").toDouble();
@@ -3979,10 +4058,7 @@ private Q_SLOTS:
             QTRY_VERIFY_WITH_TIMEOUT(
                 ([&] {
                     QQuickItem *itemAfter = nullptr;
-                    QMetaObject::invokeMethod(
-                        timeline, "itemAtIndex",
-                        Q_RETURN_ARG(QQuickItem *, itemAfter),
-                        Q_ARG(int, rowAfter));
+                    ((itemAfter = itemForSourceRow(timeline, rowAfter)) != nullptr);
                     if (!itemAfter)
                         return false;
                     offsetAfter = itemAfter->y()
@@ -4001,7 +4077,7 @@ private Q_SLOTS:
             rowBefore = rowAfter;
             offsetBefore = offsetAfter;
         }
-        QCOMPARE(warnings, QStringList{});
+        QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
     // The reported loading storm: "it keeps loading old messages each time I
@@ -4120,7 +4196,7 @@ private Q_SLOTS:
         };
 
         QVERIFY(timeline->setProperty("stickToBottom", false));
-        QVERIFY(QMetaObject::invokeMethod(timeline, "positionViewAtBeginning"));
+        QVERIFY(positionAtTopEdge(timeline));
         QCoreApplication::processEvents();
         const double topBefore = topmostY();
 
@@ -4182,7 +4258,7 @@ private Q_SLOTS:
         mock->setPaginationDelayForTest(60000);
         QVERIFY2(!controller.pagination()->reachedStart(),
                  "premise: backfill must still be available");
-        QVERIFY(QMetaObject::invokeMethod(timeline, "positionViewAtBeginning"));
+        QVERIFY(positionAtTopEdge(timeline));
         QCoreApplication::processEvents();
         // Every probe below must stay INSIDE the band, including the downward
         // one — the band is only ~232 px here (half the ListView height, not
@@ -4318,7 +4394,7 @@ private Q_SLOTS:
                  "a downward sample inside the region already traversed "
                  "consumed the latch — 'scroll up near the top, then scroll "
                  "down a little' still loads history");
-        QCOMPARE(warnings, QStringList{});
+        QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
     // The multi-batch guarantee the deleted stale-token bookkeeping existed
@@ -4389,18 +4465,14 @@ private Q_SLOTS:
         QVERIFY(!timeline->property("anchorStableId").isValid());
 
         QVERIFY(timeline->setProperty("stickToBottom", false));
-        QVERIFY(QMetaObject::invokeMethod(timeline, "positionViewAtIndex",
-                                          Q_ARG(int, 15),
-                                          Q_ARG(int, 0 /*ListView.Beginning*/)));
+        QVERIFY(positionAtSourceRow(timeline, 15));
         QCoreApplication::processEvents();
         QVERIFY(QMetaObject::invokeMethod(timeline, "captureViewAnchor"));
         const QString anchorId = timeline->property("viewAnchorId").toString();
         QVERIFY(!anchorId.isEmpty());
         const int rowBefore = controller.timeline()->rowForStableId(anchorId);
         QQuickItem *itemBefore = nullptr;
-        QVERIFY(QMetaObject::invokeMethod(
-            timeline, "itemAtIndex", Q_RETURN_ARG(QQuickItem *, itemBefore),
-            Q_ARG(int, rowBefore)));
+        QVERIFY(((itemBefore = itemForSourceRow(timeline, rowBefore)) != nullptr));
         QVERIFY(itemBefore != nullptr);
         const double yBefore = itemBefore->y();
         const double contentYBefore = timeline->property("contentY").toDouble();
@@ -4418,9 +4490,7 @@ private Q_SLOTS:
         QVERIFY(rowAfter >= 0);
         QQuickItem *itemAfter = nullptr;
         QTRY_VERIFY_WITH_TIMEOUT(
-            (QMetaObject::invokeMethod(timeline, "itemAtIndex",
-                                       Q_RETURN_ARG(QQuickItem *, itemAfter),
-                                       Q_ARG(int, rowAfter)),
+            (((itemAfter = itemForSourceRow(timeline, rowAfter)) != nullptr),
              itemAfter != nullptr),
             kSignalTimeoutMs);
         const double expected = contentYBefore + (itemAfter->y() - yBefore);
@@ -4434,7 +4504,7 @@ private Q_SLOTS:
                      "two consecutive prepends were not each compensated "
                      "exactly once: actual=%1 expected=%2")
                      .arg(actual).arg(expected)));
-        QCOMPARE(warnings, QStringList{});
+        QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
 
@@ -4505,9 +4575,7 @@ private Q_SLOTS:
                                  kSignalTimeoutMs);
 
         QVERIFY(timeline->setProperty("stickToBottom", false));
-        QVERIFY(QMetaObject::invokeMethod(timeline, "positionViewAtIndex",
-                                          Q_ARG(int, 15),
-                                          Q_ARG(int, 0 /*ListView.Beginning*/)));
+        QVERIFY(positionAtSourceRow(timeline, 15));
         QCoreApplication::processEvents();
 
         QVERIFY(QMetaObject::invokeMethod(timeline, "captureViewAnchor"));
@@ -4516,9 +4584,7 @@ private Q_SLOTS:
         const int anchorRow = controller.timeline()->rowForStableId(anchorId);
         QVERIFY(anchorRow >= 0);
         QQuickItem *anchorItem = nullptr;
-        QVERIFY(QMetaObject::invokeMethod(
-            timeline, "itemAtIndex", Q_RETURN_ARG(QQuickItem *, anchorItem),
-            Q_ARG(int, anchorRow)));
+        QVERIFY(((anchorItem = itemForSourceRow(timeline, anchorRow)) != nullptr));
         QVERIFY(anchorItem != nullptr);
         const double realItemY = anchorItem->y();
 
@@ -4561,7 +4627,7 @@ private Q_SLOTS:
                  "viewAnchorLastY did not re-base after applying the delta");
         QVERIFY2(!controller.timelineScroll()->motionActive(),
                  "no glide was active — nothing should have been engaged");
-        QCOMPARE(warnings, QStringList{});
+        QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
     // Companion for the DISCRETE-WHEEL path: growth compensation must not
@@ -4623,9 +4689,7 @@ private Q_SLOTS:
                                  kSignalTimeoutMs);
 
         QVERIFY(timeline->setProperty("stickToBottom", false));
-        QVERIFY(QMetaObject::invokeMethod(timeline, "positionViewAtIndex",
-                                          Q_ARG(int, 15),
-                                          Q_ARG(int, 0 /*ListView.Beginning*/)));
+        QVERIFY(positionAtSourceRow(timeline, 15));
         QCoreApplication::processEvents();
 
         QVERIFY(QMetaObject::invokeMethod(timeline, "captureViewAnchor"));
@@ -4634,9 +4698,7 @@ private Q_SLOTS:
         const int anchorRow = controller.timeline()->rowForStableId(anchorId);
         QVERIFY(anchorRow >= 0);
         QQuickItem *anchorItem = nullptr;
-        QVERIFY(QMetaObject::invokeMethod(
-            timeline, "itemAtIndex", Q_RETURN_ARG(QQuickItem *, anchorItem),
-            Q_ARG(int, anchorRow)));
+        QVERIFY(((anchorItem = itemForSourceRow(timeline, anchorRow)) != nullptr));
         QVERIFY(anchorItem != nullptr);
         const double realItemY = anchorItem->y();
 
@@ -4682,7 +4744,7 @@ private Q_SLOTS:
         QVERIFY2(qAbs((scroll->targetYForTest() - scroll->positionYForTest())
                      - remainingBefore) < 1.0,
                  "growth correction changed the glide's remaining distance");
-        QCOMPARE(warnings, QStringList{});
+        QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
     // Blocking review finding: userScrollActive also covers a NATIVE drag /
@@ -4744,9 +4806,7 @@ private Q_SLOTS:
                                  kSignalTimeoutMs);
 
         QVERIFY(timeline->setProperty("stickToBottom", false));
-        QVERIFY(QMetaObject::invokeMethod(timeline, "positionViewAtIndex",
-                                          Q_ARG(int, 15),
-                                          Q_ARG(int, 0 /*ListView.Beginning*/)));
+        QVERIFY(positionAtSourceRow(timeline, 15));
         QCoreApplication::processEvents();
 
         // Preconditions, so a future geometry change fails loudly here
@@ -4759,9 +4819,7 @@ private Q_SLOTS:
         const int anchorRow = controller.timeline()->rowForStableId(anchorId);
         QVERIFY(anchorRow >= 0);
         QQuickItem *anchorItem = nullptr;
-        QVERIFY(QMetaObject::invokeMethod(
-            timeline, "itemAtIndex", Q_RETURN_ARG(QQuickItem *, anchorItem),
-            Q_ARG(int, anchorRow)));
+        QVERIFY(((anchorItem = itemForSourceRow(timeline, anchorRow)) != nullptr));
         QVERIFY(anchorItem != nullptr);
         const double realItemY = anchorItem->y();
 
@@ -4885,9 +4943,7 @@ private Q_SLOTS:
         QCOMPARE(timeline->property("scrollTrace").toBool(), false);
 
         QVERIFY(timeline->setProperty("stickToBottom", false));
-        QVERIFY(QMetaObject::invokeMethod(timeline, "positionViewAtIndex",
-                                          Q_ARG(int, 15),
-                                          Q_ARG(int, 0 /*ListView.Beginning*/)));
+        QVERIFY(positionAtSourceRow(timeline, 15));
         QCoreApplication::processEvents();
         QVERIFY(QMetaObject::invokeMethod(timeline, "captureViewAnchor"));
 
@@ -5140,9 +5196,7 @@ private Q_SLOTS:
                                  kSignalTimeoutMs);
 
         QVERIFY(timeline->setProperty("stickToBottom", false));
-        QVERIFY(QMetaObject::invokeMethod(timeline, "positionViewAtIndex",
-                                          Q_ARG(int, 15),
-                                          Q_ARG(int, 0 /*ListView.Beginning*/)));
+        QVERIFY(positionAtSourceRow(timeline, 15));
         QCoreApplication::processEvents();
 
         QVERIFY(QMetaObject::invokeMethod(timeline, "captureViewAnchor"));
@@ -5151,9 +5205,7 @@ private Q_SLOTS:
         const int anchorRow = controller.timeline()->rowForStableId(anchorId);
         QVERIFY(anchorRow >= 0);
         QQuickItem *anchorItem = nullptr;
-        QVERIFY(QMetaObject::invokeMethod(
-            timeline, "itemAtIndex", Q_RETURN_ARG(QQuickItem *, anchorItem),
-            Q_ARG(int, anchorRow)));
+        QVERIFY(((anchorItem = itemForSourceRow(timeline, anchorRow)) != nullptr));
         QVERIFY(anchorItem != nullptr);
         const double realItemY = anchorItem->y();
 
@@ -5220,7 +5272,7 @@ private Q_SLOTS:
         QCOMPARE(timeline->property("diagUnresolvedIdFallbacks").toInt(), 0);
         QCOMPARE(timeline->property("diagEvictedNoInsertFallbacks").toInt(), 0);
         QCOMPARE(timeline->property("diagDragDeferrals").toInt(), 0);
-        QCOMPARE(warnings, QStringList{});
+        QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
     // Per-branch counter (drag-deferral): discriminates H-A — whether a
@@ -5284,9 +5336,7 @@ private Q_SLOTS:
                                  kSignalTimeoutMs);
 
         QVERIFY(timeline->setProperty("stickToBottom", false));
-        QVERIFY(QMetaObject::invokeMethod(timeline, "positionViewAtIndex",
-                                          Q_ARG(int, 15),
-                                          Q_ARG(int, 0 /*ListView.Beginning*/)));
+        QVERIFY(positionAtSourceRow(timeline, 15));
         QCoreApplication::processEvents();
         QVERIFY(QMetaObject::invokeMethod(timeline, "captureViewAnchor"));
         const QString anchorId = timeline->property("viewAnchorId").toString();
@@ -5294,9 +5344,7 @@ private Q_SLOTS:
         const int anchorRow = controller.timeline()->rowForStableId(anchorId);
         QVERIFY(anchorRow >= 0);
         QQuickItem *anchorItem = nullptr;
-        QVERIFY(QMetaObject::invokeMethod(
-            timeline, "itemAtIndex", Q_RETURN_ARG(QQuickItem *, anchorItem),
-            Q_ARG(int, anchorRow)));
+        QVERIFY(((anchorItem = itemForSourceRow(timeline, anchorRow)) != nullptr));
         QVERIFY(anchorItem != nullptr);
         const double realItemY = anchorItem->y();
 
@@ -5411,9 +5459,7 @@ private Q_SLOTS:
                                  kSignalTimeoutMs);
 
         QVERIFY(timeline->setProperty("stickToBottom", false));
-        QVERIFY(QMetaObject::invokeMethod(timeline, "positionViewAtIndex",
-                                          Q_ARG(int, 15),
-                                          Q_ARG(int, 0 /*ListView.Beginning*/)));
+        QVERIFY(positionAtSourceRow(timeline, 15));
         QCoreApplication::processEvents();
 
         // Open the diag session.
@@ -5441,13 +5487,36 @@ private Q_SLOTS:
         QVERIFY(timeline->setProperty(
             "viewAnchorId", QStringLiteral("$this-event-id-does-not-exist")));
 
+        // Baseline the OTHER branch counters immediately before the call.
+        // The invariant this test names is about THIS maintainViewAnchor()
+        // call — "it cannot enter the displaced branch and falls straight to
+        // the capture fallback" — not about the whole fixture's history. The
+        // touchpad loop above drives real geometry, so the self-driven
+        // (materialized) branch may legitimately have fired during setup;
+        // asserting the ABSOLUTE counter was zero made this case depend on
+        // that incidental timing and it failed intermittently (measured 4
+        // pass / 4 fail in isolation). Deltas assert the real thing. Same
+        // baseline idiom the sibling diag tests already use.
+        const int baseEvicted =
+            timeline->property("diagEvictedNoInsertFallbacks").toInt();
+        const int baseDisplaced =
+            timeline->property("diagDisplacedFirings").toInt();
+        const int baseMaterialized =
+            timeline->property("diagMaterializedFirings").toInt();
+        const int baseDragDeferrals =
+            timeline->property("diagDragDeferrals").toInt();
+
         QVERIFY(QMetaObject::invokeMethod(timeline, "maintainViewAnchor"));
 
         QCOMPARE(timeline->property("diagUnresolvedIdFallbacks").toInt(), 1);
-        QCOMPARE(timeline->property("diagEvictedNoInsertFallbacks").toInt(), 0);
-        QCOMPARE(timeline->property("diagDisplacedFirings").toInt(), 0);
-        QCOMPARE(timeline->property("diagMaterializedFirings").toInt(), 0);
-        QCOMPARE(timeline->property("diagDragDeferrals").toInt(), 0);
+        QCOMPARE(timeline->property("diagEvictedNoInsertFallbacks").toInt(),
+                 baseEvicted);
+        QCOMPARE(timeline->property("diagDisplacedFirings").toInt(),
+                 baseDisplaced);
+        QCOMPARE(timeline->property("diagMaterializedFirings").toInt(),
+                 baseMaterialized);
+        QCOMPARE(timeline->property("diagDragDeferrals").toInt(),
+                 baseDragDeferrals);
     }
 
     // Per-branch counter (L1 split, evicted-no-insert half): the SAME real
@@ -5517,9 +5586,7 @@ private Q_SLOTS:
                                  kSignalTimeoutMs);
 
         QVERIFY(timeline->setProperty("stickToBottom", false));
-        QVERIFY(QMetaObject::invokeMethod(timeline, "positionViewAtIndex",
-                                          Q_ARG(int, 5),
-                                          Q_ARG(int, 0 /*ListView.Beginning*/)));
+        QVERIFY(positionAtSourceRow(timeline, 5));
         QCoreApplication::processEvents();
         QVERIFY(QMetaObject::invokeMethod(timeline, "captureViewAnchor"));
         const QString anchorId = timeline->property("viewAnchorId").toString();
@@ -5527,14 +5594,10 @@ private Q_SLOTS:
         const int anchorRow = controller.timeline()->rowForStableId(anchorId);
         QVERIFY(anchorRow >= 0);
 
-        QVERIFY(QMetaObject::invokeMethod(timeline, "positionViewAtIndex",
-                                          Q_ARG(int, 50),
-                                          Q_ARG(int, 0 /*ListView.Beginning*/)));
+        QVERIFY(positionAtSourceRow(timeline, 50));
         QCoreApplication::processEvents();
         QQuickItem *evicted = nullptr;
-        QMetaObject::invokeMethod(timeline, "itemAtIndex",
-                                  Q_RETURN_ARG(QQuickItem *, evicted),
-                                  Q_ARG(int, anchorRow));
+        evicted = itemForSourceRow(timeline, anchorRow);
         QVERIFY2(evicted == nullptr,
                  "fixture no longer evicts the anchor's delegate — this "
                  "test would pass on broken code");
@@ -5645,9 +5708,7 @@ private Q_SLOTS:
                                  kSignalTimeoutMs);
 
         QVERIFY(timeline->setProperty("stickToBottom", false));
-        QVERIFY(QMetaObject::invokeMethod(timeline, "positionViewAtIndex",
-                                          Q_ARG(int, 5),
-                                          Q_ARG(int, 0 /*ListView.Beginning*/)));
+        QVERIFY(positionAtSourceRow(timeline, 5));
         QCoreApplication::processEvents();
         QVERIFY(QMetaObject::invokeMethod(timeline, "captureViewAnchor"));
         const QString anchorId = timeline->property("viewAnchorId").toString();
@@ -5657,14 +5718,10 @@ private Q_SLOTS:
 
         // Jump far away so the anchor's delegate falls outside cacheBuffer
         // and is destroyed — the precondition the displaced branch needs.
-        QVERIFY(QMetaObject::invokeMethod(timeline, "positionViewAtIndex",
-                                          Q_ARG(int, 50),
-                                          Q_ARG(int, 0 /*ListView.Beginning*/)));
+        QVERIFY(positionAtSourceRow(timeline, 50));
         QCoreApplication::processEvents();
         QQuickItem *evicted = nullptr;
-        QMetaObject::invokeMethod(timeline, "itemAtIndex",
-                                  Q_RETURN_ARG(QQuickItem *, evicted),
-                                  Q_ARG(int, anchorRow));
+        evicted = itemForSourceRow(timeline, anchorRow);
         QVERIFY2(evicted == nullptr,
                  "fixture no longer evicts the anchor's delegate — this "
                  "test would pass on broken code");
@@ -6038,7 +6095,7 @@ private Q_SLOTS:
         QCOMPARE(timeline->property("diagNoAnchorReturns").toInt(), 0);
         QVERIFY(QMetaObject::invokeMethod(timeline, "maintainViewAnchor"));
         QCOMPARE(timeline->property("diagNoAnchorReturns").toInt(), 1);
-        QCOMPARE(warnings, QStringList{});
+        QCOMPARE(realWarnings(warnings), QStringList{});
     }
 };
 

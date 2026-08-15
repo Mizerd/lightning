@@ -302,11 +302,23 @@ private Q_SLOTS:
                 <= 2.0,
             5000);
 
-        // Growth below the anchor.
+        // Growth on the other side of the anchor. NOTE the sides are not
+        // what a top-to-bottom reading suggests: the timeline is rotated, so
+        // model row 24 (a NEWER message) is at a LOWER content y than the
+        // anchor, and growing it shifts every row above it — the anchor
+        // included. That is precisely the case maintainViewAnchor must
+        // compensate, unlike rows 2/5 above, which sit at higher content y
+        // and cannot move the anchor at all.
+        //
+        // Asserted with QTRY like the first case: the correction is
+        // explicitly ONE COALESCED pass per batch, so a bare qWait(60)
+        // followed by an immediate read was racing the very coalescing the
+        // pane documents. The bound itself (2px) is unchanged.
         grow(24);
-        QTest::qWait(60);
-        QVERIFY(qAbs(viewportYForRow(pane.timeline, anchorRow)
-                     - anchorViewportY) <= 2.0);
+        QTRY_VERIFY_WITH_TIMEOUT(
+            qAbs(viewportYForRow(pane.timeline, anchorRow) - anchorViewportY)
+                <= 2.0,
+            5000);
 
         // A live append below must not force the reader to the bottom.
         mock->appendEventForTest(
@@ -314,8 +326,10 @@ private Q_SLOTS:
                             QStringLiteral("new live message"), 0));
         QTest::qWait(60);
         QVERIFY(!pane.timeline->property("stickToBottom").toBool());
-        QVERIFY(qAbs(viewportYForRow(pane.timeline, anchorRow)
-                     - anchorViewportY) <= 2.0);
+        QTRY_VERIFY_WITH_TIMEOUT(
+            qAbs(viewportYForRow(pane.timeline, anchorRow) - anchorViewportY)
+                <= 2.0,
+            5000);
         QCOMPARE(pane.warnings, QStringList{});
     }
 
