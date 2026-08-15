@@ -415,9 +415,74 @@ backend capability checks and honest live-test status.
   People list and the member profile popover, via bounded client polling —
   Sliding Sync has no presence extension. See §16 for the full mechanism
   and honesty rules; live validation NOT TESTED
+- **Member power levels** (2026-08-15) through the SDK's own
+  `Room::update_power_levels`, which rewrites `m.room.power_levels`
+  preserving every other user's value — including arbitrary custom numbers.
+  Offered from the member profile popover; the OFFER policy lives in
+  `RoomInfoController::canSetPowerLevel` (architecture §5), which applies
+  the rules the server will apply anyway: never above the viewer's own
+  level, never against a peer at or above it, self-DEMOTION only, and an
+  unknown target FAILS CLOSED (levels may legitimately be negative — Element's
+  "Restricted" is -1 — so absence of the roster row, never a sentinel, is
+  the unknown state). `roleLabelForLevel` renders 100/50/users_default as
+  Administrator/Moderator/Member and **anything else as its number**: a room
+  using 42 must not be relabelled 50, and must not be SAVED as 50 either.
+  Nothing is applied optimistically — the write completes and the roster is
+  re-read, so a rejection cannot leave a value the room does not have.
+  `own_can_change_power_levels` is the SDK's `can_send_state`, never a role
+  label. Live homeserver validation NOT TESTED
+- **Join rule and canonical alias** (2026-08-15) in Room Information →
+  Overview, each gated on the room's REAL required level for that state
+  event. Only `invite` / `public` / `knock` are settable: the restricted
+  rules carry an allow-rule list this surface cannot build, and sending one
+  with an empty list would silently lock the room to invite-only while
+  claiming otherwise — a restricted room is displayed honestly and left
+  alone. The alias path publishes the directory mapping first
+  (`Client::create_room_alias`) when the alias does not already resolve to
+  this room, because a server rejects a canonical alias it cannot resolve;
+  clearing sends the state event with no alias and deliberately does NOT
+  delete the directory mapping. Both ride the MEMBER snapshot, so a
+  successful write asks for a roster refresh explicitly — nothing else
+  refetches it for a non-membership state change. Live validation NOT TESTED
+- **Unverified-session prompts** (2026-08-15): `sessionVerificationNeeded`
+  is true for exactly one actionable state — signed in, crypto-capable
+  backend, `sessionTrustState == "Not verified"`. "Unknown" (not yet
+  determined) and "Cross-signing unavailable" (no identity to verify
+  against) deliberately do NOT prompt. `sessionVerificationWarning` adds the
+  per-account dismissal, and ONLY the badges (rail cog, Sessions nav dot,
+  corner prompt) read it — the Sessions page states the fact from the
+  undismissible property, so silencing the reminder never hides the truth.
+  The dismissal is strictly account-scoped (NOT `appearanceValue`, which
+  mirrors into a shared global fallback) and is cleared automatically when
+  the session verifies, so it can never silence a later unverified session
 
 ### Timeline and media
 
+- **Pinned messages** (`m.room.pinned_events`, 2026-08-15). Lightning invents
+  NO storage format: the list IS the state event, read through
+  `Room::pinned_event_ids()` with `Room::load_pinned_events()` as the
+  `/state` fallback, and written through `Room::pin_event()` /
+  `unpin_event()`, which do the read-modify-send themselves — so a
+  concurrent change can never be clobbered by a stale list of ours.
+  A pinned event is usually NOT in the loaded timeline; each id resolves
+  through `Room::load_or_fetch_event()` (cache-first, one bounded `/event`
+  on a miss, written back to the event cache, decrypted by the SDK in an
+  encrypted room). Fan-out is bounded twice: at most
+  `PINNED_RESOLVE_CAP` (32) resolutions, sequential, 10 s no-retry each; a
+  longer list reports `truncated` rather than issuing hundreds of GETs.
+  The COMPLETE id list crosses uncapped, because that is what answers "is
+  this pinned?" for the message menu — a capped answer there would be a
+  WRONG answer, not a partial one.
+  `PinnedMessagesController` tracks the ACTIVE room (not the Room
+  Information panel's room, which may be a Space home). It never applies a
+  pin optimistically: the write completes, then the authoritative list is
+  re-read — on success AND on rejection. A failed READ keeps the last known
+  list (a flaky connection must not read as "nothing is pinned any more").
+  A remote change arrives as a payload-free `room_pinned_changed` poke and
+  is answered by re-reading, so remote and local pins converge on one path.
+  The `/state` fallback probe is spent once per room per session.
+  Entry previews are decrypted message text in an encrypted room: MEMORY
+  ONLY, never CacheStore. Live validation NOT TESTED
 - SDK-backed live timelines and local echoes
 - Text, rich replies, edits, reactions, redactions, typing indicators, read
   receipts, mentions, and room-state activity rows
@@ -516,8 +581,21 @@ backend capability checks and honest live-test status.
   permanently un-retryable. An empty list means UNKNOWN, never "nobody" — a
   FAILED lookup is deliberately not cached, and the card falls back to the
   latest sender's avatar. No "+N" badge: the distinct total beyond the cap is
-  not known. Fetches run per LOADED root (the timeline is not virtualized),
-  with an uncapped spawn — bounding that is an accepted follow-up
+  not known.
+  **The fan-out is BOUNDED as of 2026-08-15** (this was the accepted
+  follow-up). The timeline is not virtualized, so every loaded root's card
+  calls `requestParticipants` on the same frame; `ThreadManager` now runs at
+  most `kMaxConcurrentParticipantFetches` (4) at a time with the rest in a
+  FIFO queue (capped at 64 — beyond that a root is DROPPED, which keeps it
+  genuinely retryable, rather than queued forever). A slot is released by the
+  answer **or** by the 60 s timeout, and — importantly — a FAILED (empty)
+  answer releases it too, or one failure per round would shrink the pool
+  permanently. Deduplication now covers cached, in-flight AND queued roots.
+  `setActiveRoom()` (driven from `AppController::setCurrentRoomId`) discards
+  QUEUED work for other rooms but deliberately leaves IN-FLIGHT work running:
+  the cache key is `(roomId, rootEventId)`, so a late answer can only ever
+  populate its own room, and cancelling a fetch already paid for would just
+  make a return visit slower
 - True thread-reply filtering from the live main timeline, cold-cache initial
   loading, stable per-thread scrolling, quick-switch navigation, and in-place
   thread E2EE recovery
@@ -1044,6 +1122,77 @@ direct merge-request submission may not be enabled on this GitLab instance.
 
 Keep this list grounded in source and recent history:
 
+**2026-08-15 pins / admin / verification-UX round.** Landed: pinned
+messages (§7 Timeline and media), member power levels + join rule +
+canonical alias (§7 Rooms and navigation), the bounded thread-participant
+fan-out (§7 Threads), the verification move to a focused dialog with
+dismissible prompts (§7 Rooms and navigation), and the stale timeline-test
+repair below. New suites: `pinned-messages`, `room-power-levels`,
+`thread-facepile-bound`. Everything user-visible in it is **NOT TESTED**
+live: real `m.room.pinned_events` round trips and Element interop, a
+homeserver accepting/rejecting a power-level or join-rule write, alias
+publication, and the on-screen look of the pinned tab, role buttons,
+verification dialog and corner prompt.
+
+**Stale timeline suites — root-caused, not "flaky".** `timeline-pane-qml`
+and `timeline-hydration-qml` had been failing since the timeline was rebuilt
+in `1e50f6a`. Three distinct causes, none of them one bug:
+  1. **Obsolete ListView API.** `positionViewAtIndex`,
+     `positionViewAtBeginning` and `itemAtIndex` do not exist on the rotated
+     Flickable + Column; `QMetaObject::invokeMethod` merely returned false.
+     Ported to the pane's real view-row API behind three helpers in the test
+     file. NOTE the index convention: the pre-rewrite ListView bound
+     `model: app.timeline` directly, so its indices were SOURCE rows
+     (row 0 = oldest) — the helpers convert, the call sites keep their
+     original meaning.
+  2. **Direction and end-of-range flips.** The rotation makes physically
+     UPWARD mean *increasing* contentY, and the earliest loaded position
+     `wheelMaxY()` rather than `wheelMinY()`. Two assertions encoded the
+     pre-rotation directions. Production is correct in both cases —
+     `goToEarliestLoaded()` is literally `contentY = wheelMaxY()`.
+  3. **A mock-fixture QML warning.** On the mock backend `mediaThumbUrl` is
+     a plain http URL (the media bridge is the Rust path), so any image row
+     asks Qt to resolve `mock.local` and logs one host-not-found warning.
+     Six cases asserted `warnings == {}`. Filtered NARROWLY by
+     `realWarnings()` — pinned to `mock.local` specifically, so a fixture
+     that reached a REAL host still fails; every other warning still fails.
+  4. **One genuine flake, now deterministic.**
+     `diagUnresolvedIdFallbackCountsGenuinelyUnresolvableAnchor` asserted
+     the ABSOLUTE branch counters were zero, but its own touchpad setup
+     loop drives real geometry and can legitimately fire the materialized
+     branch first. Measured 4 pass / 4 fail in isolation. Rewritten to
+     baseline the counters immediately before the call under test and
+     assert the DELTA — which is the invariant the test actually names
+     ("this call falls straight to the capture fallback"). 8/8 after.
+Do not "re-fix" these by reintroducing ListView semantics.
+
+Result: `timeline-pane-qml` **37 passed / 26 failed -> 52 passed / 11
+failed**; `timeline-hydration-qml` unchanged at 5/2. The remaining 13 cases
+were root-caused and deliberately NOT forced green — they are not one bug:
+  * **Unreachable branches (4+).** `diagEvictedNoInsertFallback…` and
+    `diagDisplacedBranchCounters…` both abort on their own fixture
+    precondition with "fixture no longer evicts the anchor's delegate —
+    this test would pass on broken code". Every row is instantiated now, so
+    there is no cache eviction and no displaced-anchor branch to enter.
+    This agrees exactly with the physical capture already recorded in this
+    section (`displacedFirings=0`, `evictedNoInsert=0`). Porting them means
+    rewriting the fixture around the ONE displacement that can still occur
+    (a live message arriving at view row 0) or inverting them into "this
+    branch must not fire" — the latter would preserve a real invariant.
+  * **Pre-rotation geometry in the fixture.**
+    `maintainViewAnchorAppliesGrowthDeltaMidGestureWithoutGlide` reports
+    `before=12 after=12 expectedGrowth=270`: the anchor did not move, so
+    nothing needed compensating. On the rotated view, growth at an OLDER
+    row sits at higher content y and cannot displace the reader.
+  * **Paced row release.** `viewportFillRunCompensatesEveryBatchImmediately`
+    fails at `positionAtSourceRow(timeline, 5)` because the proxy has not
+    released that row yet; the navigation paths call `releasePendingRows()`
+    first for exactly this reason.
+  * `initialHydrationGateHoldsThenOpensAtLatest` (hydration) opens the
+    presentation gate with one row. NOT diagnosed — it needs its own pass,
+    and it is unrelated to the port (it failed identically before).
+These are an honest open item, not a claim of completion.
+
 - Continue GIF playback, cancellation, resource, cache, and malformed-media
   hardening now that the user-facing flow has landed.
 - Perform real Element interoperability validation of provider GIF sends across
@@ -1160,9 +1309,10 @@ order a successor should pick them up:
   capture and Element interop of thread voice events; real-homeserver
   deletion of a room's push rules ("follow account default") and the
   reconnect retry; facepile rendering and real `/relations` cost on a live
-  account. Accepted follow-ups from its review, none blocking: bound the
-  per-loaded-root participant fetch fan-out (the timeline is not
-  virtualized and `spawn_room_action` is uncapped); decide whether a
+  account. Accepted follow-ups from its review, none blocking: ~~bound the
+  per-loaded-root participant fetch fan-out~~ — **DONE 2026-08-15**, see the
+  facepile entry in §7 Threads (concurrency cap 4 + FIFO queue +
+  room-switch invalidation, `thread-facepile-bound` suite); decide whether a
   client-side sanity ceiling should apply when the server advertises no
   upload limit (deliberately absent — see §7); `setVoiceRecorderForTest`
   would be better taking a `unique_ptr`; `voice_info` computes `info.size`

@@ -100,6 +100,25 @@ still developing, some workflows remain experimental.
 - **Moderation**: kick, ban and unban from the member profile, gated by real
   power-level permissions; banned members stay visible so unban is
   reachable, and unbanning can invite the user straight back
+- **Member roles / power levels**: inspect and change a member's real
+  `m.room.power_levels` value from their profile. Lightning offers only the
+  changes Matrix would actually allow — never above your own level, never
+  against a peer at or above it, self-demotion only — and it never rounds a
+  room's custom numbers into a preset: a member at 42 reads as "Custom (42)"
+  and stays at 42 unless you change it. Nothing is applied locally; the
+  authoritative levels come back from the room
+- **Room access**: change who can join (invited people only / anyone with the
+  link / ask to join) and publish or clear the room's address, both gated by
+  the room's own required power level for that state event. A
+  space-restricted room is shown honestly and left alone — Lightning does not
+  yet build the allow-rule list those rules carry
+- **Presence** — online / away / offline dots for other people on 1:1 DM rows,
+  the People list and the member profile popover, with a "last active" line in
+  the popover. Sliding Sync carries no presence events, so this is a bounded
+  poll of exactly the users currently on screen; a state Lightning does not
+  know renders **nothing** rather than a made-up "offline". Your own state is
+  published behind Privacy & security → "Share my online status" (default on;
+  turning it off publishes one final offline)
 - **Room list filters** — All / People / Rooms / Unreads chips, persisted
   per account, so busy DM lists never bury your rooms
 - Keyboard quick switcher (Ctrl-K) with a **navigate mode** across rooms, DMs,
@@ -117,6 +136,14 @@ still developing, some workflows remain experimental.
 - **Per-user name colours** — every sender keeps one deterministic,
   WCAG-AA-checked colour, matched to their avatar, across every surface
 - **MSC3381 polls** — vote, change your vote, and see live tallies
+- **Pinned messages** (`m.room.pinned_events`) — pin and unpin from the
+  message menu when the room's power levels allow it, and read the room's
+  pins from a Pinned tab in Room Information. Clicking one jumps to the
+  original message through the same navigation replies and permalinks use, so
+  a pin outside the loaded window loads its history like any other jump. A
+  pin whose event is deleted or unreachable says exactly that and goes
+  nowhere, rather than landing you on an unrelated message; pins changed from
+  another client appear here without a reload
 - Unread and mention states, marked-unread, first-unread and jump-to-latest
   navigation, and backward pagination
 - Display names resolved everywhere the member roster knows them — mentions,
@@ -160,7 +187,16 @@ still developing, some workflows remain experimental.
   handling, late in-place decryption, and manual retry
 - SAS emoji device verification **in both directions** (either device may
   initiate) and read-only session-trust information, including a Trust card
-  bound to real crypto-health state
+  bound to real crypto-health state. Verification runs in a **focused centred
+  dialog** — the emojis you are comparing against another device are never
+  buried at the bottom of a scrolled page — and the same dialog handles a
+  verification another client starts
+- **Unverified-session prompts you can turn off.** A new session gets one
+  corner prompt offering Verify or Not now, and a small red dot on the
+  settings cog and the Sessions row. "Stop reminding me" silences those
+  badges for that account and persists; it never claims the session is
+  verified, the Sessions page keeps stating the fact plainly, and the
+  reminder returns by itself if a later session is unverified
 - Secure Backup recovery-key or passphrase restore and encrypted room-key import
 - Crypto health, recovery, and diagnostics controls in Settings
 - A sanitized support-diagnostics export (hashed account identifiers, no
