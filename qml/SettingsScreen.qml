@@ -1315,28 +1315,19 @@ Item {
                                        + textScaleSlider.availableHeight / 2
                                        - height / 2
                                     width: 16; height: 16; radius: 8
-                                    // v0.6.5 live-feedback: unlike the
-                                    // switch thumb, this one sits ON the
-                                    // groove, not on a single checked/
-                                    // unchecked fill — so which ink it
-                                    // needs depends on where the fill's
-                                    // right edge (visualPosition *
-                                    // availableWidth, background above)
-                                    // actually lands relative to the
-                                    // thumb's own centre (leftPadding +
-                                    // visualPosition * (availableWidth -
-                                    // width) + width/2). Solving fill-edge
-                                    // > thumb-centre for these two
-                                    // expressions reduces to
-                                    // visualPosition > 0.5 exactly — below
-                                    // half the range the thumb sits mostly
-                                    // on the unfilled stormInset groove
-                                    // (white reads fine there); above half
-                                    // it sits mostly on the bolt fill and
-                                    // needs boltInk for the same reason as
-                                    // the switch thumb above.
-                                    color: textScaleSlider.visualPosition > 0.5
-                                           ? AppTheme.boltInk : "#FFFFFF"
+                                    // 2026-08-15 report: the thumb is
+                                    // ALWAYS white. The earlier
+                                    // switch-thumb analogy flipped it to
+                                    // boltInk past visualPosition 0.5, but
+                                    // a slider thumb rides the fill's
+                                    // BOUNDARY — it never sits fully on
+                                    // the bolt fill — so past half range
+                                    // the dark boltInk disc just read as a
+                                    // disabled/grey handle on the navy
+                                    // panel. White reads on the stormInset
+                                    // groove, on the bolt fill edge, and
+                                    // on every legacy palette.
+                                    color: "#FFFFFF"
                                     // The slider thumb's shadow is one of the
                                     // four the design budget allows.
                                     Rectangle {
@@ -1421,11 +1412,13 @@ Item {
                                        + interfaceZoomSlider.availableHeight / 2
                                        - height / 2
                                     width: 16; height: 16; radius: 8
-                                    // Same groove-vs-fill ink rule as the
-                                    // text-size thumb above.
-                                    color: interfaceZoomSlider.visualPosition
-                                           > 0.5
-                                           ? AppTheme.boltInk : "#FFFFFF"
+                                    // Always white — same 2026-08-15
+                                    // correction as the text-size thumb
+                                    // above: the boundary-riding thumb
+                                    // never sits on the fill, and the
+                                    // boltInk flip past 110% read as a
+                                    // disabled handle.
+                                    color: "#FFFFFF"
                                     Rectangle {
                                         anchors.fill: parent
                                         anchors.topMargin: 1

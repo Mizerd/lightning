@@ -479,6 +479,28 @@ private slots:
         m_controller->settings()->setTextScale(120);
         QCoreApplication::processEvents();
         QCOMPARE(slider->property("value").toInt(), 120);
+
+        // 2026-08-15 report: past ~115% both thumbs flipped to boltInk
+        // (near-black navy) and read as disabled. The thumb rides the
+        // fill's boundary, never sits on it — it stays white across the
+        // whole range. This fails on the pre-fix visualPosition > 0.5
+        // ternary.
+        m_controller->settings()->setTextScale(140);
+        QCoreApplication::processEvents();
+        auto *handle = slider->property("handle").value<QQuickItem *>();
+        QVERIFY(handle);
+        QCOMPARE(handle->property("color").value<QColor>(),
+                 QColor(QStringLiteral("#FFFFFF")));
+        auto *zoom = item("interfaceZoomSlider");
+        QVERIFY(zoom);
+        m_controller->settings()->setInterfaceZoom(150);
+        QCoreApplication::processEvents();
+        auto *zoomHandle = zoom->property("handle").value<QQuickItem *>();
+        QVERIFY(zoomHandle);
+        QCOMPARE(zoomHandle->property("color").value<QColor>(),
+                 QColor(QStringLiteral("#FFFFFF")));
+        m_controller->settings()->setInterfaceZoom(100);
+
         m_controller->settings()->setTextScale(100);
         QCoreApplication::processEvents();
         QCOMPARE(slider->property("value").toInt(), 100);

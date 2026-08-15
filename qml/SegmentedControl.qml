@@ -63,8 +63,17 @@ Row {
                         return !segment.enabled ? AppTheme.stormTextFaint
                              : segment.selected ? AppTheme.stormText
                              : AppTheme.stormTextMuted
+                    // Storm routing (2026-08-15 report): under the Storm
+                    // theme the themed pair accentSoft+accentText is dark
+                    // navy ink on a 14% translucent bolt — unreadable. The
+                    // selected chip becomes the sanctioned SOLID bolt
+                    // "current selection" moment instead, with boltInk on
+                    // it (never dark-on-dark). Legacy themes keep the
+                    // accent-soft chip unchanged.
                     return !segment.enabled ? AppTheme.textDisabled
-                         : segment.selected ? AppTheme.accentText
+                         : segment.selected ? (AppTheme.storm
+                                               ? AppTheme.boltInk
+                                               : AppTheme.accentText)
                          : AppTheme.textSecondary
                 }
                 font.family: root.storm ? AppTheme.menuFont : AppTheme.uiFont
@@ -81,7 +90,9 @@ Row {
                              : segment.enabled && (segment.down || segment.hovered)
                                ? Qt.alpha(AppTheme.stormSelection, 0.55)
                                : "transparent"
-                    return segment.selected ? AppTheme.accentSoft
+                    return segment.selected ? (AppTheme.storm
+                                               ? AppTheme.bolt
+                                               : AppTheme.accentSoft)
                          : segment.enabled && (segment.down || segment.hovered)
                            ? AppTheme.hover : "transparent"
                 }

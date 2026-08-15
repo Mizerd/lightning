@@ -59,6 +59,8 @@ ApplicationWindow {
     Rectangle { objectName: "tokBackground"; visible: false; color: AppTheme.background }
     Rectangle { objectName: "tokAccent"; visible: false; color: AppTheme.accent }
     Rectangle { objectName: "tokAccentSoft"; visible: false; color: AppTheme.accentSoft }
+    Rectangle { objectName: "tokBolt"; visible: false; color: AppTheme.bolt }
+    Rectangle { objectName: "tokBoltInk"; visible: false; color: AppTheme.boltInk }
     Rectangle { objectName: "tokSurface"; visible: false; color: AppTheme.surface }
     Rectangle { objectName: "tokStormPanel"; visible: false; color: AppTheme.stormPanel }
     Rectangle { objectName: "tokInputBg"; visible: false; color: AppTheme.inputBackground }
@@ -289,6 +291,29 @@ private slots:
         QVERIFY(selected);
         assertFlatFill(img, selected, token("tokAccentSoft"),
                        "selected-segment-moss");
+        m_root->setProperty("themeMode", 9);
+        QCoreApplication::processEvents();
+    }
+
+    // 2026-08-15 report: under the Storm theme the themed selected chip was
+    // accentSoft (14% translucent bolt = khaki) carrying accentText
+    // (canvas-dark ink, meant for a SOLID bolt fill) — dark-on-dark. The
+    // selected segment must be the solid bolt "current selection" moment
+    // with boltInk on it. This fails on the pre-fix SegmentedControl.
+    void stormRoutesSelectedSegmentToSolidBolt()
+    {
+        m_root->setProperty("themeMode", 11); // Storm
+        QCoreApplication::processEvents();
+        const QImage img = m_window->grabWindow();
+        auto *selected = item("segments_people");
+        QVERIFY(selected);
+        assertFlatFill(img, selected, token("tokBolt"),
+                       "selected-segment-storm");
+        auto *label =
+            selected->property("contentItem").value<QQuickItem *>();
+        QVERIFY(label);
+        QCOMPARE(label->property("color").value<QColor>(),
+                 token("tokBoltInk"));
         m_root->setProperty("themeMode", 9);
         QCoreApplication::processEvents();
     }
