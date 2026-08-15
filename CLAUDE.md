@@ -26,13 +26,24 @@ frontend.
 
 ## 2. Current release and development state
 
-Release facts, verified on 2026-08-10:
+Release facts, verified on 2026-08-15:
 
-- Latest published release: **Lightning 0.6.6** (`v0.6.6` -> `f35bc8c`)
-- Previous releases: `v0.6.5` -> `4cdace3`, `v0.6.4` -> `e719bbe`,
-  `v0.6.3` -> `97f10b7`, `v0.6.2` -> `fe3b85f`, `v0.6.1` -> `86d30b4`,
-  `v0.6.0` -> `2157194` (all immutable, unchanged)
-- Application version: **0.6.6** in `CMakeLists.txt`, `rust/Cargo.toml`, and
+- Latest published release: **Lightning 0.7.0** (`v0.7.0` -> `cd91b9c`),
+  cut by lightning-deploy pipeline **98** in `RELEASE_ACTION=create` mode:
+  all 17 jobs green (the fleet + the macOS arm64 test bundle via
+  `BUILD_MACOS_PACKAGES=true` — built and validated on the Mac mini
+  runner but never published, pending code signing), 9 assets published,
+  hash-verified, and every link confirmed anonymously downloadable.
+  Pipeline 97 failed only `build-rpm` (the RPM spec missed the new
+  scalable SVG icon; fixed in lightning-deploy `ca24f16`). Release notes:
+  `docs/releases/v0.7.0.md`. OAuth is fully live-validated (see §7).
+  NOTE: anonymous probes of package links 403 under Python's default
+  user-agent (reverse-proxy bot filter) — test with curl, it is not an
+  access failure.
+- Previous releases: `v0.6.6` -> `f35bc8c`, `v0.6.5` -> `4cdace3`,
+  `v0.6.4` -> `e719bbe`, `v0.6.3` -> `97f10b7`, `v0.6.2` -> `fe3b85f`,
+  `v0.6.1` -> `86d30b4`, `v0.6.0` -> `2157194` (all immutable, unchanged)
+- Application version: **0.7.0** in `CMakeLists.txt`, `rust/Cargo.toml`, and
   the Rust/HTTP user agent
 
 0.6.6 released the thirty commits that had accumulated since `v0.6.5`:
