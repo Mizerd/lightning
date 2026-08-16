@@ -2251,7 +2251,6 @@ Rectangle {
                 property real diagDisplacedMaxAbsOriginShiftContentDelta: 0
                 property int diagDisplacedMaxAbsOriginShiftRows: 0
                 property int diagMaterializedFirings: 0
-                property real diagMaterializedAppliedSum: 0
                 property real diagMaterializedMaxAbsDelta: 0
                 property int diagUnresolvedIdFallbacks: 0
                 property int diagEvictedNoInsertFallbacks: 0
@@ -2354,7 +2353,6 @@ Rectangle {
                         + " displacedMaxAbsOriginShiftDContentH=" + Math.round(diagDisplacedMaxAbsOriginShiftContentDelta)
                         + " displacedMaxAbsOriginShiftRows=" + diagDisplacedMaxAbsOriginShiftRows
                         + " materializedFirings=" + diagMaterializedFirings
-                        + " materializedApplied=" + Math.round(diagMaterializedAppliedSum)
                         + " materializedMaxAbsDelta=" + Math.round(diagMaterializedMaxAbsDelta)
                         + " unresolvedId=" + diagUnresolvedIdFallbacks
                         + " evictedNoInsert=" + diagEvictedNoInsertFallbacks
@@ -2405,7 +2403,6 @@ Rectangle {
                     diagDisplacedMaxAbsOriginShiftContentDelta = 0
                     diagDisplacedMaxAbsOriginShiftRows = 0
                     diagMaterializedFirings = 0
-                    diagMaterializedAppliedSum = 0
                     diagMaterializedMaxAbsDelta = 0
                     diagUnresolvedIdFallbacks = 0
                     diagEvictedNoInsertFallbacks = 0

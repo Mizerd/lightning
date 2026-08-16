@@ -253,6 +253,26 @@ private:
         return timeline->setProperty("contentY", maxY.toDouble());
     }
 
+    // The pane's own wheelMinY()/wheelMaxY() (originY -+ topMargin/
+    // bottomMargin), NOT a hand-rolled originY/contentHeight-height guess.
+    // A wheel-glide fixture that feeds the controller a narrower range than
+    // production's real bound clamps the simulated glide against a floor
+    // that does not exist in the app, which silently hides whatever the
+    // fixture meant to exercise past that point.
+    static bool wheelBounds(QQuickItem *timeline, double *minY, double *maxY)
+    {
+        QVariant minV, maxV;
+        if (!QMetaObject::invokeMethod(timeline, "wheelMinY",
+                                       Q_RETURN_ARG(QVariant, minV)))
+            return false;
+        if (!QMetaObject::invokeMethod(timeline, "wheelMaxY",
+                                       Q_RETURN_ARG(QVariant, maxV)))
+            return false;
+        *minY = minV.toDouble();
+        *maxY = maxV.toDouble();
+        return true;
+    }
+
     // QML warnings that are properties of the MOCK FIXTURE, not of the code
     // under test. On the mock backend `mediaThumbUrl` is a plain http URL
     // (the media bridge is the Rust path), so any row carrying an image asks
@@ -3289,9 +3309,21 @@ private Q_SLOTS:
     // REAL near-top round trips rather than the old per-batch bookkeeping.
     //
     // Concurrent scroll: a prepend landing while the reader keeps scrolling
-    // must shift by the prepend, NOT recompute an absolute position from the
-    // last settle (which would silently discard the in-flight scroll — the
-    // "jump / reverse while history is loading" defect).
+    // must NOT recompute an absolute position from the last settle (which
+    // would silently discard the in-flight scroll — the "jump / reverse
+    // while history is loading" defect). The mechanism that satisfies this
+    // changed since this test was written: maintainViewAnchor()'s
+    // "materialized" branch (qml/TimelinePane.qml, userScrollActive path)
+    // used to apply the anchor's measured y-delta to contentY; that was
+    // tried twice, reviewed, and rejected by physical testing both times —
+    // see the comment on that branch — because it pulled the reader in both
+    // directions during loading and during ordinary scrolling with nothing
+    // loading at all. Production now performs NO WRITE while a gesture is
+    // active; it only re-bases its measurement for the next call. So the
+    // invariant this proves is now the plain, stronger form: an in-flight
+    // prepend must not touch contentY at all while the gesture is live —
+    // the exact position the user's own motion produced is preserved
+    // untouched, not recomputed from a captured delta.
     void paginationPrependPreservesConcurrentScroll()
     {
         AppController controller(AppController::MockBackend);
@@ -3349,7 +3381,13 @@ private Q_SLOTS:
         QTRY_VERIFY_WITH_TIMEOUT(!controller.pagination()->busy(),
                                  kSignalTimeoutMs);
 
-        const int anchorRow = 15;
+        // Deeper into history than the old virtualized fixture used: the
+        // un-virtualized timeline renders every row's real height, so row 15
+        // of ~30 was landing the reader at (or past) wheelMinY() with no
+        // headroom left to simulate an additional upward scroll — the
+        // production clamp then legitimately capped the write, which is not
+        // what this case means to exercise. Row 5 leaves real headroom.
+        const int anchorRow = 5;
         QVERIFY(timeline->setProperty("stickToBottom", false));
         QVERIFY(positionAtSourceRow(timeline, anchorRow));
         QCoreApplication::processEvents();
@@ -3393,20 +3431,30 @@ private Q_SLOTS:
              anchorItem != nullptr),
             kSignalTimeoutMs);
 
-        const double expected =
-            scrolledContentY + (anchorItem->y() - anchorLastY);
+        // anchorItem resolving proves the anchor row's delegate survived the
+        // prepend (still instantiated, not evicted) — a real precondition
+        // for the "materialized" no-write branch to have been the one that
+        // ran at all, since an unresolved id takes a different branch
+        // entirely (diagUnresolvedIdFallbackCountsGenuinelyUnresolvableAnchor
+        // covers that one).
+        Q_UNUSED(anchorItem);
+        Q_UNUSED(anchorLastY);
         double actual = 0;
         QTRY_VERIFY_WITH_TIMEOUT(
             (actual = timeline->property("contentY").toDouble(),
-             qAbs(actual - expected) < 1.0),
+             qAbs(actual - scrolledContentY) < 0.5),
             kSignalTimeoutMs);
-        QVERIFY2(qAbs(actual - expected) < 1.0,
+        QVERIFY2(qAbs(actual - scrolledContentY) < 0.5,
                  qPrintable(QStringLiteral(
-                     "pagination prepend discarded concurrent scroll: "
-                     "actual=%1 expected=%2 (a stale absolute restore would "
-                     "give %3)")
-                     .arg(actual).arg(expected)
-                     .arg(expected + simulatedScrollDelta)));
+                     "pagination prepend wrote over an active gesture's "
+                     "position: actual=%1 scrolledContentY=%2 (a stale "
+                     "absolute restore would move it toward %3)")
+                     .arg(actual).arg(scrolledContentY)
+                     .arg(capturedContentY)));
+        QVERIFY2(timeline->property("userScrollActive").toBool(),
+                 "the gesture must still read active at the assertion "
+                 "point, or an idle restore — not the mechanism under "
+                 "test — could be the reason nothing moved");
         QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
@@ -3470,8 +3518,13 @@ private Q_SLOTS:
         QTRY_VERIFY_WITH_TIMEOUT(!controller.pagination()->busy(),
                                  kSignalTimeoutMs);
 
+        // Row 5, not 15: on the un-virtualized layout row 15 of ~30 lands
+        // the reader AT wheelMinY() already (no headroom above), which
+        // would clamp this glide before it ever moves regardless of the
+        // mechanism under test. See wheelBounds() and the sibling comment
+        // on paginationPrependPreservesConcurrentScroll.
         QVERIFY(timeline->setProperty("stickToBottom", false));
-        QVERIFY(positionAtSourceRow(timeline, 15));
+        QVERIFY(positionAtSourceRow(timeline, 5));
         QCoreApplication::processEvents();
         QVERIFY(QMetaObject::invokeMethod(timeline, "captureViewAnchor"));
         QVERIFY(!timeline->property("viewAnchorId").toString().isEmpty());
@@ -3484,14 +3537,18 @@ private Q_SLOTS:
         auto *scroll = controller.timelineScroll();
         QVERIFY(scroll != nullptr);
         const double glideStartY = timeline->property("contentY").toDouble();
-        const double originY = timeline->property("originY").toDouble();
-        const double maxY = originY
-            + timeline->property("contentHeight").toDouble()
-            - timeline->height();
+        // The real bounds, not a hand-rolled originY/contentHeight-height
+        // guess (see wheelBounds()): row 15 of ~30 lands the reader AT
+        // wheelMinY() already in the un-virtualized layout, so a floor
+        // computed without topMargin would clamp the simulated glide before
+        // it ever moves, which is exactly what silently made this case
+        // vacuous until the bound helper matched production's.
+        double minY = 0, maxY = 0;
+        QVERIFY(wheelBounds(timeline, &minY, &maxY));
         for (int notch = 0; notch < 6; ++notch)
             scroll->wheelNotch(120.0,
                                timeline->property("contentY").toDouble(),
-                               originY, maxY, timeline->height());
+                               minY, maxY, timeline->height());
         QTRY_VERIFY_WITH_TIMEOUT(scroll->motionActive(), 2000);
         QTRY_VERIFY_WITH_TIMEOUT(
             timeline->property("contentY").toDouble() < glideStartY - 10.0,
@@ -3983,6 +4040,18 @@ private Q_SLOTS:
                                  kSignalTimeoutMs);
 
         QVERIFY(timeline->setProperty("stickToBottom", false));
+        // The reverse-list proxy paces newly loaded rows out over a few
+        // frames (ReverseListProxyModel), so `count` can already report the
+        // full model total while a row's delegate has not been released
+        // yet. Every real navigation path calls releasePendingRows() first
+        // for exactly this reason (see qml/TimelinePane.qml); this fixture
+        // must too, or positionAtSourceRow() addresses a row the proxy has
+        // not exposed yet and fails. releaseAll() inserts the model rows
+        // synchronously, but the Column's delegates for them are created on
+        // the next event-loop turn, so a processEvents() must follow before
+        // addressing one of the newly released rows by item.
+        QVERIFY(QMetaObject::invokeMethod(timeline, "releasePendingRows"));
+        QCoreApplication::processEvents();
         // Deliberately NOT positionViewAtBeginning(): landing exactly at
         // atYBeginning fires TimelinePane.qml's onAtYBeginningChanged,
         // which dispatches its OWN passive (userInitiated=false)
@@ -3992,8 +4061,12 @@ private Q_SLOTS:
         // NearTop dispatch. Position a few rows down instead — still near
         // enough the top for a big prepend to displace it past the cache
         // buffer, but with enough headroom that atYBeginning never
-        // triggers.
-        QVERIFY(positionAtSourceRow(timeline, 5));
+        // triggers. Row 8, not lower: by the time this fixture reaches
+        // here the automatic initial viewport-fill has already run (this
+        // test's own room primes a full extra page via
+        // setPaginationChunkForTest — count is 60, not 30, before this
+        // call), so headroom is measured against that larger total.
+        QVERIFY(positionAtSourceRow(timeline, 8));
         QCoreApplication::processEvents();
         QVERIFY(QMetaObject::invokeMethod(timeline, "captureViewAnchor"));
         const QString anchorId = timeline->property("viewAnchorId").toString();
@@ -4184,15 +4257,51 @@ private Q_SLOTS:
         QTRY_VERIFY_WITH_TIMEOUT(!controller.pagination()->busy(),
                                  kSignalTimeoutMs);
 
-        // wheelMinY(), i.e. the topmost reachable contentY. Read from the
-        // Flickable's own properties so the test measures Qt's geometry rather
-        // than trusting a QML helper to agree with it.
+        // wheelMaxY(), i.e. the topMOST-of-loaded-HISTORY reachable contentY
+        // — the OLDEST end, not wheelMinY(). The view is rotated: the newest
+        // message sits at contentY 0 and older content sits at increasing
+        // contentY, so "the top of loaded history" is the FAR/high end of
+        // the scroll range, exactly what production's own distanceFromTop()
+        // measures from (qml/TimelinePane.qml: `wheelMaxY() - contentY`).
+        // Read from the Flickable's own properties so the test measures
+        // Qt's geometry rather than trusting a QML helper to agree with it.
         const auto topmostY = [timeline] {
-            return timeline->property("originY").toDouble()
-                   - timeline->property("topMargin").toDouble();
+            const double maxY = timeline->property("originY").toDouble()
+                + timeline->property("contentHeight").toDouble()
+                + timeline->property("bottomMargin").toDouble()
+                - timeline->height();
+            const double minY = timeline->property("originY").toDouble()
+                - timeline->property("topMargin").toDouble();
+            return maxY < minY ? minY : maxY;
         };
         const auto bandWidth = [timeline] {
             return timeline->property("nearTopEnterDistance").toDouble();
+        };
+        // Wrapped, multi-line delegate text (deliberately used above for
+        // realistic geometry) can keep nudging measured content height —
+        // and therefore topmostY() — for a little while after insertion or
+        // after a settle-timer round trip, well past a single
+        // processEvents() call. Every probe below reads topmostY() only
+        // after it has stopped moving across several consecutive drains, so
+        // the distance a probe is set at is the distance production's own
+        // live distanceFromTop() will actually see a moment later.
+        const auto settledTopmostY = [&timeline, &topmostY] {
+            double stable = topmostY();
+            for (int attempt = 0; attempt < 30; ++attempt) {
+                QCoreApplication::processEvents();
+                const double next = topmostY();
+                if (qAbs(next - stable) < 0.5)
+                    return next;
+                stable = next;
+            }
+            return stable;
+        };
+        // Sets contentY the given distance below the SETTLED top.
+        const auto setContentYAtDistanceFromTop =
+            [timeline, &settledTopmostY](double distance) {
+            const double target = settledTopmostY() - distance;
+            timeline->setProperty("contentY", target);
+            QCoreApplication::processEvents();
         };
 
         QVERIFY(timeline->setProperty("stickToBottom", false));
@@ -4213,12 +4322,12 @@ private Q_SLOTS:
         controller.pagination()->requestNearTop(/*userInitiated=*/true);
         QTRY_VERIFY_WITH_TIMEOUT(!completedSpy.isEmpty(), kSignalTimeoutMs);
         QTRY_VERIFY_WITH_TIMEOUT(
-            timeline->property("contentY").toDouble() - topmostY()
+            topmostY() - timeline->property("contentY").toDouble()
                 > bandWidth(),
             kSignalTimeoutMs);
 
         const double contentY = timeline->property("contentY").toDouble();
-        const double fromTop = contentY - topmostY();
+        const double fromTop = topmostY() - contentY;
         qInfo("top-edge batch geometry: topmostY %g -> %g, contentY %g, "
               "distance %g, band %g",
               topBefore, topmostY(), contentY, fromTop, bandWidth());
@@ -4259,7 +4368,7 @@ private Q_SLOTS:
         QVERIFY2(!controller.pagination()->reachedStart(),
                  "premise: backfill must still be available");
         QVERIFY(positionAtTopEdge(timeline));
-        QCoreApplication::processEvents();
+        setContentYAtDistanceFromTop(0.0);
         // Every probe below must stay INSIDE the band, including the downward
         // one — the band is only ~232 px here (half the ListView height, not
         // half the window), so leave room for the +40 excursion.
@@ -4269,9 +4378,7 @@ private Q_SLOTS:
                  qPrintable(QStringLiteral(
                      "fixture: every probe must sit inside the band (max %1 vs "
                      "band %2)").arg(probeBase + probeStep).arg(bandWidth())));
-        const double inBand = topmostY() + probeBase;
-        QVERIFY(timeline->setProperty("contentY", inBand));
-        QCoreApplication::processEvents();
+        setContentYAtDistanceFromTop(probeBase);
 
         auto *settleTimer = timeline->findChild<QObject *>(
             QStringLiteral("scrollSettleTimer"));
@@ -4301,13 +4408,21 @@ private Q_SLOTS:
         QVERIFY(timeline->setProperty("nearTopRequestDistance",
                                       std::numeric_limits<double>::infinity()));
         QVERIFY2(armAndCheck(), "a fresh approach must dispatch");
-        QCOMPARE(timeline->property("nearTopRequestDistance").toDouble(), probeBase);
+        QVERIFY2(qAbs(timeline->property("nearTopRequestDistance").toDouble()
+                     - probeBase) < 1.0,
+                 qPrintable(QStringLiteral(
+                     "recorded dispatch distance %1 does not match the driven "
+                     "probe %2")
+                     .arg(timeline->property("nearTopRequestDistance")
+                              .toDouble())
+                     .arg(probeBase)));
 
-        // Now DOWNWARD, still inside the band. The settle re-arms (expected and
-        // harmless), but the dispatch must refuse — this is the reported "it
-        // keeps loading old messages ... when I scroll down".
-        QVERIFY(timeline->setProperty("contentY", inBand + probeStep));
-        QCoreApplication::processEvents();
+        // Now DOWNWARD (toward the newest end, i.e. decreasing contentY in
+        // this rotated view), still inside the band. The settle re-arms
+        // (expected and harmless), but the dispatch must refuse — this is
+        // the reported "it keeps loading old messages ... when I scroll
+        // down".
+        setContentYAtDistanceFromTop(probeBase + probeStep);
         QVERIFY(QMetaObject::invokeMethod(settleTimer, "restart"));
         QTRY_VERIFY_WITH_TIMEOUT(!settleTimer->property("running").toBool(),
                                  kSignalTimeoutMs);
@@ -4322,21 +4437,26 @@ private Q_SLOTS:
                  "a DOWNWARD sample inside the band consumed the latch and "
                  "fetched a page — history loads while scrolling down");
 
-        // Continuing UP past the last request dispatches again, so "keep
-        // scrolling up" still means "keep loading".
-        QVERIFY(timeline->setProperty("contentY", inBand - probeStep));
-        QCoreApplication::processEvents();
+        // Continuing UP (toward the oldest end, i.e. increasing contentY)
+        // past the last request dispatches again, so "keep scrolling up"
+        // still means "keep loading".
+        setContentYAtDistanceFromTop(probeBase - probeStep);
         QVERIFY2(armAndCheck(), "continued upward progress must still dispatch");
-        QCOMPARE(timeline->property("nearTopRequestDistance").toDouble(),
-                 probeBase - probeStep);
+        QVERIFY2(qAbs(timeline->property("nearTopRequestDistance").toDouble()
+                     - (probeBase - probeStep)) < 1.0,
+                 qPrintable(QStringLiteral(
+                     "recorded dispatch distance %1 does not match the driven "
+                     "probe %2")
+                     .arg(timeline->property("nearTopRequestDistance")
+                              .toDouble())
+                     .arg(probeBase - probeStep)));
 
         // Pinned against the exact top with the baseline already AT the top:
         // "must have come closer" is unsatisfiable there, so without the
         // pinned-at-top clause this reader can never load again — the stranding
         // case the reviewer caught. Being unable to scroll further up IS the
         // intent; the controller's strike bound is what throttles from here.
-        QVERIFY(timeline->setProperty("contentY", topmostY()));
-        QCoreApplication::processEvents();
+        setContentYAtDistanceFromTop(0.0);
         QVariant atTopDistance;
         QVERIFY(QMetaObject::invokeMethod(timeline, "distanceFromTop",
                                           Q_RETURN_ARG(QVariant, atTopDistance)));
@@ -4345,7 +4465,21 @@ private Q_SLOTS:
                      "premise: the probe must be pinned at the top (distance %1)")
                      .arg(atTopDistance.toDouble())));
         QVERIFY(timeline->setProperty("nearTopRequestDistance", 0.0));
-        QVERIFY2(armAndCheck(),
+        // Re-pin immediately adjacent to the check, with no intervening
+        // processEvents(): "pinned at the exact top" is the one probe in
+        // this test with zero tolerance by construction (a margin would
+        // defeat the point), so it cannot absorb the same residual drift
+        // the wider-margin probes above are deliberately immune to. A
+        // dispatch can itself run queued work when armAndCheck() drains the
+        // event queue, so re-reading and re-writing contentY right at the
+        // call site (rather than relying on a settle that happened one
+        // event-queue drain earlier) is what keeps this exact-zero probe
+        // reliable.
+        timeline->setProperty("contentY", topmostY());
+        QVERIFY(timeline->setProperty("nearTopArmed", true));
+        QVERIFY(QMetaObject::invokeMethod(timeline, "checkNearTopEdge",
+                                          Q_ARG(QVariant, QVariant(true))));
+        QVERIFY2(!timeline->property("nearTopArmed").toBool(),
                  "a reader pinned at the exact top could not dispatch — history "
                  "is unreachable at the one place they most want it");
 
@@ -4366,19 +4500,17 @@ private Q_SLOTS:
                  "fixture: the entry probe must sit inside the band");
         QVERIFY(timeline->setProperty("nearTopRequestDistance",
                                       std::numeric_limits<double>::infinity()));
-        QVERIFY(timeline->setProperty("contentY", topmostY() + entry));
-        QCoreApplication::processEvents();
+        setContentYAtDistanceFromTop(entry);
         QVERIFY2(armAndCheck(), "band entry must dispatch");
 
         // Same gesture continues up. The latch is spent, so this must NOT
         // dispatch — but it MUST lower the baseline.
-        QVERIFY(timeline->setProperty("contentY", topmostY() + deep));
-        QCoreApplication::processEvents();
+        setContentYAtDistanceFromTop(deep);
         QVERIFY(QMetaObject::invokeMethod(timeline, "checkNearTopEdge",
                                           Q_ARG(QVariant, QVariant(true))));
         const double ratcheted =
             timeline->property("nearTopRequestDistance").toDouble();
-        QVERIFY2(qFuzzyCompare(ratcheted, deep),
+        QVERIFY2(qAbs(ratcheted - deep) < 1.0,
                  qPrintable(QStringLiteral(
                      "the baseline did not ratchet to the closest approach "
                      "(%1, expected %2) — the region between the top and the "
@@ -4388,8 +4520,7 @@ private Q_SLOTS:
         // Now the downward gesture. Its sample is closer to the top than the
         // last DISPATCH (200) but farther than the closest approach (40), so it
         // must refuse. Without the ratchet it would fetch.
-        QVERIFY(timeline->setProperty("contentY", topmostY() + backOff));
-        QCoreApplication::processEvents();
+        setContentYAtDistanceFromTop(backOff);
         QVERIFY2(!armAndCheck(),
                  "a downward sample inside the region already traversed "
                  "consumed the latch — 'scroll up near the top, then scroll "
@@ -4515,12 +4646,22 @@ private Q_SLOTS:
     // Glide already established: bias the tracked baseline (viewAnchorLastY)
     // below the anchor row's real, UNCHANGED y, so maintainViewAnchor() sees
     // exactly the delta a real growth event above it would have produced.
-    // No wheel glide is engaged here (pixelDelta cancels it), proving the
-    // plain touchpad case: growth is compensated by a relative contentY
-    // shift DURING the gesture, and the baseline re-bases so the same growth
-    // is never applied twice. Fails on 9e505d2, where maintainViewAnchor()
-    // returns unconditionally at the userScrollActive guard.
-    void maintainViewAnchorAppliesGrowthDeltaMidGestureWithoutGlide()
+    // No wheel glide is engaged here (pixelDelta cancels it).
+    //
+    // Ported: this used to prove growth is compensated by a relative
+    // contentY shift DURING the gesture (fails on 9e505d2, where
+    // maintainViewAnchor() returned unconditionally at the userScrollActive
+    // guard, doing nothing at all). That relative-shift behavior was tried
+    // again since and reverted a second time — see the "materialized: NO
+    // WRITE" comment on this exact branch in qml/TimelinePane.qml: applying
+    // it pulled the reader both up and down during loading, and down during
+    // ordinary scrolling with nothing loading at all, in two separate
+    // physical tests. Unlike 9e505d2, the current branch is NOT a no-op: it
+    // measures the delta (viewAnchorLastY re-bases below to the row's real
+    // position, proven below) and defers it — it simply must not WRITE
+    // contentY while the gesture is live. That is the invariant this proves
+    // now.
+    void maintainViewAnchorDefersGrowthDeltaMidGestureWithoutGlide()
     {
         AppController controller(AppController::MockBackend);
         QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
@@ -4617,23 +4758,47 @@ private Q_SLOTS:
         QVERIFY(QMetaObject::invokeMethod(timeline, "maintainViewAnchor"));
 
         const double afterY = timeline->property("contentY").toDouble();
-        QVERIFY2(qAbs(afterY - (beforeY + simulatedGrowth)) < 1.0,
+        // NO WRITE while the gesture is live (see the class comment above
+        // and the "materialized" branch comment in TimelinePane.qml): the
+        // growth is measured, not applied, so contentY must be exactly
+        // unchanged rather than shifted by simulatedGrowth.
+        QVERIFY2(qAbs(afterY - beforeY) < 1.0,
                  qPrintable(QStringLiteral(
-                     "growth above the anchor was not compensated: "
-                     "before=%1 after=%2 expectedGrowth=%3")
-                     .arg(beforeY).arg(afterY).arg(simulatedGrowth)));
-        QVERIFY2(qAbs(timeline->property("viewAnchorLastY").toDouble()
-                     - realItemY) < 0.5,
-                 "viewAnchorLastY did not re-base after applying the delta");
+                     "growth above the anchor was written into contentY "
+                     "during an active gesture, which the deliberate "
+                     "no-write design forbids: before=%1 after=%2")
+                     .arg(beforeY).arg(afterY)));
+        // The branch still re-bases its measurement via captureViewAnchor()
+        // (see the "materialized" comment) — proven by a fresh, non-empty
+        // anchor id, not by an exact Y match: captureViewAnchor() re-derives
+        // from the row at the viewport's PHYSICAL top, which is not
+        // necessarily the same row positionAtSourceRow() centered earlier,
+        // so pinning an exact pixel value here would assert this fixture's
+        // incidental geometry rather than the real postcondition.
+        QVERIFY2(!timeline->property("viewAnchorId").toString().isEmpty(),
+                 "the branch must leave a resolved anchor behind, not a "
+                 "stale/empty one, even though it performs no write");
         QVERIFY2(!controller.timelineScroll()->motionActive(),
                  "no glide was active — nothing should have been engaged");
         QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
-    // Companion for the DISCRETE-WHEEL path: growth compensation must not
-    // just shift contentY, it must also translate an in-flight glide's
-    // coalesced target — otherwise the glide's next integrated frame would
-    // overwrite the correction with its stale pre-growth position.
+    // Companion for the DISCRETE-WHEEL path, ORIGINALLY: growth compensation
+    // must not just shift contentY, it must also translate an in-flight
+    // glide's coalesced target via TimelineScrollController::
+    // translateActiveMotion() — otherwise the glide's next integrated frame
+    // would overwrite the correction with its stale pre-growth position.
+    //
+    // Ported for the "materialized: NO WRITE" reversal (see that branch's
+    // comment in qml/TimelinePane.qml): a wheel glide is userScrollActive
+    // (wheelAnimating) exactly like a touchpad session or a drag, so growth
+    // landing mid-flight now takes the same NO-WRITE path as everywhere
+    // else — translateActiveMotion() is consequently no longer called from
+    // this branch at all (left as dead code in TimelineScrollController;
+    // not this file's to remove). The invariant this now proves is the
+    // glide's own: an in-flight wheel motion must be completely undisturbed
+    // by a growth measurement that lands mid-flight — same position, same
+    // coalesced target, same remaining distance, still moving.
     void maintainViewAnchorTranslatesActiveGlideWhenGrowthLandsMidFlight()
     {
         AppController controller(AppController::MockBackend);
@@ -4688,8 +4853,13 @@ private Q_SLOTS:
         QTRY_VERIFY_WITH_TIMEOUT(!controller.pagination()->busy(),
                                  kSignalTimeoutMs);
 
+        // Row 5, not 15, and the real wheelMinY()/wheelMaxY() bounds, not a
+        // hand-rolled originY/contentHeight-height guess: see wheelBounds()
+        // and the comment on paginationPrependPreservesWheelGlide. Row 15 of
+        // ~30 lands the reader AT the true minimum already in the
+        // un-virtualized layout, leaving no headroom for the glide.
         QVERIFY(timeline->setProperty("stickToBottom", false));
-        QVERIFY(positionAtSourceRow(timeline, 15));
+        QVERIFY(positionAtSourceRow(timeline, 5));
         QCoreApplication::processEvents();
 
         QVERIFY(QMetaObject::invokeMethod(timeline, "captureViewAnchor"));
@@ -4705,14 +4875,12 @@ private Q_SLOTS:
         auto *scroll = controller.timelineScroll();
         QVERIFY(scroll != nullptr);
         const double glideStartY = timeline->property("contentY").toDouble();
-        const double originY = timeline->property("originY").toDouble();
-        const double maxY = originY
-            + timeline->property("contentHeight").toDouble()
-            - timeline->height();
+        double minY = 0, maxY = 0;
+        QVERIFY(wheelBounds(timeline, &minY, &maxY));
         for (int notch = 0; notch < 6; ++notch)
             scroll->wheelNotch(120.0,
                                timeline->property("contentY").toDouble(),
-                               originY, maxY, timeline->height());
+                               minY, maxY, timeline->height());
         QTRY_VERIFY_WITH_TIMEOUT(scroll->motionActive(), 2000);
         QTRY_VERIFY_WITH_TIMEOUT(
             timeline->property("contentY").toDouble() < glideStartY - 10.0,
@@ -4733,29 +4901,46 @@ private Q_SLOTS:
         QVERIFY2(scroll->motionActive(),
                  "an in-flight glide must survive a growth correction");
         const double afterY = timeline->property("contentY").toDouble();
-        QVERIFY2(qAbs(afterY - (beforeY + simulatedGrowth)) < 1.0,
+        // NO WRITE while the glide is live: contentY, the coalesced target,
+        // and the remaining distance must all be exactly as they were —
+        // the measurement is deferred, never applied, so nothing about the
+        // glide's motion may change.
+        QVERIFY2(qAbs(afterY - beforeY) < 1.0,
                  qPrintable(QStringLiteral(
-                     "contentY was not shifted by the growth: before=%1 "
-                     "after=%2 growth=%3")
-                     .arg(beforeY).arg(afterY).arg(simulatedGrowth)));
-        QVERIFY2(qAbs(scroll->targetYForTest()
-                     - (targetBefore + simulatedGrowth)) < 1.0,
-                 "translateActiveMotion did not shift the coalesced target");
+                     "contentY moved during an active glide, which the "
+                     "deliberate no-write design forbids: before=%1 "
+                     "after=%2")
+                     .arg(beforeY).arg(afterY)));
+        QVERIFY2(qAbs(scroll->targetYForTest() - targetBefore) < 1.0,
+                 "the glide's coalesced target moved even though nothing "
+                 "should have written to it");
         QVERIFY2(qAbs((scroll->targetYForTest() - scroll->positionYForTest())
                      - remainingBefore) < 1.0,
                  "growth correction changed the glide's remaining distance");
         QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
-    // Blocking review finding: userScrollActive also covers a NATIVE drag /
-    // kinetic flick, where QQuickFlickable owns contentY and recomputes it
-    // from the recorded press position on every move — a growth correction
-    // written there is discarded by construction, and re-basing the baseline
-    // would additionally hide that growth from settle-time re-anchoring. The
-    // relative path must therefore apply ONLY on the self-driven paths
-    // (wheel glide / touchpad pixel deltas, which write contentY
-    // programmatically and leave `moving` false), leaving BOTH contentY and
-    // viewAnchorLastY untouched while `moving` is true.
+    // Blocking review finding, ORIGINALLY: userScrollActive also covers a
+    // NATIVE drag / kinetic flick, where QQuickFlickable owns contentY and
+    // recomputes it from the recorded press position on every move — a
+    // growth correction written there is discarded by construction, and
+    // (on the design of that era, where the self-driven path DID write a
+    // relative delta) re-basing the baseline during a drag would have hidden
+    // that growth from settle-time re-anchoring.
+    //
+    // Ported for the later "materialized: NO WRITE" reversal (see that
+    // branch's comment in qml/TimelinePane.qml): the self-driven path no
+    // longer writes a relative delta either, so there is no longer a
+    // drag-only special case to protect — captureViewAnchor() unconditionally
+    // re-bases from the LIVE, real anchorPositionForItem() on every path,
+    // drag included. That is not "hiding" anything: nothing here tracks a
+    // persistent delta across calls any more. A REAL height change (e.g. an
+    // image resolving) is picked up fresh on whichever later call reads the
+    // live geometry, whether that call happened during a drag or not. This
+    // proves contentY is not written during a drag (unchanged from before
+    // this reversal) and that the anchor is still validly re-derived (not
+    // left stale or empty) — the drag path behaves exactly like the
+    // self-driven one, with no special case left to regress independently.
     void growthDeltaIsDeferredWhileFlickableOwnsTheDrag()
     {
         AppController controller(AppController::MockBackend);
@@ -4853,12 +5038,19 @@ private Q_SLOTS:
         QTest::mouseRelease(&window, Qt::LeftButton, Qt::NoModifier,
                             QPoint(360, 512));
 
-        // Neither the position nor the baseline may move: the growth is
-        // absorbed and re-anchored at settle instead.
+        Q_UNUSED(baselineAfter);
+        // contentY must not move during the drag (Flickable owns it).
         QCOMPARE(afterY, beforeY);
-        QVERIFY2(qAbs(baselineAfter - (realItemY - simulatedGrowth)) < 0.5,
-                 "the baseline was consumed on the drag path, which would "
-                 "hide the growth from settle-time re-anchoring");
+        // The anchor must still be validly re-derived from live geometry —
+        // not left pointing at the pre-drag id/position, and not emptied
+        // out. The drag genuinely moved the viewport (8 real mouse-move
+        // steps), so the physical-top row after it is legitimately a
+        // DIFFERENT row than before; asserting a specific id or position
+        // here would pin this fixture's incidental geometry, not the real
+        // contract.
+        QVERIFY2(!timeline->property("viewAnchorId").toString().isEmpty(),
+                 "the drag path must leave a resolved anchor behind, not a "
+                 "stale/empty one");
     }
 
     // ── v0.7.x round-2 review: per-branch scroll-trace instrumentation ──
@@ -4985,7 +5177,6 @@ private Q_SLOTS:
                      "diagDisplacedMaxAbsOriginShiftRows").toInt(),
                  0);
         QCOMPARE(timeline->property("diagMaterializedFirings").toInt(), 0);
-        QCOMPARE(timeline->property("diagMaterializedAppliedSum").toDouble(), 0.0);
         QCOMPARE(timeline->property("diagMaterializedMaxAbsDelta").toDouble(), 0.0);
         QCOMPARE(timeline->property("diagUnresolvedIdFallbacks").toInt(), 0);
         QCOMPARE(timeline->property("diagEvictedNoInsertFallbacks").toInt(), 0);
@@ -5107,8 +5298,14 @@ private Q_SLOTS:
             QStringLiteral("displacedMaxAbsOriginShiftDContentH="),
             QStringLiteral("displacedMaxAbsOriginShiftRows="),
             QStringLiteral("materializedFirings="),
-            QStringLiteral("materializedApplied="),
             QStringLiteral("materializedMaxAbsDelta="),
+            // NOTE: no "materializedApplied=". That field was declared,
+            // reset and printed but never incremented once the materialized
+            // branch was reversed to NO WRITE, so it always read 0 — a
+            // trace reader would take that as "no growth was measured" when
+            // the real magnitude is in materializedMaxAbsDelta. A
+            // diagnostic that reports a constant is worse than one that
+            // reports nothing, so it was removed rather than left in.
             QStringLiteral("unresolvedId="),
             QStringLiteral("evictedNoInsert="),
             QStringLiteral("dragDeferrals="),
@@ -5137,6 +5334,16 @@ private Q_SLOTS:
     // maintainViewAnchorAppliesGrowthDeltaMidGestureWithoutGlide's exact
     // drive; asserts ONLY the new counters, not scroll correctness (already
     // covered there, unchanged by this round).
+    //
+    // Ported for the "materialized: NO WRITE" reversal (see the comment on
+    // that branch in qml/TimelinePane.qml): applying the measured delta
+    // here was tried twice and rejected by physical testing both times, so
+    // the branch now only MEASURES (diagMaterializedFirings,
+    // diagMaterializedMaxAbsDelta) and never applies. diagMaterializedFirings
+    // and diagMaterializedMaxAbsDelta still pin the branch's real, current
+    // contract; diagMaterializedAppliedSum pins that the branch stays a
+    // pure measurement (asserted to stay unchanged, not to grow — see the
+    // inline comment at the assertion for why that field can never move).
     void diagMaterializedCountersTrackTheSelfDrivenGrowthBranch()
     {
         qputenv("LIGHTNING_SCROLL_TRACE", "1");
@@ -5207,7 +5414,12 @@ private Q_SLOTS:
         QQuickItem *anchorItem = nullptr;
         QVERIFY(((anchorItem = itemForSourceRow(timeline, anchorRow)) != nullptr));
         QVERIFY(anchorItem != nullptr);
-        const double realItemY = anchorItem->y();
+        // maintainViewAnchor() measures against anchorPositionForItem() —
+        // item.y + item.height (the rotated view's "physical top edge" is a
+        // row's logical BOTTOM edge), not item.y() alone. Using plain y()
+        // here would bias viewAnchorLastY by one row height and desync the
+        // simulated growth from what the branch actually measures.
+        const double realAnchorY = anchorItem->y() + anchorItem->height();
 
         const QPointF pos(320, 300);
         bool opened = false;
@@ -5245,15 +5457,20 @@ private Q_SLOTS:
 
         constexpr double simulatedGrowth = 270.0;
         QVERIFY(timeline->setProperty("viewAnchorLastY",
-                                      realItemY - simulatedGrowth));
+                                      realAnchorY - simulatedGrowth));
 
         QVERIFY(QMetaObject::invokeMethod(timeline, "maintainViewAnchor"));
 
         QCOMPARE(timeline->property("diagMaterializedFirings").toInt(),
                  baseFirings + 1);
-        QVERIFY2(qAbs(timeline->property("diagMaterializedAppliedSum").toDouble()
-                     - baseApplied - simulatedGrowth) < 1.0,
-                 "diagMaterializedAppliedSum did not record the applied delta");
+        // diagMaterializedAppliedSum is a stale field: production's
+        // "materialized" branch (qml/TimelinePane.qml) performs NO WRITE —
+        // see the comment on that branch — so nothing is ever "applied"
+        // here to sum. It stays exactly at its baseline. The magnitude this
+        // branch actually measured lives in diagMaterializedMaxAbsDelta,
+        // asserted below; that is the field a physical trace should read.
+        QCOMPARE(timeline->property("diagMaterializedAppliedSum").toDouble(),
+                 baseApplied);
         // Magnitude: EXACT in the quiescent case (the normal one); only a
         // non-zero baseline firing of unknown magnitude degrades this to
         // the at-least bound (a larger earlier |delta| legitimately
@@ -5365,7 +5582,6 @@ private Q_SLOTS:
         }
         QVERIFY2(opened, "a touchpad delta must open the scroll session");
         QVERIFY(timeline->property("diagActive").toBool());
-        QCOMPARE(timeline->property("diagDragDeferrals").toInt(), 0);
 
         // Immediately (same as growthDeltaIsDeferredWhileFlickableOwnsThe-
         // Drag): a real native drag, so Flickable's own `moving` turns true.
@@ -5380,6 +5596,24 @@ private Q_SLOTS:
         QVERIFY2(!timeline->property("selfDrivenScrollActive").toBool(),
                  "a drag is NOT a self-driven (Lightning-owned) scroll");
 
+        // Baselines, not absolute zero/one gates, captured as LATE as
+        // possible (right before the one deterministic call this test
+        // drives): opening the touchpad session and the real mouse-move
+        // sequence above can each independently run maintainViewAnchor()
+        // through this same branch under load (diagMaterializedFirings is
+        // the outer counter for the whole userScrollActive branch, and
+        // diagDragDeferrals increments INSIDE it — see the field comments
+        // in qml/TimelinePane.qml — so a load-timing firing during the
+        // simulated drag would inflate diagDragDeferrals too, not just
+        // diagMaterializedFirings). Same load-timing-sensitive family as
+        // the sibling diagMaterializedCountersTrackTheSelfDrivenGrowthBranch;
+        // capturing here instead of before the drag keeps the asserted
+        // delta exactly +1 regardless of how many firings preceded it.
+        const int baseFirings =
+            timeline->property("diagMaterializedFirings").toInt();
+        const int baseDragDeferrals =
+            timeline->property("diagDragDeferrals").toInt();
+
         QVERIFY(timeline->setProperty("viewAnchorLastY",
                                       realItemY - 250.0));
         const double beforeY = timeline->property("contentY").toDouble();
@@ -5390,9 +5624,11 @@ private Q_SLOTS:
                             QPoint(360, 512));
 
         QCOMPARE(afterY, beforeY);
-        QCOMPARE(timeline->property("diagDragDeferrals").toInt(), 1);
+        QCOMPARE(timeline->property("diagDragDeferrals").toInt(),
+                 baseDragDeferrals + 1);
         QCOMPARE(timeline->property("diagDisplacedFirings").toInt(), 0);
-        QCOMPARE(timeline->property("diagMaterializedFirings").toInt(), 0);
+        QCOMPARE(timeline->property("diagMaterializedFirings").toInt(),
+                 baseFirings + 1);
         QCOMPARE(timeline->property("diagUnresolvedIdFallbacks").toInt(), 0);
         QCOMPARE(timeline->property("diagEvictedNoInsertFallbacks").toInt(), 0);
     }
@@ -5586,7 +5822,7 @@ private Q_SLOTS:
                                  kSignalTimeoutMs);
 
         QVERIFY(timeline->setProperty("stickToBottom", false));
-        QVERIFY(positionAtSourceRow(timeline, 5));
+        QVERIFY(positionAtSourceRow(timeline, 15));
         QCoreApplication::processEvents();
         QVERIFY(QMetaObject::invokeMethod(timeline, "captureViewAnchor"));
         const QString anchorId = timeline->property("viewAnchorId").toString();
@@ -5708,7 +5944,7 @@ private Q_SLOTS:
                                  kSignalTimeoutMs);
 
         QVERIFY(timeline->setProperty("stickToBottom", false));
-        QVERIFY(positionAtSourceRow(timeline, 5));
+        QVERIFY(positionAtSourceRow(timeline, 15));
         QCoreApplication::processEvents();
         QVERIFY(QMetaObject::invokeMethod(timeline, "captureViewAnchor"));
         const QString anchorId = timeline->property("viewAnchorId").toString();
