@@ -466,6 +466,46 @@ backend capability checks and honest live-test status.
   delete the directory mapping. Both ride the MEMBER snapshot, so a
   successful write asks for a roster refresh explicitly — nothing else
   refetches it for a non-membership state change. Live validation NOT TESTED
+- **Room upgrades / tombstones** (2026-08-16), banner-and-link and
+  deliberately NOT auto-follow. Matrix leaves an upgraded room in place
+  and creates a replacement; Lightning keeps the old room open and
+  readable and OFFERS the successor. That is a security decision as much
+  as a UX one: a room transition discards navigation context and can
+  discard draft state, and `m.room.tombstone` is state anyone with the
+  power level can send — it NAMES the room you would be moved into. No
+  code path changes the current room, joins, or leaves except as the
+  direct result of the user pressing the banner.
+  Room ids come only from the SDK's typed `Room::successor_room()` /
+  `predecessor_room()` (ruma `OwnedRoomId`) — that IS the "parse
+  replacement_room as a real room id" requirement, and nothing
+  hand-parses `m.room.tombstone` or `m.room.create`. The tombstone's
+  `body` NEVER crosses the FFI: free text chosen by whoever sent the
+  event, on a control the user is invited to click, so the banner uses
+  Lightning's own wording.
+  Joined successor -> navigate, no join. Invited or UNKNOWN -> join
+  through `RoomDiscoveryController::join` (so error categories and
+  wait-for-room settling cannot drift from Discover), navigate only once
+  settled. Refused -> stay in the old room with the reason shown inline
+  in the banner. A successor we HOLD but cannot enter is the one case
+  reported inaccessible; one we have never heard of is **Unknown**,
+  because we cannot show the user is unable to join it.
+  `chainVerified` requires the successor's predecessor to point BACK;
+  false-because-unknown means "not established yet", not "bad", and only
+  a CONTRADICTED chain withholds the room list's de-emphasis. That
+  de-emphasis is a demotion WITHIN the room's own category (a fourth
+  top-level sort group would fragment RoomsPanel's `category` sections
+  and demote a superseded invite out of the top block), never a filter.
+  Permalinks are untouched — an old-event permalink still resolves to the
+  old room.
+  Two defects were caught in review, both worth remembering:
+  `navigateRequested` passed a MEMBER over a direct connection to
+  `openRoom`, whose parameter aliased it — `openRoom` re-enters this
+  controller, whose `refresh()` clears that member, so `openRoomTimeline`
+  was never issued and Continue opened the room but not its timeline;
+  and the guard that stops an abandoned join navigating a user who has
+  moved on was retired only by a SUCCESSFUL join, so an abandoned join
+  that FAILED left a token that swallowed a later successful Continue.
+  Live validation NOT TESTED
 - **Unverified-session prompts** (2026-08-15): `sessionVerificationNeeded`
   is true for exactly one actionable state — signed in, crypto-capable
   backend, `sessionTrustState == "Not verified"`. "Unknown" (not yet
@@ -1157,6 +1197,65 @@ direct merge-request submission may not be enabled on this GitLab instance.
 ## 16. Current active development areas
 
 Keep this list grounded in source and recent history:
+
+**2026-08-16 post-0.7.1 round** (`ea1fd40..`, on `main`, unreleased).
+Eight-plus commits addressing a user-report batch. Newest first:
+- **Message action bar clipped on a thin row** (`4db1a18`). The hover
+  toolbar was anchored INSIDE bubbleRow with a -3px overhang and root
+  clips (`clip: ListView.view === null`, load-bearing), so a one-line row
+  truncated it. Escaping the clip is right; the FIRST attempt at it
+  crashed — a per-row Loader's loaded Rectangle setting
+  `parent: Overlay.overlay` keeps the Loader as its destruction owner, so
+  delegate churn dereferenced a dangling pointer (bisected against
+  timeline-pane-qml). The `detailsDialogComponent` precedent does NOT
+  transfer: a Dialog is a Popup and manages its own overlay lifetime.
+  Fixed with ONE shared bar declared statically in TimelinePane.qml
+  (same lifetime as sharedReactionPicker), into which rows publish only
+  PRIMITIVES via claimActionBar/releaseActionBar — never a QObject
+  reference, so a destroyed row cannot dangle anything.
+  `forceReleaseActionBar` exists because the ordinary release refuses
+  while the pointer is on the bar: correct for a live row, WRONG for a
+  dying one, where a room switch left the bar on screen over the next
+  room still holding the previous room's event id.
+- **Scroll consistency** (`5429ab0`): shared `qml/SmoothWheelArea.qml`
+  applied to Settings and eight other panes; contract test lists the
+  twelve still unconverted rather than hiding them. It uses only
+  ScrollTuning's STATELESS `notchDistance()` — `wheelTargetY()` mutates
+  controller state owned by the timeline's anchoring.
+- **State-flood scroll death: still NOT reproduced** (`970bc75`,
+  `ff5dcfe`). The user reports scrolling dying in rooms with many state
+  events. Two harnesses say the opposite of the hypothesis: state rows
+  cost ~0 ms per wheel notch vs 12-20 ms for the same count of ordinary
+  messages, and page inserts stay flat (~6 ms) out to 1063 loaded rows.
+  The proxy-suppression fix sketched in `970bc75`'s message was therefore
+  NOT shipped — it would be a fourth speculative scroll change, and the
+  three before it were withdrawn in review or shipped and regressed. The
+  trace now carries `gestureMs`, `worstNotchMs`, `stateRows` and
+  `stateGroups` (all behind LIGHTNING_SCROLL_TRACE, counts only).
+  **A real capture is the blocker**: a high `worstNotchMs` next to a high
+  `stateRows` is the evidence that would justify the suppression work.
+  Note the real inefficiency that IS confirmed: a collapsed group drawing
+  ONE summary line still instantiates one delegate per member row
+  (`modelRows=100 viewRows=100`).
+- **Room upgrades / tombstones** (`de05091`) — see §7.
+- **Space avatar** (`74319b1`): Space Home already edited name and topic;
+  the avatar controls did not exist, so a Space could be renamed but
+  never given a picture from inside Lightning. Same permission-gated
+  `setRoomAvatar`/`removeRoomAvatar` a room uses — a Space IS a Matrix
+  room and this is `m.room.avatar` either way.
+- **"Mark as read" was a silent no-op for any room but the open one**
+  (`05b2384`). `RoomListModel::markRoomRead` resolved its target by
+  walking `MatrixClient::timeline(roomId)`, which on the Rust backend
+  only ever holds the ACTIVE room — empty for every other room, so it
+  sent nothing and said nothing. `mx_rust_mark_room_read` takes the
+  target from the SDK's `Room::latest_event()`, sends the public receipt
+  AND `m.fully_read` together, and always clears the manual unread flag.
+  Worth recording: the read-marker plumbing was otherwise already
+  correct — Lightning sends `m.fully_read` on every in-room advance and
+  the SDK derives its own ReadMarker row from account data, so a marker
+  set by another client already arrived. Only this entry point was broken.
+- **First-upgrade validation procedure** (`082d4d0`) in `docs/updates.md`.
+Everything user-visible in this round is **NOT TESTED** live.
 
 **2026-08-15 discovery / search / UIA / moderation / drafts round.** Landed
 in one pass after the pins/admin round:
