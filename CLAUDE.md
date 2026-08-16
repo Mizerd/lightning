@@ -1295,20 +1295,54 @@ Eight-plus commits addressing a user-report batch. Newest first:
 - **First-upgrade validation procedure** (`082d4d0`) in `docs/updates.md`.
 Everything user-visible in this round is **NOT TESTED** live.
 
-**#10 update (2026-08-16, from a live capture).** The scroll lag is
-**row COUNT, not state events** — the original framing was a red herring
-and the proxy-suppression fix aimed at state rows would not have helped.
-Rokas: "gets laggy when a lot of messages are loaded", which matches the
-measurement (cost scales with rows at ~4.8 ms/row, type-independent;
-state rows are ~8x CHEAPER than messages). Mechanism is structural: no
-virtualization since `1e50f6a`, so every loaded row stays instantiated,
-and the capture shows `near_top` re-firing ~40 times in one session at
-~18-20 rows each. Candidate directions, none attempted: release
-far-offscreen rows; make the near-top backfill less eager; reinstate
-some virtualization. Needs its own designed round.
-Also seen in that capture and NOT investigated: an `image/svg+xml`
-payload reached the thumbnail fetch path (§6 keeps SVG out of
-preview/media paths — the render side may still refuse it).
+**#10 RESOLVED as diagnosis, 2026-08-16. Read this before touching
+timeline scrolling.** Four hypotheses were proposed and every one was
+falsified by a live capture from Rokas's machine. Do not re-propose them:
+
+| Hypothesis | Falsified by |
+|---|---|
+| State events are the cost | state rows measured ~8x CHEAPER than messages |
+| Row count is the cost | `worstNotchMs` flat at 1-2 ms regardless of rows |
+| GPU fill-rate at 4K | `render` = 1-4 ms on every slow frame |
+| Clipping breaking batching | same — render is never the cost |
+
+**What the evidence says.** `QSG_RENDER_TIMING=1` during a hard scroll at
+4K fullscreen:
+
+```
+polish=28 sync=18 render=3 swap=2  -> 53ms
+polish=10 sync=32 render=4 swap=1  -> 48ms
+```
+
+The cost is **polish (Qt item layout) + sync (scene-graph node updates)**,
+both CPU-side on the GUI thread. `render` and `swap` are negligible. That
+is why the lag tracked WINDOW SIZE rather than row count: a taller viewport
+puts more rows inside the 3-viewport `rowOnScreen` band, and every one of
+those activates media loaders and layouts.
+
+**A bounded retained window was implemented and REVERTED.** It released
+far-offscreen rows while pinning their measured height. It did not produce
+a felt improvement over two rounds of testing, a follow-up cap on the
+on-screen band made the app FREEZE, and the width-invalidation it required
+called `captureViewAnchor()`/`maintainViewAnchorCoalesced()` on every
+resize — injecting anchor operations into the machinery three previous
+fixes were reverted from, which three anchor-counter tests detected.
+Reverting restored "fine, only lags a bit when messages load". **The change
+was making it worse**, consistent with the review finding that it added a
+build-then-destroy pass to the pagination path.
+
+Residual, accepted: ~60-140 ms per page while backfilling (`perRowMs` 3-7,
+~18-20 rows a page). ReverseListProxyModel already paces this with a 3 ms
+budget per tick.
+
+**If this is picked up again**: profile what `polish` is spending time on
+before changing anything. MessageDelegate is built from nested
+ColumnLayout/RowLayout and Qt Quick Layouts propagate size hints on every
+polish; replacing the hot ones with anchored Items is the mechanical
+candidate. Use `perf record` on the GUI thread, not more env-var
+experiments. The scroll trace (`gestureMs`, `worstNotchMs`, `stateRows`,
+`stateGroups`) and `row-reveal` (`perRowMs`) are already in place and are
+what retired all four wrong hypotheses.
 
 **2026-08-15 discovery / search / UIA / moderation / drafts round.** Landed
 in one pass after the pins/admin round:
