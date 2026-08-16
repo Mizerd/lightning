@@ -1254,8 +1254,61 @@ Eight-plus commits addressing a user-report batch. Newest first:
   correct — Lightning sends `m.fully_read` on every in-room advance and
   the SDK derives its own ReadMarker row from account data, so a marker
   set by another client already arrived. Only this entry point was broken.
+- **Message forwarding**: content re-sent as a NEW, unrelated event (no
+  Matrix forward primitive, no SDK helper). Media is RE-UPLOADED, never
+  mxc-copied — under authenticated media the target's members may not be
+  entitled to the source mxc, and an encrypted source's `file` block
+  carries per-event keys that must not be planted in a room that never
+  negotiated them. Carries NO relation, so a forwarded thread reply lands
+  as an ordinary message (§8). Filename and MIME are sender-chosen and
+  RE-ORIGINATED under this account, so both are sanitized: leaf-only
+  filename, and type identified from MAGIC BYTES using the same five
+  signatures as `rooms::sniff_image_mime` (NOT `QImageReader::format()`,
+  which is plugin-backed — WebP lives in qtimageformats and the packaged
+  fleet need not carry it; and NOT `gif::validateRasterBytes`, which
+  imports the saved-GIF store's 4096px / 25 MiB caps and would refuse a
+  5K screenshot). Four review-caught defects worth remembering: every
+  image forward would have written decrypted bytes into the saved-media
+  store (the star handler acted on EVERY `mediaBytesForStar`, safe only
+  while `starChatGif` was its sole caller); media forwarding to any room
+  but the OPEN one failed 100% of the time (`sendAttachmentBytes` gates
+  on the live timeline, so `Room::send_attachment` was added); a server
+  refusal after dispatch was SILENT (a direct upload has no send queue
+  and the target timeline is not open, so nothing fails visibly).
+- **`wantsSharedActionBar` binding loop** (regression from the action-bar
+  fix, caught by a LIVE CAPTURE not by any test): the binding read
+  `activeActionsKey` and its handler called `claimActionBar`, which
+  writes it. Fired hundreds of times per pagination run. Keeping the bar
+  alive under the pointer never needed that term — `releaseActionBar`
+  already refuses while hovered. A binding loop is a WARNING, so the
+  suites asserting on QML warnings missed it: they load MessageDelegate
+  standalone, and the loop needs a claim to fire at all.
+- **Stale timeline suites ported**: `timeline-pane-qml` 52/11 -> **61/2**.
+  Not flakiness — six cases asserted `maintainViewAnchor`'s materialized
+  branch APPLYING its delta, which was deliberately reversed to NO WRITE
+  after physical testing rejected it twice. Also removed
+  `diagMaterializedAppliedSum`, which was printed in the scroll trace but
+  never incremented since that reversal, so `materializedApplied=0` in
+  every capture read as "no growth measured". The 2 remaining failures
+  abort on their own fixture precondition (no cache eviction exists in
+  the un-virtualized Column) and are deliberately left.
 - **First-upgrade validation procedure** (`082d4d0`) in `docs/updates.md`.
 Everything user-visible in this round is **NOT TESTED** live.
+
+**#10 update (2026-08-16, from a live capture).** The scroll lag is
+**row COUNT, not state events** — the original framing was a red herring
+and the proxy-suppression fix aimed at state rows would not have helped.
+Rokas: "gets laggy when a lot of messages are loaded", which matches the
+measurement (cost scales with rows at ~4.8 ms/row, type-independent;
+state rows are ~8x CHEAPER than messages). Mechanism is structural: no
+virtualization since `1e50f6a`, so every loaded row stays instantiated,
+and the capture shows `near_top` re-firing ~40 times in one session at
+~18-20 rows each. Candidate directions, none attempted: release
+far-offscreen rows; make the near-top backfill less eager; reinstate
+some virtualization. Needs its own designed round.
+Also seen in that capture and NOT investigated: an `image/svg+xml`
+payload reached the thumbnail fetch path (§6 keeps SVG out of
+preview/media paths — the render side may still refuse it).
 
 **2026-08-15 discovery / search / UIA / moderation / drafts round.** Landed
 in one pass after the pins/admin round:
