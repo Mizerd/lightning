@@ -161,6 +161,18 @@ public:
     // its own.
     Q_INVOKABLE void translateActiveMotion(double deltaY);
 
+    // How long THIS controller's own motion takes to settle a glide of
+    // `distancePx`, in milliseconds. Pure and const — it simulates the
+    // approach rather than touching any motion state, so a second surface
+    // can ask without disturbing the timeline's in-flight glide.
+    //
+    // Exists so SmoothWheelArea can match the timeline's FEEL, not just its
+    // per-notch distance. It previously ran a fixed 220 ms SmoothedAnimation
+    // (which eases in AND out) against this controller's ease-out
+    // exponential, so panes scrolled visibly differently from the room
+    // timeline even though each notch travelled the same distance.
+    Q_INVOKABLE double settleDurationMs(double distancePx) const;
+
     // Legacy explicit end-of-motion (tests); the engine normally settles
     // itself and emits wheelMotionSettled().
     Q_INVOKABLE void endMotion();

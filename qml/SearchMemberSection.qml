@@ -55,7 +55,22 @@ ColumnLayout {
         id: memberList
         visible: root.expanded
         Layout.fillWidth: true
-        Layout.preferredHeight: visible ? Math.min(180, contentHeight) : 0
+        // Derived from the MODEL, never from contentHeight. Binding the
+        // height to contentHeight is circular — contentHeight is the sum of
+        // the delegates the view decided to create, and how many it creates
+        // depends on its height — so the view settles at whatever partial
+        // height it happened to reach first and the last row is left clipped
+        // mid-text (reported with two members: the second row cut through
+        // its MXID).
+        readonly property int rowHeight: 42
+        Layout.preferredHeight: {
+            if (!visible)
+                return 0
+            var n = root.members ? root.members.length : 0
+            if (n <= 0)
+                return 0
+            return Math.min(180, n * rowHeight + (n - 1) * spacing)
+        }
         clip: true
         spacing: 2
         model: root.members
@@ -64,7 +79,7 @@ ColumnLayout {
             id: memberRow
             required property var modelData
             width: memberList.width
-            implicitHeight: 42
+            implicitHeight: memberList.rowHeight
             hoverEnabled: true
             onClicked: root.userToggled(modelData.userId || "")
             Accessible.name: modelData.displayName

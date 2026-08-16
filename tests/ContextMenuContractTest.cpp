@@ -162,7 +162,7 @@ private Q_SLOTS:
     {
         const QString delegate = read(QStringLiteral("MessageDelegate.qml"));
         QVERIFY(!delegate.isEmpty());
-        const int start = delegate.indexOf(QStringLiteral("id: threadActionBar"));
+        const int start = delegate.indexOf(QStringLiteral("id: messageActionBar"));
         const int end = delegate.indexOf(QStringLiteral("id: moreMenu"), start);
         QVERIFY(start >= 0 && end > start);
         const QString block = delegate.mid(start, end - start);

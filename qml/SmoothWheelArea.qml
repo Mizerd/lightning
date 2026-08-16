@@ -177,7 +177,7 @@ WheelHandler {
     // WheelHandler (like every PointerHandler) declares no default
     // property, so a nested animation must be assigned to an explicit
     // named property rather than nested anonymously.
-    property SmoothedAnimation glide: SmoothedAnimation {
+    property NumberAnimation glide: NumberAnimation {
         target: root.scrollTarget
         property: "contentY"
         // Fixed-duration mode (velocity < 0 disables velocity-based
@@ -188,9 +188,24 @@ WheelHandler {
         // parameter here. 220ms approximates the timeline's own settle
         // window (tau=90ms with a 700px/s floor) for a typical notch;
         // see the feel-matching caveat above.
-        velocity: -1
-        duration: 220
-        reversingMode: SmoothedAnimation.Immediate
+        // OutExpo mirrors the controller's own exponential approach
+        // (step = remaining * (1 - exp(-dt/tau))): fast at the start,
+        // decelerating into the target. SmoothedAnimation eased in as well,
+        // which is what made these panes feel different from the timeline
+        // even at the identical per-notch distance.
+        easing.type: Easing.OutExpo
+        // Taken from the controller rather than guessed, so "how far" and
+        // "how long" both come from the one place the timeline uses.
+        duration: {
+            var c = (typeof app !== "undefined" && app) ? app.timelineScroll
+                                                        : null
+            if (!c || !c.settleDurationMs)
+                return 220
+            var d = c.settleDurationMs(
+                Math.abs(root.glideTargetY - (root.scrollTarget
+                                              ? root.scrollTarget.contentY : 0)))
+            return Math.max(80, Math.min(400, d))
+        }
     }
 
     Component.onDestruction: root.glide.stop()

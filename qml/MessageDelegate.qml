@@ -10,7 +10,13 @@ Item {
     // Clip everywhere except the thread ListView, which keeps its previous
     // unclipped behaviour. The room timeline's rows are packed edge to edge in
     // a Column, so a row must not paint over its neighbours.
-    clip: ListView.view === null
+    // NOT clipped. The clip dates from the TableView era ("while a recycled
+    // row is being remeasured"); rows are no longer recycled and size to
+    // their content exactly, so there is nothing to spill. What the clip DID
+    // do was cut the hover action bar off on any row shorter than it, which
+    // is the reported defect. The thread panel has always run unclipped with
+    // the same delegate and the same bar.
+    clip: false
     // The room timeline is a one-column TableView; thread replies still use
     // ListView. Keep the delegate's interaction contract independent of the
     // virtualizer while preserving each view's attached reuse lifecycle.
@@ -1307,17 +1313,15 @@ Item {
             // tooltip clipping against the window's top edge — applies
             // there too).
             //
-            // The room timeline (clip: true, genuinely short rows possible)
-            // now renders through ONE shared instance owned by
-            // TimelinePane.qml (sharedMessageActionBar / timeline's
-            // claimActionBar/releaseActionBar) instead of a per-row Loader.
-            // This row PUBLISHES only primitive facts into it — a live-
-            // mapped anchor point, the target eventId, a couple of
-            // booleans — never a QObject/Item reference, so this row's
-            // destruction (Component.onDestruction below) can never leave
-            // anything dangling on the shared side.
+            // ONE bar per row, created on first hover and anchored in
+            // place. Positioning is plain anchors against the row itself —
+            // no mapToItem into an overlay, which could not survive the
+            // rows' 180-degree rotation (it placed the bar at the visual
+            // BOTTOM) and had no dependency to re-evaluate on when the view
+            // scrolled. Hover is naturally exclusive, so two rows can never
+            // both show one.
             Loader {
-                id: threadActionBarLoader
+                id: messageActionBarLoader
                 anchors.top: parent.top
                 anchors.right: parent.right
                 anchors.topMargin: -3
@@ -1330,14 +1334,13 @@ Item {
                 // write to one of its dependencies from there is a
                 // detected binding loop.
                 property bool latched: false
-                active: root.inThreadPanel
-                        && (latched || rowHover.hovered || root.actionsPinned
-                            || root.moreMenuOpen)
+                active: latched || rowHover.hovered || root.actionsPinned
+                        || root.moreMenuOpen
                 onLoaded: Qt.callLater(function() { latched = true })
                 visible: rowHover.hovered || root.actionsPinned
                          || root.moreMenuOpen
                 sourceComponent: Rectangle {
-                id: threadActionBar
+                id: messageActionBar
                 // v0.6.5 (SPEC 1a): container surface bg, 1px borderStrong,
                 // radius radiusTile, 2px padding.
                 radius: AppTheme.radiusTile
@@ -1383,7 +1386,7 @@ Item {
                             visible: threadReactButton.hovered
                             delay: 500
                             text: qsTr("React")
-                            y: threadActionBar.tooltipsBelow
+                            y: messageActionBar.tooltipsBelow
                                ? threadReactButton.height + AppTheme.spacingXS
                                : -implicitHeight - AppTheme.spacingXS
                         }
@@ -1412,7 +1415,7 @@ Item {
                             visible: threadReplyButton.hovered
                             delay: 500
                             text: qsTr("Reply")
-                            y: threadActionBar.tooltipsBelow
+                            y: messageActionBar.tooltipsBelow
                                ? threadReplyButton.height + AppTheme.spacingXS
                                : -implicitHeight - AppTheme.spacingXS
                         }
@@ -1434,16 +1437,16 @@ Item {
                             visible: threadMoreButton.hovered
                             delay: 500
                             text: qsTr("More")
-                            y: threadActionBar.tooltipsBelow
+                            y: messageActionBar.tooltipsBelow
                                ? threadMoreButton.height + AppTheme.spacingXS
                                : -implicitHeight - AppTheme.spacingXS
                         }
                         onClicked: {
                             var menu = root.ensureContextMenu()
                             root.openContextMenu(
-                                threadActionBar.x + threadActionBar.width
+                                messageActionBar.x + messageActionBar.width
                                     - menu.implicitWidth,
-                                threadActionBar.y + threadActionBar.height,
+                                messageActionBar.y + messageActionBar.height,
                                 true)
                         }
                     }
@@ -1771,81 +1774,6 @@ Item {
         if (!moreMenuItem)
             moreMenuItem = moreMenuComponent.createObject(root)
         return moreMenuItem
-    }
-
-    // v0.7.1: room-timeline-only fact publishing for the ONE shared hover
-    // action bar owned by TimelinePane.qml (see timeline.claimActionBar/
-    // releaseActionBar there). Declared at root scope (not nested inside
-    // bubbleRow) so the bare onXChanged handlers below correctly bind to
-    // signals root itself owns (moreMenuOpenChanged included) — nesting
-    // them one level down under bubbleRow would silently never fire, since
-    // bare onXChanged syntax binds to the ENCLOSING object's own signal.
-    // No visual element lives here; the thread panel (clip: false, a real
-    // ListView) is unaffected and keeps its own in-row bar above.
-    // `mappedRowAnchor` is a plain computed point — nothing is stored or
-    // reparented — and `wantsSharedActionBar` mirrors the exact
-    // hover/pin/menu-open condition the bar used to gate on directly, PLUS
-    // the shared bar's own hover (so it stays open while the pointer is on
-    // its buttons even after this row's own bounds are left, which happens
-    // routinely now that the bar can sit outside a short row).
-    readonly property point mappedRowAnchor:
-        (!root.inThreadPanel && Overlay.overlay)
-        ? bubbleRow.mapToItem(Overlay.overlay, bubbleRow.width, 0)
-        : Qt.point(0, 0)
-    // Deliberately does NOT read the shared bar's own state. It used to
-    // include "...or the shared bar is hovered and its active key is mine",
-    // which closed a feedback loop: the binding read activeActionsKey, its
-    // change handler called claimActionBar, and claimActionBar WROTE
-    // activeActionsKey. Qt reported it as
-    // "Binding loop detected for property wantsSharedActionBar" hundreds of
-    // times per pagination run in a live session (capture 2026-08-16) — the
-    // loop is self-limiting but it re-evaluated every visible row's binding
-    // on every claim, during exactly the churn where the timeline can least
-    // afford it.
-    //
-    // Keeping the bar alive while the pointer travels from the row onto the
-    // bar's own buttons does not need this term at all: releaseActionBar
-    // already refuses while sharedActionBarHovered is true, so the row can
-    // ask to release and simply be told no. One guard, on one side.
-    readonly property bool wantsSharedActionBar:
-        !root.inThreadPanel
-        && (rowHover.hovered || root.actionsPinned || root.moreMenuOpen)
-    function syncSharedActionBar() {
-        if (!root.timelineView || root.inThreadPanel)
-            return
-        if (wantsSharedActionBar) {
-            root.timelineView.claimActionBar(
-                root.actionKey, root.eventIdForActions(),
-                model.redacted === true,
-                mappedRowAnchor.x, mappedRowAnchor.y,
-                root.moreMenuOpen)
-        } else {
-            root.timelineView.releaseActionBar(root.actionKey)
-        }
-    }
-    onWantsSharedActionBarChanged: syncSharedActionBar()
-    onMappedRowAnchorChanged: syncSharedActionBar()
-    onMoreMenuOpenChanged: syncSharedActionBar()
-    // The one operation that still needs THIS row specifically: opening ITS
-    // OWN already-safe, lazily-created context menu. Matched by actionKey,
-    // never by a stored reference; inert (null target) in the thread
-    // panel, which exposes no such signal.
-    Connections {
-        target: root.inThreadPanel ? null : root.timelineView
-        function onMoreMenuRequested(key, x, y) {
-            if (key !== root.actionKey)
-                return
-            var menu = root.ensureContextMenu()
-            root.openContextMenu(x - menu.implicitWidth, y, true)
-        }
-    }
-    Component.onDestruction: {
-        // forceRelease, not release: this row has no later chance to clear
-        // its claim, so the shared bar's hover guard must not be able to
-        // keep a destroyed row's event id active. See the contract in
-        // TimelinePane.qml.
-        if (root.timelineView && !root.inThreadPanel)
-            root.timelineView.forceReleaseActionBar(root.actionKey)
     }
 
     function openMessageDetails(details) {

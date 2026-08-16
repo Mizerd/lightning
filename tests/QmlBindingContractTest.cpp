@@ -920,7 +920,7 @@ private Q_SLOTS:
         // threadActionBar — the room timeline's equivalent is now the ONE
         // shared instance in TimelinePane.qml (id: sharedMessageActionBar,
         // see MessageActionBarFitTest.cpp).
-        QVERIFY(delegate.contains(QStringLiteral("id: threadActionBar")));
+        QVERIFY(delegate.contains(QStringLiteral("id: messageActionBar")));
         QVERIFY(delegate.contains(QStringLiteral("id: previewLoader")));
         QVERIFY(delegate.contains(QStringLiteral("id: imageComponent")));
         // v0.7: reactions open the view-shared picker via the snapshotted

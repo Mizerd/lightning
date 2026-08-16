@@ -255,6 +255,8 @@ Rectangle {
 
     implicitWidth: Math.min(360, bubble ? bubble.width : 360)
     implicitHeight: cardRow.implicitHeight + 12
+                    + (coverArtBox.visible
+                       ? coverArtBox.implicitHeight + 6 : 0)
     color: AppTheme.surfaceElevated
     radius: AppTheme.radiusSm
     border.color: AppTheme.border
@@ -262,9 +264,47 @@ Rectangle {
     // The delegate provides `bubble`; standalone use (tests) tolerates null.
     property var bubble: null
 
+    // Embedded cover art, rendered as its own box ATTACHED BELOW the player
+    // controls rather than as a thumbnail beside them — the shape a chat
+    // client uses for an embed under a message. Square-ish, corner-matched
+    // to the card, and clipped so a non-square image cannot spill.
+    //
+    // Still RAM-only: MediaBridge::audioArtworkSource hands back a
+    // provider URL backed by a bounded decoded-image cache, and nothing
+    // about moving it in the layout writes artwork to disk.
+    Rectangle {
+        id: coverArtBox
+        objectName: "audioCoverArtBox"
+        visible: root.artworkSource.length > 0
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.top: cardRow.bottom
+        anchors.leftMargin: 6
+        anchors.rightMargin: 6
+        anchors.topMargin: 6
+        implicitHeight: visible ? Math.round(width * 0.62) : 0
+        radius: AppTheme.radiusMd
+        color: AppTheme.surfaceElevated
+        border.width: 1
+        border.color: AppTheme.border
+        clip: true
+        Image {
+            objectName: "audioCoverArtwork"
+            anchors.fill: parent
+            source: coverArtBox.visible ? root.artworkSource : ""
+            sourceSize: Qt.size(640, 640)
+            fillMode: Image.PreserveAspectCrop
+            asynchronous: true
+            cache: true
+            Accessible.name: qsTr("Audio cover artwork")
+        }
+    }
+
     RowLayout {
         id: cardRow
-        anchors.fill: parent
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.top: parent.top
         anchors.margins: 6
         spacing: 8
 
@@ -293,18 +333,6 @@ Rectangle {
             onClicked: root.togglePlay()
         }
 
-        Image {
-            objectName: "audioCoverArtwork"
-            visible: root.artworkSource.length > 0
-            Layout.preferredWidth: visible ? 36 : 0
-            Layout.preferredHeight: visible ? 36 : 0
-            source: visible ? root.artworkSource + "|shape:round:160" : ""
-            sourceSize: Qt.size(96, 96)
-            fillMode: Image.PreserveAspectCrop
-            asynchronous: true
-            cache: true
-            Accessible.name: qsTr("Audio cover artwork")
-        }
 
         ColumnLayout {
             Layout.fillWidth: true

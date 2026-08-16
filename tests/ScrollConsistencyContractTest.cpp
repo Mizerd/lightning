@@ -171,7 +171,7 @@ private Q_SLOTS:
         }
         // The glide is this instance's own animation, never a reference
         // into app.timelineScroll's motion-active flag.
-        QVERIFY(src.contains(QStringLiteral("SmoothedAnimation {")));
+        QVERIFY(src.contains(QStringLiteral("NumberAnimation {")));
         QVERIFY(!src.contains(QStringLiteral("app.timelineScroll.motionActive")));
     }
 

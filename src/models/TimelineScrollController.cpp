@@ -284,6 +284,27 @@ void TimelineScrollController::notifyBoundReached(double clampedY)
     settle();
 }
 
+double TimelineScrollController::settleDurationMs(double distancePx) const
+{
+    double remaining = std::abs(distancePx);
+    if (remaining <= kSnapDistance)
+        return 0.0;
+    // Same integration the tick uses, run forward on a copy. A fixed 16ms
+    // step matches a 60Hz frame and keeps this cheap and deterministic; the
+    // bound stops a pathological input spinning.
+    constexpr double kStepMs = 16.0;
+    double elapsed = 0.0;
+    while (remaining > kSnapDistance && elapsed < 2000.0) {
+        double step = remaining * (1.0 - std::exp(-kStepMs / kTauMs));
+        const double minStep = kMinSettleSpeed * kStepMs / 1000.0;
+        if (step < minStep)
+            step = minStep;
+        remaining -= step;
+        elapsed += kStepMs;
+    }
+    return elapsed;
+}
+
 void TimelineScrollController::translateActiveMotion(double deltaY)
 {
     // Nothing in flight to translate — the caller cancels instead. A zero

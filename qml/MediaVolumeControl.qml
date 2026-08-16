@@ -59,6 +59,20 @@ IconButton {
 
     HoverHandler { id: buttonHover }
 
+    // One predicate for "the user is engaging with the volume control".
+    readonly property bool wantVolumeOpen:
+        buttonHover.hovered || popupHover.hovered
+        || volumeSlider.pressed || volumeSlider.activeFocus || root.visualFocus
+    onWantVolumeOpenChanged: {
+        if (wantVolumeOpen)
+            closeGrace.stop()
+        else
+            closeGrace.restart()
+    }
+    // Long enough to cross the gap between the button and the popup, short
+    // enough not to linger once the pointer has genuinely left.
+    Timer { id: closeGrace; interval: 400 }
+
     Popup {
         id: volumePopup
         x: Math.round((parent.width - width) / 2)
@@ -68,10 +82,12 @@ IconButton {
         width: 44
         height: 124
         padding: AppTheme.spacing8
-        visible: root.audio !== null
-                 && (buttonHover.hovered || popupHover.hovered
-                     || volumeSlider.pressed || volumeSlider.activeFocus
-                     || root.visualFocus)
+        // Held open by a short grace timer, NOT by raw hover. The popup
+        // sits above the button, and moving the pointer from one to the
+        // other necessarily leaves both for a frame or two — with a bare
+        // "hovered || hovered" binding the popup vanished exactly as the
+        // user reached for it, which made the slider unusable.
+        visible: root.audio !== null && (root.wantVolumeOpen || closeGrace.running)
         closePolicy: Popup.NoAutoClose
         background: Rectangle {
             radius: AppTheme.radiusMd
@@ -80,6 +96,8 @@ IconButton {
             border.color: AppTheme.border
         }
         HoverHandler { id: popupHover }
+        // Keyboard/pointer must be able to leave without a dead popup: any
+        // press or focus inside keeps it open through the same predicate.
         contentItem: Slider {
             id: volumeSlider
             objectName: root.sliderObjectName
