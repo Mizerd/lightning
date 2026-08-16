@@ -94,6 +94,7 @@ void RoomDiscoveryController::join(const QString &target,
         return;
     }
     m_joinOp = opId;
+    m_joinTarget = target;
     m_awaitedIsSpace = isSpace;
     m_errorMessage.clear();
     Q_EMIT errorMessageChanged();
@@ -185,10 +186,26 @@ void RoomDiscoveryController::onJoinFinished(quint64 opId, bool ok,
     m_joinOp = 0;
     if (!ok) {
         m_awaitedIsSpace = false;
-        setError(describeJoinCategory(category));
+        const QString target = m_joinTarget;
+        m_joinTarget.clear();
+        const QString message = describeJoinCategory(category);
+        setError(message);
+        // Targeted, in addition to the shared errorMessage. A consumer that
+        // started one specific join (the room-upgrade banner) cannot tell
+        // from errorMessageChanged alone whether the failure was its own —
+        // knock and knock-withdrawal failures set the same property, and
+        // cancelKnock() has no busy guard at all, so one can land while a
+        // join is in flight and be mistaken for its result.
+        //
+        // BEFORE busyChanged, deliberately. A consumer that releases its
+        // ownership on the busy edge would otherwise have already forgotten
+        // which join this was by the time the reason arrives, and the
+        // failure would go unreported.
+        Q_EMIT joinFailed(target, message);
         Q_EMIT busyChanged();
         return;
     }
+    m_joinTarget.clear();
     beginWaitForRoom(roomId, m_awaitedIsSpace);
 }
 

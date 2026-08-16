@@ -203,6 +203,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                 QCoreApplication::quit();
             });
     m_pinned       = std::make_unique<PinnedMessagesController>(this);
+    m_roomUpgrade  = std::make_unique<RoomUpgradeController>(this);
     m_thread       = std::make_unique<ThreadController>(this);
     m_conversations= std::make_unique<ConversationController>(this);
     m_discovery = std::make_unique<RoomDiscoveryController>(this);
@@ -456,6 +457,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_threads->setClient(m_client.get());
     m_presence->setClient(m_client.get());
     m_pinned->setClient(m_client.get());
+    m_roomUpgrade->setClient(m_client.get());
     m_thread->setClient(m_client.get());
     m_thread->setDraftStore(m_draftStore.get());
     m_draftStore->setClient(m_client.get());
@@ -567,13 +569,34 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     // authoritative list; a joined Space is selected in the rail exactly
     // like a created one — never given a message timeline.
     connect(m_discovery.get(), &RoomDiscoveryController::roomJoined,
-            this, &AppController::openRoom);
+            this, [this](const QString &roomId) {
+        // v0.7.x room upgrades: a join the upgrade banner started and the
+        // user then walked away from must not navigate them back. Pressing
+        // Continue is consent to switch rooms NOW, not whenever the join
+        // happens to settle — the wait is bounded but not instant, and
+        // being yanked out of a room you have since opened and started
+        // typing in is exactly the silent switch the feature avoids.
+        if (m_roomUpgrade && m_roomUpgrade->consumeAbandonedJoin(roomId))
+            return;
+        openRoom(roomId);
+    });
     connect(m_discovery.get(), &RoomDiscoveryController::spaceJoined,
             this, [this](const QString &spaceId) {
         if (m_spaces)
             m_spaces->setActiveSpaceId(spaceId);
         setCurrentRoomId(QString());
     });
+    // v0.7.x room upgrades. The banner's join reuses Discover's machinery
+    // above — so a successful join navigates through the SAME settled
+    // roomJoined path, with the same error categories — and this connection
+    // covers the case where no join is needed because the user is already a
+    // member of the successor, plus the "Previous room" link.
+    //
+    // navigateRequested is emitted ONLY from a user action on the banner.
+    // Nothing observes a tombstone and moves the user by itself.
+    m_roomUpgrade->setDiscovery(m_discovery.get());
+    connect(m_roomUpgrade.get(), &RoomUpgradeController::navigateRequested,
+            this, &AppController::openRoom);
     connect(m_roomInfo.get(), &RoomInfoController::roomLeft,
             this, [this](const QString &roomId) {
         if (m_currentRoomId == roomId) {
@@ -1608,6 +1631,10 @@ void AppController::setCurrentRoomId(const QString &roomId)
     // needs the answer for the room the user is reading, and the previous
     // room's list must not survive the switch.
     m_pinned->setRoomId(roomId);
+    // v0.7.x room upgrades follow the ACTIVE room too: the banner sits above
+    // the open timeline, and a failed Continue from the previous room must
+    // not follow the user into this one.
+    m_roomUpgrade->setRoomId(roomId);
     // v0.7.x: drop QUEUED thread-participant fetches for the room we just
     // left. Those summary cards are gone; letting their fetches run would
     // make the new room's facepiles wait behind answers nothing will read.

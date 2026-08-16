@@ -3053,6 +3053,27 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
         return;
     }
 
+    if (type == QLatin1String("room_tombstone_changed")) {
+        // v0.7.x room upgrades: this room was replaced. Unlike the pinned
+        // poke this one CARRIES the successor, because the successor id is
+        // the entire fact and Rust took it from the SDK's own typed
+        // accessor — re-reading would only add a round trip to reach the
+        // same value through the same parse.
+        //
+        // Nothing here follows the upgrade. It updates one field and lets
+        // the room list and the banner observe it; joining or navigating
+        // happens only when the user activates the banner.
+        const QString roomId = event.value(QStringLiteral("room_id")).toString();
+        auto room = m_rooms.find(roomId);
+        if (room == m_rooms.end()) return;
+        const QString successor =
+            event.value(QStringLiteral("successor_room_id")).toString();
+        if (room->successorRoomId == successor) return;
+        room->successorRoomId = successor;
+        Q_EMIT roomsChanged();
+        return;
+    }
+
     if (type == QLatin1String("invite_state_update")) {
         const QString roomId = event.value(QStringLiteral("room_id")).toString();
         auto room = m_rooms.find(roomId);
@@ -3549,6 +3570,17 @@ RoomInfo RustSdkMatrixClient::roomInfoFromJson(const QJsonObject &obj) const
     room.prevBatchToken = obj.value(QStringLiteral("prev_batch")).toString(room.prevBatchToken);
     room.inviterUserId = obj.value(QStringLiteral("inviter_user_id")).toString();
     room.inviterDisplayName = obj.value(QStringLiteral("inviter_display_name")).toString();
+    // v0.7.x room upgrades. The defaulting form is deliberate and does the
+    // right thing in both directions: an ABSENT field (a payload built by
+    // an older path, or a backend with no tombstone support) keeps what we
+    // already knew, while a PRESENT-but-empty one clears it, because Rust
+    // computes these from SDK state on every emission and empty there means
+    // the room genuinely has no successor. Both are room ids parsed by
+    // ruma; neither is ever free text.
+    room.successorRoomId =
+        obj.value(QStringLiteral("successor_room_id")).toString(room.successorRoomId);
+    room.predecessorRoomId =
+        obj.value(QStringLiteral("predecessor_room_id")).toString(room.predecessorRoomId);
     const QString membership = obj.value(QStringLiteral("membership")).toString(
         QStringLiteral("joined"));
     room.membership = membership == QLatin1String("invited") ? RoomInfo::Invited

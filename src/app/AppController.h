@@ -31,6 +31,7 @@
 #include "models/RoomListModel.h"
 #include "models/TimelineModel.h"
 #include "app/PinnedMessagesController.h"
+#include "app/RoomUpgradeController.h"
 #include "models/TimelineScrollController.h"
 #include "spaces/SpaceManager.h"
 #include "threads/ThreadController.h"
@@ -208,6 +209,10 @@ class AppController : public QObject
     // panel's room): the message-action menu asks it whether the message
     // under the cursor is pinned.
     Q_PROPERTY(PinnedMessagesController* pinned READ pinned CONSTANT)
+    // v0.7.x room upgrades for the ACTIVE room: the timeline banner offering
+    // the successor of a tombstoned room, and the link back to a
+    // predecessor. Offers only — it never follows an upgrade by itself.
+    Q_PROPERTY(RoomUpgradeController* roomUpgrade READ roomUpgrade CONSTANT)
     // v0.6.0: the single open SDK-backed thread panel (app.thread).
     Q_PROPERTY(ThreadController* thread READ thread CONSTANT)
     // v0.5.9: conversation creation (DMs, rooms, invites), Room Information
@@ -403,6 +408,7 @@ public:
     ThreadManager *threads() const;
     PresenceManager *presence() const;
     PinnedMessagesController *pinned() const { return m_pinned.get(); }
+    RoomUpgradeController *roomUpgrade() const { return m_roomUpgrade.get(); }
     ThreadController *thread() const { return m_thread.get(); }
     ConversationController *conversations() const { return m_conversations.get(); }
     RoomDiscoveryController *discovery() const { return m_discovery.get(); }
@@ -868,6 +874,7 @@ private:
     std::unique_ptr<ThreadManager> m_threads;
     std::unique_ptr<PresenceManager> m_presence;
     std::unique_ptr<PinnedMessagesController> m_pinned;
+    std::unique_ptr<RoomUpgradeController> m_roomUpgrade;
     std::unique_ptr<ThreadController> m_thread;
     std::unique_ptr<ConversationController> m_conversations;
     std::unique_ptr<RoomDiscoveryController> m_discovery;

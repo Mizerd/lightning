@@ -75,6 +75,17 @@ struct RoomInfo {
     // it) — RoomInfo::spaceId stays as a "primary parent" hint.
     QStringList childRoomIds;
     QStringList parentSpaceIds;
+
+    // v0.7.x room upgrades. Both are ROOM IDS, never free text: the Rust
+    // bridge fills them from the SDK's typed successor_room() /
+    // predecessor_room(), which parse through ruma. Empty means "this room
+    // has not been upgraded" / "this room replaces nothing".
+    //
+    // The tombstone's own body deliberately does not exist on this struct.
+    // It is attacker-chosen text destined for a banner the user is invited
+    // to click, so it never crosses the bridge at all.
+    QString successorRoomId;
+    QString predecessorRoomId;
 };
 
 inline bool operator==(const MemberInfo &a, const MemberInfo &b)
@@ -112,7 +123,13 @@ inline bool operator==(const RoomInfo &a, const RoomInfo &b)
         && a.paginationExhausted == b.paginationExhausted
         && a.members == b.members && a.typingUserIds == b.typingUserIds
         && a.childRoomIds == b.childRoomIds
-        && a.parentSpaceIds == b.parentSpaceIds;
+        && a.parentSpaceIds == b.parentSpaceIds
+        // Omitting these would mean a room that JUST got tombstoned
+        // compares equal to its pre-tombstone self, replaceRoom skips the
+        // dataChanged, and the upgrade banner does not appear until
+        // something unrelated about the room happens to change.
+        && a.successorRoomId == b.successorRoomId
+        && a.predecessorRoomId == b.predecessorRoomId;
 }
 
 inline bool operator!=(const RoomInfo &a, const RoomInfo &b)

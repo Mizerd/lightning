@@ -43,6 +43,7 @@ use matrix_sdk::{
                 message::{MessageType, OriginalSyncRoomMessageEvent, RoomMessageEventContent},
                 pinned_events::SyncRoomPinnedEventsEvent,
                 power_levels::SyncRoomPowerLevelsEvent,
+                tombstone::SyncRoomTombstoneEvent,
             },
             secret::send::ToDeviceSecretSendEvent,
             typing::SyncTypingEvent,
@@ -6701,6 +6702,35 @@ fn install_event_handlers(
         }
     });
 
+    // v0.7.x room upgrades: an m.room.tombstone means this room has been
+    // replaced, and the banner offering to continue in the successor must
+    // appear without waiting for a restart.
+    //
+    // Not rate-limited, for the same reason the pinned poke above is not,
+    // only more so: a room is tombstoned once in its entire lifetime, so
+    // the coalescing that protects against member churn has nothing here to
+    // protect against and would only delay the update.
+    //
+    // Unlike the pinned poke this one CARRIES its payload, because the
+    // successor id is the whole fact — a payload-free poke would force a
+    // re-read of a value already in hand. It is taken from the SDK's
+    // `successor_room()` rather than the handler's own event content, so
+    // there stays exactly one parse path and one type for a room id.
+    let tombstone_events = Arc::clone(&events);
+    client.add_event_handler(move |_ev: SyncRoomTombstoneEvent, room: Room| {
+        let events = Arc::clone(&tombstone_events);
+        async move {
+            enqueue(&events, json!({
+                "type": "room_tombstone_changed",
+                "room_id": room.room_id().to_string(),
+                "successor_room_id": room
+                    .successor_room()
+                    .map(|successor| successor.room_id.to_string())
+                    .unwrap_or_default(),
+            }));
+        }
+    });
+
     // v0.7.x room administration: a power-level change alters who may do
     // what, so it must invalidate the cached permission flags immediately —
     // not when the panel is next reopened. It routes through the EXISTING
@@ -7299,6 +7329,29 @@ async fn room_payload(room: &Room) -> serde_json::Value {
         "prev_batch": room.last_prev_batch().unwrap_or_default(),
         "inviter_user_id": inviter_user_id,
         "inviter_display_name": inviter_display_name,
+        // v0.7.x room upgrades. Both come from the SDK's own typed
+        // accessors, which parse through ruma into an OwnedRoomId — that
+        // IS the "treat replacement_room as a real room id" validation, and
+        // it is why nothing here hand-parses m.room.tombstone or
+        // m.room.create. Empty means "not upgraded" / "no predecessor".
+        //
+        // There is deliberately no separate is_tombstoned flag: a non-empty
+        // successor is the same fact with the successor attached, and one
+        // source of truth cannot disagree with itself.
+        //
+        // The tombstone's `body`/`reason` deliberately does NOT cross this
+        // boundary. It is free text chosen by whoever sent the state event,
+        // destined for a banner the user is invited to CLICK; Lightning
+        // shows its own fixed wording instead. Do not add it "for
+        // information".
+        "successor_room_id": room
+            .successor_room()
+            .map(|successor| successor.room_id.to_string())
+            .unwrap_or_default(),
+        "predecessor_room_id": room
+            .predecessor_room()
+            .map(|predecessor| predecessor.room_id.to_string())
+            .unwrap_or_default(),
     })
 }
 

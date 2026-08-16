@@ -130,6 +130,9 @@ QVariant RoomListModel::data(const QModelIndex &index, int role) const
     case InviteErrorRole:        return r.inviteError;
     case CanonicalAliasRole:     return r.canonicalAlias;
     case IdentityColorKeyRole:   return identityColorKey(r);
+    case SuccessorRoomIdRole:    return r.successorRoomId;
+    case SupersededByAccessibleSuccessorRole:
+        return m_supersededRoomIds.contains(r.id);
     default:                     return {};
     }
 }
@@ -159,6 +162,9 @@ QHash<int, QByteArray> RoomListModel::roleNames() const
         { InviteErrorRole,        "inviteError" },
         { CanonicalAliasRole,     "canonicalAlias" },
         { IdentityColorKeyRole,   "identityColorKey" },
+        { SuccessorRoomIdRole,    "successorRoomId" },
+        { SupersededByAccessibleSuccessorRole,
+          "supersededByAccessibleSuccessor" },
     };
 }
 
@@ -382,7 +388,43 @@ void RoomListModel::setSearchQuery(const QString &query)
     m_searchDebounce.start();
 }
 
-QList<RoomInfo> RoomListModel::desiredRooms() const
+QSet<QString> RoomListModel::computeSupersededRoomIds() const
+{
+    QSet<QString> superseded;
+    if (!m_client)
+        return superseded;
+    const QList<RoomInfo> rooms = m_client->rooms();
+    QHash<QString, const RoomInfo *> byId;
+    byId.reserve(rooms.size());
+    for (const RoomInfo &room : rooms)
+        byId.insert(room.id, &room);
+    for (const RoomInfo &room : rooms) {
+        if (room.successorRoomId.isEmpty())
+            continue;
+        const RoomInfo *successor = byId.value(room.successorRoomId, nullptr);
+        // Never heard of the successor: the user may well be able to join
+        // it, but we have no evidence they can, and the maintainer's rule
+        // is to de-emphasize only once it is ACTUALLY accessible. Leave the
+        // row alone.
+        if (!successor)
+            continue;
+        if (successor->membership != RoomInfo::Joined
+            && successor->membership != RoomInfo::Invited) {
+            continue;
+        }
+        // Defensive: the successor must point back at this room. A
+        // tombstone naming a room that considers some OTHER room its
+        // predecessor is not an established upgrade chain, and quietly
+        // demoting the old room on its say-so would let a bad tombstone
+        // bury a live room.
+        if (successor->predecessorRoomId != room.id)
+            continue;
+        superseded.insert(room.id);
+    }
+    return superseded;
+}
+
+QList<RoomInfo> RoomListModel::desiredRooms(const QSet<QString> &superseded) const
 {
     QList<RoomInfo> desired;
     if (m_client) {
@@ -392,11 +434,31 @@ QList<RoomInfo> RoomListModel::desiredRooms() const
         }
         // Invitations are separate, followed by Matrix m.direct rooms and
         // normal joined rooms. Member count is deliberately irrelevant.
-        std::stable_sort(desired.begin(), desired.end(), [](const RoomInfo &a, const RoomInfo &b) {
-            const int aGroup = a.membership == RoomInfo::Invited ? 0 : (a.isDirect ? 1 : 2);
-            const int bGroup = b.membership == RoomInfo::Invited ? 0 : (b.isDirect ? 1 : 2);
+        // v0.7.x room upgrades: a room whose successor the user can reach
+        // sorts BELOW every live room. Deliberately a demotion and not a
+        // filter — the old room stays present, openable and readable, which
+        // is the whole point of banner-and-link over auto-follow.
+        // A superseded room sinks WITHIN its own group rather than below
+        // every other room. RoomsPanel sections the list by the `category`
+        // role (invite/dm/room), which until now corresponded 1:1 with these
+        // groups, so each category was one contiguous run. A fourth top-level
+        // group would be the first to mix categories, producing a second
+        // "PEOPLE"/"ROOMS" header at the bottom of the list — and it would
+        // demote a superseded INVITE out of the top block, breaking the
+        // "invitations are separate" rule stated above.
+        const auto groupOf = [](const RoomInfo &room) {
+            return room.membership == RoomInfo::Invited ? 0 : (room.isDirect ? 1 : 2);
+        };
+        std::stable_sort(desired.begin(), desired.end(),
+                         [&groupOf, &superseded](const RoomInfo &a, const RoomInfo &b) {
+            const int aGroup = groupOf(a);
+            const int bGroup = groupOf(b);
             if (aGroup != bGroup)
                 return aGroup < bGroup;
+            const bool aOld = superseded.contains(a.id);
+            const bool bOld = superseded.contains(b.id);
+            if (aOld != bOld)
+                return bOld;
             return a.lastActivity > b.lastActivity;
         });
     }
@@ -476,7 +538,15 @@ void RoomListModel::resolveMissingDirectAvatars()
 
 void RoomListModel::reconcileRooms()
 {
-    const auto desired = desiredRooms();
+    // Recomputed BEFORE the rows are written so replaceRoom's dataChanged
+    // carries the new value; data() reads this cache rather than deriving
+    // it per row, which would be quadratic in the room count.
+    const QSet<QString> previousSuperseded = m_supersededRoomIds;
+    m_supersededRoomIds = computeSupersededRoomIds();
+    // Passed in rather than recomputed: MatrixClient::rooms() materialises a
+    // fresh QList on every call, and roomsChanged fires on every unread or
+    // ordering change.
+    const auto desired = desiredRooms(m_supersededRoomIds);
     QSet<QString> wanted;
     for (const auto &room : desired) wanted.insert(room.id);
 
@@ -499,6 +569,23 @@ void RoomListModel::reconcileRooms()
         replaceRoom(target, desired.at(target));
     }
     truncate(desired.size());
+
+    // A row's superseded state can flip without that room's own RoomInfo
+    // changing at all — it flips when the SUCCESSOR is joined, or when the
+    // successor's predecessor link finally arrives. replaceRoom compares
+    // RoomInfo and would skip the dataChanged for exactly those rows, so
+    // the chip would not appear until something unrelated about the old
+    // room changed. Notify the difference explicitly.
+    if (previousSuperseded != m_supersededRoomIds) {
+        for (int i = 0; i < m_rooms.size(); ++i) {
+            const QString &id = m_rooms.at(i).id;
+            if (previousSuperseded.contains(id) == m_supersededRoomIds.contains(id))
+                continue;
+            const QModelIndex idx = index(i, 0);
+            Q_EMIT dataChanged(idx, idx, { SupersededByAccessibleSuccessorRole });
+        }
+    }
+
     resolveMissingDirectAvatars();
 }
 

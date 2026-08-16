@@ -48,6 +48,11 @@ public:
         // identityColorKey(RoomInfo): partner MXID for unambiguous 1:1
         // DMs, room id otherwise — the single fallback-colour policy.
         IdentityColorKeyRole,
+        // v0.7.x room upgrades. The successor of a tombstoned room, empty
+        // otherwise, and whether that successor is one the user can
+        // ACTUALLY reach — the row is de-emphasized only on the latter.
+        SuccessorRoomIdRole,
+        SupersededByAccessibleSuccessorRole,
     };
 
     explicit RoomListModel(QObject *parent = nullptr);
@@ -121,13 +126,25 @@ private:
     QString effectiveAvatarUrl(const RoomInfo &room) const;
     bool passesScopeFilter(const RoomInfo &r) const;
     bool passesFilter(const RoomInfo &r) const;
-    QList<RoomInfo> desiredRooms() const;
+    QList<RoomInfo> desiredRooms(const QSet<QString> &superseded) const;
     void reconcileRooms();
+    // Rooms that have been replaced by a successor the user can actually
+    // reach. "Actually reach" is the maintainer's condition for
+    // de-emphasizing the old room, and it means all three of: a successor
+    // exists, we HOLD a record for it with membership Joined or Invited,
+    // and that record's predecessor points BACK at this room. An
+    // unverifiable chain leaves the row alone.
+    QSet<QString> computeSupersededRoomIds() const;
     void resolveMissingDirectAvatars();
 
     MatrixClient *m_client = nullptr;
     SpaceManager *m_spaces = nullptr;
     QList<RoomInfo> m_rooms; // Filtered subset actually shown.
+    // Rooms whose successor the user can actually reach. Recomputed once
+    // per reconcile from the client's FULL room set (the successor may be
+    // filtered out of the visible list, or in another Space), because
+    // deriving it per data() call would be quadratic in the room count.
+    QSet<QString> m_supersededRoomIds;
     QString m_searchQuery;
     QString m_pendingSearchQuery;
     int m_filterMode = 0;

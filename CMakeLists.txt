@@ -254,6 +254,8 @@ set(APP_SOURCES
     src/app/RoomInfoController.cpp
     src/app/PinnedMessagesController.h
     src/app/PinnedMessagesController.cpp
+    src/app/RoomUpgradeController.h
+    src/app/RoomUpgradeController.cpp
     src/app/RoomDiscoveryController.h
     src/app/RoomDiscoveryController.cpp
     src/app/UiaController.h
@@ -1711,6 +1713,32 @@ if(BUILD_TESTING)
     target_include_directories(pinned-messages-test PRIVATE src)
     target_link_libraries(pinned-messages-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME pinned-messages COMMAND pinned-messages-test)
+
+    # v0.7.x room upgrades: the banner-and-link contract. An unknown
+    # successor stays Unknown (never "inaccessible"), a joined one navigates
+    # without joining, an invited one joins BEFORE navigating, a failed join
+    # leaves the user in the old room with the reason shown, the successor
+    # must point BACK for the chain to count, and the room list DEMOTES a
+    # superseded room rather than filtering it. Above all: observing a
+    # tombstone never moves the user or joins anything.
+    qt_add_executable(room-upgrade-test
+        tests/RoomUpgradeTest.cpp
+        src/app/RoomUpgradeController.h
+        src/app/RoomUpgradeController.cpp
+        src/app/RoomDiscoveryController.h
+        src/app/RoomDiscoveryController.cpp
+        src/models/RoomDirectorySearchModel.h
+        src/models/RoomDirectorySearchModel.cpp
+        src/models/RoomListModel.h
+        src/models/RoomListModel.cpp
+        src/spaces/SpaceManager.h
+        src/spaces/SpaceManager.cpp
+        src/matrix/MatrixClient.h
+        src/matrix/MatrixClient.cpp
+    )
+    target_include_directories(room-upgrade-test PRIVATE src)
+    target_link_libraries(room-upgrade-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME room-upgrade COMMAND room-upgrade-test)
 
     # v0.7.x: the thread-participant fetch bound — concurrency cap, FIFO
     # queue, slot release on success AND on a failed (empty) answer,

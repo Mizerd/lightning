@@ -221,6 +221,21 @@ Item {
                 wrapMode: Text.WordWrap
             }
 
+            // v0.7.x room upgrades: this room was replaced and the user can
+            // actually reach the replacement — the model's role already
+            // requires the successor to be joined or invited AND to point
+            // back at this room. The row stays fully interactive: it is
+            // demoted in the ordering and labelled, never hidden, because
+            // the old room remains readable and its permalinks keep working.
+            StatusChip {
+                objectName: "roomUpgradedChip"
+                visible: model.supersededByAccessibleSuccessor === true
+                label: qsTr("Upgraded")
+                tone: "neutral"
+                Accessible.role: Accessible.StaticText
+                Accessible.name: qsTr("This room has been upgraded")
+            }
+
             // v0.7.x: pending knock. The knocked room flows into the list
             // via sliding sync; the only honest actions are waiting and
             // withdrawing the request.

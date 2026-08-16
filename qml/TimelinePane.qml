@@ -688,6 +688,124 @@ Rectangle {
 
         Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: AppTheme.border }
 
+        // v0.7.x room upgrades — the banner half of banner-and-link.
+        //
+        // Matrix leaves an upgraded room in place and creates a
+        // replacement. Lightning does NOT follow that automatically: the
+        // old room stays open and readable and the successor is offered,
+        // because a room transition discards navigation context and draft
+        // state, and the tombstone naming the successor is state anyone
+        // with the power level can send.
+        //
+        // An ordinary Layout child, exactly like findBar below and for the
+        // same reason: this is PERSISTENT, so it must reflow the timeline
+        // rather than occlude it (the zero-height overflow trick further
+        // down is documented as being for transient feedback only).
+        //
+        // The wording is Lightning's own. The tombstone's `body` is free
+        // text chosen by whoever sent the state event, on a control the
+        // user is being invited to click — it never crosses the FFI at all.
+        Rectangle {
+            id: roomUpgradeBanner
+            objectName: "roomUpgradeBanner"
+            Layout.fillWidth: true
+            Layout.leftMargin: AppTheme.spacing16
+            Layout.rightMargin: AppTheme.spacing16
+            Layout.topMargin: AppTheme.spacing8
+            Layout.bottomMargin: AppTheme.spacing8
+            // A room can be BOTH an opened successor and the predecessor of
+            // another room, so the two rows are independent rather than
+            // exclusive.
+            readonly property bool showUpgraded: app.roomUpgrade.upgraded
+            readonly property bool showPredecessor:
+                app.roomUpgrade.predecessorRoomId.length > 0
+            visible: showUpgraded || showPredecessor
+            implicitHeight: upgradeCol.implicitHeight + AppTheme.spacingS * 2
+            radius: AppTheme.radiusLg
+            color: AppTheme.surface
+            border.color: AppTheme.border
+            border.width: 1
+
+            ColumnLayout {
+                id: upgradeCol
+                anchors.fill: parent
+                anchors.margins: AppTheme.spacingS
+                spacing: AppTheme.spacingS
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: AppTheme.spacingS
+                    visible: roomUpgradeBanner.showUpgraded
+
+                    Text {
+                        Layout.fillWidth: true
+                        text: qsTr("This room has been upgraded.")
+                        color: AppTheme.textPrimary
+                        font.pixelSize: AppTheme.fontBody
+                        font.family: AppTheme.uiFont
+                        wrapMode: Text.WordWrap
+                        Accessible.role: Accessible.StaticText
+                        Accessible.name: text
+                    }
+
+                    AppButton {
+                        objectName: "roomUpgradeContinueButton"
+                        text: qsTr("Continue in new room")
+                        kind: "primary"
+                        enabled: !app.roomUpgrade.busy
+                        onClicked: app.roomUpgrade.continueToSuccessor()
+                        Accessible.role: Accessible.Button
+                        Accessible.name: qsTr("Continue in the new room")
+                        Accessible.description: qsTr("Opens the room that replaced this one, joining it first if you are not already a member.")
+                    }
+                }
+
+                // The failure is shown HERE, in the old room, because the
+                // user must be able to see why Continue did not work
+                // without having been moved anywhere.
+                Text {
+                    objectName: "roomUpgradeError"
+                    Layout.fillWidth: true
+                    visible: app.roomUpgrade.error.length > 0
+                    text: app.roomUpgrade.error
+                    color: AppTheme.danger
+                    font.pixelSize: AppTheme.fontSecondary
+                    font.family: AppTheme.uiFont
+                    wrapMode: Text.WordWrap
+                    Accessible.role: Accessible.StaticText
+                    Accessible.name: text
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: AppTheme.spacingS
+                    visible: roomUpgradeBanner.showPredecessor
+
+                    Text {
+                        Layout.fillWidth: true
+                        text: qsTr("This room replaced an earlier one.")
+                        color: AppTheme.textSecondary
+                        font.pixelSize: AppTheme.fontSecondary
+                        font.family: AppTheme.uiFont
+                        wrapMode: Text.WordWrap
+                        Accessible.role: Accessible.StaticText
+                        Accessible.name: text
+                    }
+
+                    AppButton {
+                        objectName: "roomUpgradePreviousButton"
+                        text: qsTr("Previous room")
+                        kind: "secondary"
+                        // No join step: the predecessor is a room the user
+                        // was already in.
+                        onClicked: app.roomUpgrade.goToPredecessor()
+                        Accessible.role: Accessible.Button
+                        Accessible.name: qsTr("Open the previous room")
+                    }
+                }
+            }
+        }
+
         // v0.6.1: find-in-loaded-messages bar.
         // v0.6.5 (C7): re-hosted as a composer-family floating card — outer
         // Layout margins detach it from the timeline's edges, AppTextField

@@ -81,6 +81,10 @@ Q_SIGNALS:
     // A joined m.space room must be selected in the rail, never given a
     // message timeline.
     void spaceJoined(const QString &spaceId);
+    // A join FAILED, naming the target it was for. errorMessage carries the
+    // same text, but only this says which request it belonged to — knock
+    // and knock-withdrawal failures write that shared property too.
+    void joinFailed(const QString &target, const QString &message);
     void knockSent(const QString &roomId);
     void knockCancelled(const QString &roomId);
     void spaceChildrenChanged(const QString &spaceId);
@@ -123,6 +127,8 @@ private:
 
     bool m_waitingForRoom = false;
     bool m_awaitedIsSpace = false;
+    // The target of the in-flight join, so its failure can name itself.
+    QString m_joinTarget;
     QString m_awaitedRoomId;
     QTimer m_roomWaitTimeout;
 

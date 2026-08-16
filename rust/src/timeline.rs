@@ -2320,6 +2320,28 @@ fn read_by_json<'a>(
     (serialized, total)
 }
 
+// The activity-row wording for an `OtherState` timeline item. Extracted from
+// the match it used to sit in purely so it can be tested: everything else in
+// that arm needs a real SDK timeline item to construct, while this mapping is
+// the part that actually carries a decision.
+//
+// Nothing here interpolates event CONTENT — only the room-state type and the
+// sender, both of which are already structural. In particular the tombstone
+// row carries neither the successor room id (acting on it is the banner's
+// job, and a row cannot be clicked) nor the tombstone's `body`, which is
+// free text chosen by whoever sent the state event.
+fn state_row_text(kind: &str, actor: &str) -> String {
+    match kind {
+        "m.room.create" => format!("{actor} created the room."),
+        "m.room.name" => format!("{actor} changed the room name."),
+        "m.room.topic" => format!("{actor} changed the room topic."),
+        "m.room.avatar" => format!("{actor} changed the room avatar."),
+        "m.room.encryption" => "Encryption was enabled.".to_owned(),
+        "m.room.tombstone" => format!("{actor} upgraded this room."),
+        _ => format!("{actor} updated room settings."),
+    }
+}
+
 fn event_item_to_json(
     unique_id: &str,
     event: &EventTimelineItem,
@@ -2609,14 +2631,7 @@ fn event_item_to_json(
             out["msgtype"] = "state".into();
             let kind = state.content().event_type().to_string();
             let actor = event.sender().to_string();
-            let text = match kind.as_str() {
-                "m.room.create" => format!("{actor} created the room."),
-                "m.room.name" => format!("{actor} changed the room name."),
-                "m.room.topic" => format!("{actor} changed the room topic."),
-                "m.room.avatar" => format!("{actor} changed the room avatar."),
-                "m.room.encryption" => "Encryption was enabled.".to_owned(),
-                _ => format!("{actor} updated room settings."),
-            };
+            let text = state_row_text(&kind, &actor);
             out["state_kind"] = kind.into();
             out["body"] = text.into();
         }
@@ -3201,8 +3216,46 @@ pub fn sessions_by_room_from_import(
 
 #[cfg(test)]
 mod tests {
-    use super::sessions_by_room_from_import;
+    use super::{sessions_by_room_from_import, state_row_text};
     use std::collections::{BTreeMap, BTreeSet};
+
+    // v0.7.x room upgrades: a tombstone used to fall into the catch-all and
+    // render as the generic "updated room settings", which told the reader
+    // nothing about the one state change that ends a room.
+    #[test]
+    fn tombstone_state_row_names_the_upgrade() {
+        assert_eq!(
+            state_row_text("m.room.tombstone", "@alice:example.org"),
+            "@alice:example.org upgraded this room."
+        );
+    }
+
+    // The row must not leak the tombstone's body or the successor id. It is
+    // built from the state TYPE and the sender only, so there is no path by
+    // which event content could reach it — this pins that.
+    #[test]
+    fn state_row_text_uses_only_kind_and_actor() {
+        let row = state_row_text("m.room.tombstone", "@alice:example.org");
+        assert!(!row.contains('!'), "a room id must never appear in the row: {row}");
+
+        // An unknown state type still falls back rather than echoing the
+        // type string at the reader.
+        let unknown = state_row_text("org.example.custom", "@bob:example.org");
+        assert_eq!(unknown, "@bob:example.org updated room settings.");
+        assert!(!unknown.contains("org.example.custom"));
+    }
+
+    // The extraction must not have changed any existing wording.
+    #[test]
+    fn existing_state_rows_are_unchanged() {
+        assert_eq!(state_row_text("m.room.create", "@a:b.c"), "@a:b.c created the room.");
+        assert_eq!(state_row_text("m.room.name", "@a:b.c"), "@a:b.c changed the room name.");
+        assert_eq!(state_row_text("m.room.topic", "@a:b.c"), "@a:b.c changed the room topic.");
+        assert_eq!(state_row_text("m.room.avatar", "@a:b.c"), "@a:b.c changed the room avatar.");
+        // Deliberately actor-free: the sender of an encryption event is not
+        // the interesting fact, the room becoming encrypted is.
+        assert_eq!(state_row_text("m.room.encryption", "@a:b.c"), "Encryption was enabled.");
+    }
 
     #[test]
     fn import_result_maps_to_room_session_pairs() {
