@@ -355,7 +355,8 @@ public:
     quint64 requestSpaceChildren(const QString &spaceId) override;
     bool supportsMessageSearch() const override { return true; }
     quint64 searchMessages(const QString &term, const QString &roomId,
-                           const QString &nextBatch, int limit) override;
+                           const QString &nextBatch, int limit,
+                           const QVariantMap &filters = {}) override;
     bool supportsDeviceDeletion() const override { return true; }
     quint64 deleteDevices(const QStringList &deviceIds) override;
     bool uiaSubmitPassword(quint64 uiaId, const QString &password) override;
@@ -377,6 +378,7 @@ public:
     QVariantList mockSpaceChildren;
     QVariantList mockSearchResults;     // rows for one search page
     QString mockSearchNextBatch;
+    QVariantMap lastSearchFilters;
     bool mockUiaRequired = false;       // first delete raises a challenge
     QString mockUiaPassword;            // accepted password when challenged
     QString mockDeleteFailCategory;     // non-empty → terminal failure

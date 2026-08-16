@@ -875,6 +875,14 @@ QVariantList TimelineModel::mediaEntries() const
         entry.insert(QStringLiteral("isImage"),
                      e.type == TimelineEvent::Image
                          || e.type == TimelineEvent::Sticker);
+        entry.insert(QStringLiteral("isVideo"),
+                     e.type == TimelineEvent::Video);
+        entry.insert(QStringLiteral("isVisual"),
+                     e.type == TimelineEvent::Image
+                         || e.type == TimelineEvent::Video
+                         || e.type == TimelineEvent::Sticker);
+        entry.insert(QStringLiteral("thumbAvailable"),
+                     e.mediaThumbAvailable);
         entry.insert(QStringLiteral("size"), static_cast<qint64>(e.mediaSize));
         out.append(entry);
     }

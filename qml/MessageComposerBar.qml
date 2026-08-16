@@ -16,6 +16,7 @@ import MatrixClient
 // Shift+Enter inserts a newline; typing notifications are unchanged.
 Item {
     id: root
+    focus: false
     implicitHeight: composerCol.implicitHeight + AppTheme.spacing16
                     + AppTheme.spacing4
 
@@ -43,6 +44,33 @@ Item {
     // Active-state flags for the toolbar chips, recomputed from the live
     // selection (MarkdownFormat::state on the C++ side).
     property var formatFlags: ({})
+    function focusStagedAttachmentSend() {
+        // Keep the caret untouched. The composer surface itself receives the
+        // next Return so a just-dropped/selected attachment can use the one
+        // canonical MessageComposer::send path.
+        if (app.composer.hasAttachments && app.composer.canSend)
+            Qt.callLater(root.forceActiveFocus)
+    }
+    Keys.onReturnPressed: (event) => {
+        if ((event.modifiers & Qt.ShiftModifier)
+                || !app.composer.hasAttachments
+                || !app.composer.canSend) {
+            event.accepted = false
+            return
+        }
+        event.accepted = true
+        app.composer.send()
+    }
+    Keys.onEnterPressed: (event) => {
+        if ((event.modifiers & Qt.ShiftModifier)
+                || !app.composer.hasAttachments
+                || !app.composer.canSend) {
+            event.accepted = false
+            return
+        }
+        event.accepted = true
+        app.composer.send()
+    }
     function refreshFormatState() {
         formatFlags = app.composer.formatState(input.text,
                                                input.selectionStart,
@@ -286,6 +314,7 @@ Item {
         onAccepted: {
             for (var i = 0; i < selectedFiles.length; ++i)
                 app.composer.addAttachment(selectedFiles[i])
+            root.focusStagedAttachmentSend()
         }
     }
 
@@ -368,6 +397,7 @@ Item {
             for (var i = 0; i < drop.urls.length; ++i)
                 app.composer.addAttachment(drop.urls[i])
             drop.accept(Qt.CopyAction)
+            root.focusStagedAttachmentSend()
         }
     }
     Rectangle {

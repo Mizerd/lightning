@@ -40,7 +40,9 @@ Q_LOGGING_CATEGORY(lcMediaTrace, "lightning.media.trace", QtWarningMsg)
 namespace {
 QString mediaCacheKey(const QString &mediaKey, int kind)
 {
-    return (kind == 1 ? QStringLiteral("thumb:") : QStringLiteral("full:"))
+    return (kind == 1 ? QStringLiteral("thumb:")
+                      : kind == 2 ? QStringLiteral("listthumb:")
+                                  : QStringLiteral("full:"))
         + mediaKey;
 }
 
@@ -181,6 +183,59 @@ QString MediaBridge::cachedSource(const QString &cacheKey) const
         + QString::fromUtf8(QUrl::toPercentEncoding(cacheKey))
         + QStringLiteral("?r=")
         + QString::number(m_revision.value(cacheKey, 1));
+}
+
+QImage MediaBridge::cachedArtwork(const QString &cacheKey) const
+{
+    QMutexLocker lock(&m_cacheMutex);
+    const auto it = m_artworkCache.constFind(cacheKey);
+    return it == m_artworkCache.constEnd() ? QImage{} : it.value();
+}
+
+QString MediaBridge::audioArtworkSource(const QString &mediaKey,
+                                        const QVariant &artwork)
+{
+    if (mediaKey.isEmpty() || !artwork.canConvert<QImage>())
+        return {};
+    const QImage image = artwork.value<QImage>();
+    if (image.isNull() || image.width() <= 0 || image.height() <= 0
+        || image.width() > kArtworkMaxEdge || image.height() > kArtworkMaxEdge
+        || static_cast<qint64>(image.sizeInBytes()) > kArtworkMaxBytes) {
+        return {};
+    }
+
+    const QString cacheKey = QStringLiteral("artwork:")
+        + QString::fromLatin1(
+            QCryptographicHash::hash(mediaKey.toUtf8(),
+                                     QCryptographicHash::Sha256).toHex());
+    int revision = 1;
+    {
+        QMutexLocker lock(&m_cacheMutex);
+        if (!m_artworkCache.contains(cacheKey)) {
+            const qint64 bytes = static_cast<qint64>(image.sizeInBytes());
+            while (!m_artworkLru.isEmpty()
+                   && (m_artworkCache.size() >= kArtworkMaxEntries
+                       || m_artworkBytes + bytes > kArtworkMaxBytes)) {
+                const QString victim = m_artworkLru.takeLast();
+                const auto removed = m_artworkCache.take(victim);
+                m_artworkBytes -= static_cast<qint64>(removed.sizeInBytes());
+            }
+            // A single accepted image always fits the byte cap. If the entry
+            // cap was exhausted, the eviction loop above made a slot.
+            m_artworkCache.insert(cacheKey, image);
+            m_artworkLru.prepend(cacheKey);
+            m_artworkBytes += bytes;
+            ++m_revision[cacheKey];
+        } else {
+            m_artworkLru.removeOne(cacheKey);
+            m_artworkLru.prepend(cacheKey);
+        }
+        revision = m_revision.value(cacheKey, 1);
+    }
+    return QStringLiteral("image://lightning-media/")
+        + QString::fromUtf8(QUrl::toPercentEncoding(cacheKey))
+        + QStringLiteral("?r=")
+        + QString::number(revision);
 }
 
 QByteArray MediaBridge::cachedBytes(const QString &cacheKey) const
@@ -339,7 +394,8 @@ QString MediaBridge::mediaSource(const QString &mediaKey, const QString &kind)
 {
     if (mediaKey.isEmpty() || !supported())
         return {};
-    const int kindValue = kind == QLatin1String("thumb") ? 1 : 0;
+    const int kindValue = kind == QLatin1String("thumb") ? 1
+        : kind == QLatin1String("list_thumb") ? 2 : 0;
     const QString cacheKey = mediaCacheKey(mediaKey, kindValue);
     const QString cached = cachedSource(cacheKey);
     if (!cached.isEmpty()) {
@@ -365,12 +421,12 @@ QString MediaBridge::mediaSource(const QString &mediaKey, const QString &kind)
         request.kind = kindValue;
         // Thumbnails are visible chrome; a full static payload is heavier
         // and can wait behind them.
-        request.priority = kindValue == 1 ? 1 : 2;
+        request.priority = kindValue != 0 ? 1 : 2;
         qCDebug(lcMedia, "media %s cache=miss dispatching",
                 qUtf8Printable(keyTag(cacheKey)));
         dispatch(request);
     } else {
-        promoteQueuedRequest(cacheKey, kindValue == 1 ? 1 : 2, 0);
+        promoteQueuedRequest(cacheKey, kindValue != 0 ? 1 : 2, 0);
     }
     return {};
 }
@@ -766,6 +822,25 @@ QString MediaBridge::avatarSource(const QString &mxcUri, int size)
                 qUtf8Printable(keyTag(cacheKey)), edge);
     }
     return {};
+}
+
+QImage MediaBridge::cachedAvatarImage(const QString &mxcUri) const
+{
+    if (!mxcUri.startsWith(QLatin1String("mxc://")))
+        return {};
+    QByteArray bytes = cachedBytes(mxcCacheKey(mxcUri, kAvatarCanonicalEdge));
+    if (bytes.isEmpty())
+        return {};
+    QBuffer buffer(&bytes);
+    if (!buffer.open(QIODevice::ReadOnly))
+        return {};
+    QImageReader reader(&buffer);
+    reader.setAutoTransform(true);
+    const QSize natural = reader.size();
+    if (natural.isValid()
+        && (natural.width() > 4096 || natural.height() > 4096))
+        return {};
+    return reader.read();
 }
 
 QString MediaBridge::mxcImageSource(const QString &mxcUri, int edge)
@@ -1468,6 +1543,9 @@ void MediaBridge::clear()
         m_avatarLru.clear();
         m_cacheBytesMain = 0;
         m_cacheBytesAvatar = 0;
+        m_artworkCache.clear();
+        m_artworkLru.clear();
+        m_artworkBytes = 0;
         // Account isolation + bounded memory: revisions restart with the
         // session (a fresh session's first insert is revision 1 again).
         m_revision.clear();

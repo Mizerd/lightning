@@ -113,6 +113,25 @@ QImage MediaImageProvider::requestImage(const QString &id, QSize *size,
     if (revisionPos >= 0)
         cacheKey.truncate(revisionPos);
 
+    if (cacheKey.startsWith(QLatin1String("artwork:"))) {
+        QImage image = m_bridge->cachedArtwork(cacheKey);
+        if (image.isNull())
+            return {};
+        if (requestedSize.isValid() && !requestedSize.isEmpty()
+            && (image.width() > requestedSize.width()
+                || image.height() > requestedSize.height())) {
+            image = image.scaled(requestedSize, Qt::KeepAspectRatio,
+                                 Qt::SmoothTransformation);
+        }
+        if (maskCircle || maskRatio > 0.0)
+            image = roundedMasked(image, maskCircle, maskRatio);
+        else if (roundRatio > 0.0)
+            image = roundedCorners(image, roundRatio);
+        if (size)
+            *size = image.size();
+        return image;
+    }
+
     QByteArray bytes = m_bridge->cachedBytes(cacheKey);
     if (bytes.isEmpty())
         return {};

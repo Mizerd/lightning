@@ -5934,6 +5934,7 @@ pub unsafe extern "C" fn mx_rust_search_messages(
     term: *const c_char,
     room_id: *const c_char,
     next_batch: *const c_char,
+    filters_json: *const c_char,
     limit: u64,
     op_id: u64,
 ) -> *mut c_char {
@@ -5942,7 +5943,10 @@ pub unsafe extern "C" fn mx_rust_search_messages(
         let term = unsafe { cstr_arg(term) }?;
         let room_id = unsafe { thread_root_arg(room_id) }?;
         let next_batch = unsafe { thread_root_arg(next_batch) }?;
-        search::search_messages(bridge, term, room_id, next_batch, limit, op_id)
+        let filters_json = unsafe { cstr_arg(filters_json) }?;
+        search::search_messages(
+            bridge, term, room_id, next_batch, filters_json, limit, op_id,
+        )
             .map(|_| String::new())
     })
 }

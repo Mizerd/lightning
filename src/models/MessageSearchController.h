@@ -2,6 +2,7 @@
 
 #include <QAbstractListModel>
 #include <QList>
+#include <QSet>
 #include <QString>
 #include <QTimer>
 #include <QVariantMap>
@@ -35,6 +36,10 @@ class MessageSearchController : public QAbstractListModel
     Q_PROPERTY(bool canLoadMore READ canLoadMore NOTIFY stateChanged)
     // Server-reported total (an estimate; 0 when unknown).
     Q_PROPERTY(quint64 totalCount READ totalCount NOTIFY stateChanged)
+    // Applied filter snapshot. The panel edits a private draft and assigns
+    // this only on Apply, so Cancel cannot mutate live results.
+    Q_PROPERTY(QVariantMap filters READ filters WRITE setFilters
+                   NOTIFY filtersChanged)
 
 public:
     enum Roles {
@@ -61,6 +66,8 @@ public:
     bool supported() const;
     bool canLoadMore() const { return !m_nextBatch.isEmpty(); }
     quint64 totalCount() const { return m_totalCount; }
+    QVariantMap filters() const { return m_filters; }
+    void setFilters(const QVariantMap &filters);
 
     int rowCount(const QModelIndex &parent = {}) const override;
     QVariant data(const QModelIndex &index, int role) const override;
@@ -78,6 +85,7 @@ Q_SIGNALS:
     void queryChanged();
     void roomIdChanged();
     void stateChanged();
+    void filtersChanged();
 
 private Q_SLOTS:
     void dispatch(bool nextPage);
@@ -88,6 +96,9 @@ private Q_SLOTS:
 private:
     void setState(const QString &state);
     void invalidatePending();
+    void requestPage(bool append);
+    bool matchesFilters(const QVariantMap &row) const;
+    void rebuildFilterSets();
 
     MatrixClient *m_client = nullptr;
     QString m_query;
@@ -99,4 +110,14 @@ private:
     quint64 m_totalCount = 0;
     quint64 m_pendingOp = 0;
     bool m_pendingIsNextPage = false;
+    QVariantMap m_filters;
+    QSet<QString> m_fromUsers;
+    QSet<QString> m_mentionUsers;
+    QSet<QString> m_contentTypes;
+    QSet<QString> m_pinnedEventIds;
+    qint64 m_afterMs = 0;
+    qint64 m_beforeMs = 0;
+    QString m_pinnedMode;
+    int m_scanPages = 0;
+    int m_scanTarget = 0;
 };

@@ -75,7 +75,24 @@ WheelHandler {
     // as Flickable (not the generic Item `parent` itself is) so contentY/
     // contentHeight resolve statically; ListView/GridView are Flickable
     // subtypes, so both still assign here without a cast.
-    property Flickable scrollTarget: parent as Flickable
+    // WALKS UP rather than casting `parent` directly. A handler declared
+    // inside a Flickable is routed through flickableData and attaches to the
+    // Flickable's CONTENT ITEM, not to the Flickable — so `parent as
+    // Flickable` yields null, onWheel takes its early return, and because it
+    // still sets `event.accepted = true` the pane becomes COMPLETELY
+    // unscrollable. That shipped in 5429ab0 and broke Settings, Room
+    // Information, Home and six dialogs at once; the contract test could not
+    // see it because it only scans source for the component's name.
+    property Flickable scrollTarget: {
+        var p = parent
+        while (p) {
+            var f = p as Flickable
+            if (f)
+                return f
+            p = p.parent
+        }
+        return null
+    }
 
     // Bottom bound of the vertical scroll range. All current callers are
     // plain (non-rotated) Flickables, so this is simply the content minus

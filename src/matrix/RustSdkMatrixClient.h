@@ -358,7 +358,8 @@ public:
     quint64 requestSpaceChildren(const QString &spaceId) override;
     bool supportsMessageSearch() const override { return true; }
     quint64 searchMessages(const QString &term, const QString &roomId,
-                           const QString &nextBatch, int limit) override;
+                           const QString &nextBatch, int limit,
+                           const QVariantMap &filters = {}) override;
     bool supportsIgnoredUsers() const override { return true; }
     quint64 setUserIgnored(const QString &userId, bool ignored) override;
     quint64 requestIgnoredUsers() override;

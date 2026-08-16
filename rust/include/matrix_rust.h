@@ -722,6 +722,7 @@ char *mx_rust_search_messages(void *client,
                               const char *term,
                               const char *room_id,
                               const char *next_batch,
+                              const char *filters_json,
                               unsigned long long limit,
                               unsigned long long op_id);
 /* List a Space's children, joined and unjoined, via the SDK's

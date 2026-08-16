@@ -2743,10 +2743,12 @@ quint64 MockMatrixClient::requestSpaceChildren(const QString &spaceId)
 }
 
 quint64 MockMatrixClient::searchMessages(const QString &term, const QString &,
-                                         const QString &since, int)
+                                         const QString &since, int,
+                                         const QVariantMap &filters)
 {
     if (term.trimmed().isEmpty())
         return 0;
+    lastSearchFilters = filters;
     const quint64 op = ++m_opCounter;
     const QVariantList rows = mockSearchResults;
     const QString nextBatch = since.isEmpty() ? mockSearchNextBatch

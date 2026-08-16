@@ -5,8 +5,12 @@
 #include <QObject>
 #include <QString>
 #include <QVariantMap>
+#include <QTimer>
+
+#include <functional>
 
 struct TimelineEvent;
+class QImage;
 
 // v0.6.0 checkpoint 11: native desktop notifications.
 //
@@ -66,6 +70,9 @@ public:
         // write and the server applying it — but without it that window
         // notifies. Supplied by the app layer to keep decide() pure.
         bool senderIsIgnored = false;
+        // Effective room avatar: explicit room avatar, or the unambiguous
+        // other user's profile avatar for a strict 1:1 DM.
+        QString avatarMxc;
     };
     struct Decision {
         bool notify = false;
@@ -78,6 +85,15 @@ public:
     };
 
     explicit NotificationManager(QObject *parent = nullptr);
+    // App-layer adapter over MediaBridge. `image(mxc, request)` returns a
+    // cached image and optionally starts the normal avatar fetch; `failed`
+    // reports a current failure mark. Call avatarCacheChanged when either
+    // state changes. Keeping the concrete media bridge out of this class
+    // preserves the pure-policy unit-test boundary.
+    void setAvatarProvider(
+        std::function<QImage(const QString &, bool request)> image,
+        std::function<bool(const QString &)> failed);
+    void avatarCacheChanged();
 
     // Pure policy — no I/O, no logging. Exposed for tests.
     static Decision decide(const TimelineEvent &event, const Context &context);
@@ -97,7 +113,8 @@ public:
     // Generic non-message notifications (invites, verification requests).
     // The body must already be safe — callers never pass message content.
     void showGeneric(const QString &title, const QString &safeBody,
-                     const QString &roomId = QString());
+                     const QString &roomId = QString(),
+                     const QString &avatarMxc = QString());
 
     // Logout/account switch: forget queued click payloads.
     void clearPending();
@@ -121,7 +138,12 @@ private Q_SLOTS:
 
 private:
     void deliver(const QString &title, const QString &body,
-                 const QVariantMap &payload, bool sound = false);
+                 const QVariantMap &payload, bool sound = false,
+                 const QString &avatarMxc = QString());
+    void deliverNow(const QString &title, const QString &body,
+                    const QVariantMap &payload, bool sound,
+                    const QImage &avatar);
+    void flushAvatarWaits(bool fallbackAll);
     // Store one click payload, evicting the oldest when the bounded cap is
     // exceeded (a desktop only keeps a handful visible). FIFO eviction keeps
     // the most recent notifications clickable instead of dropping them all.
@@ -138,4 +160,15 @@ private:
     // Monotonic time (ms) of the last sound played; a short window coalesces
     // notification bursts into a single alert.
     qint64 m_lastSoundMs = 0;
+    struct WaitingDelivery {
+        QString title;
+        QString body;
+        QVariantMap payload;
+        bool sound = false;
+        QString avatarMxc;
+    };
+    std::function<QImage(const QString &, bool)> m_avatarImage;
+    std::function<bool(const QString &)> m_avatarFailed;
+    QList<WaitingDelivery> m_avatarWaits;
+    QTimer m_avatarWaitTimer;
 };

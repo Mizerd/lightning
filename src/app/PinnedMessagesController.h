@@ -58,6 +58,9 @@ class PinnedMessagesController : public QObject
     // own — reference this property in the binding (the PresenceManager
     // revision idiom) and it re-evaluates.
     Q_PROPERTY(int revision READ revision NOTIFY stateChanged)
+    // Complete authoritative id list (unlike the capped preview entries),
+    // used by room search's client-side pinned/not-pinned predicate.
+    Q_PROPERTY(QStringList ids READ ids NOTIFY stateChanged)
 
 public:
     explicit PinnedMessagesController(QObject *parent = nullptr);
@@ -76,6 +79,7 @@ public:
     bool pending() const { return m_writeOp != 0; }
     QString error() const { return m_error; }
     int revision() const { return m_revision; }
+    QStringList ids() const { return m_ids; }
 
     // Pure read over the CURRENT room's complete id list — safe in a QML
     // binding, re-evaluate on stateChanged. Answers false for an empty id

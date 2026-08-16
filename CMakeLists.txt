@@ -497,12 +497,16 @@ set(APP_QML_FILES
     qml/CreatePollDialog.qml
     qml/VideoPlayerCard.qml
     qml/AudioPlayerCard.qml
+    qml/MediaVolumeControl.qml
     qml/VideoControlBar.qml
     qml/VideoViewerOverlay.qml
     qml/UserPicker.qml
     qml/NewConversationDialog.qml
     qml/DiscoverJoinDialog.qml
     qml/MessageSearchDialog.qml
+    qml/SearchPanel.qml
+    qml/SearchMemberSection.qml
+    qml/MediaListThumbnail.qml
     qml/InvitePeopleDialog.qml
     qml/RoomInfoPanel.qml
     qml/ThreadPanel.qml
@@ -1579,6 +1583,19 @@ if(BUILD_TESTING)
     add_test(NAME scroll-consistency-contract
         COMMAND scroll-consistency-contract-test)
 
+    # RUNTIME counterpart to scroll-consistency-contract: that test only
+    # scans QML source for "SmoothWheelArea" and cannot see a null
+    # scrollTarget, which makes a pane completely unscrollable (onWheel
+    # accepts the event and returns).
+    qt_add_executable(smooth-wheel-area-runtime-test
+        tests/SmoothWheelAreaRuntimeTest.cpp)
+    lightning_configure_qml_test(smooth-wheel-area-runtime-test)
+    target_link_libraries(smooth-wheel-area-runtime-test PRIVATE Qt6::Test)
+    add_test(NAME smooth-wheel-area-runtime
+             COMMAND smooth-wheel-area-runtime-test)
+    set_tests_properties(smooth-wheel-area-runtime PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
     # Measurement (not a fix): quantifies the cost of the state-activity
     # grouping mechanism (TimelineModel::stateGroupLeaderRow /
     # stateGroupEntriesFrom / emitPresentationGroupingChanged) under a long
@@ -2117,7 +2134,7 @@ if(BUILD_TESTING)
     )
     target_include_directories(notification-manager-test PRIVATE src)
     target_link_libraries(notification-manager-test PRIVATE
-        Qt6::Core Qt6::Test)
+        Qt6::Core Qt6::Gui Qt6::Test)
     if(TARGET Qt6::DBus)
         target_link_libraries(notification-manager-test PRIVATE Qt6::DBus)
         target_compile_definitions(notification-manager-test

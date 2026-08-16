@@ -83,8 +83,8 @@ pub(crate) fn parse_presence_batch(payload: &str) -> Result<Vec<OwnedUserId>, St
     Ok(ids)
 }
 
-/// One polling round: sequential bounded GETs (they share the client's
-/// connection pool; a batch is at most `PRESENCE_BATCH_CAP` small requests)
+/// One polling round: at most eight concurrent GETs (a batch is at most
+/// `PRESENCE_BATCH_CAP` small requests)
 /// answered as a single `presence_batch` event. Per-user failures are
 /// per-entry `ok:false` with a coarse category so C++ can distinguish
 /// "this server refuses presence" (forbidden) from "no data for this user"
@@ -100,48 +100,60 @@ pub(crate) fn fetch_presence(
     let timelines = Arc::clone(&bridge.timelines);
     let lifecycle = timelines.lifecycle();
     bridge.spawn_room_action(async move {
-        let config = RequestConfig::new()
-            .disable_retry()
-            .timeout(PRESENCE_REQUEST_TIMEOUT);
-        let mut entries = Vec::with_capacity(ids.len());
+        const CONCURRENCY: usize = 8;
+        let semaphore = Arc::new(tokio::sync::Semaphore::new(CONCURRENCY));
+        let mut requests = tokio::task::JoinSet::new();
+        let expected = ids.len();
         for uid in ids {
-            // Re-check between requests: a sign-out mid-batch must abandon
-            // the round instead of issuing dozens more GETs it will drop.
+            let client = client.clone();
+            let semaphore = Arc::clone(&semaphore);
+            requests.spawn(async move {
+                let Ok(_permit) = semaphore.acquire_owned().await else {
+                    return json!({
+                        "user_id": uid.to_string(),
+                        "ok": false,
+                        "category": "network",
+                    });
+                };
+                let config = RequestConfig::new()
+                    .disable_retry()
+                    .timeout(PRESENCE_REQUEST_TIMEOUT);
+                let result = client
+                    .send(get_presence::v3::Request::new(uid.clone()))
+                    .with_request_config(config)
+                    .await;
+                match result {
+                    Ok(response) => {
+                        let mut entry = json!({
+                            "user_id": uid.to_string(),
+                            "ok": true,
+                            "state": presence_state_str(&response.presence),
+                            "currently_active":
+                                response.currently_active.unwrap_or(false),
+                        });
+                        if let Some(ago) = response.last_active_ago {
+                            entry["last_active_ago_ms"] = json!(
+                                ago.as_millis().min(u128::from(u32::MAX)) as u64
+                            );
+                        }
+                        entry
+                    }
+                    Err(err) => json!({
+                        "user_id": uid.to_string(),
+                        "ok": false,
+                        "category": classify_room_error(&err.to_string()),
+                    }),
+                }
+            });
+        }
+        let mut entries = Vec::with_capacity(expected);
+        while let Some(result) = requests.join_next().await {
             if !timelines.lifecycle_current(lifecycle) {
+                requests.abort_all();
                 return;
             }
-            let result = client
-                .send(get_presence::v3::Request::new(uid.clone()))
-                .with_request_config(config)
-                .await;
-            match result {
-                Ok(response) => {
-                    let mut entry = json!({
-                        "user_id": uid.to_string(),
-                        "ok": true,
-                        "state": presence_state_str(&response.presence),
-                        "currently_active":
-                            response.currently_active.unwrap_or(false),
-                    });
-                    // OMITTED when the server sent none — `json!` would
-                    // serialize an Option::None as an explicit `null`,
-                    // which the C++ decode once mistook for 0 ms and the
-                    // popover then rendered as "active just now" for users
-                    // with no presence record at all (review H1). Clamped
-                    // to ~49 days: past that the age only ever renders as
-                    // days, and an unclamped u128→u64→double chain is
-                    // implementation-defined at the C++ cast.
-                    if let Some(ago) = response.last_active_ago {
-                        entry["last_active_ago_ms"] =
-                            json!(ago.as_millis().min(u128::from(u32::MAX)) as u64);
-                    }
-                    entries.push(entry);
-                }
-                Err(err) => entries.push(json!({
-                    "user_id": uid.to_string(),
-                    "ok": false,
-                    "category": classify_room_error(&err.to_string()),
-                })),
+            if let Ok(entry) = result {
+                entries.push(entry);
             }
         }
         if !timelines.lifecycle_current(lifecycle) {

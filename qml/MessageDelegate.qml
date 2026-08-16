@@ -1643,14 +1643,20 @@ Item {
             // column — one fixed receipt rail for every row, like
             // Element's receipt gutter at the timeline's right edge.
             Layout.fillWidth: true
-            Layout.topMargin: 2
-            implicitHeight: receiptRow.implicitHeight
+            // This is a zero-height overlay boundary at the message bottom,
+            // not another row below the message. Cancel ColumnLayout's
+            // inter-child spacing and paint the measured chip row upward from
+            // that boundary, so neither font scaling nor media/reaction height
+            // can create a receipt-only tail.
+            Layout.topMargin: -layout.spacing
+            implicitHeight: 0
 
             Row {
                 id: receiptRow
                 objectName: "readReceiptRow"
                 x: Math.max(root.avatarGutterWidth,
                             readReceiptStrip.width - width)
+                y: -height
                 // Facepile overlap; each avatar sits on an 18px surface
                 // ring so overlapped edges stay legible on any theme.
                 spacing: -4
@@ -1717,16 +1723,17 @@ Item {
                         font.weight: Font.Bold
                     }
                 }
-            }
 
-            HoverHandler { id: receiptHover }
-            ToolTip.text: summary
-            ToolTip.visible: receiptHover.hovered && summary.length > 0
-            ToolTip.delay: 500
-            // One accessible summary for the whole strip — individual
-            // chips are deliberately not focus stops.
-            Accessible.role: Accessible.StaticText
-            Accessible.name: summary
+                HoverHandler { id: receiptHover }
+                ToolTip.text: readReceiptStrip.summary
+                ToolTip.visible: receiptHover.hovered
+                                 && readReceiptStrip.summary.length > 0
+                ToolTip.delay: 500
+                // One accessible summary for the whole strip — individual
+                // chips are deliberately not focus stops.
+                Accessible.role: Accessible.StaticText
+                Accessible.name: readReceiptStrip.summary
+            }
         }
     }
 

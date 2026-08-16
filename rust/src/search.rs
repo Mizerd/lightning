@@ -24,6 +24,7 @@ use matrix_sdk::{
         uint, RoomId,
     },
 };
+use serde::Deserialize;
 use serde_json::json;
 
 use crate::rooms::{classify_room_error, require_client};
@@ -35,6 +36,13 @@ const SEARCH_PAGE_CAP: u64 = 30;
 /// One `/search` request budget; runs on the room-action pool which is
 /// joined during sign-out, so no retry and a hard timeout.
 const SEARCH_REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
+
+#[derive(Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SearchFilters {
+    #[serde(default)]
+    from_user_ids: Vec<String>,
+}
 
 /// One page of server-side message search.
 ///
@@ -50,6 +58,7 @@ pub(crate) fn search_messages(
     term: String,
     room_id: String,
     next_batch: String,
+    filters_json: String,
     limit: u64,
     op_id: u64,
 ) -> Result<(), String> {
@@ -68,6 +77,23 @@ pub(crate) fn search_messages(
                 .to_owned(),
         )
     };
+    let filters: SearchFilters = serde_json::from_str(&filters_json)
+        .map_err(|_| "invalid search filters".to_owned())?;
+    // Matrix's RoomEventFilter can apply sender ids on the homeserver. Cap
+    // the list before dispatch and reject malformed ids instead of silently
+    // broadening the user's query.
+    if filters.from_user_ids.len() > 50 {
+        return Err("too many search senders".to_owned());
+    }
+    let sender_filter = filters
+        .from_user_ids
+        .iter()
+        .map(|value| {
+            value
+                .parse::<matrix_sdk::ruma::OwnedUserId>()
+                .map_err(|_| "invalid search sender".to_owned())
+        })
+        .collect::<Result<Vec<_>, _>>()?;
     let events = Arc::clone(&bridge.events);
     let timelines = Arc::clone(&bridge.timelines);
     let lifecycle = timelines.lifecycle();
@@ -89,6 +115,9 @@ pub(crate) fn search_messages(
             Some(limit.clamp(1, SEARCH_PAGE_CAP).try_into().unwrap_or(uint!(20)));
         if let Some(room) = room_filter {
             criteria.filter.rooms = Some(vec![room]);
+        }
+        if !sender_filter.is_empty() {
+            criteria.filter.senders = Some(sender_filter);
         }
         let mut categories = Categories::new();
         categories.room_events = Some(criteria);
@@ -139,6 +168,35 @@ pub(crate) fn search_messages(
                         .pointer("/content/msgtype")
                         .and_then(|v| v.as_str())
                         .unwrap_or_default();
+                    let event_type = value
+                        .get("type")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or_default();
+                    let mention_user_ids = value
+                        .pointer("/content/m.mentions/user_ids")
+                        .and_then(|v| v.as_array())
+                        .map(|values| {
+                            values
+                                .iter()
+                                .filter_map(|v| v.as_str())
+                                .map(str::to_owned)
+                                .collect::<Vec<_>>()
+                        })
+                        .unwrap_or_default();
+                    let formatted_body = value
+                        .pointer("/content/formatted_body")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or_default();
+                    // This is intentionally conservative: only explicit
+                    // http(s) targets count as links. Media MXC URLs do not.
+                    let has_link = body
+                        .split_whitespace()
+                        .any(|word| {
+                            word.starts_with("https://")
+                                || word.starts_with("http://")
+                        })
+                        || formatted_body.contains("href=\"https://")
+                        || formatted_body.contains("href=\"http://");
                     if event_id.is_empty() || room.is_empty() || body.is_empty() {
                         // Redacted or non-message hits carry nothing a
                         // result row could honestly display.
@@ -171,6 +229,9 @@ pub(crate) fn search_messages(
                         "sender_avatar_url": avatar_url,
                         "timestamp_ms": ts,
                         "msgtype": msgtype,
+                        "is_sticker": event_type == "m.sticker",
+                        "mention_user_ids": mention_user_ids,
+                        "has_link": has_link,
                         "body": body,
                     }));
                 }

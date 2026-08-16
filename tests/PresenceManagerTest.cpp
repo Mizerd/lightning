@@ -71,6 +71,7 @@ private Q_SLOTS:
     void init();
 
     void watchTriggersOneDebouncedBurst();
+    void incomingActivityRepollsWatchedCachedSender();
     void batchUpdatesCacheAndRevision();
     void absentLastActiveStaysUnknown();
     void staleOpIdIsIgnored();
@@ -132,6 +133,31 @@ void PresenceManagerTest::watchTriggersOneDebouncedBurst()
         QStringLiteral("@alice:example.org")));
     QVERIFY(client.requests.first().userIds.contains(
         QStringLiteral("@bob:example.org")));
+}
+
+void PresenceManagerTest::incomingActivityRepollsWatchedCachedSender()
+{
+    FakePresenceClient client;
+    PresenceManager presence;
+    presence.setClient(&client);
+    goSyncing(client);
+    presence.watch(QStringLiteral("@alice:example.org"));
+    QTRY_COMPARE(client.requests.size(), 1);
+    Q_EMIT client.presenceReceived(
+        client.requests.first().opId,
+        { okEntry(QStringLiteral("@alice:example.org"),
+                  QStringLiteral("offline"), false) });
+    QCOMPARE(presence.stateFor(QStringLiteral("@alice:example.org")),
+             QStringLiteral("offline"));
+
+    // A message from a watched sender is only a freshness hint: it queues
+    // another authoritative server read instead of fabricating online state.
+    presence.noteActivity(QStringLiteral("@alice:example.org"));
+    QCOMPARE(presence.stateFor(QStringLiteral("@alice:example.org")),
+             QStringLiteral("offline"));
+    QTRY_COMPARE(client.requests.size(), 2);
+    QCOMPARE(client.requests.last().userIds,
+             (QStringList{ QStringLiteral("@alice:example.org") }));
 }
 
 void PresenceManagerTest::batchUpdatesCacheAndRevision()

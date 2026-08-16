@@ -1168,7 +1168,11 @@ Rectangle {
                 }
 
                 delegate: ItemDelegate {
+                    id: mediaDelegate
                     width: ListView.view.width
+                    readonly property bool rowOnScreen:
+                        y + height >= mediaList.contentY
+                        && y <= mediaList.contentY + mediaList.height
                     Accessible.name: modelData.filename
                     onClicked: {
                         if (modelData.isImage)
@@ -1201,6 +1205,14 @@ Rectangle {
                                 font.pixelSize: AppTheme.fontCaption
                                 elide: Label.ElideRight
                             }
+                        }
+                        MediaListThumbnail {
+                            visible: modelData.isVisual === true
+                            mediaKey: modelData.mediaKey || ""
+                            visual: modelData.isVisual === true
+                            video: modelData.isVideo === true
+                            onScreen: mediaDelegate.rowOnScreen
+                            Layout.alignment: Qt.AlignVCenter
                         }
                         AppButton {
                             visible: (modelData.mediaKey || "").length > 0

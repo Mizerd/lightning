@@ -5,6 +5,19 @@
 namespace {
 constexpr int kDebounceMs = 400;
 constexpr int kPageSize = 25;
+constexpr int kMaxFilteredPagesPerAction = 4;
+
+QSet<QString> stringSet(const QVariant &value)
+{
+    QSet<QString> out;
+    const QVariantList values = value.toList();
+    for (const QVariant &entry : values) {
+        const QString text = entry.toString().trimmed();
+        if (!text.isEmpty())
+            out.insert(text);
+    }
+    return out;
+}
 } // namespace
 
 MessageSearchController::MessageSearchController(QObject *parent)
@@ -64,6 +77,18 @@ void MessageSearchController::setRoomId(const QString &roomId)
     Q_EMIT roomIdChanged();
     // A different scope answers a different question: drop everything the
     // old scope produced rather than letting it repaint under a new label.
+    clear();
+}
+
+void MessageSearchController::setFilters(const QVariantMap &filters)
+{
+    if (m_filters == filters)
+        return;
+    m_filters = filters;
+    rebuildFilterSets();
+    Q_EMIT filtersChanged();
+    // Applied criteria define a new result set. Search is explicit so a
+    // multi-control Apply produces one request, never one request per field.
     clear();
 }
 
@@ -147,17 +172,26 @@ void MessageSearchController::dispatch(bool nextPage)
 {
     if (!supported() || m_query.trimmed().isEmpty())
         return;
-    const QString since = nextPage ? m_nextBatch : QString();
+    m_scanPages = 0;
+    m_scanTarget = (nextPage ? m_rows.size() : 0) + kPageSize;
+    requestPage(nextPage);
+}
+
+void MessageSearchController::requestPage(bool append)
+{
+    const QString since = append ? m_nextBatch : QString();
     const quint64 opId = m_client->searchMessages(m_query.trimmed(), m_roomId,
-                                                  since, kPageSize);
+                                                  since, kPageSize,
+                                                  m_filters);
     if (opId == 0) {
         setState(QStringLiteral("error"));
         return;
     }
     m_pendingOp = opId;
-    m_pendingIsNextPage = nextPage;
-    setState(nextPage ? QStringLiteral("loading_more")
-                      : QStringLiteral("loading"));
+    m_pendingIsNextPage = append;
+    ++m_scanPages;
+    setState(append ? QStringLiteral("loading_more")
+                    : QStringLiteral("loading"));
 }
 
 void MessageSearchController::onSearchFinished(quint64 opId, bool ok,
@@ -186,6 +220,8 @@ void MessageSearchController::onSearchFinished(quint64 opId, bool ok,
     rows.reserve(results.size());
     for (const QVariant &value : results) {
         QVariantMap row = value.toMap();
+        if (!matchesFilters(row))
+            continue;
         const QString roomId = row.value(QStringLiteral("roomId")).toString();
         QString roomName;
         if (m_client)
@@ -205,6 +241,20 @@ void MessageSearchController::onSearchFinished(quint64 opId, bool ok,
     }
     m_nextBatch = nextBatch;
     m_totalCount = count;
+    // The Matrix search API cannot express mentions, dates, content kinds,
+    // links, or pinned state. Scan a small bounded number of server pages so
+    // a filtered page is useful without ever walking complete room history.
+    const bool hasClientFilters = !m_mentionUsers.isEmpty()
+        || !m_contentTypes.isEmpty()
+        || m_pinnedMode == QLatin1String("pinned")
+        || m_pinnedMode == QLatin1String("not_pinned")
+        || m_afterMs > 0 || m_beforeMs > 0;
+    if (hasClientFilters && m_rows.size() < m_scanTarget
+        && !m_nextBatch.isEmpty()
+        && m_scanPages < kMaxFilteredPagesPerAction) {
+        requestPage(/*append=*/true);
+        return;
+    }
     setState(m_rows.isEmpty() ? QStringLiteral("no_results")
                               : QStringLiteral("results"));
 }
@@ -224,4 +274,82 @@ void MessageSearchController::invalidatePending()
     m_pendingOp = 0;
     m_pendingIsNextPage = false;
     m_nextBatch.clear();
+}
+
+void MessageSearchController::rebuildFilterSets()
+{
+    m_fromUsers = stringSet(m_filters.value(QStringLiteral("fromUserIds")));
+    m_mentionUsers =
+        stringSet(m_filters.value(QStringLiteral("mentionUserIds")));
+    m_contentTypes =
+        stringSet(m_filters.value(QStringLiteral("contentTypes")));
+    m_pinnedEventIds =
+        stringSet(m_filters.value(QStringLiteral("pinnedEventIds")));
+    m_afterMs = m_filters.value(QStringLiteral("afterMs")).toLongLong();
+    m_beforeMs = m_filters.value(QStringLiteral("beforeMs")).toLongLong();
+    m_pinnedMode = m_filters.value(QStringLiteral("pinnedMode")).toString();
+}
+
+bool MessageSearchController::matchesFilters(const QVariantMap &row) const
+{
+    if (!m_fromUsers.isEmpty()
+        && !m_fromUsers.contains(row.value(QStringLiteral("sender")).toString()))
+        return false;
+
+    if (!m_mentionUsers.isEmpty()) {
+        bool mentioned = false;
+        const QVariantList mentions =
+            row.value(QStringLiteral("mentionUserIds")).toList();
+        for (const QVariant &mention : mentions) {
+            if (m_mentionUsers.contains(mention.toString())) {
+                mentioned = true;
+                break;
+            }
+        }
+        if (!mentioned)
+            return false;
+    }
+
+    const qint64 timestamp =
+        row.value(QStringLiteral("timestampMs")).toLongLong();
+    if (m_afterMs > 0 && timestamp < m_afterMs)
+        return false;
+    if (m_beforeMs > 0 && timestamp >= m_beforeMs)
+        return false;
+
+    if (!m_contentTypes.isEmpty()) {
+        const QString msgtype =
+            row.value(QStringLiteral("msgtype")).toString();
+        bool kindMatch = false;
+        if (m_contentTypes.contains(QStringLiteral("image"))
+            && msgtype == QLatin1String("m.image"))
+            kindMatch = true;
+        if (m_contentTypes.contains(QStringLiteral("video"))
+            && msgtype == QLatin1String("m.video"))
+            kindMatch = true;
+        if (m_contentTypes.contains(QStringLiteral("audio"))
+            && msgtype == QLatin1String("m.audio"))
+            kindMatch = true;
+        if (m_contentTypes.contains(QStringLiteral("file"))
+            && msgtype == QLatin1String("m.file"))
+            kindMatch = true;
+        if (m_contentTypes.contains(QStringLiteral("sticker"))
+            && row.value(QStringLiteral("isSticker")).toBool())
+            kindMatch = true;
+        if (m_contentTypes.contains(QStringLiteral("link"))
+            && row.value(QStringLiteral("hasLink")).toBool())
+            kindMatch = true;
+        if (!kindMatch)
+            return false;
+    }
+
+    if (m_pinnedMode == QLatin1String("pinned")
+        && !m_pinnedEventIds.contains(
+            row.value(QStringLiteral("eventId")).toString()))
+        return false;
+    if (m_pinnedMode == QLatin1String("not_pinned")
+        && m_pinnedEventIds.contains(
+            row.value(QStringLiteral("eventId")).toString()))
+        return false;
+    return true;
 }

@@ -3,6 +3,7 @@
 #include <QByteArray>
 #include <QElapsedTimer>
 #include <QHash>
+#include <QImage>
 #include <QMutex>
 #include <QObject>
 #include <QQueue>
@@ -49,6 +50,9 @@ public:
     // cache entry, and a single failure mark per identity. QML scales the
     // decoded bitmap down at render time.
     Q_INVOKABLE QString avatarSource(const QString &mxcUri, int size);
+    // NotificationManager's in-process read of an already-cached canonical
+    // avatar. It never dispatches and never exposes bytes to QML/disk.
+    QImage cachedAvatarImage(const QString &mxcUri) const;
     // Non-avatar mxc image (link-preview thumbnails): caller-chosen edge,
     // main cache class — never charged to the avatar budget.
     Q_INVOKABLE QString mxcImageSource(const QString &mxcUri, int edge);
@@ -86,6 +90,13 @@ public:
     // derived pixels never touch disk.
     Q_INVOKABLE QString videoPosterSource(const QString &mediaKey,
                                           double sizeBytes);
+    // Embedded audio artwork exposed by QMediaPlayer metadata. The decoded
+    // QImage is retained only in this session's bounded in-memory cache and
+    // served through MediaImageProvider; it is never encoded to a temp file
+    // or written to CacheStore. Returns an image-provider URL, or "" for an
+    // absent/invalid/oversized image.
+    Q_INVOKABLE QString audioArtworkSource(const QString &mediaKey,
+                                           const QVariant &artwork);
     // v0.7 perf round: cancel the playable fetch for a card that no longer
     // wants it (closed mid-download, delegate reused, room left). Playable
     // interest is refcounted (two cards can share one fetch); when the
@@ -218,6 +229,8 @@ public:
 
     // Shared with MediaImageProvider (called from the QML render thread).
     QByteArray cachedBytes(const QString &cacheKey) const;
+    // MediaImageProvider's image-thread read for embedded artwork.
+    QImage cachedArtwork(const QString &cacheKey) const;
 
     // Cache caps; exposed for tests. Avatar-class entries ("mxc:" keys)
     // have their own reserved byte budget so churning timeline media can
@@ -369,6 +382,12 @@ private:
     // cache to know its size.
     qint64 m_cacheBytesMain = 0;
     qint64 m_cacheBytesAvatar = 0;
+    // Embedded cover art is already decoded by Qt Multimedia. Keep it in a
+    // separate bounded image LRU so it does not require a permanent or
+    // session-temp plaintext extraction merely to reach QML.
+    QHash<QString, QImage> m_artworkCache;
+    QList<QString> m_artworkLru;
+    qint64 m_artworkBytes = 0;
     // v0.7.1: per-key content revision, bumped ONLY on an actual byte
     // insert (insertCache) and appended to provider URLs as "?r=<n>".
     // A re-cached key therefore always yields a NEW source string, so a QML
@@ -490,6 +509,9 @@ private:
     // consumer is the 96px popover at 2x DPR = 192; 224 covers it with
     // headroom). All render sizes downscale from this single decode.
     static constexpr int kAvatarCanonicalEdge = 224;
+    static constexpr int kArtworkMaxEntries = 24;
+    static constexpr qint64 kArtworkMaxBytes = 24 * 1024 * 1024;
+    static constexpr int kArtworkMaxEdge = 4096;
     static constexpr qint64 kAnimatedCacheBytes = 64 * 1024 * 1024;
     static constexpr int kAnimatedCacheEntries = 64;
     static constexpr qint64 kPlayableCacheBytes = 256 * 1024 * 1024;

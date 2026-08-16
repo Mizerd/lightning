@@ -17,16 +17,18 @@ Rectangle {
     property var currentRoom: ({})
     // v0.5.9: Room Information side panel (Phases 6/10 surface).
     property bool infoOpen: false
+    property bool searchOpen: false
     // v0.6.0: the thread side surface is open when a thread panel OR the
     // room's Threads list view is showing.
     readonly property bool threadSurfaceOpen: app.thread.active
                                               || app.thread.listOpen
-    // The authoritative right-panel state. Exactly one of three values:
+    // The authoritative right-panel state. Exactly one surface is open:
     // the thread surface (controller-owned state) wins, then the info/member
     // panel, else none. All open/close paths flow through the two underlying
     // states and their exclusivity handlers below.
     readonly property string rightPanelState:
-        threadSurfaceOpen ? "thread" : (infoOpen ? "info" : "none")
+        threadSurfaceOpen ? "thread"
+        : (searchOpen ? "search" : (infoOpen ? "info" : "none"))
 
     function refreshCurrentRoom() {
         currentRoom = app.currentRoomId === ""
@@ -39,12 +41,22 @@ Rectangle {
     // properties themselves so every open path — buttons, chips,
     // notifications, tests — flows through the same mechanism.
     onThreadSurfaceOpenChanged: {
-        if (threadSurfaceOpen)
+        if (threadSurfaceOpen) {
             infoOpen = false
+            searchOpen = false
+        }
     }
     onInfoOpenChanged: {
-        if (infoOpen)
+        if (infoOpen) {
             closeThreadSurface()
+            searchOpen = false
+        }
+    }
+    onSearchOpenChanged: {
+        if (searchOpen) {
+            closeThreadSurface()
+            infoOpen = false
+        }
     }
     function closeThreadSurface() {
         if (app.thread.active)
@@ -61,6 +73,22 @@ Rectangle {
         }
         infoPanel.openForRoom(app.currentRoomId)
         infoOpen = true
+    }
+
+    function toggleSearchPanel() {
+        if (app.currentRoomId === "") return
+        if (searchOpen) {
+            searchOpen = false
+            return
+        }
+        if (root.findOpen)
+            root.closeFind()
+        if (app.messageSearch.roomId !== app.currentRoomId) {
+            app.messageSearch.roomId = app.currentRoomId
+            app.messageSearch.filters = ({})
+        }
+        app.roomInfo.roomId = app.currentRoomId
+        searchOpen = true
     }
 
     // Header forum toggle: opens the room's thread surface (list, or the
@@ -108,8 +136,10 @@ Rectangle {
         // Full-view Settings clears every right-side surface; exiting
         // Settings must not restore any of them.
         function onCurrentScreenChanged() {
-            if (app.currentScreen === 2)
+            if (app.currentScreen === 2) {
                 root.infoOpen = false
+                root.searchOpen = false
+            }
         }
         function onCurrentRoomIdChanged() {
             refreshCurrentRoom()
@@ -133,6 +163,7 @@ Rectangle {
             // previous room may remain (reopen it deliberately in the new
             // room if wanted).
             root.infoOpen = false
+            root.searchOpen = false
         }
     }
 
@@ -154,6 +185,7 @@ Rectangle {
 
     function openFind() {
         if (app.currentRoomId === "") return
+        root.searchOpen = false
         root.findOpen = true
         app.timeline.beginSearch(findField.text)
         findField.forceActiveFocus()
@@ -200,13 +232,16 @@ Rectangle {
     Shortcut {
         sequence: "Escape"
         enabled: !timeline.emojiPickerOpen
-                 && (root.findOpen || root.infoOpen || root.threadSurfaceOpen
+                 && (root.findOpen || root.infoOpen || root.searchOpen
+                     || root.threadSurfaceOpen
                      || timeline.pinnedActionsKey !== "")
         onActivated: {
             if (root.findOpen)
                 root.closeFind()
             else if (root.infoOpen)
                 root.infoOpen = false
+            else if (root.searchOpen)
+                root.searchOpen = false
             else if (app.thread.active)
                 app.thread.close()
             else if (app.thread.listOpen)
@@ -547,6 +582,7 @@ Rectangle {
         // underneath and return when the panel closes or the window
         // widens). From 660px up, threads are ALWAYS a side panel.
         visible: !(root.threadSurfaceOpen && root.width < 660)
+                 && !(root.searchOpen && root.width < 700)
         Layout.fillWidth: true
         Layout.fillHeight: true
         Layout.minimumWidth: 320
@@ -605,10 +641,17 @@ Rectangle {
                             font.weight: Font.ExtraBold
                         }
                         Icon {
+                            id: encryptionLock
                             visible: root.currentRoom.encrypted === true
                             name: "lock"
                             size: 13
                             color: AppTheme.textMuted
+                            Accessible.role: Accessible.StaticText
+                            Accessible.name: qsTr("Room encrypted")
+                            HoverHandler { id: encryptionLockHover }
+                            ToolTip.text: qsTr("Room encrypted")
+                            ToolTip.visible: encryptionLockHover.hovered
+                            ToolTip.delay: 600
                         }
                     }
                     Label {
@@ -662,13 +705,12 @@ Rectangle {
                         objectName: "timelineSearchButton"
                         visible: app.currentRoomId !== ""
                         iconName: "search"
-                        active: root.findOpen
-                        Accessible.name: qsTr("Find in loaded messages")
-                        ToolTip.text: qsTr("Find in loaded messages")
+                        active: root.searchOpen
+                        Accessible.name: qsTr("Search messages")
+                        ToolTip.text: qsTr("Search room messages")
                         ToolTip.visible: hovered
                         ToolTip.delay: 500
-                        onClicked: root.findOpen ? root.closeFind()
-                                                 : root.openFind()
+                        onClicked: root.toggleSearchPanel()
                     }
                     IconButton {
                         objectName: "memberPanelButton"
@@ -874,6 +916,7 @@ Rectangle {
                         if (wantHistory) {
                             app.timeline.endSearch()
                             app.messageSearch.roomId = app.currentRoomId
+                            app.messageSearch.filters = ({})
                             app.messageSearch.query = findField.text
                         } else {
                             app.messageSearch.query = ""
@@ -3433,6 +3476,7 @@ Rectangle {
         // The composer has no target when no room is selected — the Home
         // surface is shown instead. visible:false collapses its space.
         MessageComposerBar {
+            id: messageComposer
             objectName: "messageComposer"
             Layout.fillWidth: true
             visible: app.currentRoomId !== ""
@@ -3498,6 +3542,32 @@ Rectangle {
         // already handles for replies, permalinks and search hits. Reusing
         // it means pins hydrate through the ONE navigation path instead of
         // a second one that would have to re-learn anchoring.
+        onJumpToEventRequested: (eventId) => {
+            if (eventId !== "")
+                app.pagination.jumpToEvent(eventId)
+        }
+    }
+
+    // ── Room message search side panel ──────────────────────────────────
+    Rectangle {
+        visible: root.searchOpen && root.width >= 700
+        Layout.fillHeight: true
+        implicitWidth: 1
+        color: AppTheme.border
+    }
+    SearchPanel {
+        id: searchPanel
+        objectName: "roomSearchPanel"
+        visible: root.searchOpen
+        Layout.fillHeight: true
+        Layout.preferredWidth: root.width >= 700 ? 360 : root.width
+        Layout.fillWidth: root.searchOpen && root.width < 700
+        historyAvailable: root.findHistoryAvailable
+        onCloseRequested: root.searchOpen = false
+        onFindLoadedRequested: {
+            root.searchOpen = false
+            root.openFind()
+        }
         onJumpToEventRequested: (eventId) => {
             if (eventId !== "")
                 app.pagination.jumpToEvent(eventId)
@@ -4355,7 +4425,10 @@ Rectangle {
         anchors.bottom: parent.bottom
         width: root.threadSurfaceOpen
                ? (root.width >= 660 ? root.width - 340 : 0)
-               : root.width
+               : root.searchOpen
+                 ? (root.width >= 700 ? root.width - 360 : 0)
+                 : root.infoOpen && root.width >= 700
+                   ? root.width - 320 : root.width
         z: 400
         enabled: app.composer.attachmentsSupported
                  && app.currentRoomId.length > 0
@@ -4365,6 +4438,7 @@ Rectangle {
             for (var i = 0; i < drop.urls.length; ++i)
                 app.composer.addAttachment(drop.urls[i])
             drop.accept(Qt.CopyAction)
+            messageComposer.focusStagedAttachmentSend()
         }
     }
     Rectangle {

@@ -213,6 +213,27 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_forward      = std::make_unique<ForwardController>(this);
     m_roomInfo     = std::make_unique<RoomInfoController>(this);
     m_mediaBridge  = std::make_unique<MediaBridge>(this);
+    m_notifications->setAvatarProvider(
+        [this](const QString &mxc, bool request) {
+            if (request)
+                m_mediaBridge->avatarSource(mxc, 64);
+            return m_mediaBridge->cachedAvatarImage(mxc);
+        },
+        [this](const QString &mxc) {
+            return !m_mediaBridge->avatarFailureCategory(mxc).isEmpty();
+        });
+    connect(m_mediaBridge.get(), &MediaBridge::mediaCached,
+            m_notifications.get(),
+            [this](const QString &cacheKey) {
+                if (cacheKey.startsWith(QLatin1String("mxc:")))
+                    m_notifications->avatarCacheChanged();
+            });
+    connect(m_mediaBridge.get(), &MediaBridge::mediaFetchFailed,
+            m_notifications.get(),
+            [this](const QString &cacheKey, const QString &) {
+                if (cacheKey.startsWith(QLatin1String("mxc:")))
+                    m_notifications->avatarCacheChanged();
+            });
     m_playback     = std::make_unique<MediaPlaybackController>(this);
     m_pagination   = std::make_unique<PaginationController>(this);
     m_readReceipts = std::make_unique<ReadReceiptCoordinator>(this);
@@ -297,6 +318,11 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             [this](const QString &roomId, const TimelineEvent &event) {
         if (MatrixClient::isThreadTimelineId(roomId))
             return;   // the room copy of the same event already notifies
+        // Receiving activity is a reason to refresh a visible sender's
+        // presence promptly, but never evidence for fabricating "online".
+        // PresenceManager applies only the homeserver's subsequent answer.
+        if (m_presence && event.sender != m_client->currentUserId())
+            m_presence->noteActivity(event.sender);
         NotificationManager::Context context;
         context.selfUserId = m_client->currentUserId();
         // Targeted lookup — the previous rooms() call deep-copied the whole
@@ -305,6 +331,8 @@ AppController::AppController(Backend backend, bool screenshotDemo,
         const RoomInfo info = m_client->roomInfo(roomId);
         context.roomName = info.name.isEmpty() ? roomId : info.name;
         context.roomIsDirect = info.isDirect;
+        context.avatarMxc = m_roomList->findRoom(roomId)
+                                .value(QStringLiteral("avatarUrl")).toString();
         context.roomMode = static_cast<NotificationManager::RoomMode>(
             m_settings->roomNotificationMode(roomId));
         context.previewMode = static_cast<NotificationManager::PreviewMode>(
@@ -458,7 +486,11 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                         ? tr("New Matrix notification")
                         : tr("You were invited to %1")
                               .arg(room.name.isEmpty() ? room.id : room.name),
-                    room.id);
+                    room.id,
+                    m_settings->notificationPreview() == 2
+                        ? QString()
+                        : m_roomList->findRoom(room.id)
+                              .value(QStringLiteral("avatarUrl")).toString());
             }
         }
         m_knownInvites = current;

@@ -4952,7 +4952,8 @@ quint64 RustSdkMatrixClient::requestOAuthManagementUrl(const QString &deviceId)
 quint64 RustSdkMatrixClient::searchMessages(const QString &term,
                                              const QString &roomId,
                                              const QString &nextBatch,
-                                             int limit)
+                                             int limit,
+                                             const QVariantMap &filters)
 {
     if (!m_rustHandle || term.trimmed().isEmpty())
         return 0;
@@ -4960,9 +4961,11 @@ quint64 RustSdkMatrixClient::searchMessages(const QString &term,
     const QByteArray termBytes = term.toUtf8();
     const QByteArray roomBytes = roomId.toUtf8();
     const QByteArray batchBytes = nextBatch.toUtf8();
+    const QByteArray filterBytes = QJsonDocument::fromVariant(filters)
+                                       .toJson(QJsonDocument::Compact);
     const QString result = takeRustString(mx_rust_search_messages(
         m_rustHandle, termBytes.constData(), roomBytes.constData(),
-        batchBytes.constData(),
+        batchBytes.constData(), filterBytes.constData(),
         static_cast<unsigned long long>(qMax(1, limit)), opId));
     return result.isEmpty() ? opId : 0;
 }
@@ -6095,6 +6098,14 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
                     row.value(QStringLiteral("timestamp_ms")).toDouble()));
             entry.insert(QStringLiteral("msgtype"),
                          row.value(QStringLiteral("msgtype")).toString());
+            entry.insert(QStringLiteral("isSticker"),
+                         row.value(QStringLiteral("is_sticker")).toBool());
+            entry.insert(
+                QStringLiteral("mentionUserIds"),
+                row.value(QStringLiteral("mention_user_ids")).toArray()
+                    .toVariantList());
+            entry.insert(QStringLiteral("hasLink"),
+                         row.value(QStringLiteral("has_link")).toBool());
             entry.insert(QStringLiteral("body"),
                          row.value(QStringLiteral("body")).toString());
             results.append(entry);

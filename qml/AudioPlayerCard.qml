@@ -51,6 +51,23 @@ Rectangle {
     // Playback position preserved across an offscreen engine unload; the
     // next Play resumes here instead of restarting the track.
     property real resumePositionMs: 0
+    // Qt Multimedia exposes embedded cover/thumbnail metadata after the
+    // backend has opened the session-scoped playable file. MediaBridge keeps
+    // the decoded pixels in a small RAM-only LRU and gives Image a provider
+    // URL; no decrypted artwork is written to CacheStore or another file.
+    property string artworkSource: ""
+
+    function refreshArtwork() {
+        artworkSource = ""
+        if (!player || isVoice || mediaKey.length === 0)
+            return
+        var artwork = player.metaData.value(MediaMetaData.CoverArtImage)
+        if (!artwork)
+            artwork = player.metaData.value(MediaMetaData.ThumbnailImage)
+        if (artwork)
+            artworkSource = app.mediaBridge.audioArtworkSource(mediaKey,
+                                                                artwork)
+    }
 
     function formatMs(ms) {
         if (!ms || ms < 0) ms = 0
@@ -128,6 +145,7 @@ Rectangle {
         unpinFile()
         cancelFetch()
         fetchState = "idle"
+        artworkSource = ""
         app.playback.release(root.ownerKey)
     }
     // Bounded speculative prefetch (size-capped, lowest priority, deduped
@@ -215,9 +233,13 @@ Rectangle {
         active: root.engaged
         sourceComponent: MediaPlayer {
             audioOutput: AudioOutput {
-                muted: muteButton.mutedState
+                id: audioOut
+                property bool userUnmuted: false
+                muted: false
+                volume: 0.8
             }
             onErrorOccurred: root.fetchState = "failed"
+            onMetaDataChanged: root.refreshArtwork()
             // Resume after an offscreen engine unload: seek once the media
             // is actually loaded — a seek issued straight after setting the
             // source would be dropped.
@@ -269,6 +291,19 @@ Rectangle {
             ToolTip.visible: hovered
             ToolTip.delay: 600
             onClicked: root.togglePlay()
+        }
+
+        Image {
+            objectName: "audioCoverArtwork"
+            visible: root.artworkSource.length > 0
+            Layout.preferredWidth: visible ? 36 : 0
+            Layout.preferredHeight: visible ? 36 : 0
+            source: visible ? root.artworkSource + "|shape:round:160" : ""
+            sourceSize: Qt.size(96, 96)
+            fillMode: Image.PreserveAspectCrop
+            asynchronous: true
+            cache: true
+            Accessible.name: qsTr("Audio cover artwork")
         }
 
         ColumnLayout {
@@ -402,19 +437,13 @@ Rectangle {
                 verticalAlignment: Text.AlignVCenter
             }
         }
-        IconButton {
-            id: muteButton
+        MediaVolumeControl {
             objectName: "audioMuteButton"
-            property bool mutedState: false
-            iconName: mutedState ? "volume_off" : "volume_up"
+            audio: root.player ? root.player.audioOutput : null
+            sliderObjectName: "audioVolumeSlider"
             iconSize: 15
             implicitWidth: 24; implicitHeight: 24
             visible: root.ready
-            Accessible.name: mutedState ? qsTr("Unmute") : qsTr("Mute")
-            ToolTip.text: mutedState ? qsTr("Unmute") : qsTr("Mute")
-            ToolTip.visible: hovered
-            ToolTip.delay: 600
-            onClicked: mutedState = !mutedState
         }
         IconButton {
             objectName: "audioSaveButton"

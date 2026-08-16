@@ -263,9 +263,10 @@ impl TimelineRegistry {
         &self,
         key: &str,
         thumbnail: bool,
-    ) -> Option<(MediaSource, String, Option<String>, Option<u64>)> {
+    ) -> Option<(MediaSource, String, Option<String>, Option<u64>, bool)> {
         let guard = self.media_sources.lock().ok()?;
         let media = guard.get(key)?;
+        let has_embedded_thumbnail = thumbnail && media.thumbnail.is_some();
         let source = if thumbnail {
             media.thumbnail.clone().unwrap_or_else(|| media.source.clone())
         } else {
@@ -276,6 +277,7 @@ impl TimelineRegistry {
             media.filename.clone(),
             media.mimetype.clone(),
             media.declared_size,
+            has_embedded_thumbnail,
         ))
     }
 

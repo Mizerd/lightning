@@ -7,10 +7,9 @@ import MatrixClient
 // Shared adaptive video control bar — one implementation for the inline
 // card and the expanded overlay. Sits over the video on a bottom gradient
 // scrim, so its ink is scrim-constant (accentText on dark), not themed
-// surface ink. Width-adaptive: below `tightWidth` the mute and speed
-// controls collapse into one overflow menu; the seek slider, time, and the
-// expand/exit action are never dropped — expand is the escape hatch to the
-// full control set.
+// surface ink. Width-adaptive: in tight cards mute and speed collapse into
+// an overflow menu; the seek slider, time, and expand/exit action remain
+// visible. Expanding the player exposes the complete direct-control set.
 FocusScope {
     id: bar
 
@@ -51,9 +50,7 @@ FocusScope {
         }
     }
     function toggleMute() {
-        if (!audio) return
-        audio.userUnmuted = true
-        audio.muted = !audio.muted
+        volumeControl.toggleMute()
     }
 
     Rectangle {
@@ -134,69 +131,17 @@ FocusScope {
             Layout.rightMargin: 2
         }
 
-        // Wide layout: dedicated mute + speed controls.
-        IconButton {
+        // Wide layout exposes the volume slider directly in a compact
+        // hover/focus popup. Tight cards retain mute in the overflow menu.
+        MediaVolumeControl {
+            id: volumeControl
             objectName: "videoMuteButton"
-            visible: !bar.tight
-            iconName: bar.audio && bar.audio.muted ? "volume_off" : "volume_up"
+            audio: bar.audio
+            scrim: true
+            sliderObjectName: "videoVolumeSlider"
             iconSize: 18
             implicitWidth: 30; implicitHeight: 30
-            iconColorOverride: "#FFFFFF"
-            Accessible.name: bar.audio && bar.audio.muted
-                             ? qsTr("Unmute") : qsTr("Mute")
-            onClicked: bar.toggleMute()
-            HoverHandler { id: muteHover }
-            // Volume popup on hover — keeps the bar uncramped.
-            Popup {
-                id: volumePopup
-                x: Math.round((parent.width - width) / 2)
-                y: -height - 4
-                width: 36
-                height: 110
-                padding: 8
-                visible: (muteHover.hovered || volumeHover.hovered
-                          || volumeSlider.pressed)
-                         && bar.audio && !bar.audio.muted
-                closePolicy: Popup.NoAutoClose
-                background: Rectangle {
-                    radius: AppTheme.radiusMd
-                    color: "#D9000000"
-                }
-                contentItem: Slider {
-                    id: volumeSlider
-                    objectName: "videoVolumeSlider"
-                    orientation: Qt.Vertical
-                    from: 0; to: 1
-                    value: bar.audio ? bar.audio.volume : 0.8
-                    onMoved: if (bar.audio) bar.audio.volume = value
-                    Accessible.name: qsTr("Volume")
-                    HoverHandler { id: volumeHover }
-                    background: Rectangle {
-                        x: volumeSlider.availableWidth / 2 - 2
-                        width: 4
-                        height: volumeSlider.availableHeight
-                        radius: 2
-                        color: "#59FFFFFF"
-                        Rectangle {
-                            y: parent.height
-                               - (1 - volumeSlider.visualPosition) * parent.height
-                            width: parent.width
-                            height: (1 - volumeSlider.visualPosition) * parent.height
-                            radius: 2
-                            color: AppTheme.accent
-                        }
-                    }
-                    handle: Rectangle {
-                        x: volumeSlider.availableWidth / 2 - width / 2
-                           + volumeSlider.leftPadding / 2
-                        y: volumeSlider.topPadding
-                           + volumeSlider.visualPosition
-                             * (volumeSlider.availableHeight - height)
-                        width: 12; height: 12; radius: 6
-                        color: "#FFFFFF"
-                    }
-                }
-            }
+            visible: !bar.tight
         }
         AbstractButton {
             id: speedButton
@@ -223,7 +168,7 @@ FocusScope {
             }
         }
 
-        // Tight layout: one overflow menu holding mute + speed.
+        // Tight layout: mute and speed move into one overflow menu.
         IconButton {
             objectName: "videoOverflowButton"
             visible: bar.tight
@@ -287,8 +232,10 @@ FocusScope {
     AppMenu {
         id: overflowMenu
         AppMenuItem {
-            iconName: bar.audio && bar.audio.muted ? "volume_off" : "volume_up"
-            text: bar.audio && bar.audio.muted ? qsTr("Unmute") : qsTr("Mute")
+            iconName: !bar.audio || bar.audio.muted || bar.audio.volume <= 0
+                      ? "volume_off" : "volume_up"
+            text: bar.audio && (bar.audio.muted || bar.audio.volume <= 0)
+                  ? qsTr("Unmute") : qsTr("Mute")
             onTriggered: bar.toggleMute()
         }
         AppMenuItem {

@@ -2705,7 +2705,6 @@ private Q_SLOTS:
         // Load 1 — no receipts: invisible strip, no chips, empty summary.
         // An invisible child adds no ColumnLayout height, so an unread
         // message keeps exactly its previous geometry.
-        qreal emptyHeight = 0.0;
         {
             QQmlApplicationEngine engine;
             QVariantMap empty = fixture;
@@ -2720,8 +2719,7 @@ private Q_SLOTS:
                                          QStringLiteral("readReceiptChip"))
                         .isEmpty());
             QCOMPARE(strip->property("summary").toString(), QString{});
-            emptyHeight = root->implicitHeight();
-            QVERIFY(emptyHeight > 0.0);
+            QVERIFY(root->implicitHeight() > 0.0);
         }
 
         // Load 2 — six readers (uncapped total 6): 4 avatar chips + "+2"
@@ -2771,17 +2769,24 @@ private Q_SLOTS:
                      QStringLiteral("+2"));
             QCOMPARE(strip->property("summary").toString(),
                      QStringLiteral("Read by Alice, Bob and 4 others"));
-            // The populated strip is the only geometry difference between
-            // the two loads.
-            QVERIFY(root->implicitHeight() > emptyHeight);
-
+            auto *presentation = root->findChild<QQuickItem *>(
+                QStringLiteral("messagePresentationRow"));
+            QVERIFY(presentation != nullptr);
+            const qreal messageBottom = presentation->mapToScene(
+                QPointF(0, presentation->height())).y();
+            auto *chipRow = strip->findChild<QQuickItem *>(
+                QStringLiteral("readReceiptRow"));
+            QVERIFY(chipRow != nullptr);
+            const qreal receiptBottom = chipRow->mapToScene(
+                QPointF(0, chipRow->height())).y();
+            QVERIFY2(qAbs(receiptBottom - messageBottom) < 1.5,
+                     qPrintable(QStringLiteral(
+                         "receiptBottom=%1 messageBottom=%2")
+                         .arg(receiptBottom).arg(messageBottom)));
             // Geometry (2026-08-14, Element parity): the chip stack rides
             // the strip's own RIGHT EDGE — one fixed receipt rail per
             // pane — see readReceiptChipsRideTheRightEdgeRail for the
             // full multi-row contract.
-            auto *chipRow = strip->findChild<QQuickItem *>(
-                QStringLiteral("readReceiptRow"));
-            QVERIFY(chipRow != nullptr);
             const qreal stripRight =
                 strip->mapToScene(QPointF(strip->width(), 0)).x();
             const qreal chipsRight =

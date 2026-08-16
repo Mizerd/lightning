@@ -25,6 +25,7 @@ Dialog {
 
     function openDialog() {
         app.messageSearch.roomId = ""
+        app.messageSearch.filters = ({})
         open()
         Qt.callLater(function() { globalSearchField.forceActiveFocus() })
     }

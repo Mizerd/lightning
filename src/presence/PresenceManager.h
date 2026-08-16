@@ -76,6 +76,10 @@ public:
     // watched users are ever polled.
     Q_INVOKABLE void watch(const QString &userId);
     Q_INVOKABLE void unwatch(const QString &userId);
+    // A newly received remote event is a freshness hint, never a presence
+    // assertion. Re-poll a watched sender promptly; only the server answer
+    // may change the rendered state.
+    void noteActivity(const QString &userId);
 
     // "online" / "unavailable" / "offline", or "" when unknown.
     Q_INVOKABLE QString stateFor(const QString &userId) const;
@@ -117,6 +121,7 @@ private:
     // not wait half a minute), but debounced so a People list materializing
     // 30 delegates asks once, not 30 times.
     static constexpr int kBurstDelayMs = 400;
+    static constexpr qint64 kFreshWatchMs = 10000;
     // Mirrors PRESENCE_BATCH_CAP in rust/src/presence.rs.
     static constexpr int kBatchCap = 40;
     // Servers expire presence after a few minutes without activity, so the

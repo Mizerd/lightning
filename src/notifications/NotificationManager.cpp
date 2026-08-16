@@ -7,11 +7,51 @@
 #include <QCoreApplication>
 #include <QDateTime>
 #include <QLoggingCategory>
+#include <QImage>
+
+#include <utility>
 
 #ifdef HAVE_QT_DBUS
+#include <QDBusArgument>
 #include <QDBusConnection>
 #include <QDBusInterface>
+#include <QDBusMetaType>
 #include <QDBusReply>
+#endif
+
+#ifdef HAVE_QT_DBUS
+struct FreedesktopNotificationImage {
+    int width = 0;
+    int height = 0;
+    int rowStride = 0;
+    bool hasAlpha = true;
+    int bitsPerSample = 8;
+    int channels = 4;
+    QByteArray data;
+};
+Q_DECLARE_METATYPE(FreedesktopNotificationImage)
+
+QDBusArgument &operator<<(QDBusArgument &argument,
+                          const FreedesktopNotificationImage &image)
+{
+    argument.beginStructure();
+    argument << image.width << image.height << image.rowStride
+             << image.hasAlpha << image.bitsPerSample << image.channels
+             << image.data;
+    argument.endStructure();
+    return argument;
+}
+
+const QDBusArgument &operator>>(const QDBusArgument &argument,
+                                FreedesktopNotificationImage &image)
+{
+    argument.beginStructure();
+    argument >> image.width >> image.height >> image.rowStride
+             >> image.hasAlpha >> image.bitsPerSample >> image.channels
+             >> image.data;
+    argument.endStructure();
+    return argument;
+}
 #endif
 
 // Never logs notification bodies or message content — the category exists
@@ -24,12 +64,33 @@ const auto kPath = QStringLiteral("/org/freedesktop/Notifications");
 const auto kInterface = QStringLiteral("org.freedesktop.Notifications");
 // Notification-sound burst coalescing window (ms).
 constexpr qint64 kSoundCoalesceMs = 1500;
+constexpr int kAvatarWaitMs = 1200;
+
+#ifdef HAVE_QT_DBUS
+FreedesktopNotificationImage notificationImage(const QImage &source)
+{
+    const int edge = qMin(source.width(), source.height());
+    const QRect crop((source.width() - edge) / 2,
+                     (source.height() - edge) / 2, edge, edge);
+    const QImage image = source.copy(crop)
+        .scaled(64, 64, Qt::IgnoreAspectRatio, Qt::SmoothTransformation)
+        .convertToFormat(QImage::Format_RGBA8888);
+    FreedesktopNotificationImage out;
+    out.width = image.width();
+    out.height = image.height();
+    out.rowStride = image.bytesPerLine();
+    out.data = QByteArray(reinterpret_cast<const char *>(image.constBits()),
+                          static_cast<qsizetype>(image.sizeInBytes()));
+    return out;
+}
+#endif
 } // namespace
 
 NotificationManager::NotificationManager(QObject *parent)
     : QObject(parent)
 {
 #ifdef HAVE_QT_DBUS
+    qDBusRegisterMetaType<FreedesktopNotificationImage>();
     QDBusConnection bus = QDBusConnection::sessionBus();
     bus.connect(kService, kPath, kInterface, QStringLiteral("ActionInvoked"),
                 this, SLOT(onActionInvoked(quint32,QString)));
@@ -37,6 +98,23 @@ NotificationManager::NotificationManager(QObject *parent)
                 QStringLiteral("NotificationClosed"), this,
                 SLOT(onNotificationClosed(quint32,quint32)));
 #endif
+    m_avatarWaitTimer.setSingleShot(true);
+    m_avatarWaitTimer.setInterval(kAvatarWaitMs);
+    connect(&m_avatarWaitTimer, &QTimer::timeout, this,
+            [this] { flushAvatarWaits(/*fallbackAll=*/true); });
+}
+
+void NotificationManager::setAvatarProvider(
+    std::function<QImage(const QString &, bool)> image,
+    std::function<bool(const QString &)> failed)
+{
+    m_avatarImage = std::move(image);
+    m_avatarFailed = std::move(failed);
+}
+
+void NotificationManager::avatarCacheChanged()
+{
+    flushAvatarWaits(/*fallbackAll=*/false);
 }
 
 NotificationManager::Decision
@@ -166,24 +244,30 @@ void NotificationManager::processEvent(const TimelineEvent &event,
     payload.insert(QStringLiteral("roomId"), event.roomId);
     payload.insert(QStringLiteral("eventId"), event.eventId);
     payload.insert(QStringLiteral("threadRootId"), event.threadRootId);
-    deliver(decision.title, decision.body, payload, decision.playSound);
+    // Private preview deliberately keeps the generic app identity: a room or
+    // DM avatar would disclose the conversation the user asked to hide.
+    deliver(decision.title, decision.body, payload, decision.playSound,
+            context.previewMode == Private ? QString() : context.avatarMxc);
 }
 
 void NotificationManager::showGeneric(const QString &title,
                                       const QString &safeBody,
-                                      const QString &roomId)
+                                      const QString &roomId,
+                                      const QString &avatarMxc)
 {
     QVariantMap payload;
     payload.insert(QStringLiteral("roomId"), roomId);
     payload.insert(QStringLiteral("eventId"), QString{});
     payload.insert(QStringLiteral("threadRootId"), QString{});
-    deliver(title, safeBody, payload);
+    deliver(title, safeBody, payload, false, avatarMxc);
 }
 
 void NotificationManager::clearPending()
 {
     m_pendingPayloads.clear();
     m_payloadOrder.clear();
+    m_avatarWaits.clear();
+    m_avatarWaitTimer.stop();
 }
 
 void NotificationManager::recordPayload(quint32 id, const QVariantMap &payload)
@@ -207,7 +291,57 @@ void NotificationManager::forgetPayload(quint32 id)
 }
 
 void NotificationManager::deliver(const QString &title, const QString &body,
-                                  const QVariantMap &payload, bool sound)
+                                  const QVariantMap &payload, bool sound,
+                                  const QString &avatarMxc)
+{
+    if (!avatarMxc.startsWith(QLatin1String("mxc://")) || !m_avatarImage) {
+        deliverNow(title, body, payload, sound, {});
+        return;
+    }
+    const QImage cached = m_avatarImage(avatarMxc, /*request=*/true);
+    if (!cached.isNull()) {
+        deliverNow(title, body, payload, sound, cached);
+        return;
+    }
+    if (m_avatarFailed && m_avatarFailed(avatarMxc)) {
+        deliverNow(title, body, payload, sound, {});
+        return;
+    }
+    // Keep delivery bounded: if an avatar service stalls, the notification
+    // appears with Lightning's normal icon after a short grace period.
+    if (m_avatarWaits.size() >= kMaxPendingPayloads) {
+        const WaitingDelivery oldest = m_avatarWaits.takeFirst();
+        deliverNow(oldest.title, oldest.body, oldest.payload, oldest.sound, {});
+    }
+    m_avatarWaits.append({ title, body, payload, sound, avatarMxc });
+    if (!m_avatarWaitTimer.isActive())
+        m_avatarWaitTimer.start();
+}
+
+void NotificationManager::flushAvatarWaits(bool fallbackAll)
+{
+    QList<WaitingDelivery> remaining;
+    for (const WaitingDelivery &waiting : std::as_const(m_avatarWaits)) {
+        const QImage image = m_avatarImage
+            ? m_avatarImage(waiting.avatarMxc, /*request=*/false) : QImage{};
+        const bool failed = !m_avatarImage
+            || (m_avatarFailed && m_avatarFailed(waiting.avatarMxc));
+        if (!image.isNull() || failed || fallbackAll) {
+            deliverNow(waiting.title, waiting.body, waiting.payload,
+                       waiting.sound, image);
+        } else {
+            remaining.append(waiting);
+        }
+    }
+    m_avatarWaits = remaining;
+    if (!m_avatarWaits.isEmpty() && !m_avatarWaitTimer.isActive())
+        m_avatarWaitTimer.start();
+}
+
+void NotificationManager::deliverNow(const QString &title,
+                                     const QString &body,
+                                     const QVariantMap &payload, bool sound,
+                                     const QImage &avatar)
 {
 #ifdef HAVE_QT_DBUS
     QDBusInterface notifications(kService, kPath, kInterface,
@@ -220,6 +354,10 @@ void NotificationManager::deliver(const QString &title, const QString &body,
     QVariantMap hints{
         { QStringLiteral("desktop-entry"), QStringLiteral("lightning") },
     };
+    if (!avatar.isNull()) {
+        hints.insert(QStringLiteral("image-data"),
+                     QVariant::fromValue(notificationImage(avatar)));
+    }
     if (sound) {
         // Coalesce bursts: at most one alert per short window.
         const qint64 now = QDateTime::currentMSecsSinceEpoch();
@@ -240,6 +378,8 @@ void NotificationManager::deliver(const QString &title, const QString &body,
     Q_UNUSED(title);
     Q_UNUSED(body);
     Q_UNUSED(payload);
+    Q_UNUSED(sound);
+    Q_UNUSED(avatar);
     qCInfo(lcNotify) << "native notifications unavailable on this build";
 #endif
 }

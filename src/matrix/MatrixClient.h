@@ -602,9 +602,11 @@ public:
     // messageSearchFinished.
     virtual bool supportsMessageSearch() const { return false; }
     virtual quint64 searchMessages(const QString &term, const QString &roomId,
-                                   const QString &nextBatch, int limit)
+                                   const QString &nextBatch, int limit,
+                                   const QVariantMap &filters = {})
     {
         Q_UNUSED(term); Q_UNUSED(roomId); Q_UNUSED(nextBatch); Q_UNUSED(limit);
+        Q_UNUSED(filters);
         return 0;
     }
     virtual quint64 addRoomToSpace(const QString &spaceId, const QString &roomId)

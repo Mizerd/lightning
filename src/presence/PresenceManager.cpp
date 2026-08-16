@@ -135,11 +135,25 @@ void PresenceManager::watch(const QString &userId)
     if (userId.isEmpty())
         return;
     const int refs = ++m_watched[userId];
-    if (refs == 1 && !m_cache.contains(userId) && active()) {
+    const auto cached = m_cache.constFind(userId);
+    const bool stale = cached == m_cache.constEnd()
+        || m_clock.elapsed() - cached->receivedAtMs >= kFreshWatchMs;
+    if (refs == 1 && stale && active()) {
         m_burstPending.insert(userId);
         if (!m_burstTimer.isActive())
             m_burstTimer.start();
     }
+}
+
+void PresenceManager::noteActivity(const QString &userId)
+{
+    if (userId.isEmpty() || !active() || !m_syncing
+        || !m_watched.contains(userId))
+        return;
+    m_burstPending.insert(userId);
+    // Restarting coalesces a burst of timeline events from one sync into a
+    // single authoritative read round.
+    m_burstTimer.start();
 }
 
 void PresenceManager::unwatch(const QString &userId)
@@ -220,7 +234,7 @@ void PresenceManager::burstRound()
     }
     QStringList round;
     for (const QString &userId : std::as_const(m_burstPending)) {
-        if (m_watched.contains(userId) && !m_cache.contains(userId))
+        if (m_watched.contains(userId))
             round.append(userId);
         if (round.size() >= kBatchCap)
             break;

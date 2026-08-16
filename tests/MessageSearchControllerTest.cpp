@@ -150,6 +150,54 @@ private Q_SLOTS:
                  QStringLiteral("$new"));
     }
 
+    void appliesCombinedFiltersAndForwardsServerSenders()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        MessageSearchController model;
+        model.setDebounceMs(0);
+        model.setClient(&client);
+        model.setRoomId(QStringLiteral("!general:mock.local"));
+
+        QVariantMap matching = resultRow(
+            QStringLiteral("!general:mock.local"), QStringLiteral("$match"),
+            QStringLiteral("image for Alice"));
+        matching.insert(QStringLiteral("msgtype"), QStringLiteral("m.image"));
+        matching.insert(QStringLiteral("mentionUserIds"),
+                        QVariantList{ QStringLiteral("@alice:mock.local") });
+        matching.insert(QStringLiteral("timestampMs"), qint64(1700000000000));
+
+        QVariantMap wrongKind = matching;
+        wrongKind.insert(QStringLiteral("eventId"), QStringLiteral("$text"));
+        wrongKind.insert(QStringLiteral("msgtype"), QStringLiteral("m.text"));
+        QVariantMap wrongMention = matching;
+        wrongMention.insert(QStringLiteral("eventId"), QStringLiteral("$mention"));
+        wrongMention.insert(QStringLiteral("mentionUserIds"),
+                            QVariantList{ QStringLiteral("@carol:mock.local") });
+        client.mockSearchResults = { matching, wrongKind, wrongMention };
+
+        const QVariantMap filters{
+            { QStringLiteral("fromUserIds"),
+              QVariantList{ QStringLiteral("@bob:mock.local") } },
+            { QStringLiteral("mentionUserIds"),
+              QVariantList{ QStringLiteral("@alice:mock.local") } },
+            { QStringLiteral("contentTypes"),
+              QVariantList{ QStringLiteral("image") } },
+            { QStringLiteral("afterMs"), qint64(1699999999000) },
+            { QStringLiteral("beforeMs"), qint64(1700000001000) },
+            { QStringLiteral("pinnedMode"), QStringLiteral("pinned") },
+            { QStringLiteral("pinnedEventIds"),
+              QVariantList{ QStringLiteral("$match") } },
+        };
+        model.setFilters(filters);
+        model.setQuery(QStringLiteral("image"));
+        QTRY_COMPARE(model.state(), QStringLiteral("results"));
+        QCOMPARE(model.rowCount(), 1);
+        QCOMPARE(model.rowAt(0).value(QStringLiteral("eventId")).toString(),
+                 QStringLiteral("$match"));
+        QCOMPARE(client.lastSearchFilters, filters);
+    }
+
     void loggedOutClears()
     {
         MockMatrixClient client;

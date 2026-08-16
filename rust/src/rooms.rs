@@ -27,6 +27,7 @@ use matrix_sdk::{
         },
         assign,
         events::{
+            room::MediaSource,
             room::encryption::RoomEncryptionEventContent,
             room::power_levels::PowerLevelAction,
             space::child::SpaceChildEventContent,
@@ -2441,9 +2442,10 @@ fn emit_media_failed(
 
 /// Fetch (and for encrypted rooms, decrypt) media for a timeline item whose
 /// source was captured by the timeline serializer. `kind`: 0 = full, 1 =
-/// thumbnail (falls back to full when no thumbnail exists). Bytes are parked
-/// in `media_results` for `mx_rust_media_take`; they never enter the JSON
-/// queue.
+/// timeline thumbnail (preserves the historical full fallback), 2 = compact
+/// list thumbnail (never fetches an encrypted full payload as a fallback).
+/// Bytes are parked in `media_results` for `mx_rust_media_take`; they never
+/// enter the JSON queue.
 pub(crate) fn media_fetch(
     bridge: &RustClient,
     key: String,
@@ -2452,8 +2454,9 @@ pub(crate) fn media_fetch(
     timeout_class: u32,
 ) -> Result<(), String> {
     let client = require_client(bridge)?;
-    let Some((source, filename, mimetype, declared_size)) =
-        bridge.timelines.media_source(&key, kind == 1)
+    let Some((source, filename, mimetype, declared_size,
+              has_embedded_thumbnail)) =
+        bridge.timelines.media_source(&key, kind != 0)
     else {
         return Err("unknown media item".to_owned());
     };
@@ -2483,9 +2486,30 @@ pub(crate) fn media_fetch(
     // cache round-trip entirely for those; everything else keeps the cache.
     let use_cache =
         kind != 0 || declared_size.map_or(true, |s| s <= MEDIA_STORE_MAX_FILE_BYTES);
+    if kind == 2 && !has_embedded_thumbnail
+        && matches!(&source, MediaSource::Encrypted(_))
+    {
+        // A homeserver cannot thumbnail ciphertext and downloading the full
+        // decrypted attachment for a 40px list preview violates the list's
+        // bandwidth/security contract. Encrypted events carrying their
+        // normal encrypted thumbnail still take the SDK decrypt path above.
+        emit_media_failed(
+            &terminal, &results, op_id, lifecycle, &key, kind, "unavailable",
+        );
+        return Ok(());
+    }
     let aborts = Arc::clone(&bridge.media_fetch_aborts);
     bridge.spawn_media_fetch(op_id, async move {
-        let request = MediaRequestParameters { source, format: MediaFormat::File };
+        let format = if kind == 2 && !has_embedded_thumbnail {
+            MediaFormat::Thumbnail(MediaThumbnailSettings::with_method(
+                Method::Scale,
+                UInt::new_saturating(96),
+                UInt::new_saturating(72),
+            ))
+        } else {
+            MediaFormat::File
+        };
+        let request = MediaRequestParameters { source, format };
         // Bounded await: matrix-sdk 0.18 deliberately disables its own HTTP
         // timeout for media, so an unresponsive server would otherwise hang
         // this task forever (and pin its shutdown join). The timeout
