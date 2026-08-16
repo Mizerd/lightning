@@ -427,6 +427,32 @@ int TimelineModel::stateGroupLeaderRow(int row) const
     return leader;
 }
 
+int TimelineModel::stateActivityRowCount() const
+{
+    int count = 0;
+    for (const auto &event : m_events) {
+        if (event.type == TimelineEvent::StateChange)
+            ++count;
+    }
+    return count;
+}
+
+int TimelineModel::stateGroupCount() const
+{
+    // A group is a maximal run of state rows, so count the runs by counting
+    // the rows that lead one. stateGroupLeaderRow already encodes the real
+    // grouping rule (including transparency through virtual rows), so this
+    // cannot drift from what the timeline actually draws.
+    int groups = 0;
+    for (int row = 0; row < m_events.size(); ++row) {
+        if (m_events.at(row).type != TimelineEvent::StateChange)
+            continue;
+        if (stateGroupLeaderRow(row) == row)
+            ++groups;
+    }
+    return groups;
+}
+
 QVariantList TimelineModel::stateGroupEntriesFrom(int leaderRow) const
 {
     QVariantList entries;

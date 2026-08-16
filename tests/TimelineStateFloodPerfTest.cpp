@@ -163,6 +163,13 @@ private Q_SLOTS:
     // an n² total instead of n.
     void hydrationCostIsLinearForStateGroupsAndForMessages();
 
+    // The composition counters the opt-in scroll trace reports. They exist so
+    // a "scrolling died in this room" report can be ANSWERED rather than
+    // guessed at: rows=1200/stateRows=1100/stateGroups=3 and
+    // rows=1200/stateRows=4 are different defects and the row count alone
+    // cannot tell them apart. Counts only — never ids, bodies or senders.
+    void compositionCountersReportStateRowsAndGroups();
+
     // Test 2: TimelineModel::emitPresentationGroupingChanged widens
     // dataChanged() to cover the WHOLE contiguous state-change run on every
     // single insertion into it, regardless of insertion position — proven
@@ -457,6 +464,49 @@ void TimelineStateFloodPerfTest::perBatchPrependReplaysWholeAccumulatedGroupEach
     for (int p = 1; p <= pages; ++p)
         expected += qint64(p) * pageSize;
     QCOMPARE(totalReplayedEntries, expected);
+}
+
+void TimelineStateFloodPerfTest::compositionCountersReportStateRowsAndGroups()
+{
+    // Two separated runs of state changes with a message between them, plus
+    // trailing messages: 3 state rows in 2 groups.
+    m_client->mirror = {
+        makeStateChange(QStringLiteral("$s0"), 0),
+        makeStateChange(QStringLiteral("$s1"), 1),
+        makeMessage(QStringLiteral("$m0"), 0),
+        makeStateChange(QStringLiteral("$s2"), 2),
+        makeMessage(QStringLiteral("$m1"), 1),
+    };
+    m_model->setRoomId(kRoom);
+    QCoreApplication::processEvents();
+
+    QCOMPARE(m_model->stateActivityRowCount(), 3);
+    QCOMPARE(m_model->stateGroupCount(), 2);
+
+    // A timeline with no state activity reports zero, not -1: -1 is reserved
+    // by the trace for "could not be determined here", which is a different
+    // claim from "there are none".
+    m_client->mirror = {
+        makeMessage(QStringLiteral("$m0"), 0),
+        makeMessage(QStringLiteral("$m1"), 1),
+    };
+    m_model->setRoomId(QString());
+    m_model->setRoomId(kRoom);
+    QCoreApplication::processEvents();
+    QCOMPARE(m_model->stateActivityRowCount(), 0);
+    QCOMPARE(m_model->stateGroupCount(), 0);
+
+    // One long contiguous run is ONE group however many rows it has — the
+    // fact that makes a flood report legible.
+    QList<TimelineEvent> flood;
+    for (int i = 0; i < 50; ++i)
+        flood.append(makeStateChange(QStringLiteral("$f%1").arg(i), i));
+    m_client->mirror = flood;
+    m_model->setRoomId(QString());
+    m_model->setRoomId(kRoom);
+    QCoreApplication::processEvents();
+    QCOMPARE(m_model->stateActivityRowCount(), 50);
+    QCOMPARE(m_model->stateGroupCount(), 1);
 }
 
 QTEST_GUILESS_MAIN(TimelineStateFloodPerfTest)

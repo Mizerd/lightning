@@ -226,6 +226,17 @@ public:
     // timelines carry the internal composite id in roomId, which must
     // never reach a protocol call (reporting included).
     Q_INVOKABLE QString realRoomIdForEvent(const QString &eventId) const;
+    // Composition of the loaded timeline, for the opt-in scroll trace only
+    // (LIGHTNING_SCROLL_TRACE). Counts only — no ids, no bodies, no senders.
+    // O(rows), called at most once per completed gesture and only while the
+    // trace is on, so it never costs anything in a normal session.
+    //
+    // These exist so a scroll-performance report can be ANSWERED rather than
+    // guessed at: "rows=1200 stateRows=1100 stateGroups=3" and
+    // "rows=1200 stateRows=4" are different defects, and the difference is
+    // not visible from row count alone.
+    Q_INVOKABLE int stateActivityRowCount() const;
+    Q_INVOKABLE int stateGroupCount() const;
     Q_INVOKABLE QVariantMap messageDetails(const QString &eventId) const;
     Q_INVOKABLE bool canEditEvent(const QString &eventId) const;
     Q_INVOKABLE bool canRedactEvent(const QString &eventId) const;

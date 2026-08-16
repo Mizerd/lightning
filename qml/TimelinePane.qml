@@ -2278,12 +2278,40 @@ Rectangle {
                         diagStartY = contentY
                         diagStartHeight = contentHeight
                         diagStartOriginY = originY
+                        diagGestureStartMs = Date.now()
+                        diagWorstNotchMs = 0
                     }
                     diagEvents += 1
                     if (isPixel)
                         diagPixelEvents += 1
                     else
                         diagAngleEvents += 1
+                }
+                // Wall clock actually spent handling ONE wheel event, called
+                // by the handler around its own body. This is the number a
+                // "scrolling locks up" report needs: row counts alone cannot
+                // distinguish a timeline that is merely large from one whose
+                // rows are individually expensive.
+                property real diagGestureStartMs: 0
+                property real diagWorstNotchMs: 0
+                function diagStateRowCount() {
+                    if (!app || !app.timeline
+                        || typeof app.timeline.stateActivityRowCount !== "function")
+                        return -1
+                    return app.timeline.stateActivityRowCount()
+                }
+                function diagStateGroupCount() {
+                    if (!app || !app.timeline
+                        || typeof app.timeline.stateGroupCount !== "function")
+                        return -1
+                    return app.timeline.stateGroupCount()
+                }
+                function diagNoteNotchCost(startMs) {
+                    if (!scrollTrace || !diagActive)
+                        return
+                    var spent = Date.now() - startMs
+                    if (spent > diagWorstNotchMs)
+                        diagWorstNotchMs = spent
                 }
                 // Drains (prints then zeroes) every outcome counter — see the
                 // M1 comment above for why this is the ONLY place they reset,
@@ -2331,6 +2359,25 @@ Rectangle {
                         + " prependMaxAbsOriginShiftDContentH=" + Math.round(diagPrependMaxAbsOriginShiftContentDelta)
                         + " prependMaxAbsOriginShiftPath=" + diagPrependMaxAbsOriginShiftPath
                         + " rows=" + count
+                        // Cost, and what the loaded timeline is MADE of.
+                        // gestureMs is wall clock across the whole gesture;
+                        // worstNotchMs is the slowest single wheel event,
+                        // which is what the user actually feels as a stall.
+                        // stateRows/stateGroups say whether a large row count
+                        // is mostly collapsed room activity — a run of 1000
+                        // state rows drawing three summary lines is a very
+                        // different defect from 1000 real messages.
+                        + " gestureMs=" + Math.round(Date.now() - diagGestureStartMs)
+                        + " worstNotchMs=" + Math.round(diagWorstNotchMs)
+                        // -1 means "not available here", never zero: a
+                        // fixture without a real TimelineModel must not be
+                        // reported as a timeline containing no state rows.
+                        // Guarded rather than assumed — throwing inside this
+                        // string would abort the whole line, which is exactly
+                        // the regression scrollTraceLineIncludesAllPerBranchFields
+                        // exists to catch.
+                        + " stateRows=" + diagStateRowCount()
+                        + " stateGroups=" + diagStateGroupCount()
                         + " contentH=" + Math.round(contentHeight)
                         + " stick=" + (stickToBottom ? 1 : 0)
                         + " topDist=" + Math.round(distanceFromTop())
@@ -2697,6 +2744,9 @@ Rectangle {
                     target: null
                     acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
                     onWheel: (event) => {
+                        // Timed only while LIGHTNING_SCROLL_TRACE is set;
+                        // Date.now() is not called at all otherwise.
+                        var notchStartMs = timeline.scrollTrace ? Date.now() : 0
                         var minY = timeline.wheelMinY()
                         var maxY = timeline.wheelMaxY()
                         if (event.pixelDelta.y !== 0) {
@@ -2719,6 +2769,7 @@ Rectangle {
                             timeline.diagNoteEvent(false)
                             scrollSettleTimer.restart()
                         }
+                        timeline.diagNoteNotchCost(notchStartMs)
                         event.accepted = true
                     }
                 }
