@@ -31,7 +31,7 @@ with open(CI) as fh:
 
 # --- stages ---
 required_stages = ["resolve", "build", "validate", "publish", "verify",
-                   "sign", "release", "update"]
+                   "sign", "release", "mirror", "update"]
 stages = doc["stages"]
 idxs = [stages.index(s) for s in required_stages if s in stages]
 check(all(s in stages for s in required_stages), "all required stages present")
@@ -44,7 +44,7 @@ required_jobs = [
     "validate-deb", "validate-rpm",
     "validate-flatpak", "validate-appimage", "validate-snap",
     "publish-packages", "verify-published-packages", "finalize-release",
-    "sign-update-manifest", "publish-update-manifest",
+    "sign-update-manifest", "mirror-release-to-github", "publish-update-manifest",
     "windows-package-test", "build-windows", "macos-package-test",
 ]
 for job in required_jobs:
@@ -130,7 +130,8 @@ check(all(len(m) >= 1 for m in group_members.values())
 # --- (the public host is Cloudflare-proxied with a request-body cap that
 # --- large package files exceed) ---
 for job in ["publish-packages", "verify-published-packages", "finalize-release",
-            "sign-update-manifest", "publish-update-manifest"]:
+            "sign-update-manifest", "mirror-release-to-github",
+            "publish-update-manifest"]:
     merged = resolve_extends(job)
     base = (merged.get("variables") or {}).get("PUBLISH_API_BASE", "")
     check(base.startswith("http://10.195.35.2"),
@@ -153,7 +154,8 @@ check('"web"' in srcs and '"api"' in srcs and "when: never" in yaml.dump(doc["wo
       "workflow accepts only web/api pipelines")
 
 publish_jobs = ["publish-packages", "verify-published-packages", "finalize-release",
-                "sign-update-manifest", "publish-update-manifest"]
+                "sign-update-manifest", "mirror-release-to-github",
+                "publish-update-manifest"]
 
 # --- publish/verify/release rules: gated on PUBLISH_PACKAGES only ---
 rule_texts = {}
@@ -218,9 +220,9 @@ check(doc["sign-update-manifest"].get("stage") == "sign",
       "sign-update-manifest runs in the sign stage")
 check(doc["publish-update-manifest"].get("stage") == "update",
       "publish-update-manifest runs in the update stage")
-check(stages.index("verify") < stages.index("sign") < stages.index("release")
-      < stages.index("update"),
-      "stage order is verify -> sign -> release -> update")
+check(stages.index("publish") < stages.index("verify") < stages.index("sign")
+      < stages.index("release") < stages.index("mirror") < stages.index("update"),
+      "stage order is publish -> verify -> sign -> release -> mirror -> update")
 check("verify-published-packages" in needs_names("sign-update-manifest"),
       "sign-update-manifest depends on verify-published-packages "
       "(a manifest is only built from a verified publication)")
@@ -254,17 +256,64 @@ check("dist/update-manifest-v1.json" in sign_paths
       and "dist/update-manifest-v1.json.sig" in sign_paths,
       "sign-update-manifest publishes the manifest and its signature as artifacts")
 
-# No update-manifest script may be invoked from a job outside the publish gate.
+# --- GitHub bandwidth mirror (MIRROR-SPEC §6) --------------------------------
+# GitLab stays the release authority; the mirror only holds byte-identical
+# copies of what GitLab already published. Two ordering facts carry the whole
+# design and are asserted in both directions:
+#
+#   AFTER finalize-release, because a GitHub release may only be created at a
+#   tag the GitLab release already produced (and that the push mirror has
+#   delivered).
+#
+#   BEFORE publish-update-manifest, because the `latest` slot is what every
+#   installed Lightning polls. A mirror_url a client can read must already have
+#   been proved to serve the right bytes.
+check(doc["mirror-release-to-github"].get("stage") == "mirror",
+      "mirror-release-to-github runs in the mirror stage")
+check("finalize-release" in needs_names("mirror-release-to-github"),
+      "the mirror runs after finalize-release "
+      "(GitLab creates the release; GitHub only copies its bytes)")
+check("mirror-release-to-github" in needs_names("publish-update-manifest"),
+      "the latest manifest is promoted only after the mirror assets verify")
+check("publish-packages" in needs_names("mirror-release-to-github"),
+      "the mirror consumes the publication manifest")
+check("verify-published-packages" in needs_names("mirror-release-to-github"),
+      "the mirror runs only from a verified publication")
+check("sign-update-manifest" in needs_names("mirror-release-to-github"),
+      "the mirror cross-checks the signed manifest's mirror URLs")
+# It uploads the published bytes, so it needs the jobs that carry them.
+for producer in ["validate-deb", "validate-rpm", "validate-flatpak",
+                 "validate-appimage", "validate-snap", "build-windows"]:
+    check(producer in needs_names("mirror-release-to-github"),
+          f"the mirror receives {producer}'s artifact bytes (it never rebuilds)")
+# SHA256SUMS is generated inside publish-packages and is a published release
+# file; without it in that job's artifacts the mirror cannot carry it.
+check("dist/SHA256SUMS" in doc["publish-packages"]["artifacts"]["paths"],
+      "publish-packages hands SHA256SUMS downstream for the mirror")
+mirror_before = " ".join(
+    str(x) for x in resolve_extends("mirror-release-to-github").get("before_script", []))
+check("curl" in mirror_before and "jq" in mirror_before,
+      "mirror-release-to-github installs curl and jq")
+check(resolve_extends("mirror-release-to-github").get("image") == "alpine:3.22",
+      "mirror-release-to-github uses the pinned alpine image")
+check(resolve_extends("mirror-release-to-github").get("resource_group")
+      == "lightning-project-6-publication",
+      "mirror-release-to-github shares the publication resource group")
+
+# No update-manifest or mirror script may be invoked from a job outside the
+# publish gate.
 UPDATE_SCRIPTS = ("generate-update-manifest.sh", "sign-update-manifest.sh",
-                  "publish-update-manifest.sh")
+                  "publish-update-manifest.sh", "mirror-release-to-github.sh")
+GATED_UPDATE_JOBS = ("sign-update-manifest", "publish-update-manifest",
+                     "mirror-release-to-github")
 for job_name, job_def in doc.items():
     if not isinstance(job_def, dict):
         continue
     script_text = yaml.dump(job_def.get("script", []))
     if not any(s in script_text for s in UPDATE_SCRIPTS):
         continue
-    check(job_name in ("sign-update-manifest", "publish-update-manifest"),
-          f"{job_name} is one of the two gated update-manifest jobs")
+    check(job_name in GATED_UPDATE_JOBS,
+          f"{job_name} is one of the gated update/mirror jobs")
     check(job_def.get("extends") == ".publish-rules",
           f"{job_name} extends the shared publish gate")
 

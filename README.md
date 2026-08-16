@@ -43,6 +43,7 @@ second Lightning source repository — it holds no application code.
 - [Variables](#variables)
 - [Publication manifest](#publication-manifest)
 - [Signed update manifest](#signed-update-manifest)
+- [GitHub binary mirror](#github-binary-mirror)
 - [Registry, verification, and immutability](#registry-verification-and-immutability)
 - [Packages and clean-system validation](#packages-and-clean-system-validation)
 - [Authentication and security](#authentication-and-security)
@@ -116,16 +117,20 @@ Only manually created `web` and `api` pipelines are accepted.
 | verify | `verify-published-packages` | Re-download and check the registry files |
 | sign | `sign-update-manifest` | Build and Ed25519-sign the client update manifest |
 | release | `finalize-release` | Attach links / create the release |
+| mirror | `mirror-release-to-github` | Copy the published binaries to the GitHub mirror and verify them anonymously |
 | update | `publish-update-manifest` | Publish the signed manifest and move the `latest` pointer (final action) |
 
 The graph no longer ends after validation. When `PUBLISH_PACKAGES=true` the
-publish, verify, sign, release, and update jobs are always included for **both**
-release actions; a build-only pipeline stops after validation by design.
+publish, verify, sign, release, mirror, and update jobs are always included for
+**both** release actions; a build-only pipeline stops after validation by design.
 
 The update manifest is deliberately **signed before** the release and
 **published after** it: a broken signing key must fail while nothing
 irreversible has happened, and the `latest` pointer that every installed
-Lightning polls must never advertise a release that was not finalized. See
+Lightning polls must never advertise a release that was not finalized. The
+GitHub mirror sits between the two: it can only run once the real release exists,
+and the `latest` pointer must not hand out a mirror URL that has not been proved
+to serve the right bytes. See
 [`docs/update-manifest.md`](docs/update-manifest.md).
 
 `resolve-source` resolves the requested ref to a full 40-character commit SHA.
@@ -442,6 +447,8 @@ exists with a matching version.
 | `UPDATE_SIGNING_KEY_B64` | **Protected + masked.** Base64 PKCS#8 PEM of the Ed25519 update-signing **private** key. Used only by the signing job. Never logged, never in argv, never in an artifact. |
 | `UPDATE_SIGNING_KEY_ID` | **Protected.** Key id written into the signature envelope and matched against Lightning's compiled-in trust table. |
 | `UPDATE_SIGNING_PUBKEY_2026A` | **Protected, not masked** (it is not secret). Base64 raw 32-byte **public** key for key id `lightning-release-2026a`. Every build job compiles it into the package as `-DLIGHTNING_UPDATE_PUBKEY_2026A`; it is the update trust root of the shipped binary. The name is key-id specific — a new key id needs its own variable *and* a new trust-table row in the application source. |
+| `GITHUB_MIRROR_REPO` | **Optional. Protected**, not masked. `<owner>/<repo>` of the GitHub binary mirror, e.g. `Mizerd/lightning`. Unset ⇒ no mirroring and no `mirror_url` in the update manifest. This is the single on/off switch. |
+| `GITHUB_MIRROR_TOKEN` | **Optional. Protected + masked.** GitHub token that may create a release and upload assets on `GITHUB_MIRROR_REPO`, and nothing else. Required when `GITHUB_MIRROR_REPO` is set. Never logged, never in argv, never in an artifact. |
 
 `UPDATE_SIGNING_KEY_*` and `UPDATE_SIGNING_PUBKEY_<id>` are required for a
 publishing pipeline, and `scripts/check-update-signing-keys.sh` (run first, in
@@ -528,6 +535,51 @@ in-app update.
 Format, signature envelope, key generation, CI variables, the rotation
 procedure, and the emergency compromise procedure are documented in
 [`docs/update-manifest.md`](docs/update-manifest.md).
+
+## GitHub binary mirror
+
+**GitLab decides what Lightning may install; GitHub is only a faster place to
+get the bytes GitLab already decided on.**
+
+`scripts/mirror-release-to-github.sh` (stage `mirror`, between `release` and
+`update`) creates a GitHub Release at the **same tag** and uploads the **exact
+bytes already published** — the local `dist/` files recorded in
+`dist/manifest.json`, which `verify-published-packages` had already
+re-downloaded and hash-checked. It rebuilds nothing, fetches from nowhere else,
+and alters nothing. It then re-downloads every uploaded asset **anonymously**
+(no token — what a client actually does) and compares SHA-256 against
+`dist/manifest.json`; any mismatch, missing asset, or size difference fails the
+job. The signed update manifest gains one optional field per artifact,
+`mirror_url`, pointing at the immutable
+`https://github.com/<repo>/releases/download/<tag>/<filename>`; the canonical
+GitLab `url` stays required and stays the fallback.
+
+Properties worth stating plainly:
+
+- **A compromise of the GitHub mirror alone cannot ship a trusted update.** The
+  manifest is fetched only from GitLab and is signed by an Ed25519 key GitHub
+  never holds, and the SHA-256 each download is verified against is fixed before
+  any byte is fetched. Replacing a mirrored file yields a failed hash check and a
+  fallback to GitLab — a denial of service on the fast path, not an install.
+- **Nothing GitHub says is an input to a decision.** No `api.github.com` lookup,
+  no GitHub release metadata, no tags, no `/releases/latest` — not in the client,
+  and not in the URL the manifest carries.
+- **GitLab remains the release authority.** The mirror job runs only after
+  `finalize-release`, waits (bounded, default 300 s) for GitLab's push mirror to
+  deliver the tag, and refuses unless that tag peels to the released commit — so
+  GitHub can never invent a tag of its own. Nothing is uploaded and no GitHub
+  release is created when that check fails.
+- **It never overwrites.** An already-present byte-identical asset is accepted so
+  a retry converges; one that differs in bytes or size is a hard failure.
+- **Optional.** With `GITHUB_MIRROR_REPO` unset, the job is a clean no-op and the
+  manifest carries no `mirror_url` — never a URL that will not resolve.
+
+**Operator step:** create `GITHUB_MIRROR_REPO` (protected) and
+`GITHUB_MIRROR_TOKEN` (protected + masked) on project 7. **This replaces the
+manual `gh release create v<version> --verify-tag …` step** that used to follow
+every pipeline: the GitHub Release, its assets, and their verification are now
+part of the pipeline. Details, the trust argument, and the tag-wait knobs are in
+[`docs/update-manifest.md`](docs/update-manifest.md#github-bandwidth-mirror).
 
 ## Registry, verification, and immutability
 
@@ -726,14 +778,25 @@ or source archives.
   `UPDATE_SIGNING_PUBKEY_<id>`, and a key id no shipped Lightning trusts are
   each rejected — in the gate itself and through `validate-release-request.sh` —
   while a build-only pipeline stays unaffected. No key material is committed.
+  It also covers the **GitHub binary mirror**: the deterministic `mirror_url`
+  when mirroring is enabled and its complete absence when it is not, preserved
+  determinism, rejection of a repository value that could steer a URL, a
+  configured repository with no token failing hard instead of skipping, an
+  unmirrored tag and a tag on the wrong commit both failing with **no** GitHub
+  release created, byte-identical upload of every publication-manifest artifact,
+  anonymous read-back verification (while API calls stay authenticated), an
+  idempotent re-run that uploads nothing, an already-present asset differing in
+  bytes or size being a hard failure that overwrites nothing, and the mirror
+  token appearing in no log, no URL, and no artifact.
 - `tests/test-gif-key-injection.sh` — the publish-time GIF-key presence gate and
   the safe mapping of CI variables into the build (env, not command line; never
   logged), using synthetic canary values only; plus the mandatory, validated
   `LIGHTNING_INSTALL_TYPE` and the update trust root reaching the build.
 - `tests/test-pipeline-config.py` — required stages/jobs, publish/verify/sign/
-  release/update gating for both actions, dependency wiring (including that the
-  release waits for a signable manifest and the `latest` promotion waits for the
-  release), and the two platform test gates:
+  release/mirror/update gating for both actions, dependency wiring (including
+  that the release waits for a signable manifest, that the mirror waits for the
+  release, and that the `latest` promotion waits for the mirror), and the two
+  platform test gates:
   that a macOS-only request creates no Linux or Windows build job, and that no
   macOS job can ever reach the publication chain.
 - `tests/test-windows-metadata.py` — the Windows product-metadata gate, against
@@ -794,10 +857,18 @@ model decided first — see [`docs/macos-packaging.md`](docs/macos-packaging.md)
 7. Build and Ed25519-sign the update manifest, and self-verify the signature —
    **before** anything irreversible happens, so a bad signing key costs nothing.
 8. Create the tag + release, with package links attached.
-9. Publish the signed update manifest to `lightning-update/<version>` (immutable)
-   and only then move the `lightning-update/latest` pointer, as the final action.
-10. The release is complete only after source archives, package links, and both
-    update-manifest slots verify.
+9. Mirror the published binaries to the GitHub Release at the same tag (only
+   after that tag has been push-mirrored and proved to be the released commit),
+   and verify every asset by downloading it anonymously and comparing SHA-256.
+   Skipped cleanly when `GITHUB_MIRROR_REPO` is unset.
+10. Publish the signed update manifest to `lightning-update/<version>`
+    (immutable) and only then move the `lightning-update/latest` pointer, as the
+    final action.
+11. The release is complete only after source archives, package links, the
+    mirrored assets, and both update-manifest slots verify.
+
+Step 9 replaces the manual `gh release create v<version> --verify-tag …` that
+used to follow a release; no hand-made GitHub Release is needed any more.
 
 For an existing release missing packages, use `RELEASE_ACTION=attach-existing`.
 

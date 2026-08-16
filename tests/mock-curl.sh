@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Stateful mock of the subset of the GitLab REST API used by the publication,
-# verification, and release scripts. State (uploaded package files, release
-# links, release existence) is kept under MOCK_STATE_DIR so that a sequence of
+# verification, and release scripts, plus the subset of the GitHub API used by
+# the release mirror. State (uploaded package files, release links, release
+# existence, mirrored assets) is kept under MOCK_STATE_DIR so that a sequence of
 # invocations behaves like a real registry and release, exercising idempotent
 # retries end to end.
 set -Eeuo pipefail
@@ -11,11 +12,15 @@ REG="$STATE/registry"
 mkdir -p "$REG"
 LINKS="$STATE/links.json"
 [[ -f "$LINKS" ]] || printf '%s' "${MOCK_PRESEED_LINKS:-[]}" >"$LINKS"
+# The GitHub mirror's state: one file per uploaded release asset.
+GH="$STATE/github"
+GH_ASSETS="$GH/assets"
 
 output=/dev/null
 method=GET
 url=
 upload_file=
+config_file=
 declare -a urlenc=()
 while (($#)); do
     case "$1" in
@@ -24,14 +29,27 @@ while (($#)); do
         --request) method="$2"; shift 2 ;;
         --upload-file) upload_file="$2"; shift 2 ;;
         --data-urlencode) urlenc+=("$2"); shift 2 ;;
-        --header|--data) shift 2 ;;
-        --silent|--show-error|--location) shift ;;
+        # A credential file, never a credential argument. Its CONTENT is
+        # deliberately never read or logged here: the only thing the mock needs
+        # to know is whether a request was authenticated at all.
+        --config) config_file="$2"; shift 2 ;;
+        --header|--data|--data-binary|--max-redirs) shift 2 ;;
+        --silent|--show-error|--location|--fail) shift ;;
         http*) url="$1"; shift ;;
         *) shift ;;
     esac
 done
 
-[[ -n "${MOCK_CURL_LOG:-}" ]] && printf '%s %s\n' "$method" "$url" >>"$MOCK_CURL_LOG"
+if [[ -n "${MOCK_CURL_LOG:-}" ]]; then
+    printf '%s %s\n' "$method" "$url" >>"$MOCK_CURL_LOG"
+    # Sidecar log, so appending the auth state cannot change the shape of the
+    # request log the existing publication tests parse.
+    if [[ -n "$config_file" ]]; then
+        printf '%s %s AUTH\n' "$method" "$url" >>"${MOCK_CURL_LOG}.auth"
+    else
+        printf '%s %s ANON\n' "$method" "$url" >>"${MOCK_CURL_LOG}.auth"
+    fi
+fi
 
 status=200
 body='{}'
@@ -49,8 +67,75 @@ size_of() { wc -c <"$1" | tr -d ' '; }
 
 respond() { status="$1"; body="$2"; }
 
+# JSON array of the mirrored assets, in the shape the GitHub release object
+# uses. Asset ids are positional and stable for a given state directory.
+gh_assets_json() {
+    local out='[' first=1 idx=900 f n
+    for f in "$GH_ASSETS"/*; do
+        [[ -e "$f" ]] || continue
+        n="$(basename "$f")"
+        idx=$((idx+1))
+        [[ $first == 1 ]] || out+=','
+        first=0
+        out+="{\"id\":${idx},\"name\":\"${n}\",\"size\":$(size_of "$f"),\"state\":\"${MOCK_GITHUB_ASSET_STATE:-uploaded}\"}"
+    done
+    out+=']'
+    printf '%s' "$out"
+}
+
+# --- GitHub mirror API ---
+#
+# Matched FIRST and by host: GitHub URLs also contain "/releases/", which the
+# GitLab branches below would otherwise claim.
+if [[ "$url" == https://api.github.com/* || "$url" == https://uploads.github.com/* \
+      || "$url" == https://github.com/* ]]; then
+    mkdir -p "$GH_ASSETS"
+    if [[ "$url" == *"/git/ref/tags/"* ]]; then
+        if [[ "${MOCK_GITHUB_TAG_UNAUTHORIZED:-false}" == true ]]; then
+            respond 401 '{"message":"Bad credentials"}'
+        elif [[ "${MOCK_GITHUB_TAG_MISSING:-false}" == true ]]; then
+            respond 404 '{"message":"Not Found"}'
+        else
+            # Default: an ANNOTATED tag, which is what finalize-release creates,
+            # so the mirror's peel path is the one exercised by default.
+            body="{\"object\":{\"type\":\"${MOCK_GITHUB_TAG_TYPE:-tag}\",\"sha\":\"${MOCK_GITHUB_TAG_OBJECT_SHA:-${MOCK_SOURCE_SHA:?}}\"}}"
+        fi
+    elif [[ "$url" == *"/git/tags/"* ]]; then
+        # Peeling an annotated tag to its commit.
+        body="{\"object\":{\"type\":\"commit\",\"sha\":\"${MOCK_GITHUB_TAG_COMMIT:-${MOCK_SOURCE_SHA:?}}\"}}"
+    elif [[ "$url" == *"/releases/tags/"* && "$method" == GET ]]; then
+        if [[ -f "$GH/release_created" ]]; then
+            body="{\"id\":${MOCK_GITHUB_RELEASE_ID:-7001},\"tag_name\":\"v${MOCK_RELEASE_VERSION}\",\"assets\":$(gh_assets_json)}"
+        else
+            respond 404 '{"message":"Not Found"}'
+        fi
+    elif [[ "$url" == */releases && "$method" == POST ]]; then
+        if [[ "${MOCK_GITHUB_FAIL_CREATE:-false}" == true ]]; then
+            respond 422 '{"message":"Validation Failed"}'
+        else
+            printf '1' >"$GH/release_created"
+            respond 201 "{\"id\":${MOCK_GITHUB_RELEASE_ID:-7001},\"tag_name\":\"v${MOCK_RELEASE_VERSION}\",\"assets\":[]}"
+        fi
+    elif [[ "$url" == *"/assets?name="* && "$method" == POST ]]; then
+        name="${url##*name=}"
+        if [[ "${MOCK_GITHUB_FAIL_UPLOAD:-}" == "$name" ]]; then
+            respond 500 '{"message":"upload failed"}'
+        else
+            cp "$upload_file" "$GH_ASSETS/$name"
+            respond 201 "{\"name\":\"${name}\",\"state\":\"uploaded\"}"
+        fi
+    elif [[ "$url" == *"/releases/download/"* && "$method" == GET ]]; then
+        name="${url##*/}"
+        if [[ -f "$GH_ASSETS/$name" ]]; then
+            cp "$GH_ASSETS/$name" "$output"; emit_body=0; status=200
+        else
+            respond 404 '{"message":"Not Found"}'
+        fi
+    else
+        respond 404 '{"message":"unhandled GitHub mock URL"}'
+    fi
 # --- Generic package registry: /packages/generic/<name>/<version>/<file> ---
-if [[ "$url" == *"/packages/generic/"* ]]; then
+elif [[ "$url" == *"/packages/generic/"* ]]; then
     gen_path="${url##*/packages/generic/}"   # <name>/<version>/<file>
     gen_name="${gen_path%%/*}"
     file="${url##*/}"

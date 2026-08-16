@@ -65,6 +65,28 @@ declare -A install_key_of=(
     [rpm]="linux-rpm"
 )
 
+# --- Optional GitHub bandwidth mirror (MIRROR-SPEC §3) ------------------------
+#
+# When mirroring is configured, each artifact gains ONE optional field:
+# `mirror_url`, derived deterministically from GITHUB_MIRROR_REPO + the release
+# tag + the filename. It is emitted ONLY when mirroring is enabled — a URL that
+# will not resolve is worse than no field at all, and an absent `mirror_url`
+# already means "no mirror for this artifact", which is exactly today's
+# behaviour.
+#
+# The field is inside the SIGNED bytes on purpose: the mirror location is chosen
+# by the release authority, not discovered at runtime. `url` (canonical, GitLab)
+# stays required and stays the fallback, and `schema` stays 1 — an older client
+# ignores the unknown field, and a newer client works fine without it.
+if update_mirror_enabled; then
+    update_mirror_repo_valid "$GITHUB_MIRROR_REPO" || \
+        die "GITHUB_MIRROR_REPO must be <owner>/<repo>"
+    printf 'GitHub bandwidth mirror enabled: artifacts will carry mirror_url on %s\n' \
+        "$GITHUB_MIRROR_REPO" >&2
+else
+    printf 'No GITHUB_MIRROR_REPO configured; artifacts will carry no mirror_url\n' >&2
+fi
+
 artifacts='{}'
 for fmt in "${update_formats[@]}"; do
     entry="$(jq -c --arg f "$fmt" '[.entries[] | select(.format == $f)] | first // empty' "$manifest")"
@@ -93,13 +115,26 @@ for fmt in "${update_formats[@]}"; do
         -n '$v | index($n) != null' >/dev/null || \
         die "published $fmt file $filename is not in the verification record"
 
+    mirror_url=""
+    if update_mirror_enabled; then
+        # A name GitHub would rewrite would yield a URL that does not resolve.
+        update_mirror_filename_safe "$filename" || \
+            die "GitHub would rewrite the asset name '$filename'; refusing to emit a mirror_url that will not resolve"
+        mirror_url="$(update_mirror_asset_url "$GITHUB_MIRROR_REPO" "$RELEASE_TAG" "$filename")"
+        [[ "$mirror_url" == https://* ]] || die "derived mirror URL is not https: $mirror_url"
+    fi
+
+    # The empty case adds NOTHING, rather than a null or an empty string: an
+    # absent field is the documented "no mirror" state.
     artifacts="$(jq -c \
         --arg key "${install_key_of[$fmt]}" \
         --arg filename "$filename" \
         --arg sha256 "$sha256" \
         --arg url "$url" \
+        --arg mirror_url "$mirror_url" \
         --argjson size "$size" \
-        '. + {($key): {filename:$filename, size:$size, sha256:$sha256, url:$url}}' \
+        '. + {($key): ({filename:$filename, size:$size, sha256:$sha256, url:$url}
+                       + (if $mirror_url == "" then {} else {mirror_url:$mirror_url} end))}' \
         <<<"$artifacts")"
 done
 

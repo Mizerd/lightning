@@ -24,6 +24,7 @@ signing key accordingly.
 - [Manifest format](#manifest-format)
 - [Signature format](#signature-format)
 - [Endpoints](#endpoints)
+- [GitHub bandwidth mirror](#github-bandwidth-mirror)
 - [Pipeline placement and ordering](#pipeline-placement-and-ordering)
 - [Generating the signing key](#generating-the-signing-key)
 - [CI variables](#ci-variables)
@@ -66,7 +67,9 @@ from it, and it deliberately describes fewer things.
   "release_notes_url": "https://gitlab.smetonis.net/Mizerd/lightning/-/releases/v0.8.0",
   "release_notes": "markdown, may be empty",
   "artifacts": {
-    "linux-appimage":   { "filename": "…", "size": 0, "sha256": "…", "url": "https://…" },
+    "linux-appimage":   { "filename": "…", "size": 0, "sha256": "…",
+                          "url": "https://gitlab.smetonis.net/api/v4/projects/6/packages/generic/lightning/0.8.0/…",
+                          "mirror_url": "https://github.com/Mizerd/lightning/releases/download/v0.8.0/…" },
     "linux-deb":        { … },
     "linux-rpm":        { … },
     "windows-msi":      { … },
@@ -94,6 +97,13 @@ the failure the client's hash check exists to catch.
 An install type that is not in the publication manifest is **omitted**, never
 invented. Absence means "no direct download for this install type", which the
 client treats as "check manually".
+
+`url` is the **canonical** GitLab download and is always required.
+`mirror_url` is optional and is present only when the GitHub bandwidth mirror is
+configured — see [GitHub bandwidth mirror](#github-bandwidth-mirror). An absent
+`mirror_url` means "no mirror for this artifact", which is exactly the behaviour
+that existed before the mirror did. `schema` stays `1`: adding an optional field
+is compatible in both directions.
 
 ### `channels` — ecosystem-managed installs, and why they are all false
 
@@ -185,16 +195,155 @@ be routed through the internal endpoint, but a durable URL handed to a user must
 not be. The generator rejects any artifact URL that is not `https://` or is not
 under `…/packages/generic/lightning/<version>/`.
 
+## GitHub bandwidth mirror
+
+**One sentence:** GitLab decides *what* Lightning may install; GitHub is only a
+faster place to get the *bytes* GitLab already decided on.
+
+### The two-source model
+
+| | Canonical (GitLab) | Mirror (GitHub) |
+| --- | --- | --- |
+| Update manifest + signature | **Yes — only here** | Never |
+| `release_notes_url` | **Yes — only here** | Never |
+| Which version exists / is installable | **Decided here** | Not an input |
+| Artifact bytes | Yes (`url`, and the fallback) | Yes (`mirror_url`, tried first) |
+| Tag and Release authority | **Yes** | Read-only copy |
+
+`scripts/mirror-release-to-github.sh` uploads the **exact local `dist/` files
+recorded in `dist/manifest.json`** — the same bytes `publish-packages` uploaded
+and `verify-published-packages` re-downloaded and hash-checked. It rebuilds
+nothing and fetches the bytes from nowhere else. It then re-downloads every
+uploaded asset **anonymously** (no token — that is what a client will do) and
+compares the SHA-256 against `dist/manifest.json`. Any mismatch, missing asset,
+or size difference fails the job.
+
+### Why GitLab stays authoritative
+
+Because a mirror that could decide anything would not be a mirror. Concretely:
+
+- The manifest and its signature are fetched **only** from the GitLab endpoints
+  above. Nothing is ever read from `api.github.com`, from a GitHub release
+  listing, from `/releases/latest`, or from a GitHub tag.
+- `mirror_url` lives **inside the signed bytes**. The mirror location is chosen
+  by the release authority at signing time, not discovered at runtime.
+- The URL form is the immutable, version-specific
+  `…/releases/download/<tag>/<filename>` — never `/releases/latest/download/…`,
+  which is a GitHub-derived pointer.
+
+**A compromise of the GitHub mirror alone cannot ship a trusted update.** An
+attacker who fully controls the mirror can replace a file, and the result is a
+download that fails its SHA-256 check and falls back to GitLab. They cannot
+produce a manifest a client will accept: it is signed with an Ed25519 key that
+exists only as a protected CI variable on project 7 and as a public half
+compiled into the binary, and GitHub never holds either. They cannot announce a
+version, because the version decision reads only the signed manifest. The
+SHA-256 every download is checked against is fixed *before* the first byte is
+fetched. The worst outcome available to them is denial of service on the fast
+path.
+
+### The URL is derived, not discovered
+
+`scripts/generate-update-manifest.sh` emits, per artifact:
+
+```text
+https://github.com/<GITHUB_MIRROR_REPO>/releases/download/<RELEASE_TAG>/<filename>
+```
+
+The three hosts (`api.github.com`, `uploads.github.com`, `github.com`) are
+constants in `scripts/update-lib.sh`, deliberately **not** overridable by an
+environment variable: such a variable could steer the one field whose entire
+value is that the release authority chose it. `GITHUB_MIRROR_REPO` is validated
+as `<owner>/<repo>` (no scheme, no path segment, no userinfo, no space), and any
+filename GitHub would rewrite is refused rather than turned into a URL that will
+not resolve. Emission is skipped entirely when mirroring is off, and
+determinism is preserved — the versioned manifest copy is immutable, so a
+retried job that produced different bytes would be refused as tampering.
+
+### Enabled, disabled, and half-configured
+
+One switch: **`GITHUB_MIRROR_REPO`**.
+
+- **Unset** — no `mirror_url` is emitted, and the mirror job is a clean no-op. A
+  pipeline without these variables behaves exactly as it did before.
+- **Set, with `GITHUB_MIRROR_TOKEN`** — mirroring runs.
+- **Set, token missing** — a **hard failure in the mirror job**, never a skip.
+  That job runs before the `latest` promotion precisely so a mirror that cannot
+  be completed stops the release from advertising one. For the same reason, the
+  mirror job refuses to no-op if the signed manifest it was handed already
+  carries `mirror_url` values.
+
+### The tag must exist, and must be the same commit
+
+GitLab push-mirrors **refs** to GitHub asynchronously, so the tag
+`finalize-release` just created may not have arrived when the mirror job starts.
+Creating a release at a tag GitHub does not have would make GitHub create that
+tag itself from the default branch — publishing a "release" of a *different
+commit*. So the job:
+
+1. Polls `GET /repos/<repo>/git/ref/tags/<tag>` until the tag appears, bounded by
+   `GITHUB_MIRROR_TAG_WAIT_SECONDS` (default **300 s**, polled every
+   `GITHUB_MIRROR_TAG_POLL_SECONDS`, default 15 s). On timeout it fails with a
+   message naming the push mirror; nothing has been uploaded, no GitHub release
+   exists, and the GitLab release is untouched. Re-run the job once the tag is
+   mirrored.
+2. Peels an annotated tag through `GET /repos/<repo>/git/tags/<sha>` and requires
+   the resulting commit to equal the released `SOURCE_SHA`. A different commit is
+   a hard failure — the release is **not** created anyway.
+3. Creates the release with `tag_name` only, never `target_commitish`. This is
+   the `gh release create --verify-tag` guarantee, made explicit: the job cannot
+   invent a tag.
+
+> **This replaces the manual step.** Before this job existed, the GitHub Release
+> was created by hand after the pipeline finished, with
+> `gh release create v<version> --verify-tag --title "Lightning <version>"
+> --notes-file docs/releases/v<version>.md <assets…>`. That step is **no longer
+> needed** — the pipeline creates it, uploads every asset, and verifies each one
+> anonymously. The notes differ deliberately: the automated release body states
+> that the page is a read-only mirror and points at the canonical GitLab
+> release, rather than repeating the release notes, which live on GitLab and in
+> the signed manifest.
+
+### Idempotence, and never overwriting
+
+Re-running the job must converge, and it must never silently replace a published
+byte:
+
+- An asset already present with the expected size is **left alone** (and is
+  still verified by the anonymous read-back, so byte-identical is proved, not
+  assumed).
+- An asset present with a **different** size, or whose anonymous read-back
+  produces a different SHA-256, is a **hard failure**. The job never overwrites
+  and never deletes a GitHub asset.
+- An asset stuck in a non-`uploaded` state is a hard failure with an explicit
+  instruction to remove it by hand.
+
+### Credential handling
+
+`GITHUB_MIRROR_TOKEN` is written into a `mktemp` curl **config file** with mode
+`0600` and an `EXIT` trap that unlinks it — the same shape
+`scripts/sign-update-manifest.sh` uses for the signing key and
+`scripts/build-windows.sh` uses for the signing PFX. curl reads the
+`Authorization` header from that file, so the token is never echoed, never in an
+argument vector (argv is world-readable through `/proc` on a shared runner),
+never in the working tree, and never in an artifact. `dist/github-mirror.json`
+records only public URLs and already-published checksums. Command tracing
+(`set -x`) stays off, as everywhere else in this pipeline.
+
+The verification downloads carry **no** credential at all, deliberately: an
+asset that is only readable with the publishing token is not a mirror asset.
+
 ## Pipeline placement and ordering
 
-Two jobs, in two different stages, and the split is the point:
+Three jobs, in three different stages, and the splits are the point:
 
 | Stage | Job | Runs |
 | --- | --- | --- |
 | `sign` | `sign-update-manifest` | generate + sign, **before** `finalize-release` |
-| `update` | `publish-update-manifest` | upload both slots, **after** `finalize-release` |
+| `mirror` | `mirror-release-to-github` | copy + verify bytes, **after** `finalize-release` |
+| `update` | `publish-update-manifest` | upload both slots, **after** the mirror verifies |
 
-Full stage order: `test → resolve → build → validate → publish → verify → sign → release → update`.
+Full stage order: `test → resolve → build → validate → publish → verify → sign → release → mirror → update`.
 
 **Why signing goes before the release.** Generating and signing touch nothing
 outside the job. Doing them first turns a missing, malformed, or wrong-type
@@ -210,6 +359,14 @@ whose release page 404s, and — worse — would leave that advertisement standi
 if the release job then failed. The reverse failure is inert and retryable: a
 finished release whose manifest has not been promoted yet simply does not notify
 anyone until the job is re-run.
+
+**Why the mirror goes between them.** It must run after `finalize-release`
+because a GitHub release may only be created at a tag the GitLab release already
+produced. It must run before `publish-update-manifest` because the `latest` slot
+is what clients poll: promoting it earlier would hand out a `mirror_url` that has
+not been proved to serve the right bytes. If the mirror job fails, `latest` is
+simply not promoted — the GitLab release stands and remains fully installable,
+since `url` is the canonical source and the fallback either way.
 
 **Ordering inside `publish-update-manifest`** is also load-bearing:
 
@@ -243,6 +400,29 @@ would also match the revision just uploaded.
 > forbidden, the upload fails with HTTP 403/400 and the script says so
 > explicitly. It does not silently skip the promotion.
 
+### If the mirror job fails
+
+`publish-update-manifest` needs `mirror-release-to-github`, so a GitHub outage,
+a rotated token, or a push mirror that never delivers the tag will leave the
+`latest` manifest un-promoted. Nothing published becomes invalid: the GitLab
+release is complete, its package links are attached, and every artifact is
+installable by hand. Only the in-app rollout waits.
+
+Two ways out, in order of preference:
+
+1. **Fix and re-run the mirror job.** It is idempotent — an asset already
+   present with identical bytes is accepted, and nothing is overwritten — so a
+   retry after the cause is fixed is safe and is the normal answer.
+2. **Promote without a mirror.** Re-run the pipeline with `GITHUB_MIRROR_REPO`
+   unset. The mirror job becomes a no-op and the manifest is regenerated
+   **and re-signed** with no `mirror_url`, so clients download from GitLab
+   exactly as they did before mirroring existed. This is a different manifest,
+   not the same one published differently: the versioned copy is immutable, so
+   this only applies to a version whose manifest was never promoted.
+
+Do not hand-edit a signed manifest to remove `mirror_url`; the signature would
+no longer verify, and every client would refuse it.
+
 ## Generating the signing key
 
 Run this **outside CI, on a trusted machine**. Never in a pipeline.
@@ -274,6 +454,28 @@ Create these on **project 7 (lightning-deploy)**, Settings → CI/CD → Variabl
 
 The key is base64-encoded because GitLab masking requires a single-line value
 with no newline; a raw PEM cannot be masked.
+
+For the GitHub bandwidth mirror, create these two as well. Both are **optional**:
+without `GITHUB_MIRROR_REPO` nothing mirrors, no `mirror_url` is emitted, and the
+pipeline behaves exactly as it did before.
+
+| Variable | Value | Flags |
+| --- | --- | --- |
+| `GITHUB_MIRROR_REPO` | `Mizerd/lightning` — the mirror repository, `<owner>/<repo>` | **Protected**, not masked (it is not secret) |
+| `GITHUB_MIRROR_TOKEN` | A GitHub token that may create a release and upload assets on that repository, and nothing else | **Protected**, **Masked**, not a File variable |
+
+Scope the token as narrowly as GitHub allows — a fine-grained personal access
+token limited to the mirror repository with *Contents: read and write* is enough
+to create a release and upload assets. It never touches the update signing key,
+the GitLab registry, or any Lightning source. If it leaks, an attacker can
+vandalise the mirror; they still cannot ship an update (see
+[GitHub bandwidth mirror](#github-bandwidth-mirror)). Revoke it on GitHub and
+re-run the mirror job; the GitLab release is unaffected.
+
+Two optional timing knobs, both with safe defaults:
+`GITHUB_MIRROR_TAG_WAIT_SECONDS` (default `300`) and
+`GITHUB_MIRROR_TAG_POLL_SECONDS` (default `15`) bound how long the job waits for
+GitLab's push mirror to deliver the release tag to GitHub.
 
 ### `UPDATE_SIGNING_PUBKEY_2026A` — the trust root inside every package
 
@@ -510,8 +712,28 @@ is unaffected.
 
 No key material is committed; every key the suite uses is generated at run time.
 
+The same suite covers the **GitHub bandwidth mirror**, against a mock that models
+the GitHub tag, release, upload, and anonymous-download endpoints separately from
+the GitLab ones: the deterministic `mirror_url` when mirroring is enabled and its
+complete absence when it is not; determinism preserved with mirroring on; a
+`GITHUB_MIRROR_REPO` that could steer a URL (scheme, extra path segment,
+userinfo, space) rejected; a configured repository with no token failing hard
+rather than skipping; a job that would no-op while the signed manifest already
+promises mirrors refusing; an unmirrored tag failing after the bounded wait and
+a tag peeling to a different commit failing outright, with **no** GitHub release
+created in either case; every publication-manifest artifact uploaded
+byte-identically; the read-back downloads being anonymous while the API calls are
+authenticated; the token appearing in no log, no URL, and not in
+`dist/github-mirror.json`; an identical re-run uploading nothing; an
+already-present asset that differs in bytes **or** in size being a hard failure
+that overwrites nothing; a non-`uploaded` asset state refused; a local file that
+no longer matches the publication manifest refused; and a signed manifest whose
+`mirror_url` disagrees with what the job would create refused.
+
 `tests/test-pipeline-config.py` additionally asserts the stage placement, the
-`needs` wiring in both directions, that both jobs are behind `.publish-rules`
-(so no update manifest can be produced or promoted in a non-publishing
-pipeline), that they install `openssl`, and that no CI job ever runs the
-operator key-generation tool.
+`needs` wiring in both directions (including that the mirror runs after
+`finalize-release` and that `latest` is promoted only after the mirror), that all
+three jobs are behind `.publish-rules` (so no update manifest can be produced or
+promoted, and nothing can be mirrored, in a non-publishing pipeline), that they
+install the tools they need, and that no CI job ever runs the operator
+key-generation tool.

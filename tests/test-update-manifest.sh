@@ -21,6 +21,11 @@ VER=0.6.1
 PINNED_TS=2026-08-15T12:00:00Z
 MANIFEST_NAME=update-manifest-v1.json
 SIG_NAME=update-manifest-v1.json.sig
+# Synthetic GitHub mirror credentials. The repo is the real mirror name because
+# the derived URLs are asserted literally; the token is a canary that must never
+# appear in any log the scripts produce.
+MIRROR_REPO=Mizerd/lightning
+MIRROR_TOKEN=ghp_MOCKMIRRORCANARY0123456789abcdef
 fail=0
 note() { printf '  ok: %s\n' "$1"; }
 bad() { printf '  FAIL: %s\n' "$1" >&2; fail=1; }
@@ -90,7 +95,11 @@ EOF
     export UPDATE_RELEASED_AT="$PINNED_TS"
     unset CI MOCK_TAG_EXISTS MOCK_RELEASE_EXISTS MOCK_TAG_SHA MOCK_CONFLICT_FILE \
           MOCK_FAIL_UPLOAD MOCK_PRESEED_LINKS MOCK_CREATE_LINKS MOCK_COMMIT_REACHABLE \
-          RELEASE_NOTES_B64 PUBLISH_API_BASE CI_PIPELINE_CREATED_AT
+          RELEASE_NOTES_B64 PUBLISH_API_BASE CI_PIPELINE_CREATED_AT \
+          GITHUB_MIRROR_REPO GITHUB_MIRROR_TOKEN \
+          MOCK_GITHUB_TAG_MISSING MOCK_GITHUB_TAG_TYPE MOCK_GITHUB_TAG_OBJECT_SHA \
+          MOCK_GITHUB_TAG_COMMIT MOCK_GITHUB_FAIL_CREATE MOCK_GITHUB_FAIL_UPLOAD \
+          MOCK_GITHUB_ASSET_STATE MOCK_GITHUB_RELEASE_ID MOCK_GITHUB_TAG_UNAUTHORIZED
     UPD="$TR/dist/$MANIFEST_NAME"
     SIG="$TR/dist/$SIG_NAME"
 }
@@ -101,6 +110,7 @@ EOF
 no_leak() {
     local log="$1"
     grep -q 'mock-secret-value' "$log" && bad "credential leaked in $log" || true
+    grep -qF "$MIRROR_TOKEN" "$log" && bad "GitHub mirror token leaked in $log" || true
     grep -qF "$KEY_A_B64" "$log" && bad "private key (base64) leaked in $log" || true
     grep -qF "$KEY_B_B64" "$log" && bad "second private key leaked in $log" || true
     grep -q 'BEGIN PRIVATE KEY' "$log" && bad "private key PEM leaked in $log" || true
@@ -540,6 +550,246 @@ if "$ROOT/scripts/generate-update-signing-key.sh" lightning-release-tool "$KEYDI
 else
     note "the tool refuses to overwrite an existing key"
 fi
+
+# =============================================================================
+# GitHub bandwidth mirror (MIRROR-SPEC §6, §7 "Deploy side")
+#
+# GitLab stays the release authority and the canonical binary source; GitHub
+# holds byte-identical copies of the SAME published artifacts, and the signed
+# manifest points at both. Everything below is exercised against the stateful
+# mock, which models the GitHub tag/release/upload endpoints and the anonymous
+# asset download separately from the GitLab ones.
+# =============================================================================
+
+printf '== mirror disabled: no mirror_url, and mirroring is a clean no-op ==\n'
+setup
+publish_and_verify || bad "publish/verify failed"
+run "$ROOT/scripts/generate-update-manifest.sh" || bad "generation failed with mirroring off"
+[[ "$($JQ '[.artifacts[] | select(has("mirror_url"))] | length' "$UPD")" == 0 ]] \
+    && note "no artifact carries mirror_url when mirroring is disabled" \
+    || bad "mirror_url emitted while mirroring is disabled"
+grep -qi 'github' "$UPD" && bad "the manifest mentions github with mirroring disabled" \
+    || note "the disabled manifest names no mirror at all"
+[[ "$($JQ -r '.schema' "$UPD")" == 1 ]] && note "schema stays 1" || bad "schema changed"
+: >"$MLOG"
+run "$ROOT/scripts/mirror-release-to-github.sh" || bad "the mirror job failed when unconfigured"
+grep -q 'github.com' "$MLOG" && bad "the disabled mirror job still contacted GitHub" \
+    || note "the disabled mirror job makes no GitHub request"
+[[ -f "$TR/dist/github-mirror.json" ]] && bad "a disabled mirror wrote a mirror record" \
+    || note "no mirror record is written when disabled"
+
+printf '== mirror enabled: deterministic, version-specific mirror_url ==\n'
+export GITHUB_MIRROR_REPO="$MIRROR_REPO"
+run "$ROOT/scripts/generate-update-manifest.sh" || bad "generation failed with mirroring on"
+mirror_keys=(linux-appimage linux-deb linux-rpm windows-msi windows-portable windows-setup)
+for k in "${mirror_keys[@]}"; do
+    fn="$($JQ -r --arg k "$k" '.artifacts[$k].filename' "$UPD")"
+    mu="$($JQ -r --arg k "$k" '.artifacts[$k].mirror_url' "$UPD")"
+    [[ "$mu" == "https://github.com/${MIRROR_REPO}/releases/download/v${VER}/${fn}" ]] \
+        && note "$k mirror_url is the deterministic version-specific asset URL" \
+        || bad "$k mirror_url is $mu"
+    # The canonical GitLab URL stays required and stays the fallback.
+    [[ "$($JQ -r --arg k "$k" '.artifacts[$k].url' "$UPD")" == https://gitlab.example/* ]] \
+        && note "$k keeps its canonical GitLab url" || bad "$k canonical url changed"
+done
+grep -q 'releases/latest/download' "$UPD" \
+    && bad "a mutable /releases/latest/download URL was emitted" \
+    || note "no /releases/latest/download URL anywhere in the manifest"
+[[ "$($JQ -r '.schema' "$UPD")" == 1 ]] && note "adding mirror_url did not bump the schema" || bad "schema bumped"
+cp "$UPD" "$WORK/mirror-first.json"
+run "$ROOT/scripts/generate-update-manifest.sh" || bad "second mirrored generation failed"
+cmp -s "$WORK/mirror-first.json" "$UPD" \
+    && note "two mirrored runs from the same inputs are byte-identical" \
+    || bad "mirrored generation is not deterministic"
+
+printf '== a mirror repository that could steer a URL is rejected ==\n'
+for badrepo in 'https://evil.example/x' 'owner/repo/extra' 'owner' '/repo' 'ow ner/repo' \
+               'user:pass@host/repo'; do
+    if run env GITHUB_MIRROR_REPO="$badrepo" "$ROOT/scripts/generate-update-manifest.sh"; then
+        bad "GITHUB_MIRROR_REPO='$badrepo' was accepted"
+    else
+        note "GITHUB_MIRROR_REPO='$badrepo' is rejected"
+    fi
+done
+run "$ROOT/scripts/generate-update-manifest.sh" || bad "regeneration failed"
+run "$ROOT/scripts/sign-update-manifest.sh" || bad "signing the mirrored manifest failed"
+
+printf '== a signed manifest promising mirrors is never silently unmirrored ==\n'
+if run env -u GITHUB_MIRROR_REPO "$ROOT/scripts/mirror-release-to-github.sh"; then
+    bad "mirroring no-opped while the signed manifest carried mirror_url"
+else
+    note "an unconfigured mirror refuses when the manifest already promises one"
+fi
+if run env -u GITHUB_MIRROR_TOKEN "$ROOT/scripts/mirror-release-to-github.sh"; then
+    bad "mirroring ran without a token"
+else
+    note "a configured repository with no token is a hard failure, not a skip"
+fi
+
+printf '== the mirrored tag must exist and be the released commit ==\n'
+export GITHUB_MIRROR_TOKEN="$MIRROR_TOKEN"
+if run env MOCK_GITHUB_TAG_MISSING=true GITHUB_MIRROR_TAG_WAIT_SECONDS=0 \
+        "$ROOT/scripts/mirror-release-to-github.sh"; then
+    bad "mirrored a release whose tag is not on GitHub"
+else
+    note "an unmirrored tag fails after the bounded wait"
+    grep -q 'did not appear' "$TR/out.log" \
+        && note "the timeout message names the push mirror" || bad "unclear timeout message"
+fi
+[[ ! -f "$MSTATE/github/release_created" ]] \
+    && note "no GitHub release was created for a missing tag" || bad "a release was created anyway"
+if run env MOCK_GITHUB_TAG_COMMIT=1111111111111111111111111111111111111111 \
+        "$ROOT/scripts/mirror-release-to-github.sh"; then
+    bad "mirrored a tag pointing at a different commit"
+else
+    note "a tag peeling to another commit is a hard failure"
+    grep -q 'refusing to mirror a different commit' "$TR/out.log" \
+        && note "the mismatch message is explicit" || bad "unclear commit-mismatch message"
+fi
+[[ ! -f "$MSTATE/github/release_created" ]] \
+    && note "no GitHub release was created for a mismatched tag" || bad "a release was created anyway"
+# Only "not there yet" is retryable. A rejected credential must fail at once,
+# not sit through the whole tag wait: the lookup runs in a command substitution,
+# where a hard failure and an absent tag are otherwise indistinguishable.
+poll_start=$SECONDS
+if run env MOCK_GITHUB_TAG_UNAUTHORIZED=true \
+        GITHUB_MIRROR_TAG_WAIT_SECONDS=90 GITHUB_MIRROR_TAG_POLL_SECONDS=30 \
+        "$ROOT/scripts/mirror-release-to-github.sh"; then
+    bad "a rejected GitHub credential was treated as success"
+else
+    note "a rejected GitHub credential is a hard failure"
+fi
+(( SECONDS - poll_start < 20 )) \
+    && note "a non-404 tag lookup failure does not enter the retry wait" \
+    || bad "a hard tag-lookup failure was retried as though the tag were absent"
+
+printf '== mirror upload and anonymous verification ==\n'
+: >"$MLOG"; rm -f "$MLOG.auth"
+run "$ROOT/scripts/mirror-release-to-github.sh" || bad "mirroring failed"
+GHA="$MSTATE/github/assets"
+REC="$TR/dist/github-mirror.json"
+expected_count="$($JQ '.entries | length' "$TR/dist/manifest.json")"
+[[ "$(find "$GHA" -type f | wc -l)" == "$expected_count" ]] \
+    && note "every publication-manifest artifact was mirrored ($expected_count)" \
+    || bad "mirrored asset count is $(find "$GHA" -type f | wc -l), expected $expected_count"
+while IFS= read -r row; do
+    fn="$($JQ -r '.filename' <<<"$row")"
+    lp="$($JQ -r '.local_path' <<<"$row")"
+    cmp -s "$TR/$lp" "$GHA/$fn" || bad "mirrored $fn is not byte-identical to the published file"
+done < <($JQ -c '.entries[]' "$TR/dist/manifest.json")
+note "mirrored bytes are identical to the published dist/ files"
+[[ -f "$REC" ]] && note "a mirror record was written" || bad "no dist/github-mirror.json"
+[[ "$($JQ -r '.repository' "$REC")" == "$MIRROR_REPO" && "$($JQ -r '.tag' "$REC")" == "v$VER" ]] \
+    && note "the record names the repository and tag" || bad "mirror record metadata"
+[[ "$($JQ '.assets | length' "$REC")" == "$expected_count" && "$($JQ -r '.uploaded' "$REC")" == "$expected_count" ]] \
+    && note "the record accounts for every uploaded asset" || bad "mirror record asset accounting"
+$JQ -e '(.assets | map(select(.mirror_url | startswith("https://github.com/"))) | length) == (.assets | length)' "$REC" >/dev/null \
+    && note "every recorded mirror URL is an https github.com asset URL" || bad "mirror record URLs"
+grep -qF "$MIRROR_TOKEN" "$REC" && bad "the token reached the mirror record" || note "no token in the mirror record"
+
+# The verification download is what a client will do: no credential at all.
+mapfile -t dl_lines < <(grep '^GET https://github.com/.*/releases/download/' "$MLOG.auth" || true)
+[[ "${#dl_lines[@]}" == "$expected_count" ]] \
+    && note "every asset was re-downloaded for verification" \
+    || bad "expected $expected_count verification downloads, saw ${#dl_lines[@]}"
+anon_ok=1
+for line in "${dl_lines[@]}"; do [[ "$line" == *" ANON" ]] || anon_ok=0; done
+[[ "$anon_ok" == 1 ]] && note "every verification download was anonymous (no token)" \
+    || bad "a verification download carried a credential"
+grep -q '^GET https://api.github.com/.* AUTH$' "$MLOG.auth" \
+    && note "GitHub API requests are authenticated (via a credential file, not argv)" \
+    || bad "GitHub API requests were not authenticated"
+
+printf '== the mirror token never reaches a log ==\n'
+no_leak "$TR/all.log"
+grep -qF "$MIRROR_TOKEN" "$MLOG" && bad "the token reached the request log" \
+    || note "no token in the request URL log"
+grep -qF "$MIRROR_TOKEN" "$MLOG.auth" && bad "the token reached the auth log" \
+    || note "no token in the auth log"
+[[ "$($JQ -r '.assets[0].mirror_url' "$REC")" != *"$MIRROR_TOKEN"* ]] \
+    && note "no token in any published URL" || bad "token in a URL"
+
+printf '== re-running the mirror is idempotent ==\n'
+: >"$MLOG"; rm -f "$MLOG.auth"
+run "$ROOT/scripts/mirror-release-to-github.sh" || bad "idempotent re-run failed"
+[[ "$(grep -c '^POST https://uploads.github.com' "$MLOG" || true)" == 0 ]] \
+    && note "an identical re-run uploads nothing" || bad "the re-run re-uploaded assets"
+[[ "$(grep -c '^POST https://api.github.com/repos/.*/releases$' "$MLOG" || true)" == 0 ]] \
+    && note "an identical re-run does not recreate the release" || bad "the re-run created a second release"
+[[ "$($JQ -r '.uploaded' "$REC")" == 0 && "$($JQ -r '.already_present' "$REC")" == "$expected_count" ]] \
+    && note "already-present byte-identical assets are accepted" || bad "idempotent accounting"
+
+printf '== an already-present DIFFERING asset is a hard failure ==\n'
+victim="$($JQ -r '.entries[0].filename' "$TR/dist/manifest.json")"
+cp "$GHA/$victim" "$WORK/mirror-victim.bin"
+vsize="$(wc -c <"$WORK/mirror-victim.bin" | tr -d ' ')"
+# (a) same size, different bytes: only the anonymous SHA-256 read-back catches it.
+head -c "$vsize" /dev/zero | tr '\0' 'X' >"$GHA/$victim"
+cmp -s "$WORK/mirror-victim.bin" "$GHA/$victim" && bad "same-size tamper fixture did not change the bytes" || true
+[[ "$(wc -c <"$GHA/$victim" | tr -d ' ')" == "$vsize" ]] || bad "same-size tamper changed the size"
+if run "$ROOT/scripts/mirror-release-to-github.sh"; then
+    bad "a mirrored asset with different bytes was accepted"
+else
+    note "a re-downloaded asset whose bytes differ fails the job"
+    grep -q 'does not match the published SHA-256' "$TR/out.log" \
+        && note "the failure names the SHA-256 mismatch" || bad "unclear byte-mismatch message"
+fi
+[[ "$(grep -c '^POST https://uploads.github.com' "$MLOG" || true)" == 0 ]] \
+    && note "the differing asset was never overwritten" || bad "the job overwrote a published asset"
+# (b) different size: caught before a single byte is uploaded.
+printf 'extra' >>"$GHA/$victim"
+: >"$MLOG"
+if run "$ROOT/scripts/mirror-release-to-github.sh"; then
+    bad "a mirrored asset with a different size was accepted"
+else
+    note "an asset already present with a different size is a hard failure"
+    grep -q 'refusing to overwrite a published asset' "$TR/out.log" \
+        && note "the failure says it refuses to overwrite" || bad "unclear size-mismatch message"
+fi
+[[ "$(grep -c '^POST https://uploads.github.com' "$MLOG" || true)" == 0 ]] \
+    && note "nothing was uploaded once the conflict was detected" || bad "an upload happened after a conflict"
+cp "$WORK/mirror-victim.bin" "$GHA/$victim"
+run "$ROOT/scripts/mirror-release-to-github.sh" || bad "the mirror did not converge after restoring the asset"
+
+printf '== a partially uploaded asset is never treated as present ==\n'
+if run env MOCK_GITHUB_ASSET_STATE=starter "$ROOT/scripts/mirror-release-to-github.sh"; then
+    bad "an asset stuck in the starter state was accepted"
+else
+    note "an asset that is not in the uploaded state is a hard failure"
+fi
+
+printf '== a local file that is not the published bytes is refused ==\n'
+deb="$TR/dist/lightning_${VER}_amd64.deb"
+cp "$deb" "$WORK/deb.held"
+printf 'not-the-published-bytes\n' >"$deb"
+if run "$ROOT/scripts/mirror-release-to-github.sh"; then
+    bad "mirrored bytes that were never published"
+else
+    note "a local file disagreeing with the publication manifest is refused"
+fi
+cp "$WORK/deb.held" "$deb"
+
+printf '== mirroring requires a verified publication ==\n'
+mv "$TR/dist/verification.json" "$WORK/mirror-verification.held.json"
+if run "$ROOT/scripts/mirror-release-to-github.sh"; then
+    bad "mirrored without a verification record"
+else
+    note "mirroring refuses without dist/verification.json"
+fi
+mv "$WORK/mirror-verification.held.json" "$TR/dist/verification.json"
+
+printf '== the signed manifest and the mirror job must agree on every URL ==\n'
+$JQ -S '.artifacts["linux-deb"].mirror_url = "https://github.com/Someone/else/releases/download/v9.9.9/x.deb"' \
+    "$UPD" >"$WORK/mirror-divergent.json"
+cp "$UPD" "$WORK/mirror-good.json"
+cp "$WORK/mirror-divergent.json" "$UPD"
+if run "$ROOT/scripts/mirror-release-to-github.sh"; then
+    bad "a manifest pointing at a different mirror was accepted"
+else
+    note "a mirror_url the job would not create is a hard failure"
+fi
+cp "$WORK/mirror-good.json" "$UPD"
+unset GITHUB_MIRROR_REPO GITHUB_MIRROR_TOKEN
 
 if [[ "$fail" == 0 ]]; then
     printf 'Update manifest tests passed\n'

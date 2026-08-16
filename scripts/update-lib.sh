@@ -49,6 +49,64 @@ update_valid_key_id() {
 }
 
 # ---------------------------------------------------------------------------
+# GitHub bandwidth mirror (MIRROR-SPEC §6)
+#
+# GitLab stays the release authority and the canonical binary source. GitHub
+# holds byte-identical copies of the SAME published artifacts so a client can
+# fetch the bytes from a faster host. Nothing GitHub says is ever an input to a
+# decision: the manifest is fetched only from GitLab, its signature is verified
+# against a key compiled into Lightning, and the SHA-256 a download is checked
+# against is fixed before any byte is fetched.
+#
+# The three hosts are constants on purpose. If they were overridable by an
+# environment variable, that variable could steer the mirror_url that ends up
+# INSIDE the signed manifest — the one field whose whole value is that the
+# release authority chose it.
+# Consumed by the scripts that source this library.
+# shellcheck disable=SC2034
+UPDATE_MIRROR_API_HOST="https://api.github.com"
+# shellcheck disable=SC2034
+UPDATE_MIRROR_UPLOAD_HOST="https://uploads.github.com"
+UPDATE_MIRROR_DOWNLOAD_HOST="https://github.com"
+
+# ONE switch decides whether this pipeline mirrors, and it is the non-secret
+# half of the configuration. Deliberately NOT keyed on the token as well:
+# "repo set, token missing" must be a loud failure in the mirror job, not a
+# silent no-op that leaves a mirror_url in a signed manifest pointing at a
+# release nobody ever created.
+update_mirror_enabled() {
+    [[ -n "${GITHUB_MIRROR_REPO:-}" ]]
+}
+
+# <owner>/<repo>, and nothing that could carry a path segment, a scheme, a
+# query, or userinfo into a URL that is about to be signed.
+update_mirror_repo_valid() {
+    [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$ ]]
+}
+
+# GitHub rewrites an asset name that contains characters it does not accept
+# (spaces become dots, for one), which would leave the deterministic URL in the
+# manifest pointing at a name the release does not have. Refuse such a filename
+# instead of publishing a URL that will not resolve. Every artifact this
+# pipeline builds already matches.
+# '+' is deliberately NOT allowed: the upload endpoint takes the asset name in
+# a QUERY STRING, where '+' decodes to a space. GitHub would store the file
+# under a rewritten name and the mirror_url already inside the SIGNED manifest
+# would not resolve -- exactly the class of rewrite this predicate exists to
+# prevent. Refuse the name instead.
+update_mirror_filename_safe() {
+    [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]
+}
+
+# The immutable, version-specific asset URL. Never /releases/latest/download/…:
+# that is a GitHub-derived pointer, and the version a client installs must come
+# only from the signed manifest.
+update_mirror_asset_url() { # repo tag filename
+    printf '%s/%s/releases/download/%s/%s' \
+        "$UPDATE_MIRROR_DOWNLOAD_HOST" "$1" "$2" "$3"
+}
+
+# ---------------------------------------------------------------------------
 # The bridge between this project and the trust table compiled into Lightning.
 #
 # Lightning's src/update/UpdateTrustStore.cpp holds ONE row per trusted key id,
