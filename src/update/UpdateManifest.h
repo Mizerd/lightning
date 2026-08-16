@@ -53,6 +53,15 @@ enum class ManifestError {
     ArtifactBadUrl,
     ArtifactForeignHost,
     ArtifactFilenameMismatch,
+    // The optional mirror address is MALFORMED -- not a string, not https,
+    // unparseable, or naming a different file than the entry describes. Only
+    // those are fatal. A well-formed mirror on a host this build does not
+    // trust is NOT an error: it is dropped, counted in untrustedMirrorCount(),
+    // and the artifact keeps its canonical address. Do not "tighten" that back
+    // into a failure -- the day the mirror moves, every client built before
+    // the move would reject every later manifest, canonical address included,
+    // and could never be updated again.
+    ArtifactBadMirrorUrl,
     // Channels stage.
     ChannelMalformed,
 };
@@ -64,7 +73,15 @@ struct ManifestArtifact {
     QString filename;
     qint64 size = 0;
     QString sha256; // 64 lowercase hex characters
+    // The canonical (release-authority) address. Always present.
     QUrl url;
+    // OPTIONAL bandwidth mirror for the SAME bytes, chosen by the release
+    // authority inside the signed document — never discovered at runtime.
+    // Empty means this release publishes no mirror for this artifact, and
+    // the download behaves exactly as it did before mirrors existed. It is
+    // tried FIRST when present, and both sources are verified against the
+    // one `sha256` above.
+    QUrl mirrorUrl;
 };
 
 struct ManifestChannel {
@@ -109,6 +126,10 @@ public:
     int minUpdaterVersion() const { return m_minUpdaterVersion; }
     QString releaseNotes() const { return m_releaseNotes; }
     QUrl releaseNotesUrl() const { return m_releaseNotesUrl; }
+    // > 0 when the manifest offered a mirror on a host this build does not
+    // trust. Downloads still work: those artifacts simply use the canonical
+    // source, exactly as they did before mirrors existed.
+    int untrustedMirrorCount() const { return m_untrustedMirrorCount; }
     QString signingKeyId() const { return m_signingKeyId; }
 
     // Direct-download artifact for an install type, when the release
@@ -139,6 +160,10 @@ private:
     int m_minUpdaterVersion = 1;
     QString m_releaseNotes;
     QUrl m_releaseNotesUrl;
+    // Entries that named a mirror host this build does not trust. Those
+    // mirrors were ignored and the artifacts kept their canonical address;
+    // this is a diagnostic, never a failure.
+    int m_untrustedMirrorCount = 0;
     QString m_signingKeyId;
     QHash<QString, ManifestArtifact> m_artifacts;
     QHash<QString, ManifestChannel> m_channels;

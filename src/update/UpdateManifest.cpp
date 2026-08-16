@@ -103,6 +103,8 @@ QString manifestErrorText(ManifestError error)
         return QStringLiteral("A download entry points at an untrusted host");
     case ManifestError::ArtifactFilenameMismatch:
         return QStringLiteral("A download entry's address does not match its file name");
+    case ManifestError::ArtifactBadMirrorUrl:
+        return QStringLiteral("A download entry has a malformed mirror address");
     case ManifestError::ChannelMalformed:
         return QStringLiteral("A channel entry is malformed");
     }
@@ -250,9 +252,10 @@ UpdateManifest::Result UpdateManifest::parseVerified(const QByteArray &manifestB
     const QJsonValue notesUrlValue = root.value(QLatin1String("release_notes_url"));
     if (notesUrlValue.isString() && !notesUrlValue.toString().isEmpty()) {
         const QUrl url(notesUrlValue.toString(), QUrl::StrictMode);
-        // This link is opened in the user's browser, so it is held to the
-        // same allowlist as a download.
-        if (!isAllowedUpdateUrl(url))
+        // METADATA: canonical host only, never a mirror. This link is opened
+        // in the user's browser and it describes the release; a bandwidth
+        // mirror has no business serving either.
+        if (!isAllowedManifestUrl(url))
             return failure(ManifestError::ReleaseNotesUrlRejected);
         manifest.m_releaseNotesUrl = url;
     }
@@ -303,7 +306,14 @@ UpdateManifest::Result UpdateManifest::parseVerified(const QByteArray &manifestB
             const QUrl url(urlValue.toString(), QUrl::StrictMode);
             if (!url.isValid() || url.scheme() != QLatin1String("https"))
                 return failure(ManifestError::ArtifactBadUrl, it.key());
-            if (!isAllowedUpdateUrl(url))
+            // The CANONICAL address is held to the metadata host policy, not
+            // the artifact one. It is the fallback the mirror falls back TO,
+            // so it must be the release authority's own host: if this were
+            // allowed to name a mirror as well, a manifest could put both
+            // addresses on the same third party and one outage there would
+            // leave no working source at all. Hash verification would still
+            // hold, but the availability guarantee would be gone.
+            if (!isAllowedManifestUrl(url))
                 return failure(ManifestError::ArtifactForeignHost, it.key());
             // The URL must actually name the file the manifest describes,
             // so the hash, the size and the stored name all refer to one
@@ -311,6 +321,42 @@ UpdateManifest::Result UpdateManifest::parseVerified(const QByteArray &manifestB
             if (url.fileName() != artifact.filename)
                 return failure(ManifestError::ArtifactFilenameMismatch, it.key());
             artifact.url = url;
+
+            // OPTIONAL mirror. Absent or JSON null means "no mirror for this
+            // artifact" and everything downstream behaves exactly as it did
+            // before mirrors existed.
+            //
+            // A mirror this build does not trust is DROPPED, not fatal. The
+            // field is consumed as nothing but a download address, and the
+            // downloader re-checks the host at transfer time anyway, so
+            // ignoring it is fail-closed on trust and merely slower: the
+            // artifact keeps its canonical address and downloads exactly as it
+            // used to. Failing the document instead would be a fleet hazard --
+            // the day the project moves the mirror, every already-installed
+            // client with an older compiled-in host list would reject EVERY
+            // later manifest outright, including the perfectly good GitLab
+            // address inside it, and could never be updated again.
+            //
+            // A MALFORMED value is still fatal: a non-string, a non-https or
+            // unparseable URL, or a name that disagrees with the entry cannot
+            // be interpreted at all, and that is a broken document rather than
+            // one describing a host we happen not to know.
+            const QJsonValue mirrorValue = entry.value(QLatin1String("mirror_url"));
+            if (!mirrorValue.isUndefined() && !mirrorValue.isNull()) {
+                if (!mirrorValue.isString())
+                    return failure(ManifestError::ArtifactBadMirrorUrl, it.key());
+                const QUrl mirror(mirrorValue.toString(), QUrl::StrictMode);
+                if (!mirror.isValid() || mirror.scheme() != QLatin1String("https"))
+                    return failure(ManifestError::ArtifactBadMirrorUrl, it.key());
+                // The same agreement the canonical address must keep: the
+                // mirror has to name the very file this entry describes.
+                if (mirror.fileName() != artifact.filename)
+                    return failure(ManifestError::ArtifactFilenameMismatch, it.key());
+                if (isAllowedArtifactUrl(mirror))
+                    artifact.mirrorUrl = mirror;
+                else
+                    ++manifest.m_untrustedMirrorCount;
+            }
 
             manifest.m_artifacts.insert(artifact.installTypeId, artifact);
         }

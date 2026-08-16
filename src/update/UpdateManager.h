@@ -1,6 +1,7 @@
 #pragma once
 
 #include "update/InstallType.h"
+#include "update/UpdateDownloader.h" // TransferError, used by the download handler
 #include "update/UpdateManifest.h"
 #include "update/UpdateTrustStore.h"
 #include "update/Version.h"
@@ -59,6 +60,11 @@ class UpdateManager : public QObject
     // Non-error diagnostic: "not downgrading", "prerelease ignored",
     // "your package manager has not published this version yet".
     Q_PROPERTY(QString statusDetail READ statusDetail NOTIFY statusDetailChanged)
+    // Where the bytes now on disk came from: "mirror", "canonical", or empty
+    // when nothing is staged. A ROLE, never a host or a URL — it is a
+    // diagnostic, not an address book, and a persistently useless mirror is
+    // meant to be visible here rather than silent.
+    Q_PROPERTY(QString artifactSource READ artifactSource NOTIFY artifactSourceChanged)
     Q_PROPERTY(QString installType READ installTypeString NOTIFY installTypeChanged)
     Q_PROPERTY(QString installTypeLabel READ installTypeLabel NOTIFY installTypeChanged)
     Q_PROPERTY(bool canInstallAutomatically READ canInstallAutomatically NOTIFY installTypeChanged)
@@ -125,6 +131,7 @@ public:
     QUrl releaseNotesUrl() const { return m_releaseNotesUrl; }
     QString errorMessage() const { return m_errorMessage; }
     QString statusDetail() const { return m_statusDetail; }
+    QString artifactSource() const { return m_artifactSource; }
     QString installTypeString() const { return installTypeId(m_detection.type); }
     QString installTypeLabel() const;
     bool canInstallAutomatically() const { return m_detection.automaticInstallAllowed; }
@@ -203,6 +210,17 @@ public:
     // Feed the two documents a check would have fetched. Used by tests and
     // by the real fetch path alike, so both take the identical code path.
     void ingestCheckDocuments(const QByteArray &manifestBytes, const QByteArray &sigBytes);
+    // Supplies the artifact BYTES a download would have fetched, per URL, so
+    // the mirror-first order and its single canonical fallback are testable
+    // with no network. std::nullopt means that source was unreachable.
+    //
+    // It relaxes NOTHING: the bytes are streamed through the real
+    // UpdateDownloader into the real staging file, the URL is still checked
+    // against the artifact host policy, and the manifest's size and SHA-256
+    // are still what decide whether anything reaches ReadyToInstall. A source
+    // returning wrong bytes fails here exactly as it would in production.
+    using ArtifactByteSource = std::function<std::optional<QByteArray>(const QUrl &)>;
+    void setArtifactByteSourceForTest(ArtifactByteSource source);
     // Pretend a verified artifact is staged at `path` (state ReadyToInstall)
     // so install-refusal and argv construction are testable without a
     // network. It takes the SAME promotion step the verified download path
@@ -222,6 +240,7 @@ Q_SIGNALS:
     void downloadProgressChanged();
     void errorMessageChanged();
     void statusDetailChanged();
+    void artifactSourceChanged();
     void installTypeChanged();
     void automaticChecksEnabledChanged();
     void lastCheckTimeChanged();
@@ -236,11 +255,25 @@ Q_SIGNALS:
     void quitRequested();
 
 private:
+    // Which address of the ONE artifact an attempt is fetching. Both are
+    // verified against the same manifest sha256; the source only decides
+    // where the bytes are asked for.
+    enum class ArtifactSource {
+        Canonical,
+        Mirror,
+    };
+
     void setState(State state);
     void setErrorMessage(const QString &message);
     void setStatusDetail(const QString &detail);
+    void setArtifactSource(const QString &source);
     void failWith(const QString &message);
     bool isBusy() const;
+
+    // One download attempt: a fresh staging file, progress reset to zero, and
+    // the request issued at the chosen source's address.
+    void beginDownloadAttempt(ArtifactSource source);
+    void handleDownloadFinished(bool ok, TransferError error, const QString &message);
 
     void startCheck(bool automatic);
     void fetchSignature();
@@ -283,6 +316,7 @@ private:
     QUrl m_releaseNotesUrl;
     QString m_errorMessage;
     QString m_statusDetail;
+    QString m_artifactSource;
     QString m_handoffSummary;
     bool m_automaticChecksEnabled = false;
     QDateTime m_lastCheckTime;
@@ -305,6 +339,16 @@ private:
     std::unique_ptr<QFile> m_stagedFile;
     QString m_stagedPath;
     std::unique_ptr<QLockFile> m_lock;
+
+    // Mirror-first download state. The mirror is attempted at most once and
+    // the canonical address at most once; there is no third attempt and no
+    // second mirror try after the canonical address fails.
+    ArtifactSource m_attemptSource = ArtifactSource::Canonical;
+    bool m_mirrorFallbackUsed = false;
+    // A fallback is queued but has not started yet. Cancelling in that window
+    // must still cancel, so it is a state of its own rather than a gap.
+    bool m_fallbackPending = false;
+    ArtifactByteSource m_artifactByteSource;
 
     QString m_stagingRootOverride;
     QString m_helperPathOverride;

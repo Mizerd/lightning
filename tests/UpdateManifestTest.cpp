@@ -26,7 +26,8 @@
 #include <openssl/evp.h>
 
 using lightning::update::InstallType;
-using lightning::update::isAllowedUpdateUrl;
+using lightning::update::isAllowedArtifactUrl;
+using lightning::update::isAllowedManifestUrl;
 using lightning::update::isSafeArtifactFilename;
 using lightning::update::isValidSha256Hex;
 using lightning::update::ManifestChannel;
@@ -132,6 +133,21 @@ QString canonicalArtifactUrl(const QString &filename)
         .arg(lightning::update::canonicalUpdateHost(), filename);
 }
 
+// The first compiled-in bandwidth mirror. Empty in a build that trusts none.
+QString mirrorHost()
+{
+    const QStringList hosts = lightning::update::mirrorArtifactHosts();
+    return hosts.isEmpty() ? QString() : hosts.first();
+}
+
+// The immutable, version-specific asset form the release authority publishes
+// — never a "/releases/latest/download/..." address.
+QString mirrorArtifactUrl(const QString &filename)
+{
+    return QStringLiteral("https://%1/Mizerd/lightning/releases/download/v0.8.0/%2")
+        .arg(mirrorHost(), filename);
+}
+
 const QString kValidHash =
     QStringLiteral("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef");
 
@@ -144,6 +160,12 @@ QJsonObject artifactObject(const QString &filename = QStringLiteral("lightning_0
     artifact.insert(QStringLiteral("url"), canonicalArtifactUrl(filename));
     return artifact;
 }
+
+// baseManifest() with the single linux-deb entry carrying `mirror` as its
+// optional mirror_url. A QJsonValue so the "wrong type" cases are expressible.
+QJsonObject manifestWithMirror(const QJsonValue &mirror,
+                               const QString &filename = QStringLiteral(
+                                   "lightning_0.8.0_amd64.deb"));
 
 QJsonObject baseManifest()
 {
@@ -158,6 +180,18 @@ QJsonObject baseManifest()
 
     QJsonObject artifacts;
     artifacts.insert(QStringLiteral("linux-deb"), artifactObject());
+    manifest.insert(QStringLiteral("artifacts"), artifacts);
+    return manifest;
+}
+
+QJsonObject manifestWithMirror(const QJsonValue &mirror, const QString &filename)
+{
+    QJsonObject manifest = baseManifest();
+    QJsonObject artifact = artifactObject(filename);
+    if (!mirror.isUndefined())
+        artifact.insert(QStringLiteral("mirror_url"), mirror);
+    QJsonObject artifacts;
+    artifacts.insert(QStringLiteral("linux-deb"), artifact);
     manifest.insert(QStringLiteral("artifacts"), artifacts);
     return manifest;
 }
@@ -220,6 +254,16 @@ private slots:
     void rejectsAForeignHost();
     void rejectsAUrlThatDisagreesWithTheFilename();
     void rejectsAForeignReleaseNotesLink();
+    void rejectsAReleaseNotesLinkOnAMirrorHost();
+    void acceptsAnOptionalMirrorUrl();
+    void anArtifactWithoutAMirrorIsUnchanged();
+    void rejectsAMirrorOnAnUnlistedHost_data();
+    void rejectsAMirrorOnAnUnlistedHost();
+    void rejectsACanonicalUrlOnAMirrorHost();
+    void rejectsAnInsecureOrMalformedMirrorUrl_data();
+    void rejectsAnInsecureOrMalformedMirrorUrl();
+    void rejectsAMirrorThatDisagreesWithTheFilename();
+    void separatesMetadataAndArtifactHostPolicies();
     void ignoresUnknownFieldsAndArtifactKeys();
     void manifestCanNeverCarryACommand();
     void modelsEcosystemChannels();
@@ -596,6 +640,226 @@ void UpdateManifestTest::rejectsAForeignReleaseNotesLink()
     QCOMPARE(ok.manifest.releaseNotesUrl().host(), lightning::update::canonicalUpdateHost());
 }
 
+// Metadata is CANONICAL-ONLY. A bandwidth mirror may carry artifact bytes and
+// nothing else: this link describes the release, and the release authority is
+// GitLab. Accepting it from a mirror would let a mirror compromise put an
+// attacker's page in front of the user under Lightning's own "release notes"
+// affordance.
+void UpdateManifestTest::rejectsAReleaseNotesLinkOnAMirrorHost()
+{
+    if (mirrorHost().isEmpty())
+        QSKIP("this build trusts no artifact mirror");
+
+    QJsonObject manifest = baseManifest();
+    manifest.insert(QStringLiteral("release_notes_url"),
+                    QStringLiteral("https://%1/Mizerd/lightning/releases/tag/v0.8.0")
+                        .arg(mirrorHost()));
+    QCOMPARE(verify(manifest).error, ManifestError::ReleaseNotesUrlRejected);
+
+    // ...and the same address IS acceptable for artifact bytes, which is
+    // exactly the distinction the two predicates exist to keep.
+    QVERIFY(!isAllowedManifestUrl(
+        QUrl(QStringLiteral("https://%1/Mizerd/lightning/releases/tag/v0.8.0").arg(mirrorHost()))));
+    QVERIFY(isAllowedArtifactUrl(QUrl(mirrorArtifactUrl(QStringLiteral("x.deb")))));
+}
+
+// The canonical `url` is the fallback the mirror falls back TO, so it must be
+// the release authority's own host. If a manifest could name a mirror there as
+// well, both addresses could point at the same third party and a single outage
+// would leave no working source -- hash verification would still hold, but the
+// availability guarantee this whole design rests on would be gone.
+void UpdateManifestTest::rejectsACanonicalUrlOnAMirrorHost()
+{
+    if (mirrorHost().isEmpty())
+        QSKIP("this build trusts no artifact mirror");
+
+    const QString filename = QStringLiteral("lightning_0.8.0_amd64.deb");
+    QJsonObject manifest = baseManifest();
+    QJsonObject artifact = artifactObject(filename);
+    // A host that is perfectly acceptable for ARTIFACT bytes, used where only
+    // the canonical host belongs.
+    artifact.insert(QStringLiteral("url"), mirrorArtifactUrl(filename));
+    QJsonObject artifacts;
+    artifacts.insert(QStringLiteral("linux-deb"), artifact);
+    manifest.insert(QStringLiteral("artifacts"), artifacts);
+
+    const UpdateManifest::Result result = verify(manifest);
+    QVERIFY2(!result.ok, "a canonical URL on a mirror host must be refused");
+    QCOMPARE(result.error, ManifestError::ArtifactForeignHost);
+}
+
+void UpdateManifestTest::acceptsAnOptionalMirrorUrl()
+{
+    if (mirrorHost().isEmpty())
+        QSKIP("this build trusts no artifact mirror");
+
+    const QString filename = QStringLiteral("lightning_0.8.0_amd64.deb");
+    const UpdateManifest::Result result =
+        verify(manifestWithMirror(QJsonValue(mirrorArtifactUrl(filename))));
+    QVERIFY2(result.ok, qPrintable(result.message));
+    // schema stays 1: an optional field is compatible in both directions.
+    QCOMPARE(result.manifest.schema(), 1);
+
+    const auto artifact = result.manifest.artifactFor(InstallType::LinuxDeb);
+    QVERIFY(artifact.has_value());
+    QCOMPARE(artifact->mirrorUrl.toString(), mirrorArtifactUrl(filename));
+    QCOMPARE(artifact->mirrorUrl.host(), mirrorHost());
+    QCOMPARE(artifact->mirrorUrl.fileName(), filename);
+    // The canonical address is untouched and remains the fallback.
+    QCOMPARE(artifact->url.host(), lightning::update::canonicalUpdateHost());
+    // A mirror URL is a plain immutable asset address, never the moving
+    // "/releases/latest/download/..." form.
+    QVERIFY(!artifact->mirrorUrl.path().contains(QStringLiteral("releases/latest")));
+
+    // An explicit JSON null reads as "no mirror", not as a malformed one.
+    const UpdateManifest::Result nulled =
+        verify(manifestWithMirror(QJsonValue(QJsonValue::Null)));
+    QVERIFY2(nulled.ok, qPrintable(nulled.message));
+    QVERIFY(nulled.manifest.artifactFor(InstallType::LinuxDeb)->mirrorUrl.isEmpty());
+}
+
+void UpdateManifestTest::anArtifactWithoutAMirrorIsUnchanged()
+{
+    const UpdateManifest::Result result = verify(baseManifest());
+    QVERIFY2(result.ok, qPrintable(result.message));
+    const auto artifact = result.manifest.artifactFor(InstallType::LinuxDeb);
+    QVERIFY(artifact.has_value());
+    QVERIFY(artifact->mirrorUrl.isEmpty());
+    QVERIFY(!artifact->mirrorUrl.isValid());
+    QCOMPARE(artifact->url.toString(),
+             canonicalArtifactUrl(QStringLiteral("lightning_0.8.0_amd64.deb")));
+}
+
+void UpdateManifestTest::rejectsAMirrorOnAnUnlistedHost_data()
+{
+    QTest::addColumn<QString>("url");
+    const QString mirror = mirrorHost();
+    const QString file = QStringLiteral("lightning_0.8.0_amd64.deb");
+
+    QTest::newRow("unrelated host")
+        << QStringLiteral("https://evil.example/%1").arg(file);
+    // A suffix that merely ENDS with a mirror host must not pass, and neither
+    // must a subdomain of one: the match is exact.
+    QTest::newRow("suffix trick") << QStringLiteral("https://evil-%1/%2").arg(mirror, file);
+    QTest::newRow("subdomain trick")
+        << QStringLiteral("https://%1.evil.example/%2").arg(mirror, file);
+    QTest::newRow("credentials") << QStringLiteral("https://user:pass@%1/%2").arg(mirror, file);
+    QTest::newRow("non standard port")
+        << QStringLiteral("https://%1:8443/%2").arg(mirror, file);
+}
+
+// A manifest naming a host this build does not trust is a manifest to REFUSE,
+// not one to sanitise: silently dropping the bad field would act on a
+// document we have already decided is wrong about where bytes live.
+// An untrusted mirror host is IGNORED, not fatal. Failing the document would
+// be a fleet hazard: the day the project moves the mirror, every installed
+// client with an older compiled-in host list would reject every later manifest
+// outright -- including the perfectly good canonical address inside it -- and
+// could never be updated again. Dropping the field is fail-closed on trust and
+// merely gives up the bandwidth saving.
+void UpdateManifestTest::rejectsAMirrorOnAnUnlistedHost()
+{
+    if (mirrorHost().isEmpty())
+        QSKIP("this build trusts no artifact mirror");
+    QFETCH(QString, url);
+    const UpdateManifest::Result result = verify(manifestWithMirror(QJsonValue(url)));
+    QVERIFY2(result.ok, qPrintable(result.message));
+    QVERIFY(result.manifest.isValid());
+    QCOMPARE(result.manifest.untrustedMirrorCount(), 1);
+
+    const auto artifact = result.manifest.artifactFor(InstallType::LinuxDeb);
+    QVERIFY(artifact.has_value());
+    // The untrusted mirror is gone...
+    QVERIFY(artifact->mirrorUrl.isEmpty());
+    // ...and the artifact still downloads from the canonical source exactly as
+    // it did before mirrors existed.
+    QCOMPARE(artifact->url.host(), lightning::update::canonicalUpdateHost());
+    QCOMPARE(artifact->sha256, kValidHash);
+}
+
+void UpdateManifestTest::rejectsAnInsecureOrMalformedMirrorUrl_data()
+{
+    QTest::addColumn<QJsonValue>("mirror");
+    const QString mirror = mirrorHost();
+    const QString file = QStringLiteral("lightning_0.8.0_amd64.deb");
+
+    QTest::newRow("http") << QJsonValue(QStringLiteral("http://%1/%2").arg(mirror, file));
+    QTest::newRow("file") << QJsonValue(QStringLiteral("file:///tmp/%1").arg(file));
+    QTest::newRow("ftp") << QJsonValue(QStringLiteral("ftp://%1/%2").arg(mirror, file));
+    QTest::newRow("relative") << QJsonValue(QStringLiteral("/downloads/%1").arg(file));
+    QTest::newRow("empty string") << QJsonValue(QString());
+    QTest::newRow("not a string") << QJsonValue(42);
+    QTest::newRow("object") << QJsonValue(QJsonObject{ { QStringLiteral("url"), file } });
+}
+
+void UpdateManifestTest::rejectsAnInsecureOrMalformedMirrorUrl()
+{
+    if (mirrorHost().isEmpty())
+        QSKIP("this build trusts no artifact mirror");
+    QFETCH(QJsonValue, mirror);
+    const UpdateManifest::Result result = verify(manifestWithMirror(mirror));
+    QVERIFY(!result.ok);
+    QCOMPARE(result.error, ManifestError::ArtifactBadMirrorUrl);
+}
+
+// The same agreement the canonical address must keep: one entry describes ONE
+// file, so its size and sha256 refer to one thing whichever source serves it.
+void UpdateManifestTest::rejectsAMirrorThatDisagreesWithTheFilename()
+{
+    if (mirrorHost().isEmpty())
+        QSKIP("this build trusts no artifact mirror");
+    const UpdateManifest::Result result =
+        verify(manifestWithMirror(QJsonValue(mirrorArtifactUrl(QStringLiteral("other.deb")))));
+    QVERIFY(!result.ok);
+    QCOMPARE(result.error, ManifestError::ArtifactFilenameMismatch);
+}
+
+void UpdateManifestTest::separatesMetadataAndArtifactHostPolicies()
+{
+    const QString canonical = lightning::update::canonicalUpdateHost();
+    const QStringList mirrors = lightning::update::mirrorArtifactHosts();
+
+#ifndef LIGHTNING_UPDATE_MIRROR_HOSTS
+    // The documented default of a build that does not override the list.
+    QCOMPARE(mirrors,
+             (QStringList{ QStringLiteral("github.com"),
+                           QStringLiteral("objects.githubusercontent.com"),
+                           QStringLiteral("release-assets.githubusercontent.com") }));
+#endif
+
+    // Both roles accept the canonical host, and it is never duplicated in the
+    // mirror list.
+    QVERIFY(isAllowedManifestUrl(QUrl(QStringLiteral("https://%1/a/b").arg(canonical))));
+    QVERIFY(isAllowedArtifactUrl(QUrl(QStringLiteral("https://%1/a/b").arg(canonical))));
+    QVERIFY(!mirrors.contains(canonical));
+
+    for (const QString &host : mirrors) {
+        // Entries are lowercase bare hosts; nothing half-parsed survives.
+        QCOMPARE(host, host.toLower());
+        QVERIFY(!host.contains(QLatin1Char('/')));
+        QVERIFY(!host.contains(QLatin1Char(':')));
+        QVERIFY(!host.isEmpty());
+        // A mirror carries BYTES and never metadata.
+        const QUrl url(QStringLiteral("https://%1/Mizerd/lightning/releases/download/v0.8.0/a.deb")
+                           .arg(host));
+        QVERIFY2(isAllowedArtifactUrl(url), qPrintable(host));
+        QVERIFY2(!isAllowedManifestUrl(url), qPrintable(host));
+        // Every other transport rule still applies to a mirror.
+        QVERIFY(!isAllowedArtifactUrl(QUrl(QStringLiteral("http://%1/a.deb").arg(host))));
+        QVERIFY(!isAllowedArtifactUrl(QUrl(QStringLiteral("https://%1:8443/a.deb").arg(host))));
+        QVERIFY(!isAllowedArtifactUrl(QUrl(QStringLiteral("https://u:p@%1/a.deb").arg(host))));
+        QVERIFY(!isAllowedArtifactUrl(QUrl(QStringLiteral("https://evil-%1/a.deb").arg(host))));
+        QVERIFY(!isAllowedArtifactUrl(QUrl(QStringLiteral("https://%1.evil.example/a.deb").arg(host))));
+    }
+
+    // allowedUpdateHosts() is the diagnostic union, canonical first.
+    const QStringList all = lightning::update::allowedUpdateHosts();
+    QVERIFY(!all.isEmpty());
+    QCOMPARE(all.first(), canonical);
+    for (const QString &host : mirrors)
+        QVERIFY(all.contains(host));
+}
+
 void UpdateManifestTest::ignoresUnknownFieldsAndArtifactKeys()
 {
     QJsonObject manifest = baseManifest();
@@ -631,6 +895,12 @@ void UpdateManifestTest::manifestCanNeverCarryACommand()
     QJsonObject artifacts = manifest.value(QStringLiteral("artifacts")).toObject();
     QJsonObject artifact = artifacts.value(QStringLiteral("linux-deb")).toObject();
     artifact.insert(QStringLiteral("install_command"), payload);
+    // The mirror address is inside the signed bytes too, so it gets the same
+    // scrutiny: it is a URL and nothing else.
+    if (!mirrorHost().isEmpty()) {
+        artifact.insert(QStringLiteral("mirror_url"),
+                        mirrorArtifactUrl(QStringLiteral("lightning_0.8.0_amd64.deb")));
+    }
     artifacts.insert(QStringLiteral("linux-deb"), artifact);
     manifest.insert(QStringLiteral("artifacts"), artifacts);
 
@@ -645,6 +915,7 @@ void UpdateManifestTest::manifestCanNeverCarryACommand()
         parsed.artifactFor(InstallType::LinuxDeb)->filename,
         parsed.artifactFor(InstallType::LinuxDeb)->sha256,
         parsed.artifactFor(InstallType::LinuxDeb)->url.toString(),
+        parsed.artifactFor(InstallType::LinuxDeb)->mirrorUrl.toString(),
     };
     for (const QString &value : exposedStrings) {
         QVERIFY2(!value.contains(payload), qPrintable(value));
@@ -717,21 +988,28 @@ void UpdateManifestTest::validatesHashAndFilenameHelpers()
 void UpdateManifestTest::validatesUpdateUrls()
 {
     const QString host = lightning::update::canonicalUpdateHost();
-    QVERIFY(isAllowedUpdateUrl(QUrl(QStringLiteral("https://%1/a/b").arg(host))));
-    QVERIFY(isAllowedUpdateUrl(QUrl(QStringLiteral("https://%1:443/a/b").arg(host))));
-    QVERIFY(!isAllowedUpdateUrl(QUrl(QStringLiteral("http://%1/a/b").arg(host))));
-    QVERIFY(!isAllowedUpdateUrl(QUrl(QStringLiteral("https://%1:8443/a/b").arg(host))));
-    QVERIFY(!isAllowedUpdateUrl(QUrl(QStringLiteral("https://evil.example/a/b"))));
-    QVERIFY(!isAllowedUpdateUrl(QUrl(QStringLiteral("ftp://%1/a/b").arg(host))));
-    QVERIFY(!isAllowedUpdateUrl(QUrl(QStringLiteral("/relative/path"))));
-    QVERIFY(!isAllowedUpdateUrl(QUrl()));
+    // The transport rules are identical for both roles; only the accepted
+    // host set differs, so both predicates are asserted on each rule.
+    for (const auto &allowed : { &isAllowedManifestUrl, &isAllowedArtifactUrl }) {
+        QVERIFY((*allowed)(QUrl(QStringLiteral("https://%1/a/b").arg(host))));
+        QVERIFY((*allowed)(QUrl(QStringLiteral("https://%1:443/a/b").arg(host))));
+        QVERIFY(!(*allowed)(QUrl(QStringLiteral("http://%1/a/b").arg(host))));
+        QVERIFY(!(*allowed)(QUrl(QStringLiteral("https://%1:8443/a/b").arg(host))));
+        QVERIFY(!(*allowed)(QUrl(QStringLiteral("https://evil.example/a/b"))));
+        QVERIFY(!(*allowed)(QUrl(QStringLiteral("ftp://%1/a/b").arg(host))));
+        QVERIFY(!(*allowed)(QUrl(QStringLiteral("/relative/path"))));
+        QVERIFY(!(*allowed)(QUrl()));
+    }
 
-    // The endpoints this build will use are on the allowlist by
-    // construction, carry no query parameters and no credentials.
+    // The endpoints this build will use are METADATA: canonical host only,
+    // no query parameters, no credentials.
     for (const QUrl &url : { lightning::update::latestManifestUrl(),
                              lightning::update::latestManifestSignatureUrl(),
-                             lightning::update::manifestUrlForVersion(QStringLiteral("0.8.0")) }) {
-        QVERIFY(isAllowedUpdateUrl(url));
+                             lightning::update::manifestUrlForVersion(QStringLiteral("0.8.0")),
+                             lightning::update::manifestSignatureUrlForVersion(
+                                 QStringLiteral("0.8.0")) }) {
+        QVERIFY(isAllowedManifestUrl(url));
+        QCOMPARE(url.host(), host);
         QVERIFY(!url.hasQuery());
         QVERIFY(url.userInfo().isEmpty());
     }

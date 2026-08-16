@@ -75,6 +75,12 @@ UpdateTransferBase::~UpdateTransferBase()
     abortReply();
 }
 
+void UpdateTransferBase::resetTerminalStateForReuse()
+{
+    m_done = false;
+    m_cancelled = false;
+}
+
 void UpdateTransferBase::abortReply()
 {
     if (!m_reply)
@@ -111,12 +117,58 @@ void UpdateTransferBase::beginTransfer(const QUrl &url, const QByteArray &userAg
         fail(TransferError::Network);
         return;
     }
-    if (!isAllowedUpdateUrl(url)) {
+    if (!isPermittedUrl(url)) {
         fail(url.scheme() == QLatin1String("https") ? TransferError::ForeignHost
                                                     : TransferError::InsecureUrl);
         return;
     }
     issueRequest(url);
+}
+
+void UpdateTransferBase::deliverOfflineForTest(const QUrl &url, qint64 maxBytes,
+                                               const std::optional<QByteArray> &bytes)
+{
+    m_userAgent.clear();
+    m_maxBytes = maxBytes;
+    m_received = 0;
+    m_declaredTotal = -1;
+    m_redirects = 0;
+    m_cancelled = false;
+    m_done = false;
+
+    // The same host policy the network path applies, in the same place.
+    if (!isPermittedUrl(url)) {
+        fail(url.scheme() == QLatin1String("https") ? TransferError::ForeignHost
+                                                    : TransferError::InsecureUrl);
+        return;
+    }
+    m_url = url;
+    if (!bytes) {
+        // DNS failure, TLS failure, 404, 500 — indistinguishable here and
+        // treated exactly as the network path treats them.
+        fail(TransferError::Network);
+        return;
+    }
+
+    const QByteArray &body = *bytes;
+    constexpr qsizetype kChunk = 64 * 1024;
+    for (qsizetype offset = 0; offset < body.size(); offset += kChunk) {
+        const QByteArray chunk = body.mid(offset, kChunk);
+        m_received += chunk.size();
+        if (m_maxBytes > 0 && m_received > m_maxBytes) {
+            fail(TransferError::SizeExceeded);
+            return;
+        }
+        onChunk(chunk);
+        if (m_done)
+            return; // onChunk reported its own failure
+    }
+    Q_EMIT progress(m_received, m_maxBytes > 0 ? m_maxBytes : m_received);
+
+    QString message;
+    if (!onCompleted(&message))
+        return; // onCompleted already reported the specific failure
+    succeed();
 }
 
 void UpdateTransferBase::issueRequest(const QUrl &url)
@@ -228,7 +280,10 @@ void UpdateTransferBase::handleFinished()
             fail(TransferError::InsecureUrl);
             return;
         }
-        if (!isAllowedUpdateUrl(resolved)) {
+        // Same role, same policy: a mirror artifact download may hop to the
+        // mirror's object host, a manifest fetch may not hop anywhere but the
+        // canonical host.
+        if (!isPermittedUrl(resolved)) {
             fail(TransferError::ForeignHost);
             return;
         }
@@ -304,6 +359,13 @@ void UpdateDocumentFetcher::start(const QUrl &url, qint64 maxBytes, const QByteA
     beginTransfer(url, userAgent, maxBytes);
 }
 
+bool UpdateDocumentFetcher::isPermittedUrl(const QUrl &url) const
+{
+    // Metadata: canonical host ONLY. A mirror must never be able to serve a
+    // manifest or a signature.
+    return isAllowedManifestUrl(url);
+}
+
 void UpdateDocumentFetcher::onChunk(const QByteArray &chunk)
 {
     m_buffer.append(chunk);
@@ -334,6 +396,8 @@ void UpdateDownloader::start(const QUrl &url, qint64 expectedSize,
     m_hash.reset();
     m_writeFailed = false;
 
+    resetTerminalStateForReuse();
+
     if (!target || !target->isOpen() || !target->isWritable()) {
         fail(TransferError::FileError);
         return;
@@ -355,6 +419,33 @@ void UpdateDownloader::prepareForTest(QFile *target, qint64 expectedSize,
     m_expectedHash = expectedSha256Hex.toLower();
     m_hash.reset();
     m_writeFailed = false;
+}
+
+void UpdateDownloader::deliverForTest(const QUrl &url, qint64 expectedSize,
+                                      const QString &expectedSha256Hex, QFile *target,
+                                      const std::optional<QByteArray> &bytes)
+{
+    // Byte for byte the preparation start() performs, including both refusals
+    // below: an unverifiable download is never started here either.
+    prepareForTest(target, expectedSize, expectedSha256Hex);
+    resetTerminalStateForReuse();
+    if (!target || !target->isOpen() || !target->isWritable()) {
+        fail(TransferError::FileError);
+        return;
+    }
+    if (expectedSize <= 0 || m_expectedHash.size() != 64) {
+        fail(TransferError::SizeMismatch);
+        return;
+    }
+    deliverOfflineForTest(url, expectedSize, bytes);
+}
+
+bool UpdateDownloader::isPermittedUrl(const QUrl &url) const
+{
+    // Artifact bytes: canonical host or a compiled-in bandwidth mirror.
+    // Whatever serves them, they are installable only after the manifest's
+    // size and SHA-256 have both matched.
+    return isAllowedArtifactUrl(url);
 }
 
 void UpdateDownloader::onChunk(const QByteArray &chunk)

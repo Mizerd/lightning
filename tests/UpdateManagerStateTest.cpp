@@ -19,6 +19,7 @@
 #include "update/UpdateTrustStore.h"
 
 #include <QCoreApplication>
+#include <QCryptographicHash>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -26,15 +27,18 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonValue>
+#include <QLockFile>
 #include <QSettings>
 #include <QSignalSpy>
 #include <QStandardPaths>
 #include <QTemporaryDir>
+#include <QUrl>
 #include <QtTest/QtTest>
 
 #include <openssl/evp.h>
 
 #include <memory>
+#include <optional>
 
 using lightning::update::InstallDetection;
 using lightning::update::InstallType;
@@ -171,6 +175,99 @@ QJsonObject manifestWithArtifact(const QString &version, const QString &installT
     return manifest;
 }
 
+// --- mirror-first download fixtures ---------------------------------------
+//
+// These use REAL bytes and their REAL SHA-256, because the whole point of the
+// mirror path is that both sources are verified against the one hash in the
+// signed manifest.
+
+const QByteArray &payloadBytes()
+{
+    static const QByteArray bytes = QByteArray(4096, 'L');
+    return bytes;
+}
+
+// Same LENGTH, different content: a pure integrity failure, not a size one.
+const QByteArray &tamperedBytes()
+{
+    static const QByteArray bytes = QByteArray(4096, 'X');
+    return bytes;
+}
+
+QString payloadSha256()
+{
+    return QString::fromLatin1(
+        QCryptographicHash::hash(payloadBytes(), QCryptographicHash::Sha256).toHex());
+}
+
+QString mirrorHost()
+{
+    const QStringList hosts = lightning::update::mirrorArtifactHosts();
+    return hosts.isEmpty() ? QString() : hosts.first();
+}
+
+QString mirrorArtifactUrl(const QString &version, const QString &filename)
+{
+    return QStringLiteral("https://%1/Mizerd/lightning/releases/download/v%2/%3")
+        .arg(mirrorHost(), version, filename);
+}
+
+// A manifest whose linux-deb entry describes payloadBytes() exactly, with an
+// optional mirror_url. `mirror` empty = no mirror at all.
+QJsonObject downloadableManifest(const QString &version, const QString &mirror = QString())
+{
+    const QString filename = QStringLiteral("lightning_%1_amd64.deb").arg(version);
+    QJsonObject artifact;
+    artifact.insert(QStringLiteral("filename"), filename);
+    artifact.insert(QStringLiteral("size"), qint64(payloadBytes().size()));
+    artifact.insert(QStringLiteral("sha256"), payloadSha256());
+    artifact.insert(QStringLiteral("url"), artifactUrl(version, filename));
+    if (!mirror.isEmpty())
+        artifact.insert(QStringLiteral("mirror_url"), mirror);
+
+    QJsonObject artifacts;
+    artifacts.insert(QStringLiteral("linux-deb"), artifact);
+    QJsonObject manifest = manifestObject(version, /*withDebArtifact=*/false);
+    manifest.insert(QStringLiteral("artifacts"), artifacts);
+    return manifest;
+}
+
+QJsonObject mirroredManifest(const QString &version)
+{
+    return downloadableManifest(
+        version, mirrorArtifactUrl(version, QStringLiteral("lightning_%1_amd64.deb").arg(version)));
+}
+
+// Records every address a download attempt asks for, and answers each with
+// canned bytes (or a transport failure). Nothing here can weaken verification:
+// the manager streams whatever this returns through the real downloader, and
+// the manifest's size and SHA-256 still decide the outcome.
+class ByteSourceRecorder
+{
+public:
+    QList<QUrl> requests;
+    QHash<QString, QByteArray> bodies; // url -> bytes; absent = unreachable
+
+    void serve(const QString &url, const QByteArray &bytes) { bodies.insert(url, bytes); }
+
+    std::optional<QByteArray> operator()(const QUrl &url)
+    {
+        requests.append(url);
+        const auto it = bodies.constFind(url.toString());
+        if (it == bodies.constEnd())
+            return std::nullopt;
+        return *it;
+    }
+
+    QStringList requestedHosts() const
+    {
+        QStringList hosts;
+        for (const QUrl &url : requests)
+            hosts.append(url.host());
+        return hosts;
+    }
+};
+
 // The exact JSON shape src/updater/main.cpp writeStatus() produces.
 bool writeHelperStatus(const QString &stagingRoot, bool ok, const QString &mode,
                        const QString &error)
@@ -249,6 +346,45 @@ private:
         manager->ingestCheckDocuments(bytes, sign(bytes));
     }
 
+    // A manager with its OWN staging directory (so what a download left
+    // behind can be asserted) and a recorded byte source instead of a
+    // network. Verification is untouched by the seam.
+    std::unique_ptr<UpdateManager> makeDownloadManager(const QString &stagingRoot,
+                                                       ByteSourceRecorder *source)
+    {
+        auto manager = makeManager(InstallType::LinuxDeb, QStringLiteral("0.7.0"));
+        manager->setStagingRootForTest(stagingRoot);
+        manager->setArtifactByteSourceForTest(
+            [source](const QUrl &url) { return (*source)(url); });
+        return manager;
+    }
+
+    // Everything in the staging root except the single-instance lock.
+    static QStringList stagedFiles(const QString &root)
+    {
+        QStringList names;
+        const QFileInfoList entries =
+            QDir(root).entryInfoList(QDir::Files | QDir::NoDotAndDotDot);
+        for (const QFileInfo &entry : entries) {
+            if (entry.fileName() == QLatin1String("update.lock"))
+                continue;
+            names.append(entry.fileName());
+        }
+        names.sort();
+        return names;
+    }
+
+    // The download lock is genuinely free again.
+    static bool updateLockIsFree(const QString &root)
+    {
+        QLockFile probe(QDir(root).absoluteFilePath(QStringLiteral("update.lock")));
+        probe.setStaleLockTime(60 * 60 * 1000);
+        if (!probe.tryLock(0))
+            return false;
+        probe.unlock();
+        return true;
+    }
+
 private slots:
     void initTestCase();
     void init();
@@ -289,6 +425,16 @@ private slots:
     void unusableStatusFileIsSimplyNoResult();
     void staleStagedArtifactsAreSweptAtStartup();
     void aRedirectThatCannotTruncateReportsAFailure();
+
+    // --- GitHub bandwidth mirror (mirror-first, one canonical fallback) ---
+    void usesTheMirrorFirstWhenTheManifestNamesOne();
+    void fallsBackToTheCanonicalSourceWhenTheMirrorIsUnreachable();
+    void fallsBackWhenTheMirrorServesModifiedBytes();
+    void bothSourcesFailingIsOneCleanTerminalFailure();
+    void anArtifactWithoutAMirrorDownloadsExactlyAsBefore();
+    void aMirrorResponseIsNeverReadAsMetadata();
+    void cancellingBetweenAttemptsStopsTheFallback();
+    void updateSourcesNeverUseTheGitHubApi();
 };
 
 void UpdateManagerStateTest::initTestCase()
@@ -1139,6 +1285,354 @@ void UpdateManagerStateTest::aRedirectThatCannotTruncateReportsAFailure()
     QCOMPARE(writable.size(), qint64(0));
     writable.close();
     QFile::remove(path);
+}
+
+// ---------------------------------------------------------------------------
+// GitHub bandwidth mirror.
+//
+// GitLab decides WHAT may be installed; GitHub is only a faster place to get
+// the bytes that decision already named, sized and hashed. Every case below
+// exists to keep that asymmetry true.
+// ---------------------------------------------------------------------------
+
+void UpdateManagerStateTest::usesTheMirrorFirstWhenTheManifestNamesOne()
+{
+    if (mirrorHost().isEmpty())
+        QSKIP("this build trusts no artifact mirror");
+
+    QTemporaryDir root;
+    QVERIFY(root.isValid());
+    const QString version = QStringLiteral("0.8.0");
+    const QString filename = QStringLiteral("lightning_%1_amd64.deb").arg(version);
+
+    ByteSourceRecorder source;
+    source.serve(mirrorArtifactUrl(version, filename), payloadBytes());
+    source.serve(artifactUrl(version, filename), payloadBytes());
+
+    const auto manager = makeDownloadManager(root.path(), &source);
+    ingest(manager.get(), mirroredManifest(version));
+    QCOMPARE(manager->state(), UpdateManager::UpdateAvailable);
+
+    manager->downloadUpdate();
+    QTRY_COMPARE(manager->state(), UpdateManager::ReadyToInstall);
+
+    // The mirror was asked FIRST, and once it answered correctly the
+    // canonical address was never contacted at all.
+    QCOMPARE(source.requests.size(), 1);
+    QCOMPARE(source.requests.first().host(), mirrorHost());
+    QCOMPARE(manager->artifactSource(), QStringLiteral("mirror"));
+    QVERIFY(manager->errorMessage().isEmpty());
+    QVERIFY(manager->statusDetail().isEmpty());
+
+    // What landed is the verified payload, under the manifest's own name.
+    const QString staged = manager->stagedArtifactPathForTest();
+    QCOMPARE(QFileInfo(staged).fileName(), filename);
+    QFile file(staged);
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    QCOMPARE(file.readAll(), payloadBytes());
+}
+
+void UpdateManagerStateTest::fallsBackToTheCanonicalSourceWhenTheMirrorIsUnreachable()
+{
+    if (mirrorHost().isEmpty())
+        QSKIP("this build trusts no artifact mirror");
+
+    QTemporaryDir root;
+    QVERIFY(root.isValid());
+    const QString version = QStringLiteral("0.8.0");
+    const QString filename = QStringLiteral("lightning_%1_amd64.deb").arg(version);
+
+    // The mirror is simply not there (DNS failure / 404 / 500 — all the same
+    // from here). Only the canonical address answers.
+    ByteSourceRecorder source;
+    source.serve(artifactUrl(version, filename), payloadBytes());
+
+    const auto manager = makeDownloadManager(root.path(), &source);
+    ingest(manager.get(), mirroredManifest(version));
+    manager->downloadUpdate();
+    QTRY_COMPARE(manager->state(), UpdateManager::ReadyToInstall);
+
+    QCOMPARE(source.requestedHosts(),
+             (QStringList{ mirrorHost(), lightning::update::canonicalUpdateHost() }));
+    QCOMPARE(manager->artifactSource(), QStringLiteral("canonical"));
+    QVERIFY(manager->errorMessage().isEmpty());
+    // A persistently useless mirror must be visible, not silent.
+    QVERIFY(manager->statusDetail().contains(QStringLiteral("mirror")));
+
+    QCOMPARE(manager->totalBytes(), qint64(payloadBytes().size()));
+    QCOMPARE(manager->downloadedBytes(), qint64(payloadBytes().size()));
+    QCOMPARE(manager->downloadProgress(), 1.0);
+
+    // Exactly one file is left: the verified artifact. The mirror attempt's
+    // partial file was removed before the fallback wrote a single byte.
+    QCOMPARE(stagedFiles(root.path()), QStringList{ filename });
+    QFile file(manager->stagedArtifactPathForTest());
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    QCOMPARE(file.readAll(), payloadBytes());
+}
+
+void UpdateManagerStateTest::fallsBackWhenTheMirrorServesModifiedBytes()
+{
+    if (mirrorHost().isEmpty())
+        QSKIP("this build trusts no artifact mirror");
+
+    QTemporaryDir root;
+    QVERIFY(root.isValid());
+    const QString version = QStringLiteral("0.8.0");
+    const QString filename = QStringLiteral("lightning_%1_amd64.deb").arg(version);
+
+    // A compromised or corrupt mirror serving the RIGHT length and the WRONG
+    // content: a pure integrity failure. Falling back preserves availability,
+    // and the installed bytes are still the ones the signed manifest hashed.
+    ByteSourceRecorder source;
+    source.serve(mirrorArtifactUrl(version, filename), tamperedBytes());
+    source.serve(artifactUrl(version, filename), payloadBytes());
+
+    const auto manager = makeDownloadManager(root.path(), &source);
+    // Every value downloadProgressChanged reported, in order.
+    QList<qint64> observed;
+    QObject::connect(manager.get(), &UpdateManager::downloadProgressChanged, manager.get(),
+                     [&]() { observed.append(manager->downloadedBytes()); });
+
+    ingest(manager.get(), mirroredManifest(version));
+    manager->downloadUpdate();
+    QTRY_COMPARE(manager->state(), UpdateManager::ReadyToInstall);
+
+    QCOMPARE(source.requestedHosts(),
+             (QStringList{ mirrorHost(), lightning::update::canonicalUpdateHost() }));
+    QCOMPARE(manager->artifactSource(), QStringLiteral("canonical"));
+    QVERIFY(manager->statusDetail().contains(QStringLiteral("mirror")));
+
+    // The mirror streamed a full 4096 bytes before failing its hash, so this
+    // is where double-counting would show: progress must have gone back to
+    // ZERO for the fallback rather than continuing from the failed attempt.
+    const qint64 size = payloadBytes().size();
+    QString trace;
+    for (const qint64 value : observed)
+        trace += QString::number(value) + QLatin1Char(' ');
+    QVERIFY2(observed.contains(size), qPrintable(trace));
+    QVERIFY2(observed.lastIndexOf(qint64(0)) > observed.indexOf(size), qPrintable(trace));
+    QCOMPARE(manager->downloadedBytes(), size);
+    QCOMPARE(manager->totalBytes(), size);
+
+    // The tampered bytes reached nothing: they were discarded, and the file
+    // that exists is byte-for-byte the manifest's payload.
+    QCOMPARE(stagedFiles(root.path()), QStringList{ filename });
+    QFile file(manager->stagedArtifactPathForTest());
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    const QByteArray installed = file.readAll();
+    QCOMPARE(installed, payloadBytes());
+    QVERIFY(installed != tamperedBytes());
+    QCOMPARE(QString::fromLatin1(
+                 QCryptographicHash::hash(installed, QCryptographicHash::Sha256).toHex()),
+             payloadSha256());
+}
+
+void UpdateManagerStateTest::bothSourcesFailingIsOneCleanTerminalFailure()
+{
+    if (mirrorHost().isEmpty())
+        QSKIP("this build trusts no artifact mirror");
+
+    QTemporaryDir root;
+    QVERIFY(root.isValid());
+    const QString version = QStringLiteral("0.8.0");
+
+    ByteSourceRecorder source; // nothing is served: both addresses fail
+
+    const auto manager = makeDownloadManager(root.path(), &source);
+    QSignalSpy stateSpy(manager.get(), &UpdateManager::stateChanged);
+    ingest(manager.get(), mirroredManifest(version));
+    manager->downloadUpdate();
+    QTRY_COMPARE(manager->state(), UpdateManager::Failed);
+
+    // Two attempts, in that order, and NO third — the mirror is never
+    // retried after the canonical address fails.
+    QCOMPARE(source.requestedHosts(),
+             (QStringList{ mirrorHost(), lightning::update::canonicalUpdateHost() }));
+    QCoreApplication::processEvents();
+    QCOMPARE(source.requests.size(), 2);
+    QCOMPARE(manager->state(), UpdateManager::Failed);
+
+    // One clean terminal failure: nothing partial on disk, the
+    // single-instance lock released, and no address in the message.
+    QCOMPARE(stagedFiles(root.path()), QStringList{});
+    QVERIFY(updateLockIsFree(root.path()));
+    QVERIFY(!manager->errorMessage().isEmpty());
+    QVERIFY(!manager->errorMessage().contains(mirrorHost()));
+    QVERIFY(!manager->errorMessage().contains(lightning::update::canonicalUpdateHost()));
+    QVERIFY(!manager->errorMessage().contains(QStringLiteral("http")));
+    QVERIFY(manager->artifactSource().isEmpty());
+    QVERIFY(stateSpy.count() >= 1);
+}
+
+void UpdateManagerStateTest::anArtifactWithoutAMirrorDownloadsExactlyAsBefore()
+{
+    QTemporaryDir root;
+    QVERIFY(root.isValid());
+    const QString version = QStringLiteral("0.8.0");
+    const QString filename = QStringLiteral("lightning_%1_amd64.deb").arg(version);
+
+    ByteSourceRecorder source;
+    source.serve(artifactUrl(version, filename), payloadBytes());
+
+    const auto manager = makeDownloadManager(root.path(), &source);
+    ingest(manager.get(), downloadableManifest(version)); // no mirror_url
+    QCOMPARE(manager->state(), UpdateManager::UpdateAvailable);
+
+    manager->downloadUpdate();
+    QTRY_COMPARE(manager->state(), UpdateManager::ReadyToInstall);
+
+    // One request, to the canonical address, and no mirror talk anywhere.
+    QCOMPARE(source.requestedHosts(),
+             QStringList{ lightning::update::canonicalUpdateHost() });
+    QCOMPARE(manager->artifactSource(), QStringLiteral("canonical"));
+    QVERIFY(manager->statusDetail().isEmpty());
+    QCOMPARE(stagedFiles(root.path()), QStringList{ filename });
+}
+
+// GitHub can advertise whatever it likes: nothing it returns is read as
+// metadata. The mirror body here is a plausible GitHub release-API document
+// naming a much newer version; it is treated as bytes, hashed, rejected, and
+// the version decision stays exactly where the signed manifest put it.
+void UpdateManagerStateTest::aMirrorResponseIsNeverReadAsMetadata()
+{
+    if (mirrorHost().isEmpty())
+        QSKIP("this build trusts no artifact mirror");
+
+    QTemporaryDir root;
+    QVERIFY(root.isValid());
+    const QString version = QStringLiteral("0.8.0");
+    const QString filename = QStringLiteral("lightning_%1_amd64.deb").arg(version);
+
+    // Deliberately NOT a raw string literal: moc's preprocessor ends the
+    // macro argument at the first ')' inside R"(...)".
+    QByteArray githubish = QByteArrayLiteral(
+        "{\"tag_name\":\"v99.0.0\",\"name\":\"Lightning 99.0.0\",\"draft\":false,"
+        "\"assets\":[{\"browser_download_url\":\"https://evil.example/payload.deb\"}]}");
+    githubish.append(QByteArray(payloadBytes().size() - githubish.size(), ' '));
+    QCOMPARE(githubish.size(), payloadBytes().size());
+
+    ByteSourceRecorder source;
+    source.serve(mirrorArtifactUrl(version, filename), githubish);
+    source.serve(artifactUrl(version, filename), payloadBytes());
+
+    const auto manager = makeDownloadManager(root.path(), &source);
+    ingest(manager.get(), mirroredManifest(version));
+    manager->downloadUpdate();
+    QTRY_COMPARE(manager->state(), UpdateManager::ReadyToInstall);
+
+    // The version, the notes and the staged bytes all still come from the
+    // signed manifest alone.
+    QCOMPARE(manager->latestVersion(), version);
+    QCOMPARE(manager->releaseNotes(), QStringLiteral("Notes for ") + version);
+    QVERIFY(!manager->releaseNotes().contains(QStringLiteral("99.0.0")));
+    QVERIFY(!manager->statusDetail().contains(QStringLiteral("99.0.0")));
+    QVERIFY(!manager->errorMessage().contains(QStringLiteral("99.0.0")));
+    QCOMPARE(manager->artifactSource(), QStringLiteral("canonical"));
+
+    QFile file(manager->stagedArtifactPathForTest());
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    const QByteArray installed = file.readAll();
+    QCOMPARE(installed, payloadBytes());
+    QVERIFY(!installed.contains("browser_download_url"));
+    QVERIFY(!installed.contains("evil.example"));
+}
+
+// The fallback is queued rather than run inside the failed attempt's own
+// signal, so there is a window between the two attempts. Cancelling in it
+// must still cancel — otherwise the canonical download would start after the
+// user said stop.
+void UpdateManagerStateTest::cancellingBetweenAttemptsStopsTheFallback()
+{
+    if (mirrorHost().isEmpty())
+        QSKIP("this build trusts no artifact mirror");
+
+    QTemporaryDir root;
+    QVERIFY(root.isValid());
+    const QString version = QStringLiteral("0.8.0");
+    const QString filename = QStringLiteral("lightning_%1_amd64.deb").arg(version);
+
+    ByteSourceRecorder source;
+    source.serve(artifactUrl(version, filename), payloadBytes()); // would succeed
+
+    const auto manager = makeDownloadManager(root.path(), &source);
+    ingest(manager.get(), mirroredManifest(version));
+    manager->downloadUpdate();
+
+    // The mirror has failed and the fallback is queued but has not run.
+    QCOMPARE(source.requests.size(), 1);
+    QCOMPARE(manager->state(), UpdateManager::Downloading);
+
+    manager->cancelDownload();
+    QCOMPARE(manager->state(), UpdateManager::UpdateAvailable);
+    QVERIFY(manager->statusDetail().contains(QStringLiteral("cancelled")));
+
+    QCoreApplication::processEvents();
+    // The queued fallback did not fire, nothing was staged, and the lock is
+    // free again.
+    QCOMPARE(source.requests.size(), 1);
+    QCOMPARE(manager->state(), UpdateManager::UpdateAvailable);
+    QVERIFY(manager->artifactSource().isEmpty());
+    QCOMPARE(stagedFiles(root.path()), QStringList{});
+    QVERIFY(updateLockIsFree(root.path()));
+}
+
+// The absolute rule of the mirror design, asserted against the sources
+// themselves: Lightning never talks to a GitHub API, never reads
+// /releases/latest, and never derives a download address from a GitHub
+// response. A mirror response can only ever be artifact bytes that are then
+// hashed.
+void UpdateManagerStateTest::updateSourcesNeverUseTheGitHubApi()
+{
+    QString sourceDir;
+#ifdef LIGHTNING_UPDATE_SOURCE_DIR
+    if (QFileInfo::exists(QString::fromLatin1(LIGHTNING_UPDATE_SOURCE_DIR)
+                          + QStringLiteral("/UpdateEndpoints.cpp"))) {
+        sourceDir = QString::fromLatin1(LIGHTNING_UPDATE_SOURCE_DIR);
+    }
+#endif
+    // Otherwise walk up from the test binary (and the working directory):
+    // both build trees live inside the source tree.
+    for (const QString &start :
+         { QCoreApplication::applicationDirPath(), QDir::currentPath() }) {
+        if (!sourceDir.isEmpty())
+            break;
+        QDir dir(start);
+        for (int depth = 0; depth < 8; ++depth) {
+            const QString candidate = dir.absoluteFilePath(QStringLiteral("src/update"));
+            if (QFileInfo::exists(candidate + QStringLiteral("/UpdateEndpoints.cpp"))) {
+                sourceDir = candidate;
+                break;
+            }
+            if (!dir.cdUp())
+                break;
+        }
+    }
+    QVERIFY2(!sourceDir.isEmpty(), "could not locate src/update to scan");
+
+    const QFileInfoList files =
+        QDir(sourceDir).entryInfoList(QStringList{ QStringLiteral("*.h"), QStringLiteral("*.cpp") },
+                                      QDir::Files);
+    QVERIFY(files.size() >= 8);
+
+    // Concrete GitHub-API tokens. A comment may say the words "GitHub API";
+    // what must not exist is a way to CALL one.
+    const QStringList forbidden{
+        QStringLiteral("api.github.com"), QStringLiteral("uploads.github.com"),
+        QStringLiteral("releases/latest"), QStringLiteral("vnd.github"),
+        QStringLiteral("/repos/"),
+    };
+    for (const QFileInfo &info : files) {
+        QFile file(info.absoluteFilePath());
+        QVERIFY2(file.open(QIODevice::ReadOnly | QIODevice::Text),
+                 qPrintable(info.absoluteFilePath()));
+        const QString text = QString::fromUtf8(file.readAll());
+        for (const QString &token : forbidden) {
+            QVERIFY2(!text.contains(token, Qt::CaseInsensitive),
+                     qPrintable(QStringLiteral("%1 contains %2")
+                                    .arg(info.fileName(), token)));
+        }
+    }
 }
 
 QTEST_GUILESS_MAIN(UpdateManagerStateTest)

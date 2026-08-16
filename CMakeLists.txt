@@ -88,9 +88,31 @@ set(LIGHTNING_INSTALL_TYPE "development" CACHE STRING
 set(LIGHTNING_UPDATE_PUBKEY_2026A "" CACHE STRING
     "Base64 Ed25519 public key for update-manifest key id lightning-release-2026a")
 set(LIGHTNING_UPDATE_HOST "gitlab.smetonis.net" CACHE STRING
-    "Canonical host Lightning will accept update artifacts from")
+    "Canonical host: the ONLY source of update metadata, and the fallback for artifacts")
 set(LIGHTNING_UPDATE_PROJECT_ID "6" CACHE STRING
     "GitLab project id hosting the update package registry")
+
+# Hosts that may serve artifact BYTES in addition to the canonical host, so the
+# GitHub mirror can carry the download traffic. This is deliberately narrow:
+# these hosts may supply bytes that are then checked against the SHA-256 in the
+# signed manifest, and nothing else. They can never serve the manifest, its
+# signature or the release notes, and nothing they return influences which
+# version is installed -- see docs/updates.md and src/update/UpdateEndpoints.h.
+# github.com issues the redirect; the *.githubusercontent.com hosts serve the
+# object it redirects to.
+set(LIGHTNING_UPDATE_MIRROR_HOSTS
+    "github.com;objects.githubusercontent.com;release-assets.githubusercontent.com"
+    CACHE STRING
+    "Semicolon-separated hosts allowed to serve update ARTIFACTS (never metadata)")
+
+# The cache value is a CMake list, and a list expands to SEPARATE arguments
+# inside target_compile_definitions -- "a;b;c" becomes -DX="a -Db -Dc", which
+# gcc rejects outright ("macro names must be identifiers"). Hand the macro a
+# comma-separated string instead; the parser in UpdateEndpoints.cpp accepts
+# either separator. ($<SEMICOLON> does NOT help here: the split happens before
+# the generator expression is evaluated. Verified both ways with a probe.)
+string(REPLACE ";" "," LIGHTNING_UPDATE_MIRROR_HOSTS_MACRO
+    "${LIGHTNING_UPDATE_MIRROR_HOSTS}")
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -643,6 +665,7 @@ function(_lightning_configure_qml_module target _scope)
         LIGHTNING_INSTALL_TYPE="${LIGHTNING_INSTALL_TYPE}"
         LIGHTNING_UPDATE_PUBKEY_2026A="${LIGHTNING_UPDATE_PUBKEY_2026A}"
         LIGHTNING_UPDATE_HOST="${LIGHTNING_UPDATE_HOST}"
+        LIGHTNING_UPDATE_MIRROR_HOSTS="${LIGHTNING_UPDATE_MIRROR_HOSTS_MACRO}"
         LIGHTNING_UPDATE_PROJECT_ID="${LIGHTNING_UPDATE_PROJECT_ID}"
     )
     # DBus is a Linux/BSD desktop concept: freedesktop notifications and the
@@ -2671,6 +2694,21 @@ if(BUILD_TESTING)
         src/update/UpdateDownloader.cpp
         src/update/UpdateManager.cpp)
     target_include_directories(update-manager-state-test PRIVATE src)
+    # The suite scans the update sources to prove no GitHub API is reachable
+    # from them. Give it the path rather than letting it guess from the binary
+    # location, so it can hard-fail instead of silently finding nothing.
+    target_compile_definitions(update-manager-state-test PRIVATE
+        LIGHTNING_UPDATE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src/update")
+
+    # Both update suites compile src/update/*.cpp themselves, so without these
+    # they would validate the header DEFAULTS while the shipped application
+    # validates the configured values -- the suites would stop being evidence
+    # about a build that overrides either variable.
+    foreach(_update_test IN ITEMS update-manifest-test update-manager-state-test)
+        target_compile_definitions(${_update_test} PRIVATE
+            LIGHTNING_UPDATE_HOST="${LIGHTNING_UPDATE_HOST}"
+            LIGHTNING_UPDATE_MIRROR_HOSTS="${LIGHTNING_UPDATE_MIRROR_HOSTS_MACRO}")
+    endforeach()
     target_link_libraries(update-manager-state-test
         PRIVATE Qt6::Core Qt6::Network Qt6::Qml Qt6::Test OpenSSL::Crypto)
     add_test(NAME update-manager-state COMMAND update-manager-state-test)

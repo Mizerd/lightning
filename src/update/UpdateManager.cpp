@@ -39,6 +39,10 @@ constexpr char kPartialArtifactTemplate[] = "lightning-update-XXXXXX.part";
 constexpr char kStatusFileName[] = "update-status.json";
 constexpr char kLockFileName[] = "update.lock";
 
+// Diagnostic roles for artifactSource. Deliberately not a host or a URL.
+constexpr char kSourceMirror[] = "mirror";
+constexpr char kSourceCanonical[] = "canonical";
+
 // The helper writes only enum-derived tokens here, but this string is shown
 // to a user, so it is bounded and stripped of anything that could rewrite a
 // line of UI. No path, token or command can be in it in the first place.
@@ -147,6 +151,14 @@ void UpdateManager::setStatusDetail(const QString &detail)
     Q_EMIT statusDetailChanged();
 }
 
+void UpdateManager::setArtifactSource(const QString &source)
+{
+    if (m_artifactSource == source)
+        return;
+    m_artifactSource = source;
+    Q_EMIT artifactSourceChanged();
+}
+
 void UpdateManager::failWith(const QString &message)
 {
     setErrorMessage(message);
@@ -221,6 +233,11 @@ void UpdateManager::setNetworkDisabledForTest(bool disabled)
     m_networkDisabledForTest = disabled;
 }
 
+void UpdateManager::setArtifactByteSourceForTest(ArtifactByteSource source)
+{
+    m_artifactByteSource = std::move(source);
+}
+
 void UpdateManager::setStagedArtifactForTest(const QString &path)
 {
     m_stagedFile.reset();
@@ -265,6 +282,9 @@ void UpdateManager::startCheck(bool automatic)
     if (isBusy())
         return;
 
+    // A new check invalidates the previous download's provenance; leaving it
+    // set would attribute the old bytes to whatever this check finds.
+    setArtifactSource({});
     setErrorMessage({});
     setStatusDetail({});
     m_handoffSummary.clear();
@@ -713,8 +733,48 @@ void UpdateManager::downloadUpdate()
         return;
     }
 
-    discardStagedArtifact();
     m_handoffSummary.clear();
+    m_mirrorFallbackUsed = false;
+    m_fallbackPending = false;
+    setArtifactSource({});
+
+    // Wired ONCE per download rather than once per attempt: the canonical
+    // fallback restarts this same downloader, and re-connecting it from
+    // inside its own finished() emission is a subtlety worth not having.
+    if (!m_downloader)
+        m_downloader = new UpdateDownloader(network(), this);
+    disconnect(m_downloader, nullptr, this, nullptr);
+    connect(m_downloader, &UpdateDownloader::progress, this,
+            [this](qint64 received, qint64 total) {
+                m_downloadedBytes = received;
+                if (total > 0)
+                    m_totalBytes = total;
+                Q_EMIT downloadProgressChanged();
+            });
+    connect(m_downloader, &UpdateDownloader::finished, this,
+            &UpdateManager::handleDownloadFinished);
+
+    // MIRROR FIRST when the signed manifest names one. The mirror is only a
+    // faster place to get bytes the manifest has already named, sized and
+    // hashed: it decides nothing, and it is verified against exactly the same
+    // sha256 as the canonical address.
+    beginDownloadAttempt(m_artifact->mirrorUrl.isEmpty() ? ArtifactSource::Canonical
+                                                         : ArtifactSource::Mirror);
+}
+
+void UpdateManager::beginDownloadAttempt(ArtifactSource source)
+{
+    if (!m_artifact || !m_downloader)
+        return;
+
+    m_attemptSource = source;
+    m_fallbackPending = false;
+
+    // Nothing from a previous attempt survives into this one. The partial
+    // file is removed BEFORE a byte of the next source is written, so a
+    // failed mirror attempt leaves nothing behind and certainly cannot
+    // contribute bytes to the file that eventually gets installed.
+    discardStagedArtifact();
 
     auto file = std::make_unique<QTemporaryFile>(
         QDir(stagingRoot()).absoluteFilePath(QLatin1String(kPartialArtifactTemplate)));
@@ -731,75 +791,132 @@ void UpdateManager::downloadUpdate()
     m_stagedPath = file->fileName();
     m_stagedFile = std::move(file);
 
+    // Progress restarts from zero. A fallback must not double-count what the
+    // failed attempt already reported.
     m_downloadedBytes = 0;
     m_totalBytes = m_artifact->size;
     Q_EMIT downloadProgressChanged();
 
-    if (!m_downloader)
-        m_downloader = new UpdateDownloader(network(), this);
-    disconnect(m_downloader, nullptr, this, nullptr);
-    connect(m_downloader, &UpdateDownloader::progress, this,
-            [this](qint64 received, qint64 total) {
-                m_downloadedBytes = received;
-                if (total > 0)
-                    m_totalBytes = total;
-                Q_EMIT downloadProgressChanged();
-            });
-    connect(m_downloader, &UpdateDownloader::finished, this,
-            [this](bool ok, TransferError error, const QString &message) {
-                if (m_state != Downloading)
-                    return;
-                if (!ok) {
-                    // Every failure — including a hash mismatch — deletes
-                    // the bytes. There is no "install anyway" path.
-                    discardStagedArtifact();
-                    releaseLock();
-                    if (error == TransferError::Cancelled) {
-                        setStatusDetail(QStringLiteral("The download was cancelled."));
-                        setState(UpdateAvailable);
-                        return;
-                    }
-                    failWith(message);
-                    return;
-                }
-                setState(Verifying);
-                // The downloader verified size and SHA-256 while streaming;
-                // this re-checks what actually landed on disk.
-                if (m_stagedFile)
-                    m_stagedFile->close();
-                const QFileInfo info(m_stagedPath);
-                if (!info.exists() || info.size() != (m_artifact ? m_artifact->size : -1)) {
-                    discardStagedArtifact();
-                    releaseLock();
-                    failWith(QStringLiteral("The downloaded file did not survive verification."));
-                    return;
-                }
-                // Only NOW, with the bytes verified, does the file take the
-                // manifest's own name. It is downloaded under an
-                // unpredictable "*.part" name, and it is renamed inside the
-                // same staging directory, so nothing is exposed by the
-                // predictable name that was not already there — but the
-                // extension is what makes apt-get/dnf/msiexec treat the
-                // argument as a local package at all.
-                QString promoteError;
-                if (!promoteStagedArtifact(&promoteError)) {
-                    discardStagedArtifact();
-                    releaseLock();
-                    failWith(promoteError);
-                    return;
-                }
-                setStatusDetail({});
-                setState(ReadyToInstall);
-            });
+    const QUrl url =
+        source == ArtifactSource::Mirror ? m_artifact->mirrorUrl : m_artifact->url;
 
     setState(Downloading);
-    m_downloader->start(m_artifact->url, m_artifact->size, m_artifact->sha256,
-                        m_stagedFile.get(), userAgent());
+    if (m_artifactByteSource) {
+        // Test seam. Same downloader, same file, same size and SHA-256
+        // enforcement — only the transport is absent.
+        m_downloader->deliverForTest(url, m_artifact->size, m_artifact->sha256,
+                                     m_stagedFile.get(), m_artifactByteSource(url));
+        return;
+    }
+    m_downloader->start(url, m_artifact->size, m_artifact->sha256, m_stagedFile.get(),
+                        userAgent());
+}
+
+void UpdateManager::handleDownloadFinished(bool ok, TransferError error, const QString &message)
+{
+    if (m_state != Downloading)
+        return;
+
+    if (!ok) {
+        // Every failure — including a hash mismatch — deletes the bytes.
+        // There is no "install anyway" path, and there is no path that
+        // installs bytes one source produced and another verified.
+        discardStagedArtifact();
+
+        if (error == TransferError::Cancelled) {
+            m_fallbackPending = false;
+            releaseLock();
+            setArtifactSource({});
+            setStatusDetail(QStringLiteral("The download was cancelled."));
+            setState(UpdateAvailable);
+            return;
+        }
+
+        if (m_attemptSource == ArtifactSource::Mirror) {
+            // ONE retry, at the canonical address, verified against the same
+            // sha256 — a mirror failure never relaxes anything. There is no
+            // third attempt and the mirror is never retried afterwards.
+            //
+            // Queued, not immediate: restarting the downloader from inside
+            // its own finished() emission would re-enter a frame that is
+            // still unwinding. The lock is deliberately KEPT across the gap.
+            m_mirrorFallbackUsed = true;
+            m_fallbackPending = true;
+            setStatusDetail(QStringLiteral(
+                "The mirror copy could not be used; retrying from the canonical source."));
+            QMetaObject::invokeMethod(
+                this,
+                [this]() {
+                    if (!m_fallbackPending || m_state != Downloading)
+                        return; // cancelled, or superseded, in the meantime
+                    beginDownloadAttempt(ArtifactSource::Canonical);
+                },
+                Qt::QueuedConnection);
+            return;
+        }
+
+        releaseLock();
+        setArtifactSource({});
+        failWith(message);
+        return;
+    }
+
+    setState(Verifying);
+    // The downloader verified size and SHA-256 while streaming; this
+    // re-checks what actually landed on disk.
+    if (m_stagedFile)
+        m_stagedFile->close();
+    const QFileInfo info(m_stagedPath);
+    if (!info.exists() || info.size() != (m_artifact ? m_artifact->size : -1)) {
+        discardStagedArtifact();
+        releaseLock();
+        setArtifactSource({});
+        failWith(QStringLiteral("The downloaded file did not survive verification."));
+        return;
+    }
+    // Only NOW, with the bytes verified, does the file take the manifest's
+    // own name. It is downloaded under an unpredictable "*.part" name, and it
+    // is renamed inside the same staging directory, so nothing is exposed by
+    // the predictable name that was not already there — but the extension is
+    // what makes apt-get/dnf/msiexec treat the argument as a local package at
+    // all.
+    QString promoteError;
+    if (!promoteStagedArtifact(&promoteError)) {
+        discardStagedArtifact();
+        releaseLock();
+        setArtifactSource({});
+        failWith(promoteError);
+        return;
+    }
+    setArtifactSource(m_attemptSource == ArtifactSource::Mirror
+                          ? QString::fromLatin1(kSourceMirror)
+                          : QString::fromLatin1(kSourceCanonical));
+    // A mirror that keeps failing should be visible rather than silent, so
+    // the fallback is disclosed even though the update itself succeeded.
+    setStatusDetail(m_mirrorFallbackUsed
+                        ? QStringLiteral("The mirror copy could not be used, so this update "
+                                         "was downloaded from the canonical source.")
+                        : QString());
+    setState(ReadyToInstall);
 }
 
 void UpdateManager::cancelDownload()
 {
-    if (m_state != Downloading || !m_downloader)
+    if (m_state != Downloading)
+        return;
+    if (m_fallbackPending) {
+        // Cancelled in the window between a failed mirror attempt and the
+        // queued canonical retry. There is no live transfer to cancel here,
+        // so this path has to do it, or the fallback would start anyway.
+        m_fallbackPending = false;
+        discardStagedArtifact();
+        releaseLock();
+        setArtifactSource({});
+        setStatusDetail(QStringLiteral("The download was cancelled."));
+        setState(UpdateAvailable);
+        return;
+    }
+    if (!m_downloader)
         return;
     m_downloader->cancel();
 }
