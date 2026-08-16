@@ -282,18 +282,36 @@ Rectangle {
         anchors.leftMargin: 6
         anchors.rightMargin: 6
         anchors.topMargin: 6
-        implicitHeight: visible ? Math.round(width * 0.62) : 0
+        // Follows the ARTWORK'S OWN aspect so a square album cover renders
+        // square. A fixed ratio cropped the top and bottom off every square
+        // cover, which is most of them. Falls back to a sane ratio until the
+        // image reports its size, and is capped so an unusually tall image
+        // cannot dominate the timeline.
+        implicitHeight: {
+            if (!visible)
+                return 0
+            var iw = coverArtImage.implicitWidth
+            var ih = coverArtImage.implicitHeight
+            if (iw > 0 && ih > 0)
+                return Math.min(Math.round(width * ih / iw), 420)
+            return Math.round(width * 0.62)
+        }
         radius: AppTheme.radiusMd
         color: AppTheme.surfaceElevated
         border.width: 1
         border.color: AppTheme.border
         clip: true
         Image {
+            id: coverArtImage
             objectName: "audioCoverArtwork"
             anchors.fill: parent
             source: coverArtBox.visible ? root.artworkSource : ""
-            sourceSize: Qt.size(640, 640)
-            fillMode: Image.PreserveAspectCrop
+            // Width only: constraining both axes would letterbox the source
+            // before the box has a chance to take its shape.
+            sourceSize.width: 640
+            // The box already matches the artwork's aspect, so Fit shows the
+            // whole cover instead of cropping it.
+            fillMode: Image.PreserveAspectFit
             asynchronous: true
             cache: true
             Accessible.name: qsTr("Audio cover artwork")

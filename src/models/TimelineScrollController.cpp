@@ -284,25 +284,29 @@ void TimelineScrollController::notifyBoundReached(double clampedY)
     settle();
 }
 
-double TimelineScrollController::settleDurationMs(double distancePx) const
+double TimelineScrollController::motionStep(double remaining, double dtMs,
+                                            double viewportHeight) const
 {
-    double remaining = std::abs(distancePx);
-    if (remaining <= kSnapDistance)
+    // Same body as advanceMotion's per-frame maths, with no state: the
+    // exponential approach, the minimum-settle-speed floor that stops the
+    // tail crawling, and the per-frame ceiling that stops a large remaining
+    // distance jumping a whole viewport.
+    if (dtMs <= 0.0)
         return 0.0;
-    // Same integration the tick uses, run forward on a copy. A fixed 16ms
-    // step matches a 60Hz frame and keeps this cheap and deterministic; the
-    // bound stops a pathological input spinning.
-    constexpr double kStepMs = 16.0;
-    double elapsed = 0.0;
-    while (remaining > kSnapDistance && elapsed < 2000.0) {
-        double step = remaining * (1.0 - std::exp(-kStepMs / kTauMs));
-        const double minStep = kMinSettleSpeed * kStepMs / 1000.0;
-        if (step < minStep)
-            step = minStep;
-        remaining -= step;
-        elapsed += kStepMs;
-    }
-    return elapsed;
+    dtMs = std::min(dtMs, kMaxTickMs);
+    const double absRemaining = std::abs(remaining);
+    if (absRemaining <= kSnapDistance)
+        return remaining;
+
+    double step = remaining * (1.0 - std::exp(-dtMs / kTauMs));
+    const double minStep = kMinSettleSpeed * dtMs / 1000.0;
+    if (std::abs(step) < minStep)
+        step = std::copysign(std::min(minStep, absRemaining), remaining);
+
+    const double maxStep = viewportHeight * kMaxStepViewportFraction;
+    if (maxStep > 0.0 && std::abs(step) > maxStep)
+        step = std::copysign(maxStep, remaining);
+    return step;
 }
 
 void TimelineScrollController::translateActiveMotion(double deltaY)

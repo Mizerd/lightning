@@ -1443,10 +1443,28 @@ Item {
                         }
                         onClicked: {
                             var menu = root.ensureContextMenu()
+                            // MAP to overlay space — the old code passed
+                            // row-LOCAL coordinates while claiming they were
+                            // already in overlay space, so the menu popped at
+                            // a position that had nothing to do with the
+                            // button, and the room timeline's 180-degree row
+                            // rotation mirrored it to the opposite edge of
+                            // the screen.
+                            //
+                            // Both corners are mapped and the max taken
+                            // rather than assuming which local corner is
+                            // visually bottom-right: that flips with the
+                            // rotation, and the thread panel is NOT rotated.
+                            // mapToItem handles the transform; this only has
+                            // to stay agnostic about which way round it is.
+                            var a = messageActionBar.mapToItem(
+                                Overlay.overlay, 0, 0)
+                            var b = messageActionBar.mapToItem(
+                                Overlay.overlay, messageActionBar.width,
+                                messageActionBar.height)
                             root.openContextMenu(
-                                messageActionBar.x + messageActionBar.width
-                                    - menu.implicitWidth,
-                                messageActionBar.y + messageActionBar.height,
+                                Math.max(a.x, b.x) - menu.implicitWidth,
+                                Math.max(a.y, b.y),
                                 true)
                         }
                     }

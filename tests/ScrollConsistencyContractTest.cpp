@@ -14,7 +14,8 @@
 //      pixelTargetY/wheelTargetY/cancel all mutate app.timelineScroll's
 //      one instance of motion state — see the header comment in
 //      SmoothWheelArea.qml for the read of TimelineScrollController.h/
-//      .cpp that established this). Only the pure notchDistance() read
+//      .cpp that established this). Only the pure notchDistance() and
+//      motionStep() reads
 //      may cross that boundary. This is option "b" from the task and
 //      must not silently drift back to option "a".
 //   2. That the panes converted this round keep using the shared
@@ -169,10 +170,18 @@ private Q_SLOTS:
                          "mutates app.timelineScroll's single instance of "
                          "motion state.").arg(forbidden)));
         }
-        // The glide is this instance's own animation, never a reference
-        // into app.timelineScroll's motion-active flag.
-        QVERIFY(src.contains(QStringLiteral("NumberAnimation {")));
+        // The glide is this instance's OWN ticker, never a reference into
+        // app.timelineScroll's motion-active flag.
+        QVERIFY(src.contains(QStringLiteral("property Timer ticker:")));
         QVERIFY(!src.contains(QStringLiteral("app.timelineScroll.motionActive")));
+        // ...and it steps on the controller's REAL curve. motionStep is
+        // const and stateless, so sharing it cannot disturb the timeline's
+        // own motion — and sharing it is the only way the two can actually
+        // feel the same rather than merely similar. Two attempts to
+        // approximate with a QML easing curve were both reported as feeling
+        // wrong (SmoothedAnimation eased in; OutExpo restarted its
+        // deceleration every notch, i.e. scrolling "in blocks").
+        QVERIFY(src.contains(QStringLiteral("controller.motionStep(")));
     }
 
     // ---- Applied panes: each scroll surface carries the component ----

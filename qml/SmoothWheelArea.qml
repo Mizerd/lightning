@@ -32,24 +32,25 @@ import QtQuick
 // notchDistance() — the one real source of truth for "how far is one
 // notch at the user's configured speed" (Settings → wheel speed governs
 // this pane exactly like it governs the timeline) — and drives its own,
-// fully independent local glide via a QtQuick SmoothedAnimation. It never
+// fully independent local glide, ticked by its own Timer. It never
 // calls wheelNotch/animateTo/pixelTargetY/wheelTargetY/cancel on the
 // shared controller, and never touches TimelinePane.qml or the timeline's
 // own motion state. Multiple SmoothWheelArea instances (and the timeline)
 // can be visible and scrolling at the same time without fighting each
 // other, because each owns nothing but its own local `glide`.
 //
-// ── Feel-matching caveat (honest limitation) ───────────────────────────
-// TimelineScrollController's motion is a hand-integrated exponential
-// approach (tau=90ms, a 700px/s minimum settle speed, a 0.5px snap
-// distance) — tuning constants private to that class, not exposed for
-// reuse. Reimplementing that exact curve here would duplicate "the
-// controller's maths" as a second, driftable copy. Instead this uses
-// Qt Quick's own SmoothedAnimation (fixed-duration mode: velocity -1)
-// with a duration tuned to *approximate* the same settle time for a
-// typical notch. It is a deliberate best-effort visual match, not a
-// bit-identical port — compare it against the timeline on a real build
-// before calling the two indistinguishable.
+// ── Feel matching ───────────────────────────────────────────────────────
+// The curve is NOT approximated. motionStep() is the controller's own
+// per-frame integration (exponential approach at tau, the minimum-settle
+// speed floor, the per-frame viewport ceiling) exposed as a pure const
+// function, and this component calls it once per tick. So the distance per
+// notch and the deceleration are both the timeline's, from the timeline's
+// own code — there is no second copy of the maths to drift.
+//
+// Two earlier attempts approximated instead, and both were reported as
+// feeling wrong: a SmoothedAnimation eased IN as well as out, and an
+// OutExpo NumberAnimation restarted its deceleration on every notch, which
+// reads as scrolling "in blocks... like rowing".
 //
 // ── Usage ───────────────────────────────────────────────────────────────
 // Declare as a direct child of the Flickable/ListView/GridView it should
@@ -119,7 +120,7 @@ WheelHandler {
     // way TimelinePane.qml's cancelWheelMotion() guards its own
     // programmatic navigation.
     function stopGlide() {
-        root.glide.stop()
+        root.ticker.stop()
         root.glideDirection = 0
     }
 
@@ -161,52 +162,52 @@ WheelHandler {
                 // running continues from its (still in-flight) target;
                 // a reversal or a fresh gesture redirects from the live
                 // position — identical policy to wheelTargetY().
-                var base = (root.glide.running && dir === root.glideDirection)
+                var base = (root.ticker.running && dir === root.glideDirection)
                            ? root.glideTargetY : t.contentY
                 var newTarget = root.clampY(base + deltaPixels, lo, hi)
                 root.glideTargetY = newTarget
                 root.glideDirection = dir
-                root.glide.to = newTarget
-                if (!root.glide.running)
-                    root.glide.start()
+                if (!root.ticker.running)
+                    root.ticker.start()
             }
         }
         event.accepted = true
     }
 
-    // WheelHandler (like every PointerHandler) declares no default
-    // property, so a nested animation must be assigned to an explicit
-    // named property rather than nested anonymously.
-    property NumberAnimation glide: NumberAnimation {
-        target: root.scrollTarget
-        property: "contentY"
-        // Fixed-duration mode (velocity < 0 disables velocity-based
-        // timing — see SmoothedAnimation docs): every glide settles in
-        // about the same time regardless of distance, which is what
-        // reading the controller's own notch-per-speed distance already
-        // encodes as "how far", leaving "how long" as the only free
-        // parameter here. 220ms approximates the timeline's own settle
-        // window (tau=90ms with a 700px/s floor) for a typical notch;
-        // see the feel-matching caveat above.
-        // OutExpo mirrors the controller's own exponential approach
-        // (step = remaining * (1 - exp(-dt/tau))): fast at the start,
-        // decelerating into the target. SmoothedAnimation eased in as well,
-        // which is what made these panes feel different from the timeline
-        // even at the identical per-notch distance.
-        easing.type: Easing.OutExpo
-        // Taken from the controller rather than guessed, so "how far" and
-        // "how long" both come from the one place the timeline uses.
-        duration: {
-            var c = (typeof app !== "undefined" && app) ? app.timelineScroll
-                                                        : null
-            if (!c || !c.settleDurationMs)
-                return 220
-            var d = c.settleDurationMs(
-                Math.abs(root.glideTargetY - (root.scrollTarget
-                                              ? root.scrollTarget.contentY : 0)))
-            return Math.max(80, Math.min(400, d))
+    // Drives the glide with the CONTROLLER'S OWN per-frame integration
+    // (motionStep) rather than a QML easing curve, so the feel is identical
+    // to the room timeline instead of merely similar. A SmoothedAnimation
+    // eased in as well as out; an OutExpo NumberAnimation restarted its
+    // deceleration on every notch, which reads as scrolling "in blocks".
+    // Coalescing is trivial here: a same-direction notch only moves
+    // glideTargetY and the running ticker keeps going on one continuous
+    // curve, exactly as the timeline's own does.
+    property Timer ticker: Timer {
+        interval: 16
+        repeat: true
+        running: false
+        onTriggered: {
+            var t = root.scrollTarget
+            if (!t) {
+                stop()
+                return
+            }
+            var controller = (typeof app !== "undefined" && app)
+                              ? app.timelineScroll : null
+            var remaining = root.glideTargetY - t.contentY
+            if (!controller || Math.abs(remaining) <= 0.5) {
+                t.contentY = root.clampY(root.glideTargetY,
+                                         root.minContentY, root.maxContentY)
+                root.glideDirection = 0
+                stop()
+                return
+            }
+            t.contentY = root.clampY(
+                t.contentY + controller.motionStep(remaining, interval,
+                                                   t.height),
+                root.minContentY, root.maxContentY)
         }
     }
 
-    Component.onDestruction: root.glide.stop()
+    Component.onDestruction: root.ticker.stop()
 }

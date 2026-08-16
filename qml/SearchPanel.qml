@@ -62,6 +62,22 @@ Rectangle {
         root[propertyName] = values
     }
 
+    // The roster comes from RoomInfoController, which tracks the ROOM
+    // INFORMATION panel's room — not necessarily this one. Opening search
+    // without ever having opened Room Information left it pointed elsewhere
+    // (or nowhere), so every member section came up empty and clicking
+    // Mentions or From found nobody. Point it at the room being searched
+    // before reading the roster.
+    onVisibleChanged: if (visible) ensureRoster()
+    Component.onCompleted: if (visible) ensureRoster()
+
+    function ensureRoster() {
+        if (!app.roomInfo || !app.currentRoomId)
+            return
+        if (app.roomInfo.roomId !== app.currentRoomId)
+            app.roomInfo.roomId = app.currentRoomId
+    }
+
     function filteredMembers() {
         // Reading the snapshot keeps the binding live when the async roster
         // arrives. filterMembers is case-insensitive and returns its native
@@ -404,6 +420,8 @@ Rectangle {
                     onToggleExpanded: {
                         root.memberSection = expanded ? "" : sectionKey
                         root.memberNeedle = ""
+                        if (root.memberSection !== "")
+                            root.ensureRoster()
                     }
                     onNeedleChangedByUser: (value) => root.memberNeedle = value
                     onUserToggled: (userId) => root.toggleValue("draftFrom", userId)
@@ -421,6 +439,8 @@ Rectangle {
                     onToggleExpanded: {
                         root.memberSection = expanded ? "" : sectionKey
                         root.memberNeedle = ""
+                        if (root.memberSection !== "")
+                            root.ensureRoster()
                     }
                     onNeedleChangedByUser: (value) => root.memberNeedle = value
                     onUserToggled: (userId) => root.toggleValue("draftMentions", userId)

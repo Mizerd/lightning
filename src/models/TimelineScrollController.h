@@ -161,17 +161,20 @@ public:
     // its own.
     Q_INVOKABLE void translateActiveMotion(double deltaY);
 
-    // How long THIS controller's own motion takes to settle a glide of
-    // `distancePx`, in milliseconds. Pure and const — it simulates the
-    // approach rather than touching any motion state, so a second surface
-    // can ask without disturbing the timeline's in-flight glide.
+    // ONE frame's worth of this controller's own deceleration, for a glide
+    // with `remaining` distance left and a `viewportHeight`-tall view.
+    // Pure and const: it touches no motion state, so another surface can
+    // drive an independent glide on the IDENTICAL curve without disturbing
+    // the timeline's own in-flight motion.
     //
-    // Exists so SmoothWheelArea can match the timeline's FEEL, not just its
-    // per-notch distance. It previously ran a fixed 220 ms SmoothedAnimation
-    // (which eases in AND out) against this controller's ease-out
-    // exponential, so panes scrolled visibly differently from the room
-    // timeline even though each notch travelled the same distance.
-    Q_INVOKABLE double settleDurationMs(double distancePx) const;
+    // Exists so SmoothWheelArea matches the timeline's FEEL exactly rather
+    // than approximating it with a QML easing curve. A SmoothedAnimation
+    // eased in as well as out; swapping to OutExpo then made each notch a
+    // separate decelerate-and-stop, which the maintainer reported as
+    // scrolling "in blocks... like rowing". Sharing the real integration is
+    // the only way the two can actually agree.
+    Q_INVOKABLE double motionStep(double remaining, double dtMs,
+                                  double viewportHeight) const;
 
     // Legacy explicit end-of-motion (tests); the engine normally settles
     // itself and emits wheelMotionSettled().
