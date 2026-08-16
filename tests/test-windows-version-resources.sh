@@ -51,6 +51,24 @@ function(report_link_options)
 endfunction()
 EOF
 
+# Toolchain precondition. This suite drives a REAL cmake configure, so it needs
+# a generator and a C compiler. Without them every negative case below still
+# "fails to configure" -- but for the wrong reason -- and the suite reports
+# three misleading "gave an unhelpful error" failures that look like a defect
+# in the code under test. That is exactly what happened in pipeline 99, where
+# the image had cmake and gcc but no make. Diagnose it here instead.
+probe="$WORK/probe"
+mkdir -p "$probe/src"
+printf 'cmake_minimum_required(VERSION 3.19)\nproject(probe LANGUAGES C)\n' \
+    >"$probe/src/CMakeLists.txt"
+if ! cmake -S "$probe/src" -B "$probe/build" >"$probe/log" 2>&1; then
+    printf 'FAIL: cmake cannot configure a trivial C project in this environment.\n' >&2
+    printf '      This suite needs cmake, a C compiler and a build program\n' >&2
+    printf '      (the default generator is Unix Makefiles, which needs make).\n' >&2
+    sed -n '1,12p' "$probe/log" >&2
+    exit 1
+fi
+
 APP_OBJ="$WORK/app-version.o"
 UPD_OBJ="$WORK/updater-version.o"
 printf 'not-a-real-object\n' >"$APP_OBJ"

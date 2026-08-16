@@ -139,14 +139,14 @@ config-tests:
     DEBIAN_FRONTEND: "noninteractive"
   before_script:
     - apt-get update
-    # cmake + gcc are for test-windows-version-resources.sh only: it drives the
+    # cmake + gcc + make are for test-windows-version-resources.sh only: it drives the
     # per-target version-resource injection against a two-executable stand-in
     # project, which is the one part of the Windows metadata contract that
     # cannot be checked by reading a file. It needs a real CMake and a working
     # C compiler for project(LANGUAGES C); it compiles nothing of Lightning's.
     - >-
       apt-get install -y --no-install-recommends
-      bash ca-certificates cmake gcc git jq openssl python3 python3-yaml
+      bash ca-certificates cmake gcc git jq make openssl python3 python3-yaml
   script:
     - ./tests/test-version.sh
     - ./tests/test-publication.sh
