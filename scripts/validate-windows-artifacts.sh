@@ -163,11 +163,18 @@ file -b "$setup" | grep -Eq '^PE32\+ executable.*\(GUI\), x86-64' || \
     die "NSIS setup is not an x86-64 GUI PE installer"
 { strings -a "$setup"; strings -a -el "$setup"; } | grep -F Lightning >/dev/null || \
     die "NSIS setup metadata does not contain the product name"
-# The setup EXE takes the whole stage with `File /r`, so the helper's presence
-# is implied rather than declared. Assert it against the compressed payload so a
-# staging change cannot quietly drop it from this one format alone.
-{ strings -a "$setup"; strings -a -el "$setup"; } | grep -Fq 'lightning-updater.exe' || \
-    die "NSIS setup payload does not reference lightning-updater.exe"
+# NOTE: do NOT try to assert the helper's presence by grepping the setup EXE.
+# installer.nsi uses `SetCompressor /SOLID lzma`, which compresses the file
+# table along with the payload, so no payload filename survives as a plain
+# string. Verified with a minimal installer built locally: a file that IS in
+# the payload produces ZERO `strings` hits. The `grep -F Lightning` above only
+# passes because that word is in the installer's own uncompressed metadata, not
+# because it read the payload.
+#
+# The helper is covered properly instead by, in increasing strength: the staged
+# tree assertion at the top of this script, `File /r "${STAGE_DIR}/*"` taking
+# the whole stage, and smoke-windows-wine.sh actually running `setup /S` under
+# Wine and asserting lightning-updater.exe lands next to Lightning.exe.
 
 unzip -l "$portable" >"$REPORTS/portable-contents.txt"
 grep -Fq 'Lightning/Lightning.exe' "$REPORTS/portable-contents.txt" || \
