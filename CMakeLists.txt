@@ -1740,6 +1740,20 @@ if(BUILD_TESTING)
     target_link_libraries(room-upgrade-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME room-upgrade COMMAND room-upgrade-test)
 
+    # v0.7.x Space settings: a Space IS a Matrix room, so its name, topic and
+    # avatar go through the SAME permission-gated room-edit backend, each
+    # gated on that state event's own required level. The avatar controls
+    # were missing entirely — a Space could be renamed but never given a
+    # picture from inside Lightning.
+    qt_add_executable(space-settings-contract-test
+        tests/SpaceSettingsContractTest.cpp)
+    target_compile_definitions(space-settings-contract-test PRIVATE
+        QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
+    target_link_libraries(space-settings-contract-test PRIVATE
+        Qt6::Core Qt6::Test)
+    add_test(NAME space-settings-contract
+        COMMAND space-settings-contract-test)
+
     # v0.7.x: the thread-participant fetch bound — concurrency cap, FIFO
     # queue, slot release on success AND on a failed (empty) answer,
     # deduplication against cached/in-flight/queued roots, and room-switch

@@ -3713,11 +3713,55 @@ Rectangle {
                             if (visible && app.roomInfo)
                                 app.roomInfo.roomId = spaceHome.spaceId
                         }
+                        FileDialog {
+                            id: spaceAvatarDialog
+                            title: qsTr("Choose Space avatar")
+                            fileMode: FileDialog.OpenFile
+                            nameFilters: [ qsTr("Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp)") ]
+                            // Same permission-gated backend as a room's own
+                            // avatar — a Space IS a Matrix room, so this is
+                            // m.room.avatar either way and Lightning invents
+                            // no Space-specific storage.
+                            onAccepted: app.roomInfo.setRoomAvatar(selectedFile)
+                        }
                         ColumnLayout {
                             id: settingsCol
                             anchors.fill: parent
                             anchors.margins: AppTheme.spacing16
                             spacing: AppTheme.spacingS
+                            Label {
+                                text: qsTr("Avatar")
+                                color: AppTheme.textMuted
+                                font.pixelSize: 12
+                            }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: AppTheme.spacingS
+                                AppButton {
+                                    objectName: "spaceChangeAvatarButton"
+                                    text: qsTr("Change avatar…")
+                                    // canEditAvatar is the room's REAL
+                                    // required level for m.room.avatar, read
+                                    // from the member snapshot — never a role
+                                    // label and never optimistic.
+                                    enabled: app.roomInfo
+                                             && app.roomInfo.canEditAvatar
+                                             && !app.roomInfo.editPending
+                                    onClicked: spaceAvatarDialog.open()
+                                    Accessible.name: qsTr("Change the Space avatar")
+                                }
+                                AppButton {
+                                    objectName: "spaceRemoveAvatarButton"
+                                    kind: "danger"
+                                    text: qsTr("Remove avatar")
+                                    enabled: app.roomInfo
+                                             && app.roomInfo.canEditAvatar
+                                             && !app.roomInfo.editPending
+                                    onClicked: app.roomInfo.removeRoomAvatar()
+                                    Accessible.name: qsTr("Remove the Space avatar")
+                                }
+                                Item { Layout.fillWidth: true }
+                            }
                             Label {
                                 text: qsTr("Name")
                                 color: AppTheme.textMuted
