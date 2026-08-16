@@ -7,7 +7,7 @@
 **A fast, native Matrix desktop client — Qt 6 on top of the official Rust Matrix SDK.**
 
 [![Licence: GPL-3.0-or-later](https://img.shields.io/badge/licence-GPL--3.0--or--later-blue.svg)](LICENSE)
-[![Latest release](https://img.shields.io/badge/release-v0.7.0-2f6be0.svg)](https://gitlab.smetonis.net/Mizerd/lightning/-/releases)
+[![Latest release](https://img.shields.io/badge/release-v0.7.1-2f6be0.svg)](https://gitlab.smetonis.net/Mizerd/lightning/-/releases)
 [![Platform: Linux | Windows](https://img.shields.io/badge/platform-Linux%20%7C%20Windows-4c8fdc.svg)](#installation)
 [![Qt 6](https://img.shields.io/badge/Qt-6.5%2B-41CD52.svg)](https://www.qt.io/)
 [![matrix-rust-sdk](https://img.shields.io/badge/matrix--rust--sdk-0.18-000000.svg)](https://github.com/matrix-org/matrix-rust-sdk)
@@ -230,6 +230,30 @@ still developing, some workflows remain experimental.
   window sizes and displays, and it persists between sessions
 - Responsive layouts from narrow to wide, a local Unicode emoji picker, an
   installed application icon and desktop entry, and accessible keyboard navigation
+
+### Updating
+
+- **Lightning can update itself** (new in 0.7.1). Settings → Updates checks for
+  a new release and, where the package type allows it, installs it: MSI and
+  Setup EXE through their own installers, portable ZIP and AppImage replaced
+  transactionally with rollback, DEB and RPM handed to your package manager
+  through PolicyKit so those files stay package-manager owned. Flatpak and Snap
+  are left to their own ecosystems, and a development build never installs
+  anything
+- Every update is verified before it is installed: an **Ed25519-signed
+  manifest** decides the exact filename, size and SHA-256, the signature is
+  checked over the raw bytes before a single field is read, and a failure of
+  either check is terminal — there is no "install anyway". The manifest names a
+  file and can never name a command
+- Binaries download from the read-only GitHub mirror first (falling back to
+  GitLab) purely to save the project's bandwidth. GitLab stays the release
+  authority: Lightning makes no GitHub API call and reads no GitHub release
+  metadata, so a compromised mirror can break a download but cannot ship an
+  update
+- **Automatic checks are off by default.** A check sends only
+  `Lightning/<version>` — no Matrix ID, homeserver, device ID, token, room data,
+  or analytics identifier, and no updater tracking ID is generated at all. See
+  [Application updates](docs/updates.md)
 
 ## Screenshots
 
