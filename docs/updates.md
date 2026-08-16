@@ -251,6 +251,72 @@ Release notes come from the signed manifest or the release page and are treated
 as untrusted remote text. They are not rendered as HTML and cannot run scripts
 or invoke application commands.
 
+## Validating the first real upgrade (0.7.1 -> 0.7.2)
+
+Nothing in this document has been exercised by a real upgrade yet. 0.7.1 is
+the first release that can be updated *from*, so the upgrade **into** 0.7.2
+is the first end-to-end test of the whole chain, and it should be treated as
+a test rather than assumed to work.
+
+Do this on Windows first, because all three Windows formats install
+differently and none of them has ever been driven by the updater on a real
+machine.
+
+### Before publishing 0.7.2
+
+Have a 0.7.1 install that you did **not** build locally — download the
+published artifact, so the thing being upgraded is the same bytes a user
+has. Sign in, join a room, send a message, and leave the account signed in.
+That matters: the update must not disturb the session, the store, or
+settings, and you cannot tell whether it did unless there was something
+there to disturb.
+
+Note the install location and, for the portable ZIP, take a copy of the
+whole directory. Rolling back a portable install is a directory swap; having
+the original makes a failed run recoverable in seconds.
+
+### Per format
+
+Repeat for **MSI**, **Setup EXE** and **portable ZIP** separately. They take
+three different code paths and passing one says nothing about the others.
+
+1. Settings -> Updates -> *Check for updates*. It should report 0.7.2.
+   If it reports nothing, the manifest is the first thing to look at, not
+   the client: fetch it yourself and check its `version`.
+2. Install. For the MSI and Setup EXE this needs no elevation prompt —
+   **if Windows asks for administrator rights, that is a defect**, not a
+   normal step, because both are per-user installs.
+3. After the restart, confirm all of:
+   - `--version` reports 0.7.2;
+   - you are **still signed in** — a re-login prompt means the session or
+     the store was disturbed and is a serious defect;
+   - the room you left open still has its history, and encrypted rooms
+     still decrypt (this is the check that proves the crypto store
+     survived);
+   - your settings — theme, text size, notification modes — are unchanged.
+4. For the portable ZIP specifically, confirm the directory really was
+   swapped and not merged: no stale files from 0.7.1 should remain.
+
+### What to capture if something fails
+
+The updater writes a status file; its path is in the update logs. Capture
+that, the application log, and the exact point the run stopped. A failure
+after verification but during installation is a very different defect from a
+verification failure, and the status file is what distinguishes them.
+
+Do not work around a failure by installing 0.7.2 by hand and calling the
+update tested — that is the one outcome that would leave this document
+saying something untrue.
+
+### Linux
+
+The AppImage, DEB and RPM paths are equally untested. The AppImage is the
+cheapest to try (it replaces a single file and restores it on failure). The
+DEB and RPM paths hand the package to the system package manager through
+PolicyKit, so expect a normal desktop authentication prompt — and confirm
+afterwards that `dpkg -S` / `rpm -qf` still report the package as owning its
+files, which is the property that whole design exists to preserve.
+
 ## Signing status, stated honestly
 
 The signed update manifest is Lightning's integrity and authenticity guarantee
