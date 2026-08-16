@@ -175,6 +175,25 @@ private Q_SLOTS:
             { "_textSecondaryDark", "_bgDark", 4.5 },
             { "_textMutedDark", "_bgDark", 4.5 },
             { "_textMutedDark", "_cardDark", 4.5 },
+            // SELECTED SEGMENTED-CONTROL CHIP, every theme.
+            //
+            // The chip's fill is accentSoft -- a TINT of the surface, not a
+            // solid accent -- so its ink must be a surface ink. Pairing it
+            // with accentText (the ink for a SOLID accent fill, which is
+            // white wherever a theme does not override it) was invisible:
+            // Deep Teal measured 1.00 (#062A25 on #112928), Moss Light 1.14
+            // and Lightning Light 1.42. Only Deep Teal was reported, because
+            // that is the theme the reporter uses; the two light themes were
+            // just as broken and unnoticed.
+            //
+            // Every theme is listed here deliberately. A theme whose
+            // accentSoft is not a literal falls back to `selected`, which the
+            // selected-row rows below already cover.
+            { "_selectedTextLight", "_selectedLight", 4.5 },   // chip == selected
+            { "_dkSelectedText", "_dkSelected", 4.5 },         // chip == selected
+            { "_mosSelectedText", "_mosAccentSoft", 4.5 },
+            { "_indSelectedText", "_indAccentSoft", 4.5 },
+            { "_teaSelectedText", "_teaAccentSoft", 4.5 },
             // Selected room rows stay readable, including on hover.
             { "_selectedTextLight", "_selectedLight", 4.5 },
             { "_selectedTextLight", "_selectedHoverLight", 4.5 },

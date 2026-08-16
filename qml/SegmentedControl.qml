@@ -63,17 +63,27 @@ Row {
                         return !segment.enabled ? AppTheme.stormTextFaint
                              : segment.selected ? AppTheme.stormText
                              : AppTheme.stormTextMuted
-                    // Storm routing (2026-08-15 report): under the Storm
-                    // theme the themed pair accentSoft+accentText is dark
-                    // navy ink on a 14% translucent bolt — unreadable. The
-                    // selected chip becomes the sanctioned SOLID bolt
-                    // "current selection" moment instead, with boltInk on
-                    // it (never dark-on-dark). Legacy themes keep the
-                    // accent-soft chip unchanged.
+                    // The selected chip's background is accentSoft — a TINT
+                    // of the surface, not a solid accent fill — so its ink
+                    // must be a surface ink. accentText is the ink for a
+                    // SOLID accent fill (it is white in every theme that does
+                    // not override it), and pairing it with a tint was
+                    // measured invisible: 1.00 on Deep Teal (#062A25 on
+                    // #112928), 1.14 on Moss Light and 1.42 on Lightning
+                    // Light, all white-on-near-white or dark-on-dark. The
+                    // 2026-08-15 Storm report was the same defect on one
+                    // theme and was patched for Storm alone; this is the
+                    // general fix.
+                    //
+                    // selectedText is the ink meant for a selected row/chip
+                    // and clears AA against accentSoft in every theme
+                    // (lowest measured 5.45, Moss Light) —
+                    // ThemeTokensTest pins that for all of them. Storm keeps
+                    // its sanctioned solid-bolt treatment.
                     return !segment.enabled ? AppTheme.textDisabled
                          : segment.selected ? (AppTheme.storm
                                                ? AppTheme.boltInk
-                                               : AppTheme.accentText)
+                                               : AppTheme.selectedText)
                          : AppTheme.textSecondary
                 }
                 font.family: root.storm ? AppTheme.menuFont : AppTheme.uiFont

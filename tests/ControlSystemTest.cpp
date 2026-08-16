@@ -59,6 +59,8 @@ ApplicationWindow {
     Rectangle { objectName: "tokBackground"; visible: false; color: AppTheme.background }
     Rectangle { objectName: "tokAccent"; visible: false; color: AppTheme.accent }
     Rectangle { objectName: "tokAccentSoft"; visible: false; color: AppTheme.accentSoft }
+    Rectangle { objectName: "tokAccentText"; visible: false; color: AppTheme.accentText }
+    Rectangle { objectName: "tokSelectedText"; visible: false; color: AppTheme.selectedText }
     Rectangle { objectName: "tokBolt"; visible: false; color: AppTheme.bolt }
     Rectangle { objectName: "tokBoltInk"; visible: false; color: AppTheme.boltInk }
     Rectangle { objectName: "tokSurface"; visible: false; color: AppTheme.surface }
@@ -314,6 +316,45 @@ private slots:
         QVERIFY(label);
         QCOMPARE(label->property("color").value<QColor>(),
                  token("tokBoltInk"));
+        m_root->setProperty("themeMode", 9);
+        QCoreApplication::processEvents();
+    }
+
+    // 2026-08-16 report (Deep Teal): the same defect on the OTHER side of the
+    // Storm routing. The selected chip's fill is accentSoft -- a TINT -- and
+    // it carried accentText, which is the ink for a SOLID accent fill and is
+    // white in every theme that does not override it. Measured contrast was
+    // 1.00 on Deep Teal (#062A25 on #112928), 1.14 on Moss Light and 1.42 on
+    // Lightning Light: the label was simply not there. Only Deep Teal was
+    // reported because that is the theme in use; the light themes were just
+    // as broken.
+    //
+    // The ink must be selectedText -- the ink meant for a selected row/chip --
+    // in every non-Storm theme. ThemeTokensTest pins the contrast numbers;
+    // this pins that the control actually asks for that token. Fails on the
+    // pre-fix SegmentedControl, which returned accentText here.
+    void designThemesKeepTheSelectedSegmentLabelReadable()
+    {
+        // Deep Teal (10), Moss Light (8) and Lightning Light (1) are the
+        // three that measured below AA before the fix.
+        for (int mode : { 10, 8, 1 }) {
+            m_root->setProperty("themeMode", mode);
+            QCoreApplication::processEvents();
+
+            auto *selected = item("segments_people");
+            QVERIFY(selected);
+            auto *label =
+                selected->property("contentItem").value<QQuickItem *>();
+            QVERIFY(label);
+            const QColor ink = label->property("color").value<QColor>();
+
+            QCOMPARE(ink, token("tokSelectedText"));
+            // And explicitly NOT the solid-fill ink that made it invisible.
+            QVERIFY2(ink != token("tokAccentText"),
+                     qPrintable(QStringLiteral("theme %1 still inks the selected "
+                                               "segment with accentText")
+                                    .arg(mode)));
+        }
         m_root->setProperty("themeMode", 9);
         QCoreApplication::processEvents();
     }
