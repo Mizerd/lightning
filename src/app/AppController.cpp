@@ -210,6 +210,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_messageSearch = std::make_unique<MessageSearchController>(this);
     m_uia = std::make_unique<UiaController>(this);
     m_moderation = std::make_unique<ModerationController>(this);
+    m_forward      = std::make_unique<ForwardController>(this);
     m_roomInfo     = std::make_unique<RoomInfoController>(this);
     m_mediaBridge  = std::make_unique<MediaBridge>(this);
     m_playback     = std::make_unique<MediaPlaybackController>(this);
@@ -233,6 +234,16 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     connect(m_mediaBridge.get(), &MediaBridge::mediaBytesForStar, this,
             [this](const QString &mediaKey, bool ok, const QByteArray &bytes,
                    const QString &category) {
+        // ONLY keys this account actually asked to star. The fetch trigger
+        // is media-generic and now has a second caller (ForwardController),
+        // and an unconditional handler here would write the decrypted bytes
+        // of every forwarded image into the account's on-disk saved-media
+        // store — which §6 forbids and §7 permits only as an explicit
+        // export the user chose. Forwarding is not that choice: it would
+        // persist decrypted media nobody asked to keep, consume the store's
+        // 200-item budget, and render the row's star as filled.
+        if (!m_pendingStarKeys.remove(mediaKey))
+            return;
         if (ok)
             m_gif->starredStore()->starBytes(mediaKey, bytes);
         else
@@ -474,6 +485,8 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_messageSearch->setClient(m_client.get());
     m_uia->setClient(m_client.get());
     m_moderation->setClient(m_client.get());
+    m_forward->setClient(m_client.get());
+    m_forward->setMediaBridge(m_mediaBridge.get());
     m_roomInfo->setClient(m_client.get());
     m_mediaBridge->setClient(m_client.get());
     m_pagination->setClient(m_client.get());
@@ -596,6 +609,11 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     // Nothing observes a tombstone and moves the user by itself.
     m_roomUpgrade->setDiscovery(m_discovery.get());
     connect(m_roomUpgrade.get(), &RoomUpgradeController::navigateRequested,
+            this, &AppController::openRoom);
+    // v0.7.x message forwarding: `forwarded` fires
+    // only once the send was actually dispatched, so the target room is
+    // never opened optimistically ahead of that.
+    connect(m_forward.get(), &ForwardController::forwarded,
             this, &AppController::openRoom);
     connect(m_roomInfo.get(), &RoomInfoController::roomLeft,
             this, [this](const QString &roomId) {
@@ -1934,6 +1952,9 @@ void AppController::starChatGif(const QString &mediaKey)
     // clearCrossAccountCaches on the next login) drops the in-flight
     // request. Deliberate, not a bug — there is no surface left to report
     // to by the time it would resolve.
+    // Claim this answer BEFORE dispatching: MediaBridge can answer
+    // synchronously from its RAM cache.
+    m_pendingStarKeys.insert(mediaKey);
     m_mediaBridge->fetchFullForStar(mediaKey);
 }
 
@@ -2598,6 +2619,12 @@ void AppController::clearCrossAccountCaches()
     // player holds an open handle into the previous account's cache.
     m_playback->stopAll();
     m_mediaBridge->clear();
+    // MediaBridge::clear() drops in-flight requests with NO terminal
+    // emission, so a star fetch outstanding at sign-out would otherwise
+    // strand its key here for the process lifetime — and a later FORWARD of
+    // that same media would then have its answer claimed and written to the
+    // saved-media store, which is exactly what the claim set prevents.
+    m_pendingStarKeys.clear();
     m_notifications->clearPending();
     m_knownInvites.clear();
     // Encrypted-room drafts are memory-only and account-scoped; the next

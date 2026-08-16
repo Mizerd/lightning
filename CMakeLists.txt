@@ -262,6 +262,8 @@ set(APP_SOURCES
     src/app/UiaController.cpp
     src/app/ModerationController.h
     src/app/ModerationController.cpp
+    src/app/ForwardController.h
+    src/app/ForwardController.cpp
     src/app/DraftStore.h
     src/app/DraftStore.cpp
     src/app/SessionDiagnostics.h
@@ -523,6 +525,7 @@ set(APP_QML_FILES
     qml/VerificationDialog.qml
     qml/UiaPromptDialog.qml
     qml/ReportMessageDialog.qml
+    qml/ForwardMessageDialog.qml
     qml/VerifySessionPrompt.qml
     qml/QuickReactionStrip.qml
     qml/IdentityCard.qml
@@ -1771,6 +1774,28 @@ if(BUILD_TESTING)
     target_include_directories(mark-room-read-test PRIVATE src)
     target_link_libraries(mark-room-read-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME mark-room-read COMMAND mark-room-read-test)
+
+    # v0.7.x message forwarding: ForwardController policy — refusal of
+    # redacted/local-echo/undecryptable sources, plain-body text forwarding
+    # with NO relation (a forwarded thread reply must land as an ordinary
+    # message), media RE-FETCHED and re-uploaded rather than mxc-copied, a
+    # failure that leaves the dialog open, and the stale-fetch race across a
+    # second begin()/cancel().
+    qt_add_executable(forward-message-test
+        tests/ForwardMessageTest.cpp
+        src/app/ForwardController.h
+        src/app/ForwardController.cpp
+        src/media/MediaBridge.h
+        src/media/MediaBridge.cpp
+        src/media/VideoPosterExtractor.h
+        src/media/VideoPosterExtractor.cpp
+        src/matrix/MatrixClient.h
+        src/matrix/MatrixClient.cpp
+    )
+    target_include_directories(forward-message-test PRIVATE src)
+    target_link_libraries(forward-message-test
+        PRIVATE Qt6::Core Qt6::Gui Qt6::Multimedia Qt6::Test)
+    add_test(NAME forward-message COMMAND forward-message-test)
 
     # v0.7.x: the thread-participant fetch bound — concurrency cap, FIFO
     # queue, slot release on success AND on a failed (empty) answer,

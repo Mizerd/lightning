@@ -5221,6 +5221,37 @@ quint64 RustSdkMatrixClient::sendAttachmentBytes(const QString &roomId,
     return opId;
 }
 
+quint64 RustSdkMatrixClient::sendAttachmentBytesToRoom(const QString &roomId,
+                                                      const QByteArray &bytes,
+                                                      const QString &filename,
+                                                      const QString &mime,
+                                                      int width, int height)
+{
+    if (!m_rustHandle || roomId.isEmpty() || bytes.isEmpty() || mime.isEmpty())
+        return 0;
+    // Deliberately NO timelineActiveFor() gate: this variant exists exactly
+    // for rooms whose timeline is not open. The Rust side goes straight to
+    // Room::send_attachment, which the SDK still encrypts for the target
+    // room when that room is encrypted.
+    const quint64 opId = nextOpId();
+    const QByteArray room = roomId.toUtf8();
+    const QByteArray name = filename.toUtf8();
+    const QByteArray mimeBytes = mime.toUtf8();
+    const QString result = takeRustString(mx_rust_room_send_attachment_bytes(
+        m_rustHandle, room.constData(),
+        reinterpret_cast<const quint8 *>(bytes.constData()),
+        static_cast<size_t>(bytes.size()),
+        name.constData(), mimeBytes.constData(),
+        width > 0 ? static_cast<quint64>(width) : 0,
+        height > 0 ? static_cast<quint64>(height) : 0,
+        opId));
+    if (!result.isEmpty()) {
+        qCWarning(lcRust) << "room attachment send rejected";
+        return 0;
+    }
+    return opId;
+}
+
 quint64 RustSdkMatrixClient::sendThreadAttachment(const QString &roomId,
                                                   const QString &rootEventId,
                                                   const QString &localPath,

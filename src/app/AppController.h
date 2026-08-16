@@ -3,6 +3,7 @@
 #include "app/ConversationController.h"
 #include "app/RoomDiscoveryController.h"
 #include "app/DraftStore.h"
+#include "app/ForwardController.h"
 #include "app/ModerationController.h"
 #include "app/UiaController.h"
 #include "models/MessageSearchController.h"
@@ -222,6 +223,11 @@ class AppController : public QObject
     Q_PROPERTY(MessageSearchController* messageSearch READ messageSearch CONSTANT)
     Q_PROPERTY(UiaController* uia READ uia CONSTANT)
     Q_PROPERTY(ModerationController* moderation READ moderation CONSTANT)
+    // v0.7.x message forwarding (task #14): the ONE forward-picker state
+    // (app.forward). See ForwardController's class comment for the
+    // non-negotiable decisions (re-upload never mxc-copy, no relation, D6
+    // navigation-only-after-dispatch) this follows.
+    Q_PROPERTY(ForwardController* forward READ forward CONSTANT)
     Q_PROPERTY(RoomInfoController* roomInfo READ roomInfo CONSTANT)
     Q_PROPERTY(MediaBridge* mediaBridge READ mediaBridge CONSTANT)
     // v0.7 voice round: microphone capture for MSC3245 voice messages.
@@ -415,6 +421,7 @@ public:
     MessageSearchController *messageSearch() const { return m_messageSearch.get(); }
     UiaController *uia() const { return m_uia.get(); }
     ModerationController *moderation() const { return m_moderation.get(); }
+    ForwardController *forward() const { return m_forward.get(); }
     // v0.7.x sessions page: MAS/OAuth accounts manage devices in the
     // account console, never through a password prompt. Invokable (not a
     // bound property) — the page evaluates it when it opens, matching the
@@ -881,6 +888,12 @@ private:
     std::unique_ptr<MessageSearchController> m_messageSearch;
     std::unique_ptr<UiaController> m_uia;
     std::unique_ptr<ModerationController> m_moderation;
+    std::unique_ptr<ForwardController> m_forward;
+    // Media keys THIS account asked to star. The star fetch is
+    // media-generic and has more than one caller now, so its result must be
+    // claimed rather than assumed — see the handler in setClient(). Cleared
+    // on sign-out with the rest of the account-scoped state.
+    QSet<QString> m_pendingStarKeys;
     std::unique_ptr<RoomInfoController> m_roomInfo;
     std::unique_ptr<MediaBridge> m_mediaBridge;
     std::unique_ptr<VoiceRecorder> m_voiceRecorder; // lazy — see getter

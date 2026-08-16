@@ -392,6 +392,12 @@ public:
     quint64 sendAttachmentBytes(const QString &roomId, const QByteArray &bytes,
                                 const QString &filename, const QString &mime,
                                 int width, int height) override;
+    bool supportsRoomScopedAttachmentSend() const override { return true; }
+    quint64 sendAttachmentBytesToRoom(const QString &roomId,
+                                      const QByteArray &bytes,
+                                      const QString &filename,
+                                      const QString &mime,
+                                      int width, int height) override;
     quint64 sendThreadAttachment(const QString &roomId,
                                  const QString &rootEventId,
                                  const QString &localPath, const QString &mime,

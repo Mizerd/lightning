@@ -368,6 +368,27 @@ ApplicationWindow {
                     pinNotice.show(message)
             }
         }
+        // v0.7.x forwarding: a forwarded ATTACHMENT is a direct upload, not
+        // a queued send, and the target timeline was not open when it was
+        // dispatched — so there is no local echo to fail visibly. Without
+        // this the user arrives in the target room, sees nothing, and
+        // believes the forward worked. Reuses this notice rather than adding
+        // a second transient banner class.
+        Connections {
+            target: app.forward
+            function onForwardFailed(targetRoomId, message) {
+                if (message.length === 0)
+                    return
+                // Only while the user is still looking at the room it was
+                // aimed at — the same decision the voice-send path makes.
+                // A context-free "could not be forwarded" about a room they
+                // have since left names nothing and helps nobody.
+                if (targetRoomId.length > 0
+                        && targetRoomId !== app.currentRoomId)
+                    return
+                pinNotice.show(message)
+            }
+        }
     }
 
     // v0.7.x session verification. ONE dialog for the whole app: it follows
@@ -395,6 +416,13 @@ ApplicationWindow {
     // ModerationController's pending-report state).
     ReportMessageDialog {
         id: reportMessageDialog
+        parent: Overlay.overlay
+    }
+
+    // v0.7.x message forwarding (task #14): the ONE forward room-picker
+    // (opens itself off ForwardController's `active` state).
+    ForwardMessageDialog {
+        id: forwardMessageDialog
         parent: Overlay.overlay
     }
 

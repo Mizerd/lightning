@@ -2021,6 +2021,41 @@ pub unsafe extern "C" fn mx_rust_set_marked_unread(
     })
 }
 
+/// Send attachment bytes to a room whose live timeline is NOT open.
+///
+/// The timeline-scoped `mx_rust_timeline_send_attachment_bytes` refuses any
+/// room but the open one, which is correct for the composer and fatal for
+/// forwarding — a forward's target is by definition a room the user is not
+/// looking at. Routes through `Room::send_attachment`; the SDK still
+/// encrypts for the target room when it is encrypted.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_room_send_attachment_bytes(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    data: *const u8,
+    len: usize,
+    filename: *const c_char,
+    mime: *const c_char,
+    width: u64,
+    height: u64,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let filename = unsafe { cstr_arg(filename) }?;
+        let mime = unsafe { cstr_arg(mime) }?;
+        if data.is_null() || len == 0 {
+            return Err("attachment data is empty".to_owned());
+        }
+        let bytes = unsafe { std::slice::from_raw_parts(data, len) }.to_vec();
+        rooms::send_attachment_bytes_to_room(
+            bridge, room_id, bytes, filename, mime, width, height, op_id,
+        )
+        .map(|_| String::new())
+    })
+}
+
 /// Mark a room read WITHOUT opening it.
 ///
 /// The existing read path only advances while the room is open, focused and

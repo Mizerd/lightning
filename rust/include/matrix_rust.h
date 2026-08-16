@@ -121,6 +121,15 @@ char *mx_rust_set_marked_unread(void *client, const char *room_id, int unread);
  * manual unread flag. Answers on read_marker_advanced, or room_action_error
  * with action="mark_read". */
 char *mx_rust_mark_room_read(void *client, const char *room_id);
+/* Send attachment bytes to a room whose live timeline is NOT open — the
+ * forwarding path. Routes through Room::send_attachment; the SDK still
+ * encrypts for the target room when that room is encrypted. Answers on
+ * attachment_send_result with the given op_id. */
+char *mx_rust_room_send_attachment_bytes(void *client, const char *room_id,
+                                         const unsigned char *data, size_t len,
+                                         const char *filename, const char *mime,
+                                         uint64_t width, uint64_t height,
+                                         uint64_t op_id);
 /* Server-synchronized per-room notification mode (SDK push rules).
  * mode: 0 = all messages, 1 = mentions & keywords only, 2 = mute. Set is
  * label-faithful (mode 0 writes an explicit AllMessages rule); every rule

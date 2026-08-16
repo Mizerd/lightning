@@ -290,9 +290,58 @@ private Q_SLOTS:
                  qint64(0));
     }
 
+    // v0.7.x: the star-fetch RESULT must be claimed, not assumed.
+    //
+    // MediaBridge::fetchFullForStar is media-generic and gained a second
+    // caller when forwarding landed (ForwardController re-fetches the source
+    // payload so it can re-upload it). The handler in AppController::setClient
+    // used to act on EVERY answer, so every forwarded image would have
+    // written its decrypted bytes into this account's on-disk saved-media
+    // store, appeared in the Saved tab, consumed the 200-item budget, and
+    // rendered the row's star as filled — none of which the user asked for,
+    // and which §6 forbids outside the explicit-export exception in §7.
+    void aFetchNotRequestedByStarChatGifWritesNothing()
+    {
+        FakeClient fake;
+        AppController app(AppController::MockBackend);
+        FakeSecretStore secrets;
+        app.settings()->setSecretStore(&secrets);
+        app.settings()->saveSession(kHsOne, kAlice,
+                                    QStringLiteral("ALICEDEV"),
+                                    QStringLiteral("alice-token-fixture"));
+        app.switchToAccount(kAlice);
+        QTRY_VERIFY(!app.accountSwitching());
+        QTRY_VERIFY(app.gif()->starredStore()->isOpen());
+        app.mediaBridge()->setClient(&fake);
+
+        const int before = app.gif()->starredStore()->count();
+        QSignalSpy starFinished(app.gif()->starredStore(),
+                                &GifStarredStore::starFinished);
+
+        // A fetch this account never asked to star — exactly what a forward
+        // issues through the same media-generic entry point.
+        const QByteArray gif = QByteArray("GIF89a\x10\x00\x10\x00", 10);
+        app.mediaBridge()->fetchFullForStar(QStringLiteral("mk-forwarded"));
+        QVERIFY(!fake.fetches.isEmpty());
+        fake.succeed(fake.fetches.last().opId, gif);
+        QCoreApplication::processEvents();
+
+        QCOMPARE(app.gif()->starredStore()->count(), before);
+        QCOMPARE(starFinished.count(), 0);
+
+        // ...while a fetch the account DID request still stars normally.
+        app.starChatGif(QStringLiteral("mk-wanted"));
+        QVERIFY(fake.fetches.size() >= 2);
+        fake.succeed(fake.fetches.last().opId, gif);
+        QCoreApplication::processEvents();
+        QTRY_COMPARE(starFinished.count(), 1);
+        QVERIFY(starFinished.at(0).at(1).toBool());
+    }
+
 private:
     QTemporaryDir m_configHome;
     QTemporaryDir m_dataHome;
+
 };
 
 QTEST_GUILESS_MAIN(AppControllerChatGifStarredTest)

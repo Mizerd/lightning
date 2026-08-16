@@ -2148,6 +2148,53 @@ Item {
                          || (app.moderation.reportSupported
                              && model.isOwn !== true)
             }
+            // v0.7.x message forwarding :
+            // withheld for redacted / local-echo / undecryptable / poll
+            // content — none of it has anything safe to re-send — and for
+            // a media row whose source is not (yet) fetchable. begin()
+            // takes an IMMUTABLE snapshot of exactly this row's model data,
+            // captured here at click time, never a live re-resolution (see
+            // ForwardController's class comment) — this is why the whole
+            // snapshot is built inline rather than deferred into C++.
+            AppMenuItem {
+                objectName: "forwardMessageMenuItem"
+                iconName: "arrow_forward"
+                text: qsTr("Forward")
+                readonly property bool isMediaRow:
+                    model.isImage === true || model.isVideo === true
+                    || model.isAudio === true || model.isSticker === true
+                    || model.isFile === true
+                readonly property bool eligible:
+                    model.redacted !== true && model.isLocalEcho !== true
+                    && model.undecryptable !== true
+                    && model.isVirtual !== true && model.isPoll !== true
+                    && (isMediaRow ? model.mediaSourceAvailable === true
+                                   : (model.body || "").length > 0)
+                enabled: eligible && root.menuEventId !== ""
+                visible: eligible
+                onTriggered: app.forward.begin(
+                    root.timelineModel.realRoomIdForEvent(root.menuEventId),
+                    root.menuEventId,
+                    {
+                        redacted: model.redacted === true,
+                        isLocalEcho: model.isLocalEcho === true,
+                        undecryptable: model.undecryptable === true,
+                        isVirtual: model.isVirtual === true,
+                        isImage: model.isImage === true,
+                        isVideo: model.isVideo === true,
+                        isAudio: model.isAudio === true,
+                        isSticker: model.isSticker === true,
+                        isFile: model.isFile === true,
+                        mediaIsVoice: model.mediaIsVoice === true,
+                        senderDisplayName: model.senderDisplayName || "",
+                        body: model.body || "",
+                        mediaKey: model.mediaKey || "",
+                        mediaFilename: model.mediaFilename || "",
+                        mediaMimetype: model.mediaMimetype || "",
+                        mediaWidth: model.mediaWidth || 0,
+                        mediaHeight: model.mediaHeight || 0
+                    })
+            }
             // v0.7.x: report to the homeserver administrator (stable /v3
             // event report). Own messages are excluded — deleting them is
             // the sensible action, and self-reports only add noise.

@@ -659,6 +659,22 @@ public:
         Q_UNUSED(mime); Q_UNUSED(width); Q_UNUSED(height);
         return 0;
     }
+    // Same payload, but for a room whose live timeline is NOT open. The
+    // variant above routes through the open SDK timeline and refuses every
+    // other room — right for the composer, fatal for forwarding, whose
+    // target is by definition a room the user is not looking at. The SDK
+    // still encrypts for the target room when it is encrypted.
+    virtual bool supportsRoomScopedAttachmentSend() const { return false; }
+    virtual quint64 sendAttachmentBytesToRoom(const QString &roomId,
+                                              const QByteArray &bytes,
+                                              const QString &filename,
+                                              const QString &mime,
+                                              int width, int height)
+    {
+        Q_UNUSED(roomId); Q_UNUSED(bytes); Q_UNUSED(filename);
+        Q_UNUSED(mime); Q_UNUSED(width); Q_UNUSED(height);
+        return 0;
+    }
     // v0.7: MSC3245 voice message. The SDK marks the event as a voice
     // message and carries duration + waveform (0..=100 amplitudes, may be
     // empty) through the normal encrypting attachment path. Result echoes

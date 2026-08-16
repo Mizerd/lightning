@@ -2236,6 +2236,68 @@ pub(crate) fn send_attachment_bytes(
     )
 }
 
+/// v0.7.x forwarding: send an attachment to a room WITHOUT its live
+/// timeline being open.
+///
+/// `send_attachment_bytes` above routes through the open SDK timeline, which
+/// is right for the composer — the user is looking at that room. Forwarding
+/// is the opposite case by definition: the target is a room the user is not
+/// in yet, so that path refuses every real forward. This one goes straight
+/// to `Room::send_attachment`, which the SDK still encrypts for the target
+/// room when that room is encrypted; nothing about the crypto changes.
+///
+/// It carries the SAME byte validation as the timeline path — a payload
+/// labelled `image/*` whose magic disagrees is refused rather than uploaded.
+pub(crate) fn send_attachment_bytes_to_room(
+    bridge: &RustClient,
+    room_id: String,
+    bytes: Vec<u8>,
+    filename: String,
+    mime: String,
+    width: u64,
+    height: u64,
+    op_id: u64,
+) -> Result<(), String> {
+    if bytes.is_empty() {
+        return Err("attachment data is empty".to_owned());
+    }
+    if mime.starts_with("image/") && sniff_image_mime(&bytes).is_none() {
+        return Err("attachment data is not a supported image".to_owned());
+    }
+    let content_type: mime::Mime = mime
+        .parse()
+        .map_err(|_| "attachment mime is not valid".to_owned())?;
+    let size = bytes.len() as u64;
+    let info = attachment_info(&mime, width, height, size);
+    let room = joined_room(
+        &require_client(bridge)?,
+        &room_id,
+    )?;
+    let events = Arc::clone(&bridge.events);
+    bridge.spawn_room_action(async move {
+        let mut config = attachment::AttachmentConfig::new();
+        if let Some(info) = info {
+            config = config.info(info);
+        }
+        let result = room
+            .send_attachment(filename, &content_type, bytes, config)
+            .await;
+        enqueue(
+            &events,
+            json!({
+                "type": "attachment_send_result",
+                "op_id": op_id,
+                "room_id": room_id,
+                // Coarse category only; SDK errors may embed server detail
+                // that must not cross the FFI.
+                "ok": result.is_ok(),
+                "category": if result.is_ok() { "" } else { "rejected" },
+            }),
+        );
+    });
+    Ok(())
+}
+
 /// v0.6.1: thread attachment (file) — same validation and info as the room
 /// path, but routed through the thread-focused SDK timeline so the SDK
 /// attaches the m.thread relation and encrypts for encrypted rooms.
