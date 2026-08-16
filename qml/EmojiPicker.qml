@@ -261,6 +261,9 @@ AnchoredPopup {
                         activeFocusOnTab: true
                         boundsBehavior: Flickable.StopAtBounds
                         ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+                        // Same wheel/touchpad feel as the room timeline;
+                        // see qml/SmoothWheelArea.qml.
+                        SmoothWheelArea {}
 
                         delegate: Item {
                             id: cell

@@ -195,14 +195,26 @@ Rectangle {
         }
 
         // ── Overview ─────────────────────────────────────────────────────
-        ScrollView {
+        // v0.7.x: an explicit Flickable (was ScrollView) so this pane can
+        // carry a SmoothWheelArea the same way every other converted
+        // pane does — ScrollView auto-wraps non-Flickable content in an
+        // internal, unreachable Flickable, which a WheelHandler cannot be
+        // attached to from here. Same wheel/touchpad feel as the room
+        // timeline; see qml/SmoothWheelArea.qml.
+        Flickable {
+            id: overviewFlick
             visible: root.section === "overview"
             Layout.fillWidth: true
             Layout.fillHeight: true
-            contentWidth: availableWidth
+            contentWidth: width
+            contentHeight: overviewColumn.implicitHeight
             clip: true
+            boundsBehavior: Flickable.StopAtBounds
+            ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+            SmoothWheelArea {}
 
             ColumnLayout {
+                id: overviewColumn
                 width: parent.width
                 spacing: AppTheme.spacing12
 
@@ -770,6 +782,9 @@ Rectangle {
                 Layout.fillHeight: true
                 clip: true
                 spacing: 2
+                // Same wheel/touchpad feel as the room timeline; see
+                // qml/SmoothWheelArea.qml.
+                SmoothWheelArea {}
                 // Newest pin first: Matrix appends, so the bridge's list is
                 // oldest-first and the useful end is the tail.
                 model: {
@@ -997,6 +1012,9 @@ Rectangle {
                             : snapshot
                 }
                 ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+                // Same wheel/touchpad feel as the room timeline; see
+                // qml/SmoothWheelArea.qml.
+                SmoothWheelArea {}
 
                 delegate: ItemDelegate {
                     width: ListView.view.width
@@ -1137,6 +1155,9 @@ Rectangle {
                     return app.timeline.mediaEntries().slice().reverse()
                 }
                 ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+                // Same wheel/touchpad feel as the room timeline; see
+                // qml/SmoothWheelArea.qml.
+                SmoothWheelArea {}
 
                 Label {
                     anchors.centerIn: parent

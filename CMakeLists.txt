@@ -474,6 +474,7 @@ set(APP_QML_FILES
     qml/AppSwitch.qml
     qml/LoginScreen.qml
     qml/SettingsScreen.qml
+    qml/SmoothWheelArea.qml
     qml/UpdatesSettingsSection.qml
     qml/UpdateAvailableDialog.qml
     qml/MainScreen.qml
@@ -1543,6 +1544,17 @@ if(BUILD_TESTING)
     target_link_libraries(message-action-bar-fit-test PRIVATE
         Qt6::Core Qt6::Test)
     add_test(NAME message-action-bar-fit COMMAND message-action-bar-fit-test)
+
+    # Every scrollable pane must route the wheel through SmoothWheelArea, so
+    # the whole app matches the timeline's feel instead of Qt's defaults.
+    qt_add_executable(scroll-consistency-contract-test
+        tests/ScrollConsistencyContractTest.cpp)
+    target_compile_definitions(scroll-consistency-contract-test PRIVATE
+        QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
+    target_link_libraries(scroll-consistency-contract-test PRIVATE
+        Qt6::Core Qt6::Test)
+    add_test(NAME scroll-consistency-contract
+        COMMAND scroll-consistency-contract-test)
 
     # v0.5.7: CacheStore must refuse encrypted-room rows on every write
     # path — decrypted plaintext stays memory-only.

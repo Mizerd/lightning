@@ -843,10 +843,20 @@ Item {
                 contentHeight: contentColumn.implicitHeight + AppTheme.spacing24 * 2
                 clip: true
                 ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
-                // Jump to the top when switching categories.
+                // Same wheel/touchpad feel as the room timeline (see
+                // qml/SmoothWheelArea.qml) — the maintainer report this
+                // round was specifically that Settings scrolled "slower
+                // and different" than the chat box.
+                SmoothWheelArea { id: settingsWheelArea }
+                // Jump to the top when switching categories. Stop any
+                // in-flight glide first so a residual wheel motion from
+                // the previous section cannot immediately fight this jump.
                 Connections {
                     target: root
-                    function onSectionChanged() { contentFlick.contentY = 0 }
+                    function onSectionChanged() {
+                        settingsWheelArea.stopGlide()
+                        contentFlick.contentY = 0
+                    }
                 }
 
                 ColumnLayout {

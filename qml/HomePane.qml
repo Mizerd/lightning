@@ -90,6 +90,9 @@ Item {
         contentHeight: card.implicitHeight + AppTheme.spacing24 * 2
         boundsBehavior: Flickable.StopAtBounds
         clip: true
+        // Same wheel/touchpad feel as the room timeline; see
+        // qml/SmoothWheelArea.qml.
+        SmoothWheelArea {}
 
         ColumnLayout {
             id: card
