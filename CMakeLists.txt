@@ -1402,6 +1402,24 @@ if(BUILD_TESTING)
     set_tests_properties(timeline-hydration-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+    # Follow-up to timeline-state-flood-perf (pure C++): measures the real
+    # QML pipeline (real AppController/MockMatrixClient, the real compiled
+    # TimelinePane.qml/MessageDelegate.qml) for a near-top pagination page of
+    # contiguous state-change rows (e.g. repeated display-name changes with
+    # no messages between them) versus the same page size of ordinary
+    # messages, and for several consecutive pages growing the same state
+    # group. See the test file header for exactly what is measured.
+    qt_add_executable(timeline-state-flood-qml-perf-test
+        tests/TimelineStateFloodQmlPerfTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_test(timeline-state-flood-qml-perf-test)
+    target_link_libraries(timeline-state-flood-qml-perf-test PRIVATE Qt6::Test)
+    add_test(NAME timeline-state-flood-qml-perf
+             COMMAND timeline-state-flood-qml-perf-test)
+    set_tests_properties(timeline-state-flood-qml-perf PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
     # v0.7: type-specific media placeholders — reserved aspect geometry for
     # image/video/sticker, compact audio/voice rows, the decrypting text
     # skeleton, and the shared Skeleton primitive's animation eligibility.
@@ -1555,6 +1573,28 @@ if(BUILD_TESTING)
         Qt6::Core Qt6::Test)
     add_test(NAME scroll-consistency-contract
         COMMAND scroll-consistency-contract-test)
+
+    # Measurement (not a fix): quantifies the cost of the state-activity
+    # grouping mechanism (TimelineModel::stateGroupLeaderRow /
+    # stateGroupEntriesFrom / emitPresentationGroupingChanged) under a long
+    # run of contiguous state-change rows (e.g. repeated display-name
+    # changes with no messages between them), and contrasts it with the
+    # same row count of ordinary messages. See the test file header for the
+    # exact mechanism and the closed-form costs it asserts against.
+    qt_add_executable(timeline-state-flood-perf-test
+        tests/TimelineStateFloodPerfTest.cpp
+        src/models/TimelineModel.h
+        src/models/TimelineModel.cpp
+        src/models/MessageHtml.h
+        src/models/MessageHtml.cpp
+        src/models/UserLookup.h
+        src/models/UserLookup.cpp
+        src/matrix/MatrixClient.h
+        src/matrix/MatrixClient.cpp
+    )
+    target_include_directories(timeline-state-flood-perf-test PRIVATE src)
+    target_link_libraries(timeline-state-flood-perf-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME timeline-state-flood-perf COMMAND timeline-state-flood-perf-test)
 
     # v0.5.7: CacheStore must refuse encrypted-room rows on every write
     # path — decrypted plaintext stays memory-only.
