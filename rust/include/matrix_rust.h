@@ -115,6 +115,12 @@ char *mx_rust_send_read_receipt(void *client,
                                 const char *room_id,
                                 const char *event_id);
 char *mx_rust_set_marked_unread(void *client, const char *room_id, int unread);
+/* Mark a room read WITHOUT opening it. The target event comes from the SDK's
+ * own Room::latest_event(), so no timeline needs to be loaded. Sends the
+ * public read receipt AND m.fully_read together, and always clears the
+ * manual unread flag. Answers on read_marker_advanced, or room_action_error
+ * with action="mark_read". */
+char *mx_rust_mark_room_read(void *client, const char *room_id);
 /* Server-synchronized per-room notification mode (SDK push rules).
  * mode: 0 = all messages, 1 = mentions & keywords only, 2 = mute. Set is
  * label-faithful (mode 0 writes an explicit AllMessages rule); every rule

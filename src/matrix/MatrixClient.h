@@ -325,6 +325,13 @@ public:
         Q_UNUSED(roomId);
         Q_UNUSED(unread);
     }
+    // Mark a room read without opening it. Distinct from sendReadReceipt,
+    // which can only ever point at an event in the LOADED timeline — empty
+    // for a room that is not open, which made marking a closed room read a
+    // silent no-op. Backends that cannot resolve a closed room's latest
+    // event leave this inert rather than pretending it worked.
+    virtual bool supportsMarkRoomRead() const { return false; }
+    virtual void markRoomRead(const QString &roomId) { Q_UNUSED(roomId); }
     // Server-synchronized per-room notification mode (account push rules
     // managed entirely by the Matrix SDK). Modes match SettingsManager /
     // NotificationManager::RoomMode: 0 = all messages, 1 = mentions &

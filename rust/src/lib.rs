@@ -2021,6 +2021,67 @@ pub unsafe extern "C" fn mx_rust_set_marked_unread(
     })
 }
 
+/// Mark a room read WITHOUT opening it.
+///
+/// The existing read path only advances while the room is open, focused and
+/// scrolled near the bottom, and RoomListModel::markRoomRead resolved its
+/// target from the LOADED timeline — which is empty for a room that is not
+/// open, so marking a closed room read was a silent no-op.
+///
+/// The target comes from the SDK's own `Room::latest_event()`, so no
+/// timeline needs to be open and nothing is guessed. Both markers are sent
+/// together, exactly as the in-room path does: the public receipt is what
+/// other people see, and `m.fully_read` is the user's OWN read position,
+/// which is the part that syncs their place across their own devices.
+///
+/// When a room has no resolvable latest event there is nothing to point a
+/// receipt at, so only the manual unread flag is cleared — the same
+/// fallback matrix-sdk-ui's own `Timeline::mark_as_read` takes. Clearing
+/// that flag is unconditional either way: a room the user explicitly marked
+/// unread must not stay unread after they ask for it to be read.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_mark_room_read(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let client = bridge.client.lock().ok().and_then(|guard| guard.clone())
+            .ok_or_else(|| "no active Matrix session".to_owned())?;
+        let room = RoomId::parse(&room_id).ok().and_then(|id| client.get_room(&id))
+            .ok_or_else(|| "unknown room".to_owned())?;
+        let events = Arc::clone(&bridge.events);
+        bridge.spawn_room_action(async move {
+            let latest = room.latest_event().event_id();
+            let mut ok = true;
+            if let Some(event_id) = latest {
+                let receipts = Receipts::new()
+                    .fully_read_marker(event_id.clone())
+                    .public_read_receipt(event_id);
+                ok = room.send_multiple_receipts(receipts).await.is_ok();
+            }
+            // Unconditional: an explicitly marked-unread room must not stay
+            // unread just because it had no event to receipt.
+            if room.set_unread_flag(false).await.is_err() {
+                ok = false;
+            }
+            if ok {
+                enqueue(&events, json!({
+                    "type": "read_marker_advanced", "room_id": room_id
+                }));
+                enqueue_rooms(&events, &client).await;
+            } else {
+                enqueue(&events, json!({
+                    "type": "room_action_error", "action": "mark_read",
+                    "room_id": room_id
+                }));
+            }
+        });
+        Ok(String::new())
+    })
+}
+
 /// Lightning's per-room notification-mode integers, shared with the C++
 /// side (SettingsManager / NotificationManager::RoomMode): 0 = all
 /// messages, 1 = mentions & keywords only, 2 = mute. The mapping is

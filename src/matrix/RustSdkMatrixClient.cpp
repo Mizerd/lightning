@@ -1905,6 +1905,15 @@ void RustSdkMatrixClient::setRoomMarkedUnread(const QString &roomId, bool unread
     if (!result.isEmpty()) qCWarning(lcRust) << "marked-unread command rejected";
 }
 
+void RustSdkMatrixClient::markRoomRead(const QString &roomId)
+{
+    if (!m_rustHandle || roomId.isEmpty()) return;
+    const QByteArray room = roomId.toUtf8();
+    const QString result = takeRustString(mx_rust_mark_room_read(
+        m_rustHandle, room.constData()));
+    if (!result.isEmpty()) qCWarning(lcRust) << "mark-room-read command rejected";
+}
+
 void RustSdkMatrixClient::setRoomNotificationMode(const QString &roomId, int mode)
 {
     // Mode 3 (follow account default) deliberately does NOT reach this

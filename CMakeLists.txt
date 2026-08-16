@@ -1754,6 +1754,24 @@ if(BUILD_TESTING)
     add_test(NAME space-settings-contract
         COMMAND space-settings-contract-test)
 
+    # v0.7.x read markers: "Mark as read" resolved its target from the LOADED
+    # timeline, which on the Rust backend only ever holds the OPEN room — so
+    # marking any other room read sent nothing and silently did nothing. Pins
+    # the capable-backend route, the legacy timeline-walk fallback, local-echo
+    # skipping, and inert handling of unknown targets.
+    qt_add_executable(mark-room-read-test
+        tests/MarkRoomReadTest.cpp
+        src/models/RoomListModel.h
+        src/models/RoomListModel.cpp
+        src/spaces/SpaceManager.h
+        src/spaces/SpaceManager.cpp
+        src/matrix/MatrixClient.h
+        src/matrix/MatrixClient.cpp
+    )
+    target_include_directories(mark-room-read-test PRIVATE src)
+    target_link_libraries(mark-room-read-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME mark-room-read COMMAND mark-room-read-test)
+
     # v0.7.x: the thread-participant fetch bound — concurrency cap, FIFO
     # queue, slot release on success AND on a failed (empty) answer,
     # deduplication against cached/in-flight/queued roots, and room-switch

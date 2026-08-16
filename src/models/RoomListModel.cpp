@@ -665,7 +665,15 @@ void RoomListModel::rejectInvite(const QString &roomId)
 
 void RoomListModel::markRoomRead(const QString &roomId)
 {
-    if (!m_client) return;
+    if (!m_client || roomId.isEmpty()) return;
+    // Prefer the backend that can resolve the room's latest event WITHOUT a
+    // loaded timeline. The fallback below reads m_client->timeline(roomId),
+    // which on the Rust backend only ever holds the OPEN room — so marking
+    // any other room read silently did nothing at all.
+    if (m_client->supportsMarkRoomRead()) {
+        m_client->markRoomRead(roomId);
+        return;
+    }
     for (const auto &room : m_client->rooms()) {
         if (room.id != roomId) continue;
         const auto events = m_client->timeline(roomId);
@@ -678,6 +686,7 @@ void RoomListModel::markRoomRead(const QString &roomId)
         return;
     }
 }
+
 
 void RoomListModel::markRoomUnread(const QString &roomId)
 {
