@@ -1442,6 +1442,19 @@ if(BUILD_TESTING)
     set_tests_properties(media-placeholder-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+    # v0.7.2: the audio card's cover-art box keeps the artwork's aspect at
+    # every size. Bounding only the height left a tall cover in a full-width
+    # box at the cap, letterboxed with dead surface down both sides.
+    qt_add_executable(audio-cover-art-aspect-test
+        tests/AudioCoverArtAspectTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_test(audio-cover-art-aspect-test)
+    target_link_libraries(audio-cover-art-aspect-test PRIVATE Qt6::Test)
+    add_test(NAME audio-cover-art-aspect COMMAND audio-cover-art-aspect-test)
+    set_tests_properties(audio-cover-art-aspect PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
     # v0.7: avatar pipeline — explicit loading/ready/missing/failed states
     # through the real MediaBridge + MediaImageProvider, pixel-proven
     # transparency (no fallback fill beneath a decoded avatar), stable
@@ -1561,9 +1574,10 @@ if(BUILD_TESTING)
     target_link_libraries(state-activity-grouping-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME state-activity-grouping COMMAND state-activity-grouping-test)
 
-    # The hover toolbar escapes the row's clip into Overlay.overlay, so a
-    # one-line message no longer truncates it, and the tooltips flip below
-    # the bar near the window's top edge.
+    # The hover toolbar is one per row, anchored in place; the row simply
+    # does not clip, so a one-line message no longer truncates it. (An
+    # earlier overlay-mapped shared instance was reverted — rows are rotated
+    # 180 degrees.) Exactly one row may show a bar at a time.
     qt_add_executable(message-action-bar-fit-test
         tests/MessageActionBarFitTest.cpp)
     target_compile_definitions(message-action-bar-fit-test PRIVATE

@@ -1756,6 +1756,11 @@ Rectangle {
                 // (by a click). Shared across delegates so only one can be
                 // pinned at a time; keyed by the SDK item id (or event id).
                 property string pinnedActionsKey: ""
+                // The row the pointer is currently over. Exactly ONE action
+                // bar may be on screen: a pinned row keeps its bar only
+                // while nothing else is hovered, otherwise hovering a second
+                // row showed a second bar and both rows looked selected.
+                property string hoveredActionsKey: ""
                 property bool emojiPickerOpen: false
                 // v0.5.11: whether the open room is encrypted — drives the
                 // link-preview privacy gate in each MessageDelegate.
@@ -2941,7 +2946,10 @@ Rectangle {
                 // (eventType 9), so there is no lingering "scroll up"
                 // placeholder.
 
-                ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+                // NO attached ScrollBar here. This Flickable is rotated 180
+                // degrees, so an attached vertical bar renders on the visual
+                // LEFT and its handle travels backwards. The bar is declared
+                // as an UNROTATED sibling below and mapped explicitly.
 
                 Label {
                     anchors.centerIn: parent
@@ -2951,6 +2959,60 @@ Rectangle {
                              && timeline.count === 0 && timeline.presentationReady
                     text: qsTr("No messages yet")
                     color: AppTheme.textMuted
+                }
+            }
+
+            // Timeline scrollbar, deliberately OUTSIDE the rotated Flickable
+            // so it sits on the right and travels the right way. The view is
+            // rotated, so the visual TOP of the content is wheelMaxY (the
+            // oldest loaded row) and the visual BOTTOM is wheelMinY (the
+            // newest) — the mapping below is that inversion, in both
+            // directions so dragging still works.
+            ScrollBar {
+                id: timelineScrollBar
+                orientation: Qt.Vertical
+                policy: ScrollBar.AsNeeded
+                anchors.right: parent.right
+                anchors.top: parent.top
+                anchors.bottom: parent.bottom
+                visible: timeline.contentHeight > timeline.height
+                readonly property real span:
+                    Math.max(1, timeline.wheelMaxY() - timeline.wheelMinY())
+                size: Math.max(0.02,
+                               Math.min(1, timeline.height
+                                           / Math.max(1, timeline.contentHeight)))
+                // The tracking binding lives in the Binding below, NOT here:
+                // ScrollBar assigns `position` imperatively while the handle
+                // is dragged, and a plain declarative binding on it would be
+                // destroyed by that first assignment and never restored —
+                // the bar would follow the timeline until the user touched
+                // it once and then go dead.
+                onPositionChanged: {
+                    // Only follow the handle while the USER holds it (a
+                    // groove click presses too). Otherwise this would fight
+                    // the binding and the timeline's own motion.
+                    if (!pressed)
+                        return
+                    var frac = (1 - size) > 0 ? position / (1 - size) : 0
+                    timeline.cancelWheelMotion()
+                    timeline.contentY = timeline.wheelMaxY() - frac * span
+                    timeline.updateStickAndPaginate()
+                }
+            }
+
+            Binding {
+                target: timelineScrollBar
+                property: "position"
+                // Yields for the duration of the drag, then takes over again.
+                when: !timelineScrollBar.pressed
+                restoreMode: Binding.RestoreNone
+                value: {
+                    if (!timelineScrollBar.visible)
+                        return 0
+                    var usable = 1 - timelineScrollBar.size
+                    var frac = (timeline.wheelMaxY() - timeline.contentY)
+                               / timelineScrollBar.span
+                    return Math.max(0, Math.min(usable, frac * usable))
                 }
             }
 

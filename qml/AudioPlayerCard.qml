@@ -277,25 +277,35 @@ Rectangle {
         objectName: "audioCoverArtBox"
         visible: root.artworkSource.length > 0
         anchors.left: parent.left
-        anchors.right: parent.right
         anchors.top: cardRow.bottom
         anchors.leftMargin: 6
-        anchors.rightMargin: 6
         anchors.topMargin: 6
-        // Follows the ARTWORK'S OWN aspect so a square album cover renders
-        // square. A fixed ratio cropped the top and bottom off every square
-        // cover, which is most of them. Falls back to a sane ratio until the
-        // image reports its size, and is capped so an unusually tall image
-        // cannot dominate the timeline.
-        implicitHeight: {
-            if (!visible)
-                return 0
+        // The box takes the ARTWORK'S OWN aspect, so a square album cover
+        // renders square. A fixed ratio cropped the top and bottom off every
+        // square cover, which is most of them.
+        //
+        // BOTH axes are bounded, and that is the point: capping only the
+        // height (the first version of this) silently broke the aspect match
+        // the box exists to provide. Any cover wider than the cap got a box
+        // that was still full width but only `maxEdge` tall, and
+        // PreserveAspectFit then painted the artwork small and centred with
+        // dead card surface down either side. Deriving the width from the
+        // capped height keeps box and artwork the same shape at every size.
+        readonly property real maxEdge: 420
+        readonly property real availableWidth: Math.max(1, root.width - 12)
+        // Height per unit width. Falls back to a sane ratio until the image
+        // reports its size; asynchronous loading means that is transient.
+        readonly property real artRatio: {
             var iw = coverArtImage.implicitWidth
             var ih = coverArtImage.implicitHeight
-            if (iw > 0 && ih > 0)
-                return Math.min(Math.round(width * ih / iw), 420)
-            return Math.round(width * 0.62)
+            return (iw > 0 && ih > 0) ? (ih / iw) : 0.62
         }
+        implicitWidth: visible
+            ? Math.round(Math.min(availableWidth, maxEdge / artRatio)) : 0
+        implicitHeight: visible
+            ? Math.round(Math.min(availableWidth * artRatio, maxEdge)) : 0
+        width: implicitWidth
+        height: implicitHeight
         radius: AppTheme.radiusMd
         color: AppTheme.surfaceElevated
         border.width: 1

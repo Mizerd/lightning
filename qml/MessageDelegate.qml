@@ -315,7 +315,37 @@ Item {
     readonly property bool actionsPinned: root.timelineView
             && root.timelineView.pinnedActionsKey !== ""
             && root.timelineView.pinnedActionsKey === actionKey
+    // One bar at a time. The hovered row always wins over a PINNED one (a
+    // pinned row shows its bar only while nothing is hovered) — without
+    // that, a pinned row and a hovered row both rendered and two messages
+    // looked selected at once.
+    //
+    // The single deliberate exception is a row whose More menu is open: the
+    // menu is positioned from that bar, so hiding it would strand the menu.
+    // That state ends with the menu.
+    readonly property bool actionsVisible:
+        root.moreMenuOpen
+        || (root.timelineView
+            && (root.timelineView.hoveredActionsKey === actionKey
+                || (actionsPinned
+                    && root.timelineView.hoveredActionsKey === "")))
     property string menuEventId: ""
+
+    // Clears the view's hovered key if — and only if — this row owns it.
+    // A row can stop being hovered without ever getting a leave event: the
+    // delegate is destroyed under the pointer on a room change. The key
+    // would then keep naming a row that no longer exists and NO bar would
+    // show until the pointer entered some other row.
+    //
+    // Destruction is the only hook that can do this. An actionKey change
+    // cannot: by the time the handler runs the property already holds the
+    // NEW key, so there is nothing left to compare the stale one against.
+    function releaseHoveredActions() {
+        if (root.timelineView
+                && root.timelineView.hoveredActionsKey === root.actionKey)
+            root.timelineView.hoveredActionsKey = ""
+    }
+    Component.onDestruction: releaseHoveredActions()
 
     // v0.7: pooled-delegate reuse. The ListView recycles this delegate for a
     // different row; model-bound state re-derives through its change handlers
@@ -568,7 +598,17 @@ Item {
             implicitHeight: Math.max(avatarSlot.implicitHeight,
                                      bubble.implicitHeight)
 
-            HoverHandler { id: rowHover }
+            HoverHandler {
+                id: rowHover
+                onHoveredChanged: {
+                    if (!root.timelineView || root.actionKey === "")
+                        return
+                    if (hovered)
+                        root.timelineView.hoveredActionsKey = root.actionKey
+                    else
+                        root.releaseHoveredActions()
+                }
+            }
             TapHandler {
                 acceptedButtons: Qt.RightButton
                 onTapped: (eventPoint, button) => {
@@ -1334,11 +1374,9 @@ Item {
                 // write to one of its dependencies from there is a
                 // detected binding loop.
                 property bool latched: false
-                active: latched || rowHover.hovered || root.actionsPinned
-                        || root.moreMenuOpen
+                active: latched || root.actionsVisible
                 onLoaded: Qt.callLater(function() { latched = true })
-                visible: rowHover.hovered || root.actionsPinned
-                         || root.moreMenuOpen
+                visible: root.actionsVisible
                 sourceComponent: Rectangle {
                 id: messageActionBar
                 // v0.6.5 (SPEC 1a): container surface bg, 1px borderStrong,

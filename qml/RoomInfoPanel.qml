@@ -1209,7 +1209,19 @@ Rectangle {
                         MediaListThumbnail {
                             visible: modelData.isVisual === true
                             mediaKey: modelData.mediaKey || ""
+                            // A VIDEO with no server thumbnail must not ask
+                            // for one: the request falls back to the full
+                            // attachment, so the list downloaded whole videos
+                            // (2.5 MB, 4.9 MB, 5.4 MB in one capture) only to
+                            // reject them as "thumbnail payload sniffs as A/V
+                            // container" — megabytes fetched and discarded,
+                            // which is the lag spike on opening the media
+                            // tab. thumbAvailable is already published by
+                            // TimelineModel; it just was not consulted.
+                            // Such rows fall back to the placeholder box.
                             visual: modelData.isVisual === true
+                                    && (modelData.isVideo !== true
+                                        || modelData.thumbAvailable === true)
                             video: modelData.isVideo === true
                             onScreen: mediaDelegate.rowOnScreen
                             Layout.alignment: Qt.AlignVCenter

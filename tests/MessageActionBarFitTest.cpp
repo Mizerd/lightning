@@ -79,8 +79,38 @@ private Q_SLOTS:
         const QString delegate = read(QStringLiteral("MessageDelegate.qml"));
         QVERIFY2(!delegate.contains(QStringLiteral("active: root.inThreadPanel")),
                  "the bar must not be gated to the thread panel");
+        QVERIFY(delegate.contains(
+            QStringLiteral("active: latched || root.actionsVisible")));
+        QVERIFY(delegate.contains(QStringLiteral("visible: root.actionsVisible")));
+    }
+
+    // Exactly ONE row may show a bar. Reported: "sometimes its possible to
+    // select two messages and only one gets ui".
+    //
+    // Per-row hover is not self-exclusive in practice. A pinned row (its
+    // context menu was opened, or it is the reply/edit target) keeps its bar
+    // while the pointer moves onto a different row, and both then satisfy
+    // their own local condition. The rows must therefore agree through ONE
+    // shared value rather than each deciding alone: the view publishes the
+    // hovered row's key, a row shows its bar when that key is its own, and a
+    // pinned row yields as soon as any row is hovered.
+    void onlyOneRowCanShowTheBar()
+    {
+        const QString pane = read(QStringLiteral("TimelinePane.qml"));
+        QVERIFY2(pane.contains(QStringLiteral("property string hoveredActionsKey")),
+                 "the view must own the single hovered-row key");
+
+        const QString delegate = read(QStringLiteral("MessageDelegate.qml"));
+        // The row shows its bar only when the shared key names IT.
         QVERIFY(delegate.contains(QStringLiteral(
-            "active: latched || rowHover.hovered || root.actionsPinned")));
+            "root.timelineView.hoveredActionsKey === actionKey")));
+        // A pinned row defers the moment any other row is hovered.
+        QVERIFY2(delegate.contains(QStringLiteral(
+                     "&& root.timelineView.hoveredActionsKey === \"\"")),
+                 "a pinned row must yield to a hovered one, or two bars show");
+        // Publishing: hover sets the key, un-hover clears only its own.
+        QVERIFY(delegate.contains(QStringLiteral(
+            "root.timelineView.hoveredActionsKey = root.actionKey")));
     }
 
     // Lazily created, then latched for the delegate's lifetime — zero
