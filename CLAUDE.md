@@ -26,9 +26,31 @@ frontend.
 
 ## 2. Current release and development state
 
-Release facts, verified on 2026-08-15:
+Release facts, verified on 2026-08-16:
 
-- Latest published release: **Lightning 0.7.0** (`v0.7.0` -> `cd91b9c`),
+- Latest published release: **Lightning 0.7.1** (`v0.7.1` -> `25a01f1`),
+  cut by lightning-deploy pipeline **102** in `RELEASE_ACTION=create`
+  mode: all 19 jobs green, 9 assets published. First release carrying the
+  secure updater, and the first ever run of `sign-update-manifest` and
+  `mirror-release-to-github`. Verified ANONYMOUSLY rather than from job
+  status: all 9 GitLab package links 200; the `latest` update manifest
+  fetches, reports 0.7.1, carries `mirror_url`, and its Ed25519 signature
+  VERIFIES against the embedded key (`lightning-release-2026a`); the
+  GitHub release has 9 assets and its tag peels to the same commit; and
+  GitHub's bytes match the signed SHA-256. Release notes:
+  `docs/releases/v0.7.1.md`.
+  Three pipelines were burned first (99/100/101), all in CI plumbing and
+  none reaching publication: no `make`; bare `gcc` without libc6-dev; and
+  an NSIS payload assertion using `strings`, which cannot work under
+  `SetCompressor /SOLID lzma`. VERIFY CI JOB SCRIPTS IN A REAL
+  `docker run debian:13.6-slim` — the nix dev shell supplies a toolchain
+  through stdenv and hid two of those. Also: a doomed pipeline keeps
+  running its other jobs and HOLDS the runners; cancel it before
+  retriggering or the retry sits pending.
+  NOT live-validated: no real MSI/EXE/portable/AppImage/DEB/RPM upgrade
+  has been performed. 0.7.1 is the first release that can be updated
+  FROM, so the first true end-to-end upgrade is the one into 0.7.2.
+- Previous release: **Lightning 0.7.0** (`v0.7.0` -> `cd91b9c`),
   cut by lightning-deploy pipeline **98** in `RELEASE_ACTION=create` mode:
   all 17 jobs green (the fleet + the macOS arm64 test bundle via
   `BUILD_MACOS_PACKAGES=true` — built and validated on the Mac mini
@@ -43,7 +65,7 @@ Release facts, verified on 2026-08-15:
 - Previous releases: `v0.6.6` -> `f35bc8c`, `v0.6.5` -> `4cdace3`,
   `v0.6.4` -> `e719bbe`, `v0.6.3` -> `97f10b7`, `v0.6.2` -> `fe3b85f`,
   `v0.6.1` -> `86d30b4`, `v0.6.0` -> `2157194` (all immutable, unchanged)
-- Application version: **0.7.0** in `CMakeLists.txt`, `rust/Cargo.toml`, and
+- Application version: **0.7.1** in `CMakeLists.txt`, `rust/Cargo.toml`, and
   the Rust/HTTP user agent
 
 0.6.6 released the thirty commits that had accumulated since `v0.6.5`:
@@ -1048,8 +1070,8 @@ Published tags and GitLab Releases are immutable. Never move, recreate, or
 replace them. Do not bump a version, tag, or create a release unless Rokas
 explicitly requests release work.
 
-Version 0.6.6 is released and the synchronized CMake, Rust, and user-agent
-version report 0.6.6. Any future version bump is a release checkpoint alone and
+Version 0.7.1 is released and the synchronized CMake, Rust, and user-agent
+version report 0.7.1. Any future version bump is a release checkpoint alone and
 updates those same synchronized locations. Before release, run complete Rust
 tests plus Rust and non-Rust builds/CTest, and report unavailable live
 validation honestly.
@@ -1107,8 +1129,8 @@ For an existing release that is missing packages, use
 links to the existing release without altering its tag, notes, or source
 archives). This was used to backfill `v0.6.1`.
 
-The latest published release is `v0.6.6` (`f35bc8c`), cut from its release
-commit on `main` by project 7 pipeline **83** in `RELEASE_ACTION=create` mode
+The latest published release is `v0.7.1` (`25a01f1`), cut from its release
+commit on `main` by project 7 pipeline **102** in `RELEASE_ACTION=create` mode
 (all 16 jobs green; 9 assets published and hash-verified). All earlier
 releases and tags (`v0.6.5` and older) remain immutable and unchanged.
 
