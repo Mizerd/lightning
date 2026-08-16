@@ -343,8 +343,19 @@ check("openssl" in yaml.dump(config_tests.get("before_script", [])),
 check("./tests/test-windows-version-resources.sh" in config_script,
       "config-tests runs the Windows version-resource suite")
 config_before = yaml.dump(config_tests.get("before_script", []))
-check("cmake" in config_before and "gcc" in config_before,
-      "config-tests installs cmake and a C compiler for that suite")
+# A COMPLETE toolchain, not just a compiler driver. Pipelines 99 and 100 both
+# died here: `gcc` alone under --no-install-recommends omits libc6-dev so the
+# compiler cannot link, and without `make` CMake has no default generator.
+# build-essential is the package that means all of it; accept an explicit
+# equivalent set too, so this does not have to change again if the list is
+# unpacked.
+_has_toolchain = "build-essential" in config_before or (
+    "gcc" in config_before
+    and "libc6-dev" in config_before
+    and "make" in config_before
+)
+check("cmake" in config_before and _has_toolchain,
+      "config-tests installs cmake and a COMPLETE C toolchain for that suite")
 
 # The snap repackages the AppImage job's bundled AppDir instead of
 # recompiling Qt + Rust a third time.
