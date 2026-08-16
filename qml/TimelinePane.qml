@@ -282,8 +282,18 @@ Rectangle {
 
         HoverHandler {
             id: sharedBarHover
-            onHoveredChanged:
+            onHoveredChanged: {
                 timeline.sharedActionBarHovered = sharedBarHover.hovered
+                // The owning row stopped asking for the bar the moment the
+                // pointer left it — releaseActionBar refused because the
+                // pointer was here instead. Nothing else will ask again, so
+                // leaving the bar now is this handler's job. If the pointer
+                // went back onto the row rather than away, that row's own
+                // hover re-claims immediately.
+                if (!sharedBarHover.hovered
+                        && !timeline.activeActionsMoreMenuOpen)
+                    timeline.clearActionBar()
+            }
         }
 
         Row {

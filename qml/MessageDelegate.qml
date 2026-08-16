@@ -1785,12 +1785,24 @@ Item {
         (!root.inThreadPanel && Overlay.overlay)
         ? bubbleRow.mapToItem(Overlay.overlay, bubbleRow.width, 0)
         : Qt.point(0, 0)
+    // Deliberately does NOT read the shared bar's own state. It used to
+    // include "...or the shared bar is hovered and its active key is mine",
+    // which closed a feedback loop: the binding read activeActionsKey, its
+    // change handler called claimActionBar, and claimActionBar WROTE
+    // activeActionsKey. Qt reported it as
+    // "Binding loop detected for property wantsSharedActionBar" hundreds of
+    // times per pagination run in a live session (capture 2026-08-16) — the
+    // loop is self-limiting but it re-evaluated every visible row's binding
+    // on every claim, during exactly the churn where the timeline can least
+    // afford it.
+    //
+    // Keeping the bar alive while the pointer travels from the row onto the
+    // bar's own buttons does not need this term at all: releaseActionBar
+    // already refuses while sharedActionBarHovered is true, so the row can
+    // ask to release and simply be told no. One guard, on one side.
     readonly property bool wantsSharedActionBar:
         !root.inThreadPanel
-        && (rowHover.hovered || root.actionsPinned || root.moreMenuOpen
-            || (root.timelineView
-                && root.timelineView.activeActionsKey === root.actionKey
-                && root.timelineView.sharedActionBarHovered === true))
+        && (rowHover.hovered || root.actionsPinned || root.moreMenuOpen)
     function syncSharedActionBar() {
         if (!root.timelineView || root.inThreadPanel)
             return
