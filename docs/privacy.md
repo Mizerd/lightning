@@ -22,8 +22,9 @@ service the user explicitly invoked.
   account, device or usage information — see section 5a.
 - The **Matrix homeserver the user chooses** receives normal Matrix protocol
   traffic, because that is what a Matrix client does.
-- **Third parties** are contacted in exactly two situations, both listed below,
-  and both under user control.
+- **Third parties** are contacted in exactly three situations, all listed below
+  and all under user control: link previews, the GIF picker, and downloading an
+  update file from the project's GitHub mirror.
 - Message content in encrypted rooms is end-to-end encrypted by the official
   Rust Matrix SDK. Lightning implements no cryptography of its own.
 
@@ -156,14 +157,17 @@ corresponding integrations — there are none:
   When enabled they run at most once every 24 hours; a manual check is always
   available in Settings → Updates. See section 5a for exactly what is sent.
 - **No advertising, tracking, or fingerprinting services.**
-- **No hard-coded third-party endpoint other than the two GIF providers above.**
-  The only other external hostnames in the source are `matrix.to` (used to
-  *construct* permalinks — Lightning never fetches it) and documentation links.
+- **No hard-coded third-party endpoint other than the two GIF providers above
+  and the update-download mirror in section 5a.** The mirror is contacted only
+  when the user installs an update, serves only file bytes that are then
+  hash-checked, and is never asked for metadata. The only other external
+  hostnames in the source are `matrix.to` (used to *construct* permalinks —
+  Lightning never fetches it) and documentation links.
 - **No QML component fetches an arbitrary remote URL.** Every image shown in the
   interface is routed through the C++ media bridge; there is no
   `Image { source: "https://…" }` anywhere in `qml/`.
 
-## 5a. Update checks — the project's own GitLab, off by default
+## 5a. Update checks and downloads — GitLab, and the GitHub mirror
 
 Lightning can ask whether a newer release exists. This is the only route by
 which the project itself receives any request from an installed client, and it
@@ -175,9 +179,22 @@ per 24 hours, never within the first 30 seconds of launch, and never triggered
 by switching room or account. A manual *Check for updates* button is always
 available and is always an explicit user action.
 
-**What is contacted.** One host, `gitlab.smetonis.net`, over HTTPS, anonymously
-and without credentials — two small public files from the project's package
-registry (`update-manifest-v1.json` and its detached signature).
+**What is contacted, for a check.** One host, `gitlab.smetonis.net`, over
+HTTPS, anonymously and without credentials — two small public files from the
+project's package registry (`update-manifest-v1.json` and its detached
+signature). A check contacts nothing else.
+
+**What is contacted, for a download.** If the user chooses to install an
+update, the file itself is fetched from the project's read-only GitHub mirror
+first, to keep that bandwidth off the project's own server:
+`github.com`, which redirects to `objects.githubusercontent.com` or
+`release-assets.githubusercontent.com`. If the mirror cannot supply the file,
+Lightning falls back to `gitlab.smetonis.net`. This is a **new third party for
+downloads only**: GitHub sees an anonymous request for a public release file
+and the connecting IP address, as any file download does. It is never asked
+what version exists — Lightning makes no GitHub API call and reads no GitHub
+release metadata, and the download URL comes from the signed manifest rather
+than from GitHub. A download only ever happens after an explicit user action.
 
 **What is sent.** The URL and the update user agent, which is exactly
 `Lightning/<version>` — the application version and nothing more, not even the
@@ -192,10 +209,11 @@ so repeated checks are not linkable by anything Lightning provides.
 last successful check, and the version the user last dismissed. These live
 outside every account and contain no Matrix data.
 
-**Downloads.** If the user chooses to install an update, the artifact is fetched
-from the same host. It is verified against an Ed25519 signature over the
+**Downloads.** The artifact is verified against an Ed25519 signature over the
 manifest and the SHA-256 recorded there before anything is installed, and a
-failure of either check stops the update with no way to override it. Flatpak and
+failure of either check stops the update with no way to override it. That holds
+whichever host supplied the bytes: a modified file from the mirror fails the
+same hash check as a modified file from anywhere else. Flatpak and
 Snap installations are never downloaded by Lightning — those package managers
 own their own updates.
 

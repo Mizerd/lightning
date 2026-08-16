@@ -10,12 +10,30 @@ true, so the privacy section below is part of the contract, not a footnote.
 
 ## What Lightning contacts, and what it sends
 
-One host: the canonical Lightning GitLab, `gitlab.smetonis.net`, over HTTPS.
-Nothing else. Not the GitHub mirror, which is a read-only mirror of git refs
-and is never authoritative for updates.
+Two hosts, with sharply different roles.
+
+**`gitlab.smetonis.net` — the release authority.** It is the only source of
+update *metadata*: which version exists, what the artifact is called, how big it
+is, and what its SHA-256 must be. Every decision Lightning makes about updating
+comes from a signed document served by this host, and from nothing else.
+
+**`github.com` — a bandwidth mirror, bytes only.** Lightning downloads the
+update *file* from the project's read-only GitHub mirror first, to keep the
+load off the project's own server. GitHub redirects that download to
+`objects.githubusercontent.com` or `release-assets.githubusercontent.com`, so
+those hosts are contacted too. If the mirror cannot supply the file, Lightning
+falls back to GitLab and the update proceeds normally.
+
+GitHub is never asked *what* to install. Lightning makes no GitHub API call, and
+never reads GitHub's releases list, `/releases/latest`, tags, or any other
+GitHub information — the mirror's URL is itself part of the signed manifest, so
+the release authority chooses it rather than Lightning discovering it. Anything
+the mirror returns is treated as a bag of bytes and is immediately checked
+against the SHA-256 the signed manifest already fixed. See *Why a mirror cannot
+publish an update* below.
 
 An update check is an ordinary anonymous HTTPS GET of two small public files
-from the project's package registry:
+from the project's package registry — from GitLab, always:
 
 ```
 .../api/v4/projects/6/packages/generic/lightning-update/latest/update-manifest-v1.json
@@ -23,8 +41,11 @@ from the project's package registry:
 ```
 
 The request carries the URL and Lightning's update user agent, which is exactly
-`Lightning/<version>` — the application version and nothing else. That is all.
-Specifically, an update check **never** includes:
+`Lightning/<version>` — the application version and nothing else. The same is
+true of the artifact download, whichever host serves it: GitHub sees an
+anonymous request for a public release file, plus the connecting IP address, as
+any file download does. Specifically, neither a check nor a download **ever**
+includes:
 
 - your Matrix user ID, display name or avatar
 - your homeserver
@@ -57,9 +78,10 @@ past a failure, and the interface deliberately offers none.
 
 ```
 public key compiled into Lightning
-  -> Ed25519 signature over the exact manifest bytes
-  -> SHA-256 of the exact artifact, taken from the signed manifest
-  -> bytes verified after download
+  -> Ed25519 signature over the exact manifest bytes   (GitLab only)
+  -> expected filename, size and SHA-256 of the artifact
+  -> those exact bytes fetched from the GitHub mirror, or GitLab if that fails
+  -> SHA-256 verified against the signed value
   -> package-specific installation
 ```
 
@@ -74,9 +96,47 @@ public key compiled into Lightning
    manifest. The manifest's declared size is enforced as a hard ceiling during
    the transfer, so a truncated or oversized download fails rather than
    completing.
-4. **A mismatch deletes the download and stops.** Invalid signature, unknown key,
-   wrong hash, wrong size, unsupported schema, or a URL that is not HTTPS on the
-   expected host are all terminal.
+4. **The download host is chosen from the signed manifest, never discovered.**
+   The mirror is tried first and the canonical host is the fallback. Both are
+   checked against a compiled-in allowlist of hosts, exact-matched. A manifest
+   naming an unknown host for the *canonical* address is rejected outright; an
+   unknown *mirror* host is simply ignored, and that artifact downloads from
+   the canonical source as if no mirror had been offered — so moving the mirror
+   in future cannot strand clients built before the move. Metadata is accepted
+   only from the canonical host, so the mirror cannot serve a manifest, a
+   signature or the release notes.
+5. **A mismatch from the mirror is retried once from the canonical host, and a
+   mismatch there stops everything.** Falling back keeps updates working when a
+   mirror is broken or stale, and costs nothing: both attempts are checked
+   against the same signed hash, so neither can install different bytes than the
+   other would have.
+6. **Failure is terminal.** Invalid signature, unknown key, wrong hash, wrong
+   size, unsupported schema, or a URL that is not HTTPS on an allowed host all
+   stop the update, and nothing in the interface offers a way past them.
+
+### Why a mirror cannot publish an update
+
+The mirror holds bytes. It holds no key, and it is not consulted about
+versions. Concretely:
+
+- **If GitHub serves a modified binary**, its SHA-256 will not match the value
+  in the signed manifest and the download is discarded. Lightning then retries
+  from GitLab; if that also fails, the update fails. A tampered file is never
+  installed, and there is no way for a user to override that.
+- **If GitHub serves modified metadata**, nothing happens, because Lightning
+  never reads metadata from GitHub. The manifest and its signature come only
+  from the canonical host, and the mirror's host is not accepted for either.
+- **If GitHub hosts a newer or extra release**, it is ignored entirely.
+  Lightning's idea of "what version exists" comes from the signed manifest, so
+  an unsigned GitHub release — however new it looks — is invisible to it.
+- **If someone takes over the GitHub account**, they can break downloads and
+  they can be noticed doing it, but they cannot make Lightning install anything:
+  publishing a trusted update requires the Ed25519 signing key, which lives only
+  in the release pipeline's protected variables and never touches GitHub.
+
+The property to hold on to is that the signed manifest fixes the exact filename,
+size and hash *before any download starts*. Choosing a different host to fetch
+from cannot change what is considered acceptable to install.
 
 ### The manifest cannot tell Lightning what to run
 

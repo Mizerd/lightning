@@ -1079,14 +1079,28 @@ authoritative flow is:
 11. The release is complete only after source archives and package links
     verify.
 
-The GitHub mirror pushes git REFS only — a GitLab Release never
-propagates. After the pipeline finalizes, create the GitHub Release
-explicitly (v0.7.0 precedent, 2026-08-15): download all assets from the
-project 6 registry, `sha256sum -c` against SHA256SUMS, then
-`gh release create v<version> --verify-tag --title "Lightning <version>"
---notes-file docs/releases/v<version>.md <assets…>` and verify
-anonymously via the GitHub API. Without this step GitHub shows a bare
-tag and no downloads.
+**The GitHub Release is now created by the pipeline, not by hand
+(2026-08-16).** The `mirror-release-to-github` job runs after
+`finalize-release` and before the update manifest is promoted: it uploads
+the exact published bytes, then re-downloads each asset ANONYMOUSLY and
+compares SHA-256 against `dist/manifest.json`. The manual
+`gh release create v<version> --verify-tag …` step used for v0.7.0 is no
+longer needed and must not be run alongside it.
+
+Two properties that job depends on. GitLab push-mirrors REFS
+asynchronously, so the tag may not be on GitHub yet — the job polls for it
+(default 300 s) and requires it to peel to the same commit as the GitLab
+release; a different commit is a hard failure and nothing is created. And
+it passes `tag_name` only, never `target_commitish`, so GitHub cannot
+invent the tag against the default branch.
+
+GitHub is a BINARY MIRROR, never a release authority. It decides no
+version, holds no signing key, and Lightning reads no GitHub metadata:
+clients download artifacts from it first only because the signed manifest
+names it, and every byte is checked against a hash GitLab signed. Requires
+the project 7 variables `GITHUB_MIRROR_REPO` (protected) and
+`GITHUB_MIRROR_TOKEN` (protected + masked); with `GITHUB_MIRROR_REPO`
+unset the job is a no-op and no `mirror_url` is emitted.
 
 For an existing release that is missing packages, use
 `RELEASE_ACTION=attach-existing` (build, validate, publish, verify, then add

@@ -21,7 +21,7 @@ Free code signing provided by SignPath.io, certificate by SignPath Foundation.
 | **Canonical source** | <https://gitlab.smetonis.net/Mizerd/lightning> (self-managed GitLab) |
 | **Canonical releases** | <https://gitlab.smetonis.net/Mizerd/lightning/-/releases> |
 | **Release automation** | <https://gitlab.smetonis.net/Mizerd/lightning-deploy> |
-| **Mirror** | <https://github.com/Mizerd/lightning> — automatic, read-only; never a build or release source |
+| **Mirror** | <https://github.com/Mizerd/lightning> — automatic, read-only. Serves byte-identical copies of published artifacts for update downloads; never a build source, never a release authority, and never holds a signing key |
 | **Maintainer** | Rokas Smetonis |
 
 ## Roles

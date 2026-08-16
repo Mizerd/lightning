@@ -417,12 +417,19 @@ A check is an anonymous HTTPS request for two small public files from the
 project's own GitLab — it never sends your Matrix ID, homeserver, device ID,
 tokens, room data, or any analytics or updater identifier, and no tracking ID
 of any kind is generated. You can also check manually at any time from
-Settings → Updates. Updates are only ever installed from immutable published
-release artifacts, verified against an Ed25519-signed manifest and a SHA-256
-hash before anything is installed; a failed check of either is terminal, with
-no way to proceed. Flatpak and Snap installations are left to their own package
-managers. See **[Application updates](docs/updates.md)** for the full trust
-chain, the per-package behaviour, and the honest signing status.
+Settings → Updates.
+
+GitLab is the release authority: it alone decides what version exists and what
+its bytes must hash to. When you install an update the file itself is fetched
+from the read-only GitHub mirror first, to keep that bandwidth off the project's
+server, falling back to GitLab if the mirror cannot supply it. Lightning makes
+no GitHub API call and reads no GitHub release metadata — the mirror's URL is
+part of the signed manifest, and whatever it returns is checked against a
+SHA-256 that was fixed before the download began, so a compromised mirror can
+break a download but cannot ship an update. A failed signature or hash check is
+terminal, with no way to proceed. Flatpak and Snap installations are left to
+their own package managers. See **[Application updates](docs/updates.md)** for
+the full trust chain, the per-package behaviour, and the honest signing status.
 
 - **[Privacy policy](docs/privacy.md)** — every network path, derived from the
   source, with what is sent and how to disable it.
@@ -516,9 +523,12 @@ is authoritative for provenance — is
 <https://gitlab.smetonis.net/Mizerd/lightning>.
 [github.com/Mizerd/lightning](https://github.com/Mizerd/lightning) is an
 **automatically synchronised, read-only mirror**, provided for discoverability
-only. It is never a build source, never a release source, and merge requests
-opened there are not seen; please use the GitLab project or contact the
-maintainer.
+and for update downloads. It carries byte-identical copies of the release
+artifacts GitLab published, so installed clients can fetch them from there
+instead of the project's own server — but it is never a build source and never
+a release authority: it decides no version, holds no signing key, and every
+byte it serves is checked against a hash GitLab signed. Merge requests opened
+there are not seen; please use the GitLab project or contact the maintainer.
 
 ## Licence
 
