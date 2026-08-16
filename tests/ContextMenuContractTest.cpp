@@ -150,17 +150,25 @@ private Q_SLOTS:
         QVERIFY(!block.contains(QStringLiteral("qsTr(\"Unstar GIF\")")));
     }
 
+    // v0.7.1: the crash-fix round split this in two. A short/continuation
+    // room-timeline row cannot contain the ~32px bar under root's clip
+    // (see MessageDelegate.qml line 13), so that host's bar is now ONE
+    // shared instance in TimelinePane.qml (id: sharedMessageActionBar,
+    // covered by MessageActionBarFitTest.cpp), leaving only the thread
+    // panel's own always-safe (clip: false, a real ListView) in-row bar —
+    // and its React/Reply/More, never Thread, which was always hidden
+    // there (`visible: !root.inThreadPanel`) — inside this file.
     void messageActionBarUsesSpecChrome()
     {
         const QString delegate = read(QStringLiteral("MessageDelegate.qml"));
         QVERIFY(!delegate.isEmpty());
-        const int start = delegate.indexOf(QStringLiteral("id: actionBar"));
+        const int start = delegate.indexOf(QStringLiteral("id: threadActionBar"));
         const int end = delegate.indexOf(QStringLiteral("id: moreMenu"), start);
         QVERIFY(start >= 0 && end > start);
         const QString block = delegate.mid(start, end - start);
         QVERIFY(block.contains(QStringLiteral("radius: AppTheme.radiusTile")));
         QVERIFY(block.contains(QStringLiteral("border.color: AppTheme.borderStrong")));
-        QCOMPARE(block.count(QStringLiteral("radius: AppTheme.radiusControl")), 4);
+        QCOMPARE(block.count(QStringLiteral("radius: AppTheme.radiusControl")), 3);
         // v0.7 perf round: the menu is created lazily, so the open state is
         // surfaced through the delegate's moreMenuOpen proxy property.
         QVERIFY(block.contains(QStringLiteral("active: root.moreMenuOpen")));

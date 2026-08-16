@@ -1533,6 +1533,17 @@ if(BUILD_TESTING)
     target_link_libraries(state-activity-grouping-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME state-activity-grouping COMMAND state-activity-grouping-test)
 
+    # The hover toolbar escapes the row's clip into Overlay.overlay, so a
+    # one-line message no longer truncates it, and the tooltips flip below
+    # the bar near the window's top edge.
+    qt_add_executable(message-action-bar-fit-test
+        tests/MessageActionBarFitTest.cpp)
+    target_compile_definitions(message-action-bar-fit-test PRIVATE
+        QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
+    target_link_libraries(message-action-bar-fit-test PRIVATE
+        Qt6::Core Qt6::Test)
+    add_test(NAME message-action-bar-fit COMMAND message-action-bar-fit-test)
+
     # v0.5.7: CacheStore must refuse encrypted-room rows on every write
     # path — decrypted plaintext stays memory-only.
     qt_add_executable(cache-store-security-test

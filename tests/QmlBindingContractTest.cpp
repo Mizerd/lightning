@@ -915,7 +915,12 @@ private Q_SLOTS:
         QVERIFY(delegate.contains(QStringLiteral("app.media.openWebUrl(link)")));
         QVERIFY(delegate.contains(QStringLiteral("mention:")));
         QVERIFY(delegate.contains(QStringLiteral("id: replyBox")));
-        QVERIFY(delegate.contains(QStringLiteral("id: actionBar")));
+        // v0.7.1: the crash-fix round renamed this delegate's own (thread-
+        // panel-only; clip is false there, a real ListView) bar to
+        // threadActionBar — the room timeline's equivalent is now the ONE
+        // shared instance in TimelinePane.qml (id: sharedMessageActionBar,
+        // see MessageActionBarFitTest.cpp).
+        QVERIFY(delegate.contains(QStringLiteral("id: threadActionBar")));
         QVERIFY(delegate.contains(QStringLiteral("id: previewLoader")));
         QVERIFY(delegate.contains(QStringLiteral("id: imageComponent")));
         // v0.7: reactions open the view-shared picker via the snapshotted

@@ -337,14 +337,20 @@ Item {
         refreshHeightSeed()
     }
 
-    function openContextMenu(x, y) {
+    // v0.7.1: `alreadyInOverlaySpace` lets a caller that already computed a
+    // point in Overlay.overlay coordinates (the floating action bar below)
+    // hand it over directly — mapping it through root.mapToItem again would
+    // double-map it.
+    function openContextMenu(x, y, alreadyInOverlaySpace) {
         var eventId = root.eventIdForActions()
         if (eventId === "" || root.isVirtualRow || root.isStateActivity)
             return
         menuEventId = eventId
-        var p = root.mapToItem(Overlay.overlay,
-                               x === undefined ? root.width : x,
-                               y === undefined ? 0 : y)
+        var p = alreadyInOverlaySpace
+                ? Qt.point(x, y)
+                : root.mapToItem(Overlay.overlay,
+                                 x === undefined ? root.width : x,
+                                 y === undefined ? 0 : y)
         root.ensureContextMenu().popup(Overlay.overlay, p.x, p.y)
     }
     function copyToClipboard(value) {
@@ -1277,16 +1283,41 @@ Item {
                 }
             }
 
-            // Action toolbar. Visible while the shared row hover is active,
-            // while it is pinned open by a click, or while one of its menus
-            // is open — so it never vanishes as the pointer travels from the
-            // message to the buttons. Subtle AppTheme surface/border framing.
-            // Perf: the four-button hover action bar is created on first
-            // hover (or pin / open menu) instead of eagerly for every
-            // loaded row, then kept for the delegate's lifetime with
-            // visibility gating — zero creation cost at room open.
+            // Action toolbar.
+            //
+            // v0.7.1 CORRECTION: an earlier version of this fix made the
+            // per-row Loader's loaded Rectangle reparent into
+            // Overlay.overlay to escape bubbleRow's clip (needed because a
+            // short/continuation row is shorter than the ~32px bar). That
+            // reparenting was BROKEN: the Loader still believed it owned
+            // the (now elsewhere-parented) item for destruction purposes,
+            // and destroying the delegate during pagination/room-switch
+            // churn produced a dangling-pointer SIGSEGV — bisected against
+            // timeline-pane-qml-test (52 passed/11 failed on HEAD, crash on
+            // that version). The `detailsDialogComponent` Dialog precedent
+            // this followed does not transfer: a Dialog is a Popup, which
+            // manages its own overlay/window lifetime; a plain Rectangle
+            // loaded by a Loader is not.
+            //
+            // Root's clip is `false` in the thread panel (a real ListView —
+            // see line 13's `ListView.view === null`), so that host never
+            // had the clipping defect and keeps the original, always-safe,
+            // in-row anchored bar below (with the tooltip-flip fix folded
+            // in, since that half of the original report — the "More"
+            // tooltip clipping against the window's top edge — applies
+            // there too).
+            //
+            // The room timeline (clip: true, genuinely short rows possible)
+            // now renders through ONE shared instance owned by
+            // TimelinePane.qml (sharedMessageActionBar / timeline's
+            // claimActionBar/releaseActionBar) instead of a per-row Loader.
+            // This row PUBLISHES only primitive facts into it — a live-
+            // mapped anchor point, the target eventId, a couple of
+            // booleans — never a QObject/Item reference, so this row's
+            // destruction (Component.onDestruction below) can never leave
+            // anything dangling on the shared side.
             Loader {
-                id: actionBarLoader
+                id: threadActionBarLoader
                 anchors.top: parent.top
                 anchors.right: parent.right
                 anchors.topMargin: -3
@@ -1299,28 +1330,43 @@ Item {
                 // write to one of its dependencies from there is a
                 // detected binding loop.
                 property bool latched: false
-                active: latched || rowHover.hovered || root.actionsPinned
-                        || root.moreMenuOpen
+                active: root.inThreadPanel
+                        && (latched || rowHover.hovered || root.actionsPinned
+                            || root.moreMenuOpen)
                 onLoaded: Qt.callLater(function() { latched = true })
                 visible: rowHover.hovered || root.actionsPinned
                          || root.moreMenuOpen
                 sourceComponent: Rectangle {
-                id: actionBar
+                id: threadActionBar
                 // v0.6.5 (SPEC 1a): container surface bg, 1px borderStrong,
                 // radius radiusTile, 2px padding.
                 radius: AppTheme.radiusTile
                 color: AppTheme.surface
                 border.color: AppTheme.borderStrong
                 border.width: 1
-                implicitWidth: actionRow.implicitWidth + AppTheme.spacing2 * 2
-                implicitHeight: actionRow.implicitHeight + AppTheme.spacing2 * 2
+                implicitWidth: threadActionRow.implicitWidth
+                               + AppTheme.spacing2 * 2
+                implicitHeight: threadActionRow.implicitHeight
+                                + AppTheme.spacing2 * 2
+
+                // Tooltip-flip only — a plain computed boolean from a live
+                // mapToItem READ. This stores nothing and reparents
+                // nothing, so it carries none of the risk the bar's own
+                // positioning did; it is exactly as safe as the reaction
+                // picker's own anchor-point computation elsewhere in this
+                // file. 44 is a conservative one-line tooltip height
+                // (~30px) plus a clear margin.
+                readonly property bool tooltipsBelow:
+                    Overlay.overlay
+                    ? bubbleRow.mapToItem(Overlay.overlay, 0, 0).y < 44
+                    : false
 
                 Row {
-                    id: actionRow
+                    id: threadActionRow
                     anchors.centerIn: parent
                     spacing: 2
                     IconButton {
-                        id: reactButton
+                        id: threadReactButton
                         implicitWidth: 28; implicitHeight: 28
                         radius: AppTheme.radiusControl
                         iconName: "add_reaction"
@@ -1333,17 +1379,23 @@ Item {
                                  && (model.eventId || "").length > 0
                                  && model.eventId.indexOf("local:") !== 0
                         Accessible.name: qsTr("React to message")
-                        ToolTip.text: qsTr("React")
-                        ToolTip.visible: hovered
-                        ToolTip.delay: 500
+                        ToolTip {
+                            visible: threadReactButton.hovered
+                            delay: 500
+                            text: qsTr("React")
+                            y: threadActionBar.tooltipsBelow
+                               ? threadReactButton.height + AppTheme.spacingXS
+                               : -implicitHeight - AppTheme.spacingXS
+                        }
                         onClicked: {
                             if (root.timelineView)
                                 root.timelineView.pinnedActionsKey = root.actionKey
                             root.openReactionPickerFor(root.eventIdForActions(),
-                                                       reactButton)
+                                                       threadReactButton)
                         }
                     }
                     IconButton {
+                        id: threadReplyButton
                         implicitWidth: 28; implicitHeight: 28
                         radius: AppTheme.radiusControl
                         iconName: "reply"
@@ -1356,39 +1408,20 @@ Item {
                                  && (model.eventId || "").length > 0
                                  && model.eventId.indexOf("local:") !== 0
                         Accessible.name: qsTr("Reply to message")
-                        ToolTip.text: qsTr("Reply")
-                        ToolTip.visible: hovered
-                        ToolTip.delay: 500
+                        ToolTip {
+                            visible: threadReplyButton.hovered
+                            delay: 500
+                            text: qsTr("Reply")
+                            y: threadActionBar.tooltipsBelow
+                               ? threadReplyButton.height + AppTheme.spacingXS
+                               : -implicitHeight - AppTheme.spacingXS
+                        }
                         onClicked: {
                             root.beginReply(root.eventIdForActions())
                         }
                     }
                     IconButton {
-                        implicitWidth: 28; implicitHeight: 28
-                        radius: AppTheme.radiusControl
-                        iconName: "forum"
-                        iconSize: 18
-                        visible: !root.inThreadPanel
-                        // Cheap local predicate — semantically identical
-                        // to "messagePermalink() is non-empty" but without
-                        // the per-row O(n) timeline scan the C++ call cost
-                        // (three of these per row made room open O(n²)).
-                        enabled: !model.redacted
-                                 && (model.eventId || "").length > 0
-                                 && model.eventId.indexOf("local:") !== 0
-                        Accessible.name: qsTr("Reply in thread")
-                        ToolTip.text: qsTr("Reply in thread")
-                        ToolTip.visible: hovered
-                        ToolTip.delay: 500
-                        onClicked: {
-                            var eventId = root.eventIdForActions()
-                            var details = root.timelineModel.messageDetails(eventId)
-                            var rootId = (details.threadRootId || "").length > 0
-                                         ? details.threadRootId : eventId
-                            app.thread.openThread(app.currentRoomId, rootId)
-                        }
-                    }
-                    IconButton {
+                        id: threadMoreButton
                         implicitWidth: 28; implicitHeight: 28
                         radius: AppTheme.radiusControl
                         iconName: "more_vert"
@@ -1397,14 +1430,21 @@ Item {
                         // chip while its menu is open.
                         active: root.moreMenuOpen
                         Accessible.name: qsTr("More message actions")
-                        ToolTip.text: qsTr("More")
-                        ToolTip.visible: hovered
-                        ToolTip.delay: 500
+                        ToolTip {
+                            visible: threadMoreButton.hovered
+                            delay: 500
+                            text: qsTr("More")
+                            y: threadActionBar.tooltipsBelow
+                               ? threadMoreButton.height + AppTheme.spacingXS
+                               : -implicitHeight - AppTheme.spacingXS
+                        }
                         onClicked: {
                             var menu = root.ensureContextMenu()
                             root.openContextMenu(
-                                root.width - menu.implicitWidth,
-                                actionBarLoader.y + actionBarLoader.height)
+                                threadActionBar.x + threadActionBar.width
+                                    - menu.implicitWidth,
+                                threadActionBar.y + threadActionBar.height,
+                                true)
                         }
                     }
                 }
@@ -1725,6 +1765,70 @@ Item {
             moreMenuItem = moreMenuComponent.createObject(root)
         return moreMenuItem
     }
+
+    // v0.7.1: room-timeline-only fact publishing for the ONE shared hover
+    // action bar owned by TimelinePane.qml (see timeline.claimActionBar/
+    // releaseActionBar there). Declared at root scope (not nested inside
+    // bubbleRow) so the bare onXChanged handlers below correctly bind to
+    // signals root itself owns (moreMenuOpenChanged included) — nesting
+    // them one level down under bubbleRow would silently never fire, since
+    // bare onXChanged syntax binds to the ENCLOSING object's own signal.
+    // No visual element lives here; the thread panel (clip: false, a real
+    // ListView) is unaffected and keeps its own in-row bar above.
+    // `mappedRowAnchor` is a plain computed point — nothing is stored or
+    // reparented — and `wantsSharedActionBar` mirrors the exact
+    // hover/pin/menu-open condition the bar used to gate on directly, PLUS
+    // the shared bar's own hover (so it stays open while the pointer is on
+    // its buttons even after this row's own bounds are left, which happens
+    // routinely now that the bar can sit outside a short row).
+    readonly property point mappedRowAnchor:
+        (!root.inThreadPanel && Overlay.overlay)
+        ? bubbleRow.mapToItem(Overlay.overlay, bubbleRow.width, 0)
+        : Qt.point(0, 0)
+    readonly property bool wantsSharedActionBar:
+        !root.inThreadPanel
+        && (rowHover.hovered || root.actionsPinned || root.moreMenuOpen
+            || (root.timelineView
+                && root.timelineView.activeActionsKey === root.actionKey
+                && root.timelineView.sharedActionBarHovered === true))
+    function syncSharedActionBar() {
+        if (!root.timelineView || root.inThreadPanel)
+            return
+        if (wantsSharedActionBar) {
+            root.timelineView.claimActionBar(
+                root.actionKey, root.eventIdForActions(),
+                model.redacted === true,
+                mappedRowAnchor.x, mappedRowAnchor.y,
+                root.moreMenuOpen)
+        } else {
+            root.timelineView.releaseActionBar(root.actionKey)
+        }
+    }
+    onWantsSharedActionBarChanged: syncSharedActionBar()
+    onMappedRowAnchorChanged: syncSharedActionBar()
+    onMoreMenuOpenChanged: syncSharedActionBar()
+    // The one operation that still needs THIS row specifically: opening ITS
+    // OWN already-safe, lazily-created context menu. Matched by actionKey,
+    // never by a stored reference; inert (null target) in the thread
+    // panel, which exposes no such signal.
+    Connections {
+        target: root.inThreadPanel ? null : root.timelineView
+        function onMoreMenuRequested(key, x, y) {
+            if (key !== root.actionKey)
+                return
+            var menu = root.ensureContextMenu()
+            root.openContextMenu(x - menu.implicitWidth, y, true)
+        }
+    }
+    Component.onDestruction: {
+        // forceRelease, not release: this row has no later chance to clear
+        // its claim, so the shared bar's hover guard must not be able to
+        // keep a destroyed row's event id active. See the contract in
+        // TimelinePane.qml.
+        if (root.timelineView && !root.inThreadPanel)
+            root.timelineView.forceReleaseActionBar(root.actionKey)
+    }
+
     function openMessageDetails(details) {
         if (!details || !details.eventId)
             return

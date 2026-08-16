@@ -250,11 +250,155 @@ Rectangle {
         parent: Overlay.overlay
         anchors.centerIn: parent
     }
+
+    // v0.7.1: the ONE shared hover-action-bar surface for the room
+    // timeline. Declared directly here (never created/destroyed by a
+    // per-row Loader, never reparented after creation) — its lifetime is
+    // this view's, exactly like sharedReactionPicker/senderProfilePopover
+    // above. See timeline.activeActionsKey/claimActionBar/releaseActionBar
+    // for the ownership contract every row observes.
+    Rectangle {
+        id: sharedMessageActionBar
+        parent: Overlay.overlay
+        radius: AppTheme.radiusTile
+        color: AppTheme.surface
+        border.color: AppTheme.borderStrong
+        border.width: 1
+        implicitWidth: sharedActionRow.implicitWidth + AppTheme.spacing2 * 2
+        implicitHeight: sharedActionRow.implicitHeight + AppTheme.spacing2 * 2
+        visible: timeline.activeActionsKey !== ""
+        // Same -3/+2 nudge the row's own in-place anchors used to apply.
+        x: timeline.activeActionsAnchorX - width - 2
+        y: timeline.activeActionsAnchorY - 3
+        // Not enough headroom above the row for a tooltip to open upward
+        // without clipping against the window's own top edge — flip every
+        // button's tooltip below the bar instead. 44 is a conservative
+        // one-line tooltip height (~30px) plus a clear margin.
+        readonly property bool tooltipsBelow: y < 44
+        readonly property bool canActOnEvent:
+            !timeline.activeActionsRedacted
+            && timeline.activeActionsEventId.length > 0
+            && timeline.activeActionsEventId.indexOf("local:") !== 0
+
+        HoverHandler {
+            id: sharedBarHover
+            onHoveredChanged:
+                timeline.sharedActionBarHovered = sharedBarHover.hovered
+        }
+
+        Row {
+            id: sharedActionRow
+            anchors.centerIn: parent
+            spacing: 2
+            IconButton {
+                id: sharedReactButton
+                implicitWidth: 28; implicitHeight: 28
+                radius: AppTheme.radiusControl
+                iconName: "add_reaction"
+                iconSize: 18
+                enabled: sharedMessageActionBar.canActOnEvent
+                Accessible.name: qsTr("React to message")
+                ToolTip {
+                    visible: sharedReactButton.hovered
+                    delay: 500
+                    text: qsTr("React")
+                    y: sharedMessageActionBar.tooltipsBelow
+                       ? sharedReactButton.height + AppTheme.spacingXS
+                       : -implicitHeight - AppTheme.spacingXS
+                }
+                onClicked: {
+                    timeline.pinnedActionsKey = timeline.activeActionsKey
+                    timeline.openReactionPicker(
+                        timeline.activeActionsEventId,
+                        Qt.point(sharedMessageActionBar.x
+                                     + sharedReactButton.x
+                                     + sharedReactButton.width / 2,
+                                 sharedMessageActionBar.y
+                                     + sharedMessageActionBar.height))
+                }
+            }
+            IconButton {
+                id: sharedReplyButton
+                implicitWidth: 28; implicitHeight: 28
+                radius: AppTheme.radiusControl
+                iconName: "reply"
+                iconSize: 18
+                enabled: sharedMessageActionBar.canActOnEvent
+                Accessible.name: qsTr("Reply to message")
+                ToolTip {
+                    visible: sharedReplyButton.hovered
+                    delay: 500
+                    text: qsTr("Reply")
+                    y: sharedMessageActionBar.tooltipsBelow
+                       ? sharedReplyButton.height + AppTheme.spacingXS
+                       : -implicitHeight - AppTheme.spacingXS
+                }
+                onClicked: timeline.beginReplyForEvent(
+                               timeline.activeActionsEventId)
+            }
+            IconButton {
+                id: sharedThreadButton
+                implicitWidth: 28; implicitHeight: 28
+                radius: AppTheme.radiusControl
+                iconName: "forum"
+                iconSize: 18
+                enabled: sharedMessageActionBar.canActOnEvent
+                Accessible.name: qsTr("Reply in thread")
+                ToolTip {
+                    visible: sharedThreadButton.hovered
+                    delay: 500
+                    text: qsTr("Reply in thread")
+                    y: sharedMessageActionBar.tooltipsBelow
+                       ? sharedThreadButton.height + AppTheme.spacingXS
+                       : -implicitHeight - AppTheme.spacingXS
+                }
+                onClicked: timeline.openThreadForEvent(
+                               timeline.activeActionsEventId)
+            }
+            IconButton {
+                id: sharedMoreButton
+                implicitWidth: 28; implicitHeight: 28
+                radius: AppTheme.radiusControl
+                iconName: "more_vert"
+                iconSize: 18
+                // v0.6.5 (SPEC 1a): active button gets the accentSoft chip
+                // while its menu is open.
+                active: timeline.activeActionsMoreMenuOpen
+                Accessible.name: qsTr("More message actions")
+                ToolTip {
+                    visible: sharedMoreButton.hovered
+                    delay: 500
+                    text: qsTr("More")
+                    y: sharedMessageActionBar.tooltipsBelow
+                       ? sharedMoreButton.height + AppTheme.spacingXS
+                       : -implicitHeight - AppTheme.spacingXS
+                }
+                onClicked: {
+                    if (timeline.activeActionsKey === "")
+                        return
+                    // The owning row alone answers this, matched by its own
+                    // actionKey — see MessageDelegate.qml's Connections on
+                    // moreMenuRequested. Coordinates are already in
+                    // Overlay.overlay space (the row subtracts its own
+                    // menu's implicitWidth once it knows it).
+                    timeline.moreMenuRequested(
+                        timeline.activeActionsKey,
+                        sharedMessageActionBar.x + sharedMessageActionBar.width,
+                        sharedMessageActionBar.y + sharedMessageActionBar.height)
+                }
+            }
+        }
+    }
+
     Connections {
         target: app
         function onCurrentRoomIdChanged() {
             sharedReactionPicker.close()
             senderProfilePopover.close()
+            // Rows are destroyed on a room switch too (Component.onDestruction
+            // already releases their own claim), but clearing centrally as
+            // well costs nothing and matches the picker/popover above.
+            timeline.activeActionsKey = ""
             // The viewer holds decoded pixels and a stale entries snapshot;
             // it must never survive into another room or account (account
             // switches also change the current room).
@@ -1652,6 +1796,104 @@ Rectangle {
                 }
                 property var openSenderProfile: function(member) {
                     senderProfilePopover.openFor(member)
+                }
+
+                // v0.7.1: ONE shared hover-action-bar instance for the whole
+                // room timeline (sharedMessageActionBar below), replacing a
+                // per-row Loader whose loaded Rectangle was reparented into
+                // Overlay.overlay to escape a short row's clip. That
+                // reparenting was the BROKEN attempt: the Loader still
+                // believed it owned the (now elsewhere-parented) item for
+                // destruction purposes, and destroying the delegate during
+                // pagination/room-switch churn produced a dangling-pointer
+                // SIGSEGV (bisected against timeline-pane-qml-test). Nothing
+                // below ever stores a QObject/Item reference to a row —
+                // only plain strings/numbers/booleans that the active row
+                // itself pushes in (see MessageDelegate.qml's
+                // syncSharedActionBar/Component.onDestruction) — so a row's
+                // destruction can never leave anything dangling here. The
+                // one action that genuinely needs THAT row's own (already
+                // safe, Popup-based, lazily-created) context menu — "More"
+                // — is reached by moreMenuRequested, a broadcast the owning
+                // row alone answers by matching its own actionKey, again
+                // never a stored reference.
+                property string activeActionsKey: ""
+                property string activeActionsEventId: ""
+                property bool activeActionsRedacted: false
+                property real activeActionsAnchorX: 0
+                property real activeActionsAnchorY: 0
+                property bool activeActionsMoreMenuOpen: false
+                // Whether the pointer is over the shared bar ITSELF — kept
+                // true while the user is clicking its buttons even after
+                // the originating row's own hover ends (the bar can sit
+                // outside a short row's bounds, which is the entire point
+                // of this fix).
+                property bool sharedActionBarHovered: false
+                signal moreMenuRequested(string key, real x, real y)
+                function claimActionBar(key, eventId, redacted,
+                                         anchorX, anchorY, moreOpen) {
+                    activeActionsKey = key
+                    activeActionsEventId = eventId
+                    activeActionsRedacted = redacted
+                    activeActionsAnchorX = anchorX
+                    activeActionsAnchorY = anchorY
+                    activeActionsMoreMenuOpen = moreOpen
+                }
+                function releaseActionBar(key) {
+                    // A late release from a row that is no longer the
+                    // active one (e.g. row A releases after row B already
+                    // claimed) must never clear row B's claim.
+                    if (activeActionsKey !== key || sharedActionBarHovered)
+                        return
+                    clearActionBar()
+                }
+                // Unconditional release, used ONLY by a row's
+                // Component.onDestruction. It deliberately ignores the
+                // sharedActionBarHovered guard above: that guard exists so
+                // the bar survives the owning row's hover ending while the
+                // pointer moves onto the bar's own buttons, but a row that
+                // is being DESTROYED (room switch, pagination churn) has no
+                // later chance to release. Honouring the guard there left
+                // the bar visible over the next room, anchored at the dead
+                // row's coordinates and still holding the previous room's
+                // event id — so React/Reply would have acted on a message
+                // the user can no longer see.
+                function forceReleaseActionBar(key) {
+                    if (activeActionsKey !== key)
+                        return
+                    clearActionBar()
+                }
+                function clearActionBar() {
+                    activeActionsKey = ""
+                    activeActionsEventId = ""
+                    activeActionsMoreMenuOpen = false
+                    // The bar goes invisible on the line above, so its
+                    // HoverHandler will report hovered=false anyway; clear
+                    // it here too so the next row's claim can never be
+                    // blocked by a hover state belonging to a bar that is
+                    // no longer on screen.
+                    sharedActionBarHovered = false
+                }
+                // React/Reply/Thread need only the eventId (never the
+                // active row itself) — inThreadPanel is always false for
+                // this timeline, so this is the exact logic
+                // MessageDelegate.beginReply()/the thread IconButton used
+                // to run per-row.
+                property var beginReplyForEvent: function(eventId) {
+                    if (!eventId || eventId.length === 0) return
+                    var details = timelineModel.messageDetails(eventId)
+                    if (!details.eventId) return
+                    var previewText = timelineModel.visibleTextForEvent(eventId)
+                    app.composer.beginReply(eventId,
+                        details.senderName || details.senderId,
+                        (previewText || "").substring(0, 80))
+                }
+                property var openThreadForEvent: function(eventId) {
+                    if (!eventId || eventId.length === 0) return
+                    var details = timelineModel.messageDetails(eventId)
+                    var rootId = (details.threadRootId || "").length > 0
+                                 ? details.threadRootId : eventId
+                    app.thread.openThread(app.currentRoomId, rootId)
                 }
                 property var saveMedia: function(mediaKey, filename) {
                     if (!mediaKey || mediaKey.length === 0) return
