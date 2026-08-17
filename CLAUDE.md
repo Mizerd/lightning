@@ -1335,6 +1335,26 @@ Residual, accepted: ~60-140 ms per page while backfilling (`perRowMs` 3-7,
 ~18-20 rows a page). ReverseListProxyModel already paces this with a 3 ms
 budget per tick.
 
+**A REAL, MEASURED cause of the "lags when images load" spike was found on
+2026-08-17 and fixed (`6ca9d99`) — it is not the polish story above.**
+`MediaImageProvider` ignored the QML `sourceSize` on every timeline image.
+The rows ask for `sourceSize.width: 640` with the height left 0 (QML's
+documented keep-the-aspect idiom), and the provider gated on
+`requestedSize.isValid() && !requestedSize.isEmpty()` — but
+`QSize::isEmpty()` is true when EITHER axis is below 1, so a width-only
+request read as "no size asked for" and the decode fell back to FULL
+resolution, bounded only by the 4096 safety edge. A user capture of a
+scroll-up shows ~20 paginations each pulling six to sixteen images at
+1.7 MB / 1.3 MB / 920 KB, decoded at full size for a 348px box. Measured on
+the test fixture: 3.84 Mpx -> 0.27 Mpx, 14x fewer pixels per image.
+Upscaling is still honoured when a shape is BAKED IN (an avatar mask
+rasterizes once, so baking small then showing large aliases the edge) and
+refused otherwise. Whether this removes the felt spike is **NOT TESTED**
+live. Note what this does and does not explain: it accounts for the spike
+while media loads, and for part of the `sync` cost (texture upload), but the
+`polish` finding above stands on its own for scrolling through already
+loaded rows.
+
 **If this is picked up again**: profile what `polish` is spending time on
 before changing anything. MessageDelegate is built from nested
 ColumnLayout/RowLayout and Qt Quick Layouts propagate size hints on every
