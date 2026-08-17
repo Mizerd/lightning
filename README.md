@@ -7,7 +7,7 @@
 **A fast, native Matrix desktop client — Qt 6 on top of the official Rust Matrix SDK.**
 
 [![Licence: GPL-3.0-or-later](https://img.shields.io/badge/licence-GPL--3.0--or--later-blue.svg)](LICENSE)
-[![Latest release](https://img.shields.io/badge/release-v0.7.1-2f6be0.svg)](https://gitlab.smetonis.net/Mizerd/lightning/-/releases)
+[![Latest release](https://img.shields.io/badge/release-v0.7.2-2f6be0.svg)](https://gitlab.smetonis.net/Mizerd/lightning/-/releases)
 [![Platform: Linux | Windows](https://img.shields.io/badge/platform-Linux%20%7C%20Windows-4c8fdc.svg)](#installation)
 [![Qt 6](https://img.shields.io/badge/Qt-6.5%2B-41CD52.svg)](https://www.qt.io/)
 [![matrix-rust-sdk](https://img.shields.io/badge/matrix--rust--sdk-0.18-000000.svg)](https://github.com/matrix-org/matrix-rust-sdk)
@@ -95,8 +95,22 @@ still developing, some workflows remain experimental.
 - Scoped account removal and logout that never touch other accounts
 - Joined rooms, direct messages, invites, and Matrix Space hierarchy
   navigation, with a **Space front page** (double-click a Space in the rail)
-  listing its rooms
+  listing its rooms, where its name, topic and **avatar** can be edited in
+  place when your power level allows it — a Space is a Matrix room, so the
+  avatar uses the same `m.room.avatar` path and the same permission check as
+  any other room
 - Room creation, member lists and roles, room-profile editing, and invites
+- **Discover and join rooms** — browse or search a homeserver's public
+  directory, or paste a room address, `matrix:` URI or matrix.to link and join
+  from the preview. Rooms that require it can be **knocked** on with an
+  optional message, and a pending knock can be withdrawn from the room list.
+  Refusals are reported as what they actually were — banned, invite-only, or
+  restricted to another space — rather than one generic failure
+- **Upgraded rooms** — when a room is tombstoned and replaced, Lightning shows
+  a banner offering the successor instead of moving you. The old room stays
+  open and readable, and nothing joins, leaves or navigates unless you press
+  the button: `m.room.tombstone` is state anyone with the power level can send,
+  and it names the room you would be moved into
 - **Moderation**: kick, ban and unban from the member profile, gated by real
   power-level permissions; banned members stay visible so unban is
   reachable, and unbanning can invite the user straight back
@@ -121,6 +135,9 @@ still developing, some workflows remain experimental.
   turning it off publishes one final offline)
 - **Room list filters** — All / People / Rooms / Unreads chips, persisted
   per account, so busy DM lists never bury your rooms
+- **Ignore and report** — ignore a user account-wide from their profile (the
+  real `m.ignored_user_list`, so it follows you to every client) or report a
+  message to the room's server admins
 - Keyboard quick switcher (Ctrl-K) with a **navigate mode** across rooms, DMs,
   Spaces, and invites and a **command mode** (`>`) with scope chips, plus
   find-in-timeline (Ctrl-F) across the currently loaded timeline, which
@@ -144,8 +161,25 @@ still developing, some workflows remain experimental.
   pin whose event is deleted or unreachable says exactly that and goes
   nowhere, rather than landing you on an unrelated message; pins changed from
   another client appear here without a reload
+- **Message search** — a room search panel with filters for sender, mentions,
+  date, content type and pinned state, plus a global search (Ctrl-Shift-F).
+  In unencrypted rooms this is the homeserver's own search over full history;
+  **in an encrypted room the server cannot search ciphertext**, so Lightning
+  searches the loaded timeline instead and says so rather than quietly
+  returning less. Only your search term is ever sent
+- **Forward a message** to another room — text, images, video, audio, voice and
+  files, from the message menu into a room picker. A forward is the content
+  re-sent as a new event (Matrix has no forward primitive), and media is
+  re-uploaded rather than mxc-copied, so the target room's members can actually
+  fetch it and no per-event decryption key is planted in a room that never
+  negotiated it
+- **Drafts** survive switching rooms. In an unencrypted room a draft is kept
+  between restarts; in an **encrypted** room it is held in memory only and
+  never written to disk, and a room whose encryption state is unknown is
+  treated as encrypted
 - Unread and mention states, marked-unread, first-unread and jump-to-latest
-  navigation, and backward pagination
+  navigation, and backward pagination. "Mark as read" works from the room list
+  for any room, not only the one you have open
 - Display names resolved everywhere the member roster knows them — mentions,
   reply headers, and thread summary cards — with the roster hydrated on room
   open
@@ -168,7 +202,13 @@ still developing, some workflows remain experimental.
 - **Voice messages** (MSC3245) — record with a live waveform and send, in
   rooms and threads, as mono Opus through the SDK's encrypting media path
 - Inline **video and audio playback** with posters, duration, and waveforms;
-  outgoing videos carry a locally extracted poster thumbnail
+  outgoing videos carry a locally extracted poster thumbnail. One **shared
+  volume control** governs every player, audio files show their embedded cover
+  art, and poster extraction runs off the UI thread so a video scrolling into
+  view never stalls the timeline
+- Room Information's **Media and Files** tabs list what has been shared in the
+  room, with thumbnails loaded lazily — a video is no longer downloaded in full
+  just to draw a tile
 - Animated GIF attachments and a multi-provider GIF browser (GIPHY and KLIPY):
   trending, search, categories, recents, safe-search, and autoplay policy,
   sending as real Matrix media into rooms and threads
@@ -221,9 +261,13 @@ still developing, some workflows remain experimental.
 - Bundled Manrope, JetBrains Mono, and Space Grotesk (brand) fonts, and five
   selectable UI fonts
 - Native freedesktop notifications with mentions, active-room suppression,
-  privacy modes, and sounds. **Per-room modes** (All messages / Mentions &
-  keywords / Mute) are written to your account's server push rules by the SDK,
-  so a muted room stays muted on your other clients
+  privacy modes, sounds, and the room or sender's avatar. **Per-room modes**
+  (All messages / Mentions & keywords / Mute) are written to your account's
+  server push rules by the SDK, so a muted room stays muted on your other
+  clients
+- **One scrolling feel everywhere** — Settings, Room Information, the Space
+  front page, the pickers and the dialogs all use the same tuned smooth wheel
+  motion as the room timeline, instead of Qt's default in every pane but one
 - **Resizable pickers** — the GIF and emoji pickers sit on the composer and
   scale with the window. Drag the corner to resize either one; both share a
   single remembered size, stored as a proportion so it stays sensible across
@@ -477,11 +521,13 @@ an endorsement, certification, or approval by the Matrix.org Foundation.
 
 Lightning is under active development. Linux is the primary development and
 support target; official Windows (x86-64) packages are published as of v0.6.3.
-APIs, UI, and behaviour may change, some features are experimental (for example,
-voice-message *recording* is not yet implemented, and message search covers the
-loaded timeline rather than the full server-side history), and Matrix
-interoperability should be verified rather than assumed. It should not be treated
-as a finished or certified product.
+APIs, UI, and behaviour may change, some features are experimental, and Matrix
+interoperability should be verified rather than assumed. Known limits worth
+stating plainly: server-side message search covers **unencrypted rooms only**,
+because a homeserver cannot search ciphertext — encrypted rooms fall back to
+searching the loaded timeline; space-restricted join rules are displayed but
+not editable; and Lightning does not implement voice or video calls. It should
+not be treated as a finished or certified product.
 
 ## Development and testing
 
