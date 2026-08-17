@@ -677,6 +677,11 @@ say releases are signed only once a signed release actually ships.
 
 ### Source repositories
 
+Lightning's home is **<https://lightning-matrix.org>**, which currently
+redirects to the GitHub mirror; `git.lightning-matrix.org` is a shortcut to the
+same place. The domain is also the basis of the Flatpak application ID
+(`org.lightning_matrix.Lightning`).
+
 The canonical repository — the only one that accepts changes, runs releases, and
 is authoritative for provenance — is
 <https://gitlab.smetonis.net/Mizerd/lightning>.
