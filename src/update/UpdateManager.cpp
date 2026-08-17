@@ -85,6 +85,16 @@ UpdateManager::UpdateManager(QObject *parent)
         return QProcess::startDetached(program, args);
     };
 
+    // updateAvailableWarning is derived from three separate pieces of state;
+    // deriving the NOTIFY from their own signals means no future assignment
+    // can forget to raise it.
+    connect(this, &UpdateManager::stateChanged,
+            this, &UpdateManager::updateAvailableWarningChanged);
+    connect(this, &UpdateManager::dismissedVersionChanged,
+            this, &UpdateManager::updateAvailableWarningChanged);
+    connect(this, &UpdateManager::updateInfoChanged,
+            this, &UpdateManager::updateAvailableWarningChanged);
+
     // The previous run may have handed an artifact to the helper and quit.
     // Its outcome is a file on disk and nothing else reads it.
     initializeStagingState();
@@ -93,6 +103,18 @@ UpdateManager::UpdateManager(QObject *parent)
 UpdateManager::~UpdateManager()
 {
     releaseLock();
+}
+
+bool UpdateManager::updateAvailableWarning() const
+{
+    // ReadyToInstall counts: the bytes are verified and waiting, which still
+    // needs the user. RestartRequired does NOT — the work is handed off and
+    // nothing more is being asked of them.
+    if (m_state != UpdateAvailable && m_state != ReadyToInstall)
+        return false;
+    if (m_latestVersion.isEmpty())
+        return false;
+    return m_latestVersion != m_dismissedVersion;
 }
 
 QDateTime UpdateManager::now() const

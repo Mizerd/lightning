@@ -545,6 +545,7 @@ set(APP_QML_FILES
     qml/UiaPromptDialog.qml
     qml/ReportMessageDialog.qml
     qml/ForwardMessageDialog.qml
+    qml/UpdateAvailablePrompt.qml
     qml/VerifySessionPrompt.qml
     qml/QuickReactionStrip.qml
     qml/IdentityCard.qml

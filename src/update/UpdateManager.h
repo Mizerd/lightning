@@ -73,6 +73,13 @@ class UpdateManager : public QObject
                    setAutomaticChecksEnabled NOTIFY automaticChecksEnabledChanged)
     Q_PROPERTY(QDateTime lastCheckTime READ lastCheckTime NOTIFY lastCheckTimeChanged)
     Q_PROPERTY(QString dismissedVersion READ dismissedVersion NOTIFY dismissedVersionChanged)
+    // v0.7.3: an update is waiting for the user AND they have not dismissed
+    // THIS version. Drives the rail badge and the corner prompt, exactly as
+    // sessionVerificationWarning does for verification — dismissal is per
+    // version, so a later release asks again while the dismissed one stays
+    // quiet.
+    Q_PROPERTY(bool updateAvailableWarning READ updateAvailableWarning
+                   NOTIFY updateAvailableWarningChanged)
     // What the user must be told once the helper has been launched. See the
     // RestartRequired note on the State enum: this NEVER claims success.
     Q_PROPERTY(QString handoffSummary READ handoffSummary NOTIFY stateChanged)
@@ -140,6 +147,7 @@ public:
     void setAutomaticChecksEnabled(bool enabled);
     QDateTime lastCheckTime() const { return m_lastCheckTime; }
     QString dismissedVersion() const { return m_dismissedVersion; }
+    bool updateAvailableWarning() const;
     QString handoffSummary() const { return m_handoffSummary; }
     LastResult lastUpdateResult() const { return m_lastUpdateResult; }
     QString lastUpdateError() const { return m_lastUpdateError; }
@@ -245,6 +253,7 @@ Q_SIGNALS:
     void automaticChecksEnabledChanged();
     void lastCheckTimeChanged();
     void dismissedVersionChanged();
+    void updateAvailableWarningChanged();
     void lastUpdateResultChanged();
     // The install was refused by policy (managed install, development build,
     // diagnostic override). Carries a user-facing reason; no override exists.

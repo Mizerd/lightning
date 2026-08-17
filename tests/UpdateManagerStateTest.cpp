@@ -407,6 +407,7 @@ private slots:
     void installAndRestartAsksTheApplicationToQuit();
     void installIsIgnoredUnlessReady();
     void dismissingAVersionPersists();
+    void updateAvailableWarningTracksDismissalPerVersion();
     void automaticChecksAreRateLimited();
     void settingsAreApplicationWideNotAccountScoped();
     void requestsCarryOnlyTheLightningVersion();
@@ -776,6 +777,32 @@ void UpdateManagerStateTest::dismissingAVersionPersists()
     // A new manager (a later launch) reads the same non-account-scoped key.
     const auto reopened = makeManager(InstallType::LinuxDeb, QStringLiteral("0.7.0"));
     QCOMPARE(reopened->dismissedVersion(), QStringLiteral("0.8.0"));
+}
+
+// v0.7.3: the rail badge and the corner prompt both read this one property.
+// It must be per-VERSION, so dismissing one release cannot silence the next.
+void UpdateManagerStateTest::updateAvailableWarningTracksDismissalPerVersion()
+{
+    const auto manager = makeManager(InstallType::LinuxDeb, QStringLiteral("0.7.0"));
+    // Nothing has been checked: nothing to draw attention to.
+    QVERIFY(!manager->updateAvailableWarning());
+
+    QSignalSpy warningSpy(manager.get(),
+                          &UpdateManager::updateAvailableWarningChanged);
+    ingest(manager.get(), manifestObject(QStringLiteral("0.8.0")));
+    QCOMPARE(manager->state(), UpdateManager::UpdateAvailable);
+    QVERIFY(manager->updateAvailableWarning());
+    QVERIFY(warningSpy.count() > 0);
+
+    // Dismissing is a real, persisted answer for THIS version.
+    manager->dismissVersion();
+    QVERIFY(!manager->updateAvailableWarning());
+
+    // A later release asks again — the whole point of dismissing by version
+    // rather than setting a "don't tell me" flag.
+    ingest(manager.get(), manifestObject(QStringLiteral("0.9.0")));
+    QCOMPARE(manager->state(), UpdateManager::UpdateAvailable);
+    QVERIFY(manager->updateAvailableWarning());
 }
 
 void UpdateManagerStateTest::automaticChecksAreRateLimited()

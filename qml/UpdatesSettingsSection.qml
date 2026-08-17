@@ -274,8 +274,14 @@ ColumnLayout {
             // errorMessage below.
             Label {
                 objectName: "updateStatusDetailLabel"
+                // Never the same sentence twice. startInstall() copies its
+                // handoff summary into statusDetail, and the restart block
+                // below binds that summary directly — so in RestartRequired
+                // the identical text rendered once above the install buttons
+                // and once below them.
                 visible: root.um && root.um.statusDetail
                          && root.um.statusDetail.length > 0
+                         && root.um.statusDetail !== root.um.handoffSummary
                 Layout.fillWidth: true
                 wrapMode: Text.WordWrap
                 color: AppTheme.stormTextMuted

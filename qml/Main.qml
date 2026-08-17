@@ -438,13 +438,29 @@ ApplicationWindow {
 
     // First-run nudge. Deliberately a corner card rather than a modal: an
     // unverified session still works, so this must not block the app.
-    VerifySessionPrompt {
-        objectName: "verifySessionPromptHost"
+    // Both corner prompts share ONE bottom-right column so they can never
+    // draw on top of each other: an unverified session and a pending update
+    // are independent conditions and are routinely true at the same time.
+    // A hidden prompt sets visible:false, so Column reclaims its space and
+    // no gap is left behind when only one is showing.
+    Column {
+        objectName: "cornerPromptHost"
         parent: Overlay.overlay
         anchors.right: parent.right
         anchors.bottom: parent.bottom
         anchors.margins: AppTheme.spacing16
+        spacing: AppTheme.spacing8
         z: 900
+
+        // Update first (above), verification nearest the corner: the
+        // security prompt is the more important of the two and keeps the
+        // anchored position it already had.
+        UpdateAvailablePrompt {
+            objectName: "updateAvailablePromptHost"
+        }
+        VerifySessionPrompt {
+            objectName: "verifySessionPromptHost"
+        }
     }
 
     Loader {

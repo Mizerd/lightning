@@ -238,12 +238,20 @@ Rectangle {
             // v0.7.x: the badge names WHY the cog wants attention, so a
             // screen reader is not left with a bare "Settings" while a red
             // dot sits on it.
-            Accessible.name: app.sessionVerificationWarning
-                             ? qsTr("Settings — this session is not verified")
-                             : qsTr("Settings")
-            ToolTip.text: app.sessionVerificationWarning
-                          ? qsTr("Settings — this session is not verified")
-                          : qsTr("Settings")
+            // ONE badge, never two dots on 68px of chrome. Verification
+            // outranks an update: a security state the user must act on is
+            // not the same class of thing as a release being available, and
+            // colouring them alike would devalue the red one.
+            readonly property bool _updateBadge:
+                app.updateManager && app.updateManager.updateAvailableWarning
+            readonly property string _attentionText:
+                app.sessionVerificationWarning
+                    ? qsTr("Settings — this session is not verified")
+                    : (_updateBadge
+                       ? qsTr("Settings — a Lightning update is available")
+                       : qsTr("Settings"))
+            Accessible.name: _attentionText
+            ToolTip.text: _attentionText
             ToolTip.visible: hovered
             ToolTip.delay: 500
             onClicked: app.currentScreen === 2 ? app.showMain()
@@ -256,14 +264,15 @@ Rectangle {
             // the cog rather than part of the glyph.
             Rectangle {
                 objectName: "railSettingsAlertBadge"
-                visible: app.sessionVerificationWarning
+                visible: app.sessionVerificationWarning || parent._updateBadge
                 anchors.right: parent.right
                 anchors.top: parent.top
                 anchors.margins: 6
                 width: 10
                 height: 10
                 radius: 5
-                color: AppTheme.danger
+                color: app.sessionVerificationWarning ? AppTheme.danger
+                                                      : AppTheme.warning
                 border.color: AppTheme.rail
                 border.width: 2
             }
