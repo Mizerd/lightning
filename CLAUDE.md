@@ -26,9 +26,32 @@ frontend.
 
 ## 2. Current release and development state
 
-Release facts, verified on 2026-08-17:
+Release facts, verified on 2026-08-18:
 
-- Latest published release: **Lightning 0.7.2** (`v0.7.2` -> `7c736c3`),
+- Latest published release: **Lightning 0.7.3** (`v0.7.3` -> `8da2e81`),
+  cut by lightning-deploy pipeline **104** in `RELEASE_ACTION=create`
+  mode: all 19 jobs green on the first attempt, 9 assets published. The
+  release that makes UPDATING work: 0.7.2 was the first that could be
+  installed as an update, and doing it for real found msiexec rejecting
+  Qt's forward-slash path (1619) and the portable swap asking Windows to
+  rename a directory holding the running helper's mapped DLLs.
+  Verified ANONYMOUSLY rather than from job status: all 9 GitLab package
+  links 200 under curl; the `latest` manifest reports 0.7.3, names tag
+  v0.7.3 and carries `mirror_url` on all 6 artifacts; its Ed25519
+  signature (`lightning-release-2026a`) VERIFIES and a one-field-changed
+  copy is REJECTED; the GitHub release has 9 assets, its annotated tag
+  peels to the same commit, and a package fetched from the mirror matches
+  the GitLab-signed SHA-256 exactly. Release notes:
+  `docs/releases/v0.7.3.md`.
+  First release carrying the Flatpak ID **org.lightning_matrix.Lightning**
+  (was `net.smetonis.Lightning`; lightning-deploy `7e84170`) — a 0.7.2
+  Flatpak BUNDLE is not upgraded in place and must be reinstalled.
+  NOT live-validated: the Windows MSI and portable fixes CANNOT be reached
+  by updating from 0.7.2, because the updater that performs an install is
+  the one already on disk. Those two need one manual install of 0.7.3;
+  the first genuine proof of them is the upgrade INTO 0.7.4. The Setup EXE
+  path was never affected and updates normally.
+- Previous release: **Lightning 0.7.2** (`v0.7.2` -> `7c736c3`),
   cut by lightning-deploy pipeline **103** in `RELEASE_ACTION=create`
   mode: all 19 jobs green on the first attempt, 9 assets published.
   Verified ANONYMOUSLY rather than from job status: all 9 GitLab package
@@ -83,7 +106,7 @@ Release facts, verified on 2026-08-17:
 - Previous releases: `v0.6.6` -> `f35bc8c`, `v0.6.5` -> `4cdace3`,
   `v0.6.4` -> `e719bbe`, `v0.6.3` -> `97f10b7`, `v0.6.2` -> `fe3b85f`,
   `v0.6.1` -> `86d30b4`, `v0.6.0` -> `2157194` (all immutable, unchanged)
-- Application version: **0.7.2** in `CMakeLists.txt`, `rust/Cargo.toml`, and
+- Application version: **0.7.3** in `CMakeLists.txt`, `rust/Cargo.toml`, and
   the Rust/HTTP user agent — released, so the next bump is a new checkpoint
 
 0.6.6 released the thirty commits that had accumulated since `v0.6.5`:
@@ -1128,8 +1151,8 @@ Published tags and GitLab Releases are immutable. Never move, recreate, or
 replace them. Do not bump a version, tag, or create a release unless Rokas
 explicitly requests release work.
 
-Version 0.7.2 is released and the synchronized CMake, Rust, and user-agent
-version report 0.7.2. Any future version bump is a release checkpoint alone and
+Version 0.7.3 is released and the synchronized CMake, Rust, and user-agent
+version report 0.7.3. Any future version bump is a release checkpoint alone and
 updates those same synchronized locations. Before release, run complete Rust
 tests plus Rust and non-Rust builds/CTest, and report unavailable live
 validation honestly.
@@ -1187,12 +1210,14 @@ For an existing release that is missing packages, use
 links to the existing release without altering its tag, notes, or source
 archives). This was used to backfill `v0.6.1`.
 
-The latest published release is `v0.7.2` (`7c736c3`), cut from its release
-commit on `main` by project 7 pipeline **103** in `RELEASE_ACTION=create` mode
+The latest published release is `v0.7.3` (`8da2e81`), cut from its release
+commit on `main` by project 7 pipeline **104** in `RELEASE_ACTION=create` mode
 (all 19 jobs green on the first attempt; 9 assets published and
-hash-verified). Its trigger used exactly the five variables pipeline 102
-used, with `SOURCE_REF` set to the full release SHA. All earlier releases
-and tags (`v0.7.1` and older) remain immutable and unchanged.
+hash-verified). Its trigger used exactly the five variables pipelines 102
+and 103 used, with `SOURCE_REF` set to the full release SHA, posted as a
+JSON body with an explicit `-H "Content-Type: application/json"` — `glab
+api --input` without that header returns HTTP 415. All earlier releases and
+tags (`v0.7.2` and older) remain immutable and unchanged.
 
 One trigger note worth keeping: the pipeline's variables must be posted as a
 **JSON body** (`glab api --method POST projects/7/pipeline --input file.json`
@@ -1217,6 +1242,30 @@ direct merge-request submission may not be enabled on this GitLab instance.
 ## 16. Current active development areas
 
 Keep this list grounded in source and recent history:
+
+**2026-08-17/18 post-0.7.2 round** (`4f74eb4..8da2e81`) — **shipped as
+0.7.3.** The first REAL upgrade test drove all of it. Windows MSI failed
+with 1619 because msiexec has its own argument parser and rejects Qt's
+forward-slash path (proven by hand: `/` errored, `\` installed); Windows
+portable failed with backup-failed because the swap renamed the install
+DIRECTORY while the running helper and its loaded Qt DLLs were mapped
+inside it — now an entry-by-entry move, since renaming in-use FILES is
+permitted on Windows while deleting them is not (so the backup directory
+survives, and a stale one must be cleared or update #2 fails). AppImage
+relaunched the MOUNTED binary rather than the .AppImage it had replaced.
+Notifications: opening a room notified for its own backlog, because
+opening a room subscribes it in sliding sync and the backlog arrives as
+live appends while `roomVisibleAtLatest` is false (the view is still
+hydrating); a sender with no avatar got the daemon's generic glyph
+instead of an initials disc; and the app icon was passed only as a theme
+name, which resolves in an installed deb/rpm and nowhere else — a source
+build, an AppImage and a Flatpak all fell through to a placeholder.
+Updates now announce themselves (corner card + gear badge, dismissal per
+VERSION, badge survives dismissal), automatic checks default ON with the
+default restated in all four places that claim it, and update DISCOVERY
+survives the release server being unreachable via a canonical-first,
+mirror-fallback manifest fetch — inert until lightning-deploy publishes
+the pair to the `update-latest` tag.
 
 **2026-08-16/17 post-0.7.1 round** (`ea1fd40..7c736c3`) — **shipped as
 0.7.2.** Everything below is now released; live validation status is
