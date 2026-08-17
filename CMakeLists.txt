@@ -114,6 +114,19 @@ set(LIGHTNING_UPDATE_MIRROR_HOSTS
 string(REPLACE ";" "," LIGHTNING_UPDATE_MIRROR_HOSTS_MACRO
     "${LIGHTNING_UPDATE_MIRROR_HOSTS}")
 
+# v0.7.3: where a MIRRORED copy of the signed manifest pair lives, used only
+# when the canonical host cannot be reached. Empty disables the fallback and
+# restores canonical-only metadata exactly. GitLab remains the authority: the
+# canonical host is always tried first, the Ed25519 signature is verified
+# identically whichever copy answered, and the client still refuses anything
+# that is not strictly newer than what is installed -- so the worst a stale
+# or hostile mirror can achieve here is to offer NO update, never a
+# downgrade and never an unsigned one.
+set(LIGHTNING_UPDATE_MIRROR_MANIFEST_BASE
+    "https://github.com/Mizerd/lightning/releases/download/update-latest"
+    CACHE STRING
+    "Base URL of the mirrored manifest pair, or empty to disable the fallback")
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -388,6 +401,8 @@ set(APP_SOURCES
 
     src/notifications/NotificationManager.h
     src/notifications/NotificationManager.cpp
+    src/notifications/FallbackAvatar.h
+    src/notifications/FallbackAvatar.cpp
     src/media/MediaManager.h
     src/media/MediaManager.cpp
     src/media/MediaBridge.h
@@ -676,6 +691,7 @@ function(_lightning_configure_qml_module target _scope)
         LIGHTNING_UPDATE_PUBKEY_2026A="${LIGHTNING_UPDATE_PUBKEY_2026A}"
         LIGHTNING_UPDATE_HOST="${LIGHTNING_UPDATE_HOST}"
         LIGHTNING_UPDATE_MIRROR_HOSTS="${LIGHTNING_UPDATE_MIRROR_HOSTS_MACRO}"
+        LIGHTNING_UPDATE_MIRROR_MANIFEST_BASE="${LIGHTNING_UPDATE_MIRROR_MANIFEST_BASE}"
         LIGHTNING_UPDATE_PROJECT_ID="${LIGHTNING_UPDATE_PROJECT_ID}"
     )
     # DBus is a Linux/BSD desktop concept: freedesktop notifications and the
@@ -1704,6 +1720,21 @@ if(BUILD_TESTING)
     set_tests_properties(video-poster-threading PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+    # v0.7.3: the initials disc a notification carries when an identity has
+    # no avatar. Pins the palette, hash and initials rule against qml's, so
+    # the disc in a notification matches the one in the room list.
+    qt_add_executable(notification-avatar-test
+        tests/NotificationAvatarTest.cpp
+        src/notifications/FallbackAvatar.h
+        src/notifications/FallbackAvatar.cpp
+    )
+    target_include_directories(notification-avatar-test PRIVATE src)
+    target_link_libraries(notification-avatar-test PRIVATE
+        Qt6::Core Qt6::Gui Qt6::Test)
+    add_test(NAME notification-avatar COMMAND notification-avatar-test)
+    set_tests_properties(notification-avatar PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
     # v0.5.9: user search + DM/room-creation/invite flows (debounce,
     # stale-result rejection, existing-DM reuse, duplicate-submission
     # blocking, partial invite success, sign-out invalidation).
@@ -1935,6 +1966,8 @@ if(BUILD_TESTING)
         src/app/ModerationController.cpp
         src/notifications/NotificationManager.h
         src/notifications/NotificationManager.cpp
+        src/notifications/FallbackAvatar.h
+        src/notifications/FallbackAvatar.cpp
         src/matrix/EventPreview.h
         src/matrix/EventPreview.cpp
         src/models/UserLookup.h
@@ -2159,6 +2192,8 @@ if(BUILD_TESTING)
         tests/NotificationManagerTest.cpp
         src/notifications/NotificationManager.h
         src/notifications/NotificationManager.cpp
+        src/notifications/FallbackAvatar.h
+        src/notifications/FallbackAvatar.cpp
         src/matrix/EventPreview.h
         src/matrix/EventPreview.cpp
         src/models/UserLookup.h
@@ -2908,7 +2943,8 @@ if(BUILD_TESTING)
     foreach(_update_test IN ITEMS update-manifest-test update-manager-state-test)
         target_compile_definitions(${_update_test} PRIVATE
             LIGHTNING_UPDATE_HOST="${LIGHTNING_UPDATE_HOST}"
-            LIGHTNING_UPDATE_MIRROR_HOSTS="${LIGHTNING_UPDATE_MIRROR_HOSTS_MACRO}")
+            LIGHTNING_UPDATE_MIRROR_HOSTS="${LIGHTNING_UPDATE_MIRROR_HOSTS_MACRO}"
+            LIGHTNING_UPDATE_MIRROR_MANIFEST_BASE="${LIGHTNING_UPDATE_MIRROR_MANIFEST_BASE}")
     endforeach()
     target_link_libraries(update-manager-state-test
         PRIVATE Qt6::Core Qt6::Network Qt6::Qml Qt6::Test OpenSSL::Crypto)

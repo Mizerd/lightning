@@ -157,6 +157,28 @@ private Q_SLOTS:
         QVERIFY(NotificationManager::decide(incomingText(), context).notify);
     }
 
+    // Reported from a real desktop: opening a room for the first time after
+    // a restart delivered a notification for every message it loaded. The
+    // cause is that opening a room subscribes it in sliding sync, so its
+    // recent history arrives as ordinary live appends — while the view is
+    // still hydrating, which is exactly when roomVisibleAtLatest cannot be
+    // true, because that flag requires a settled, stuck-to-bottom view.
+    void hydratingOpenRoomSuppresses()
+    {
+        auto context = baseContext();
+        context.roomVisibleAtLatest = false; // the view has not settled yet
+        context.roomHydrating = true;
+        QVERIFY(!NotificationManager::decide(incomingText(), context).notify);
+        // A mention in the room being read is suppressed on the same ground
+        // — the message is on screen the moment the view settles.
+        TimelineEvent mention = incomingText();
+        mention.mentionsMe = true;
+        QVERIFY(!NotificationManager::decide(mention, context).notify);
+        // Once hydration ends, an ordinary background room notifies again.
+        context.roomHydrating = false;
+        QVERIFY(NotificationManager::decide(incomingText(), context).notify);
+    }
+
     void ownLocalAndNonMessageEventsNeverNotify()
     {
         const auto context = baseContext();

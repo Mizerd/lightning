@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QHash>
+#include <QImage>
 #include <QList>
 #include <QObject>
 #include <QString>
@@ -10,7 +11,6 @@
 #include <functional>
 
 struct TimelineEvent;
-class QImage;
 
 // v0.6.0 checkpoint 11: native desktop notifications.
 //
@@ -56,6 +56,13 @@ public:
         // Active-at-latest suppression: the room is on screen, focused, and
         // following the newest message.
         bool roomVisibleAtLatest = false;
+        // v0.7.3: the room the user has just opened, still laying out its
+        // first screen. Opening a room subscribes it in sliding sync, so the
+        // server then delivers that room's recent timeline as ordinary live
+        // appends — and roomVisibleAtLatest is false throughout, because it
+        // requires a settled view. Without this the room you are looking at
+        // raises a notification for every message it just loaded.
+        bool roomHydrating = false;
         // v0.6.1: false while the client is still applying its initial sync
         // backlog. Events that arrive before the first sync completes are
         // pre-existing history, not fresh activity, and must never raise a
@@ -73,6 +80,10 @@ public:
         // Effective room avatar: explicit room avatar, or the unambiguous
         // other user's profile avatar for a strict 1:1 DM.
         QString avatarMxc;
+        // Identity key behind the initials disc drawn when there is no
+        // avatar to fetch — the same key the room list uses, so the two
+        // agree on colour. Empty falls back to the room name.
+        QString avatarColorKey;
     };
     struct Decision {
         bool notify = false;
@@ -137,9 +148,12 @@ private Q_SLOTS:
     void onNotificationClosed(quint32 id, quint32 reason);
 
 private:
+    // `fallback` is shown when the avatar is absent or cannot be fetched;
+    // an empty image reverts to the daemon's own generic icon.
     void deliver(const QString &title, const QString &body,
                  const QVariantMap &payload, bool sound = false,
-                 const QString &avatarMxc = QString());
+                 const QString &avatarMxc = QString(),
+                 const QImage &fallback = QImage());
     void deliverNow(const QString &title, const QString &body,
                     const QVariantMap &payload, bool sound,
                     const QImage &avatar);
@@ -166,6 +180,7 @@ private:
         QVariantMap payload;
         bool sound = false;
         QString avatarMxc;
+        QImage fallback;
     };
     std::function<QImage(const QString &, bool)> m_avatarImage;
     std::function<bool(const QString &)> m_avatarFailed;

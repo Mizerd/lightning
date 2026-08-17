@@ -304,6 +304,7 @@ void UpdateManager::startCheck(bool automatic)
 
     setState(Checking);
     m_signatureDocument.clear();
+    m_metadataFromMirror = false;
     fetchSignature();
 }
 
@@ -321,13 +322,36 @@ void UpdateManager::fetchSignature()
                 if (m_state != Checking)
                     return;
                 if (!ok) {
+                    if (retryMetadataFromMirror())
+                        return;
                     failWith(message);
                     return;
                 }
                 m_signatureDocument = m_fetcher->document();
                 fetchManifest();
             });
-    m_fetcher->start(latestManifestSignatureUrl(), kMaxSignatureEnvelopeBytes, userAgent());
+    m_fetcher->start(m_metadataFromMirror ? mirrorLatestManifestSignatureUrl()
+                                          : latestManifestSignatureUrl(),
+                     kMaxSignatureEnvelopeBytes, userAgent());
+}
+
+bool UpdateManager::retryMetadataFromMirror()
+{
+    // One fallback attempt, and only away from the canonical host. The
+    // signature is still verified against the compiled-in key, and the
+    // installed-version comparison still refuses anything not strictly
+    // newer, so this can only ever restore availability — see
+    // UpdateEndpoints.h for why that is the whole of the exposure.
+    if (m_metadataFromMirror)
+        return false;
+    if (mirrorLatestManifestUrl().isEmpty()
+        || mirrorLatestManifestSignatureUrl().isEmpty()) {
+        return false;
+    }
+    m_metadataFromMirror = true;
+    m_signatureDocument.clear();
+    fetchSignature();
+    return true;
 }
 
 void UpdateManager::fetchManifest()
@@ -339,6 +363,13 @@ void UpdateManager::fetchManifest()
                 if (m_state != Checking)
                     return;
                 if (!ok) {
+                    // Restart the PAIR from the mirror rather than mixing a
+                    // canonical signature with a mirrored manifest: the two
+                    // must describe the same release, and a signature that
+                    // does not match its manifest is a hard failure that
+                    // would read as tampering rather than an outage.
+                    if (retryMetadataFromMirror())
+                        return;
                     failWith(message);
                     return;
                 }
@@ -347,7 +378,9 @@ void UpdateManager::fetchManifest()
                 m_signatureDocument.clear();
                 applyCheckDocuments(manifestBytes, signatureBytes);
             });
-    m_fetcher->start(latestManifestUrl(), UpdateManifest::kMaxManifestBytes, userAgent());
+    m_fetcher->start(m_metadataFromMirror ? mirrorLatestManifestUrl()
+                                          : latestManifestUrl(),
+                     UpdateManifest::kMaxManifestBytes, userAgent());
 }
 
 void UpdateManager::ingestCheckDocuments(const QByteArray &manifestBytes,
@@ -956,6 +989,22 @@ QString UpdateManager::installTargetPath() const
     return QCoreApplication::applicationFilePath();
 }
 
+QString UpdateManager::relaunchProgramPath() const
+{
+    // Inside an AppImage, applicationFilePath() is the executable in the
+    // MOUNTED squashfs (/tmp/.mount_XXXX/usr/bin/...), not the .AppImage
+    // file. Relaunching that starts the image that is being replaced: the
+    // maintainer's first AppImage upgrade came back up reporting the OLD
+    // version, and only showed the new one after being closed and started
+    // again by hand. The file we just replaced is the one to run.
+    if (m_detection.type == InstallType::LinuxAppImage) {
+        const QString appImage = qEnvironmentVariable("APPIMAGE");
+        if (!appImage.isEmpty())
+            return appImage;
+    }
+    return QCoreApplication::applicationFilePath();
+}
+
 void UpdateManager::installUpdate()
 {
     startInstall(/*restartAfterwards=*/false);
@@ -1005,8 +1054,7 @@ void UpdateManager::startInstall(bool restartAfterwards)
     // application back up afterwards would be the opposite of what the user
     // asked for.
     if (restartAfterwards) {
-        arguments << QStringLiteral("--relaunch")
-                  << QCoreApplication::applicationFilePath();
+        arguments << QStringLiteral("--relaunch") << relaunchProgramPath();
     }
 
     setState(Installing);

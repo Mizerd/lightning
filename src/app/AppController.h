@@ -201,6 +201,12 @@ class AppController : public QObject
     // it for active-room suppression).
     Q_PROPERTY(bool activeRoomAtLatest READ activeRoomAtLatest
                    WRITE setActiveRoomAtLatest NOTIFY activeRoomAtLatestChanged)
+    // True while the open room's timeline is still hydrating. Suppression
+    // needs this as well as activeRoomAtLatest, which cannot be true until
+    // the view has settled — see NotificationManager::Context::roomHydrating.
+    Q_PROPERTY(bool activeRoomHydrating READ activeRoomHydrating
+                   WRITE setActiveRoomHydrating
+                   NOTIFY activeRoomHydratingChanged)
     Q_PROPERTY(bool sessionDevicesLoading READ sessionDevicesLoading NOTIFY sessionDevicesChanged)
     Q_PROPERTY(bool sessionDevicesFailed READ sessionDevicesFailed NOTIFY sessionDevicesChanged)
     Q_PROPERTY(SpaceManager* spaces READ spaces CONSTANT)
@@ -409,7 +415,9 @@ public:
     bool sessionDevicesFailed() const { return m_sessionDevicesFailed; }
     Q_INVOKABLE void refreshSessionDevices();
     bool activeRoomAtLatest() const { return m_activeRoomAtLatest; }
+    bool activeRoomHydrating() const { return m_activeRoomHydrating; }
     void setActiveRoomAtLatest(bool atLatest);
+    void setActiveRoomHydrating(bool hydrating);
     SpaceManager *spaces() const;
     ThreadManager *threads() const;
     PresenceManager *presence() const;
@@ -751,6 +759,7 @@ Q_SIGNALS:
     void sessionVerificationWarningChanged();
     void sessionDevicesChanged();
     void activeRoomAtLatestChanged();
+    void activeRoomHydratingChanged();
     // v0.6.0 checkpoint 11: a notification was clicked — QML raises the
     // window, selects the room, opens the thread, and locates the event.
     // Identity only, never tokens.
@@ -872,6 +881,7 @@ private:
     bool m_sessionDevicesLoading = false;
     bool m_sessionDevicesFailed = false;
     bool m_activeRoomAtLatest = false;
+    bool m_activeRoomHydrating = false;
     QSet<QString> m_knownInvites;
     // Rooms whose last server push-rule write failed, so the pickers can
     // say "kept on this device" instead of claiming the mode was saved to

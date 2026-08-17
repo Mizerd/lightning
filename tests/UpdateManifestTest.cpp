@@ -27,7 +27,10 @@
 
 using lightning::update::InstallType;
 using lightning::update::isAllowedArtifactUrl;
+using lightning::update::isAllowedFallbackManifestUrl;
 using lightning::update::isAllowedManifestUrl;
+using lightning::update::mirrorLatestManifestSignatureUrl;
+using lightning::update::mirrorLatestManifestUrl;
 using lightning::update::isSafeArtifactFilename;
 using lightning::update::isValidSha256Hex;
 using lightning::update::ManifestChannel;
@@ -826,6 +829,33 @@ void UpdateManifestTest::separatesMetadataAndArtifactHostPolicies()
                            QStringLiteral("objects.githubusercontent.com"),
                            QStringLiteral("release-assets.githubusercontent.com") }));
 #endif
+
+    // v0.7.3 availability fallback. The mirrored manifest pair is read ONLY
+    // after the canonical host fails, and it is still a mirror host — the
+    // canonical predicate must keep refusing it, or the relaxation would
+    // have quietly become "metadata from anywhere".
+    const QUrl mirrorManifest = mirrorLatestManifestUrl();
+    const QUrl mirrorSignature = mirrorLatestManifestSignatureUrl();
+    if (!mirrorManifest.isEmpty()) {
+        QVERIFY(isAllowedFallbackManifestUrl(mirrorManifest));
+        QVERIFY(isAllowedFallbackManifestUrl(mirrorSignature));
+        // A mirror is still not the canonical metadata source.
+        QVERIFY(!isAllowedManifestUrl(mirrorManifest));
+        QVERIFY(!isAllowedManifestUrl(mirrorSignature));
+        // HTTPS, no credentials, no odd port — the same transport rules.
+        QCOMPARE(mirrorManifest.scheme(), QStringLiteral("https"));
+        QVERIFY(mirrorManifest.userInfo().isEmpty());
+        QVERIFY(mirrors.contains(mirrorManifest.host().toLower()));
+        // The two documents differ and both are under the same fixed base:
+        // a "latest release" URL would let the mirror choose which release
+        // answers, which is what the no-API source scan forbids.
+        QVERIFY(mirrorManifest != mirrorSignature);
+        QVERIFY(!mirrorManifest.path().contains(QStringLiteral("releases/latest")));
+    }
+    // The canonical predicate never accepts a mirror host, and the fallback
+    // predicate never accepts the canonical one.
+    QVERIFY(!isAllowedFallbackManifestUrl(
+        QUrl(QStringLiteral("https://%1/a/b").arg(canonical))));
 
     // Both roles accept the canonical host, and it is never duplicated in the
     // mirror list.

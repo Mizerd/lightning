@@ -2623,6 +2623,17 @@ Rectangle {
                            && timeline.Window.active === true
                            && timeline.stickToBottom
                 }
+                // The binding above cannot be true until the view has
+                // settled, and opening a room subscribes it in sliding sync
+                // — so the room's own recent history arrives as live appends
+                // during exactly the window where nothing suppresses it, and
+                // the room being read notifies for every message it loads.
+                Binding {
+                    target: app
+                    property: "activeRoomHydrating"
+                    value: timeline.visible && !timeline.presentationReady
+                           && timeline.Window.active === true
+                }
 
                 // v0.6.6: TimelineModel's near-top backfill "virtual
                 // scrolling" staging window — which used to hold a landed

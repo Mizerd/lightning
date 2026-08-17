@@ -1,5 +1,7 @@
 #include "notifications/NotificationManager.h"
 
+#include "notifications/FallbackAvatar.h"
+
 #include "matrix/EventPreview.h"
 #include "matrix/TimelineEvent.h"
 #include "models/UserLookup.h"
@@ -65,6 +67,10 @@ const auto kInterface = QStringLiteral("org.freedesktop.Notifications");
 // Notification-sound burst coalescing window (ms).
 constexpr qint64 kSoundCoalesceMs = 1500;
 constexpr int kAvatarWaitMs = 1200;
+// Edge of the initials disc handed to the notification daemon. Daemons scale
+// what they are given; 64 covers the common 48px slot without being a
+// noticeably soft upscale on a HiDPI panel.
+constexpr int kFallbackAvatarEdge = 64;
 
 #ifdef HAVE_QT_DBUS
 FreedesktopNotificationImage notificationImage(const QImage &source)
@@ -146,6 +152,10 @@ NotificationManager::decide(const TimelineEvent &event, const Context &context)
     // A room that is on screen, focused, and following the latest message
     // needs no notification; a scrolled-away or unfocused room still does.
     if (context.roomVisibleAtLatest)
+        return decision;
+    // Same judgement, one moment earlier: a room being read is a room being
+    // read whether or not its view has finished settling.
+    if (context.roomHydrating)
         return decision;
 
     const QString sender = event.senderDisplayName.isEmpty()
@@ -245,9 +255,20 @@ void NotificationManager::processEvent(const TimelineEvent &event,
     payload.insert(QStringLiteral("eventId"), event.eventId);
     payload.insert(QStringLiteral("threadRootId"), event.threadRootId);
     // Private preview deliberately keeps the generic app identity: a room or
-    // DM avatar would disclose the conversation the user asked to hide.
+    // DM avatar would disclose the conversation the user asked to hide —
+    // and an initials disc discloses exactly the same thing, so it is
+    // withheld on the same branch rather than treated as a lesser hint.
+    if (context.previewMode == Private) {
+        deliver(decision.title, decision.body, payload, decision.playSound);
+        return;
+    }
+    // An identity with no avatar is not an identity with no picture: every
+    // other surface draws its initials disc, and a notification carrying no
+    // image at all gets the daemon's generic document glyph instead.
+    const QImage fallback = lightning::notifications::fallbackAvatar(
+        context.roomName, context.avatarColorKey, kFallbackAvatarEdge);
     deliver(decision.title, decision.body, payload, decision.playSound,
-            context.previewMode == Private ? QString() : context.avatarMxc);
+            context.avatarMxc, fallback);
 }
 
 void NotificationManager::showGeneric(const QString &title,
@@ -292,10 +313,11 @@ void NotificationManager::forgetPayload(quint32 id)
 
 void NotificationManager::deliver(const QString &title, const QString &body,
                                   const QVariantMap &payload, bool sound,
-                                  const QString &avatarMxc)
+                                  const QString &avatarMxc,
+                                  const QImage &fallback)
 {
     if (!avatarMxc.startsWith(QLatin1String("mxc://")) || !m_avatarImage) {
-        deliverNow(title, body, payload, sound, {});
+        deliverNow(title, body, payload, sound, fallback);
         return;
     }
     const QImage cached = m_avatarImage(avatarMxc, /*request=*/true);
@@ -304,16 +326,17 @@ void NotificationManager::deliver(const QString &title, const QString &body,
         return;
     }
     if (m_avatarFailed && m_avatarFailed(avatarMxc)) {
-        deliverNow(title, body, payload, sound, {});
+        deliverNow(title, body, payload, sound, fallback);
         return;
     }
     // Keep delivery bounded: if an avatar service stalls, the notification
     // appears with Lightning's normal icon after a short grace period.
     if (m_avatarWaits.size() >= kMaxPendingPayloads) {
         const WaitingDelivery oldest = m_avatarWaits.takeFirst();
-        deliverNow(oldest.title, oldest.body, oldest.payload, oldest.sound, {});
+        deliverNow(oldest.title, oldest.body, oldest.payload, oldest.sound,
+                   oldest.fallback);
     }
-    m_avatarWaits.append({ title, body, payload, sound, avatarMxc });
+    m_avatarWaits.append({ title, body, payload, sound, avatarMxc, fallback });
     if (!m_avatarWaitTimer.isActive())
         m_avatarWaitTimer.start();
 }
@@ -328,7 +351,8 @@ void NotificationManager::flushAvatarWaits(bool fallbackAll)
             || (m_avatarFailed && m_avatarFailed(waiting.avatarMxc));
         if (!image.isNull() || failed || fallbackAll) {
             deliverNow(waiting.title, waiting.body, waiting.payload,
-                       waiting.sound, image);
+                       waiting.sound,
+                       image.isNull() ? waiting.fallback : image);
         } else {
             remaining.append(waiting);
         }

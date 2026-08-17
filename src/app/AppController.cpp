@@ -331,8 +331,14 @@ AppController::AppController(Backend backend, bool screenshotDemo,
         const RoomInfo info = m_client->roomInfo(roomId);
         context.roomName = info.name.isEmpty() ? roomId : info.name;
         context.roomIsDirect = info.isDirect;
-        context.avatarMxc = m_roomList->findRoom(roomId)
-                                .value(QStringLiteral("avatarUrl")).toString();
+        const QVariantMap notifyRoomRow = m_roomList->findRoom(roomId);
+        context.avatarMxc =
+            notifyRoomRow.value(QStringLiteral("avatarUrl")).toString();
+        // Drives the initials disc when there is no avatar to fetch. Taken
+        // from the same row the interface colours its own avatar from, so a
+        // notification and the room list never disagree about an identity.
+        context.avatarColorKey =
+            notifyRoomRow.value(QStringLiteral("identityColorKey")).toString();
         context.roomMode = static_cast<NotificationManager::RoomMode>(
             m_settings->roomNotificationMode(roomId));
         context.previewMode = static_cast<NotificationManager::PreviewMode>(
@@ -340,6 +346,11 @@ AppController::AppController(Backend backend, bool screenshotDemo,
         context.notificationsEnabled = m_settings->notificationsEnabled();
         context.roomVisibleAtLatest =
             roomId == m_currentRoomId && m_activeRoomAtLatest;
+        // The open room's own backlog arrives as live appends the moment
+        // sliding sync subscribes it, while its view is still hydrating and
+        // therefore not yet "at latest".
+        context.roomHydrating =
+            roomId == m_currentRoomId && m_activeRoomHydrating;
         // Suppress the initial-sync backlog: those events are pre-existing
         // history, not fresh activity, and must not re-notify on each launch.
         context.initialSyncComplete = m_client->initialSyncDone();
@@ -2200,6 +2211,14 @@ void AppController::setActiveRoomAtLatest(bool atLatest)
         return;
     m_activeRoomAtLatest = atLatest;
     Q_EMIT activeRoomAtLatestChanged();
+}
+
+void AppController::setActiveRoomHydrating(bool hydrating)
+{
+    if (m_activeRoomHydrating == hydrating)
+        return;
+    m_activeRoomHydrating = hydrating;
+    Q_EMIT activeRoomHydratingChanged();
 }
 
 void AppController::refreshSessionDevices()

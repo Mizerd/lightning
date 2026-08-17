@@ -285,6 +285,12 @@ private:
     void launchDeferredInstall();
     QString helperProgramPath() const;
     QString installTargetPath() const;
+    // What to start after a successful install; differs from the running
+    // executable for an AppImage. See the definition.
+    QString relaunchProgramPath() const;
+    // One availability fallback for the manifest pair when the canonical
+    // host does not answer. Returns true when a retry was started.
+    bool retryMetadataFromMirror();
     QString stagingRoot() const;
     QString statusFilePath() const;
     // Reads and DELETES the helper's status file, then removes stale staged
@@ -336,6 +342,9 @@ private:
     UpdateDocumentFetcher *m_fetcher = nullptr;
     UpdateDownloader *m_downloader = nullptr;
     QByteArray m_signatureDocument;
+    // True while this check is reading the MIRRORED manifest pair because
+    // the canonical host failed. Reset at the start of every check.
+    bool m_metadataFromMirror = false;
     std::unique_ptr<QFile> m_stagedFile;
     QString m_stagedPath;
     std::unique_ptr<QLockFile> m_lock;

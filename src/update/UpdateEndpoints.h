@@ -45,8 +45,32 @@ QStringList mirrorArtifactHosts();
 QStringList allowedUpdateHosts();
 
 // Canonical host ONLY. The manifest, its signature and release_notes_url.
-// A mirror must never be able to serve metadata.
+// This is what the client asks FIRST and what it uses in every normal check.
 bool isAllowedManifestUrl(const QUrl &url);
+
+// v0.7.3 availability fallback. A mirrored copy of the manifest pair, used
+// ONLY after the canonical host failed to answer, so that an outage on the
+// release server stops updates being DISCOVERED rather than merely slowing
+// them down. This deliberately relaxes the canonical-only metadata rule
+// above, and the reasoning for why it is safe is worth keeping explicit:
+//
+//   * the Ed25519 signature is verified identically whichever host answered,
+//     so a mirror cannot forge or alter a manifest;
+//   * the client installs only a version strictly NEWER than the installed
+//     one, so a mirror serving a stale (but validly signed) manifest offers
+//     no update at all rather than a downgrade;
+//   * the canonical host is always tried first, so in normal operation
+//     GitLab still decides what exists.
+//
+// What a hostile mirror CAN do here is withhold a new version from clients
+// that cannot reach GitLab — which is precisely the outage this exists to
+// soften, so it trades nothing that was not already lost.
+bool isAllowedFallbackManifestUrl(const QUrl &url);
+
+// Empty when no mirror base is compiled in, which disables the fallback and
+// restores canonical-only metadata byte for byte.
+QUrl mirrorLatestManifestUrl();
+QUrl mirrorLatestManifestSignatureUrl();
 
 // Canonical host OR a mirror host. Artifact bytes and the redirect hops of
 // an artifact download, and nothing else.

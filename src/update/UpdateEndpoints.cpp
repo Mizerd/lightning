@@ -28,6 +28,22 @@
     "github.com;objects.githubusercontent.com;release-assets.githubusercontent.com"
 #endif
 
+#ifndef LIGHTNING_UPDATE_MIRROR_MANIFEST_BASE
+// Base URL of the MIRRORED manifest pair, read only after the canonical host
+// failed to answer. Empty disables the fallback entirely and restores
+// canonical-only metadata; a value whose host is not in the mirror list above
+// is dropped rather than trusted.
+//
+// Deliberately a FIXED tag whose two assets the release pipeline replaces —
+// never a "latest release" URL, which would let GitHub choose which release
+// answers. GitHub decides nothing here: the path is constant, no API is
+// called, no release metadata is read, and the Ed25519 signature is what
+// makes the bytes trustworthy. update-manager-state's source scan enforces
+// the no-API rule and fails on the "latest" form.
+#define LIGHTNING_UPDATE_MIRROR_MANIFEST_BASE                                                      \
+    "https://github.com/Mizerd/lightning/releases/download/update-latest"
+#endif
+
 namespace lightning::update {
 namespace {
 
@@ -123,6 +139,34 @@ bool isAllowedManifestUrl(const QUrl &url)
     // Metadata is canonical-only. GitLab decides WHAT may be installed; a
     // mirror only carries bytes that decision already named.
     return isAllowedUrlOn(url, QStringList{ canonicalUpdateHost() });
+}
+
+bool isAllowedFallbackManifestUrl(const QUrl &url)
+{
+    // Mirror hosts only: the canonical copy has its own predicate, and a URL
+    // that is neither is not metadata this build will read.
+    return isAllowedUrlOn(url, mirrorArtifactHosts());
+}
+
+QUrl mirrorLatestManifestUrl()
+{
+    const QString base = QString::fromLatin1(LIGHTNING_UPDATE_MIRROR_MANIFEST_BASE);
+    if (base.isEmpty())
+        return {};
+    const QUrl url(base + QLatin1Char('/') + QLatin1String(kManifestFile));
+    // A base that does not resolve to an allowed mirror host is DROPPED
+    // rather than trusted: a build-time typo must not silently point update
+    // metadata at a third party.
+    return isAllowedFallbackManifestUrl(url) ? url : QUrl{};
+}
+
+QUrl mirrorLatestManifestSignatureUrl()
+{
+    const QString base = QString::fromLatin1(LIGHTNING_UPDATE_MIRROR_MANIFEST_BASE);
+    if (base.isEmpty())
+        return {};
+    const QUrl url(base + QLatin1Char('/') + QLatin1String(kSignatureFile));
+    return isAllowedFallbackManifestUrl(url) ? url : QUrl{};
 }
 
 bool isAllowedArtifactUrl(const QUrl &url)
