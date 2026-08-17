@@ -9,6 +9,12 @@
 #include <QCoreApplication>
 #include <QDateTime>
 #include <QLoggingCategory>
+#include <QDir>
+#include <QFileInfo>
+#include <QIcon>
+#include <QPixmap>
+#include <QStandardPaths>
+#include <QUrl>
 #include <QImage>
 
 #include <utility>
@@ -91,6 +97,68 @@ FreedesktopNotificationImage notificationImage(const QImage &source)
 }
 #endif
 } // namespace
+
+#ifdef HAVE_QT_DBUS
+// The notification's own identity: what the daemon draws in the corner next
+// to "Lightning", and which desktop entry it associates the notification
+// with. Both were the fixed name "lightning", which resolves ONLY in an
+// installed deb/rpm — a dev build, an un-integrated AppImage and a Flatpak
+// all fall through to the daemon's generic document glyph (reported from a
+// real desktop, with a screenshot of exactly that).
+//
+// Inside a Flatpak the exported desktop file and icon are renamed to the
+// application ID by the packaging manifest, so the name to use is that ID.
+// It is read from FLATPAK_ID rather than hard-coded, so the application
+// never has to know its own Flatpak identity and cannot drift from it.
+//
+// When no themed icon resolves under either name, the icon is materialized
+// once from the resource the window icon already falls back to and passed
+// as a file:// URI, which the freedesktop specification accepts in place of
+// a theme name. That is what makes the icon appear for source runs and
+// AppImages, where nothing is installed into an icon theme at all.
+struct NotificationIdentity {
+    QString appIcon;      // theme name or file:// URI
+    QString desktopEntry; // desktop file basename, no .desktop suffix
+};
+
+QString materializedIconPath()
+{
+    const QString cacheDir =
+        QStandardPaths::writableLocation(QStandardPaths::CacheLocation);
+    if (cacheDir.isEmpty())
+        return {};
+    QDir().mkpath(cacheDir);
+    const QString path = cacheDir + QStringLiteral("/notification-icon.png");
+    if (QFileInfo::exists(path))
+        return path;
+    const QIcon icon(QStringLiteral(
+        ":/qt/qml/MatrixClient/data/icons/hicolor/256x256/apps/lightning.png"));
+    const QPixmap pixmap = icon.pixmap(256, 256);
+    if (pixmap.isNull() || !pixmap.save(path, "PNG"))
+        return {};
+    return path;
+}
+
+NotificationIdentity notificationIdentity()
+{
+    static const NotificationIdentity identity = [] {
+        NotificationIdentity result;
+        const QString flatpakId = qEnvironmentVariable("FLATPAK_ID");
+        result.desktopEntry = flatpakId.isEmpty()
+            ? QStringLiteral("lightning") : flatpakId;
+        if (QIcon::hasThemeIcon(result.desktopEntry)) {
+            result.appIcon = result.desktopEntry;
+            return result;
+        }
+        const QString path = materializedIconPath();
+        result.appIcon = path.isEmpty()
+            ? result.desktopEntry
+            : QUrl::fromLocalFile(path).toString();
+        return result;
+    }();
+    return identity;
+}
+#endif
 
 NotificationManager::NotificationManager(QObject *parent)
     : QObject(parent)
@@ -375,8 +443,9 @@ void NotificationManager::deliverNow(const QString &title,
         return;
     }
     const QStringList actions{ QStringLiteral("default"), tr("Open") };
+    const NotificationIdentity identity = notificationIdentity();
     QVariantMap hints{
-        { QStringLiteral("desktop-entry"), QStringLiteral("lightning") },
+        { QStringLiteral("desktop-entry"), identity.desktopEntry },
     };
     if (!avatar.isNull()) {
         hints.insert(QStringLiteral("image-data"),
@@ -395,7 +464,7 @@ void NotificationManager::deliverNow(const QString &title,
     }
     QDBusReply<quint32> reply = notifications.call(
         QStringLiteral("Notify"), QStringLiteral("Lightning"), quint32(0),
-        QStringLiteral("lightning"), title, body, actions, hints, int(-1));
+        identity.appIcon, title, body, actions, hints, int(-1));
     if (reply.isValid())
         recordPayload(reply.value(), payload);
 #else
