@@ -26,9 +26,27 @@ frontend.
 
 ## 2. Current release and development state
 
-Release facts, verified on 2026-08-16:
+Release facts, verified on 2026-08-17:
 
-- Latest published release: **Lightning 0.7.1** (`v0.7.1` -> `25a01f1`),
+- Latest published release: **Lightning 0.7.2** (`v0.7.2` -> `7c736c3`),
+  cut by lightning-deploy pipeline **103** in `RELEASE_ACTION=create`
+  mode: all 19 jobs green on the first attempt, 9 assets published.
+  Verified ANONYMOUSLY rather than from job status: all 9 GitLab package
+  links 200 under curl; the `latest` update manifest fetches, reports
+  0.7.2, carries `mirror_url` on every one of its 6 artifacts, and its
+  Ed25519 signature (`key_id: lightning-release-2026a`) VERIFIES against
+  the real public key — and a manifest with one byte changed is REJECTED,
+  so that check is not vacuous; the GitHub release has 9 assets, its
+  annotated tag peels to the same commit as the GitLab release, and a
+  package downloaded from the mirror matches the GitLab-signed SHA-256
+  exactly. Release notes: `docs/releases/v0.7.2.md`.
+  NOT live-validated: **no real upgrade has still ever been performed.**
+  0.7.2 is the first release that can be installed as an UPDATE (0.7.1
+  was the first that could be updated from), so that test is now
+  available and is the highest-value thing to do next — see
+  `docs/updates.md`. Nothing in the 0.7.2 round has been checked against
+  Element for interoperability either.
+- Previous release: **Lightning 0.7.1** (`v0.7.1` -> `25a01f1`),
   cut by lightning-deploy pipeline **102** in `RELEASE_ACTION=create`
   mode: all 19 jobs green, 9 assets published. First release carrying the
   secure updater, and the first ever run of `sign-update-manifest` and
@@ -50,7 +68,7 @@ Release facts, verified on 2026-08-16:
   NOT live-validated: no real MSI/EXE/portable/AppImage/DEB/RPM upgrade
   has been performed. 0.7.1 is the first release that can be updated
   FROM, so the first true end-to-end upgrade is the one into 0.7.2.
-- Previous release: **Lightning 0.7.0** (`v0.7.0` -> `cd91b9c`),
+- Earlier release: **Lightning 0.7.0** (`v0.7.0` -> `cd91b9c`),
   cut by lightning-deploy pipeline **98** in `RELEASE_ACTION=create` mode:
   all 17 jobs green (the fleet + the macOS arm64 test bundle via
   `BUILD_MACOS_PACKAGES=true` — built and validated on the Mac mini
@@ -65,8 +83,8 @@ Release facts, verified on 2026-08-16:
 - Previous releases: `v0.6.6` -> `f35bc8c`, `v0.6.5` -> `4cdace3`,
   `v0.6.4` -> `e719bbe`, `v0.6.3` -> `97f10b7`, `v0.6.2` -> `fe3b85f`,
   `v0.6.1` -> `86d30b4`, `v0.6.0` -> `2157194` (all immutable, unchanged)
-- Application version: **0.7.1** in `CMakeLists.txt`, `rust/Cargo.toml`, and
-  the Rust/HTTP user agent
+- Application version: **0.7.2** in `CMakeLists.txt`, `rust/Cargo.toml`, and
+  the Rust/HTTP user agent — released, so the next bump is a new checkpoint
 
 0.6.6 released the thirty commits that had accumulated since `v0.6.5`:
 Element-style read receipts (`c060ef5`, `3afc2d0`, `30ee39b`), per-room
@@ -1110,8 +1128,8 @@ Published tags and GitLab Releases are immutable. Never move, recreate, or
 replace them. Do not bump a version, tag, or create a release unless Rokas
 explicitly requests release work.
 
-Version 0.7.1 is released and the synchronized CMake, Rust, and user-agent
-version report 0.7.1. Any future version bump is a release checkpoint alone and
+Version 0.7.2 is released and the synchronized CMake, Rust, and user-agent
+version report 0.7.2. Any future version bump is a release checkpoint alone and
 updates those same synchronized locations. Before release, run complete Rust
 tests plus Rust and non-Rust builds/CTest, and report unavailable live
 validation honestly.
@@ -1169,10 +1187,12 @@ For an existing release that is missing packages, use
 links to the existing release without altering its tag, notes, or source
 archives). This was used to backfill `v0.6.1`.
 
-The latest published release is `v0.7.1` (`25a01f1`), cut from its release
-commit on `main` by project 7 pipeline **102** in `RELEASE_ACTION=create` mode
-(all 16 jobs green; 9 assets published and hash-verified). All earlier
-releases and tags (`v0.6.5` and older) remain immutable and unchanged.
+The latest published release is `v0.7.2` (`7c736c3`), cut from its release
+commit on `main` by project 7 pipeline **103** in `RELEASE_ACTION=create` mode
+(all 19 jobs green on the first attempt; 9 assets published and
+hash-verified). Its trigger used exactly the five variables pipeline 102
+used, with `SOURCE_REF` set to the full release SHA. All earlier releases
+and tags (`v0.7.1` and older) remain immutable and unchanged.
 
 One trigger note worth keeping: the pipeline's variables must be posted as a
 **JSON body** (`glab api --method POST projects/7/pipeline --input file.json`
@@ -1198,8 +1218,33 @@ direct merge-request submission may not be enabled on this GitLab instance.
 
 Keep this list grounded in source and recent history:
 
-**2026-08-16 post-0.7.1 round** (`ea1fd40..`, on `main`, unreleased).
-Eight-plus commits addressing a user-report batch. Newest first:
+**2026-08-16/17 post-0.7.1 round** (`ea1fd40..7c736c3`) — **shipped as
+0.7.2.** Everything below is now released; live validation status is
+unchanged by that, and most of it is still NOT TESTED.
+Twenty-four commits addressing user-report batches. Newest first:
+- **Video poster extraction froze the GUI thread** (`68cb82c`). The
+  reported "massive lag spike when scrolling up and videos come up" was a
+  SECOND cause, unrelated to the image decode below. `VideoPosterExtractor`
+  built its `QMediaPlayer`/`QVideoSink` inline on the GUI thread, and the
+  **first `QVideoSink` in a process costs ~931 ms** — lazy Qt Multimedia
+  backend init including a hardware-decoder probe that fails without VAAPI
+  — plus ~68 ms `~QMediaPlayer` and ~232 ms of `frame.toImage()` per job.
+  A GUI-thread heartbeat measured a 937 ms stall against a 1 ms idle
+  baseline; on a private worker thread the same extraction measures 1 ms.
+  The intuitive per-frame theory was WRONG: `toImage()` is 0.24 ms.
+  Two traps this shape invites, both caught in prototype and worth
+  remembering: a plain `moveToThread` leaves a MEMBER `QTimer` on the
+  creating thread, where Qt refuses to start it, silently disarming the
+  6 s watchdog (make it a CHILD); and the reply becomes QUEUED, so
+  `disconnect()` no longer reliably cancels one already posted — session
+  isolation therefore keys on `m_posterExtracting`, which `clear()`
+  empties, not on the connection. `MediaBridge::warmMultimediaBackend()`
+  additionally pre-pays the init off-thread for the first inline PLAYBACK,
+  whose sink QML builds on the GUI thread and cannot move; it is skipped
+  under a guiless app so the media suites still construct no decoder.
+  New suite `video-poster-threading`, proven to fail on the old tree
+  (891 ms). Residual, unmeasured: `writePlayableFile` still writes up to
+  32 MiB synchronously on the GUI thread.
 - **Message action bar clipped on a thin row** (`4db1a18`). The hover
   toolbar was anchored INSIDE bubbleRow with a -3px overhang and root
   clips (`clip: ListView.view === null`, load-bearing), so a one-line row
