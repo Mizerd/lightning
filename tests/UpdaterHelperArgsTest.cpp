@@ -646,7 +646,8 @@ void UpdaterHelperArgsTest::msiPlanIsExactArgv()
 {
     UpdaterArguments args;
     args.mode = UpdaterMode::WindowsMsi;
-    args.artifactPath = QStringLiteral("/staging/Lightning-0.8.0-abc1234-windows-x86_64.msi");
+    args.artifactPath =
+        QStringLiteral("C:/Users/x/AppData/Local/updates/Lightning-0.8.0.msi");
 
     const StrategyResult result = planWindowsMsi(args);
     QVERIFY(result.ok());
@@ -654,7 +655,14 @@ void UpdaterHelperArgsTest::msiPlanIsExactArgv()
     QVERIFY(result.plan.program.endsWith(QStringLiteral("msiexec.exe")));
     QCOMPARE(result.plan.arguments.size(), 4);
     QCOMPARE(result.plan.arguments.at(0), QStringLiteral("/i"));
-    QCOMPARE(result.plan.arguments.at(1), args.artifactPath);
+    // The package path must reach msiexec with BACKSLASHES. Qt produces '/'
+    // on Windows too, and msiexec's own parser reads '/' as a switch: the
+    // forward-slash form returns 1619 and installs nothing, which is what
+    // every MSI update did in the field until 2026-08-17. Verified by hand
+    // against one file — '/' errored, '\' installed normally.
+    QCOMPARE(result.plan.arguments.at(1),
+             QStringLiteral("C:\\Users\\x\\AppData\\Local\\updates\\Lightning-0.8.0.msi"));
+    QVERIFY(!result.plan.arguments.at(1).contains(QLatin1Char('/')));
     QCOMPARE(result.plan.arguments.at(2), QStringLiteral("/qb"));
     QCOMPARE(result.plan.arguments.at(3), QStringLiteral("REINSTALLMODE=vomus"));
     // The MSI is per-user; the helper must never try to elevate for it.
@@ -665,6 +673,9 @@ void UpdaterHelperArgsTest::setupPlanUsesNsisSilentSwitchFirst()
 {
     UpdaterArguments args;
     args.mode = UpdaterMode::WindowsSetup;
+    // A POSIX-rooted path: QFileInfo::absolutePath() is evaluated on the
+    // HOST, and a "C:/..." string is relative on Linux, which would make the
+    // working-directory expectation depend on the test's own cwd.
     args.artifactPath =
         QStringLiteral("/staging/Lightning-0.8.0-abc1234-windows-x86_64-setup.exe");
 
@@ -672,7 +683,12 @@ void UpdaterHelperArgsTest::setupPlanUsesNsisSilentSwitchFirst()
     QVERIFY(result.ok());
     QVERIFY(result.plan.requiresExternalProcess);
     // The verified artifact IS the program; it is never passed to a shell.
-    QCOMPARE(result.plan.program, args.artifactPath);
+    // Native separators here are precautionary rather than observed-broken:
+    // CreateProcess accepts '/', unlike msiexec's own parser.
+    QCOMPARE(result.plan.program,
+             QStringLiteral("\\staging\\Lightning-0.8.0-abc1234-windows-x86_64-setup.exe"));
+    QCOMPARE(result.plan.workingDirectory, QStringLiteral("\\staging"));
+    QVERIFY(!result.plan.program.contains(QLatin1Char('/')));
     QCOMPARE(result.plan.arguments, kNsisSilentSwitches);
     // NSIS parses its switches positionally: /S must be first.
     QCOMPARE(result.plan.arguments.first(), QStringLiteral("/S"));
@@ -843,13 +859,20 @@ void UpdaterHelperArgsTest::awkwardPathSurvivesAsASingleArgvElement()
     QVERIFY(rpm.ok());
     QCOMPARE(rpm.plan.arguments.last(), awkward);
 
+    // The Windows plans convert separators for msiexec's parser, so the
+    // expectation is the same string with '\' — what must NOT change is that
+    // it is still ONE argv element, quotes, spaces and all.
+    QString awkwardWindows = awkward;
+    awkwardWindows.replace(QLatin1Char('/'), QLatin1Char('\\'));
+
     const StrategyResult msi = planWindowsMsi(args);
     QVERIFY(msi.ok());
-    QCOMPARE(msi.plan.arguments.at(1), awkward);
+    QCOMPARE(msi.plan.arguments.at(1), awkwardWindows);
+    QCOMPARE(msi.plan.arguments.count(awkwardWindows), 1);
 
     const StrategyResult setup = planWindowsSetup(args);
     QVERIFY(setup.ok());
-    QCOMPARE(setup.plan.program, awkward);
+    QCOMPARE(setup.plan.program, awkwardWindows);
 
     // And nothing anywhere concatenated it into a command line.
     for (const QString &argument : deb.plan.arguments)

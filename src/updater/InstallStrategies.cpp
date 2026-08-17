@@ -118,6 +118,25 @@ QStringList packageManagerArguments(const QString &managerPath,
     return QStringList();
 }
 
+// Qt hands out '/' separators on every platform, including Windows, and
+// msiexec.exe does NOT accept them: its own argument parser reads '/' as the
+// start of a switch, so `/i C:/Users/.../Lightning.msi` fails to open the
+// package and returns 1619 (ERROR_INSTALL_PACKAGE_OPEN_FAILED). That is
+// exactly what every MSI update did in the field before 2026-08-17;
+// confirmed by running the two forms by hand against the same file, where
+// the forward-slash one errored and the backslash one installed normally.
+//
+// Converted unconditionally rather than under Q_OS_WIN: these plans describe
+// a Windows command line and are only ever EXECUTED on Windows, so a Windows
+// path is the right output everywhere — and that keeps it testable on Linux,
+// which is where the suite that would have caught this actually runs.
+QString windowsNativePath(const QString &path)
+{
+    QString native = path;
+    native.replace(QLatin1Char('/'), QLatin1Char('\\'));
+    return native;
+}
+
 QString windowsSystemExecutable(const QString &executableName)
 {
     QString root = qEnvironmentVariable("SystemRoot");
@@ -146,7 +165,8 @@ StrategyResult planWindowsMsi(const UpdaterArguments &args)
     // REINSTALLMODE=vomus forces every file to be re-cached from the new
     // package, which is what makes a same-version repair actually replace
     // files. The MSI is perUser, so no elevation is requested or needed.
-    result.plan.arguments = {QStringLiteral("/i"), args.artifactPath,
+    result.plan.arguments = {QStringLiteral("/i"),
+                             windowsNativePath(args.artifactPath),
                              QStringLiteral("/qb"),
                              QStringLiteral("REINSTALLMODE=vomus")};
     return result;
@@ -162,9 +182,13 @@ StrategyResult planWindowsSetup(const UpdaterArguments &args)
     result.plan.requiresExternalProcess = true;
     // The verified artifact IS the program here. It is an absolute path that
     // the argv validator already proved exists and is a regular file.
-    result.plan.program = args.artifactPath;
+    // CreateProcess itself accepts '/' separators, so unlike the MSI above
+    // this was not observed failing — it is made native for consistency, and
+    // because an NSIS installer does its own path handling once running.
+    result.plan.program = windowsNativePath(args.artifactPath);
     result.plan.arguments = kNsisSilentSwitches; // "/S" must come first
-    result.plan.workingDirectory = QFileInfo(args.artifactPath).absolutePath();
+    result.plan.workingDirectory =
+        windowsNativePath(QFileInfo(args.artifactPath).absolutePath());
     return result;
 }
 

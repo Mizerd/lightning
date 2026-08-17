@@ -108,6 +108,53 @@ bool copyDirectoryTree(const QString &source, const QString &destination)
     return true;
 }
 
+// Every top-level name in `directory`, hidden and system entries included.
+// Missing any of them would leave part of the old installation behind.
+QStringList directoryEntryNames(const QString &directory)
+{
+    return QDir(directory).entryList(QDir::AllEntries | QDir::Hidden
+                                     | QDir::System | QDir::NoDotAndDotDot);
+}
+
+// Moves every top-level entry of `from` into `to`, appending each name moved
+// so the caller can put them back. Stops at the first failure.
+//
+// This exists because of Windows. The portable swap used to move the whole
+// installation aside with ONE directory rename, and Windows refuses to rename
+// a directory while any file inside it is held — which is always, because
+// lightning-updater.exe runs from that very directory and has Qt6Core.dll
+// loaded out of it. That returned BackupFailed and no portable update could
+// ever install. Renaming the FILES is permitted (the loader opens images with
+// FILE_SHARE_DELETE, which is why a running .exe can be renamed on Windows),
+// so the entries move and the directory itself simply stays put.
+bool moveDirectoryEntries(const QString &from, const QString &to,
+                          QStringList *movedNames)
+{
+    const QDir source(from);
+    const QDir destination(to);
+    const QStringList names = directoryEntryNames(from);
+    for (const QString &name : names) {
+        if (!QDir().rename(source.absoluteFilePath(name),
+                           destination.absoluteFilePath(name)))
+            return false;
+        if (movedNames)
+            movedNames->append(name);
+    }
+    return true;
+}
+
+// Best-effort reverse of the above, used only on a rollback path where the
+// caller is already reporting a failure.
+void moveEntriesBack(const QString &from, const QString &to,
+                     const QStringList &names)
+{
+    const QDir source(from);
+    const QDir destination(to);
+    for (const QString &name : names)
+        QDir().rename(source.absoluteFilePath(name),
+                      destination.absoluteFilePath(name));
+}
+
 // Recursive removal with hard guards. Refuses anything that is not an
 // absolute path of reasonable depth, refuses a symlink, and refuses to touch
 // a directory that is an ancestor of `mustNotContain`.
@@ -367,9 +414,21 @@ ReplaceResult swapDirectory(const QString &stagedDir, const QString &targetDir,
         || cleanBackup.startsWith(cleanTarget + QLatin1Char('/')))
         return replaceFail(ReplaceError::RefusedUnsafePath,
                            QStringLiteral("the backup path overlaps the target"));
-    if (backupInfo.exists())
-        return replaceFail(ReplaceError::BackupPathUnusable,
-                           QStringLiteral("the backup path already exists"));
+    if (backupInfo.exists()) {
+        // A leftover from the PREVIOUS successful update is now the normal
+        // case on Windows: step 4 cannot delete a backup that still holds the
+        // mapped helper and its DLLs, so it survives until a later run. By
+        // then the process that held them is long gone and it deletes fine.
+        // Refusing outright here would let one update succeed and every
+        // update after it fail with backup-path-unusable.
+        if (backupInfo.isSymLink() || !backupInfo.isDir()
+            || !removeTreeGuarded(cleanBackup, cleanTarget)
+            || QFileInfo::exists(cleanBackup)) {
+            return replaceFail(ReplaceError::BackupPathUnusable,
+                               QStringLiteral("the backup path already exists and "
+                                              "could not be cleared"));
+        }
+    }
 
     // LAYOUT FIRST. Nothing is touched until we know the staged tree is a
     // real Lightning installation.
@@ -421,8 +480,23 @@ ReplaceResult swapDirectory(const QString &stagedDir, const QString &targetDir,
                            /*rolledBack=*/true);
     }
 
-    // Step 2: move the current installation aside.
-    if (!QDir().rename(cleanTarget, cleanBackup)) {
+    // Step 2: move the current installation aside — ENTRY BY ENTRY, not by
+    // renaming the directory. See moveDirectoryEntries: on Windows the
+    // directory rename can never succeed, because the running helper and the
+    // Qt DLLs it loaded live inside it. The target directory itself is left
+    // in place (empty), which also keeps a Windows process whose working
+    // directory is the installation from breaking.
+    if (!QDir().mkpath(cleanBackup)) {
+        removeTreeGuarded(scratch, cleanTarget);
+        return replaceFail(ReplaceError::BackupFailed,
+                           QStringLiteral("could not create the backup directory; "
+                                          "nothing was changed"),
+                           /*rolledBack=*/true);
+    }
+    QStringList backedUp;
+    if (!moveDirectoryEntries(cleanTarget, cleanBackup, &backedUp)) {
+        moveEntriesBack(cleanBackup, cleanTarget, backedUp);
+        removeTreeGuarded(cleanBackup, cleanTarget);
         removeTreeGuarded(scratch, cleanTarget);
         return replaceFail(ReplaceError::BackupFailed,
                            QStringLiteral("could not move the current installation "
@@ -430,9 +504,19 @@ ReplaceResult swapDirectory(const QString &stagedDir, const QString &targetDir,
                            /*rolledBack=*/true);
     }
 
+    // Undo of step 2, and of step 3 when it got part-way: anything already
+    // promoted into the target is taken back out before the previous version
+    // returns, so the two sets can never interleave.
     const auto rollback = [&]() -> bool {
+        moveEntriesBack(cleanTarget, scratch, directoryEntryNames(cleanTarget));
         removeTreeGuarded(scratch, cleanTarget);
-        return QDir().rename(cleanBackup, cleanTarget);
+        moveEntriesBack(cleanBackup, cleanTarget, backedUp);
+        const bool restored =
+            directoryEntryNames(cleanBackup).isEmpty()
+            && directoryEntryNames(cleanTarget).size() == backedUp.size();
+        if (restored)
+            removeTreeGuarded(cleanBackup, cleanTarget);
+        return restored;
     };
 
     if (hooks.beforePromoteRename && !hooks.beforePromoteRename()) {
@@ -449,8 +533,10 @@ ReplaceResult swapDirectory(const QString &stagedDir, const QString &targetDir,
                            /*rolledBack=*/true);
     }
 
-    // Step 3: promote.
-    if (!QDir().rename(scratch, cleanTarget)) {
+    // Step 3: promote — again entry by entry, because the target directory
+    // still exists (step 2 emptied it rather than moving it), so there is no
+    // name to rename the scratch tree onto.
+    if (!moveDirectoryEntries(scratch, cleanTarget, nullptr)) {
         if (!rollback()) {
             ReplaceResult failure =
                 replaceFail(ReplaceError::RollbackFailed,
@@ -468,8 +554,18 @@ ReplaceResult swapDirectory(const QString &stagedDir, const QString &targetDir,
     // Step 4: the previous installation is now redundant. It is removed with
     // the guard above, which refuses anything that is not a plain directory
     // safely below the parent and refuses to delete an ancestor of the target.
+    //
+    // On Windows this removal is EXPECTED to fail and that is not an error:
+    // the backup now holds the running lightning-updater.exe and the DLLs it
+    // has loaded, and Windows will not delete a mapped image. Reporting the
+    // path (rather than failing) leaves a successful install with one stale
+    // directory beside it, which the next update's own backup-path check
+    // clears. Renaming those files was always allowed; deleting them is not.
     if (!removeTreeGuarded(cleanBackup, cleanTarget))
         result.backupPath = cleanBackup; // left behind; not a failure
+    // The scratch tree is empty now that its entries were promoted; on the
+    // old single-rename path it disappeared by being renamed onto the target.
+    removeTreeGuarded(scratch, cleanTarget);
 
     return result;
 }

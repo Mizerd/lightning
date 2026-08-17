@@ -17,6 +17,7 @@
 #include <QtTest/QtTest>
 
 #ifndef Q_OS_WIN
+#include <sys/stat.h>
 #include <unistd.h>
 #endif
 
@@ -87,7 +88,9 @@ private slots:
     void rollsBackWhenPromotionFails();
     void rollsBackWhenTheBackupRenameFails();
     void refusesANonWritableTargetWithADistinctError();
-    void refusesAnExistingBackupPath();
+    void keepsTheInstallationDirectoryItself();
+    void clearsAStaleBackupDirectoryAndProceeds();
+    void refusesABackupPathThatIsAFile();
     void refusesABackupPathInsideTheTarget();
     void copyFallbackStillSwapsAndRollsBack();
 
@@ -273,11 +276,70 @@ void UpdaterPortableSwapTest::refusesANonWritableTargetWithADistinctError()
 #endif
 }
 
-void UpdaterPortableSwapTest::refusesAnExistingBackupPath()
+// The installation directory itself must SURVIVE the swap as the same
+// directory — its contents are moved out and the new ones moved in. The old
+// implementation renamed the whole directory aside and renamed the staged
+// tree onto its name, which gives a different directory with the same path.
+// That distinction is the entire Windows fix: Windows refuses to rename a
+// directory while a file inside it is held, and the running helper and its
+// loaded DLLs live in there, so the rename could never succeed. Identity is
+// checked by inode, which is what makes this fail against the old code on
+// Linux, where the rename itself worked fine.
+void UpdaterPortableSwapTest::keepsTheInstallationDirectoryItself()
+{
+#ifndef Q_OS_WIN
+    QVERIFY(buildInstallation(m_staged, QByteArray("new")));
+    QVERIFY(buildInstallation(m_target, QByteArray("old")));
+
+    struct stat before {};
+    QCOMPARE(::stat(QFile::encodeName(m_target).constData(), &before), 0);
+
+    const ReplaceResult result = swapDirectory(m_staged, m_target, m_backup, kExe);
+    QVERIFY(result.ok());
+    QVERIFY(installationHasMarker(m_target, QByteArray("new")));
+
+    struct stat after {};
+    QCOMPARE(::stat(QFile::encodeName(m_target).constData(), &after), 0);
+    QCOMPARE(after.st_ino, before.st_ino);
+    QCOMPARE(after.st_dev, before.st_dev);
+#else
+    QSKIP("inode identity is checked on the POSIX host that runs the suite");
+#endif
+}
+
+// A leftover backup DIRECTORY is cleared and the swap proceeds. This is the
+// normal case on Windows since the entry-by-entry swap: step 4 cannot delete
+// a backup holding the still-mapped helper and its DLLs, so it survives the
+// run that created it. Refusing here — which is what this test used to
+// assert — would let exactly one update succeed and every later one fail.
+void UpdaterPortableSwapTest::clearsAStaleBackupDirectoryAndProceeds()
 {
     QVERIFY(buildInstallation(m_staged, QByteArray("new")));
     QVERIFY(buildInstallation(m_target, QByteArray("old")));
     QVERIFY(QDir().mkpath(m_backup));
+    QFile stale(QDir(m_backup).absoluteFilePath(QStringLiteral("stale.txt")));
+    QVERIFY(stale.open(QIODevice::WriteOnly));
+    stale.write("left over from the previous update");
+    stale.close();
+
+    const ReplaceResult result = swapDirectory(m_staged, m_target, m_backup, kExe);
+    QVERIFY(result.ok());
+    QVERIFY(installationHasMarker(m_target, QByteArray("new")));
+    QVERIFY(!QFileInfo::exists(
+        QDir(m_backup).absoluteFilePath(QStringLiteral("stale.txt"))));
+}
+
+// A backup path that is NOT a plain directory is still refused outright:
+// clearing one is a targeted allowance, not a licence to delete whatever is
+// sitting at that path.
+void UpdaterPortableSwapTest::refusesABackupPathThatIsAFile()
+{
+    QVERIFY(buildInstallation(m_staged, QByteArray("new")));
+    QVERIFY(buildInstallation(m_target, QByteArray("old")));
+    QFile blocker(m_backup);
+    QVERIFY(blocker.open(QIODevice::WriteOnly));
+    blocker.write("not a directory");
+    blocker.close();
 
     const ReplaceResult result = swapDirectory(m_staged, m_target, m_backup, kExe);
     QVERIFY(!result.ok());
