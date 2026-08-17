@@ -198,14 +198,14 @@ ColumnLayout {
                 wrapMode: Text.WordWrap
                 color: AppTheme.stormTextMuted
                 font.pixelSize: AppTheme.fontCaption
-                // Off by default (privacy §13) — the copy must never
-                // imply automatic checks are already on. When enabled,
-                // Lightning contacts only the release server; nothing
-                // about this account, device, or any Matrix data is
-                // ever sent with the request.
-                text: qsTr("Off by default. When on, Lightning "
-                           + "periodically checks our release server "
-                           + "for a newer version. The request "
+                // ON by default since v0.7.3 — the copy must state the
+                // real default, and the privacy guarantees below are
+                // unchanged: Lightning contacts only the release server,
+                // and nothing about this account, device, or any Matrix
+                // data is ever sent with the request.
+                text: qsTr("On by default; turn it off here at any time. "
+                           + "Lightning periodically checks our release "
+                           + "server for a newer version. The request "
                            + "never includes any account, device, or Matrix "
                            + "information, and creates no tracking "
                            + "identifier; Lightning sends only its own "

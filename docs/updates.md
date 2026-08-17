@@ -66,7 +66,8 @@ a download.
 **Manual** — Settings → Updates → *Check for updates*. Always available, always
 explicitly initiated by you.
 
-**Automatic** — off by default. When you turn it on, Lightning checks at most
+**Automatic** — on by default, and switchable off in Settings → Updates.
+Lightning checks at most
 once every 24 hours, never during the first 30 seconds after launch, and never
 in response to switching room or account. Checks are asynchronous: startup is
 never delayed waiting for the network.

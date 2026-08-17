@@ -75,7 +75,12 @@ UpdateManager::UpdateManager(QObject *parent)
     m_processStart = QDateTime::currentDateTimeUtc();
 
     m_automaticChecksEnabled =
-        m_settings.value(QLatin1String(kSettingAutomaticChecks), false).toBool();
+        // v0.7.3: ON by default (maintainer decision). An installation that
+        // never learns a newer version exists is the worse outcome, and the
+        // check itself remains anonymous — see the copy in
+        // UpdatesSettingsSection.qml, README and docs/updates.md, all of
+        // which state this default and must be changed together with it.
+        m_settings.value(QLatin1String(kSettingAutomaticChecks), true).toBool();
     m_lastCheckTime = m_settings.value(QLatin1String(kSettingLastCheck)).toDateTime();
     m_dismissedVersion = m_settings.value(QLatin1String(kSettingDismissedVersion)).toString();
 
@@ -107,9 +112,9 @@ UpdateManager::~UpdateManager()
 
 bool UpdateManager::updateAvailableWarning() const
 {
-    // ReadyToInstall counts: the bytes are verified and waiting, which still
-    // needs the user. RestartRequired does NOT — the work is handed off and
-    // nothing more is being asked of them.
+    // The existing updateAvailable fact, minus the versions the user has
+    // already answered for. ReadyToInstall still counts — verified bytes
+    // waiting to be installed are still something being asked of them.
     if (m_state != UpdateAvailable && m_state != ReadyToInstall)
         return false;
     if (m_latestVersion.isEmpty())

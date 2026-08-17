@@ -44,16 +44,24 @@ Dialog {
         root.um ? (root.um.canInstallAutomatically === true) : false
     readonly property string installType: root.um ? root.um.installType : ""
 
-    // Opens the instant a NEW, not-yet-dismissed version is reported;
-    // closes itself the instant the manager moves past UpdateAvailable
-    // (download started, or the version was explicitly dismissed).
+    // v0.7.3: this dialog no longer opens ITSELF. The automatic announcement
+    // is the corner card (UpdateAvailablePrompt), which does not block the
+    // application for something that is never urgent; this dialog is what the
+    // card's "Update" opens, and it remains the ONE place release notes and
+    // "Update now" live. Two self-opening surfaces for one event was exactly
+    // the duplication this file's header warns about.
+    //
+    // It still closes ITSELF, because the reasons to close are the manager's
+    // own: the download started, or the version was dismissed. Leaving a
+    // stale dialog open over a state it no longer describes would be worse
+    // than never having opened it.
     readonly property bool shouldBeOpen:
         root.um !== null && root.um !== undefined
         && root.um.state === UpdateManager.UpdateAvailable
         && root.um.latestVersion !== root.um.dismissedVersion
     onShouldBeOpenChanged: {
-        if (shouldBeOpen) open()
-        else if (opened) close()
+        if (!shouldBeOpen && opened)
+            close()
     }
     onOpenedChanged: if (!opened) root.managedHelpRevealed = false
 

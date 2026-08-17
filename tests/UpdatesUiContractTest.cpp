@@ -273,8 +273,12 @@ private Q_SLOTS:
         const int captionIdx = section.indexOf(QStringLiteral("updateAutomaticChecksCaption"));
         QVERIFY(captionIdx >= 0);
         const QString captionBlock = section.mid(captionIdx, 900);
-        // Must state the default is OFF, and must not claim data is sent.
-        QVERIFY(captionBlock.contains(QStringLiteral("Off by default")));
+        // Must state the REAL default and offer the way out of it — the
+        // copy and UpdateManager's default are changed together or the
+        // application lies about its own privacy posture. It must still
+        // never claim data is sent.
+        QVERIFY(captionBlock.contains(QStringLiteral("On by default")));
+        QVERIFY(captionBlock.contains(QStringLiteral("turn it off")));
         QVERIFY(captionBlock.contains(QStringLiteral("never includes any account")));
         QVERIFY(captionBlock.contains(QStringLiteral("device, or Matrix")));
         QVERIFY(!captionBlock.toLower().contains(QStringLiteral("room id")));

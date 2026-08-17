@@ -50,6 +50,9 @@ class UpdateManager : public QObject
     Q_PROPERTY(State state READ state NOTIFY stateChanged)
     Q_PROPERTY(QString currentVersion READ currentVersion NOTIFY currentVersionChanged)
     Q_PROPERTY(QString latestVersion READ latestVersion NOTIFY updateInfoChanged)
+    // The quiet, PERSISTENT fact: an update was found. Dismissing the corner
+    // card silences the CARD (updateAvailableWarning), never this — the rail
+    // badge is what is left saying an update is still waiting.
     Q_PROPERTY(bool updateAvailable READ updateAvailable NOTIFY updateInfoChanged)
     Q_PROPERTY(qreal downloadProgress READ downloadProgress NOTIFY downloadProgressChanged)
     Q_PROPERTY(qint64 downloadedBytes READ downloadedBytes NOTIFY downloadProgressChanged)
@@ -80,6 +83,7 @@ class UpdateManager : public QObject
     // quiet.
     Q_PROPERTY(bool updateAvailableWarning READ updateAvailableWarning
                    NOTIFY updateAvailableWarningChanged)
+
     // What the user must be told once the helper has been launched. See the
     // RestartRequired note on the State enum: this NEVER claims success.
     Q_PROPERTY(QString handoffSummary READ handoffSummary NOTIFY stateChanged)

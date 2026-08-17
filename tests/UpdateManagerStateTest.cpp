@@ -472,8 +472,15 @@ void UpdateManagerStateTest::startsIdleWithAutomaticChecksOff()
 {
     const auto manager = makeManager(InstallType::LinuxDeb);
     QCOMPARE(manager->state(), UpdateManager::Idle);
-    // Privacy: automatic checking is opt-in.
+    // v0.7.3: automatic checking is ON by default (maintainer decision) —
+    // an installation that never learns a newer version exists is the worse
+    // outcome. What the privacy work protects is unchanged and asserted
+    // elsewhere: the check is anonymous, rate limited, never during startup,
+    // and switchable off, which is verified here rather than assumed.
+    QVERIFY(manager->automaticChecksEnabled());
+    manager->setAutomaticChecksEnabled(false);
     QVERIFY(!manager->automaticChecksEnabled());
+    manager->setAutomaticChecksEnabled(true);
     QVERIFY(!manager->updateAvailable());
     QVERIFY(manager->latestVersion().isEmpty());
     QCOMPARE(manager->installTypeString(), QStringLiteral("linux-deb"));
@@ -811,7 +818,8 @@ void UpdateManagerStateTest::automaticChecksAreRateLimited()
     const QDateTime now = QDateTime::currentDateTimeUtc();
     manager->setNowForTest(now);
 
-    // Off by default: nothing happens.
+    // Switched off: nothing happens, whatever the timing says.
+    manager->setAutomaticChecksEnabled(false);
     manager->setProcessStartForTest(now.addSecs(-3600));
     QVERIFY(!manager->maybeCheckAutomatically());
     QCOMPARE(manager->state(), UpdateManager::Idle);
@@ -843,7 +851,11 @@ void UpdateManagerStateTest::settingsAreApplicationWideNotAccountScoped()
 {
     {
         const auto manager = makeManager(InstallType::LinuxDeb, QStringLiteral("0.7.0"));
-        manager->setAutomaticChecksEnabled(true);
+        // Toggled OFF, which since v0.7.3 is the change that actually writes
+        // the key: the setter is a no-op when the value already matches, and
+        // the default is now true. Writing it is what this test needs — the
+        // point is WHERE it is stored, not which way it is set.
+        manager->setAutomaticChecksEnabled(false);
         ingest(manager.get(), manifestObject(QStringLiteral("0.8.0")));
         manager->dismissVersion();
     }

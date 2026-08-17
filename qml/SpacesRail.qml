@@ -242,8 +242,11 @@ Rectangle {
             // outranks an update: a security state the user must act on is
             // not the same class of thing as a release being available, and
             // colouring them alike would devalue the red one.
+            // The PERSISTENT fact, not the dismissible card: dismissing the
+            // corner prompt stops the interruption, and the badge is what is
+            // left to say an update is still waiting.
             readonly property bool _updateBadge:
-                app.updateManager && app.updateManager.updateAvailableWarning
+                app.updateManager && app.updateManager.updateAvailable
             readonly property string _attentionText:
                 app.sessionVerificationWarning
                     ? qsTr("Settings — this session is not verified")

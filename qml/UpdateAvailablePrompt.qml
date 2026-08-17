@@ -11,18 +11,24 @@ import MatrixClient
 // two prompts share one bottom-right column in Main.qml, so they stack
 // instead of drawing on top of each other when a session is also unverified.
 //
-// "Update" does NOT start installing. It opens Settings → Updates, where the
-// download size, the install method and the honest per-package-type rules
-// live — a package-managed installation cannot be updated in place at all,
-// and a button here that silently did nothing for those users would be worse
-// than no button. "Not now" is a real, persisted dismissal, scoped to THIS
-// version: a later release asks again.
+// "Update" does NOT start installing. It opens the ONE update dialog, which
+// carries the release notes, the download size and the honest per-package
+// rules — a package-managed installation cannot be updated in place at all.
+// That dialog used to open itself; it no longer does, because two
+// self-opening surfaces for one event is the duplication its own header
+// warns about, and a modal is the wrong weight for something never urgent.
+// "Not now" is a real, persisted dismissal scoped to THIS version: a later
+// release asks again, and the rail badge stays regardless.
 Rectangle {
     id: root
 
     // One-shot suppression for this run of the shell, so the card cannot
-    // flash back between pressing Update and Settings appearing.
+    // flash back behind the dialog it just opened.
     property bool suppressed: false
+
+    // Emitted when the user presses Update; Main.qml opens the shared
+    // UpdateAvailableDialog, so this component knows nothing about it.
+    signal detailsRequested()
 
     readonly property var um: app.updateManager
 
@@ -119,7 +125,7 @@ Rectangle {
                 text: qsTr("Update")
                 onClicked: {
                     root.suppressed = true;
-                    app.showSettingsSection("updates");
+                    root.detailsRequested();
                 }
             }
         }

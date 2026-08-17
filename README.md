@@ -53,18 +53,24 @@ Lightning implements no Matrix cryptography of its own.
 
 ## Quick start
 
+Download a package from the
+[**Releases**](https://gitlab.smetonis.net/Mizerd/lightning/-/releases) page
+(or the [GitHub mirror](https://github.com/Mizerd/lightning/releases)) and
+install it:
+
 ```sh
-# Prebuilt packages: https://gitlab.smetonis.net/Mizerd/lightning/-/releases
-# Or build and run from source (Nix dev shell):
-git clone https://gitlab.smetonis.net/Mizerd/lightning.git
-cd lightning
-nix develop -c cmake -S . -B build-rust -G Ninja -DENABLE_RUST_SDK_BACKEND=ON
-nix develop -c cmake --build build-rust -j"$(nproc)"
-nix develop -c ./build-rust/matrix-client --backend=rust
+sudo apt install ./lightning_0.7.2_amd64.deb          # Debian / Ubuntu
+sudo dnf install ./lightning-0.7.2-1.x86_64.rpm       # Fedora / RHEL
+chmod +x Lightning-0.7.2-x86_64.AppImage && ./Lightning-0.7.2-x86_64.AppImage
 ```
 
-See [Installation](#installation) for packages and
-[Building from source](#building-from-source) for the full workflow.
+On **Windows**, run the `.msi` or `-setup.exe` installer, or extract the
+portable `.zip` and run `Lightning.exe`. Every format is per-user and needs no
+administrator rights.
+
+See [Installation](#installation) for every package format, checksum
+verification and uninstall instructions, or
+[Building from source](#building-from-source) to compile it yourself.
 
 ## Features
 
@@ -294,7 +300,8 @@ still developing, some workflows remain experimental.
   authority: Lightning makes no GitHub API call and reads no GitHub release
   metadata, so a compromised mirror can break a download but cannot ship an
   update
-- **Automatic checks are off by default.** A check sends only
+- **Automatic checks are on by default** and can be turned off in
+  Settings → Updates. A check sends only
   `Lightning/<version>` — no Matrix ID, homeserver, device ID, token, room data,
   or analytics identifier, and no updater tracking ID is generated at all. See
   [Application updates](docs/updates.md)
@@ -332,47 +339,128 @@ still developing, some workflows remain experimental.
 
 Prebuilt packages are attached to the project's
 [**Releases**](https://gitlab.smetonis.net/Mizerd/lightning/-/releases) page and
-published to its GitLab Package Registry.
+mirrored to
+[GitHub Releases](https://github.com/Mizerd/lightning/releases). Download the
+file for your system, then follow the matching section below. Every release also
+ships a `SHA256SUMS` file — verifying is one command and is worth doing, because
+no package is code-signed yet:
 
-- **Linux** (primary platform): `.deb`, `.rpm`, Flatpak, AppImage, and Snap.
-- **Windows** (x86-64 only; Windows 10 or later): a portable `.zip`, an `.msi`
-  installer, and a `-setup.exe` installer, available since v0.6.3. There is no
-  32-bit or ARM64 build.
-- **macOS** is not currently supported.
+```sh
+sha256sum -c SHA256SUMS --ignore-missing
+```
 
-**Windows artifacts are currently unsigned**, so Windows will show an "unknown
-publisher" / SmartScreen warning. Code signing through
-[SignPath Foundation](https://signpath.org/) is *planned* — it has not been
-applied for, granted, or activated, and no Lightning release is signed today. See
-the [**Code signing policy**](docs/code-signing-policy.md) for how signing will
-work, and [`docs/windows-signing-inventory.md`](docs/windows-signing-inventory.md)
-for exactly which files would be signed. Verify a download against the published
-`SHA256SUMS` in the meantime.
+Replace `0.7.2` in the commands below with the version you downloaded.
 
-**Installing and removing on Windows**
+### Debian, Ubuntu, Linux Mint, Pop!_OS (`.deb`)
 
-- *Portable ZIP* — extract anywhere and run `Lightning.exe`. Nothing is
-  installed, no registry keys are written; delete the folder to remove it.
-- *MSI* — installs per-user under `%LOCALAPPDATA%\Programs\Lightning` with a
-  Start-menu shortcut. Remove it from **Settings → Apps → Installed apps**, or
-  with `msiexec /x`.
-- *Setup EXE* — installs per-user to the same location and registers a normal
-  uninstall entry. Remove it from **Settings → Apps → Installed apps**, or with
-  the **Uninstall Lightning** Start-menu shortcut.
-- Neither installer requires administrator rights, and neither modifies `PATH`,
-  file associations, URL protocols, services, scheduled tasks, firewall rules, or
-  autostart. Uninstalling removes the application and its shortcuts, and
-  deliberately leaves your Matrix session, settings, and message stores alone —
-  those live in your user profile, outside the install directory, and are removed
-  by signing out of the account inside the app.
+```sh
+sudo apt install ./lightning_0.7.2_amd64.deb
+```
 
-The authoritative per-release list of artifacts is the release notes — for
-example [`docs/releases/v0.7.0.md`](docs/releases/v0.7.0.md) — and the Releases
-page itself. Packaging, cross-platform builds, publishing, and verification are
+`apt` resolves the dependencies itself; the leading `./` is required, otherwise
+apt looks for a package by that name in your repositories. To remove it:
+
+```sh
+sudo apt remove lightning
+```
+
+### Fedora, RHEL, openSUSE (`.rpm`)
+
+```sh
+sudo dnf install ./lightning-0.7.2-1.x86_64.rpm     # Fedora / RHEL
+sudo zypper install ./lightning-0.7.2-1.x86_64.rpm  # openSUSE
+```
+
+To remove it: `sudo dnf remove lightning`.
+
+### AppImage (any distribution, no installation)
+
+```sh
+chmod +x Lightning-0.7.2-x86_64.AppImage
+./Lightning-0.7.2-x86_64.AppImage
+```
+
+Nothing is installed and nothing is written outside your user profile; delete
+the file to remove it. If it will not start, your system may need FUSE
+(`sudo apt install libfuse2` on Debian/Ubuntu), or you can run it with
+`--appimage-extract-and-run`.
+
+### Flatpak
+
+```sh
+# The runtime, once (skipped automatically if you already have it)
+flatpak remote-add --if-not-exists --user flathub https://flathub.org/repo/flathub.flatpakrepo
+flatpak install --user flathub org.kde.Platform//6.9
+
+flatpak install --user ./lightning_0.7.2_amd64.flatpak
+flatpak run net.smetonis.Lightning
+```
+
+To remove it: `flatpak uninstall --user net.smetonis.Lightning`.
+
+### Snap
+
+The snap is not published to the Snap Store, so it installs as a local file and
+needs `--dangerous` — that flag means "this file is not signed by the store",
+not that the snap is unsafe. It is built with `strict` confinement:
+
+```sh
+sudo snap install --dangerous ./lightning_0.7.2_amd64.snap
+```
+
+To remove it: `sudo snap remove lightning`.
+
+### Windows (x86-64, Windows 10 or later)
+
+Three formats, all per-user — **none of them needs administrator rights**, and
+none modifies `PATH`, file associations, URL protocols, services, scheduled
+tasks, firewall rules, or autostart.
+
+| Format | Install | Uninstall |
+|---|---|---|
+| **MSI** | Double-click, or `msiexec /i Lightning-0.7.2-<sha>-windows-x86_64.msi` | Settings → Apps → Installed apps, or `msiexec /x` |
+| **Setup EXE** | Run `Lightning-0.7.2-<sha>-windows-x86_64-setup.exe` | Settings → Apps → Installed apps, or the **Uninstall Lightning** shortcut |
+| **Portable ZIP** | Extract anywhere, run `Lightning.exe` | Delete the folder |
+
+MSI and Setup EXE install to `%LOCALAPPDATA%\Programs\Lightning` with a
+Start-menu shortcut. The portable ZIP installs nothing and writes no registry
+keys.
+
+**Windows packages are not code-signed**, so Windows will show an "unknown
+publisher" / SmartScreen warning — choose *More info → Run anyway* if you are
+satisfied the checksum matches. Code signing through
+[SignPath Foundation](https://signpath.org/) is *planned*: it has not been
+applied for, granted, or activated, and no Lightning release is signed today.
+See the [**Code signing policy**](docs/code-signing-policy.md) and
+[`docs/windows-signing-inventory.md`](docs/windows-signing-inventory.md).
+
+To verify a download on Windows:
+
+```powershell
+Get-FileHash .\Lightning-0.7.2-7c736c3-windows-x86_64.msi -Algorithm SHA256
+```
+
+### macOS
+
+Not currently supported. A macOS build exists in the packaging pipeline but is
+not published, pending code signing.
+
+### Notes
+
+Uninstalling removes the application and its shortcuts and deliberately leaves
+your Matrix session, settings, and message stores alone — those live in your
+user profile, outside the install directory, and are removed by signing out of
+the account inside the app.
+
+Once installed, Lightning can update itself: see
+[Application updates](docs/updates.md). The authoritative per-release list of
+artifacts is the release notes — for example
+[`docs/releases/v0.7.2.md`](docs/releases/v0.7.2.md) — and the Releases page
+itself. Packaging, cross-platform builds, publishing, and verification are
 maintained in a separate automation project,
 [**lightning-deploy**](https://gitlab.smetonis.net/Mizerd/lightning-deploy); this
-repository holds only the application source. If no package is available for your
-platform, build from source (below).
+repository holds only the application source. If no package is available for
+your platform, build from source (below).
 
 ## Building from source
 
@@ -480,7 +568,8 @@ while you are using the GIF picker. Automatic link-preview fetching is **off by
 default**, because Lightning fetches previews itself rather than through your
 homeserver, which would expose your IP address to a site the sender chose.
 
-Lightning can check for its own updates, and that check is **off by default**.
+Lightning can check for its own updates. That check is **on by default and can
+be turned off** in Settings → Updates.
 A check is an anonymous HTTPS request for two small public files from the
 project's own GitLab — it never sends your Matrix ID, homeserver, device ID,
 tokens, room data, or any analytics or updater identifier, and no tracking ID

@@ -457,6 +457,7 @@ ApplicationWindow {
         // anchored position it already had.
         UpdateAvailablePrompt {
             objectName: "updateAvailablePromptHost"
+            onDetailsRequested: updateAvailableDialog.open()
         }
         VerifySessionPrompt {
             objectName: "verifySessionPromptHost"
