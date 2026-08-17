@@ -242,12 +242,12 @@ main
 .claude/
 ```
 
-The one carve-out is `.claude/agents/*.md`. Those portable role
-definitions are deliberately tracked (see section 18) and may be staged and
-committed like any other source file. Everything else under `.claude/` —
+There is no carve-out: **all** of `.claude/` is protected and untracked —
 `settings.local.json` and its backups, `scheduled_tasks.lock`, `worktrees/`,
-and any runtime team or session state — stays protected and untracked, and
-must never be staged.
+and any runtime agent or session state. None of it may be staged. The
+tracked `.claude/agents/*.md` role definitions were REMOVED on 2026-08-17 at
+Rokas's request, along with the root `AGENTS.md` pointer; do not recreate
+either.
 
 Before a task that may modify the repository, run the minimal local baseline:
 
@@ -1714,20 +1714,12 @@ cross-cutting refactors, a regression the harness cannot reproduce, or an
 explicit review request from Rokas. A focused UI or isolated behavior change
 with meaningful focused tests may use the lead's documented self-review.
 
-The reusable role definitions live in `.claude/agents/`:
-
-```text
-.claude/agents/lightning-session-store-specialist.md
-.claude/agents/lightning-verification-specialist.md
-.claude/agents/lightning-account-security-ui-specialist.md
-.claude/agents/lightning-integration-regression-specialist.md
-.claude/agents/lightning-gif-thread-specialist.md
-.claude/agents/lightning-touchpad-scroll-specialist.md
-.claude/agents/lightning-menu-specialist.md
-.claude/agents/lightning-layout-specialist.md
-.claude/agents/lightning-storm-design-lead.md
-.claude/agents/lightning-independent-reviewer.md
-```
+The ten tracked `.claude/agents/*.md` role definitions were removed on
+2026-08-17 at Rokas's request, and so was the root `AGENTS.md` pointer at
+this file. Do not recreate them. The protocol below still applies to any
+delegated work — describe the role in the delegation itself rather than
+committing a role file. CLAUDE.md is the single tracked guide for every
+agent, Claude Code and Codex alike.
 
 Rules:
 
@@ -1800,10 +1792,10 @@ Rules:
 - Never create a release or tag, bump the version, or trigger packaging unless
   Rokas explicitly requests release work.
 
-Runtime team state belongs to Claude Code itself and is never committed. Only
-the portable role definitions above and this protocol are tracked; they must
-contain no credentials, tokens, absolute user-specific paths, private
-endpoints, or machine-specific values.
+Runtime team state belongs to Claude Code itself and is never committed.
+This protocol is the only tracked part of it, and it must contain no
+credentials, tokens, absolute user-specific paths, private endpoints, or
+machine-specific values.
 
 ## 19. Autonomous long-running work and continuity
 
