@@ -4,6 +4,7 @@
 #include "media/VideoPosterExtractor.h"
 
 #include <QBuffer>
+#include <QCoreApplication>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -642,24 +643,61 @@ void MediaBridge::cancelPlayable(const QString &mediaKey)
     pump();
 }
 
-void MediaBridge::startPosterExtraction(const QString &mediaKey,
-                                        const QString &filePath)
+VideoPosterExtractor *MediaBridge::ensurePosterExtractor()
 {
-    if (m_posterExtracting.contains(mediaKey))
-        return;
     if (!m_posterExtractor) {
         m_posterExtractor = new VideoPosterExtractor(this);
         connect(m_posterExtractor, &VideoPosterExtractor::posterReady,
                 this, &MediaBridge::onPosterReady);
     }
+    return m_posterExtractor;
+}
+
+void MediaBridge::startPosterExtraction(const QString &mediaKey,
+                                        const QString &filePath)
+{
+    if (m_posterExtracting.contains(mediaKey))
+        return;
     m_posterExtracting.insert(mediaKey);
-    m_posterExtractor->requestPoster(mediaKey, filePath);
+    ensurePosterExtractor()->requestPoster(mediaKey, filePath);
+}
+
+void MediaBridge::warmMultimediaBackend()
+{
+    // Called once a playable A/V payload actually exists on disk, which is
+    // the first moment this session is known to need a decoder. The FIRST
+    // QVideoSink in a process costs ~931 ms (lazy Qt Multimedia backend
+    // initialization plus a hardware-decoder probe); paying it here, on
+    // the extractor's worker thread, keeps it off the click that starts
+    // inline playback — QML builds that sink on the GUI thread, so the
+    // cost can only be avoided by having already paid it elsewhere.
+    // Not reset by clear(): the initialization is process-global, so a
+    // later session would find nothing left to do.
+    if (m_multimediaWarmed)
+        return;
+    // Inline playback needs a GUI application, so under a guiless one
+    // there is nothing to warm FOR — and the guiless media suites, which
+    // materialize playable payloads dozens of times, must keep their
+    // promise of never constructing a decoder. Checked by name so this
+    // file takes no dependency on QtGui.
+    const QCoreApplication *app = QCoreApplication::instance();
+    if (!app || !app->inherits("QGuiApplication"))
+        return;
+    m_multimediaWarmed = true;
+    ensurePosterExtractor()->warmUp();
 }
 
 void MediaBridge::onPosterReady(const QString &mediaKey,
                                 const QByteArray &jpeg)
 {
-    m_posterExtracting.remove(mediaKey);
+    // Session isolation. The extractor decodes on its own thread now, so
+    // its completion reaches us as a QUEUED call, and one already posted
+    // to this thread's event queue can outlive the disconnect in clear()
+    // and land in the next account's cache. The tracking set is therefore
+    // the authority, not the connection — clearing it makes any late
+    // delivery inert by construction.
+    if (!m_posterExtracting.remove(mediaKey))
+        return;
     const QString posterKey = mediaCacheKey(mediaKey, 1);
     if (jpeg.isEmpty()) {
         // Permanent for this session: re-decoding the same file would fail
@@ -1154,6 +1192,7 @@ void MediaBridge::onMediaReady(quint64 opId, const QString &mediaKey, int kind,
             writePlayableFile(request.cacheKey, bytes, mimetype);
         if (!written.isEmpty()) {
             Q_EMIT playableMediaReady(request.cacheKey);
+            warmMultimediaBackend();
             if (m_posterWanted.remove(request.cacheKey))
                 startPosterExtraction(request.mediaKey, written);
         } else {
@@ -1569,9 +1608,12 @@ void MediaBridge::clear()
     m_posterExtracting.clear();
     // Session isolation (review H2): an extraction still decoding must not
     // deliver a poster derived from the PREVIOUS account's decrypted video
-    // into the next session's cache. Disconnect first (a queued completion
-    // already in flight can then never reach onPosterReady), then let the
+    // into the next session's cache. Disconnect first, then let the
     // extractor die with its decoder; the next request lazily recreates it.
+    // m_posterExtracting was cleared just above, which is what actually
+    // makes a late completion inert — see onPosterReady. Deleting the
+    // extractor also joins its worker thread, so no decoder outlives the
+    // account whose file it was reading.
     if (m_posterExtractor) {
         disconnect(m_posterExtractor, nullptr, this, nullptr);
         m_posterExtractor->deleteLater();

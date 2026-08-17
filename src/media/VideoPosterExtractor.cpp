@@ -4,6 +4,8 @@
 #include <QImage>
 #include <QLoggingCategory>
 #include <QMediaPlayer>
+#include <QThread>
+#include <QTimer>
 #include <QUrl>
 #include <QVideoFrame>
 #include <QVideoSink>
@@ -64,22 +66,70 @@ QByteArray encodePoster(const QImage &image, int maxEdge, int quality,
 
 VideoPosterExtractor::VideoPosterExtractor(QObject *parent)
     : QObject(parent)
+    , m_thread(new QThread)
+    , m_worker(new VideoPosterWorker)
 {
-    m_timeout.setSingleShot(true);
-    m_timeout.setInterval(kExtractTimeoutMs);
-    connect(&m_timeout, &QTimer::timeout, this, [this] {
+    // Every QMediaPlayer/QVideoSink call this class makes runs here instead
+    // of on the caller's (GUI) thread — see the header for the measurements
+    // that motivated it. The worker is created on THIS thread and moved, so
+    // its child QTimer moves with it; the player and sink are constructed
+    // inside startNext(), which only ever runs on the worker thread.
+    m_thread->setObjectName(QStringLiteral("lightning-poster"));
+    m_worker->moveToThread(m_thread);
+    connect(m_thread, &QThread::finished, m_worker, &QObject::deleteLater);
+    connect(m_worker, &VideoPosterWorker::posterReady,
+            this, &VideoPosterExtractor::posterReady);
+    m_thread->start();
+}
+
+VideoPosterExtractor::~VideoPosterExtractor()
+{
+    // quit() lets the worker's event loop drain and run the queued
+    // deleteLater above, which tears the decoder down on its own thread.
+    // The wait is bounded in practice by the longest single call the worker
+    // can be inside (~1 s for the one-time backend initialization), and it
+    // only happens on sign-out, account switch, or exit.
+    m_thread->quit();
+    m_thread->wait();
+    delete m_thread;
+}
+
+void VideoPosterExtractor::requestPoster(const QString &tag,
+                                         const QString &filePath)
+{
+    if (tag.isEmpty() || filePath.isEmpty())
+        return;
+    // Queued: the worker owns the queue and its deduplication, so a caller
+    // never touches worker state from another thread.
+    QMetaObject::invokeMethod(m_worker, [worker = m_worker, tag, filePath] {
+        worker->enqueue(tag, filePath);
+    });
+}
+
+void VideoPosterExtractor::warmUp()
+{
+    QMetaObject::invokeMethod(m_worker,
+                              [worker = m_worker] { worker->warmUp(); });
+}
+
+VideoPosterWorker::VideoPosterWorker(QObject *parent)
+    : QObject(parent)
+    , m_timeout(new QTimer(this))
+{
+    m_timeout->setSingleShot(true);
+    m_timeout->setInterval(kExtractTimeoutMs);
+    connect(m_timeout, &QTimer::timeout, this, [this] {
         qCDebug(lcPoster, "poster extraction timed out");
         finishWithBestAvailable();
     });
 }
 
-VideoPosterExtractor::~VideoPosterExtractor()
+VideoPosterWorker::~VideoPosterWorker()
 {
     teardownPlayer();
 }
 
-void VideoPosterExtractor::requestPoster(const QString &tag,
-                                         const QString &filePath)
+void VideoPosterWorker::enqueue(const QString &tag, const QString &filePath)
 {
     if (tag.isEmpty() || filePath.isEmpty())
         return;
@@ -94,10 +144,22 @@ void VideoPosterExtractor::requestPoster(const QString &tag,
         startNext();
 }
 
-void VideoPosterExtractor::startNext()
+void VideoPosterWorker::warmUp()
+{
+    if (m_warmed)
+        return;
+    m_warmed = true;
+    // Constructing one sink is what triggers the backend's plugin load and
+    // hardware-decoder probe; the object itself is not needed afterwards.
+    QVideoSink probe;
+    Q_UNUSED(probe);
+}
+
+void VideoPosterWorker::startNext()
 {
     if (m_active || m_queue.isEmpty())
         return;
+    m_warmed = true; // the sink built below does the same initialization
     const Job job = m_queue.takeFirst();
     m_active = true;
     m_activeTag = job.tag;
@@ -156,8 +218,9 @@ void VideoPosterExtractor::startNext()
                     return;
                 m_frameSeen = true;
                 QSize posterSize;
-                const QByteArray jpeg = encodePoster(m_bestFrame, kMaxEdge,
-                                                     kJpegQuality, &posterSize);
+                const QByteArray jpeg = encodePoster(
+                    m_bestFrame, VideoPosterExtractor::kMaxEdge,
+                    VideoPosterExtractor::kJpegQuality, &posterSize);
                 const QSize sourceSize = m_bestFrame.size();
                 // Queued: never tear the player down from inside its own
                 // frame callback.
@@ -197,12 +260,12 @@ void VideoPosterExtractor::startNext()
                     Qt::QueuedConnection);
             });
 
-    m_timeout.start();
+    m_timeout->start();
     m_player->setSource(QUrl::fromLocalFile(job.path));
     m_player->play();
 }
 
-void VideoPosterExtractor::finishWithBestAvailable()
+void VideoPosterWorker::finishWithBestAvailable()
 {
     // Best non-black candidate first (a clip that ended before the target
     // timestamp), then the last lead-in frame (an all-black video honestly
@@ -214,18 +277,19 @@ void VideoPosterExtractor::finishWithBestAvailable()
     }
     QSize posterSize;
     const QByteArray jpeg =
-        encodePoster(frame, kMaxEdge, kJpegQuality, &posterSize);
+        encodePoster(frame, VideoPosterExtractor::kMaxEdge,
+                     VideoPosterExtractor::kJpegQuality, &posterSize);
     finishActive(jpeg, posterSize, frame.size(), m_durationMs);
 }
 
-void VideoPosterExtractor::finishActive(const QByteArray &jpeg,
-                                        const QSize &posterSize,
-                                        const QSize &sourceSize,
-                                        qint64 durationMs)
+void VideoPosterWorker::finishActive(const QByteArray &jpeg,
+                                     const QSize &posterSize,
+                                     const QSize &sourceSize,
+                                     qint64 durationMs)
 {
     if (!m_active)
         return;
-    m_timeout.stop();
+    m_timeout->stop();
     const QString tag = m_activeTag;
     m_active = false;
     m_activeTag.clear();
@@ -238,7 +302,7 @@ void VideoPosterExtractor::finishActive(const QByteArray &jpeg,
     startNext();
 }
 
-void VideoPosterExtractor::teardownPlayer()
+void VideoPosterWorker::teardownPlayer()
 {
     if (m_player) {
         m_player->stop();

@@ -358,11 +358,15 @@ private:
                               const QString &mimetype);
     QString writePlayableFile(const QString &cacheKey, const QByteArray &bytes,
                               const QString &mimetype);
-    // Lazy poster machinery: constructed on the first poster request so
-    // headless tests (and sessions that never show a thumbnail-less video)
-    // never touch Qt Multimedia.
+    // Lazy poster machinery: constructed on the first poster request (or
+    // backend warm-up) so headless tests, and sessions that never
+    // materialize any A/V payload, never touch Qt Multimedia.
+    VideoPosterExtractor *ensurePosterExtractor();
     void startPosterExtraction(const QString &mediaKey,
                                const QString &filePath);
+    // Pays Qt Multimedia's one-time ~931 ms initialization off the GUI
+    // thread, once a playable A/V file exists. See the definition.
+    void warmMultimediaBackend();
     void onPosterReady(const QString &mediaKey, const QByteArray &jpeg);
 
     MatrixClient *m_client = nullptr;
@@ -480,6 +484,9 @@ private:
     QSet<QString> m_posterWanted;
     QSet<QString> m_posterExtracting;
     VideoPosterExtractor *m_posterExtractor = nullptr;
+    // Deliberately NOT cleared by clear(): Qt Multimedia initializes once
+    // per process, so re-warming for a second account would be a no-op.
+    bool m_multimediaWarmed = false;
     // Cache keys whose materialized file a live player currently holds
     // open, REFCOUNTED (review L1): the same media event can be rendered by
     // two cards at once (main timeline + thread panel), and one card's

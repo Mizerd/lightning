@@ -1686,6 +1686,24 @@ if(BUILD_TESTING)
         Qt6::Core Qt6::Gui Qt6::Multimedia Qt6::Test)
     add_test(NAME attachment-queue COMMAND attachment-queue-test)
 
+    # v0.7.2: poster extraction runs on its own thread. The first QVideoSink
+    # in a process costs ~931 ms (lazy Qt Multimedia backend init), and it
+    # used to be built inline on the GUI thread the moment a video scrolled
+    # into view. Unlike the suite above, this one DOES construct a real
+    # QMediaPlayer — that is the point.
+    qt_add_executable(video-poster-threading-test
+        tests/VideoPosterThreadingTest.cpp
+        src/media/VideoPosterExtractor.h
+        src/media/VideoPosterExtractor.cpp
+    )
+    target_include_directories(video-poster-threading-test PRIVATE src)
+    target_link_libraries(video-poster-threading-test PRIVATE
+        Qt6::Core Qt6::Gui Qt6::Multimedia Qt6::Test)
+    add_test(NAME video-poster-threading
+             COMMAND video-poster-threading-test)
+    set_tests_properties(video-poster-threading PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
     # v0.5.9: user search + DM/room-creation/invite flows (debounce,
     # stale-result rejection, existing-DM reuse, duplicate-submission
     # blocking, partial invite success, sign-out invalidation).
