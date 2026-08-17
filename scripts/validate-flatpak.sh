@@ -11,7 +11,7 @@ ROOT=$(project_dir)
 cd "$ROOT"
 load_versions
 
-APP_ID=net.smetonis.Lightning
+APP_ID=org.lightning_matrix.Lightning
 FLATHUB_REPO=https://dl.flathub.org/repo/flathub.flatpakrepo
 
 count=$(find dist -maxdepth 1 -name '*.flatpak' | wc -l)

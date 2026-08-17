@@ -53,7 +53,7 @@ entry through `cmake --install`; packages ship them as staged.
 
 The Flatpak bundle, AppImage, and snap carry the same application payload:
 
-- **Flatpak** (`net.smetonis.Lightning`): built from the pinned source inside
+- **Flatpak** (`org.lightning_matrix.Lightning`): built from the pinned source inside
   the org.kde.Platform 6.9 sandbox (Flatpak binaries must link the runtime's
   Qt); desktop file, icons, and metainfo exported under the app id. Finish
   args: network, Wayland + fallback X11, dri, pulseaudio,

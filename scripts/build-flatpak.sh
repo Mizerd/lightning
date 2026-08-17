@@ -18,13 +18,13 @@ load_versions
 
 SOURCE_DIR="$ROOT/work/lightning"
 FLATPAK_WORK="$ROOT/work/flatpak"
-MANIFEST_TEMPLATE="$ROOT/packaging/flatpak/net.smetonis.Lightning.yaml.in"
-MANIFEST="$FLATPAK_WORK/net.smetonis.Lightning.yaml"
+MANIFEST_TEMPLATE="$ROOT/packaging/flatpak/org.lightning_matrix.Lightning.yaml.in"
+MANIFEST="$FLATPAK_WORK/org.lightning_matrix.Lightning.yaml"
 REPO_DIR="$FLATPAK_WORK/repo"
 BUILD_DIR="$FLATPAK_WORK/build"
 STATE_DIR="$FLATPAK_WORK/state"
 BUNDLE="dist/lightning_${LOGICAL_VERSION}_amd64.flatpak"
-APP_ID=net.smetonis.Lightning
+APP_ID=org.lightning_matrix.Lightning
 RUNTIME_VERSION="6.9"
 FLATHUB_REPO=https://dl.flathub.org/repo/flathub.flatpakrepo
 

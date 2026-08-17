@@ -1,5 +1,5 @@
 # Flatpak manifest TEMPLATE for Lightning. build-flatpak.sh substitutes the
-# @PLACEHOLDER@ values into work/flatpak/net.smetonis.Lightning.yaml — the
+# @PLACEHOLDER@ values into work/flatpak/org.lightning_matrix.Lightning.yaml — the
 # template itself never contains secrets, and the GIF provider keys reach the
 # sandbox only through flatpak-builder's secret-env (never stored in the
 # manifest, repo metadata, or bundle).
@@ -7,7 +7,7 @@
 # The app builds from the pinned project-6 source checkout against the KDE
 # runtime (Qt inside the sandbox), because Flatpak binaries must link the
 # runtime's libraries — the Debian-staged build is not reusable here.
-app-id: net.smetonis.Lightning
+app-id: org.lightning_matrix.Lightning
 runtime: org.kde.Platform
 runtime-version: "6.9"
 sdk: org.kde.Sdk
@@ -89,21 +89,21 @@ modules:
       - printf '#!/bin/sh\nexec /app/bin/matrix-client --backend=rust "$@"\n'
         > /app/bin/lightning && chmod 0755 /app/bin/lightning
       - mkdir -p /app/share/applications
-      - sed -e 's/^Icon=lightning$/Icon=net.smetonis.Lightning/'
+      - sed -e 's/^Icon=lightning$/Icon=org.lightning_matrix.Lightning/'
         -e 's/^Exec=matrix-client --backend=rust$/Exec=lightning/'
         /app/share/applications/lightning.desktop
-        > /app/share/applications/net.smetonis.Lightning.desktop
+        > /app/share/applications/org.lightning_matrix.Lightning.desktop
       - rm /app/share/applications/lightning.desktop
       - for size in 16 32 48 64 128 192; do
         if [ -f "/app/share/icons/hicolor/${size}x${size}/apps/lightning.png" ]; then
         mv "/app/share/icons/hicolor/${size}x${size}/apps/lightning.png"
-        "/app/share/icons/hicolor/${size}x${size}/apps/net.smetonis.Lightning.png";
+        "/app/share/icons/hicolor/${size}x${size}/apps/org.lightning_matrix.Lightning.png";
         fi; done
       - install -Dm0644 lightning.metainfo.xml
-        /app/share/metainfo/net.smetonis.Lightning.metainfo.xml
+        /app/share/metainfo/org.lightning_matrix.Lightning.metainfo.xml
       # The shared metainfo's launchable points at the plain desktop-id used
       # by deb/rpm; inside the flatpak the desktop file is app-id-named, and
       # appstream compose drops the component (gui-app-without-icon) if the
       # launchable cannot be resolved.
-      - sed -i 's|>lightning.desktop<|>net.smetonis.Lightning.desktop<|'
-        /app/share/metainfo/net.smetonis.Lightning.metainfo.xml
+      - sed -i 's|>lightning.desktop<|>org.lightning_matrix.Lightning.desktop<|'
+        /app/share/metainfo/org.lightning_matrix.Lightning.metainfo.xml

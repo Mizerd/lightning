@@ -500,7 +500,7 @@ Consequences worth stating plainly:
   2. lightning-deploy (project 7): a new `UPDATE_SIGNING_PUBKEY_2026B` CI
      variable, a row in `update_pubkey_var_for_key_id`
      (`scripts/update-lib.sh`), and the `-D` flag in `configure-build.sh`,
-     `build-windows.sh` and `packaging/flatpak/net.smetonis.Lightning.yaml.in`.
+     `build-windows.sh` and `packaging/flatpak/org.lightning_matrix.Lightning.yaml.in`.
   3. Only then may `UPDATE_SIGNING_KEY_ID` be switched to it.
 - **Empty is a refusal for a publishing pipeline, not a warning.** A build with
   no key compiled in fails closed and can never accept an update. That is the
