@@ -12,7 +12,9 @@
 
 #include "matrix/MatrixClient.h"
 #include "media/MediaBridge.h"
+#include "media/MediaImageProvider.h"
 
+#include <QBuffer>
 #include <QCryptographicHash>
 #include <QLoggingCategory>
 #include <QSignalSpy>
@@ -1542,6 +1544,122 @@ private Q_SLOTS:
         bridge.cancelPlayable(QStringLiteral("$img"));
         QCOMPARE(bridge.inflightCountForTest(), 1);
         QCOMPARE(client.cancels.size(), 0);
+    }
+
+    // v0.7.2 PERF — this is why scrolling up through a media-heavy room
+    // spiked. QML's documented idiom for "scale to this width and keep the
+    // aspect" is to set sourceSize.width and leave the height 0, which is
+    // exactly what every timeline image asks for. But QSize::isEmpty() is
+    // true when EITHER axis is below 1, so the provider's
+    // `isValid() && !isEmpty()` guard rejected that request as "no size
+    // asked for" and decoded at the source's FULL resolution — a 2400x1600
+    // screenshot became 15 MB of pixels for a 348px-wide box, dozens of
+    // times per gesture.
+    void aWidthOnlySourceSizeBoundsTheDecode()
+    {
+        FakeClient client;
+        // NOT MediaBridge(&client): that ctor parameter is the QObject
+        // PARENT, so it compiles and silently leaves the client unset.
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        MediaImageProvider provider(&bridge);
+
+        QImage big(2400, 1600, QImage::Format_RGB32);
+        big.fill(Qt::blue);
+        QByteArray png;
+        QBuffer buffer(&png);
+        QVERIFY(buffer.open(QIODevice::WriteOnly));
+        QVERIFY(big.save(&buffer, "PNG"));
+        buffer.close();
+
+        QSignalSpy cached(&bridge, &MediaBridge::mediaCached);
+        bridge.mediaSource(QStringLiteral("$ev"), QStringLiteral("full"));
+        QVERIFY(!client.fetches.isEmpty());
+        client.succeed(client.fetches.first().opId, png);
+        QCOMPARE(cached.count(), 1);
+        const QString id = cached.first().at(0).toString();
+
+        QSize reported;
+        const QImage bounded = provider.requestImage(id, &reported,
+                                                     QSize(640, 0));
+        QVERIFY2(!bounded.isNull(), "the bounded decode produced nothing");
+        QCOMPARE(bounded.width(), 640);
+        // 1600 * 640 / 2400, aspect preserved.
+        QCOMPARE(bounded.height(), 427);
+    }
+
+    // Asking for nothing still decodes naturally — the save path and the
+    // full-size viewer depend on that.
+    void noSourceSizeDecodesNaturally()
+    {
+        FakeClient client;
+        // NOT MediaBridge(&client): that ctor parameter is the QObject
+        // PARENT, so it compiles and silently leaves the client unset.
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        MediaImageProvider provider(&bridge);
+
+        QImage big(1200, 900, QImage::Format_RGB32);
+        big.fill(Qt::red);
+        QByteArray png;
+        QBuffer buffer(&png);
+        QVERIFY(buffer.open(QIODevice::WriteOnly));
+        QVERIFY(big.save(&buffer, "PNG"));
+        buffer.close();
+
+        QSignalSpy cached(&bridge, &MediaBridge::mediaCached);
+        bridge.mediaSource(QStringLiteral("$ev2"), QStringLiteral("full"));
+        QVERIFY(!client.fetches.isEmpty());
+        client.succeed(client.fetches.first().opId, png);
+        QCOMPARE(cached.count(), 1);
+        const QString id = cached.first().at(0).toString();
+
+        QSize reported;
+        QCOMPARE(provider.requestImage(id, &reported, QSize()).size(),
+                 QSize(1200, 900));
+        // And a request LARGER than the source must not inflate it: a small
+        // image in a big box is scaled by the scene graph, not in memory.
+        QCOMPARE(provider.requestImage(id, &reported, QSize(4000, 0)).size(),
+                 QSize(1200, 900));
+        // A height-only request is the same idiom on the other axis.
+        QCOMPARE(provider.requestImage(id, &reported, QSize(0, 300)).size(),
+                 QSize(400, 300));
+    }
+
+    // The never-upscale rule must NOT apply when a shape is baked into the
+    // bitmap. An avatar mask is rasterized once, at whatever size it is baked
+    // at, so refusing the upscale would bake a circle at the source's size
+    // and its edge would visibly alias when shown larger. Plain images are
+    // the opposite case (above) — this asymmetry is deliberate.
+    void aBakedShapeStillHonoursAnUpscale()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        MediaImageProvider provider(&bridge);
+
+        QImage small(100, 100, QImage::Format_RGB32);
+        small.fill(Qt::green);
+        QByteArray png;
+        QBuffer buffer(&png);
+        QVERIFY(buffer.open(QIODevice::WriteOnly));
+        QVERIFY(small.save(&buffer, "PNG"));
+        buffer.close();
+
+        QSignalSpy cached(&bridge, &MediaBridge::mediaCached);
+        bridge.mediaSource(QStringLiteral("$av"), QStringLiteral("full"));
+        QVERIFY(!client.fetches.isEmpty());
+        client.succeed(client.fetches.first().opId, png);
+        QCOMPARE(cached.count(), 1);
+        const QString id = cached.first().at(0).toString();
+
+        QSize reported;
+        const QImage masked = provider.requestImage(
+            id + QStringLiteral("|shape:circle"), &reported, QSize(224, 224));
+        QCOMPARE(masked.size(), QSize(224, 224));
+        // Without the shape the same request decodes at the source size.
+        QCOMPARE(provider.requestImage(id, &reported, QSize(224, 224)).size(),
+                 QSize(100, 100));
     }
 };
 

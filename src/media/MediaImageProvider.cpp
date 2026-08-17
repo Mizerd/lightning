@@ -66,6 +66,53 @@ QImage roundedCorners(const QImage &src, qreal radiusRatio)
     painter.end();
     return out;
 }
+
+// Resolves the QML `sourceSize` a caller asked for against the source's own
+// dimensions.
+//
+// This exists because the obvious guard is WRONG. QML's documented idiom for
+// "scale to this width and keep the aspect" is to set one axis and leave the
+// other 0, and every timeline image uses it (`sourceSize.width: 640`). But
+// QSize::isEmpty() is true whenever EITHER axis is below 1, so the usual
+// `requestedSize.isValid() && !requestedSize.isEmpty()` test rejects exactly
+// that idiom — and the decode then silently fell back to the source's full
+// resolution, bounded only by kMaxDecodeEdge (4096). A 1.7 MB screenshot was
+// decoded to tens of megabytes of pixels and handed to a 348px-wide box, and
+// scrolling up through a media-heavy room did dozens of those per gesture.
+//
+// Upscaling is refused UNLESS a shape is being baked in. A plain image gains
+// nothing from being inflated in memory — the scene graph interpolates just
+// as well from the source pixels. But a mask baked into the bitmap is
+// rasterized once at whatever size it is baked at, so a circular avatar
+// resolved from a small source and shown large must still bake at the size
+// that was asked for or its edge visibly aliases. That was the pre-existing
+// behaviour for avatars and it is preserved deliberately.
+QSize effectiveDecodeSize(const QSize &natural, const QSize &requested,
+                          bool allowUpscale)
+{
+    const int rw = qMax(0, requested.width());
+    const int rh = qMax(0, requested.height());
+    if (rw <= 0 && rh <= 0)
+        return natural;                 // nothing asked for
+    if (!natural.isValid() || natural.isEmpty())
+        return QSize(rw, rh);           // source size unknown; honour the ask
+
+    QSize target;
+    if (rw > 0 && rh > 0)
+        target = natural.scaled(rw, rh, Qt::KeepAspectRatio);
+    else if (rw > 0)
+        target = QSize(rw, qMax(1, qRound(double(natural.height()) * rw
+                                          / natural.width())));
+    else
+        target = QSize(qMax(1, qRound(double(natural.width()) * rh
+                                      / natural.height())), rh);
+
+    if (!allowUpscale
+        && (target.width() >= natural.width()
+            || target.height() >= natural.height()))
+        return natural;
+    return target;
+}
 } // namespace
 
 MediaImageProvider::MediaImageProvider(MediaBridge *bridge)
@@ -117,10 +164,13 @@ QImage MediaImageProvider::requestImage(const QString &id, QSize *size,
         QImage image = m_bridge->cachedArtwork(cacheKey);
         if (image.isNull())
             return {};
-        if (requestedSize.isValid() && !requestedSize.isEmpty()
-            && (image.width() > requestedSize.width()
-                || image.height() > requestedSize.height())) {
-            image = image.scaled(requestedSize, Qt::KeepAspectRatio,
+        const bool bakesShape =
+            maskCircle || maskRatio > 0.0 || roundRatio > 0.0;
+        const QSize artTarget = effectiveDecodeSize(image.size(), requestedSize,
+                                                    bakesShape);
+        if (artTarget.isValid() && !artTarget.isEmpty()
+            && artTarget != image.size()) {
+            image = image.scaled(artTarget, Qt::KeepAspectRatio,
                                  Qt::SmoothTransformation);
         }
         if (maskCircle || maskRatio > 0.0)
@@ -144,11 +194,8 @@ QImage MediaImageProvider::requestImage(const QString &id, QSize *size,
     // Bound the decode: honor the requested size, and never decode beyond
     // the safety edge even when no size was requested.
     const QSize natural = reader.size();
-    QSize target = natural;
-    if (requestedSize.isValid() && !requestedSize.isEmpty())
-        target = natural.isValid()
-            ? natural.scaled(requestedSize, Qt::KeepAspectRatio)
-            : requestedSize;
+    const bool bakesShape = maskCircle || maskRatio > 0.0 || roundRatio > 0.0;
+    QSize target = effectiveDecodeSize(natural, requestedSize, bakesShape);
     if (target.isValid()
         && (target.width() > kMaxDecodeEdge || target.height() > kMaxDecodeEdge))
         target.scale(kMaxDecodeEdge, kMaxDecodeEdge, Qt::KeepAspectRatio);

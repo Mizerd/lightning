@@ -2184,14 +2184,18 @@ if(BUILD_TESTING)
         src/media/MediaBridge.cpp
         src/media/VideoPosterExtractor.h
         src/media/VideoPosterExtractor.cpp
+        src/media/MediaImageProvider.h
+        src/media/MediaImageProvider.cpp
         src/matrix/MatrixClient.h
         src/matrix/MatrixClient.cpp
     )
     target_include_directories(media-bridge-test PRIVATE src)
     # Gui/Multimedia only for the poster extractor MediaBridge now owns;
     # tests never construct it (lazy), so no multimedia backend spins up.
+    # Quick for MediaImageProvider: the decode-bound cases call requestImage
+    # directly. No window or scene graph is created.
     target_link_libraries(media-bridge-test
-        PRIVATE Qt6::Core Qt6::Gui Qt6::Multimedia Qt6::Test)
+        PRIVATE Qt6::Core Qt6::Gui Qt6::Multimedia Qt6::Quick Qt6::Test)
     add_test(NAME media-bridge COMMAND media-bridge-test)
 
     # v0.7 voice round: waveform bucket math (max-preserving downsample,
